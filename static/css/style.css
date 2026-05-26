@@ -484,7 +484,7 @@
 
   /* Apps view — per-card status-accent border thickness. Declared
      here so the .apps-card border-inline-start rule reads a real
-     token (no fallback literals per the strict no-var(--x, default)
+     token (no fallback literals per the strict no-var-fallback
      rule). Same value for both themes; status colour varies by
      .apps-card--<status> modifier. */
   --apps-card-border-w: 3px;

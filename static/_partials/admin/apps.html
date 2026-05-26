@@ -1,4 +1,4 @@
-<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
+<!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel, RequiredAttributes -->
 <section x-show="adminTab==='apps'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
   <!-- Apps feature — reusable service-template catalog + cross-host
        instance overview. The data spine is the existing per-host
@@ -217,9 +217,9 @@
       </thead>
       <template x-for="grp in appsInstancesGroups()" :key="grp.key">
         <tbody>
-          <tr x-show="grp.key !== '__all__'" class="cursor-pointer select-none bg-[var(--surface-2)]"
-              @click="toggleAppsInstanceGroup(grp.key)">
-            <td colspan="7" class="py-1.5 px-2 border-y border-[var(--border)]">
+        <tr x-show="grp.key !== '__all__'" class="cursor-pointer select-none bg-[var(--surface-2)]"
+            @click="toggleAppsInstanceGroup(grp.key)">
+          <td colspan="7" class="py-1.5 px-2 border-y border-[var(--border)]">
               <span class="inline-flex items-center gap-1.5 fs-xs font-semibold">
                 <svg width="11" height="11" class="flip-rtl" aria-hidden="true"
                      :style="appsInstancesCollapsed[grp.key] ? '' : 'transform: rotate(90deg)'">
@@ -228,57 +228,61 @@
                 <span x-text="grp.label"></span>
                 <span class="chip pill-muted fs-3xs" x-text="grp.count"></span>
               </span>
+          </td>
+        </tr>
+        <template x-for="inst in (appsInstancesCollapsed[grp.key] ? [] : grp.items)" :key="inst.host_id + ':' + inst.service_idx">
+          <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+              @click="openInstanceEdit(inst)">
+            <td class="py-2 ps-2">
+              <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
+                   @error="$event.target.style.visibility='hidden'">
             </td>
-          </tr>
-          <template x-for="inst in (appsInstancesCollapsed[grp.key] ? [] : grp.items)" :key="inst.host_id + ':' + inst.service_idx">
-            <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
-                @click="openInstanceEdit(inst)">
-              <td class="py-2 ps-2">
-                <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
-                     @error="$event.target.style.visibility='hidden'">
-              </td>
-              <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
-              <td class="py-2">
-                <code class="fs-xs text-[var(--text-dim)]"
-                      x-text="inst.host_address || inst.host_id"></code>
-                <div x-show="inst.host_label && inst.host_label !== (inst.host_address || inst.host_id)"
-                     class="fs-3xs text-[var(--text-faint)] italic"
-                     x-text="inst.host_label"></div>
-              </td>
-              <td class="py-2 hidden md:table-cell">
-                <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
-                <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
-              </td>
-              <td class="py-2">
+            <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
+            <td class="py-2">
+              <code class="fs-xs text-[var(--text-dim)]"
+                    x-text="inst.host_address || inst.host_id"></code>
+              <div x-show="inst.host_label && inst.host_label !== (inst.host_address || inst.host_id)"
+                   class="fs-3xs text-[var(--text-faint)] italic"
+                   x-text="inst.host_label"></div>
+            </td>
+            <td class="py-2 hidden md:table-cell">
+              <span x-show="inst.catalog_name" class="chip pill-info fs-2xs" x-text="inst.catalog_name"></span>
+              <span x-show="!inst.catalog_name" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.unlinked') || '— unlinked —'"></span>
+            </td>
+            <td class="py-2">
                 <span class="chip fs-2xs"
                       :class="inst.status === 'up' ? 'pill-ok' : (inst.status === 'down' ? 'pill-error' : 'pill-muted')"
                       x-text="t('admin_apps.status_' + inst.status) || inst.status"></span>
-              </td>
-              <td class="py-2 hidden md:table-cell">
-                <div class="flex flex-wrap gap-1">
-                  <template x-for="p in (inst.ports || [])" :key="p.port + ':' + (p.protocol || 'tcp')">
+            </td>
+            <td class="py-2 hidden md:table-cell">
+              <div class="flex flex-wrap gap-1">
+                <template x-for="p in (inst.ports || [])" :key="p.port + ':' + (p.protocol || 'tcp')">
                     <span class="chip pill-muted fs-2xs"
                           :title="(p.label || '') + ' (' + (p.protocol || 'tcp') + ')'"
                           x-text="p.port + ((p.protocol && p.protocol !== 'tcp') ? '/' + p.protocol : '')"></span>
-                  </template>
-                  <span x-show="!(inst.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic"
-                        x-text="t('admin_apps.no_ports') || 'no ports'"></span>
-                </div>
-              </td>
-              <td class="py-2 pe-2 text-end whitespace-nowrap">
-                <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"
-                        :aria-label="t('admin_apps.action_edit') || 'Edit instance'"
-                        :title="t('admin_apps.action_edit') || 'Edit instance'">
-                  <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/></svg>
-                </button>
-                <button type="button" class="user-action-btn user-action-btn--danger" @click.stop="deleteInstance(inst)"
-                        :aria-label="t('admin_apps.action_delete') || 'Remove instance'"
-                        :title="t('admin_apps.action_delete') || 'Remove instance'">
-                  <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
-                </button>
-              </td>
-            </tr>
-          </template>
+                </template>
+                <span x-show="!(inst.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic"
+                      x-text="t('admin_apps.no_ports') || 'no ports'"></span>
+              </div>
+            </td>
+            <td class="py-2 pe-2 text-end whitespace-nowrap">
+              <button type="button" class="user-action-btn" @click.stop="openInstanceEdit(inst)"
+                      :aria-label="t('admin_apps.action_edit') || 'Edit instance'"
+                      :title="t('admin_apps.action_edit') || 'Edit instance'">
+                <svg width="14" height="14" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+                </svg>
+              </button>
+              <button type="button" class="user-action-btn user-action-btn--danger" @click.stop="deleteInstance(inst)"
+                      :aria-label="t('admin_apps.action_delete') || 'Remove instance'"
+                      :title="t('admin_apps.action_delete') || 'Remove instance'">
+                <svg width="14" height="14" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+        </template>
         </tbody>
       </template>
       <tbody x-show="appsInstancesLoaded && !appsInstances.length">
@@ -288,12 +292,16 @@
           <div class="flex items-center justify-center gap-2 flex-wrap">
             <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
                     @click="setAppsAdminTab('templates')">
-              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/></svg>
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/>
+              </svg>
               <span x-text="t('admin_apps.empty_instances_pin_cta') || 'Pin from Templates'"></span>
             </button>
             <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
                     @click="setAppsAdminTab('templates'); openAppsDiscoverWizard()">
-              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/></svg>
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+              </svg>
               <span x-text="t('admin_apps.empty_instances_discover_cta') || 'Run Discovery wizard'"></span>
             </button>
           </div>
@@ -661,7 +669,9 @@
         <h3 class="font-semibold fs-md truncate" x-text="t('admin_apps.instance_edit_title') || 'Edit app instance'"></h3>
         <button type="button" class="user-action-btn" :aria-label="t('actions.close') || 'Close'"
                 :title="t('actions.close') || 'Close'" @click="closeInstanceEdit()">
-          <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
+          <svg width="14" height="14" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+          </svg>
         </button>
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mb-3"
@@ -696,7 +706,9 @@
             <label class="block fs-xs font-medium" x-text="t('admin_apps.instance_edit_ports') || 'Ports'"></label>
             <button type="button" class="btn btn-soft fs-2xs inline-flex items-center gap-1"
                     @click="addInstancePort()">
-              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+              <svg width="11" height="11" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/>
+              </svg>
               <span x-text="t('admin_apps.instance_edit_add_port') || 'Add port'"></span>
             </button>
           </div>
@@ -720,7 +732,9 @@
                        :placeholder="t('admin_apps.instance_edit_status_ph') || 'Status'">
                 <button type="button" class="user-action-btn user-action-btn--danger" @click="removeInstancePort(pi)"
                         :aria-label="t('actions.remove') || 'Remove'" :title="t('actions.remove') || 'Remove'">
-                  <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
+                  <svg width="13" height="13" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                  </svg>
                 </button>
               </div>
             </template>
@@ -732,21 +746,26 @@
              the current /api/items snapshot. -->
         <div>
           <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'"></label>
-          <p class="fs-2xs text-[var(--text-faint)] mb-1" x-text="t('admin_apps.instance_edit_docker_hint') || 'Link to a Portainer container or stack/service to enable an inline Restart in the app drawer.'"></p>
-          <div class="grid grid-cols-2 gap-2">
-            <input type="text" maxlength="128" class="fs-xs" x-model="appsInstanceEditForm.docker_stack"
-                   list="apps-docker-stack-opts"
-                   :placeholder="t('admin_apps.instance_edit_docker_stack') || 'Service / stack name'">
-            <input type="text" maxlength="256" class="fs-xs" x-model="appsInstanceEditForm.docker_container"
-                   list="apps-docker-container-opts"
-                   :placeholder="t('admin_apps.instance_edit_docker_container') || 'Container name'">
-          </div>
-          <datalist id="apps-docker-stack-opts">
-            <template x-for="o in appsDockerStackOptions()" :key="o"><option :value="o"></option></template>
-          </datalist>
-          <datalist id="apps-docker-container-opts">
-            <template x-for="o in appsDockerContainerOptions()" :key="o"><option :value="o"></option></template>
-          </datalist>
+          <p class="fs-2xs text-[var(--text-faint)] mb-1" x-text="t('admin_apps.instance_edit_docker_hint') || 'Link this app to a Docker container on a specific host (precise — a stack can span hosts) or a Swarm service, to enable inline Restart / Update in the app drawer. Pick from running items — no free text.'"></p>
+          <select class="fs-xs w-full"
+                  @change="setAppsInstanceDockerLink($event.target.value)"
+                  x-effect="$el.value = appsInstanceDockerLinkValue()"
+                  :aria-label="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'">
+            <option value="" x-text="t('admin_apps.instance_edit_docker_none') || '— Not linked —'"></option>
+            <optgroup :label="t('admin_apps.instance_edit_docker_containers') || 'Containers (on a host)'">
+              <template x-for="o in appsDockerLinkOptions().containers" :key="o.id">
+                <option :value="o.id" x-text="o.label"></option>
+              </template>
+            </optgroup>
+            <optgroup :label="t('admin_apps.instance_edit_docker_services') || 'Services (span hosts)'">
+              <template x-for="o in appsDockerLinkOptions().services" :key="o.id">
+                <option :value="o.id" x-text="o.label"></option>
+              </template>
+            </optgroup>
+          </select>
+          <p class="fs-2xs text-[var(--text-faint)] mt-1 mono"
+             x-show="appsInstanceEditForm.docker_container || appsInstanceEditForm.docker_stack"
+             x-text="appsInstanceDockerLinkSummary()"></p>
         </div>
       </div>
       <div class="flex items-center gap-2 mt-4">

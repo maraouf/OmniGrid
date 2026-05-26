@@ -1149,6 +1149,13 @@ def _clean_host_services(raw: Any) -> list[dict]:
         dc = entry.get("docker_container")
         if isinstance(dc, str) and dc.strip():
             cleaned["docker_container"] = dc.strip()[:256]
+        # Swarm node / host the linked container runs on — disambiguates a
+        # container name shared across hosts so the inline Restart/Update
+        # resolves the precise target. Empty for service links (a service
+        # spans hosts) and for legacy name-only links.
+        dh = entry.get("docker_host")
+        if isinstance(dh, str) and dh.strip():
+            cleaned["docker_host"] = dh.strip()[:256]
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

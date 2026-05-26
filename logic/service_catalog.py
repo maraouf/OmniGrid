@@ -191,7 +191,7 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "Pulse Server", "slug": "pulse-server", "icon": "pulse",
+        "name": "Pulse", "slug": "pulse-server", "icon": "pulse",
         "description": "Proxmox Pulse monitoring server (distinct from the agent)",
         "default_ports": [
             {"port": 7655, "protocol": "tcp", "label": "Web UI",
@@ -1111,6 +1111,7 @@ def list_apps() -> list[dict[str, Any]]:
                 # Portainer container / stack.
                 "docker_stack": (svc.get("docker_stack") or "").strip(),
                 "docker_container": (svc.get("docker_container") or "").strip(),
+                "docker_host": (svc.get("docker_host") or "").strip(),
                 # Per-port latest outcomes (multi-port chips only) so the
                 # Apps card can show WHICH port failed + its error reason,
                 # not just the rolled-up chip status. Filtered to current
@@ -1203,6 +1204,7 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "probe_type": (probe_cfg.get("type") or "tcp").strip().lower(),
                 "docker_stack": (svc.get("docker_stack") or "").strip(),
                 "docker_container": (svc.get("docker_container") or "").strip(),
+                "docker_host": (svc.get("docker_host") or "").strip(),
                 "last_probe": sample,
                 "status": "up" if sample_alive else ("down" if sample else "unknown"),
             }

@@ -448,7 +448,7 @@ export default {
       yAxis += '<text x="' + (PAD_L - 4) + '" y="' + y
         + '" fill="var(--text-faint)" font-size="9" '
         + 'text-anchor="end" dominant-baseline="middle" '
-        + 'font-family="var(--font-mono, monospace)">' + v + '</text>';
+        + 'font-family="var(--font-mono)">' + v + '</text>';
     }
     // X-axis baseline + 3 time ticks (start / mid / end), labelled
     // relative to "now" so the user reads "-24h" / "-12h" / "now"
@@ -513,14 +513,14 @@ export default {
       xAxis += '<text x="' + x + '" y="' + (parseFloat(baseY) + 14).toFixed(1)
         + '" fill="var(--text-faint)" font-size="9" '
         + anchorAttr + ' '
-        + 'font-family="var(--font-mono, monospace)">'
+        + 'font-family="var(--font-mono)">'
         + esc(fmtRel(tick.ts)) + '</text>';
     }
     // Y-axis unit hint top-left (small "%").
     const yUnit = '<text x="' + (PAD_L - 4) + '" y="' + (PAD_T - 1).toFixed(1)
       + '" fill="var(--text-faint)" font-size="8" '
       + 'text-anchor="end" dominant-baseline="hanging" '
-      + 'font-family="var(--font-mono, monospace)">%</text>';
+      + 'font-family="var(--font-mono)">%</text>';
     return ('<div class="ai-resp-chart-header">'
       + '<span class="ai-resp-chart-title">' + hidEsc + ' — ' + esc(titleStr) + '</span>'
       + '<span class="ai-resp-chart-status mono fs-2xs">'
