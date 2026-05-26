@@ -59,6 +59,7 @@ from typing import Iterable, Optional
 DEFAULT_UDP_PORTS: tuple[int, ...] = (
     53,  # DNS
     67,  # DHCP server
+    68,  # DHCP client (dhclient — ephemeral but operator-requested)
     69,  # TFTP
     123,  # NTP
     137,  # NetBIOS Name Service

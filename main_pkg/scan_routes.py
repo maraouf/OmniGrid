@@ -1612,15 +1612,25 @@ async def api_tabs_activity_close(request: Request):
 
 @app.get("/api/tabs/activity")
 async def api_tabs_activity_list(request: Request):
-    """Snapshot of every active tab. Excludes the calling tab via
-    `client_id` self-filter so the SPA's first-render doesn't display
-    its own entry. Used at SPA boot to seed the local map before the
-    SSE stream catches up."""
+    """Snapshot of the CALLING USER's other active tabs. Excludes the
+    calling tab via `client_id` self-filter AND scopes to the caller's
+    own `actor` so a user only ever sees THEIR OWN tabs (e.g. same
+    account on a phone + a laptop) — never another user's. Showing
+    cross-user tabs was a privacy leak + a cross-user activity-conflict
+    source. Used at SPA boot to seed the local map before the SSE
+    stream catches up. Privacy-first: a missing/empty actor (shouldn't
+    happen behind the auth middleware) yields an EMPTY list rather than
+    leaking every tab."""
     cid = _request_client_id(request)
+    actor = _actor_from(request)
     _tab_activity_prune()
     out = []
     for tcid, ent in _tab_activity_registry.items():
         if cid and tcid == cid:
+            continue
+        # Same-user scope — drop other users' tabs (and drop everything
+        # when we can't identify the caller).
+        if not actor or ent.get("actor") != actor:
             continue
         out.append({"client_id": tcid, **ent})
     return {"tabs": out}

@@ -1,8 +1,14 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
-/* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,BreakStatementJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML,JSAsyncFunctionMissingAwait
+// noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,JSIgnoredPromiseFromCall,VoidExpressionJS,JSVoidExpression,ControlFlowStatementWithoutBracesJS
+/* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode, EventSource */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Server-Sent Events (SSE) live-update plumbing.
 
@@ -52,7 +58,9 @@ export default {
         } catch (_) {
         }
         try {
-          this.loadHistory && this.loadHistory();
+          if (this.loadHistory) {
+            this.loadHistory();
+          }
         } catch (_) {
         }
       }
@@ -95,7 +103,9 @@ export default {
       } catch (_) {
       }
       try {
-        this.loadHistory && this.loadHistory();
+        if (this.loadHistory) {
+          this.loadHistory();
+        }
       } catch (_) {
       }
       if (this.view === 'hosts') {
@@ -139,10 +149,18 @@ export default {
       // isn't worth it for V1 — kick a forced refresh instead, and
       // let the existing in-place reconcile in `refresh()` do its
       // work without tearing rows down.
-      try {
-        this.refresh(true);
-      } catch (_) {
-      }
+      //
+      // DEBOUNCED (trailing): a Cleanup / bulk-remove in ANOTHER tab
+      // fires ONE `cache:invalidated` PER removed container — a burst
+      // of N events. Firing refresh(true) on each would launch N
+      // concurrent forced gathers; worse, the inter-event timing could
+      // land a refresh mid-burst (before the last container is gone)
+      // and leave this tab's "Cleanup (N)" button stale. Coalescing to
+      // a single trailing refresh ~400ms after the burst settles
+      // guarantees ONE refresh that reads the final post-cleanup state,
+      // so the other tabs drop the removed items + hide the Cleanup
+      // button without the operator refreshing each tab by hand.
+      this._scheduleCacheInvalidatedRefresh();
     });
     es.addEventListener('stats:refreshed', (e) => {
       onAny();
@@ -168,7 +186,9 @@ export default {
         return;
       }
       try {
-        this.loadStats && this.loadStats();
+        if (this.loadStats) {
+          this.loadStats();
+        }
       } catch (_) {
       }
     });
@@ -566,11 +586,15 @@ export default {
       // _reconcileById path so re-firing them mid-tab doesn't
       // tear DOM down.
       try {
-        this.loadSchedules && this.loadSchedules();
+        if (this.loadSchedules) {
+          this.loadSchedules();
+        }
       } catch (_) {
       }
       try {
-        this.loadScheduleQueue && this.loadScheduleQueue();
+        if (this.loadScheduleQueue) {
+          this.loadScheduleQueue();
+        }
       } catch (_) {
       }
     });
@@ -583,7 +607,9 @@ export default {
       // reconcile keeps each row's <details> open/closed
       // state intact.
       try {
-        this.loadHistory && this.loadHistory();
+        if (this.loadHistory) {
+          this.loadHistory();
+        }
       } catch (_) {
       }
     });
@@ -671,7 +697,9 @@ export default {
       }
       console.log('[live] event=settings:updated → loadSettings (cross-tab)', e.data ? e.data.slice(0, 200) : '');
       try {
-        this.loadSettings && this.loadSettings();
+        if (this.loadSettings) {
+          this.loadSettings();
+        }
       } catch (_) {
       }
       // Also pull /api/me so any client_config-delivered tunable
@@ -722,6 +750,16 @@ export default {
         const p = data.payload || {};
         const cid = p.client_id;
         if (!cid) {
+          return;
+        }
+        // Privacy: only track THIS user's own other tabs — never another
+        // user's. The events bus is a global fan-out (no per-user routing),
+        // so a cross-user `tab:activity` reaches every client; drop it here
+        // before it enters the local map. Mirrors the backend GET's
+        // actor-scope. (If we can't identify the current user yet, drop —
+        // privacy-first, matching the backend.)
+        const myUser = this.me && this.me.username;
+        if (!myUser || (p.actor && p.actor !== myUser)) {
           return;
         }
         // Field-by-field assign so Alpine sees a granular update
@@ -917,6 +955,26 @@ export default {
     } catch (_) {
     }
     return false;
+  },
+
+  // Trailing-debounced forced items refresh for `cache:invalidated`. A
+  // cross-tab Cleanup / bulk-remove emits one event per container, so we
+  // coalesce the burst into a single refresh(true) that runs ~400ms after
+  // the LAST event — guaranteeing the post-cleanup state (removed items
+  // gone → "Cleanup (N)" button hidden) lands in every tab without the
+  // operator refreshing each one. The timer handle is process-local to the
+  // component; a fresh event resets it so only the trailing call survives.
+  _scheduleCacheInvalidatedRefresh() {
+    if (this._cacheInvalidatedRefreshTimer) {
+      clearTimeout(this._cacheInvalidatedRefreshTimer);
+    }
+    this._cacheInvalidatedRefreshTimer = setTimeout(() => {
+      this._cacheInvalidatedRefreshTimer = null;
+      try {
+        this.refresh(true);
+      } catch (_) {
+      }
+    }, 400);
   },
 
   // Helper for the toolbar indicator — exposes a concise status string
