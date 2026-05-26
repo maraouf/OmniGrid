@@ -711,7 +711,14 @@ export default {
         let portStatus = null;
         const prMatch = (app.port_results || []).find((pr) => Number(pr && pr.port) === pnum);
         if (prMatch) {
-          portStatus = prMatch.alive ? 'up' : 'down';
+          // Tri-state via the SAME helper the Apps per-port grid uses, so
+          // a pending port (configured but not yet probed, alive===null)
+          // renders 'unknown' (grey) in BOTH surfaces. The earlier
+          // `alive ? 'up' : 'down'` collapsed null → 'down', painting a
+          // never-probed port red here while the Apps grid showed grey.
+          portStatus = (typeof this.appsPortState === 'function')
+            ? this.appsPortState(prMatch)
+            : (prMatch.alive === true ? 'up' : (prMatch.alive === false ? 'down' : 'unknown'));
         } else if ((app.probe || {}).enabled && (app.status === 'up' || app.status === 'down')) {
           portStatus = app.status;
         }

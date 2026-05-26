@@ -223,6 +223,40 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "MariaDB", "slug": "mariadb", "icon": "mariadb",
+        "description": "MariaDB / MySQL relational database server",
+        "default_ports": [
+            {"port": 3306, "protocol": "tcp", "label": "MySQL",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "PostgreSQL", "slug": "postgresql", "icon": "postgresql",
+        "description": "PostgreSQL relational database server",
+        "default_ports": [
+            {"port": 5432, "protocol": "tcp", "label": "PostgreSQL",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "MongoDB", "slug": "mongodb", "icon": "mongodb",
+        "description": "MongoDB document database server",
+        "default_ports": [
+            {"port": 27017, "protocol": "tcp", "label": "MongoDB",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "InfluxDB", "slug": "influxdb", "icon": "influxdb",
+        "description": "InfluxDB time-series database (HTTP API + RPC)",
+        "default_ports": [
+            {"port": 8086, "protocol": "tcp", "label": "HTTP API",
+             "probe_path": "/ping", "probe_status": 0},
+            {"port": 8088, "protocol": "tcp", "label": "RPC",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "AdGuardHome Sync", "slug": "adguardhome-sync", "icon": "adguard-home",
         "description": "Syncs config between AdGuard Home instances",
         "default_ports": [
