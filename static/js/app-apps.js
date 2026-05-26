@@ -1440,7 +1440,7 @@ export default {
   // canonical TCP / HTTP probe + persists to service_samples + returns
   // the outcome inline so the SPA can patch the row without waiting for
   // the next host poll.
-  async probeAppNow(host, serviceIdx) {
+  async probeAppNow(host, serviceIdx, opts = {}) {
     if (!host || serviceIdx == null) {
       return;
     }
@@ -1482,7 +1482,7 @@ export default {
         };
         app.status = j.alive ? 'up' : 'down';
       }
-      if (typeof this.toast === 'function') {
+      if (!opts.silent && typeof this.toast === 'function') {
         const msg = j.alive
           ? (this.t('host_drawer.apps.probe_success') || 'Probe OK') + (j.rtt_ms != null ? ' (' + j.rtt_ms + 'ms)' : '')
           : (this.t('host_drawer.apps.probe_failed') || 'Probe failed') + (j.error ? ': ' + j.error : '');
@@ -1494,13 +1494,13 @@ export default {
       // fetch the host row so those pills reflect the new probe result —
       // refreshHostRow updates the same object drawerHost references, so the
       // open drawer's tiles update without a full re-open.
-      if (typeof this.refreshHostRow === 'function') {
+      if (!opts.skipRefresh && typeof this.refreshHostRow === 'function') {
         this.refreshHostRow(host.id, {force: true}).catch(() => {
           // best-effort refresh; ignore failures
         });
       }
     } catch (err) {
-      if (typeof this.toast === 'function') {
+      if (!opts.silent && typeof this.toast === 'function') {
         this.toast(
           (this.t('host_drawer.apps.probe_error') || 'Probe error: ') + (err && err.message ? err.message : err),
           'error'
@@ -1510,6 +1510,53 @@ export default {
       clearTimeout(_abortTimer);
       this.probeNowInFlight[key] = false;
     }
+  },
+
+  // Probe EVERY app on a host in one click — the host-drawer Apps card's
+  // header "Probe all" button. Always-visible + clearly labelled, so it's
+  // unmistakably an active control (unlike the compact per-tile refresh
+  // icon). Reuses probeAppNow per app with {silent, skipRefresh} so it
+  // doesn't fire N toasts / N host-refreshes, then does ONE refresh + ONE
+  // summary toast at the end.
+  async probeAllHostApps(h) {
+    if (!h || !Array.isArray(h.apps) || !h.apps.length) {
+      return;
+    }
+    if (!this._hostAppsProbingAll) {
+      this._hostAppsProbingAll = {};
+    }
+    if (this._hostAppsProbingAll[h.id]) {
+      return;
+    }
+    this._hostAppsProbingAll[h.id] = true;
+    try {
+      // Snapshot the service_idx list up front — refreshHostRow mutates
+      // h.apps in place, so iterating it live could skip/repeat.
+      const idxs = h.apps.map((a) => a && a.service_idx).filter((x) => x != null);
+      for (const idx of idxs) {
+        await this.probeAppNow(h, idx, {silent: true, skipRefresh: true});
+      }
+      if (typeof this.refreshHostRow === 'function') {
+        await this.refreshHostRow(h.id, {force: true}).catch(() => undefined);
+      }
+      if (typeof this.toast === 'function') {
+        const apps = Array.isArray(h.apps) ? h.apps : [];
+        const up = apps.filter((a) => a && a.status === 'up').length;
+        this.toast(
+          this.t('host_drawer.apps.probe_all_done', {up: up, total: apps.length})
+            || ('Probed ' + apps.length + ' apps — ' + up + ' up'),
+          'success',
+        );
+      }
+    } finally {
+      this._hostAppsProbingAll[h.id] = false;
+    }
+  },
+
+  // True while a "Probe all" batch is running for this host — drives the
+  // header button's spinner + disabled state.
+  hostAppsProbingAll(h) {
+    return !!(h && this._hostAppsProbingAll && this._hostAppsProbingAll[h.id]);
   },
 
   // Per-(host, service_idx) probe history for the host drawer's

@@ -66,6 +66,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - The App detail drawer now has a Logs action for app chips linked to a Docker container — it opens a modal that tails the container's logs (selectable line count) straight from Portainer, including containers on worker nodes.
 - The App detail drawer's debug panel gained a Copy button that copies the full diagnostic JSON to the clipboard.
 - Fixed the built-in Authentik app template's health check: it now accepts Authentik's 200 response (current versions) as well as 204 (older), instead of false-reporting the app as down on a 200.
+- The host drawer's Apps card now has a clearly-labelled "Probe all (N)" button that probes every app on the host in one click (the per-app refresh icons remain for individual probes).
 
 ## [1.5.0] — 2026-05-23
 
