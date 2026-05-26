@@ -1410,6 +1410,28 @@ export default {
         if (!row.ssh || typeof row.ssh !== 'object') {
           row.ssh = {};
         }
+        // Re-hydrate the virtual textarea string fields from the
+        // backend-cleaned arrays. The POST response REPLACES hostsConfig
+        // with fresh rows carrying http_probe.urls / snmp.exclude_mounts
+        // but NOT the urls_text / exclude_mounts_text the <textarea>
+        // x-models bind to (those are client-only virtual fields that
+        // only loadHostsConfig() stamped). Without this, a saved row's
+        // URLs (correctly persisted server-side) VANISH from the textarea
+        // immediately after Save — operator-reported "probe URLs cleared
+        // on save". Mirror the loadHostsConfig hydration so both
+        // row-build paths produce the same in-memory shape.
+        if (!row.http_probe || typeof row.http_probe !== 'object') {
+          row.http_probe = {};
+        }
+        row.http_probe.urls_text = Array.isArray(row.http_probe.urls)
+          ? row.http_probe.urls.join('\n')
+          : (typeof row.http_probe.urls_text === 'string' ? row.http_probe.urls_text : '');
+        if (!row.snmp || typeof row.snmp !== 'object') {
+          row.snmp = {};
+        }
+        row.snmp.exclude_mounts_text = Array.isArray(row.snmp.exclude_mounts)
+          ? row.snmp.exclude_mounts.join('\n')
+          : (typeof row.snmp.exclude_mounts_text === 'string' ? row.snmp.exclude_mounts_text : '');
         row._uid = oldUidById[row.id] || this._mintRowUid();
       }
       this.rebuildHostsConfigOrder();

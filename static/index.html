@@ -4672,6 +4672,18 @@
                                     class="fs-xs mono text-[var(--text-faint)] px-1.5 py-1"
                                     :title="port.protocol || ''"
                                     x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
+                              <!-- Alert when this documented port was NOT found
+                                   by the latest port scan — same info marker the
+                                   "open in scan / not in asset" chips use. Prompts
+                                   the operator to check the service OR add the port
+                                   to the scanner's range. -->
+                              <svg x-show="assetPortNotScanned(h, port.number)"
+                                   width="11" height="11" role="img"
+                                   class="inline-block ms-0.5 align-middle text-[var(--warning)]"
+                                   :aria-label="t('host_drawer.asset.port_not_scanned_title')"
+                                   :title="t('host_drawer.asset.port_not_scanned_title')">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+                              </svg>
                             </span>
                       </template>
                     </div>
@@ -9539,8 +9551,10 @@
                         <span x-text="appDebugOpen[appInstanceKey(inst)] ? (t('apps.drawer.hide_debug') || 'Hide debug') : (t('apps.drawer.show_debug') || 'Show debug')"></span>
                       </button>
                     </div>
-                    <div x-show="appDebugOpen[appInstanceKey(inst)] && me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)"
-                         class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
+                    <!-- x-if (not x-show) so the heavy fetched debug JSON unmounts
+                         when collapsed — user-toggled panel, safe to unmount. -->
+                    <template x-if="appDebugOpen[appInstanceKey(inst)] && me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
+                      <div class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
                       <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
                         <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">
                           <span class="spin"></span><span x-text="t('apps.drawer.debug_loading') || 'Loading diagnostics…'"></span>
@@ -9603,7 +9617,8 @@
                           </div>
                         </div>
                       </template>
-                    </div>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </div>

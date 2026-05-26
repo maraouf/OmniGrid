@@ -95,6 +95,12 @@ DEFAULT_PORTS: tuple[int, ...] = (
     21114, 21115, 21116, 21117, 21118, 21119,
     27018, 32400, 32469, 32500, 32769, 41080, 44444, 45876, 49669, 50000,
     51510, 51511, 51820, 53000, 57221,
+    # Operator-requested additions:
+    1514, 1515, 1516, 1517, 1518, 1519, 1520,  # syslog-TLS / Splunk fwd range (1521 oracle already above)
+    5201,   # iPerf3
+    5480,   # VMware vCenter Server Management (VAMI)
+    9997,   # Splunk forwarder receiver (splunkd)
+    10051,  # Zabbix server (active-agent + proxy connections)
 )
 
 # Tiny lookup table — port → likely service name. This is NAMING
@@ -169,6 +175,8 @@ _PORT_HINTS: dict[int, str] = {
     49669: "manageengine", 50000: "jenkins",
     51510: "qbittorrent", 51511: "qbittorrent", 51820: "wireguard",
     53000: "tautulli", 57221: "tailscale",
+    1514: "syslog-tls", 5201: "iperf3", 5480: "vcenter",
+    9997: "splunk-fwd", 10051: "zabbix-server",
 }
 
 

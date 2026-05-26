@@ -3684,6 +3684,7 @@
       "refresh_aria": "Refresh asset details for this host",
       "refresh_ok": "Asset details refreshed",
       "refresh_failed": "Asset refresh failed",
+      "port_not_scanned_title": "Not found by the latest port scan — check the service or add this port to the scanner",
       "name": "Name",
       "type": "Type",
       "hostnames": "Hostnames",

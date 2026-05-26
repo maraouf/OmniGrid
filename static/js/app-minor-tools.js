@@ -650,6 +650,38 @@ export default {
     out.sort((a, b) => Number(a.port) - Number(b.port));
     return out;
   },
+  // Inverse of assetScanOnlyPorts at the single-port level: is THIS
+  // asset/service port absent from the latest port scan's results? Used
+  // to flag a documented port the scan didn't find open — the operator
+  // can then check the service OR add the port to the scanner's range.
+  // Gated like the other asset/scan helpers: asset inventory enabled
+  // AND a scan has actually run for this host (`last_port_scan_ts`),
+  // so a host that's simply never been scanned doesn't flag every port
+  // (that's not signal — there's nothing to compare against yet).
+  assetPortNotScanned(host, portNum) {
+    if (!host) {
+      return false;
+    }
+    const enabled = !this.settings || this.settings.asset_inventory_enabled !== false;
+    if (!enabled) {
+      return false;
+    }
+    // No scan run yet → nothing to compare; don't flag.
+    if (!host.last_port_scan_ts) {
+      return false;
+    }
+    const n = Number(portNum);
+    if (!Number.isFinite(n) || n <= 0) {
+      return false;
+    }
+    const detected = Array.isArray(host.detected_ports) ? host.detected_ports : [];
+    for (const p of detected) {
+      if (Number(p && p.port) === n) {
+        return false;
+      }
+    }
+    return true;
+  },
   // Chip class for a detected port.
   //
   // Two-axis colour scheme:
