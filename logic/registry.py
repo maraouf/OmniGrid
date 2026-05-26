@@ -420,7 +420,13 @@ async def get_release_notes(image: str) -> dict:
     try:
         reg, repo, ref_tag = parse_image_ref(image)
     except Exception as e:
-        out = {"ok": False, "error": f"parse: {e}"}
+        # Log the full parse error server-side, but return a GENERIC error
+        # to the caller — this dict is returned verbatim to the client by
+        # the /api/registry/release-notes route, and the raw exception text
+        # can carry internal detail (CodeQL py/stack-trace-exposure). The
+        # SPA only gates on ok / body / source_url, never renders `error`.
+        print(f"[release-notes] parse failed for {image!r}: {e}")
+        out = {"ok": False, "error": "could not parse image reference"}
         _release_notes_cache[image] = {"ts": time.time(), "data": out}
         return out
     async with httpx.AsyncClient(timeout=10.0) as client:

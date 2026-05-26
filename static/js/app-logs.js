@@ -59,10 +59,6 @@ export default {
   // errors deeper than the last 500 lines); "All lines" stays
   // available via the selector for the whole file.
   logFileTailLines: 2000,
-  // Last-known server ring-buffer cap (from /api/logs `max`). Drives
-  // the Live-tab replace fetch so it pulls the WHOLE buffer instead
-  // of a hardcoded 500. 0 until the first response lands.
-  _logsServerMax: 0,
   // Tail-window options for the file viewer. 0 == "All lines" — the
   // backend reads the whole file when tail <= 0. Larger windows (or
   // All) let the operator investigate errors beyond the last 500
@@ -155,22 +151,16 @@ export default {
     try {
       // `since` makes repeated polls cheap — backend only returns
       // lines newer than the last one we've already rendered. On
-      // `replace`, we pull the WHOLE ring buffer (not a hardcoded
-      // 500) so the operator sees every buffered line/error. The
-      // backend clamps `limit` to its MAX_LINES, so requesting the
-      // last-known max (or 2000 before the first response) yields the
-      // full buffer. For history older than the buffer, the Files tab
-      // serves the full persistent file.
-      const fullLimit = this._logsServerMax || 2000;
-      const qs = replace ? ('?limit=' + fullLimit) : ('?since=' + this.logSinceTs);
+      // `replace`, pull the last 500 — the Live (stdout) tab stays at
+      // 500 deliberately for render performance (operator preference);
+      // for the full buffer / deeper history use the Files tab, which
+      // serves the persistent file with its own (larger) line window.
+      const qs = replace ? '?limit=500' : ('?since=' + this.logSinceTs);
       const r = await fetch('/api/logs' + qs);
       if (!r.ok) {
         return;
       }
       const d = await r.json();
-      if (d.max) {
-        this._logsServerMax = d.max;
-      }
       const lines = d.logs || [];
       if (replace) {
         this.logLines = lines;
