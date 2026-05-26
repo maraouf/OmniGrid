@@ -5289,7 +5289,7 @@
                         </svg>
                       </a>
                       <button type="button"
-                              x-show="isAdmin() && ((app.port_results || []).length || (app.probe || {}).enabled || (app.url || '').length)"
+                              x-show="isAdmin()"
                               class="btn-ghost p-0.5 flex-shrink-0"
                               :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
                               :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
@@ -5380,7 +5380,7 @@
                     <div class="text-[var(--text-dim)] fs-xs mb-1"
                          x-text="t('host_drawer.port_scan.detected_label', { count: (h.detected_ports || []).length })"></div>
                     <div class="flex flex-wrap gap-1.5">
-                      <template x-for="p in sortedDetectedPorts(h)" :key="(p.protocol || 'tcp') + ':' + p.port">
+                      <template x-for="p in sortedDetectedPorts(h)" :key="(h.id || h.host || '') + ':' + (p.protocol || 'tcp') + ':' + p.port">
                           <span class="chip fs-xs mono inline-flex items-center"
                                 x-data="{ mapped: portScanMappedApp(h, p) }"
                                 :class="portScanChipClass(h, p)"
