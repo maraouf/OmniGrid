@@ -65,9 +65,7 @@ export default {
           // defeats the in-place reconcile this method does for the
           // top-level list.
           for (const k of Object.keys(incomingApp)) {
-            if (k === 'instances'
-                && Array.isArray(existing.instances)
-                && Array.isArray(incomingApp.instances)) {
+            if (k === 'instances' && Array.isArray(existing.instances) && Array.isArray(incomingApp.instances)) {
               this._reconcileInstancesInPlace(existing.instances, incomingApp.instances);
             } else {
               existing[k] = incomingApp[k];
@@ -118,9 +116,7 @@ export default {
         continue;
       }
       for (const kk of Object.keys(inc)) {
-        if (kk === 'port_results'
-            && Array.isArray(ex.port_results)
-            && Array.isArray(inc.port_results)) {
+        if (kk === 'port_results' && Array.isArray(ex.port_results) && Array.isArray(inc.port_results)) {
           this._reconcilePortResultsInPlace(ex.port_results, inc.port_results);
         } else {
           ex[kk] = inc[kk];
@@ -1542,11 +1538,8 @@ export default {
       if (typeof this.toast === 'function') {
         const apps = Array.isArray(h.apps) ? h.apps : [];
         const up = apps.filter((a) => a && a.status === 'up').length;
-        this.toast(
-          this.t('host_drawer.apps.probe_all_done', {up: up, total: apps.length})
-            || ('Probed ' + apps.length + ' apps — ' + up + ' up'),
-          'success',
-        );
+        const msg = this.t('host_drawer.apps.probe_all_done', {up: up, total: apps.length}) || ('Probed ' + apps.length + ' apps — ' + up + ' up');
+        this.toast(msg, 'success');
       }
     } finally {
       this._hostAppsProbingAll[h.id] = false;
