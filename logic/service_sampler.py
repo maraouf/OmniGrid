@@ -67,9 +67,17 @@ def _resolve_service_probe_interval() -> int:
     return tuning.resolve_provider_interval(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS)
 
 
-def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict) -> Optional[dict]:
+def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict,
+                              require_enabled: bool = True) -> Optional[dict]:
     """Resolve ONE service chip into a probe target — or ``None`` when it
     can't be probed.
+
+    ``require_enabled`` (default True) gates on the chip's ``probe.enabled``
+    flag — the master switch for the *continuous* lifespan sampler. The
+    manual probe-now path passes ``require_enabled=False`` so an explicit
+    operator click probes any chip that has a resolvable target (configured
+    ``probe.ports[]`` / ``probe.port`` / URL + host ``address``) even when
+    continuous sampling is off — the click IS the opt-in for that one run.
 
     Single source of truth for "given a curated host row + one services[]
     chip, what do we probe?" — shared by ``_curated_service_probe_targets``
@@ -102,7 +110,9 @@ def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict) -> Op
     if not isinstance(svc, dict):
         return None
     probe_cfg = svc.get("probe")
-    if not isinstance(probe_cfg, dict) or not probe_cfg.get("enabled"):
+    if not isinstance(probe_cfg, dict):
+        return None
+    if require_enabled and not probe_cfg.get("enabled"):
         return None
     probe_type = (probe_cfg.get("type") or "tcp").strip().lower()
     if probe_type not in ("tcp", "http"):

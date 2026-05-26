@@ -102,6 +102,20 @@ if TYPE_CHECKING:
     from main_pkg.hosts_routes import _load_hosts_config  # noqa: F401
 
 
+def _invalidate_apps_cache() -> None:
+    """Best-effort: clear the ``_shape_host_apps`` catalog cache after a
+    catalog mutation so the next ``/api/hosts/list`` / ``one`` fan-out sees
+    the change instead of waiting up to 5s for the TTL. ``apps_routes`` may
+    not be importable in every load order, so the import is guarded — on
+    ImportError the cache simply ages out on its own (the early return keeps
+    the imported name bound only on the success path)."""
+    try:
+        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
+    except ImportError:
+        return
+    _invalidate_shape_host_apps_catalog_cache()
+
+
 @app.get("/api/admin/stats/samples/by-host")
 async def api_admin_stats_samples_by_host(
     table: str,
@@ -2803,11 +2817,7 @@ async def api_services_catalog_create(payload: dict[str, Any], request: Request,
     # Invalidate the `_shape_host_apps` catalog cache so the next
     # /api/hosts/list / one fan-out sees the new template instead of
     # waiting up to 5s for the TTL.
-    try:
-        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
-        _invalidate_shape_host_apps_catalog_cache()
-    except ImportError:
-        pass
+    _invalidate_apps_cache()
     return {"ok": True, "entry": entry}
 
 
@@ -2839,11 +2849,7 @@ async def api_services_catalog_update(cid: int, payload: dict[str, Any], request
             target_id=str(cid),
             actor=_actor_from(request),
         )
-    try:
-        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
-        _invalidate_shape_host_apps_catalog_cache()
-    except ImportError:
-        pass
+    _invalidate_apps_cache()
     return {"ok": True, "entry": entry}
 
 
@@ -2872,11 +2878,7 @@ async def api_services_catalog_delete(cid: int, request: Request, _admin: AdminU
             target_id=str(cid),
             actor=_actor_from(request),
         )
-    try:
-        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
-        _invalidate_shape_host_apps_catalog_cache()
-    except ImportError:
-        pass
+    _invalidate_apps_cache()
     return {"ok": True}
 
 
@@ -2895,11 +2897,7 @@ async def api_services_catalog_seed(request: Request, _admin: AdminUser):
             actor=_actor_from(request),
             message=f"Re-seeded {added} built-in templates",
         )
-    try:
-        from main_pkg.apps_routes import _invalidate_shape_host_apps_catalog_cache
-        _invalidate_shape_host_apps_catalog_cache()
-    except ImportError:
-        pass
+    _invalidate_apps_cache()
     return {"ok": True, "added": added}
 
 
@@ -2924,6 +2922,7 @@ async def api_services_discover(host_id: str, _admin: AdminUser):
         }
     """
     from logic.service_catalog import propose_bindings as _propose
+    from logic.service_catalog import host_claimed_ports as _claimed_ports
     # Verify host exists in curated list + read its label + existing chips.
     hosts = _load_hosts_config()
     target = None
@@ -2949,11 +2948,16 @@ async def api_services_discover(host_id: str, _admin: AdminUser):
     detected = [int(p["port"]) for p in (scan_blob.get("detected_ports") or [])
                 if isinstance(p, dict) and p.get("port")]
     scanned_at = int(scan_blob.get("last_port_scan_ts") or 0)
+    # Ports already owned by this host's existing chips — the wizard
+    # won't propose a second app for a port another app already claims
+    # (e.g. no Pi-hole / Nextcloud on 80 / 443 when AdGuard owns them).
+    claimed_ports = _claimed_ports(target)
     proposals = _propose(
         host_id,
         detected_ports=detected,
         host_label=host_label,
         existing_catalog_ids=existing_catalog_ids,
+        claimed_ports=claimed_ports,
     )
     return {
         "host_id": host_id,

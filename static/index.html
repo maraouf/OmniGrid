@@ -5288,7 +5288,8 @@
                           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
                         </svg>
                       </a>
-                      <button type="button" x-show="(app.probe || {}).enabled && isAdmin()"
+                      <button type="button"
+                              x-show="isAdmin() && ((app.port_results || []).length || (app.probe || {}).enabled || (app.url || '').length)"
                               class="btn-ghost p-0.5 flex-shrink-0"
                               :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
                               :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"

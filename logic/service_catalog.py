@@ -38,6 +38,7 @@ import re
 import sqlite3
 import time
 from typing import Any, Iterable, Optional
+from urllib.parse import urlparse
 
 from logic.db import db_conn, iter_curated_hosts
 
@@ -53,6 +54,16 @@ _BUILTIN: list[dict[str, Any]] = [
         "default_ports": [
             {"port": 32400, "protocol": "tcp", "label": "Web UI",
              "probe_path": "/web/", "probe_status": 0},
+            {"port": 32469, "protocol": "tcp", "label": "DLNA",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Syncthing", "slug": "syncthing", "icon": "syncthing",
+        "description": "Continuous peer-to-peer file synchronisation",
+        "default_ports": [
+            {"port": 8384, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
         ],
     },
     {
@@ -588,8 +599,8 @@ def seed_builtins(force: bool = False) -> int:
     Returns the number of rows inserted.
     """
     try:
-        from logic.settings_keys import Settings as _S
-        ledger_key = _S.SERVICE_CATALOG_SEEDED_SLUGS.value
+        from logic.settings_keys import Settings
+        ledger_key = Settings.SERVICE_CATALOG_SEEDED_SLUGS.value
         with db_conn() as c:
             # Read the ever-seeded ledger via THIS connection — never via
             # set_setting() (it opens a second connection and would lock
@@ -972,10 +983,62 @@ coerce_int = _coerce_int
 # Discovery wizard — match a host's known ports against catalog templates
 # and propose bindings the operator can one-click adopt.
 # --------------------------------------------------------------------------
+def host_claimed_ports(host_row: dict, *, exclude_idx: Optional[int] = None) -> set[int]:
+    """Set of ports already claimed by a host's existing service chips.
+
+    Walks every chip's ``probe.ports[]`` + legacy ``probe.port`` +
+    URL-derived port (explicit ``:port``, or the scheme default 80 / 443
+    when an http(s) URL carries no port). The discovery wizard subtracts
+    this set from the ports a NEW catalog template is allowed to match on,
+    so it never proposes a second app for a port another app already owns
+    (e.g. don't suggest Pi-hole / Nextcloud on 80 / 443 when AdGuard Home
+    is already pinned and claims them).
+
+    ``exclude_idx`` — skip the chip at this ``services[]`` index, so a chip
+    can't suppress proposals for its own ports (unused by the current
+    discover flow, but lets a future re-discovery path reason about one
+    chip without self-collision).
+    """
+    claimed: set[int] = set()
+    chips = host_row.get("services") if isinstance(host_row, dict) else None
+    if not isinstance(chips, list):
+        return claimed
+    for idx, chip in enumerate(chips):
+        if exclude_idx is not None and idx == exclude_idx:
+            continue
+        if not isinstance(chip, dict):
+            continue
+        probe_raw = chip.get("probe")
+        probe = probe_raw if isinstance(probe_raw, dict) else {}
+        for pp in (probe.get("ports") or []):
+            if isinstance(pp, dict):
+                ppi = _coerce_int(pp.get("port"))
+                if ppi:
+                    claimed.add(ppi)
+        legacy = _coerce_int(probe.get("port"))
+        if legacy:
+            claimed.add(legacy)
+        url = (chip.get("url") or "").strip()
+        if url:
+            try:
+                pu = urlparse(url if "://" in url else "tcp://" + url)
+                port_num = pu.port
+                if port_num:
+                    claimed.add(port_num)
+                elif url.lower().startswith("https://"):
+                    claimed.add(443)
+                elif url.lower().startswith("http://"):
+                    claimed.add(80)
+            except (ValueError, AttributeError):
+                pass
+    return claimed
+
+
 def propose_bindings(host_id: str, *,
                      detected_ports: Optional[list[int]] = None,
                      host_label: str = "",
                      existing_catalog_ids: Optional[set[int]] = None,
+                     claimed_ports: Optional[set[int]] = None,
                      min_confidence: float = 0.5) -> list[dict[str, Any]]:
     """Match a host's detected ports against catalog templates.
 
@@ -997,6 +1060,13 @@ def propose_bindings(host_id: str, *,
     ``existing_catalog_ids`` — catalog_ids already bound to this host's
     chips; the corresponding templates are SKIPPED so the wizard only
     suggests new bindings.
+    ``claimed_ports`` — ports already owned by this host's existing chips
+    (from ``host_claimed_ports``). A candidate template may only match on
+    ports NOT in this set, so the wizard won't propose a second app for a
+    port another app already owns: with AdGuard claiming 80 / 443, a
+    Nextcloud template (80 / 443) scores zero matched ports and drops out,
+    and a Pi-hole template (80 / 443 / 53) only matches on the still-free
+    53. Pass an empty set / None to disable the filter.
     ``min_confidence`` — proposals below this threshold are dropped from
     the output (default 0.5 = "at least one matched port and either name
     match or 50% port coverage").
@@ -1016,6 +1086,7 @@ def propose_bindings(host_id: str, *,
     if not detected_set:
         return []
     existing = existing_catalog_ids or set()
+    claimed = {int(p) for p in (claimed_ports or set()) if p}
     host_haystack = (host_label or host_id or "").lower()
     templates = list_catalog()
     proposals: list[dict[str, Any]] = []
@@ -1026,7 +1097,11 @@ def propose_bindings(host_id: str, *,
                      if isinstance(p, dict) and p.get("port")]
         if not tpl_ports:
             continue
-        matched = sorted(p for p in tpl_ports if p in detected_set)
+        # A template may only match on ports NOT already owned by another
+        # app on this host — so a port already claimed elsewhere gives this
+        # candidate no credit (and a template whose ports are ALL claimed
+        # scores zero matched ports and drops out below).
+        matched = sorted(p for p in tpl_ports if p in detected_set and p not in claimed)
         unmatched = sorted(p for p in tpl_ports if p not in detected_set)
         if not matched:
             continue
