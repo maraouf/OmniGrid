@@ -301,6 +301,7 @@ async def scan_host(
     timeout_s: float = 2.0,
     concurrency: int = 32,
     banner_grab: bool = False,
+    diagnostic_ports: Optional[set[int]] = None,
 ) -> dict:
     """Run an asyncio TCP-connect scan against ``target``.
 
@@ -399,6 +400,28 @@ async def scan_host(
         f"open={open_count} duration_ms={duration_ms} "
         f"reasons={reason_summary or '-'}"
     )
+    # Per-port diagnostic for "ports of interest" (the host's curated /
+    # catalog ports — e.g. a pinned Beszel agent on 45876). When such a
+    # port is scanned but NOT open, log WHY before the reason is stripped,
+    # so "port X isn't detected" becomes answerable from Admin -> Logs:
+    #   reason=refused → nothing listening on that port (check the service)
+    #   reason=timeout → SYN dropped (host firewall / not reachable from
+    #                    the OmniGrid container / timeout too short)
+    #   reason=dns     → the target alias doesn't resolve from the container
+    # A port absent from results entirely means it wasn't in the scan list.
+    # Uses neutral wording (no "fail"/"error") so the persistent-log
+    # severity classifier doesn't paint a benign closed-port red.
+    if diagnostic_ports:
+        _by_port = {r.get("port"): r for r in results}
+        for _dp in sorted(diagnostic_ports):
+            _r = _by_port.get(_dp)
+            if _r is None:
+                print(f"[port_scanner] diagnostic port {_dp} was not in the scan list "
+                      f"(target={target!r}) — not scanned")
+            elif not _r.get("open"):
+                _reason = _r.get("_closed_reason") or "closed"
+                print(f"[port_scanner] diagnostic port {_dp} scanned but not open "
+                      f"(target={target!r}, state={_reason})")
     # Strip internal-only `_closed_reason` field from the public
     # result — it's diagnostic-only, not part of the API contract.
     for r in results:

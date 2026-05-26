@@ -176,6 +176,7 @@ async def _run_port_scan_async(
     h: dict,
     actor: str,
     client_id: Optional[str] = None,
+    diagnostic_ports: Optional[set] = None,
 ) -> None:
     """Run a port scan + persist results out-of-band from the request.
 
@@ -203,6 +204,7 @@ async def _run_port_scan_async(
                         timeout_s=float(timeout_s),
                         concurrency=int(concurrency),
                         banner_grab=bool(banner_grab),
+                        diagnostic_ports=diagnostic_ports,
                     ),
                     _ps_udp.udp_scan_host(
                         target,
@@ -223,6 +225,7 @@ async def _run_port_scan_async(
                     timeout_s=float(timeout_s),
                     concurrency=int(concurrency),
                     banner_grab=bool(banner_grab),
+                    diagnostic_ports=diagnostic_ports,
                 ),
                 timeout=float(max_seconds),
             )
@@ -904,6 +907,7 @@ async def api_hosts_port_scan(
             h=h,
             actor=actor,
             client_id=_request_client_id(request),
+            diagnostic_ports=set(_app_ports_tcp),
         ),
         label=f"port_scan:{hid}:{scan_id[:8]}",
     )
