@@ -4691,6 +4691,7 @@
     "discover_no_ports": "No port-scan history for this host — run a port scan from the Hosts view first.",
     "discover_no_matches": "No catalog templates matched. Add custom templates or pin manually via the catalog rows above.",
     "discover_scanned_at": "scanned ",
+    "discover_scanned": "scanned {age} ago",
     "discover_matched": "Matched ports",
     "discover_unmatched_tip": "Template defines this port but the host scan did not detect it open",
     "discover_confidence": "Confidence",

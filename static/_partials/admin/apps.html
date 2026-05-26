@@ -562,7 +562,7 @@
                 x-text="t('admin_apps.discover_no_ports') || 'No port-scan history for this host — run a port scan from the Hosts view first.'"></span>
           <span x-show="appsDiscoverResult.scanned_at"
                 class="italic"
-                x-text="(t('admin_apps.discover_scanned_at') || 'scanned ') + relativeAge(Date.now()/1000 - appsDiscoverResult.scanned_at) + ' ago'"></span>
+                x-text="t('admin_apps.discover_scanned', { age: relativeAge(Date.now()/1000 - appsDiscoverResult.scanned_at) })"></span>
         </div>
 
         <!-- No proposals -->
