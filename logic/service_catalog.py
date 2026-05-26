@@ -272,6 +272,8 @@ _BUILTIN: list[dict[str, Any]] = [
              "probe_path": "/", "probe_status": 0},
             {"port": 8089, "protocol": "tcp", "label": "Management / REST API",
              "probe_path": "", "probe_status": 0},
+            {"port": 8191, "protocol": "tcp", "label": "Embedded Mongo (KV store)",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {

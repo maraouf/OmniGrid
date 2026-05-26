@@ -34,6 +34,10 @@ export default {
   assetTestResult: null,
   assetCache: null,
   assetRefreshing: false,
+  // Host-drawer asset-card refresh button in-flight flag (drives its
+  // :disabled + spinner). Declared up-front so Alpine tracks it reactively
+  // from init rather than on first lazy assignment.
+  _drawerAssetRefreshing: false,
   assetSaving: false,
   // Test-before-Save gate for Asset Inventory — same pattern as
   // Portainer / OIDC. When asset_inventory_enabled is ON, Save is
@@ -682,6 +686,41 @@ export default {
       this.showToast(this.t('admin_assets.refresh_failed') + ': ' + e.message, 'error');
     } finally {
       this.assetRefreshing = false;
+    }
+  },
+
+  // Host-drawer asset card refresh button. Reloads this host's asset
+  // details from the SERVER cache (loadAssetCache — NO upstream hit, fast)
+  // AND re-fetches the host row so the backend-injected `h.asset` is
+  // re-stamped. Both paths matter: assetForHost(h) builds from the live
+  // `assetCache` when the host's custom_number matches a cached asset, but
+  // FALLS BACK to the frozen `h.asset` when it doesn't — so an admin asset
+  // refresh could leave an open drawer's ports stale on the fallback path.
+  // Refreshing both guarantees the ports update regardless of which path
+  // assetForHost takes.
+  async refreshDrawerAsset(h) {
+    if (!h || this._drawerAssetRefreshing) {
+      return;
+    }
+    this._drawerAssetRefreshing = true;
+    try {
+      await this.loadAssetCache();
+      if (typeof this.refreshHostRow === 'function') {
+        await this.refreshHostRow(h.id, {force: true}).catch(() => undefined);
+      }
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('host_drawer.asset.refresh_ok') || 'Asset details refreshed', 'success');
+      }
+    } catch (e) {
+      if (typeof this.showToast === 'function') {
+        this.showToast(
+          (this.t('host_drawer.asset.refresh_failed') || 'Asset refresh failed')
+            + ': ' + ((e && e.message) ? e.message : e),
+          'error'
+        );
+      }
+    } finally {
+      this._drawerAssetRefreshing = false;
     }
   },
 };

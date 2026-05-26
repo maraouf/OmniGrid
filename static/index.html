@@ -4527,11 +4527,29 @@
                 <div class="flex items-center justify-between mb-3">
                   <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
                       x-text="t('host_drawer.asset.heading')"></h4>
-                  <a x-show="assetEditUrl(assetForHost(h))"
-                     :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
-                     class="fs-xs text-[var(--primary)] hover:underline"
-                     :title="t('host_drawer.asset.edit_title')"
-                     x-text="t('host_drawer.asset.edit_link')"></a>
+                  <div class="flex items-center gap-2">
+                    <a x-show="assetEditUrl(assetForHost(h))"
+                       :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
+                       class="fs-xs text-[var(--primary)] hover:underline"
+                       :title="t('host_drawer.asset.edit_title')"
+                       x-text="t('host_drawer.asset.edit_link')"></a>
+                    <!-- Reload this host's asset details from the server's
+                         asset cache (no upstream hit) AND re-stamp the
+                         backend-injected h.asset, so an admin asset refresh
+                         reflects in the open drawer without arrow-nav. Admin-
+                         only — the asset-inventory endpoints are admin-gated. -->
+                    <button type="button" x-show="isAdmin()"
+                            class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                            :disabled="_drawerAssetRefreshing"
+                            @click.stop="refreshDrawerAsset(h)"
+                            :title="t('host_drawer.asset.refresh_title') || 'Reload asset details from cache'"
+                            :aria-label="t('host_drawer.asset.refresh_aria') || 'Refresh asset details'">
+                      <svg width="11" height="11" :class="_drawerAssetRefreshing ? 'spin-md' : ''" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                      </svg>
+                      <span x-text="t('host_drawer.asset.refresh_button') || 'Refresh'"></span>
+                    </button>
+                  </div>
                 </div>
                 <dl class="drawer-dl fs-sm">
                   <template x-if="assetForHost(h).name">
@@ -5793,7 +5811,7 @@
                     <dd class="text-end mono"
                         :class="isStaleField(h, 'host_http_latency_ms') ? 'stale' : ''"
                         :title="isStaleField(h, 'host_http_latency_ms') ? staleAge(h) : ''"
-                        x-text="h.host_http_latency_ms + ' ms'"></dd>
+                        x-text="appsLatencyMs(h.host_http_latency_ms)"></dd>
                   </template>
                 </dl>
                 <!-- Per-URL status strip — one row per probed URL with
