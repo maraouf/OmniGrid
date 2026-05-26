@@ -270,6 +270,8 @@ _BUILTIN: list[dict[str, Any]] = [
         "default_ports": [
             {"port": 8080, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
+            {"port": 8089, "protocol": "tcp", "label": "Management / REST API",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {
@@ -530,6 +532,16 @@ _BUILTIN: list[dict[str, Any]] = [
         "default_ports": [
             {"port": 10050, "protocol": "tcp", "label": "Agent (passive)",
              "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Zabbix Web", "slug": "zabbix-web", "icon": "zabbix",
+        "description": "Zabbix server web frontend",
+        "default_ports": [
+            {"port": 80, "protocol": "tcp", "label": "HTTP",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 443, "protocol": "tcp", "label": "HTTPS",
+             "probe_path": "/", "probe_status": 0},
         ],
     },
     {

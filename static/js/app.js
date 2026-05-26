@@ -284,6 +284,12 @@ function app() {
     probeNowInFlight: {},
     // Per-host "Probe all" batch in-flight flag (host_drawer Apps card header).
     _hostAppsProbingAll: {},
+    // Apps-VIEW per-app "Probe all" batch in-flight flag, keyed by the app's
+    // group_id (one app card = one catalog template, N instances across hosts).
+    _appsProbingAll: {},
+    // Transient per-app probe-all summary line ("4/5 up") rendered in the
+    // Apps-view card header right after a fan-out completes; keyed by group_id.
+    _appsProbeAllSummary: {},
     // Per-(host, service_idx) probe history cache, populated lazily by
     // `loadAppHistory` when the App Drawer opens. Keyed by
     // `host_id + ':' + service_idx`; value is `{samples, hours, loadedAt}`.

@@ -3336,6 +3336,38 @@
                    x-text="(app.catalog && app.catalog.description) || t('apps.counts.instances_up', { up: app.up_count, total: app.instance_count })"></p>
               </div>
             </header>
+            <!-- Card-header bulk actions: probe every instance / open every
+                 URL. @click.stop so they don't trigger the card's open-drawer
+                 click. "Probe all" is admin-only (the per-chip probe endpoint
+                 requires admin); "Open all" is just window.open so anyone can
+                 use it. A transient "X/Y up" summary lands after a probe-all. -->
+            <div class="flex items-center flex-wrap gap-1 mb-2"
+                 x-show="appsProbeTargetCount(app) || appsOpenableCount(app)">
+              <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
+                      class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                      :disabled="appsProbingAll(app)"
+                      @click.stop="probeAllInstances(app)"
+                      :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
+                      :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
+                <svg width="11" height="11" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('apps.probe_all', { n: appsProbeTargetCount(app) }) || ('Probe all (' + appsProbeTargetCount(app) + ')')"></span>
+              </button>
+              <button type="button" x-show="appsOpenableCount(app)"
+                      class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                      @click.stop="openAllInstances(app)"
+                      :title="t('apps.open_all_title') || 'Open every instance URL in a new tab'"
+                      :aria-label="t('apps.open_all_aria', {name: app.name}) || ('Open all URLs for ' + app.name)">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                </svg>
+                <span x-text="t('apps.open_all', { n: appsOpenableCount(app) }) || ('Open all (' + appsOpenableCount(app) + ')')"></span>
+              </button>
+              <span x-show="appsProbeAllSummary(app)" class="fs-3xs text-[var(--text-faint)] ms-auto"
+                    aria-live="polite"
+                    x-text="appsProbeAllSummary(app)"></span>
+            </div>
             <!-- Per-host instance list -->
             <ul class="space-y-1 fs-xs">
               <template x-for="inst in app.instances" :key="inst.host_id + ':' + inst.service_idx">
@@ -5526,19 +5558,6 @@
                           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
                         </svg>
                       </a>
-                      <button type="button"
-                              x-show="isAdmin()"
-                              class="btn-ghost p-0.5 flex-shrink-0 text-[var(--primary)]"
-                              :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
-                              :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
-                              :title="t('host_drawer.apps.probe_now') || 'Probe now'"
-                              @click.stop="probeAppNow(h, app.service_idx)">
-                        <svg width="12" height="12"
-                             :class="probeNowInFlight['probe:' + h.id + ':' + app.service_idx] ? 'spin-md' : ''"
-                             aria-hidden="true">
-                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                        </svg>
-                      </button>
                     </div>
                   </template>
                 </div>
