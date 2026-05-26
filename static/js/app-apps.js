@@ -1455,6 +1455,9 @@ export default {
       probe_enabled: true,
     };
     this.appsPinError = '';
+    this.appsPinHostSearch = '';
+    this.appsPinHostDropdownOpen = false;
+    this.appsPinHostActiveIdx = -1;
     this.appsPinModalOpen = true;
     // The host picker reads from `hostsConfig`. The Admin → Apps tab
     // loader doesn't fetch it (only the Hosts tab does), so the picker
@@ -1471,6 +1474,69 @@ export default {
     this.appsPinModalOpen = false;
     this.appsPinForm = {template: null, host_id: '', url: '', probe_enabled: true};
     this.appsPinError = '';
+    this.appsPinHostSearch = '';
+    this.appsPinHostDropdownOpen = false;
+    this.appsPinHostActiveIdx = -1;
+  },
+
+  // ---- Pin-to-host searchable picker -----------------------------
+  // Mirrors the discovery wizard's host picker (appsDiscoverFilteredHosts
+  // / appsDiscoverHostMove / etc.) but writes the selection to
+  // appsPinForm.host_id. Reuses the shared appsHostLabel(h) formatter so
+  // the input reads identically to the old <option> text. Kept as a
+  // separate set of helpers (not shared with the discovery picker)
+  // because selecting a host here does NOT trigger a side-effect probe —
+  // it only fills the form field.
+  appsPinFilteredHosts() {
+    const all = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+    const q = (this.appsPinHostSearch || '').trim().toLowerCase();
+    let out = all;
+    if (q) {
+      out = all.filter((h) => {
+        if (!h) {
+          return false;
+        }
+        const hay = ((h.label || '') + ' ' + (h.id || '') + ' ' + (h.address || '')).toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return out.slice(0, 50);
+  },
+
+  selectAppsPinHost(h) {
+    if (!h || !h.id) {
+      return;
+    }
+    this.appsPinForm.host_id = h.id;
+    this.appsPinHostSearch = this.appsHostLabel(h);
+    this.appsPinHostDropdownOpen = false;
+    this.appsPinHostActiveIdx = -1;
+  },
+
+  appsPinHostMove(delta) {
+    this.appsPinHostDropdownOpen = true;
+    const n = this.appsPinFilteredHosts().length;
+    if (!n) {
+      this.appsPinHostActiveIdx = -1;
+      return;
+    }
+    let idx = this.appsPinHostActiveIdx + delta;
+    if (idx < 0) {
+      idx = n - 1;
+    }
+    if (idx >= n) {
+      idx = 0;
+    }
+    this.appsPinHostActiveIdx = idx;
+  },
+
+  appsPinHostEnter() {
+    const list = this.appsPinFilteredHosts();
+    if (this.appsPinHostActiveIdx >= 0 && this.appsPinHostActiveIdx < list.length) {
+      this.selectAppsPinHost(list[this.appsPinHostActiveIdx]);
+    } else if (list.length === 1) {
+      this.selectAppsPinHost(list[0]);
+    }
   },
 
   async submitAppCatalogPin() {

@@ -223,6 +223,14 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Dockge", "slug": "dockge", "icon": "dockge",
+        "description": "Docker compose stack manager",
+        "default_ports": [
+            {"port": 8085, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
         "name": "MariaDB", "slug": "mariadb", "icon": "mariadb",
         "description": "MariaDB / MySQL relational database server",
         "default_ports": [
@@ -1316,7 +1324,7 @@ def propose_bindings(host_id: str, *,
                      host_label: str = "",
                      existing_catalog_ids: Optional[set[int]] = None,
                      claimed_ports: Optional[set[int]] = None,
-                     min_confidence: float = 0.5) -> list[dict[str, Any]]:
+                     min_confidence: float = 0.0) -> list[dict[str, Any]]:
     """Match a host's detected ports against catalog templates.
 
     Returns a list of proposal dicts ordered by confidence DESC:
@@ -1345,10 +1353,14 @@ def propose_bindings(host_id: str, *,
     and a Pi-hole template (80 / 443 / 53) only matches on the still-free
     53. Pass an empty set / None to disable the filter.
     ``min_confidence`` — proposals below this threshold are dropped from
-    the output (default 0.5 = "at least one matched port and either name
-    match or 50% port coverage").
+    the output. Default 0.0: the wizard shows EVERY template with at
+    least one detected + unclaimed matched port so the operator can pick
+    among all applicable apps for an open port (incl. generic/ambiguous
+    ports like 8080 = Dozzle vs qBittorrent, or 3000 = Forgejo vs Grafana
+    vs AdGuard). Confidence is still computed and used to SORT so exact /
+    name-matched candidates rank first; it no longer GATES.
 
-    Scoring (max 1.0):
+    Scoring (used for ranking, max 1.0):
       - port-overlap base: matched_ports / total_template_ports
       - name-match bonus: +0.3 if host_label contains template.slug OR
         any whole word of template.name (lowercased)
@@ -1408,17 +1420,18 @@ def propose_bindings(host_id: str, *,
             match_reasons.insert(0, f"{len(matched)} of {len(tpl_ports)} template ports detected")
         else:
             match_reasons.insert(0, f"{len(matched)} of {len(tpl_ports)} ports detected (partial)")
-        # Confidence.
+        # Confidence — RANKING signal only (does not gate; see
+        # min_confidence default 0.0). Every template with >=1 detected +
+        # unclaimed matched port is proposed so the operator can pick
+        # among all applicable apps for an open port; the generic-port
+        # single-port penalty was removed on operator request (it hid
+        # legitimate single-port apps like Dozzle/Forgejo on shared ports
+        # such as 8080/3000). Over-mapping is still prevented downstream
+        # by the claimed_ports filter — once a port is bound to an app on
+        # the host it stops being offered for any other template.
         confidence = coverage
         if name_match:
             confidence = min(1.0, confidence + 0.3)
-        # Single-port templates need exact match to be plausible —
-        # generic ports like 80/443 are too common; without name match
-        # they're noise.
-        if len(tpl_ports) == 1 and not name_match:
-            common_generic_ports = {80, 443, 8080, 8000, 8443, 3000, 22, 25, 53, 8888}
-            if tpl_ports[0] in common_generic_ports:
-                confidence *= 0.4
         if confidence < min_confidence:
             continue
         proposals.append({

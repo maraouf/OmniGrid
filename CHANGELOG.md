@@ -38,9 +38,12 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - App instances can be linked to a Portainer container or stack (in the instance editor), adding inline Restart and Update actions in the app detail drawer.
 - Added Syncthing (8384/tcp Web UI) and a Plex DLNA port (32469/tcp) to the built-in Apps catalog templates.
 - Added MariaDB (3306), PostgreSQL (5432), MongoDB (27017), and InfluxDB (8086 HTTP API + 8088 RPC) to the built-in Apps catalog templates, with a bundled MariaDB brand icon. All four ports are already covered by the default port-scan list, so an open database port is matched to its app in the discovery wizard.
+- Added Dockge (Docker stack manager) to the built-in Apps catalog templates with a bundled brand icon.
+- The Apps "Pin to host" picker is now a searchable, type-to-filter dropdown (matching the discovery wizard) instead of a long plain list of every host.
 
 ### Changed
 
+- The Apps discovery wizard now proposes every catalog app applicable to an open port — including single-port apps on shared ports like 8080 (Dozzle / qBittorrent) or 3000 (Forgejo / Grafana / AdGuard Home) that were previously suppressed — so you can pick the right one. A port already mapped to an app on the host is still never offered again (no over-mapping); best/exact matches rank first.
 - The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
 - Apps latency now displays with a thousands separator and a space before the unit (e.g. "1,234 ms"), and the App detail drawer's Probe-now / Show-debug buttons now have icons matching the host drawer.
 - Removed Vaultwarden from the built-in app-catalog templates; added the missing Nextcloud brand icon.
@@ -56,6 +59,8 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Editing an app instance (URL/link, ports, icon) now reflects immediately in the Apps view and detail drawer, and removing a port no longer leaves a stale per-port indicator.
 - The per-app "Probe now" refresh in the host drawer's Apps card now works for apps that have ports configured even when continuous probing is turned off — an explicit click probes the configured ports regardless of the continuous-sampler toggle, and the refresh button now appears whenever there are port pills to refresh.
 - In the host drawer's Port Scan section, a configured-but-not-yet-probed port now shows a grey "unknown" dot (matching the Apps card) instead of a red "down" dot — the two surfaces no longer disagree on a pending port's status.
+- The Apps detail drawer's debug panel now shows whether continuous probing is actually running for a chip — surfacing the global Service-probe provider toggle and a plain-language list of why an app's port pills are grey (provider globally off and/or the chip's probe disabled). The per-app "Probe now" button still works regardless.
+- The host drawer's asset port section now also lists open ports found by the port scan that aren't in the asset record (under "Open in scan — not in asset"), so you can see which scanned ports to add to the asset — the mirror of the existing marker that flags asset ports missing from the scan.
 
 ## [1.5.0] — 2026-05-23
 

@@ -4568,6 +4568,30 @@
                             </span>
                       </template>
                     </div>
+                    <!-- Reverse mismatch: open ports the port scan found that
+                         are NOT in this asset's port list, so the operator
+                         can see which scanned ports to ADD to the asset
+                         record. Styled like an unmapped port-scan chip
+                         (amber + the same info marker portScanShouldFlag
+                         puts on the scan side) for visual symmetry. -->
+                    <template x-if="assetScanOnlyPorts(h).length">
+                      <div class="mt-3">
+                        <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1.5"
+                             x-text="t('host_drawer.asset.scan_only_ports_heading') || 'Open in scan — not in asset'"></div>
+                        <div class="flex flex-wrap gap-1.5">
+                          <template x-for="sp in assetScanOnlyPorts(h)" :key="(sp.protocol || 'tcp') + ':' + sp.port">
+                            <span class="chip pill-warning fs-2xs mono inline-flex items-center"
+                                  :title="t('host_drawer.asset.scan_only_port_title', { port: sp.port + '/' + (sp.protocol || 'tcp') }) || ('Open in scan but not in this asset record: ' + sp.port)">
+                              <svg width="11" height="11" class="me-1 flex-shrink-0" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+                              </svg>
+                              <span x-text="sp.port + '/' + (sp.protocol || 'tcp')"></span>
+                              <span x-show="sp.service_hint" class="ms-1 opacity-70" x-text="'· ' + sp.service_hint"></span>
+                            </span>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </template>
 
@@ -9402,6 +9426,20 @@
                         <div class="fs-xs space-y-2">
                           <div x-show="appDebug[appInstanceKey(inst)].data.probe_reason" class="text-[var(--warning)]"
                                x-text="appDebug[appInstanceKey(inst)].data.probe_reason"></div>
+                          <!-- Continuous-probe blockers — why the port pills stay grey
+                               even though "Probe now" works. Each blocker is a reason
+                               the lifespan sampler skips this chip (master provider OFF
+                               and/or this chip's probe disabled). Empty => eligible. -->
+                          <div x-show="(appDebug[appInstanceKey(inst)].data.live_probe_blockers || []).length"
+                               class="rounded-md px-2 py-1.5 bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
+                            <div class="fs-2xs uppercase tracking-wide mb-1"
+                                 x-text="t('apps.drawer.live_probe_blocked') || 'Live probing not running — reasons:'"></div>
+                            <ul class="list-disc ps-4 space-y-0.5">
+                              <template x-for="b in (appDebug[appInstanceKey(inst)].data.live_probe_blockers || [])" :key="b">
+                                <li x-text="b"></li>
+                              </template>
+                            </ul>
+                          </div>
                           <div x-show="(appDebug[appInstanceKey(inst)].data.resolved_targets || []).length">
                             <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
                                  x-text="t('apps.drawer.resolved_targets') || 'Resolved probe targets'"></div>
@@ -9415,6 +9453,10 @@
                           </div>
                           <div class="mono fs-2xs text-[var(--text-dim)]"
                                x-text="(t('apps.drawer.probe_enabled') || 'Probe enabled') + ': ' + (appDebug[appInstanceKey(inst)].data.chip.probe.enabled ? '✓' : '✕') + ' · ' + appDebug[appInstanceKey(inst)].data.chip.probe.type"></div>
+                          <!-- Master Service-probe provider toggle (Admin → Providers).
+                               OFF means NO chip on any host gets continuous probing. -->
+                          <div class="mono fs-2xs text-[var(--text-dim)]"
+                               x-text="(t('apps.drawer.master_probe_enabled') || 'Service-probe provider (global)') + ': ' + (appDebug[appInstanceKey(inst)].data.service_probe_master_enabled ? '✓' : '✕')"></div>
                           <details>
                             <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
                                      x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>

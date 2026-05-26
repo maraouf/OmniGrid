@@ -603,6 +603,53 @@ export default {
     }
     return true;
   },
+
+  // Reverse of portScanShouldFlag: the open ports the port SCAN found
+  // that are NOT in this host's asset-inventory port list — so the
+  // asset port section can surface them (styled like an unmapped port)
+  // and the operator knows which scanned ports to ADD to the asset
+  // record. Mirrors portScanShouldFlag's gate exactly (asset inventory
+  // enabled + asset has >=1 documented port) so the same noise-
+  // avoidance holds: an asset with no documented ports yields nothing
+  // (suggesting every open port would be noise, not signal). Returns
+  // the detected-port objects (port / protocol / service_hint),
+  // deduped by port number, sorted ascending.
+  assetScanOnlyPorts(host) {
+    if (!host) {
+      return [];
+    }
+    const enabled = !this.settings || this.settings.asset_inventory_enabled !== false;
+    if (!enabled) {
+      return [];
+    }
+    if (typeof this.assetForHost !== 'function') {
+      return [];
+    }
+    const asset = this.assetForHost(host);
+    if (!asset || !Array.isArray(asset.ports) || asset.ports.length === 0) {
+      return [];
+    }
+    const assetNums = new Set();
+    for (const ap of asset.ports) {
+      const n = Number(ap && ap.number);
+      if (Number.isFinite(n) && n > 0) {
+        assetNums.add(n);
+      }
+    }
+    const detected = Array.isArray(host.detected_ports) ? host.detected_ports : [];
+    const seen = new Set();
+    const out = [];
+    for (const p of detected) {
+      const n = Number(p && p.port);
+      if (!Number.isFinite(n) || n <= 0 || assetNums.has(n) || seen.has(n)) {
+        continue;
+      }
+      seen.add(n);
+      out.push(p);
+    }
+    out.sort((a, b) => Number(a.port) - Number(b.port));
+    return out;
+  },
   // Chip class for a detected port.
   //
   // Two-axis colour scheme:

@@ -3690,6 +3690,8 @@
       "serial_missing": "missing",
       "interfaces_heading": "Interfaces",
       "ports_heading": "Services / ports",
+      "scan_only_ports_heading": "Open in scan — not in asset",
+      "scan_only_port_title": "Open in the port scan but not in this asset record — add {port} to the asset",
       "comment": "Notes"
     },
     "network": {
@@ -4676,6 +4678,8 @@
     "pin_intro": "Creates a new chip on the selected host pre-filled from this template. Edit the chip later via Admin → Hosts to tweak per-host overrides.",
     "pin_host": "Host",
     "pin_host_placeholder": "— pick a host —",
+    "pin_host_search": "Type to filter hosts…",
+    "pin_host_no_match": "No matching hosts",
     "pin_no_hosts": "No curated hosts yet — add one via Admin → Hosts first.",
     "pin_url": "URL (optional)",
     "pin_url_placeholder": "https://… — leave blank if probing by host IP + ports",
@@ -4752,6 +4756,8 @@
       "debug_loading": "Loading diagnostics…",
       "resolved_targets": "Resolved probe targets",
       "probe_enabled": "Probe enabled",
+      "master_probe_enabled": "Service-probe provider (global)",
+      "live_probe_blocked": "Live probing not running — reasons:",
       "raw_json": "Raw debug JSON",
       "probe_failed": "Probe failed: "
     },
