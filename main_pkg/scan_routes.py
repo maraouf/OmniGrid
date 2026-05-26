@@ -698,6 +698,7 @@ async def api_hosts_port_scan(
     if body is None:
         body = PortScanIn()
     from logic import port_scanner as _ps
+    from logic import service_catalog as _ps_catalog
     ports_csv = (
         (body.ports or "").strip()
         or (ps_cfg.get("ports") or "").strip()
@@ -726,6 +727,28 @@ async def api_hosts_port_scan(
                 _proto = _pp.get("protocol") or "tcp"
                 _proto = _proto.strip().lower() if isinstance(_proto, str) else "tcp"
                 _cands.append((_pp.get("port"), _proto))
+        # ALSO union the bound catalog TEMPLATE's default ports. A pinned
+        # app whose chip never had `probe.ports` populated (e.g. pinned via
+        # catalog with the probe left disabled) should STILL have its
+        # template ports scanned — matching the "if the operator cared
+        # enough to pin the app, its port should always be scanned" intent
+        # above. This was the operator-reported Beszel Agent (45876) miss:
+        # 45876 is in the catalog template but the chip's own probe.ports
+        # was empty, so the union didn't pick it up. Template `http`/`https`
+        # protocols map to the TCP scan; `udp` to the UDP scan.
+        _cat_id = _svc.get("catalog_id")
+        # isinstance (not `is not None`) so the type checker narrows
+        # `Any | None` → `int | str` for the int() coercion below.
+        if isinstance(_cat_id, (int, str)):
+            try:
+                _tpl = _ps_catalog.get_catalog_by_id(int(_cat_id))
+            except (TypeError, ValueError):
+                _tpl = None
+            for _dp in ((_tpl or {}).get("default_ports") or []):
+                if isinstance(_dp, dict):
+                    _dproto = _dp.get("protocol") or "tcp"
+                    _dproto = _dproto.strip().lower() if isinstance(_dproto, str) else "tcp"
+                    _cands.append((_dp.get("port"), "udp" if _dproto == "udp" else "tcp"))
         for _cand, _proto in _cands:
             if not isinstance(_cand, (int, str)):
                 continue
