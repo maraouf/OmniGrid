@@ -1199,6 +1199,24 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["probe"] = probe_out
         if cleaned:
             out.append(cleaned)
+    # Dedupe: the same catalog app pinned to a host more than once renders
+    # as identical duplicate chips. Collapse by catalog_id — keep the FIRST
+    # occurrence (preserves its position + any operator overrides), drop the
+    # later dupes. Manual chips (no catalog_id) are never deduped: a host
+    # can legitimately carry several free-form service links. This is the
+    # backend safety net that auto-collapses pre-existing duplicates on the
+    # next save; the pin endpoint also rejects a duplicate up-front.
+    if out:
+        _seen_cat: set[int] = set()
+        _deduped: list[dict] = []
+        for _c in out:
+            _cid = _c.get("catalog_id")
+            if isinstance(_cid, int):
+                if _cid in _seen_cat:
+                    continue
+                _seen_cat.add(_cid)
+            _deduped.append(_c)
+        out = _deduped
     return out
 
 

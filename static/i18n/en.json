@@ -4653,7 +4653,7 @@
     "instance_edit_docker_linked": "Linked",
     "instance_edit_docker_unresolved": "Linked target not in the current items snapshot",
     "instance_inherit_hint": "Leave blank to inherit from template:",
-    "instance_delete_confirm_title": "Remove app instance?",
+    "instance_delete_confirm_title": "Remove {name} from {host}?",
     "instance_delete_confirm_text": "This unpins the chip from the host. The catalog template is unaffected.",
     "instance_deleted": "App instance removed",
     "instance_delete_failed": "Remove failed: ",

@@ -1393,17 +1393,21 @@ export default {
     if (!inst || !inst.host_id) {
       return;
     }
-    const label = inst.name || inst.catalog_name || ('service ' + inst.service_idx);
+    const label = inst.name || inst.catalog_name
+      || (inst.catalog && inst.catalog.name) || ('service ' + inst.service_idx);
+    const hostName = inst.host_label || inst.host_id || '';
     const confirmed = typeof this.confirmDialog === 'function'
       ? await this.confirmDialog({
-        title: this.t('admin_apps.instance_delete_confirm_title') || 'Remove app instance?',
-        text: (this.t('admin_apps.instance_delete_confirm_text')
-            || 'This unpins the chip from the host. The catalog template is unaffected.')
-          + ' (' + label + ')',
+        // Name the app + host prominently in the title (was a generic
+        // "Remove app instance?" with the name only tucked into the body).
+        title: this.t('admin_apps.instance_delete_confirm_title', {name: label, host: hostName})
+          || ('Remove ' + label + ' from ' + hostName + '?'),
+        text: this.t('admin_apps.instance_delete_confirm_text')
+          || 'This unpins the chip from the host. The catalog template is unaffected.',
         icon: 'warning',
         confirmButtonText: this.t('actions.delete') || 'Delete',
       })
-      : window.confirm('Remove "' + label + '"?');
+      : window.confirm('Remove "' + label + '" from ' + hostName + '?');
     if (!confirmed) {
       return;
     }

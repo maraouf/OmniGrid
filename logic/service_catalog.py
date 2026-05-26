@@ -625,15 +625,18 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        # VPN tunnels — bare connectivity, no HTTP UI, so empty
-        # probe_path + probe_status 0 (TCP-connect liveness for
-        # Tailscale; UDP for OpenVPN, which the TCP-connect probe
-        # can't verify — the port metadata is still useful for
-        # port-scan mapping + inventory).
+        # VPN tunnels — bare connectivity, no HTTP UI. BOTH are UDP:
+        # Tailscale + OpenVPN are WireGuard/UDP tunnels with NO TCP
+        # listener, so a TCP-connect probe is always REFUSED (errno 111)
+        # — it must probe UDP. WireGuard/OpenVPN don't answer unsolicited
+        # probes either, so the result is open|filtered at best (can't
+        # confirm "up"); the port metadata is still useful for port-scan
+        # mapping + inventory. 57221 is Tailscale's UDP port (default
+        # 41641, operator-overridable via `tailscaled --port`).
         "name": "Tailscale", "slug": "tailscale", "icon": "tailscale",
-        "description": "Mesh VPN (WireGuard-based)",
+        "description": "Mesh VPN (WireGuard-based, UDP)",
         "default_ports": [
-            {"port": 57221, "protocol": "tcp", "label": "Tailscale",
+            {"port": 57221, "protocol": "udp", "label": "Tailscale (WireGuard UDP)",
              "probe_path": "", "probe_status": 0},
         ],
     },
