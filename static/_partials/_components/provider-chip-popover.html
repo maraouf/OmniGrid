@@ -73,7 +73,7 @@
           <span class="text-[var(--text-faint)]"
                 x-text="t('hosts_extra.provider_popover.last_ok')"></span>
           <span class="mono"
-                :title="new Date(providerChipPopoverRow().last_ok_ts * 1000).toLocaleString()"
+                :title="fmtDate(providerChipPopoverRow().last_ok_ts * 1000)"
                 x-text="fmtAgo(providerChipPopoverRow().last_ok_ts * 1000)"></span>
         </div>
       </template>
@@ -83,7 +83,7 @@
           <span class="text-[var(--text-faint)]"
                 x-text="t('hosts_extra.provider_popover.last_fail')"></span>
           <span class="mono text-[var(--danger)]"
-                :title="new Date(providerChipPopoverRow().last_failure_ts * 1000).toLocaleString()"
+                :title="fmtDate(providerChipPopoverRow().last_failure_ts * 1000)"
                 x-text="fmtAgo(providerChipPopoverRow().last_failure_ts * 1000)"></span>
         </div>
       </template>
@@ -102,7 +102,7 @@
           <span class="text-[var(--text-faint)]"
                 x-text="t('hosts_extra.provider_popover.paused_at')"></span>
           <span class="mono"
-                :title="new Date(providerChipPopoverRow().paused_at * 1000).toLocaleString()"
+                :title="fmtDate(providerChipPopoverRow().paused_at * 1000)"
                 x-text="fmtAgo(providerChipPopoverRow().paused_at * 1000)"></span>
         </div>
       </template>
