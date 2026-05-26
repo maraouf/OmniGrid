@@ -3313,18 +3313,24 @@
       <div x-show="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length"
            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="app in filteredApps()" :key="app.group_id">
-          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer"
+          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer flex items-start gap-3"
                    :class="'apps-card--' + app.status"
                    role="button" tabindex="0"
                    :aria-label="t('apps.drawer.open_aria', {name: app.name})"
                    @click="openAppDrawer(app)"
                    @keydown.enter="openAppDrawer(app)"
                    @keydown.space.prevent="openAppDrawer(app)">
-            <header class="flex items-start gap-2 mb-2">
-              <img :src="iconUrlFor(app.icon || app.name)" alt=""
-                   width="32" height="32" class="rounded"
-                   @error="$event.target.style.visibility='hidden'">
-              <div class="flex-1 min-w-0">
+            <!-- Big app logo on the LEFT (3x the old 32px); everything else —
+                 name / status / description / Probe-all + Open-all actions /
+                 per-host services — stacks in the flex-1 column to its right.
+                 w-24 h-24 + object-contain forces a uniform 96px square slot
+                 that defeats Tailwind's img{height:auto} preflight for the
+                 non-square brand marks (so a portrait logo can't stretch tall). -->
+            <img :src="iconUrlFor(app.icon || app.name)" alt=""
+                 width="96" height="96" class="w-24 h-24 object-contain rounded flex-shrink-0"
+                 @error="$event.target.style.visibility='hidden'">
+            <div class="flex-1 min-w-0">
+              <header class="mb-2">
                 <div class="flex items-center justify-between gap-1">
                   <h3 class="font-semibold fs-sm truncate" x-text="app.name"></h3>
                   <span class="chip fs-3xs whitespace-nowrap"
@@ -3334,8 +3340,7 @@
                 </div>
                 <p class="fs-3xs text-[var(--text-faint)] truncate"
                    x-text="(app.catalog && app.catalog.description) || t('apps.counts.instances_up', { up: app.up_count, total: app.instance_count })"></p>
-              </div>
-            </header>
+              </header>
             <!-- Card-header bulk actions: probe every instance / open every
                  URL. @click.stop so they don't trigger the card's open-drawer
                  click. "Probe all" is admin-only (the per-chip probe endpoint
@@ -3415,6 +3420,7 @@
                 </li>
               </template>
             </ul>
+            </div>
           </article>
         </template>
       </div>
@@ -4663,27 +4669,32 @@
                                one <span> per iteration fixes it. -->
                       <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
                             <span>
+                              <!-- The icon-info marker renders BEFORE the port and
+                                   the whole chip flips to pill-warning when the port
+                                   was NOT found by the latest scan — identical look to
+                                   the "Open in scan — not in asset" chips below, so the
+                                   operator can check the service / add it to the scanner.
+                                   x-text can't coexist with a child icon (it replaces
+                                   innerHTML), so the label moved into its own span. -->
                               <a x-show="assetPortServiceUrl(port, h)"
                                  :href="assetPortServiceUrl(port, h)" target="_blank" rel="noopener"
-                                 class="pill pill-info fs-2xs mono hover:underline"
-                                 :title="port.protocol || ''"
-                                 x-text="port.name + (port.number != null ? ' ' + port.number : '')"></a>
+                                 class="fs-2xs mono hover:underline inline-flex items-center"
+                                 :class="assetPortNotScanned(h, port.number) ? 'chip pill-warning' : 'chip pill-info'"
+                                 :title="assetPortNotScanned(h, port.number) ? t('host_drawer.asset.port_not_scanned_title') : (port.protocol || '')">
+                                <svg x-show="assetPortNotScanned(h, port.number)" width="11" height="11" class="me-1 flex-shrink-0" aria-hidden="true">
+                                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+                                </svg>
+                                <span x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
+                              </a>
                               <span x-show="!assetPortServiceUrl(port, h)"
-                                    class="fs-xs mono text-[var(--text-faint)] px-1.5 py-1"
-                                    :title="port.protocol || ''"
-                                    x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
-                              <!-- Alert when this documented port was NOT found
-                                   by the latest port scan — same info marker the
-                                   "open in scan / not in asset" chips use. Prompts
-                                   the operator to check the service OR add the port
-                                   to the scanner's range. -->
-                              <svg x-show="assetPortNotScanned(h, port.number)"
-                                   width="11" height="11" role="img"
-                                   class="inline-block ms-0.5 align-middle text-[var(--warning)]"
-                                   :aria-label="t('host_drawer.asset.port_not_scanned_title')"
-                                   :title="t('host_drawer.asset.port_not_scanned_title')">
-                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
-                              </svg>
+                                    class="fs-2xs mono inline-flex items-center"
+                                    :class="assetPortNotScanned(h, port.number) ? 'chip pill-warning' : 'chip pill-muted'"
+                                    :title="assetPortNotScanned(h, port.number) ? t('host_drawer.asset.port_not_scanned_title') : (port.protocol || '')">
+                                <svg x-show="assetPortNotScanned(h, port.number)" width="11" height="11" class="me-1 flex-shrink-0" aria-hidden="true">
+                                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-info"/>
+                                </svg>
+                                <span x-text="port.name + (port.number != null ? ' ' + port.number : '')"></span>
+                              </span>
                             </span>
                       </template>
                     </div>
