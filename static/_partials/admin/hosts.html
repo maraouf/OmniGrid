@@ -917,7 +917,7 @@
                    :class="!row.enabled ? 'opacity-50' : ''">
               <input type="checkbox"
                      :checked="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)"
-                     @change="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                     @change="setHttpProbeField(idx, 'enabled', $event.target.checked)"
                      :disabled="isReadonly() || !row.enabled">
               <span x-text="t('admin_hosts.provider.http_probe_enabled_label')"></span>
             </label>
@@ -951,7 +951,7 @@
                          x-text="t('admin_hosts.http_probe_content_match_label')"></label>
                   <input type="text"
                          :value="(row.http_probe && row.http_probe.content_match) || ''"
-                         @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { content_match: $event.target.value || null }); markHostRowDirty(idx)"
+                         @input="setHttpProbeField(idx, 'content_match', $event.target.value || null)"
                          :disabled="isReadonly() || !row.enabled"
                          maxlength="256"
                          class="w-full mono fs-sm py-1.5"
@@ -964,7 +964,7 @@
                          x-text="t('admin_hosts.http_probe_status_codes_label')"></label>
                   <input type="text"
                          :value="(row.http_probe && Array.isArray(row.http_probe.accepted_status_codes)) ? row.http_probe.accepted_status_codes.join(',') : ''"
-                         @input="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { accepted_status_codes: $event.target.value || null }); markHostRowDirty(idx)"
+                         @input="setHttpProbeField(idx, 'accepted_status_codes', $event.target.value || null)"
                          :disabled="isReadonly() || !row.enabled"
                          class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.http_probe_status_codes_placeholder')">
@@ -979,7 +979,7 @@
               <label class="inline-flex items-center gap-2 fs-sm">
                 <input type="checkbox"
                        :checked="!(row.http_probe && row.http_probe.verify_tls === false)"
-                       @change="hostsConfig[idx].http_probe = Object.assign({}, hostsConfig[idx].http_probe || {}, { verify_tls: !!$event.target.checked }); markHostRowDirty(idx)"
+                       @change="setHttpProbeField(idx, 'verify_tls', !!$event.target.checked)"
                        :disabled="isReadonly() || !row.enabled">
                 <span x-text="t('admin_hosts.http_probe_verify_tls_label')"></span>
               </label>

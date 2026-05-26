@@ -436,11 +436,32 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        # Authentik's LDAP outpost — distinct from the SSO web template
+        # above. Bare TCP-connect: LDAP / LDAPS speak their own protocol,
+        # not HTTP, so an HTTP probe would never validate them.
+        "name": "Authentik LDAP", "slug": "authentik-ldap", "icon": "authentik",
+        "description": "Authentik LDAP provider / outpost",
+        "default_ports": [
+            {"port": 389, "protocol": "tcp", "label": "LDAP",
+             "probe_path": "", "probe_status": 0},
+            {"port": 636, "protocol": "tcp", "label": "LDAPS",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "Home Assistant", "slug": "home-assistant",
         "icon": "home-assistant",
         "description": "Home automation hub",
         "default_ports": [
             {"port": 8123, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Homepage", "slug": "homepage", "icon": "homepage",
+        "description": "Self-hosted services dashboard (gethomepage.dev)",
+        "default_ports": [
+            {"port": 5000, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },

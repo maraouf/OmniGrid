@@ -9526,7 +9526,12 @@
                         </svg>
                         <span x-text="t('apps.drawer.logs') || 'Logs'"></span>
                       </button>
+                      <!-- Show debug — admin-only AND gated on the Admin →
+                           Debug `debug_panel_enabled` tunable, matching the
+                           host / node / item drawers (the /debug endpoint is
+                           admin-only too). -->
                       <button type="button" @click.stop="toggleAppInstanceDebug(inst)"
+                              x-show="me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)"
                               class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
                         <svg width="13" height="13" aria-hidden="true">
                           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bug"/>
@@ -9534,7 +9539,7 @@
                         <span x-text="appDebugOpen[appInstanceKey(inst)] ? (t('apps.drawer.hide_debug') || 'Hide debug') : (t('apps.drawer.show_debug') || 'Show debug')"></span>
                       </button>
                     </div>
-                    <div x-show="appDebugOpen[appInstanceKey(inst)]"
+                    <div x-show="appDebugOpen[appInstanceKey(inst)] && me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)"
                          class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
                       <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
                         <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">

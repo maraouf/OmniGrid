@@ -1485,6 +1485,27 @@ export default {
       delete this.hostsTestResults[idx];
     }
   },
+  // Set ONE field on a row's http_probe sub-dict IN PLACE, then mark the
+  // row dirty. The enable / content_match / accepted_status_codes inputs
+  // used to each REPLACE row.http_probe via Object.assign({}, ...), but the
+  // URLs textarea binds x-model="row.http_probe.urls_text" which mutates the
+  // SAME object in place — so the per-keystroke object-reference churn from
+  // the sibling inputs raced the textarea's binding and could drop the typed
+  // URLs on save (cleared-on-save bug). Mutating one stable object reference
+  // everywhere (matching the proven SNMP exclude_mounts pattern) removes the
+  // hazard. Seeds urls_text on first creation so the textarea's x-model
+  // always has a string to bind to rather than reading off undefined.
+  setHttpProbeField(idx, key, value) {
+    const row = this.hostsConfig && this.hostsConfig[idx];
+    if (!row) {
+      return;
+    }
+    if (!row.http_probe || typeof row.http_probe !== 'object') {
+      row.http_probe = {urls_text: ''};
+    }
+    row.http_probe[key] = value;
+    this.markHostRowDirty(idx);
+  },
   // Convenience auto-fill: when the operator first types the ID
   // and the Label is still blank, mirror the ID into Label so they
   // don't have to type it twice. Respects any Label they later
