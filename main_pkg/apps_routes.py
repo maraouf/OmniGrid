@@ -890,6 +890,42 @@ async def api_container_logs(raw_id: str, _admin: AdminUser,
     return {"raw_id": raw_id, "node": node_clean, "tail": tail_n, "logs": text}
 
 
+@app.get("/api/service/{raw_id}/logs")
+async def api_service_logs(raw_id: str, _admin: AdminUser, tail: int = 200):
+    """Admin-only: tail a Swarm SERVICE's logs via Portainer (the
+    ``docker service logs`` aggregate). Powers the App-drawer Docker-link
+    "Logs" action for SERVICE links (``docker_stack``) — a service spans
+    N task containers across hosts, so Docker interleaves their
+    stdout/stderr into one stream. No ``X-PortainerAgent-Target``: the
+    service-logs API is a manager-level Swarm call, not node-scoped.
+    Demuxes the multiplexed stream like the container path. Read-only —
+    no history audit (matches the container-logs read)."""
+    import httpx
+    from logic import portainer
+    if not _CONTAINER_REF_RE.match(raw_id or ""):
+        raise HTTPException(400, "invalid service ref")
+    try:
+        tail_n = max(1, min(2000, int(tail)))
+    except (TypeError, ValueError):
+        tail_n = 200
+    eid = portainer.PORTAINER_ENDPOINT_ID
+    url = (f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker/services/"
+           f"{raw_id}/logs?stdout=1&stderr=1&timestamps=1&tail={tail_n}")
+    try:
+        async with portainer.write_client(timeout=20.0) as client:
+            r = await client.get(url, headers=portainer.headers())
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise HTTPException(502, f"Portainer service-logs fetch failed: {e}")
+    if r.status_code == 404:
+        raise HTTPException(404, "service not found")
+    if r.status_code >= 400:
+        raise HTTPException(502, f"Portainer HTTP {r.status_code}: {r.text[:300]}")
+    text = _demux_docker_logs(r.content)
+    if len(text) > 200000:
+        text = text[-200000:]
+    return {"raw_id": raw_id, "tail": tail_n, "logs": text}
+
+
 @app.get("/api/services/{host_id}/{service_idx}/history")
 async def api_service_history(host_id: str, service_idx: int, *,
                               hours: int = 24,

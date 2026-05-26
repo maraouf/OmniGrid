@@ -1,7 +1,13 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ContinueStatementJS,BreakStatementJS,ExceptionCaughtLocallyJS,PointlessBitwiseExpressionJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,XHTMLIncompatabilitiesJS,JSAccessInconsistentInXHTML,JSAsyncFunctionMissingAwait
+// noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,JSIgnoredPromiseFromCall,JSDeprecatedSymbols,ControlFlowStatementWithoutBracesJS
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Asset-Inventory integration (Admin → Assets) — load/save/test
@@ -133,7 +139,9 @@ export default {
       const r = await fetch('/api/asset-inventory/test', {method: 'POST'});
       const j = await r.json().catch(() => ({}));
       if (j && j.ok) {
-        this.recordTestSuccess && this.recordTestSuccess('asset_inventory');
+        if (this.recordTestSuccess) {
+          this.recordTestSuccess('asset_inventory');
+        }
         this.showToast(j.detail || this.t('toasts_extra.test_result_ok'), 'success');
       } else {
         this.showToast(j.detail || this.t('toasts_extra.test_result_failed'), 'error');
@@ -356,27 +364,24 @@ export default {
     if (!h) {
       return null;
     }
-    // Backend-provided shape (`/api/hosts*` injects `asset` keyed
-    // by custom_number, see `_resolve_asset_for_host` in main.py).
-    // When present we use it directly — works even before the
-    // client-side asset cache has loaded, AND for hosts with no
-    // agents configured (the live providers never populated, but
-    // the asset shape is still attached). Spread into a fresh
-    // object so the legacy `_raw` field exists for the debug
-    // panel even on the no-cache path.
-    if (h.asset && typeof h.asset === 'object') {
-      return Object.assign({_raw: null}, h.asset);
-    }
-    if (h.custom_number == null || h.custom_number === '') {
-      return null;
-    }
     const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
       ? this.assetCache.assets : null;
-    if (!assets || !assets.length) {
-      return null;
-    }
     const n = parseInt(h.custom_number, 10);
-    if (!Number.isFinite(n)) {
+    // Prefer the LIVE asset cache when it holds a match for this host's
+    // custom_number, so an asset REFRESH is reflected immediately — incl.
+    // an OPEN host drawer + arrow-nav, where the backend-injected
+    // `h.asset` below is FROZEN at host-fetch time and otherwise left the
+    // port-scan "not in asset" mismatch markers stale after a refresh.
+    // The stamped `h.asset` stays as the fallback for the pre-cache-load
+    // window AND for no-agent hosts the cache doesn't list. (`assets` +
+    // `n` are reused by the matching loop below.)
+    const hasCacheMatch = !!(assets && assets.length && Number.isFinite(n)
+      && assets.some((a) => a
+        && parseInt(a.CustomNumber ?? a.custom_number ?? a.number ?? a.id, 10) === n));
+    if (!hasCacheMatch && h.asset && typeof h.asset === 'object') {
+      return Object.assign({_raw: null}, h.asset);
+    }
+    if (!assets || !assets.length || !Number.isFinite(n)) {
       return null;
     }
     // Walk-helper: accepts a string OR a {Name}/{CalculatedName}

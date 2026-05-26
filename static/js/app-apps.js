@@ -1252,28 +1252,29 @@ export default {
     return !!(target && target.status === 'update');
   },
 
-  // True when the chip resolves to a Docker CONTAINER (not a service) in
-  // the current items list — gates the App-drawer Logs button. Service
-  // links (docker_stack) don't have a single container to tail, so Logs
-  // is hidden for them.
+  // True when the chip resolves to ANY Docker target (container OR
+  // service) in the current items list — gates the App-drawer Logs
+  // button. Container links tail one container (agent-target routed);
+  // service links tail the Swarm service's aggregated logs.
   appDrawerCanLogs(inst) {
     const target = this._appDrawerResolveItem(inst);
-    return !!(target && (target.type === 'container' || target.type === 'orphan')
-      && (target.raw_id || target.id));
+    return !!(target && (target.raw_id || target.id));
   },
 
-  // Open the container-logs modal for a Docker-linked chip + fetch the
-  // tail. Resolves the chip to its container in /api/items (carrying
-  // raw_id + node for agent-target routing), then hits the
-  // /api/container/{raw_id}/logs proxy.
+  // Open the logs modal for a Docker-linked chip + fetch the tail.
+  // Resolves the chip in /api/items: a CONTAINER hits the
+  // /api/container/{raw_id}/logs proxy (carrying node for agent-target
+  // routing); a SERVICE hits /api/service/{raw_id}/logs (manager-level
+  // aggregate, no node). `kind` drives which endpoint _fetchAppLog uses.
   appDrawerLogs(inst) {
     const target = this._appDrawerResolveItem(inst);
-    if (!target || !(target.type === 'container' || target.type === 'orphan')) {
+    if (!target || !(target.raw_id || target.id)) {
       if (typeof this.showToast === 'function') {
-        this.showToast(this.t('apps.drawer.logs_no_container') || 'Logs are available only for container-linked apps', 'error');
+        this.showToast(this.t('apps.drawer.logs_no_container') || 'No linked Docker target resolved for logs', 'error');
       }
       return;
     }
+    const isService = target.type === 'service';
     this.appLogModal = {
       open: true,
       loading: false,
@@ -1281,7 +1282,8 @@ export default {
       text: '',
       title: (inst && inst.name) || target.name || '',
       raw_id: target.raw_id || target.id || '',
-      node: target.node || '',
+      node: isService ? '' : (target.node || ''),
+      kind: isService ? 'service' : 'container',
       tail: 200,
     };
     this._fetchAppLog();
@@ -1312,7 +1314,10 @@ export default {
       if (m.node) {
         qs.set('node', m.node);
       }
-      const r = await fetch('/api/container/' + encodeURIComponent(m.raw_id) + '/logs?' + qs.toString());
+      // Service links tail the Swarm-service aggregate; container links
+      // tail the single container (node-scoped).
+      const base = (m.kind === 'service') ? '/api/service/' : '/api/container/';
+      const r = await fetch(base + encodeURIComponent(m.raw_id) + '/logs?' + qs.toString());
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         throw new Error(j.detail || ('HTTP ' + r.status));
@@ -1543,6 +1548,161 @@ export default {
       }
     } finally {
       this._hostAppsProbingAll[h.id] = false;
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Apps-VIEW per-app bulk actions — "Probe all (N)" + "Open all".
+  // These live on the top-level Apps card (one card = one catalog
+  // template, with N instances spread across hosts), distinct from the
+  // host-drawer "Probe all" above (which is one host, N apps).
+  // ----------------------------------------------------------------
+
+  // Shared bounded fan-out: run `worker(item, i)` across `items` with at
+  // most `concurrency` in flight, collecting each result (or the thrown
+  // error) into a positional results array. A reusable primitive so other
+  // bulk-with-inline-results surfaces (e.g. a future "Test all integrations"
+  // sweep) don't each re-roll a Promise pool. Never rejects — a worker
+  // throw is captured as {ok:false, error} so one bad item can't abort the
+  // batch.
+  async _fanOutBounded(items, worker, concurrency = 4) {
+    const arr = Array.isArray(items) ? items : [];
+    const results = new Array(arr.length);
+    let next = 0;
+    const runOne = async () => {
+      while (true) {
+        const i = next;
+        next += 1;
+        if (i >= arr.length) {
+          return;
+        }
+        try {
+          results[i] = await worker(arr[i], i);
+        } catch (err) {
+          results[i] = {ok: false, error: (err && err.message) ? err.message : String(err)};
+        }
+      }
+    };
+    const lanes = Math.max(1, Math.min(concurrency, arr.length));
+    const pool = [];
+    for (let k = 0; k < lanes; k += 1) {
+      pool.push(runOne());
+    }
+    await Promise.all(pool);
+    return results;
+  },
+
+  // Instances of this app that can be probed (carry a host_id + service_idx
+  // — the per-chip probe endpoint targets exactly those). Used for the
+  // "Probe all (N)" button count + gate.
+  appsProbeTargetCount(app) {
+    if (!app || !Array.isArray(app.instances)) {
+      return 0;
+    }
+    return app.instances.filter((i) => i && i.host_id != null && i.service_idx != null).length;
+  },
+
+  // Instances of this app that carry a clickable URL — drives the
+  // "Open all (N)" button count + gate.
+  appsOpenableCount(app) {
+    if (!app || !Array.isArray(app.instances)) {
+      return 0;
+    }
+    return app.instances.filter((i) => i && i.url).length;
+  },
+
+  // Is this app's per-app probe-all batch currently running? Drives the
+  // button spinner + :disabled. Keyed by group_id.
+  appsProbingAll(app) {
+    return !!(app && this._appsProbingAll && this._appsProbingAll[app.group_id]);
+  },
+
+  // Transient summary line ("4/5 up") shown in the card header right after a
+  // probe-all finishes; '' when none. Keyed by group_id.
+  appsProbeAllSummary(app) {
+    return (app && this._appsProbeAllSummary && this._appsProbeAllSummary[app.group_id]) || '';
+  },
+
+  // Probe EVERY instance of this app in one click — bounded fan-out over the
+  // per-chip probe endpoint, then ONE apps-list reload so each instance's
+  // status dot + rtt updates in place (the inline per-host result). A single
+  // summary toast + a transient header summary line report the rollup.
+  async probeAllInstances(app) {
+    if (!app || !Array.isArray(app.instances) || !app.instances.length) {
+      return;
+    }
+    const gid = app.group_id;
+    if (!this._appsProbingAll) {
+      this._appsProbingAll = {};
+    }
+    if (this._appsProbingAll[gid]) {
+      return;
+    }
+    // Snapshot the targets up front — loadAppsList(true) reconciles
+    // app.instances in place, so iterating it live could skip/repeat.
+    const targets = app.instances
+      .filter((i) => i && i.host_id != null && i.service_idx != null)
+      .map((i) => ({host_id: i.host_id, service_idx: i.service_idx}));
+    if (!targets.length) {
+      return;
+    }
+    this._appsProbingAll[gid] = true;
+    this._appsProbeAllSummary[gid] = '';
+    try {
+      const results = await this._fanOutBounded(targets, async (tgt) => {
+        const r = await fetch('/api/services/' + encodeURIComponent(tgt.host_id)
+          + '/' + encodeURIComponent(tgt.service_idx) + '/probe', {method: 'POST'});
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          return {ok: false, error: j.detail || ('HTTP ' + r.status)};
+        }
+        const j = await r.json();
+        return {ok: true, alive: !!j.alive};
+      }, 4);
+      const up = results.filter((x) => x && x.ok && x.alive).length;
+      const total = targets.length;
+      this._appsProbeAllSummary[gid] = this.t('apps.probe_all_summary', {up: up, total: total})
+        || (up + '/' + total + ' up');
+      // ONE reload so every instance's dot + rtt reflects the fresh probe
+      // (the inline per-host result), matching the in-place reconcile
+      // discipline (loadAppsList reconciles instances by host_id+service_idx).
+      if (typeof this.loadAppsList === 'function') {
+        await this.loadAppsList(true);
+      }
+      if (typeof this.showToast === 'function') {
+        this.showToast(
+          this.t('apps.probe_all_done', {name: app.name, up: up, total: total})
+          || ('Probed ' + total + ' instances — ' + up + ' up'),
+          up === total ? 'success' : 'info'
+        );
+      }
+    } finally {
+      this._appsProbingAll[gid] = false;
+    }
+  },
+
+  // Open every instance URL of this app in a new tab. MUST stay synchronous
+  // (no await before the window.open loop) so the browser treats each open
+  // as user-initiated — an intervening await would break the click-gesture
+  // chain and the popup blocker would swallow all but the first.
+  openAllInstances(app) {
+    if (!app || !Array.isArray(app.instances)) {
+      return;
+    }
+    const urls = [];
+    const seen = new Set();
+    for (const inst of app.instances) {
+      const u = inst && inst.url;
+      if (u && !seen.has(u)) {
+        seen.add(u);
+        urls.push(u);
+      }
+    }
+    if (!urls.length) {
+      return;
+    }
+    for (const u of urls) {
+      window.open(u, '_blank', 'noopener');
     }
   },
 
