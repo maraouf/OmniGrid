@@ -67,6 +67,42 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "ManageEngine", "slug": "manageengine", "icon": "manageengine",
+        "description": "ManageEngine IT management suite",
+        "default_ports": [
+            {"port": 8020, "protocol": "tcp", "label": "8020",
+             "probe_path": "", "probe_status": 0},
+            {"port": 8027, "protocol": "tcp", "label": "8027",
+             "probe_path": "", "probe_status": 0},
+            {"port": 8746, "protocol": "tcp", "label": "8746",
+             "probe_path": "", "probe_status": 0},
+            {"port": 49669, "protocol": "tcp", "label": "49669",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Veeam Server", "slug": "veeam-server", "icon": "veeam",
+        "description": "Veeam Backup & Replication server",
+        "default_ports": [
+            {"port": 9392, "protocol": "tcp", "label": "Backup",
+             "probe_path": "", "probe_status": 0},
+            {"port": 9393, "protocol": "tcp", "label": "Catalog",
+             "probe_path": "", "probe_status": 0},
+            {"port": 9401, "protocol": "tcp", "label": "Secure",
+             "probe_path": "", "probe_status": 0},
+            {"port": 9419, "protocol": "tcp", "label": "REST",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Rundeck", "slug": "rundeck", "icon": "rundeck",
+        "description": "Runbook automation / job scheduler",
+        "default_ports": [
+            {"port": 4440, "protocol": "tcp", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
         "name": "Jellyfin", "slug": "jellyfin", "icon": "jellyfin",
         "description": "Open-source media streaming server",
         "default_ports": [
