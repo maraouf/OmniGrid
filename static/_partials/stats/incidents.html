@@ -215,7 +215,7 @@
                                 const pct = Math.min(1, v / max);
                                 return 'background: color-mix(in srgb, var(--danger) ' + Math.round(15 + pct * 70) + '%, transparent)';
                               })()"
-                      :title="t('stats.incidents.heatmap.cell_title', { count: (((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0) })"></td>
+                      :title="(() => { const c = (((statsIncidents.heatmap || [])[dow] || [])[hour - 1] || 0); return t(c === 1 ? 'stats.incidents.heatmap.cell_title' : 'stats.incidents.heatmap.cell_title_plural', { count: c }); })()"></td>
                 </template>
               </tr>
             </template>
