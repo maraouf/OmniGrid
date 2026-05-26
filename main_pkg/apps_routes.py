@@ -438,6 +438,15 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["docker_container"] = v[:256]
         else:
             chip.pop("docker_container", None)
+    # Swarm node / host of the linked container (disambiguates a name
+    # shared across hosts). Empty clears it; cleared automatically when
+    # the link is switched to a service.
+    if "docker_host" in payload:
+        v = (payload.get("docker_host") or "").strip()
+        if v:
+            chip["docker_host"] = v[:256]
+        else:
+            chip.pop("docker_host", None)
     probe = chip.get("probe") if isinstance(chip.get("probe"), dict) else {}
     if "probe_enabled" in payload:
         probe["enabled"] = bool(payload.get("probe_enabled"))

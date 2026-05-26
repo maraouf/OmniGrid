@@ -1007,7 +1007,7 @@ export default {
   appsInstanceEditForm: {
     host_id: '', service_idx: -1, host_label: '', catalog_name: '',
     name: '', url: '', icon: '', probe_enabled: true, probe_type: 'tcp',
-    ports: [], docker_stack: '', docker_container: '',
+    ports: [], docker_stack: '', docker_container: '', docker_host: '',
   },
 
   openInstanceEdit(inst) {
@@ -1037,6 +1037,7 @@ export default {
       ports: ports,
       docker_stack: inst.docker_stack || '',
       docker_container: inst.docker_container || '',
+      docker_host: inst.docker_host || '',
     };
     this.appsInstanceEditError = '';
     this.appsInstanceEditOpen = true;
@@ -1047,35 +1048,116 @@ export default {
   // service names + stack namespaces; containers = standalone /orphan
   // container names. Free-text inputs back these so the operator can
   // also type an id the snapshot doesn't list.
-  appsDockerStackOptions() {
-    const out = new Set();
+  // Docker-link picker options — one grouped list from the live
+  // /api/items snapshot. CONTAINERS (host-specific = the precise
+  // restart/update target) come first WITH their host; SERVICES (span
+  // hosts) follow. The option value is the item id (svc:/ctn:) — a
+  // transient picker key; selecting one derives the STABLE stored
+  // fields (name + host for a container, name for a service) via
+  // setAppsInstanceDockerLink, so a container recreate (new id) doesn't
+  // break the link.
+  appsDockerLinkOptions() {
+    const containers = [];
+    const services = [];
     for (const it of (this.items || [])) {
-      if (!it) {
+      if (!it || !it.id || !it.name) {
         continue;
       }
-      if (it.type === 'service' && it.name) {
-        out.add(it.name);
-      }
-      if (it.stack) {
-        out.add(it.stack);
+      if (it.type === 'container' || it.type === 'orphan') {
+        containers.push({id: it.id, label: it.name + (it.node ? ' · ' + it.node : ''), name: it.name, host: it.node || ''});
+      } else if (it.type === 'service') {
+        services.push({id: it.id, label: it.name + (it.stack ? ' · ' + it.stack : ''), name: it.name, host: ''});
       }
     }
-    return Array.from(out).sort();
+    const byLabel = (a, b) => (a.label || '').toLowerCase().localeCompare((b.label || '').toLowerCase());
+    containers.sort(byLabel);
+    services.sort(byLabel);
+    return {containers, services};
   },
-  appsDockerContainerOptions() {
-    const out = new Set();
-    for (const it of (this.items || [])) {
-      if (it && (it.type === 'container' || it.type === 'orphan') && it.name) {
-        out.add(it.name);
+
+  // Current <select> value for the edit form: the item id matching the
+  // stored link (container name + host wins; falls back to name-only
+  // across snapshots; else the service), or '' when unlinked / the
+  // linked item isn't in the current snapshot.
+  appsInstanceDockerLinkValue() {
+    const f = this.appsInstanceEditForm || {};
+    const items = Array.isArray(this.items) ? this.items : [];
+    if (f.docker_container) {
+      const c = items.find((it) => it && (it.type === 'container' || it.type === 'orphan')
+        && it.name === f.docker_container && (!f.docker_host || (it.node || '') === f.docker_host));
+      if (c) {
+        return c.id;
+      }
+      const c2 = items.find((it) => it && (it.type === 'container' || it.type === 'orphan') && it.name === f.docker_container);
+      if (c2) {
+        return c2.id;
       }
     }
-    return Array.from(out).sort();
+    if (f.docker_stack) {
+      const s = items.find((it) => it && it.type === 'service'
+        && (it.name === f.docker_stack || it.stack === f.docker_stack));
+      if (s) {
+        return s.id;
+      }
+    }
+    return '';
+  },
+
+  // Apply a picker selection to the edit form's stable fields. A
+  // container sets docker_container + docker_host (clears docker_stack);
+  // a service sets docker_stack (clears docker_container + docker_host);
+  // '' clears the link entirely.
+  setAppsInstanceDockerLink(itemId) {
+    const f = this.appsInstanceEditForm;
+    if (!f) {
+      return;
+    }
+    if (!itemId) {
+      f.docker_container = '';
+      f.docker_stack = '';
+      f.docker_host = '';
+      return;
+    }
+    const it = (this.items || []).find((x) => x && x.id === itemId);
+    if (!it) {
+      return;
+    }
+    if (it.type === 'container' || it.type === 'orphan') {
+      f.docker_container = it.name || '';
+      f.docker_host = it.node || '';
+      f.docker_stack = '';
+    } else if (it.type === 'service') {
+      f.docker_stack = it.name || '';
+      f.docker_container = '';
+      f.docker_host = '';
+    }
+  },
+
+  // One-line confirmation of what the current edit-form link resolves to
+  // in the live snapshot — surfaces the live status so the operator sees
+  // the mapping is real (uses the mapping "to do something"). Empty when
+  // unlinked.
+  appsInstanceDockerLinkSummary() {
+    const f = this.appsInstanceEditForm || {};
+    if (!f.docker_container && !f.docker_stack) {
+      return '';
+    }
+    const target = this._appDrawerResolveItem(f);
+    if (!target) {
+      return this.t('admin_apps.instance_edit_docker_unresolved') || 'Linked target not in the current items snapshot';
+    }
+    const where = target.node ? (' · ' + target.node) : '';
+    const status = target.status || target.health || '';
+    return (this.t('admin_apps.instance_edit_docker_linked') || 'Linked')
+      + ' → ' + (target.name || '') + where + (status ? ' (' + status + ')' : '');
   },
 
   // Resolve a Docker-linked chip to its item in the current /api/items
-  // snapshot. docker_container wins (standalone container, matched by
-  // name / raw_id / id); else docker_stack matches a service by name /
-  // stack namespace. Returns null when nothing matches.
+  // snapshot. A container link matches by name AND (when stored) host —
+  // so a name shared across hosts resolves to the precise target; falls
+  // back to name-only (host may have changed since the link was saved)
+  // + raw_id/id. A service link matches by name / stack namespace.
+  // Returns null when nothing matches.
   _appDrawerResolveItem(inst) {
     if (!inst) {
       return null;
@@ -1083,9 +1165,17 @@ export default {
     const items = Array.isArray(this.items) ? this.items : [];
     if (inst.docker_container) {
       const c = items.find((it) => it && (it.type === 'container' || it.type === 'orphan')
-        && (it.name === inst.docker_container || it.raw_id === inst.docker_container || it.id === inst.docker_container));
+        && (it.name === inst.docker_container || it.raw_id === inst.docker_container || it.id === inst.docker_container)
+        && (!inst.docker_host || (it.node || '') === inst.docker_host));
       if (c) {
         return c;
+      }
+      if (inst.docker_host) {
+        const c2 = items.find((it) => it && (it.type === 'container' || it.type === 'orphan')
+          && (it.name === inst.docker_container || it.raw_id === inst.docker_container || it.id === inst.docker_container));
+        if (c2) {
+          return c2;
+        }
       }
     }
     if (inst.docker_stack) {
@@ -1169,6 +1259,7 @@ export default {
           probe_enabled: f.probe_enabled, probe_type: f.probe_type,
           ports: Array.isArray(f.ports) ? f.ports : [],
           docker_stack: f.docker_stack || '', docker_container: f.docker_container || '',
+          docker_host: f.docker_host || '',
         }),
       });
       if (!r.ok) {
