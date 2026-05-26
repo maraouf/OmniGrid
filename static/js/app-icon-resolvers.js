@@ -2,6 +2,7 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// noinspection ConstantOnRightSideOfComparisonJS,JSConstantOnRightSideOfComparison,JSVariableNamingConventionJS,LocalVariableNamingConventionJS,BadName,BadVariableName,RegExpAnonymousGroup
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA brand-icon resolvers.
@@ -95,7 +96,6 @@ export default {
       'seerr': 'seerr',
       'docker-prune': 'docker',
       'standalone': 'docker',
-      'omnigrid': 'docker',
       'nebula-sync': 'pi-hole',
       'adguardhome-sync': 'adguard-home',
       'adguard-exporter': 'adguard-home',

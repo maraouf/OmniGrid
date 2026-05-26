@@ -57,9 +57,21 @@ export default {
         seenGids.add(gid);
         const existing = byGid[gid];
         if (existing) {
-          // Field-by-field overwrite.
+          // Field-by-field overwrite — but reconcile the nested
+          // `instances` array IN PLACE (by host_id+service_idx) so the
+          // inner x-for + per-port pill loop don't tear down on every
+          // poll. Wholesale `existing.instances = incomingApp.instances`
+          // re-renders the entire nested grid (visible flicker), which
+          // defeats the in-place reconcile this method does for the
+          // top-level list.
           for (const k of Object.keys(incomingApp)) {
-            existing[k] = incomingApp[k];
+            if (k === 'instances'
+                && Array.isArray(existing.instances)
+                && Array.isArray(incomingApp.instances)) {
+              this._reconcileInstancesInPlace(existing.instances, incomingApp.instances);
+            } else {
+              existing[k] = incomingApp[k];
+            }
           }
         } else {
           this.appsList.push(incomingApp);
@@ -84,13 +96,88 @@ export default {
     }
   },
 
+  // Reconcile a nested per-host instances[] array IN PLACE so the inner
+  // x-for + per-port pill loop survive a poll without DOM tear-down.
+  // Match instances by host_id+service_idx (update field-by-field, push
+  // new, splice gone); within each matched instance reconcile its
+  // port_results[] by port number the same way. Same discipline as the
+  // top-level appsList reconcile.
+  _reconcileInstancesInPlace(existingArr, incomingArr) {
+    const keyOf = (inst) => (inst.host_id || '') + ':' + inst.service_idx;
+    const byKey = {};
+    for (const e of existingArr) {
+      byKey[keyOf(e)] = e;
+    }
+    const seen = new Set();
+    for (const inc of incomingArr) {
+      const k = keyOf(inc);
+      seen.add(k);
+      const ex = byKey[k];
+      if (!ex) {
+        existingArr.push(inc);
+        continue;
+      }
+      for (const kk of Object.keys(inc)) {
+        if (kk === 'port_results'
+            && Array.isArray(ex.port_results)
+            && Array.isArray(inc.port_results)) {
+          this._reconcilePortResultsInPlace(ex.port_results, inc.port_results);
+        } else {
+          ex[kk] = inc[kk];
+        }
+      }
+    }
+    for (let i = existingArr.length - 1; i >= 0; i--) {
+      if (!seen.has(keyOf(existingArr[i]))) {
+        existingArr.splice(i, 1);
+      }
+    }
+  },
+
+  // Reconcile a port_results[] array in place by port number.
+  _reconcilePortResultsInPlace(existingArr, incomingArr) {
+    const byPort = {};
+    for (const e of existingArr) {
+      byPort[e.port] = e;
+    }
+    const seen = new Set();
+    for (const inc of incomingArr) {
+      seen.add(inc.port);
+      const ex = byPort[inc.port];
+      if (ex) {
+        for (const kk of Object.keys(inc)) {
+          ex[kk] = inc[kk];
+        }
+      } else {
+        existingArr.push(inc);
+      }
+    }
+    for (let i = existingArr.length - 1; i >= 0; i--) {
+      if (!seen.has(existingArr[i].port)) {
+        existingArr.splice(i, 1);
+      }
+    }
+  },
+
   // Filtered apps list — search + status filter applied client-side.
   filteredApps() {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
     let out = this.appsList || [];
     if (sf) {
-      out = out.filter(a => a.status === sf);
+      // Status filter: keep apps whose rollup status matches AND drill
+      // into each so ONLY the matching instances show — so the by-host
+      // view (and the per-app instance list) surface just the hosts +
+      // tiles in that state, giving a clear "what's degraded / down"
+      // view. Shallow-copy so the reactive appsList source isn't
+      // mutated; group_id is preserved so keyed x-for still reuses DOM.
+      out = out
+        .filter(a => a.status === sf)
+        .map(a => Object.assign({}, a, {
+          instances: Array.isArray(a.instances)
+            ? a.instances.filter(i => i.status === sf)
+            : a.instances,
+        }));
     }
     if (q) {
       out = out.filter(a => {

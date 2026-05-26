@@ -2861,7 +2861,12 @@ def _shape_host_apps(h: dict) -> list[dict]:
             "service_idx": idx,
             "name": (chip.get("name") or "").strip(),
             "url": (chip.get("url") or "").strip(),
-            "icon": (chip.get("icon") or "").strip(),
+            # Icon resolution: chip override wins; otherwise inherit the
+            # catalog template's icon directly so a slug != icon template
+            # (e.g. Veeam Server slug 'veeam-server' icon 'veeam') resolves
+            # without the frontend having to dig into catalog.icon (which it
+            # also does, but stamping here is the robust single source).
+            "icon": (chip.get("icon") or (catalog_block or {}).get("icon") or "").strip(),
             "catalog_id": cid_int,
             "catalog": catalog_block,
             "probe": probe_block,

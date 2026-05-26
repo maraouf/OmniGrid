@@ -542,7 +542,7 @@ export default {
       const res = await swal.fire({
         title: this.t(titleKey) || fallbackTitle,
         html: (this.t(bodyKey, {count: ids.length}) || fallbackBody)
-          + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+          + '<br><br><div class="fs-xs text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: this.t(okKey) || fallbackOk,

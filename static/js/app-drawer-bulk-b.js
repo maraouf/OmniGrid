@@ -1159,7 +1159,7 @@ export default {
           title: this.t('hosts_extra.bulk.pause_confirm_title') || 'Pause sampling?',
           html: (this.t('hosts_extra.bulk.pause_confirm_body', {count: this.selectedHostCount()})
               || ('Pause sampling on ' + this.selectedHostCount() + ' host(s)?'))
-            + '<br><br><div class="text-[11.5px] text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
+            + '<br><br><div class="fs-xs text-[var(--text-dim)] mono break-words">' + sampleHtml + moreHtml + '</div>',
           icon: 'warning',
           showCancelButton: true,
           confirmButtonText: this.t('hosts_extra.bulk.pause_confirm_ok') || 'Pause',

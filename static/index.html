@@ -3259,7 +3259,7 @@
           <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer"
                    :class="'apps-card--' + app.status"
                    role="button" tabindex="0"
-                   :aria-label="(t('apps.drawer.open') || 'View app details') + ': ' + app.name"
+                   :aria-label="t('apps.drawer.open_aria', {name: app.name})"
                    @click="openAppDrawer(app)"
                    @keydown.enter="openAppDrawer(app)"
                    @keydown.space.prevent="openAppDrawer(app)">
@@ -3271,8 +3271,7 @@
                 <div class="flex items-center justify-between gap-1">
                   <h3 class="font-semibold fs-sm truncate" x-text="app.name"></h3>
                   <span class="chip fs-3xs whitespace-nowrap"
-                        role="status" aria-live="polite"
-                        :aria-label="app.name + ': ' + (t('apps.status_' + app.status) || app.status)"
+                        :aria-label="appsChipAriaLabel(app)"
                         :class="appStatusPillClass(app.status)"
                         x-text="(t('apps.status_' + app.status) || app.status)"></span>
                 </div>
@@ -3349,7 +3348,7 @@
                  @click="openAppHostDrawer(grp)"
                  @keydown.enter="openAppHostDrawer(grp)"
                  @keydown.space.prevent="openAppHostDrawer(grp)"
-                 :aria-label="(t('apps.host_drawer.open') || 'View host apps') + ': ' + (grp.host_label || grp.host_address)">
+                 :aria-label="t('apps.host_drawer.open_aria', {name: (grp.host_label || grp.host_address)})">
               <span class="apps-host-avatar" aria-hidden="true">
                 <svg width="18" height="18" class="text-[var(--text-dim)]">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
@@ -3375,7 +3374,7 @@
                 <button type="button" class="apps-host-tile"
                         @click="openAppFromHostDrawer(a)"
                         :title="appsChipTitle(a)"
-                        :aria-label="a.name + ': ' + (t('apps.status_' + a.status) || a.status)">
+                        :aria-label="appsChipAriaLabel(a)">
                   <span class="apps-host-tile-icon">
                     <img :src="iconUrlFor(a.icon || a.name)" alt="" width="34" height="34" class="rounded"
                          @error="$event.target.style.visibility='hidden'">
@@ -5241,75 +5240,6 @@
                      non-empty list (set by `_shape_host_apps` backend-side).
                      Status is up / down / unknown derived from the most-recent
                      service_samples row stamped onto each chip. -->
-            <template x-if="Array.isArray(h.apps) && h.apps.length">
-              <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
-                <header class="flex items-center gap-2 mb-2">
-                  <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
-                  </svg>
-                  <h3 class="font-semibold fs-sm"
-                      x-text="t('host_drawer.apps.title') || 'Apps'"></h3>
-                  <span class="chip pill-info fs-3xs ms-2"
-                        x-text="t('host_drawer.apps.up_count', { up: (h.apps || []).filter(a => a.status === 'up').length, total: (h.apps || []).length })"></span>
-                </header>
-                <!-- Compact wrapping tiles — each app is one inline tile that
-                     flows + wraps (multiple per row) instead of taking a full
-                     line. Every app shows its port(s) as small pills (even
-                     single-port apps), coloured by each port's probe verdict
-                     (up / down / pending). -->
-                <div class="apps-drawer-tiles flex flex-wrap gap-2 fs-xs">
-                  <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
-                    <div class="apps-drawer-tile"
-                         :title="app.name + (app.catalog ? ' (' + app.catalog.name + ')' : '')">
-                      <img :src="iconUrlFor(app.icon || (app.catalog && (app.catalog.icon || app.catalog.slug)) || app.name)"
-                           alt="" width="16" height="16" class="rounded flex-shrink-0"
-                           @error="$event.target.style.visibility='hidden'">
-                      <span class="apps-drawer-tile-name"
-                            x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></span>
-                      <span class="apps-drawer-tile-ports">
-                        <template x-for="pr in (app.port_results || [])" :key="pr.port">
-                          <span class="apps-port-pill" :class="'apps-port-pill--' + appsPortState(pr)"
-                                :title="appsPortTitle(pr)">
-                            <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                            <span class="mono" x-text="pr.port"></span>
-                          </span>
-                        </template>
-                        <!-- No configured ports (e.g. a url-only chip) — fall back
-                             to the app's rollup status dot so the tile still shows
-                             a verdict. -->
-                        <span x-show="!(app.port_results || []).length"
-                              class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
-                      </span>
-                      <a x-show="app.url" :href="app.url" target="_blank" rel="noopener"
-                         class="btn-ghost p-0.5 flex-shrink-0" @click.stop
-                         :aria-label="t('host_drawer.apps.open') || 'Open'"
-                         :title="t('host_drawer.apps.open') || 'Open'">
-                        <svg width="12" height="12" aria-hidden="true">
-                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                        </svg>
-                      </a>
-                      <button type="button"
-                              x-show="isAdmin()"
-                              class="btn-ghost p-0.5 flex-shrink-0"
-                              :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
-                              :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
-                              :title="t('host_drawer.apps.probe_now') || 'Probe now'"
-                              @click.stop="probeAppNow(h, app.service_idx)">
-                        <svg width="12" height="12"
-                             :class="probeNowInFlight['probe:' + h.id + ':' + app.service_idx] ? 'spin-md' : ''"
-                             aria-hidden="true">
-                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </template>
-                </div>
-                <div x-show="(h.apps || []).filter(a => a.status === 'down').length"
-                     class="mt-2 fs-2xs text-[var(--danger)]"
-                     x-text="(h.apps || []).filter(a => a.status === 'down').length + ' ' + (t('host_drawer.apps.down_suffix') || 'down')"></div>
-              </section>
-            </template>
-
             <!-- PORT SCAN — on-demand TCP-connect scanner.
                      Card surfaces when the master toggle is ON AND the
                      curated row opted in via Admin → Hosts (`port_scan.enabled`),
@@ -5451,6 +5381,75 @@
                     </div>
                   </div>
                 </template>
+              </section>
+            </template>
+
+            <template x-if="Array.isArray(h.apps) && h.apps.length">
+              <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                <header class="flex items-center gap-2 mb-2">
+                  <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
+                  </svg>
+                  <h3 class="font-semibold fs-sm"
+                      x-text="t('host_drawer.apps.title') || 'Apps'"></h3>
+                  <span class="chip pill-info fs-3xs ms-2"
+                        x-text="t('host_drawer.apps.up_count', { up: (h.apps || []).filter(a => a.status === 'up').length, total: (h.apps || []).length })"></span>
+                </header>
+                <!-- Compact wrapping tiles — each app is one inline tile that
+                     flows + wraps (multiple per row) instead of taking a full
+                     line. Every app shows its port(s) as small pills (even
+                     single-port apps), coloured by each port's probe verdict
+                     (up / down / pending). -->
+                <div class="apps-drawer-tiles flex flex-wrap gap-2 fs-xs">
+                  <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
+                    <div class="apps-drawer-tile"
+                         :title="app.name + (app.catalog ? ' (' + app.catalog.name + ')' : '')">
+                      <img :src="iconUrlFor(app.icon || (app.catalog && (app.catalog.icon || app.catalog.slug)) || app.name)"
+                           alt="" width="16" height="16" class="rounded flex-shrink-0"
+                           @error="$event.target.style.visibility='hidden'">
+                      <span class="apps-drawer-tile-name"
+                            x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></span>
+                      <span class="apps-drawer-tile-ports">
+                        <template x-for="pr in (app.port_results || [])" :key="pr.port">
+                          <span class="apps-port-pill" :class="'apps-port-pill--' + appsPortState(pr)"
+                                :title="appsPortTitle(pr)">
+                            <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
+                            <span class="mono" x-text="pr.port"></span>
+                          </span>
+                        </template>
+                        <!-- No configured ports (e.g. a url-only chip) — fall back
+                             to the app's rollup status dot so the tile still shows
+                             a verdict. -->
+                        <span x-show="!(app.port_results || []).length"
+                              class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
+                      </span>
+                      <a x-show="app.url" :href="app.url" target="_blank" rel="noopener"
+                         class="btn-ghost p-0.5 flex-shrink-0" @click.stop
+                         :aria-label="t('host_drawer.apps.open') || 'Open'"
+                         :title="t('host_drawer.apps.open') || 'Open'">
+                        <svg width="12" height="12" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                        </svg>
+                      </a>
+                      <button type="button"
+                              x-show="isAdmin()"
+                              class="btn-ghost p-0.5 flex-shrink-0 text-[var(--primary)]"
+                              :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
+                              :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
+                              :title="t('host_drawer.apps.probe_now') || 'Probe now'"
+                              @click.stop="probeAppNow(h, app.service_idx)">
+                        <svg width="12" height="12"
+                             :class="probeNowInFlight['probe:' + h.id + ':' + app.service_idx] ? 'spin-md' : ''"
+                             aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+                <div x-show="(h.apps || []).filter(a => a.status === 'down').length"
+                     class="mt-2 fs-2xs text-[var(--danger)]"
+                     x-text="(h.apps || []).filter(a => a.status === 'down').length + ' ' + (t('host_drawer.apps.down_suffix') || 'down')"></div>
               </section>
             </template>
 
@@ -9119,7 +9118,7 @@
       <div @click="drawerNode=null" class="absolute inset-0 backdrop"></div>
       <aside x-show="drawerNode"
              role="dialog" aria-modal="true"
-             :aria-label="drawerNode && drawerNode.name ? t('nodes.beszel.alias_section_title') + ' — ' + drawerNode.name : t('nodes.beszel.alias_section_title')"
+             :aria-label="drawerNode && drawerNode.name ? t('nodes.beszel.alias_section_aria', {title: t('nodes.beszel.alias_section_title'), name: drawerNode.name}) : t('nodes.beszel.alias_section_title')"
              @keydown="_focusTrapKeydown($event, $el)"
              class="absolute inset-y-0 end-0 w-full md:w-[460px] bg-[var(--surface)] border-s border-[var(--border)] overflow-y-auto scrollbar slide-in">
         <template x-if="drawerNode">
@@ -9485,7 +9484,7 @@
                        @click="openAppFromHostDrawer(a)"
                        @keydown.enter="openAppFromHostDrawer(a)"
                        @keydown.space.prevent="openAppFromHostDrawer(a)"
-                       :aria-label="(t('apps.drawer.open') || 'View app details') + ': ' + a.name">
+                       :aria-label="t('apps.drawer.open_aria', {name: a.name})">
                     <div class="flex items-center gap-2">
                       <img :src="iconUrlFor(a.icon || a.name)" alt="" width="26" height="26" class="rounded"
                            @error="$event.target.style.visibility='hidden'">
@@ -11034,7 +11033,7 @@
            @click.stop>
         <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
           <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true">
-            <use href="#icon-search"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
           </svg>
           <input type="text" id="cmdpal-input"
                  x-model="commandPaletteQuery"
