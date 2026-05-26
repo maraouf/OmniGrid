@@ -753,11 +753,34 @@ async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
     if cid is not None:
         catalog = _sc.get_catalog_by_id(cid)
 
+    # Continuous-sampler eligibility — distinct from per-target
+    # resolution. The lifespan sampler only LIVE-probes a chip when the
+    # GLOBAL Service-probe provider is enabled AND the chip's own
+    # probe.enabled is on. Either being off means the port pills stay
+    # grey/pending even though the per-app "Probe now" button (a one-shot
+    # that bypasses both gates) still works. Surfacing both here so the
+    # operator can see — and share from this panel — why an app reads
+    # "not probing" without checking logs.
+    master_enabled = get_setting_bool(Settings.SERVICE_PROBE_ENABLED)
+    live_probe_blockers: list[str] = []
+    if not master_enabled:
+        live_probe_blockers.append(
+            "Service probe provider is globally OFF — enable it in Admin → Providers → Service probe")
+    if not probe_cfg.get("enabled"):
+        live_probe_blockers.append(
+            "this chip's probe is disabled (probe.enabled = false)")
+
     return {
         "host_id": host_id,
         "host_label": (target_host.get("label") or host_id).strip(),
         "host_address": host_address,
         "service_idx": service_idx,
+        # Continuous-probe gates (master provider toggle + per-chip flag)
+        # + a human blocker list. live_probe_blockers empty == continuous
+        # probing is eligible for this chip; the one-shot "Probe now"
+        # button works regardless of these.
+        "service_probe_master_enabled": master_enabled,
+        "live_probe_blockers": live_probe_blockers,
         "chip": {
             "name": (chip.get("name") or "").strip(),
             "catalog_id": cid,

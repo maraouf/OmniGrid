@@ -445,13 +445,39 @@
 
       <div class="space-y-3">
         <div>
-          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.pin_host') || 'Host'"></label>
-          <select class="w-full" x-model="appsPinForm.host_id">
-            <option value="" x-text="t('admin_apps.pin_host_placeholder') || '— pick a host —'"></option>
-            <template x-for="h in (hostsConfig || [])" :key="h.id">
-              <option :value="h.id" x-text="(h.address || h.id) + (h.label && h.label !== (h.address || h.id) ? ' — ' + h.label : '')"></option>
-            </template>
-          </select>
+          <label class="block fs-xs font-medium mb-1" for="apps-pin-host-search"
+                 x-text="t('admin_apps.pin_host') || 'Host'"></label>
+          <!-- Searchable host picker — same combobox pattern as the
+               discovery wizard. Type to filter; arrow keys move the
+               highlight, Enter selects, Escape closes. -->
+          <div class="relative" @click.outside="appsPinHostDropdownOpen = false">
+            <input id="apps-pin-host-search" type="text" class="w-full"
+                   autocomplete="off" role="combobox" aria-controls="apps-pin-host-list"
+                   :aria-expanded="appsPinHostDropdownOpen ? 'true' : 'false'"
+                   :placeholder="t('admin_apps.pin_host_search') || 'Type to filter hosts…'"
+                   x-model="appsPinHostSearch"
+                   @focus="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1"
+                   @input="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1; appsPinForm.host_id = ''"
+                   @keydown.arrow-down.prevent="appsPinHostMove(1)"
+                   @keydown.arrow-up.prevent="appsPinHostMove(-1)"
+                   @keydown.enter.prevent="appsPinHostEnter()"
+                   @keydown.escape.prevent.stop="appsPinHostDropdownOpen = false">
+            <ul x-show="appsPinHostDropdownOpen" x-cloak id="apps-pin-host-list" role="listbox"
+                class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
+              <template x-for="(h, idx) in appsPinFilteredHosts()" :key="h.id">
+                <li role="option"
+                    :aria-selected="appsPinForm.host_id === h.id ? 'true' : 'false'"
+                    :class="idx === appsPinHostActiveIdx ? 'bg-[var(--row-hover)]' : ''"
+                    class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)]"
+                    @mouseenter="appsPinHostActiveIdx = idx"
+                    @click="selectAppsPinHost(h)"
+                    x-text="appsHostLabel(h)"></li>
+              </template>
+              <li x-show="!appsPinFilteredHosts().length"
+                  class="px-3 py-1.5 fs-sm text-[var(--text-faint)]"
+                  x-text="t('admin_apps.pin_host_no_match') || 'No matching hosts'"></li>
+            </ul>
+          </div>
           <p x-show="!(hostsConfig || []).length" class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('admin_apps.pin_no_hosts') || 'No curated hosts yet — add one via Admin → Hosts first.'"></p>
         </div>

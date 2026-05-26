@@ -242,6 +242,15 @@ function app() {
     appsPinForm: {template: null, host_id: '', url: '', probe_enabled: true},
     appsPinSaving: false,
     appsPinError: '',
+    // Searchable host picker for the Pin-to-host modal — mirrors the
+    // discovery wizard's picker: `appsPinHostSearch` is the live filter
+    // text, `appsPinHostDropdownOpen` gates the match list, and
+    // `appsPinHostActiveIdx` is the keyboard-highlight index into
+    // appsPinFilteredHosts() (−1 = none). The selected host id lives on
+    // appsPinForm.host_id — these three are display-only state.
+    appsPinHostSearch: '',
+    appsPinHostDropdownOpen: false,
+    appsPinHostActiveIdx: -1,
     // Discovery wizard — host picker + proposal list. `appsDiscoverResult`
     // is the most-recent /api/services/discover/{host_id} response;
     // `appsDiscoverSelected` is a Set of catalog_ids the operator checked
