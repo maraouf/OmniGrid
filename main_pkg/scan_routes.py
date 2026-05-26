@@ -699,12 +699,33 @@ async def api_hosts_port_scan(
         body = PortScanIn()
     from logic import port_scanner as _ps
     from logic import service_catalog as _ps_catalog
-    ports_csv = (
-        (body.ports or "").strip()
-        or (ps_cfg.get("ports") or "").strip()
-        or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "").strip()
-    )
-    ports_list = _ps.parse_port_csv(ports_csv) if ports_csv else list(_ps.DEFAULT_PORTS)
+    _per_call_ports = (body.ports or "").strip()
+    if _per_call_ports:
+        # Per-call explicit override — a caller that asked for a specific
+        # set (e.g. a targeted re-scan) wants ONLY that set, so honour it
+        # verbatim with no defaults floor.
+        ports_list = _ps.parse_port_csv(_per_call_ports)
+    else:
+        # Otherwise the code DEFAULT_PORTS are a FLOOR that's ALWAYS
+        # scanned, and the per-host / global custom CSV is UNIONED on top
+        # (it ADDS ports — it no longer REPLACES the defaults). This fixes
+        # the recurring "I added a well-known / app port to the scanner but
+        # my scans don't detect it": a saved port_scan_default_ports CSV
+        # used to shadow the code defaults entirely, so newly-added ports
+        # (Beszel agent 45876, DNS-over-TLS 853, etc.) never reached the
+        # scan. Defaults-as-floor means a default port can't be silently
+        # dropped by an out-of-date custom list.
+        ports_list = list(_ps.DEFAULT_PORTS)
+        _custom_csv = (
+            (ps_cfg.get("ports") or "").strip()
+            or (get_setting(Settings.PORT_SCAN_DEFAULT_PORTS) or "").strip()
+        )
+        if _custom_csv:
+            _seen_base = set(ports_list)
+            for _p in _ps.parse_port_csv(_custom_csv):
+                if _p not in _seen_base:
+                    ports_list.append(_p)
+                    _seen_base.add(_p)
     # Always ALSO scan the ports of every app/service configured on THIS
     # host (services[].probe.ports[] + the legacy top-level services[].port),
     # unioned onto the base list. Operator-flagged: a pinned app's port
@@ -796,15 +817,26 @@ async def api_hosts_port_scan(
     udp_concurrency = 0
     if udp_enabled:
         from logic import port_scanner_udp as _ps_udp
-        udp_ports_csv = (
-            (body.udp_ports or "").strip()
-            or (ps_cfg.get("udp_ports") or "").strip()
-            or (get_setting(Settings.PORT_SCAN_UDP_DEFAULT_PORTS) or "").strip()
-        )
-        udp_ports_list = (
-            _ps.parse_port_csv(udp_ports_csv) if udp_ports_csv
-            else list(_ps_udp.DEFAULT_UDP_PORTS)
-        )
+        _per_call_udp = (body.udp_ports or "").strip()
+        if _per_call_udp:
+            # Per-call explicit UDP override — honour verbatim.
+            udp_ports_list = _ps.parse_port_csv(_per_call_udp)
+        else:
+            # DEFAULT_UDP_PORTS as a FLOOR + per-host / global custom UDP
+            # CSV unioned on top, mirroring the TCP path above so a saved
+            # custom UDP list can't shadow well-known UDP ports (DNS 53,
+            # DHCP 67, NTP 123, …).
+            udp_ports_list = list(_ps_udp.DEFAULT_UDP_PORTS)
+            _custom_udp_csv = (
+                (ps_cfg.get("udp_ports") or "").strip()
+                or (get_setting(Settings.PORT_SCAN_UDP_DEFAULT_PORTS) or "").strip()
+            )
+            if _custom_udp_csv:
+                _seen_udp_base = set(udp_ports_list)
+                for _p in _ps.parse_port_csv(_custom_udp_csv):
+                    if _p not in _seen_udp_base:
+                        udp_ports_list.append(_p)
+                        _seen_udp_base.add(_p)
         # Union the host's udp-declared app/service ports (collected above)
         # onto the UDP scan list so a UDP app port (e.g. a WireGuard /
         # Tailscale listener) is actually UDP-probed.
