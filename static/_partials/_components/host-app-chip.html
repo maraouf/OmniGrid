@@ -24,7 +24,7 @@
    @click="$event.stopPropagation(); if (!app.url) { $event.preventDefault(); openHostDrawer(h); }"
    :title="appsChipTitle(app)"
    :aria-label="appsChipAriaLabel(app)">
-  <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
+  <img :src="iconUrlFor(app.icon || (app.catalog && (app.catalog.icon || app.catalog.slug)) || app.name)"
        alt="" width="14" height="14" class="rounded flex-shrink-0"
        @error="$event.target.style.visibility='hidden'">
   <span class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>

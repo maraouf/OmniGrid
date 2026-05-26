@@ -217,7 +217,7 @@
     "hotkeys_title": "Keyboard shortcuts (?)",
     "cleanup_title": "Remove all {count} stopped/failed container(s)",
     "tabs": {
-      "title": "You have {count} tabs open ({count_minus_1, plural, =1 {1 sibling tab} other {# sibling tabs}})",
+      "title": "You have {count} tabs open ({siblings} other)",
       "aria": "{count} OmniGrid tabs open in this browser",
       "label": "{count} tabs",
       "popover_title": "Other OmniGrid tabs",
@@ -227,7 +227,7 @@
       "row_reproduce_button": "Reproduce here",
       "path_separator": "{leg} → {target}",
       "rich": {
-        "selection": "{count, plural, one {# selected} other {# selected}}",
+        "selection": "{count} selected",
         "problem_filter": "problem filter on",
         "hide_unconfigured_filter": "hide unconfigured",
         "provider_filter": "providers: {providers}",
@@ -371,7 +371,8 @@
       "heatmap": {
         "title": "Failure heatmap",
         "hint": "Failure events bucketed by day-of-week × hour-of-day in the scheduler timezone. Darker cells = more failures.",
-        "cell_title": "{count, plural, one {# failure} other {# failures}}",
+        "cell_title": "{count} failure",
+        "cell_title_plural": "{count} failures",
         "dow_mon": "Mon",
         "dow_tue": "Tue",
         "dow_wed": "Wed",
