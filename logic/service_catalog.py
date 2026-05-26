@@ -388,10 +388,13 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Authentik", "slug": "authentik", "icon": "authentik",
         "description": "Identity provider / SSO (Authentik)",
         "default_ports": [
-            {"port": 9000, "protocol": "tcp", "label": "HTTP",
-             "probe_path": "/-/health/live/", "probe_status": 204},
-            {"port": 9443, "protocol": "tcp", "label": "HTTPS",
-             "probe_path": "/-/health/live/", "probe_status": 204},
+            # HTTP health check on /-/health/live/. probe_status 0 = accept
+            # any 2xx/3xx: Authentik returns 200 on current versions and 204
+            # on older ones, so a fixed 204 false-fails the 200 case.
+            {"port": 9000, "protocol": "http", "label": "HTTP",
+             "probe_path": "/-/health/live/", "probe_status": 0},
+            {"port": 9443, "protocol": "https", "label": "HTTPS",
+             "probe_path": "/-/health/live/", "probe_status": 0},
         ],
     },
     {
@@ -836,6 +839,95 @@ def _auto_slug(name: str) -> str:
     runs of non-alphanumeric chars."""
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return s[:64] or "service"
+
+
+# Bumped if the export pack shape ever changes incompatibly.
+CATALOG_PACK_VERSION = 1
+
+
+def export_catalog() -> dict[str, Any]:
+    """Portable catalog pack — every template projected to the fields an
+    import on another install can reconstruct. Drops install-specific
+    columns (id / created_ts / updated_ts) so a pack imports cleanly
+    anywhere; keys on ``slug``. Shape:
+
+        {"omnigrid_catalog_pack": 1, "exported_ts": <epoch>,
+         "count": N, "entries": [{name, slug, icon, description,
+         default_ports, source}, ...]}
+    """
+    entries: list[dict[str, Any]] = []
+    for e in list_catalog():
+        entries.append({
+            "name": e.get("name") or "",
+            "slug": e.get("slug") or "",
+            "icon": e.get("icon") or "",
+            "description": e.get("description") or "",
+            "default_ports": e.get("default_ports") or [],
+            "source": e.get("source") or "operator",
+        })
+    return {
+        "omnigrid_catalog_pack": CATALOG_PACK_VERSION,
+        "exported_ts": int(time.time()),
+        "count": len(entries),
+        "entries": entries,
+    }
+
+
+def import_catalog_entries(entries: Any) -> dict[str, Any]:
+    """Upsert a list of template dicts (an export pack's ``entries``).
+
+    Match is by ``slug``: an existing slug is UPDATED (name / icon /
+    description / default_ports), a new slug is CREATED. Imported
+    templates are always stamped ``source="operator"`` regardless of the
+    pack's source field — a pack can't inject a "builtin" the seed ledger
+    would then think it owns. Per-entry errors are collected, not fatal,
+    so one malformed row doesn't abort the whole pack.
+
+    Returns ``{created, updated, errors: [{slug, error}, ...]}``.
+    """
+    created = 0
+    updated = 0
+    errors: list[dict[str, str]] = []
+    if not isinstance(entries, list):
+        return {"created": 0, "updated": 0, "errors": [{"slug": "", "error": "entries must be a list"}]}
+    for raw in entries:
+        if not isinstance(raw, dict):
+            errors.append({"slug": "", "error": "entry is not an object"})
+            continue
+        name = (raw.get("name") or "").strip()
+        slug = (raw.get("slug") or "").strip().lower()
+        # Derive the slug from the name when the pack omitted it, mirroring
+        # create_catalog_entry's own fallback.
+        if not slug and name:
+            slug = _auto_slug(name)
+        if not name:
+            errors.append({"slug": slug, "error": "name is required"})
+            continue
+        try:
+            existing = get_catalog_by_slug(slug) if slug else None
+            if existing is not None:
+                update_catalog_entry(
+                    _coerce_int(existing.get("id")) or 0,
+                    name=name,
+                    icon=(raw.get("icon") or "").strip(),
+                    description=(raw.get("description") or "").strip(),
+                    default_ports=raw.get("default_ports") or [],
+                )
+                updated += 1
+            else:
+                # source defaults to "operator" in create_catalog_entry — an
+                # imported pack can't inject a "builtin" the seed ledger owns.
+                create_catalog_entry(
+                    name=name,
+                    slug=slug,
+                    icon=(raw.get("icon") or "").strip(),
+                    description=(raw.get("description") or "").strip(),
+                    default_ports=raw.get("default_ports") or [],
+                )
+                created += 1
+        except (ValueError, sqlite3.IntegrityError, sqlite3.Error) as e:
+            errors.append({"slug": slug, "error": str(e)})
+    return {"created": created, "updated": updated, "errors": errors}
 
 
 def catalog_builtin_ports() -> set[int]:

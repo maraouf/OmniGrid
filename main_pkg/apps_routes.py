@@ -447,7 +447,8 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["docker_host"] = v[:256]
         else:
             chip.pop("docker_host", None)
-    probe = chip.get("probe") if isinstance(chip.get("probe"), dict) else {}
+    _probe_raw = chip.get("probe")
+    probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:
         probe["enabled"] = bool(payload.get("probe_enabled"))
     if "probe_type" in payload:
@@ -554,7 +555,6 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     chip = chips[service_idx]
     if not isinstance(chip, dict):
         raise HTTPException(400, "service entry malformed")
-    probe_cfg = chip.get("probe") or {}
     # Resolve the probe target via the SAME shared helper the lifespan
     # sampler + Apps debug endpoint use, so the manual probe-now path
     # can't drift from them (the address fallback + multi-port handling
@@ -683,6 +683,7 @@ async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
     debug panel (mirrors the host drawer's debug panel)."""
     from logic import service_sampler as _ss
     from logic import service_catalog as _sc
+    from logic.db import get_setting_bool
     hosts = _load_hosts_config()
     target_host = None
     for row in hosts:
@@ -704,9 +705,13 @@ async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
     resolved: list[dict[str, Any]] = []
     probe_reason = ""
     try:
+        # noinspection PyProtectedMember
+        # _curated_service_probe_targets is the shared sampler helper reused
+        # cross-module by design (no public alias) — same convention as the
+        # other underscore helpers noted in this module's header.
         for tgt in _ss._curated_service_probe_targets():
-            if (tgt.get("host_id") == host_id
-                    and int(tgt.get("service_idx", -1)) == service_idx):
+            tgt_idx = int(tgt.get("service_idx", -1))
+            if tgt.get("host_id") == host_id and tgt_idx == service_idx:
                 subs = tgt.get("sub_ports") or []
                 if subs:
                     for sp in subs:
@@ -800,6 +805,89 @@ async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
         "rollup": _ss.latest_for_host(host_id).get(service_idx),
         "port_results": _ss.latest_per_port_for_host(host_id, service_idx),
     }
+
+
+def _demux_docker_logs(raw: bytes) -> str:
+    """Decode a Docker ``/containers/{id}/logs`` body to plain text.
+
+    Non-TTY containers return a MULTIPLEXED stream: each frame is an
+    8-byte header ``[stream(1), 0, 0, 0, size(4, big-endian)]`` followed
+    by ``size`` payload bytes. TTY containers return plain text with no
+    header. Detect by the first byte: a header's stream byte is 0/1/2, so
+    if it isn't we treat the whole buffer as plain text; otherwise we walk
+    frames, stripping headers. Any structural surprise falls back to a
+    best-effort full decode rather than raising."""
+    if not raw:
+        return ""
+    # decode(errors="replace") — encoding defaults to utf-8; int.from_bytes
+    # defaults to big-endian. Both defaults spelled implicitly so the
+    # linter doesn't flag the (redundant) explicit "utf-8" / "big".
+    try:
+        if raw[0] not in (0, 1, 2):
+            return raw.decode(errors="replace")
+        out: list[str] = []
+        i = 0
+        n = len(raw)
+        while i + 8 <= n:
+            if raw[i] not in (0, 1, 2):
+                out.append(raw[i:].decode(errors="replace"))
+                i = n
+                break
+            size = int.from_bytes(raw[i + 4:i + 8])
+            i += 8
+            out.append(raw[i:i + size].decode(errors="replace"))
+            i += size
+        if i < n:
+            out.append(raw[i:].decode(errors="replace"))
+        return "".join(out)
+    except (ValueError, IndexError, UnicodeError):
+        return raw.decode(errors="replace")
+
+
+# Container ref must be hex ID or a Docker name (alnum + _ . -). Guards the
+# value before it's interpolated into the outbound Portainer URL (CodeQL
+# path-injection / SSRF discipline) + the agent-target hostname.
+_CONTAINER_REF_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_AGENT_NODE_RE = __import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+@app.get("/api/container/{raw_id}/logs")
+async def api_container_logs(raw_id: str, _admin: AdminUser,
+                             tail: int = 200, node: str = ""):
+    """Admin-only: tail a container's logs via Portainer. Powers the App
+    detail drawer's Docker-link "Logs" action. Threads
+    ``X-PortainerAgent-Target`` so worker-node containers resolve, and
+    demuxes Docker's multiplexed log stream to plain text. Read-only — no
+    history audit (matches the per-host debug / stats reads)."""
+    import httpx
+    from logic import portainer
+    if not _CONTAINER_REF_RE.match(raw_id or ""):
+        raise HTTPException(400, "invalid container ref")
+    node_clean = (node or "").strip()
+    if node_clean and not _AGENT_NODE_RE.match(node_clean):
+        raise HTTPException(400, "invalid node")
+    try:
+        tail_n = max(1, min(2000, int(tail)))
+    except (TypeError, ValueError):
+        tail_n = 200
+    eid = portainer.PORTAINER_ENDPOINT_ID
+    url = (f"{portainer.PORTAINER_URL}/api/endpoints/{eid}/docker/containers/"
+           f"{raw_id}/logs?stdout=1&stderr=1&timestamps=1&tail={tail_n}")
+    try:
+        async with portainer.write_client(timeout=20.0) as client:
+            r = await client.get(url, headers=portainer.headers(agent_target=node_clean or None))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise HTTPException(502, f"Portainer logs fetch failed: {e}")
+    if r.status_code == 404:
+        raise HTTPException(404, "container not found")
+    if r.status_code >= 400:
+        raise HTTPException(502, f"Portainer HTTP {r.status_code}: {r.text[:300]}")
+    text = _demux_docker_logs(r.content)
+    # Defensive size cap — keep the tail end if a chatty container blew
+    # past the line budget with very long lines.
+    if len(text) > 200000:
+        text = text[-200000:]
+    return {"raw_id": raw_id, "node": node_clean, "tail": tail_n, "logs": text}
 
 
 @app.get("/api/services/{host_id}/{service_idx}/history")

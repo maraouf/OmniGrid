@@ -2901,6 +2901,42 @@ async def api_services_catalog_seed(request: Request, _admin: AdminUser):
     return {"ok": True, "added": added}
 
 
+@app.get("/api/services/catalog/export")
+async def api_services_catalog_export(_admin: AdminUser):
+    """Admin-only: export the whole catalog as a portable JSON pack
+    (community-pack sharing / backup). Read-only — no audit row. The
+    pack drops install-specific id/timestamps and keys on slug, so it
+    re-imports cleanly on any install via the import endpoint."""
+    from logic import service_catalog as _sc
+    return _sc.export_catalog()
+
+
+@app.post("/api/services/catalog/import")
+async def api_services_catalog_import(payload: dict[str, Any], request: Request, _admin: AdminUser):
+    """Admin-only: import a catalog pack. Accepts either a full export
+    pack ({"entries": [...]}) or a bare list under ``entries``. Upserts
+    by slug (existing slug updated, new slug created as an operator
+    template); per-entry errors are collected, not fatal. Returns
+    {created, updated, errors}."""
+    from logic import service_catalog as _sc
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if entries is None and isinstance(payload, list):
+        entries = payload
+    result = _sc.import_catalog_entries(entries)
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_catalog_import",
+            target_kind="apps_catalog",
+            target_name="import",
+            actor=_actor_from(request),
+            message=f"Imported catalog pack: {result.get('created', 0)} created, "
+                    f"{result.get('updated', 0)} updated, "
+                    f"{len(result.get('errors') or [])} error(s)",
+        )
+    _invalidate_apps_cache()
+    return {"ok": True, **result}
+
+
 @app.post("/api/services/discover/{host_id}")
 async def api_services_discover(host_id: str, _admin: AdminUser):
     """Admin-only: scan a host's known ports against every catalog
