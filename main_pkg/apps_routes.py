@@ -172,9 +172,10 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
         }
 
     Idempotent on already-bound catalog_ids (skipped with
-    ``reason="already_bound"``). Validation goes through
-    ``_clean_host_services`` via ``set_setting`` so the contract stays
-    uniform with the Admin → Hosts editor save path.
+    ``reason="already_bound"``). Validation + persistence go through the
+    shared ``_persist_host_services`` choke point (which runs
+    ``_clean_host_services`` before ``set_setting``), so the contract
+    stays uniform with the Admin → Hosts editor save path.
     """
     raw_ids = payload.get("catalog_ids") or []
     if not isinstance(raw_ids, list):
@@ -285,7 +286,9 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
     pre-filled from the template's defaults (name / icon / ports +
     `catalog_id` linkage so future template edits propagate). Operator
     overrides via `name` / `url` / `icon` / `probe_enabled` /
-    `probe_type` flow through `_clean_host_services` for validation.
+    `probe_type` are validated + persisted through the shared
+    `_persist_host_services` choke point (which runs
+    `_clean_host_services` before `set_setting`).
 
     Body shape:
         {
@@ -549,13 +552,15 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     # all live in one place now). None = unprobeable; re-derive a
     # specific 400 reason since the resolver collapses every skip case
     # to None.
-    tgt = _ss.resolve_chip_probe_target(target_host, service_idx, chip)
+    # require_enabled=False: a manual probe-now is an explicit one-shot
+    # opt-in for THIS run, so it works even when the continuous
+    # sampler flag (probe.enabled) is off — as long as the chip has a
+    # resolvable target (configured ports / port / URL + host address).
+    tgt = _ss.resolve_chip_probe_target(target_host, service_idx, chip, require_enabled=False)
     if tgt is None:
-        if not probe_cfg.get("enabled"):
-            raise HTTPException(400, "probe is not enabled for this chip")
         if not ((chip.get("url") or "").strip() or (target_host.get("address") or "").strip()):
             raise HTTPException(400, "unable to resolve probe target host — set the chip URL or the host Address")
-        raise HTTPException(400, "no probe port resolvable; set chip url or probe.port")
+        raise HTTPException(400, "no probe port resolvable; set chip url, probe.port, or probe.ports[]")
     probe_type = tgt["probe_type"]
     url = tgt["url"]
     parsed_host = tgt["host"]

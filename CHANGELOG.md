@@ -36,12 +36,14 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - The AI command palette can now open the Apps discovery wizard for a host (e.g. "discover apps on web01").
 - Admin → Apps → Instances can now be grouped by host or by service (with collapsible groups) to tame a long list of pinned apps.
 - App instances can be linked to a Portainer container or stack (in the instance editor), adding inline Restart and Update actions in the app detail drawer.
+- Added Syncthing (8384/tcp Web UI) and a Plex DLNA port (32469/tcp) to the built-in Apps catalog templates.
 
 ### Changed
 
 - The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
 - Apps latency now displays with a thousands separator and a space before the unit (e.g. "1,234 ms"), and the App detail drawer's Probe-now / Show-debug buttons now have icons matching the host drawer.
 - Removed Vaultwarden from the built-in app-catalog templates; added the missing Nextcloud brand icon.
+- The Apps discovery wizard no longer proposes a second app for a port another app on the same host already claims — with AdGuard Home pinned on 80/443, Pi-hole and Nextcloud are no longer suggested purely on those shared ports, while an app on a still-free port is unaffected.
 
 ### Fixed
 
@@ -51,6 +53,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - HTTP service probes now fall back to a GET request when a service rejects HEAD (many, including NetData's `/api/v1/info`, reply 400/403/501 to HEAD), so those apps no longer show a false "unexpected status" failure.
 - Renaming or re-iconing a catalog template now propagates to pinned app instances that haven't set their own override — instances no longer snapshot the template's name/icon at pin time. The instance URL is also visible at narrower window widths.
 - Editing an app instance (URL/link, ports, icon) now reflects immediately in the Apps view and detail drawer, and removing a port no longer leaves a stale per-port indicator.
+- The per-app "Probe now" refresh in the host drawer's Apps card now works for apps that have ports configured even when continuous probing is turned off — an explicit click probes the configured ports regardless of the continuous-sampler toggle, and the refresh button now appears whenever there are port pills to refresh.
 
 ## [1.5.0] — 2026-05-23
 
