@@ -61,6 +61,11 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - In the host drawer's Port Scan section, a configured-but-not-yet-probed port now shows a grey "unknown" dot (matching the Apps card) instead of a red "down" dot — the two surfaces no longer disagree on a pending port's status.
 - The Apps detail drawer's debug panel now shows whether continuous probing is actually running for a chip — surfacing the global Service-probe provider toggle and a plain-language list of why an app's port pills are grey (provider globally off and/or the chip's probe disabled). The per-app "Probe now" button still works regardless.
 - The host drawer's asset port section now also lists open ports found by the port scan that aren't in the asset record (under "Open in scan — not in asset"), so you can see which scanned ports to add to the asset — the mirror of the existing marker that flags asset ports missing from the scan.
+- Each Hosts-view row now shows an apps-count badge ("N apps") next to its app chips, coloured green when all the host's apps are up and amber when one or more are down — an at-a-glance app-health signal that's separate from the host's own reachability dot.
+- Admin → Apps → Templates can now Export the whole app catalog as a portable JSON pack and Import one back (upserting templates by slug), for backing up or sharing catalog packs between installs.
+- The App detail drawer now has a Logs action for app chips linked to a Docker container — it opens a modal that tails the container's logs (selectable line count) straight from Portainer, including containers on worker nodes.
+- The App detail drawer's debug panel gained a Copy button that copies the full diagnostic JSON to the clipboard.
+- Fixed the built-in Authentik app template's health check: it now accepts Authentik's 200 response (current versions) as well as 204 (older), instead of false-reporting the app as down on a 200.
 
 ## [1.5.0] — 2026-05-23
 

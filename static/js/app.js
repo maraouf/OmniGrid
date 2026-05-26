@@ -227,6 +227,10 @@ function app() {
     appsCatalogLoaded: false,
     appsCatalogStatus: '',
     appsCatalogReseeding: false,
+    appsCatalogImporting: false,
+    // App-drawer Docker-link Logs modal — tails a linked container's
+    // logs via the /api/container/{raw_id}/logs proxy.
+    appLogModal: {open: false, loading: false, error: '', text: '', title: '', raw_id: '', node: '', tail: 200},
     appsInstances: [],
     appsInstancesLoaded: false,
     appsAdminTab: 'templates',   // 'templates' | 'instances'

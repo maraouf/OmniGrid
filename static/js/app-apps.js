@@ -328,6 +328,37 @@ export default {
     return 'unknown';
   },
 
+  // Aggregate app-health summary for a host's pinned apps — drives the
+  // Hosts-view row "N apps" badge (count) AND its colour (aggregate
+  // health). Returns {total, up, down, unknown, state} where state is
+  // '' (no apps) / 'warn' (>=1 app down) / 'ok' (all up; pending/unknown
+  // apps don't count as a failure). DELIBERATELY a separate signal from
+  // the host's reachability status dot: amber on that dot means
+  // 'paused', so app-degraded gets its own badge rather than overloading
+  // the load-bearing 6-value status enum. Derived purely from h.apps
+  // (already reconciled in place), so the badge updates with the row.
+  hostAppsHealth(h) {
+    const apps = (h && Array.isArray(h.apps)) ? h.apps : [];
+    const total = apps.length;
+    if (!total) {
+      return {total: 0, up: 0, down: 0, unknown: 0, state: ''};
+    }
+    let up = 0;
+    let down = 0;
+    let unknown = 0;
+    for (const a of apps) {
+      const s = a && a.status;
+      if (s === 'up') {
+        up += 1;
+      } else if (s === 'down') {
+        down += 1;
+      } else {
+        unknown += 1;
+      }
+    }
+    return {total, up, down, unknown, state: down > 0 ? 'warn' : 'ok'};
+  },
+
   // Per-port pill tooltip: "<status> (<rtt>ms) — <error>" (rtt + error both
   // optional). status + the error separator route through i18n; the error
   // text itself is the un-translated probe diagnostic from the sampler.
@@ -1225,6 +1256,80 @@ export default {
     return !!(target && target.status === 'update');
   },
 
+  // True when the chip resolves to a Docker CONTAINER (not a service) in
+  // the current items list — gates the App-drawer Logs button. Service
+  // links (docker_stack) don't have a single container to tail, so Logs
+  // is hidden for them.
+  appDrawerCanLogs(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    return !!(target && (target.type === 'container' || target.type === 'orphan')
+      && (target.raw_id || target.id));
+  },
+
+  // Open the container-logs modal for a Docker-linked chip + fetch the
+  // tail. Resolves the chip to its container in /api/items (carrying
+  // raw_id + node for agent-target routing), then hits the
+  // /api/container/{raw_id}/logs proxy.
+  appDrawerLogs(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    if (!target || !(target.type === 'container' || target.type === 'orphan')) {
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('apps.drawer.logs_no_container') || 'Logs are available only for container-linked apps', 'error');
+      }
+      return;
+    }
+    this.appLogModal = {
+      open: true,
+      loading: false,
+      error: '',
+      text: '',
+      title: (inst && inst.name) || target.name || '',
+      raw_id: target.raw_id || target.id || '',
+      node: target.node || '',
+      tail: 200,
+    };
+    this._fetchAppLog();
+  },
+
+  closeAppLogModal() {
+    this.appLogModal.open = false;
+    this.appLogModal.text = '';
+    this.appLogModal.error = '';
+  },
+
+  reloadAppLog() {
+    if (this.appLogModal.open) {
+      this._fetchAppLog();
+    }
+  },
+
+  async _fetchAppLog() {
+    const m = this.appLogModal;
+    if (!m.raw_id) {
+      m.error = this.t('apps.drawer.logs_no_container') || 'No container resolved';
+      return;
+    }
+    m.loading = true;
+    m.error = '';
+    try {
+      const qs = new URLSearchParams({tail: String(m.tail || 200)});
+      if (m.node) {
+        qs.set('node', m.node);
+      }
+      const r = await fetch('/api/container/' + encodeURIComponent(m.raw_id) + '/logs?' + qs.toString());
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const j = await r.json();
+      m.text = j.logs || '';
+    } catch (err) {
+      m.error = err && err.message ? err.message : String(err);
+    } finally {
+      m.loading = false;
+    }
+  },
+
   addInstancePort() {
     if (!Array.isArray(this.appsInstanceEditForm.ports)) {
       this.appsInstanceEditForm.ports = [];
@@ -1847,6 +1952,90 @@ export default {
       this.appsCatalogStatus = err && err.message ? err.message : String(err);
     } finally {
       this.appsCatalogReseeding = false;
+    }
+  },
+
+  // Export the whole catalog as a portable JSON pack (download). The
+  // backend strips install-specific id/timestamps + keys on slug so the
+  // pack re-imports cleanly on any install.
+  async exportAppCatalog() {
+    this.appsCatalogStatus = '';
+    try {
+      const r = await fetch('/api/services/catalog/export');
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const pack = await r.json();
+      const blob = new Blob([JSON.stringify(pack, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'omnigrid-catalog-pack.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      this.appsCatalogStatus = (this.t('admin_apps.export_done') || 'Exported') + ': ' + (pack.count || 0);
+    } catch (err) {
+      this.appsCatalogStatus = err && err.message ? err.message : String(err);
+      if (typeof this.toast === 'function') {
+        this.toast(this.appsCatalogStatus, 'error');
+      }
+    }
+  },
+
+  // Import a catalog pack from a chosen JSON file. Accepts a full export
+  // pack ({entries:[...]}) or a bare array; the backend upserts by slug.
+  async importAppCatalog(ev) {
+    const input = ev && ev.target;
+    const file = input && input.files && input.files[0];
+    if (!file) {
+      return;
+    }
+    if (this.appsCatalogImporting) {
+      return;
+    }
+    this.appsCatalogImporting = true;
+    this.appsCatalogStatus = '';
+    try {
+      const text = await file.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (pe) {
+        throw new Error((this.t('admin_apps.import_bad_json') || 'Not valid JSON') + ': ' + (pe && pe.message ? pe.message : pe));
+      }
+      // Accept either a full pack {entries:[...]} or a bare array.
+      const body = Array.isArray(parsed) ? {entries: parsed} : {entries: (parsed && parsed.entries) || []};
+      const r = await fetch('/api/services/catalog/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || ('HTTP ' + r.status));
+      }
+      const j = await r.json();
+      await this.loadAppsCatalog();
+      const errs = (j.errors || []).length;
+      this.appsCatalogStatus = (this.t('admin_apps.import_done') || 'Imported')
+        + ': +' + (j.created || 0) + ' / ~' + (j.updated || 0) + (errs ? (' / ' + errs + ' err') : '');
+      if (typeof this.toast === 'function') {
+        this.toast(this.appsCatalogStatus, errs ? 'warning' : 'success');
+      }
+    } catch (err) {
+      this.appsCatalogStatus = err && err.message ? err.message : String(err);
+      if (typeof this.toast === 'function') {
+        this.toast(this.appsCatalogStatus, 'error');
+      }
+    } finally {
+      this.appsCatalogImporting = false;
+      // Reset the file input so re-selecting the same file re-fires change.
+      if (input) {
+        input.value = '';
+      }
     }
   },
 };

@@ -75,6 +75,26 @@
         </svg>
         <span x-text="t('admin_apps.reseed_button') || 'Re-seed built-ins'"></span>
       </button>
+      <button type="button" x-show="isAdmin()" @click="exportAppCatalog()"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+              :title="t('admin_apps.export_title') || 'Download all templates as a JSON pack'">
+        <svg width="13" height="13" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-download"/>
+        </svg>
+        <span x-text="t('admin_apps.export_button') || 'Export'"></span>
+      </button>
+      <button type="button" x-show="isAdmin()" @click="$refs.catalogImportFile.click()"
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+              :disabled="appsCatalogImporting"
+              :title="t('admin_apps.import_title') || 'Import a catalog pack (upsert templates by slug)'">
+        <svg width="13" height="13" :class="appsCatalogImporting ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-upload"/>
+        </svg>
+        <span x-text="t('admin_apps.import_button') || 'Import'"></span>
+      </button>
+      <!-- Hidden file picker for Import — click()'d by the Import button. -->
+      <input type="file" accept="application/json,.json" x-ref="catalogImportFile" class="hidden"
+             @change="importAppCatalog($event)">
       <span x-show="appsCatalogStatus" class="fs-xs text-[var(--text-faint)]" x-text="appsCatalogStatus"></span>
     </div>
 

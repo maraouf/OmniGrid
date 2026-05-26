@@ -1948,6 +1948,49 @@
                 class="btn btn-ghost fs-sm"
                 x-text="t('hosts_extra.bulk.clear') || 'Clear'"></button>
       </div>
+      <!-- APP CONTAINER LOGS MODAL — opened from the App detail drawer's
+           Docker-link "Logs" action; tails the resolved container's logs
+           via Portainer. -->
+      <div x-show="appLogModal.open" x-cloak
+           class="fixed inset-0 z-50 flex items-center justify-center p-4"
+           :style="appLogModal.open ? 'display:flex' : 'display:none'"
+           role="dialog" aria-modal="true"
+           @keydown="_focusTrapKeydown($event, $el)">
+        <div class="absolute inset-0 backdrop" @click="closeAppLogModal()"></div>
+        <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-4 w-full max-w-3xl shadow-xl flex flex-col" style="max-height: 80vh">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <h3 class="fs-md font-semibold inline-flex items-center gap-2 min-w-0">
+              <svg width="15" height="15" class="flex-shrink-0 text-[var(--text-dim)]" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/>
+              </svg>
+              <span class="truncate" x-text="(t('apps.drawer.logs_title') || 'Container logs') + (appLogModal.title ? ' — ' + appLogModal.title : '')"></span>
+            </h3>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <select x-model.number="appLogModal.tail" @change="reloadAppLog()" class="fs-xs"
+                      :disabled="appLogModal.loading"
+                      :aria-label="t('apps.drawer.logs_tail_label') || 'Lines to tail'">
+                <template x-for="n in [100, 200, 500, 1000, 2000]" :key="n">
+                  <option :value="n" x-text="t('apps.drawer.logs_tail_n', { n: n }) || (n + ' lines')"></option>
+                </template>
+              </select>
+              <button type="button" class="user-action-btn" :disabled="appLogModal.loading"
+                      @click="reloadAppLog()"
+                      :aria-label="t('actions.reload') || 'Reload'" :title="t('actions.reload') || 'Reload'">
+                <svg width="14" height="14" :class="appLogModal.loading ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+              </button>
+              <button type="button" class="user-action-btn" @click="closeAppLogModal()"
+                      :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕</button>
+            </div>
+          </div>
+          <div x-show="appLogModal.loading" class="loading-state"><span class="spin-lg" aria-hidden="true"></span></div>
+          <div x-show="appLogModal.error" class="fs-xs text-[var(--danger)] mb-2" x-text="appLogModal.error"></div>
+          <pre x-show="!appLogModal.loading && !appLogModal.error"
+               class="fs-2xs mono whitespace-pre-wrap break-all overflow-y-auto scrollbar bg-[var(--surface-2)] rounded p-2 flex-1"
+               x-text="appLogModal.text || (t('apps.drawer.logs_empty') || '(no log output)')"></pre>
+        </div>
+      </div>
       <!-- BULK SNMP VENDORS MODAL -->
       <div x-show="bulkSnmpVendorsModal.open"
            x-cloak
@@ -2509,6 +2552,13 @@
                     <div class="apps-chip-strip flex items-center gap-1.5 flex-wrap mt-1.5"
                          x-show="Array.isArray(h.apps) && h.apps.length"
                          role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
+                      <!-- Count + aggregate-health badge: "N" coloured green
+                           (all up) / amber (>=1 app down). Separate from the
+                           host status dot (amber there = paused). -->
+                      <span class="chip fs-3xs mono"
+                            :class="hostAppsHealth(h).state === 'warn' ? 'pill-warning' : 'pill-ok'"
+                            :title="t('hosts_extra.apps_count_title', { up: hostAppsHealth(h).up, total: hostAppsHealth(h).total }) || (hostAppsHealth(h).up + '/' + hostAppsHealth(h).total + ' apps up')"
+                            x-text="t('hosts_extra.apps_count', { n: hostAppsHealth(h).total }) || (hostAppsHealth(h).total + ' apps')"></span>
                       <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
                         <!-- INCLUDE: _components/host-app-chip.html -->
                       </template>
@@ -2883,6 +2933,13 @@
                         <div class="apps-chip-strip host-row-apps-line flex items-center gap-1.5 flex-wrap"
                              x-show="Array.isArray(h.apps) && h.apps.length"
                              role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
+                          <!-- Count + aggregate-health badge: "N" coloured green
+                               (all up) / amber (>=1 app down). Separate from the
+                               host status dot (amber there = paused). -->
+                          <span class="chip fs-3xs mono"
+                                :class="hostAppsHealth(h).state === 'warn' ? 'pill-warning' : 'pill-ok'"
+                                :title="t('hosts_extra.apps_count_title', { up: hostAppsHealth(h).up, total: hostAppsHealth(h).total }) || (hostAppsHealth(h).up + '/' + hostAppsHealth(h).total + ' apps up')"
+                                x-text="t('hosts_extra.apps_count', { n: hostAppsHealth(h).total }) || (hostAppsHealth(h).total + ' apps')"></span>
                           <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
                             <!-- INCLUDE: _components/host-app-chip.html -->
                           </template>
@@ -9404,6 +9461,20 @@
                         </svg>
                         <span x-text="t('apps.drawer.update') || 'Update'"></span>
                       </button>
+                      <!-- Inline Logs — only when the chip resolves to a
+                           Docker CONTAINER in the current items list (service
+                           links don't have a single container to tail). Opens
+                           a modal that fetches the container's tail via
+                           Portainer. -->
+                      <button type="button"
+                              x-show="isAdmin() && appDrawerCanLogs(inst)"
+                              @click.stop="appDrawerLogs(inst)"
+                              class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+                        <svg width="13" height="13" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-file-text"/>
+                        </svg>
+                        <span x-text="t('apps.drawer.logs') || 'Logs'"></span>
+                      </button>
                       <button type="button" @click.stop="toggleAppInstanceDebug(inst)"
                               class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
                         <svg width="13" height="13" aria-hidden="true">
@@ -9457,12 +9528,23 @@
                                OFF means NO chip on any host gets continuous probing. -->
                           <div class="mono fs-2xs text-[var(--text-dim)]"
                                x-text="(t('apps.drawer.master_probe_enabled') || 'Service-probe provider (global)') + ': ' + (appDebug[appInstanceKey(inst)].data.service_probe_master_enabled ? '✓' : '✕')"></div>
-                          <details>
-                            <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
-                                     x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>
-                            <pre class="fs-2xs mono whitespace-pre-wrap break-all mt-1"
-                                 x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
-                          </details>
+                          <div class="flex items-center gap-2">
+                            <details class="flex-1 min-w-0">
+                              <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
+                                       x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>
+                              <pre class="fs-2xs mono whitespace-pre-wrap break-all mt-1"
+                                   x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
+                            </details>
+                            <button type="button" class="btn btn-ghost fs-2xs inline-flex items-center gap-1 flex-shrink-0 self-start"
+                                    @click.stop="copyToClipboard(JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2))"
+                                    :aria-label="t('apps.drawer.copy_debug') || 'Copy debug JSON'"
+                                    :title="t('apps.drawer.copy_debug') || 'Copy debug JSON'">
+                              <svg width="12" height="12" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                              </svg>
+                              <span x-text="t('apps.drawer.copy_debug') || 'Copy'"></span>
+                            </button>
+                          </div>
                         </div>
                       </template>
                     </div>

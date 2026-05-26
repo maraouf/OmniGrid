@@ -232,6 +232,7 @@ OP_TYPES: frozenset[str] = frozenset({
     "services_catalog_update",
     "services_catalog_delete",
     "services_catalog_seeded",
+    "services_catalog_import",
     "services_pin",
     "services_unpin",
     "services_edit",
