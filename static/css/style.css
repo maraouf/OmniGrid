@@ -9426,6 +9426,33 @@ select.field-invalid {
 .apps-drawer-row:hover {
   background: var(--row-hover);
 }
+/* Compact wrapping app tiles in the host-drawer Apps card — each app
+   is one inline chip (icon + name + per-port pills + actions) that
+   flows + wraps instead of occupying a full row. Same chip vocabulary
+   as .apps-chip-strip-chip so the surface reads consistently. */
+.apps-drawer-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  max-width: 100%;
+}
+.apps-drawer-tile-name {
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apps-drawer-tile-ports {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-wrap: wrap;
+}
 
 /* Per-port mini-pills for multi-port chips in the host drawer Apps card.
    Render as a compact horizontal pill row immediately under the chip

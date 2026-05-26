@@ -8,7 +8,7 @@
 // noinspection JSMissingAwait,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
 // noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
 // noinspection JSValidateTypes,JSPotentiallyInvalidUsageOfThis,JSIgnoredPromiseFromCall
-/* global Alpine, Swal, I18N, t */
+/* global Alpine, Swal, I18N, t, AbortController, setTimeout, clearTimeout */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Apps tab + Admin → Apps tab — top-level Apps card grid (cross-host
 // aggregate via /api/apps) + catalog template CRUD (Admin → Apps tab,
@@ -337,7 +337,9 @@ export default {
     this.appsViewGroupBy = mode;
     try {
       localStorage.setItem('appsViewGroupBy', mode);
-    } catch (_) { /* private mode — in-memory only */ }
+    } catch (_) {
+      // private mode — in-memory only
+    }
   },
 
   // Host-grouped view of the filtered apps. Walks every app's per-host
@@ -538,10 +540,10 @@ export default {
       this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + ((err && err.message) || err), 'error');
     }
     if (this.appDebugOpen[key]) {
-      this.loadAppInstanceDebug(inst);
+      await this.loadAppInstanceDebug(inst);
     }
     if (typeof this.loadAppsList === 'function') {
-      this.loadAppsList(true);
+      await this.loadAppsList(true);
     }
   },
 
@@ -616,7 +618,9 @@ export default {
     this.appsInstancesGroupBy = mode;
     try {
       localStorage.setItem('appsInstancesGroupBy', mode);
-    } catch (_) { /* private mode — in-memory only */ }
+    } catch (_) {
+      // private mode — in-memory only
+    }
   },
 
   toggleAppsInstanceGroup(key) {
@@ -1165,9 +1169,16 @@ export default {
       return;
     }
     this.probeNowInFlight[key] = true;
+    // Defence-in-depth: abort the probe after 30s so a hung request can
+    // NEVER leave the button stuck-disabled forever — the finally always
+    // re-enables it. (The server probe has its own per-port timeouts; this
+    // is just a client-side safety net for a pathological hang.)
+    const _ctrl = new AbortController();
+    const _abortTimer = setTimeout(() => _ctrl.abort(), 30000);
     try {
       const r = await fetch(`/api/services/${encodeURIComponent(host.id)}/${serviceIdx}/probe`, {
         method: 'POST',
+        signal: _ctrl.signal,
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -1194,6 +1205,17 @@ export default {
           : (this.t('host_drawer.apps.probe_failed') || 'Probe failed') + (j.error ? ': ' + j.error : '');
         this.toast(msg, j.alive ? 'success' : 'error');
       }
+      // The in-place patch above updates the chip's rollup status, but the
+      // host-drawer tiles now show status via the per-port pills (driven by
+      // app.port_results, which the probe just refreshed server-side). Re-
+      // fetch the host row so those pills reflect the new probe result —
+      // refreshHostRow updates the same object drawerHost references, so the
+      // open drawer's tiles update without a full re-open.
+      if (typeof this.refreshHostRow === 'function') {
+        this.refreshHostRow(host.id, {force: true}).catch(() => {
+          // best-effort refresh; ignore failures
+        });
+      }
     } catch (err) {
       if (typeof this.toast === 'function') {
         this.toast(
@@ -1202,6 +1224,7 @@ export default {
         );
       }
     } finally {
+      clearTimeout(_abortTimer);
       this.probeNowInFlight[key] = false;
     }
   },

@@ -5250,63 +5250,59 @@
                   <h3 class="font-semibold fs-sm"
                       x-text="t('host_drawer.apps.title') || 'Apps'"></h3>
                   <span class="chip pill-info fs-3xs ms-2"
-                        x-text="(h.apps || []).filter(a => a.status === 'up').length + ' / ' + (h.apps || []).length + ' up'"></span>
+                        x-text="t('host_drawer.apps.up_count', { up: (h.apps || []).filter(a => a.status === 'up').length, total: (h.apps || []).length })"></span>
                 </header>
-                <ul class="space-y-0.5 fs-xs">
+                <!-- Compact wrapping tiles — each app is one inline tile that
+                     flows + wraps (multiple per row) instead of taking a full
+                     line. Every app shows its port(s) as small pills (even
+                     single-port apps), coloured by each port's probe verdict
+                     (up / down / pending). -->
+                <div class="apps-drawer-tiles flex flex-wrap gap-2 fs-xs">
                   <template x-for="app in sortedHostApps(h)" :key="app.service_idx">
-                    <li class="apps-drawer-row py-0.5 border-b border-[var(--border)] last:border-b-0">
-                      <div class="flex items-center gap-1.5">
-                        <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
-                             alt="" width="16" height="16" class="rounded flex-shrink-0"
-                             @error="$event.target.style.visibility='hidden'">
-                        <span class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
-                        <span class="flex-1 min-w-0 truncate"
-                              :title="app.name + (app.catalog ? ' (' + app.catalog.name + ')' : '')"
-                              x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></span>
-                        <span x-show="app.last_probe && app.last_probe.rtt_ms != null"
-                              class="fs-3xs text-[var(--text-faint)] mono whitespace-nowrap"
-                              :title="app.last_probe ? (t('host_drawer.apps.last_seen', { ago: relativeAge(Date.now()/1000 - app.last_probe.ts) }) || ('seen ' + relativeAge(Date.now()/1000 - app.last_probe.ts) + ' ago')) : ''"
-                              x-text="app.last_probe && app.last_probe.rtt_ms != null ? appsLatencyMs(app.last_probe.rtt_ms) : ''"></span>
-                        <a x-show="app.url" :href="app.url" target="_blank" rel="noopener"
-                           class="btn-ghost p-1"
-                           :aria-label="t('host_drawer.apps.open') || 'Open'"
-                           :title="t('host_drawer.apps.open') || 'Open'">
-                          <svg width="12" height="12" aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                          </svg>
-                        </a>
-                        <button type="button" x-show="(app.probe || {}).enabled && isAdmin()"
-                                class="btn-ghost p-1"
-                                :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
-                                :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
-                                :title="t('host_drawer.apps.probe_now') || 'Probe now'"
-                                @click="probeAppNow(h, app.service_idx)">
-                          <svg width="12" height="12"
-                               :class="probeNowInFlight['probe:' + h.id + ':' + app.service_idx] ? 'spin-md' : ''"
-                               aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                          </svg>
-                        </button>
-                      </div>
-                      <!-- Per-port mini-table — visible only for multi-port chips
-                           with sampler history. Each row carries port + status dot
-                           + last-seen rtt. Gates on port_results.length so single-
-                           port chips don't render an empty section. -->
-                      <div x-show="Array.isArray(app.port_results) && app.port_results.length > 1"
-                           class="apps-port-grid mt-0.5 ms-6 fs-3xs">
+                    <div class="apps-drawer-tile"
+                         :title="app.name + (app.catalog ? ' (' + app.catalog.name + ')' : '')">
+                      <img :src="iconUrlFor(app.icon || (app.catalog && app.catalog.slug) || app.name)"
+                           alt="" width="16" height="16" class="rounded flex-shrink-0"
+                           @error="$event.target.style.visibility='hidden'">
+                      <span class="apps-drawer-tile-name"
+                            x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></span>
+                      <span class="apps-drawer-tile-ports">
                         <template x-for="pr in (app.port_results || [])" :key="pr.port">
-                          <span class="apps-port-pill"
-                                :class="'apps-port-pill--' + appsPortState(pr)"
+                          <span class="apps-port-pill" :class="'apps-port-pill--' + appsPortState(pr)"
                                 :title="appsPortTitle(pr)">
                             <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                            <span x-text="pr.port" class="mono"></span>
-                            <span x-show="pr.rtt_ms != null" class="text-[var(--text-faint)] mono" x-text="' · ' + appsLatencyMs(pr.rtt_ms)"></span>
+                            <span class="mono" x-text="pr.port"></span>
                           </span>
                         </template>
-                      </div>
-                    </li>
+                        <!-- No configured ports (e.g. a url-only chip) — fall back
+                             to the app's rollup status dot so the tile still shows
+                             a verdict. -->
+                        <span x-show="!(app.port_results || []).length"
+                              class="apps-card-dot" :class="'apps-card-dot--' + app.status" aria-hidden="true"></span>
+                      </span>
+                      <a x-show="app.url" :href="app.url" target="_blank" rel="noopener"
+                         class="btn-ghost p-0.5 flex-shrink-0" @click.stop
+                         :aria-label="t('host_drawer.apps.open') || 'Open'"
+                         :title="t('host_drawer.apps.open') || 'Open'">
+                        <svg width="12" height="12" aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                        </svg>
+                      </a>
+                      <button type="button" x-show="(app.probe || {}).enabled && isAdmin()"
+                              class="btn-ghost p-0.5 flex-shrink-0"
+                              :disabled="probeNowInFlight['probe:' + h.id + ':' + app.service_idx]"
+                              :aria-label="t('host_drawer.apps.probe_now') || 'Probe now'"
+                              :title="t('host_drawer.apps.probe_now') || 'Probe now'"
+                              @click.stop="probeAppNow(h, app.service_idx)">
+                        <svg width="12" height="12"
+                             :class="probeNowInFlight['probe:' + h.id + ':' + app.service_idx] ? 'spin-md' : ''"
+                             aria-hidden="true">
+                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                        </svg>
+                      </button>
+                    </div>
                   </template>
-                </ul>
+                </div>
                 <div x-show="(h.apps || []).filter(a => a.status === 'down').length"
                      class="mt-2 fs-2xs text-[var(--danger)]"
                      x-text="(h.apps || []).filter(a => a.status === 'down').length + ' ' + (t('host_drawer.apps.down_suffix') || 'down')"></div>

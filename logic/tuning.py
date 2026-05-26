@@ -697,13 +697,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # default match the vendor mix without forcing a compromise: a Dell
     # iDRAC fleet runs at 4 by default while a printer fleet stays at 1,
     # without the operator setting per-host overrides on every row.
-    # Default 0 (= disabled, falls through to the generic tunable). Set
-    # to 1..16 to enable. APC excluded — single-GET probe, concurrency
-    # has no effect.
-    "tuning_snmp_walk_concurrency_dell": ("SNMP_WALK_CONCURRENCY_DELL", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_cisco": ("SNMP_WALK_CONCURRENCY_CISCO", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_synology": ("SNMP_WALK_CONCURRENCY_SYNOLOGY", 0, 0, 16),
-    "tuning_snmp_walk_concurrency_ucd": ("SNMP_WALK_CONCURRENCY_UCD", 0, 0, 16),
+    # These ship with sensible NON-ZERO defaults so simply marking a
+    # host's vendor (Admin → Hosts) is enough to fit pysnmp v7's per-walk
+    # overhead inside the probe budget — Dell iDRAC / Cisco BMC at 4,
+    # Synology / linux net-snmp at 8 (they handle parallel SNMP well).
+    # Printer stays 0 (= disabled → falls through to the generic per-host
+    # tunable's safety floor of 1) because many embedded printer agents
+    # choke on parallel walks. Set 0 to disable a vendor default; APC is
+    # excluded — single-GET probe, concurrency has no effect.
+    "tuning_snmp_walk_concurrency_dell": ("SNMP_WALK_CONCURRENCY_DELL", 4, 0, 16),
+    "tuning_snmp_walk_concurrency_cisco": ("SNMP_WALK_CONCURRENCY_CISCO", 4, 0, 16),
+    "tuning_snmp_walk_concurrency_synology": ("SNMP_WALK_CONCURRENCY_SYNOLOGY", 8, 0, 16),
+    "tuning_snmp_walk_concurrency_ucd": ("SNMP_WALK_CONCURRENCY_UCD", 8, 0, 16),
     "tuning_snmp_walk_concurrency_printer": ("SNMP_WALK_CONCURRENCY_PRINTER", 0, 0, 16),
     # SNMP per-host caches, distinct from the Webmin TTL knobs.
     # Pre-fix the SNMP per-host caches reused tuning_webmin_host_cache_ttl_seconds /
@@ -1337,8 +1342,10 @@ def _unused_keys_scan() -> frozenset[str]:
     """Compute the set of declared-but-not-consumed TUNABLE keys.
 
     Bundled with the running app so the Admin → Config form can flag
-    a knob whose value silently no-ops (per BUG-003-class drift).
-    Shares the scan logic with ``scripts/audit_tunables.py`` via the
+    a knob whose value silently no-ops — the drift class where a key
+    is declared in TUNABLES (and rendered in the form) but no consumer
+    ever reads it via ``tuning_int``, so the operator's edit does
+    nothing. Shares the scan logic with ``scripts/audit_tunables.py`` via the
     public ``audit_consumed_keys()`` helper above. Cached at
     module-scope because the source layout is static at runtime; a
     fresh deploy re-warms naturally.

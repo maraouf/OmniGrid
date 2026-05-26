@@ -2036,19 +2036,19 @@
         },
         "tuning_snmp_walk_concurrency_dell": {
           "label": "SNMP walk concurrency — Dell (auto-detect override)",
-          "help": "Per-vendor walk_concurrency default that kicks in when sysDescr auto-detect resolves to Dell ONLY (no per-host override set, no other vendor matched). Dell iDRAC9 / iDRAC10 / Cisco IMC / Supermicro IPMI handle parallel queries fine and benefit dramatically from > 1 because pysnmp's per-walk overhead compounds 67× at concurrency=1. Recommended: 4 for a homogeneous Dell fleet. Default 0 (disabled — falls through to the generic per-host walk_concurrency above). Range 0..16."
+          "help": "Per-vendor walk_concurrency default that kicks in when the host's vendor resolves to Dell ONLY — either MARKED in Admin → Hosts (snmp.vendors = [dell]) or auto-detected from sysDescr — with no per-host walk_concurrency override and no other vendor matched. Dell iDRAC9 / iDRAC10 / Cisco IMC / Supermicro IPMI handle parallel queries fine and benefit dramatically from > 1 because pysnmp's per-walk overhead compounds 67× at concurrency=1 (the symptom: 'snmp timeout, N of 67 OID branches completed'). Defaults to 4 so marking a host Dell is enough to fit the probe budget — no per-host override needed. Set 0 to disable (falls through to the generic per-host walk_concurrency above). Range 0..16."
         },
         "tuning_snmp_walk_concurrency_cisco": {
           "label": "SNMP walk concurrency — Cisco (auto-detect override)",
-          "help": "Per-vendor walk_concurrency default for Cisco IOS / NX-OS / IOS-XR / IOS-XE auto-detected agents. Cisco gear typically handles parallel queries well — recommended 8 for a Cisco fleet. Default 0 (disabled). Range 0..16."
+          "help": "Per-vendor walk_concurrency default for Cisco IOS / NX-OS / IOS-XR / IOS-XE / IMC agents (marked in Admin → Hosts or auto-detected). Defaults to 4 (a safe floor for Cisco IMC BMCs); raise to 8 for switch / router-heavy fleets that handle parallel queries well. Set 0 to disable. Range 0..16."
         },
         "tuning_snmp_walk_concurrency_synology": {
           "label": "SNMP walk concurrency — Synology (auto-detect override)",
-          "help": "Per-vendor walk_concurrency default for Synology DiskStation / RackStation auto-detected agents. Synology DSM's snmpd handles parallel queries reasonably well — recommended 4. Default 0 (disabled). Range 0..16."
+          "help": "Per-vendor walk_concurrency default for Synology DiskStation / RackStation agents (marked in Admin → Hosts or auto-detected). Synology DSM's snmpd handles parallel queries well — defaults to 8. Set 0 to disable. Range 0..16."
         },
         "tuning_snmp_walk_concurrency_ucd": {
           "label": "SNMP walk concurrency — UCD/net-snmp (auto-detect override)",
-          "help": "Per-vendor walk_concurrency default for net-snmp / ucd-snmp / OpenWrt auto-detected agents. Linux net-snmp is generally fast — recommended 8. Default 0 (disabled). Range 0..16."
+          "help": "Per-vendor walk_concurrency default for net-snmp / ucd-snmp / OpenWrt agents (marked in Admin → Hosts or auto-detected). Linux net-snmp is fast and handles parallel queries well — defaults to 8. Set 0 to disable. Range 0..16."
         },
         "tuning_snmp_walk_concurrency_printer": {
           "label": "SNMP walk concurrency — Printers (auto-detect override)",
@@ -3915,6 +3915,7 @@
       "probe_now": "Probe now",
       "last_seen": "seen {ago} ago",
       "down_suffix": "down",
+      "up_count": "{up} / {total} up",
       "chip_strip_label": "Apps on this host",
       "probe_success": "Probe OK",
       "probe_failed": "Probe failed",
