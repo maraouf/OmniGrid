@@ -265,6 +265,40 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Splunk", "slug": "splunk", "icon": "splunk",
+        "description": "Splunk log analytics / SIEM web UI",
+        "default_ports": [
+            {"port": 8080, "protocol": "http", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "Beszel Hub", "slug": "beszel-hub", "icon": "beszel",
+        "description": "Beszel monitoring hub web UI (distinct from the agent)",
+        "default_ports": [
+            {"port": 8090, "protocol": "http", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "RustDesk", "slug": "rustdesk", "icon": "rustdesk",
+        "description": "Self-hosted RustDesk remote-desktop server (hbbs/hbbr)",
+        "default_ports": [
+            {"port": 21114, "protocol": "tcp", "label": "hbbs Web",
+             "probe_path": "", "probe_status": 0},
+            {"port": 21115, "protocol": "tcp", "label": "hbbs NAT",
+             "probe_path": "", "probe_status": 0},
+            {"port": 21116, "protocol": "tcp", "label": "hbbs ID/Reg",
+             "probe_path": "", "probe_status": 0},
+            {"port": 21117, "protocol": "tcp", "label": "hbbr Relay",
+             "probe_path": "", "probe_status": 0},
+            {"port": 21118, "protocol": "tcp", "label": "hbbs WS",
+             "probe_path": "", "probe_status": 0},
+            {"port": 21119, "protocol": "tcp", "label": "hbbr WS",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "AdGuardHome Sync", "slug": "adguardhome-sync", "icon": "adguard-home",
         "description": "Syncs config between AdGuard Home instances",
         "default_ports": [

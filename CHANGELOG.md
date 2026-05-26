@@ -39,6 +39,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Added Syncthing (8384/tcp Web UI) and a Plex DLNA port (32469/tcp) to the built-in Apps catalog templates.
 - Added MariaDB (3306), PostgreSQL (5432), MongoDB (27017), and InfluxDB (8086 HTTP API + 8088 RPC) to the built-in Apps catalog templates, with a bundled MariaDB brand icon. All four ports are already covered by the default port-scan list, so an open database port is matched to its app in the discovery wizard.
 - Added Dockge (Docker stack manager) to the built-in Apps catalog templates with a bundled brand icon.
+- Added Splunk (8080), Beszel Hub (8090, distinct from the Beszel agent), and RustDesk (relay ports 21114–21119) to the built-in Apps catalog templates, with a bundled Splunk brand icon and the RustDesk ports added to the default port-scan list.
 - The Apps "Pin to host" picker is now a searchable, type-to-filter dropdown (matching the discovery wizard) instead of a long plain list of every host.
 
 ### Changed

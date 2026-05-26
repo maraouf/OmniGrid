@@ -63,7 +63,7 @@ export const KNOWN_ICONS = new Set([
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
   'readarr', 'reolink', 'roku', 'roundcube', 'rundeck', 'rustdesk', 'sabnzbd',
   'samsung', 'samsung-electronics', 'sandisk', 'seeedstudio', 'sensibo', 'smtp', 'somfy', 'sonarr',
-  'speedtest-tracker', 'squid', 'stalwart', 'syncthing', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr',
+  'speedtest-tracker', 'splunk', 'squid', 'stalwart', 'syncthing', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
   'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd',
