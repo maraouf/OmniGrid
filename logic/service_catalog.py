@@ -510,7 +510,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "NetData", "slug": "netdata", "icon": "netdata",
         "description": "Real-time host metrics agent",
         "default_ports": [
-            {"port": 19999, "protocol": "tcp", "label": "Web UI",
+            {"port": 19999, "protocol": "http", "label": "Web UI",
              "probe_path": "/api/v1/info", "probe_status": 200},
         ],
     },
@@ -526,9 +526,9 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Nextcloud", "slug": "nextcloud", "icon": "nextcloud",
         "description": "Self-hosted file sync + collaboration",
         "default_ports": [
-            {"port": 80, "protocol": "tcp", "label": "HTTP",
+            {"port": 80, "protocol": "http", "label": "HTTP",
              "probe_path": "/status.php", "probe_status": 200},
-            {"port": 443, "protocol": "tcp", "label": "HTTPS",
+            {"port": 443, "protocol": "https", "label": "HTTPS",
              "probe_path": "/status.php", "probe_status": 200},
         ],
     },
@@ -904,6 +904,14 @@ def update_catalog_entry(cid: int, *,
         params.append(json.dumps(_coerce_ports(default_ports)))
     if not sets:
         return existing
+    # A BUILT-IN template edited via the UI takes ownership: its source
+    # flips 'builtin' -> 'operator' so the boot-time builtin reconciliation
+    # in seed_builtins never overwrites the customisation. Pristine builtins
+    # keep source='builtin' and DO pick up canonical _BUILTIN updates on the
+    # next boot. (A row already at source='operator' stays as-is.)
+    if (existing.get("source") or "") == "builtin":
+        sets.append("source = ?")
+        params.append("operator")
     sets.append("updated_ts = ?")
     params.append(int(time.time()))
     params.append(cid)
@@ -1088,9 +1096,16 @@ def seed_builtins(force: bool = False) -> int:
                         seeded_ledger = {str(s) for s in parsed}
                 except (ValueError, TypeError):
                     seeded_ledger = set()
-            existing_slugs = {
-                r[0] for r in c.execute("SELECT slug FROM service_catalog").fetchall()
+            # Full rows (not just slugs) so the reconciliation pass below
+            # can compare each existing BUILTIN row against its current
+            # _BUILTIN definition and refresh it when it drifted.
+            existing_rows = {
+                r[0]: r for r in c.execute(
+                    "SELECT slug, default_ports_json, name, icon, description, source "
+                    "FROM service_catalog"
+                ).fetchall()
             }
+            existing_slugs = set(existing_rows.keys())
             now = int(time.time())
             inserted = 0
             for tpl in _BUILTIN:
@@ -1119,6 +1134,40 @@ def seed_builtins(force: bool = False) -> int:
                 except sqlite3.IntegrityError:
                     # Race / duplicate slug — skip silently.
                     pass
+            # Reconciliation pass — refresh existing BUILTIN-source rows whose
+            # stored definition has DRIFTED from the current _BUILTIN (e.g. a
+            # release flips a template's port protocol tcp -> http or adds a
+            # port). Without this, a _BUILTIN edit never reaches an
+            # already-seeded DB (the INSERT loop skips present slugs), so the
+            # canonical fix would be invisible until manual delete + re-seed.
+            # Only source='builtin' rows are touched — a builtin edited via
+            # the UI was flipped to source='operator' (see
+            # update_catalog_entry), so customisations are never clobbered.
+            updated = 0
+            for tpl in _BUILTIN:
+                row = existing_rows.get(tpl["slug"])
+                # row tuple: (slug, default_ports_json, name, icon, description, source)
+                if row is None or (row[5] or "") != "builtin":
+                    continue
+                want_ports = json.dumps(_coerce_ports(tpl.get("default_ports") or []))
+                want_name = tpl["name"]
+                want_icon = tpl.get("icon") or tpl["slug"]
+                want_desc = tpl.get("description") or ""
+                if (row[1] == want_ports and row[2] == want_name
+                        and row[3] == want_icon and row[4] == want_desc):
+                    continue  # already canonical — nothing to do
+                try:
+                    c.execute(
+                        "UPDATE service_catalog SET default_ports_json=?, name=?, "
+                        "icon=?, description=?, updated_ts=? "
+                        "WHERE slug=? AND source='builtin'",
+                        (want_ports, want_name, want_icon, want_desc, now, tpl["slug"]),
+                    )
+                    updated += 1
+                except sqlite3.Error:
+                    pass
+            if updated:
+                print(f"[service_catalog] reconciled {updated} builtin template(s) to current defaults")
             # Reconcile the ledger to cover every current builtin so the
             # next boot only considers slugs added to _BUILTIN later. The
             # write rides THIS connection's transaction (same reason as
@@ -1136,7 +1185,7 @@ def seed_builtins(force: bool = False) -> int:
             # Direct service_catalog writes bypass `set_setting` (the
             # canonical bump trigger), so the bump fires explicitly here on
             # the same connection that rides the outer commit transaction.
-            if inserted > 0 or ledger_changed:
+            if inserted > 0 or updated > 0 or ledger_changed:
                 try:
                     from logic.db import _bump_settings_version_in
                     _bump_settings_version_in(c)
