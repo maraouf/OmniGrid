@@ -36,7 +36,6 @@ from typing import Any, Optional
 
 import httpx
 
-
 # Numeric-coercion helpers live in the dependency-free logic.coerce leaf
 # module now; aliased to the legacy underscore names so call sites are
 # unchanged. (Consolidated from the previously per-sampler duplicates.)
@@ -464,6 +463,25 @@ def _host_provider_config() -> dict[str, set[str]]:
                 isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
             ):
                 configured.add("snmp")
+            # http_probe + service_probe are master-toggle providers with
+            # per-host opt-in (NOT host_stats_source CSV members). They MUST
+            # be detected here too: when an http/service probe fails,
+            # `record_provider_outcome`'s defensive guard checks
+            # `provider not in cfg[host_id]` and — if the provider is missing
+            # from this set — DELETES the host_provider_last_ok row, making
+            # the chip's "Updated Xm ago" subtitle disappear. Same failure
+            # class the SNMP comment above describes. http_probe is configured
+            # when the per-host `http_probe.enabled` flag is on; service_probe
+            # when ANY curated service chip has `probe.enabled`.
+            if isinstance(h.get("http_probe"), dict) and h["http_probe"].get("enabled") is True:
+                configured.add("http_probe")
+            svc_list = h.get("services")
+            if isinstance(svc_list, list) and any(
+                isinstance(svc, dict) and isinstance(svc.get("probe"), dict)
+                and svc["probe"].get("enabled") is True
+                for svc in svc_list
+            ):
+                configured.add("service_probe")
             out[hid] = configured
     # noinspection PyBroadException
     except Exception as e:

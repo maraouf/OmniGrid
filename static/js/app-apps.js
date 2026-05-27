@@ -1423,6 +1423,17 @@ export default {
     this.appsDockerLinkSearch = label || '';
     this.appsDockerLinkDropdownOpen = false;
   },
+  // Close the picker + DISCARD any unmatched free text. The link is ONLY
+  // ever set by clicking an option (appsDockerLinkPick) — typed text is a
+  // filter, never a saved value — so on close we snap the input back to
+  // the currently-linked item's label (or '' when not linked). This stops
+  // the box from showing free text that looks like a selection but won't
+  // persist; to actually change the link the user must pick an option (or
+  // the "— Not linked —" row).
+  appsDockerLinkClose() {
+    this.appsDockerLinkDropdownOpen = false;
+    this.appsDockerLinkSearch = this.appsInstanceDockerLinkLabel();
+  },
 
   // Current <select> value for the edit form: the item id matching the
   // stored link (container name + host wins; falls back to name-only

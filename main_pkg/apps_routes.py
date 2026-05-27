@@ -3550,6 +3550,16 @@ def _shape_host_api_row(
             for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
         )
         ),
+        # Whether ANY curated service chip on this host has probe.enabled —
+        # the gate for the Service-probe provider chip. Computed backend-side
+        # from the RAW curated services list (h["services"]) because the API
+        # row's `services` field above is the Beszel systemd ROLLUP object,
+        # not the curated array — so the SPA can't walk it for probe.enabled.
+        "service_probe_has_targets": any(
+            isinstance(svc, dict) and isinstance(svc.get("probe"), dict)
+            and svc.get("probe", {}).get("enabled") is True
+            for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+        ),
         # Latest sample roll-up. Renders the drawer card + the chip
         # state. None / empty when no sample has landed yet (cold-load
         # before the first tick); the snapshot fallback restores these

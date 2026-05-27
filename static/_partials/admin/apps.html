@@ -1000,14 +1000,14 @@
           <!-- Searchable combobox — type to filter a long containers /
                services list instead of scrolling a giant <select>. Click an
                option to link; the X clears the link. -->
-          <div class="relative" @click.outside="appsDockerLinkDropdownOpen = false">
+          <div class="relative" @click.outside="appsDockerLinkClose()">
             <input type="text" class="fs-xs w-full" autocomplete="off" role="combobox"
                    aria-controls="apps-docker-link-list"
                    :aria-expanded="appsDockerLinkDropdownOpen ? 'true' : 'false'"
                    x-model="appsDockerLinkSearch"
                    @focus="appsDockerLinkDropdownOpen = true"
                    @input="appsDockerLinkDropdownOpen = true"
-                   @keydown.escape.prevent.stop="appsDockerLinkDropdownOpen = false"
+                   @keydown.escape.prevent.stop="appsDockerLinkClose()"
                    :placeholder="t('admin_apps.instance_edit_docker_search') || 'Type to search containers / services…'"
                    :aria-label="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'">
             <ul x-show="appsDockerLinkDropdownOpen" x-cloak id="apps-docker-link-list" role="listbox"
