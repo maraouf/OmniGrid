@@ -2391,7 +2391,11 @@
         <!-- Grouped render. When host_groups is empty the
              helper returns a single {group: null, hosts: [...]} bucket
              so the markup degrades to the flat list. -->
-        <template x-for="(bucket, bi) in groupedHosts()" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
+        <!-- PERF-03: render rows ONLY for the active form factor. The
+             inactive tree iterates [] so its per-host bindings (incl. the
+             memoized sparklines) never run; the CSS display toggle still
+             hides the now-empty container. -->
+        <template x-for="(bucket, bi) in (isMobileViewport ? groupedHosts() : [])" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
           <div>
             <!-- Group heading — shown only when at least one group is
                  defined OR when the ungrouped bucket is one of many. -->
@@ -2679,7 +2683,9 @@
              the flat list. Group headings render only when there's at
              least one defined group — an all-ungrouped run keeps the
              toolbar-compact look. -->
-        <template x-for="(bucket, bi) in groupedHosts()" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
+        <!-- PERF-03: see the mobile-cards note above — the desktop table
+             renders rows only when NOT in the mobile viewport. -->
+        <template x-for="(bucket, bi) in (isMobileViewport ? [] : groupedHosts())" :key="(bucket.group ? bucket.group.name : '_ungrouped') + ':' + bi">
           <div>
             <div x-show="hostGroups.length > 0"
                  @click="toggleGroup(bucket.group ? bucket.group.name : '')"

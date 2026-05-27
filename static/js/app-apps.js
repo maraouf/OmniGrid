@@ -25,6 +25,17 @@
 // when the app list reloads.
 const _appsSparkCache = new WeakMap();
 
+// PERF-11: per-flush memo for hostAppsHealth — the host row binds it ~3x per
+// apps pill (count badge text + colour class + title). Cleared on the next
+// microtask; hosts reconcile IN PLACE (stable h ref), so the per-flush clear
+// is what keeps it correct when h.apps updates on the next poll.
+let _hostAppsHealthFlushCache = null;
+let _hostAppsHealthFlushScheduled = false;
+function _clearHostAppsHealthFlushCache() {
+  _hostAppsHealthFlushCache = null;
+  _hostAppsHealthFlushScheduled = false;
+}
+
 export default {
   // ----------------------------------------------------------------
   // Top-level Apps view — cross-host aggregate.
@@ -484,6 +495,27 @@ export default {
   // the load-bearing 6-value status enum. Derived purely from h.apps
   // (already reconciled in place), so the badge updates with the row.
   hostAppsHealth(h) {
+    const _key = (h && h.id) || null;
+    if (_key !== null) {
+      if (_hostAppsHealthFlushCache === null) {
+        _hostAppsHealthFlushCache = new Map();
+        if (!_hostAppsHealthFlushScheduled) {
+          _hostAppsHealthFlushScheduled = true;
+          queueMicrotask(_clearHostAppsHealthFlushCache);
+        }
+      }
+      const _hit = _hostAppsHealthFlushCache.get(_key);
+      if (_hit !== undefined) {
+        return _hit;
+      }
+      const _res = this._hostAppsHealthCompute(h);
+      _hostAppsHealthFlushCache.set(_key, _res);
+      return _res;
+    }
+    return this._hostAppsHealthCompute(h);
+  },
+  // Uncached compute behind the per-flush memo above.
+  _hostAppsHealthCompute(h) {
     const apps = (h && Array.isArray(h.apps)) ? h.apps : [];
     const total = apps.length;
     if (!total) {

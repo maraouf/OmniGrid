@@ -690,6 +690,65 @@ async def _log_unhandled_exception(request: Request, exc: Exception):
     )
 
 
+# PERF-13: long-lived immutable caching for version-busted static assets.
+# Asset refs in the shell carry ?v=<APP_VERSION> (rewritten by _render_shell);
+# a real deploy bumps the PATCH version → the ?v= value changes → the URL is a
+# fresh cache key, so marking the response immutable for a year is safe and
+# saves a conditional-revalidation round-trip per asset per navigation. GATED
+# on a non-dev version: local 0.0.0-dev builds keep revalidating so a dev edit
+# (which does NOT bump the version) isn't pinned stale for a year. The shell
+# itself (`/`, no ?v=) is untouched, so it keeps its revalidate-on-load
+# behaviour and always picks up new asset URLs after a deploy.
+_IMMUTABLE_DEV_MARKER = "0.0.0-dev"
+
+
+@app.middleware("http")
+async def _immutable_versioned_assets(request: Request, call_next):
+    resp = await call_next(request)
+    try:
+        if request.method in ("GET", "HEAD") and resp.status_code == 200:
+            v = request.query_params.get("v")
+            if v and v != _IMMUTABLE_DEV_MARKER and not request.url.path.startswith("/api/"):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    except (AttributeError, TypeError):
+        # Defensive: never let header decoration break a response (e.g. an
+        # exotic response type without a mutable .headers mapping).
+        pass
+    return resp
+
+
+# PERF-08: gzip text responses (JSON API payloads, HTML shell, CSS / JS) above
+# a size threshold — meaningful on the larger /api/items + /api/hosts payloads
+# and the SPA shell. The SSE stream (/api/events, text/event-stream) is
+# BYPASSED: GZipMiddleware's chunk buffering would hold events back until the
+# zlib block fills, stalling real-time delivery + the keepalive heartbeat.
+# Imported from fastapi (a direct dependency) rather than starlette, which is
+# only a transitive dep — fastapi re-exports GZipMiddleware unchanged.
+from fastapi.middleware.gzip import GZipMiddleware as _GZipMiddleware  # noqa: E402
+
+
+class _SSESafeGZipMiddleware:
+    """GZips responses EXCEPT the /api/events SSE stream.
+
+    Composition (not subclassing) so the ``__init__(app, minimum_size)`` shape
+    matches Starlette's middleware-factory protocol cleanly; it delegates to an
+    inner GZipMiddleware for everything but the SSE path, which is passed
+    straight through to the app (gzip chunk-buffering would stall live events).
+    """
+
+    def __init__(self, asgi_app, minimum_size: int = 1024):
+        self.app = asgi_app
+        self._gzip = _GZipMiddleware(asgi_app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path", "").startswith("/api/events"):
+            await self.app(scope, receive, send)
+            return
+        await self._gzip(scope, receive, send)
+
+
+app.add_middleware(_SSESafeGZipMiddleware, minimum_size=1024)
+
 # Prometheus metric definitions moved to logic/metrics.py. The cache-age
 # collector is wired below (once _cache exists), and every remaining
 # metric call site in this file references them via `metrics.NAME`.

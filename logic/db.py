@@ -23,6 +23,7 @@ statements in main.py:init_db() to handle dialect differences.
 import json
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from typing import Any, Optional
 
@@ -171,13 +172,48 @@ def db_conn():
         conn.close()
 
 
+# PERF-07: read-through cache for the settings KV. get_setting (and the
+# get_setting_bool / load_settings_json / tuning_int / active_host_stats_
+# providers / iter_curated_hosts helpers that all funnel through it) is read
+# MANY times per gather / request / sampler tick, and each call was a fresh
+# connect + SELECT + close. This loads the WHOLE (small) settings table once
+# per TTL window and serves dict lookups. Correctness:
+#   - INVALIDATED immediately by set_setting + the version bump, so a
+#     read-after-write in the SAME request sees the new value (single-process
+#     + synchronous set_setting → nothing runs between the write and the next
+#     get, so mid-call invalidation is safe).
+#   - a short TTL backstop self-corrects any write path that bypasses
+#     set_setting (config-restore bulk INSERT, migrations) within a few seconds.
+# The per-use tuning_int contract is preserved (a tunable edit shows on the
+# next get within the TTL, and immediately after its set_setting). Single-
+# process single-replica → a plain module dict is correct (GIL-atomic dict
+# ops; worst case a redundant reload).
+_SETTINGS_KV_CACHE: dict = {}
+_SETTINGS_KV_CACHE_TS = 0.0
+_SETTINGS_KV_CACHE_TTL = 3.0
+
+
+def _invalidate_settings_cache() -> None:
+    """Force the next ``get_setting()`` to reload the full settings table."""
+    global _SETTINGS_KV_CACHE_TS
+    _SETTINGS_KV_CACHE_TS = 0.0
+
+
 def get_setting(key: str, default: str = "") -> str:
-    """Read one row from the ``settings`` table, returning `default`
-    when the key isn't set.
+    """Read one settings row, returning `default` when the key isn't set.
+
+    Served from the process-level read-through cache (see
+    ``_SETTINGS_KV_CACHE``); reloads the whole (small) settings table when the
+    cache is empty or older than the TTL.
     """
-    with db_conn() as c:
-        r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return r["value"] if r else default
+    global _SETTINGS_KV_CACHE, _SETTINGS_KV_CACHE_TS
+    now = time.monotonic()
+    if not _SETTINGS_KV_CACHE_TS or (now - _SETTINGS_KV_CACHE_TS) >= _SETTINGS_KV_CACHE_TTL:
+        with db_conn() as c:
+            rows = c.execute("SELECT key, value FROM settings").fetchall()
+        _SETTINGS_KV_CACHE = {r["key"]: r["value"] for r in rows}
+        _SETTINGS_KV_CACHE_TS = now
+    return _SETTINGS_KV_CACHE.get(key, default)
 
 
 def set_setting(key: str, value: str) -> None:
@@ -201,6 +237,10 @@ def set_setting(key: str, value: str) -> None:
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
+        # PERF-07: drop the read-through cache so the next get_setting reloads
+        # (correct read-after-write; the db_conn commits on exit and nothing
+        # runs between here and that commit on the single-threaded event loop).
+        _invalidate_settings_cache()
         if key == _SETTINGS_VERSION_KEY or key in _SETTINGS_VERSION_EXCLUDED:
             return
         if _settings_version_deferred_count[0] > 0:
@@ -298,6 +338,9 @@ def _bump_settings_version_in(c) -> None:
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (_SETTINGS_VERSION_KEY, str(cur + 1)),
         )
+        # PERF-07: the version row changed via a direct write — invalidate so
+        # get_settings_version() (and any get_setting) reloads.
+        _invalidate_settings_cache()
     except (sqlite3.Error, RuntimeError):
         # Defence-in-depth: a version-bump failure must NOT roll back
         # the operator's actual settings write. Worst case the SPA
