@@ -1601,29 +1601,41 @@ export default {
     this.httpProbeRowTestBusy[h.id] = true;
     this.httpProbeRowTestResult[h.id] = {pending: true, results: [], error: null};
     try {
-      // Send the row's CURRENTLY-EDITED (possibly unsaved) http_probe
-      // values so the Test reflects what's on screen — a just-typed
-      // accepted-codes CSV or an unchecked verify-TLS — instead of the
-      // last-saved config. The backend overrides the saved config with
-      // any field present here.
+      // Build the override body from whatever http_probe config THIS row
+      // actually carries. Only fields PRESENT in `hp` are sent — the
+      // backend uses the SAVED config for any field we omit. This matters
+      // because the host-drawer row (the usual Test caller) exposes only
+      // `http_probe_enabled` + `http_probe_urls`, NOT the full config
+      // object — so `hp` is empty there and we must send nothing for
+      // codes / verify_tls / content_match, letting the backend apply the
+      // saved [codes] + verify flag. Sending derived defaults (e.g.
+      // `verify_tls: hp.verify_tls !== false` → true when undefined, or
+      // `accepted_status_codes: ''` → empty → default range) would CLOBBER
+      // the correct saved values and was why a saved `404` / unchecked
+      // verify still failed the Test. The admin-editor row (with the
+      // `_text` virtual fields) sends its current edits as before.
       const hp = h.http_probe || {};
+      const testBody = {};
       const formUrls = (typeof hp.urls_text === 'string')
         ? hp.urls_text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
         : (Array.isArray(hp.urls) ? hp.urls : []);
-      const codesText = (typeof hp.accepted_status_codes_text === 'string')
-        ? hp.accepted_status_codes_text.trim()
-        : (Array.isArray(hp.accepted_status_codes) ? hp.accepted_status_codes.join(',') : '');
-      const testBody = {
-        accepted_status_codes: codesText,
-        content_match: (hp.content_match || ''),
-        verify_tls: hp.verify_tls !== false,
-      };
       // ONLY override urls when the row's http_probe.urls field is
-      // non-empty. A blank urls_text means the URLs come from the host's
+      // non-empty. A blank list means the URLs come from the host's
       // url / services[].url fallback chain — sending [] would make the
       // backend report "no URLs" instead of resolving that chain.
       if (formUrls.length) {
         testBody.urls = formUrls;
+      }
+      if (typeof hp.accepted_status_codes_text === 'string') {
+        testBody.accepted_status_codes = hp.accepted_status_codes_text.trim();
+      } else if (Array.isArray(hp.accepted_status_codes)) {
+        testBody.accepted_status_codes = hp.accepted_status_codes.join(',');
+      }
+      if (typeof hp.content_match === 'string') {
+        testBody.content_match = hp.content_match;
+      }
+      if (typeof hp.verify_tls === 'boolean') {
+        testBody.verify_tls = hp.verify_tls;
       }
       const resp = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/test', {
         method: 'POST',
