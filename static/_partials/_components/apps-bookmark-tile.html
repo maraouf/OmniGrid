@@ -14,7 +14,7 @@
    @dragover.prevent
    @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"
    @click="appsCustomEditMode ? $event.preventDefault() : null">
-  <img :src="iconUrlFor(item.icon || item.name)" alt="" width="24" height="24"
+  <img :src="iconUrlFor(item.icon || item.name)" alt="" width="32" height="32"
        class="apps-bookmark-icon" @error="$event.target.style.visibility='hidden'">
   <span class="apps-bookmark-text flex-1 min-w-0">
     <span class="block truncate fs-sm" x-text="item.name || appsBookmarkHost(item.url)"></span>

@@ -3535,11 +3535,21 @@
         <section class="apps-section apps-section--unsectioned border border-[var(--border)] rounded-md"
                  x-show="appsCustomUnsectioned().length || (appsCustomEditMode && !appsCustomSections().length)">
           <header class="apps-section-head flex items-center gap-2 px-2 py-1.5">
+            <button type="button" class="user-action-btn"
+                    @click="toggleAppsUnsectionedCollapsed()"
+                    :aria-expanded="(!appsUnsectionedCollapsed()).toString()"
+                    :aria-label="appsUnsectionedCollapsed() ? (t('actions.expand') || 'Expand') : (t('actions.collapse') || 'Collapse')">
+              <svg width="14" height="14" aria-hidden="true" class="flip-rtl"
+                   :class="appsUnsectionedCollapsed() ? '' : 'rotate-90'">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+              </svg>
+            </button>
             <span class="fs-sm font-semibold text-[var(--text-dim)] flex-1"
                   x-text="t('apps.custom.unsectioned') || 'Unsectioned'"></span>
             <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
           </header>
-          <div :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+          <div x-show="!appsUnsectionedCollapsed()"
+               :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
                @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop('__unsectioned', null) : null">
             <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
               <div class="apps-custom-cell min-w-0">

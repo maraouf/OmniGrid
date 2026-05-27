@@ -392,7 +392,9 @@ export default {
   // tall and break the grid's uniform rows. Cap the rendered instance
   // list at APPS_INSTANCES_COLLAPSED_LIMIT until the operator expands it.
   _appsInstancesLimit() {
-    return 6;
+    // Show fewer per-host instances before the "Show all (N)" toggle so a
+    // card for an app on many hosts stays short (was 6).
+    return 4;
   },
   appsVisibleInstances(app) {
     const all = (app && Array.isArray(app.instances)) ? app.instances : [];
@@ -686,7 +688,21 @@ export default {
             items,
           };
         }),
+      // Collapse state for the synthetic "Unsectioned" bucket — it's not a
+      // real section so it needs its own persisted flag (mirrors a section's
+      // `collapsed`).
+      unsectioned_collapsed: !!(saved && saved.unsectioned_collapsed),
     };
+  },
+
+  appsUnsectionedCollapsed() {
+    this._hydrateAppsCustomLayout();
+    return !!this.appsCustomLayout.unsectioned_collapsed;
+  },
+  toggleAppsUnsectionedCollapsed() {
+    this._hydrateAppsCustomLayout();
+    this.appsCustomLayout.unsectioned_collapsed = !this.appsCustomLayout.unsectioned_collapsed;
+    this._persistAppsCustomLayout();
   },
 
   // Shared builder for the custom-mode render. Returns
@@ -1003,7 +1019,10 @@ export default {
   // reads the fresh layout without waiting for the round-trip.
   _persistAppsCustomLayout() {
     this._hydrateAppsCustomLayout();
-    const payload = {sections: this.appsCustomLayout.sections};
+    const payload = {
+      sections: this.appsCustomLayout.sections,
+      unsectioned_collapsed: !!this.appsCustomLayout.unsectioned_collapsed,
+    };
     if (this.me) {
       if (!this.me.ui_prefs) {
         this.me.ui_prefs = {};

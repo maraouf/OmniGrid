@@ -19,14 +19,14 @@
          @click="openAppDrawer(app)"
          @keydown.enter="openAppDrawer(app)"
          @keydown.space.prevent="openAppDrawer(app)">
-  <!-- Big app logo on the LEFT (3x the old 32px); everything else —
-       name / status / description / Probe-all + Open-all actions /
-       per-host services — stacks in the flex-1 column to its right.
-       w-24 h-24 + object-contain forces a uniform 96px square slot
-       that defeats Tailwind's img{height:auto} preflight for the
-       non-square brand marks (so a portrait logo can't stretch tall). -->
+  <!-- App logo on the LEFT; everything else — name / status / description /
+       Probe-all + Open-all actions / per-host services — stacks in the flex-1
+       column to its right. w-16 h-16 + object-contain forces a uniform 64px
+       square slot (was 96px — lowered so a card with few instances isn't
+       floored tall) that defeats Tailwind's img{height:auto} preflight for
+       the non-square brand marks (so a portrait logo can't stretch tall). -->
   <img :src="iconUrlFor(app.icon || app.name)" alt=""
-       width="96" height="96" class="w-24 h-24 object-contain rounded flex-shrink-0"
+       width="64" height="64" class="w-16 h-16 object-contain rounded flex-shrink-0"
        @error="$event.target.style.visibility='hidden'">
   <div class="flex-1 min-w-0">
     <header class="mb-3">
