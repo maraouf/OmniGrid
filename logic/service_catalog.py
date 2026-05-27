@@ -152,7 +152,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Kavita", "slug": "kavita", "icon": "kavita",
         "description": "Self-hosted digital library / reader",
         "default_ports": [
-            {"port": 5002, "protocol": "tcp", "label": "Web UI",
+            {"port": 5002, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -186,7 +186,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Homarr", "slug": "homarr", "icon": "homarr",
         "description": "Self-hosted dashboard / homepage",
         "default_ports": [
-            {"port": 7575, "protocol": "tcp", "label": "Web UI",
+            {"port": 7575, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -327,7 +327,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "LubeLogger", "slug": "lubelogger", "icon": "lubelogger",
         "description": "Vehicle maintenance + fuel tracking",
         "default_ports": [
-            {"port": 8095, "protocol": "tcp", "label": "Web UI",
+            {"port": 8095, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -351,7 +351,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Homebridge", "slug": "homebridge", "icon": "homebridge",
         "description": "HomeKit bridge for non-native accessories",
         "default_ports": [
-            {"port": 8581, "protocol": "tcp", "label": "Web UI",
+            {"port": 8581, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -359,7 +359,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Komodo", "slug": "komodo", "icon": "komodo",
         "description": "Build + deployment / container orchestration UI",
         "default_ports": [
-            {"port": 9120, "protocol": "tcp", "label": "Web UI",
+            {"port": 9120, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -466,7 +466,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "icon": "home-assistant",
         "description": "Home automation hub",
         "default_ports": [
-            {"port": 8123, "protocol": "tcp", "label": "Web UI",
+            {"port": 8123, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -612,7 +612,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Lidarr", "slug": "lidarr", "icon": "lidarr",
         "description": "Music collection manager (*arr stack)",
         "default_ports": [
-            {"port": 7882, "protocol": "tcp", "label": "Web UI",
+            {"port": 7882, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },

@@ -130,7 +130,7 @@
           <td class="py-2">
             <div class="flex flex-wrap gap-1">
               <template x-for="p in (entry.default_ports || [])" :key="p.port + ':' + p.protocol">
-                        <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5"
+                        <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
                               :title="(p.label || '') + ' (' + p.protocol + ')' + (p.open_url ? ' — ' + (t('admin_apps.port_open_url') || 'opens as URL') : '')">
                           <!-- Link indicator: this port is marked open-as-URL
                                (clickable in the Apps view) — visible without
@@ -284,7 +284,7 @@
             <td class="py-2 hidden md:table-cell">
               <div class="flex flex-wrap gap-1">
                 <template x-for="p in (inst.ports || [])" :key="p.port + ':' + (p.protocol || 'tcp')">
-                    <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5"
+                    <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
                           :title="(p.label || '') + ' (' + (p.protocol || 'tcp') + ')' + (p.open_url ? ' — ' + (t('admin_apps.port_open_url') || 'opens as URL') : '')">
                       <!-- Open-as-URL indicator (inherited from the template at
                            pin time, or set per-chip) — see it without opening
@@ -430,7 +430,7 @@
              clickable link to <scheme>://<host>:<port> in the Apps view. -->
         <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] mb-2 ps-1">
           <input type="checkbox" x-model="p.open_url">
-          <span x-text="t('admin_apps.port_open_url') || 'Open as URL (http/https)'"></span>
+          <span x-text="t('admin_apps.port_open_url') || 'Open as URL'"></span>
         </label>
       </template>
     </div>
@@ -463,6 +463,9 @@
     <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[480px] w-full mx-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2 min-w-0">
+          <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pin"/>
+          </svg>
           <img x-show="appsPinForm.template"
                :src="iconUrlFor((appsPinForm.template && (appsPinForm.template.icon || appsPinForm.template.slug)) || '')"
                alt="" width="22" height="22" class="rounded flex-shrink-0"
@@ -486,32 +489,54 @@
       <div class="space-y-3">
         <div>
           <label class="block fs-xs font-medium mb-1" for="apps-pin-host-search"
-                 x-text="t('admin_apps.pin_host') || 'Host'"></label>
+                 x-text="t('admin_apps.pin_hosts') || 'Hosts'"></label>
+          <!-- Selected hosts — removable chips. Pin can target MANY hosts
+               at once; clicking a host in the dropdown toggles it here. -->
+          <div x-show="(appsPinForm.host_ids || []).length" class="flex flex-wrap gap-1 mb-1.5">
+            <template x-for="sh in appsPinSelectedHosts()" :key="sh.id">
+              <span class="chip pill-info fs-2xs inline-flex items-center gap-1 whitespace-nowrap">
+                <span x-text="appsHostLabel(sh)"></span>
+                <button type="button" class="inline-flex items-center" @click.stop="removeAppsPinHost(sh.id)"
+                        :aria-label="t('actions.remove') || 'Remove'" :title="t('actions.remove') || 'Remove'">
+                  <svg width="10" height="10" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                  </svg>
+                </button>
+              </span>
+            </template>
+          </div>
           <!-- Searchable host picker — same combobox pattern as the
                discovery wizard. Type to filter; arrow keys move the
-               highlight, Enter selects, Escape closes. -->
+               highlight, Enter TOGGLES the host, Escape closes. The
+               dropdown stays open after a pick so several hosts can be
+               selected in a row. -->
           <div class="relative" @click.outside="appsPinHostDropdownOpen = false">
             <input id="apps-pin-host-search" type="text" class="w-full"
                    autocomplete="off" role="combobox" aria-controls="apps-pin-host-list"
                    :aria-expanded="appsPinHostDropdownOpen ? 'true' : 'false'"
-                   :placeholder="t('admin_apps.pin_host_search') || 'Type to filter hosts…'"
+                   :placeholder="t('admin_apps.pin_hosts_search') || 'Type to filter, click to add hosts…'"
                    x-model="appsPinHostSearch"
                    @focus="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1"
-                   @input="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1; appsPinForm.host_id = ''"
+                   @input="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1"
                    @keydown.arrow-down.prevent="appsPinHostMove(1)"
                    @keydown.arrow-up.prevent="appsPinHostMove(-1)"
                    @keydown.enter.prevent="appsPinHostEnter()"
                    @keydown.escape.prevent.stop="appsPinHostDropdownOpen = false">
-            <ul x-show="appsPinHostDropdownOpen" x-cloak id="apps-pin-host-list" role="listbox"
+            <ul x-show="appsPinHostDropdownOpen" x-cloak id="apps-pin-host-list" role="listbox" aria-multiselectable="true"
                 class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
               <template x-for="(h, idx) in appsPinFilteredHosts()" :key="h.id">
                 <li role="option"
-                    :aria-selected="appsPinForm.host_id === h.id ? 'true' : 'false'"
+                    :aria-selected="appsPinHostChosen(h) ? 'true' : 'false'"
                     :class="idx === appsPinHostActiveIdx ? 'bg-[var(--row-hover)]' : ''"
-                    class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)]"
+                    class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)] flex items-center gap-2"
                     @mouseenter="appsPinHostActiveIdx = idx"
-                    @click="selectAppsPinHost(h)"
-                    x-text="appsHostLabel(h)"></li>
+                    @click="toggleAppsPinHost(h)">
+                  <svg width="12" height="12" class="flex-shrink-0 text-[var(--primary)]"
+                       :style="appsPinHostChosen(h) ? '' : 'visibility:hidden'" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+                  </svg>
+                  <span class="truncate" x-text="appsHostLabel(h)"></span>
+                </li>
               </template>
               <li x-show="!appsPinFilteredHosts().length"
                   class="px-3 py-1.5 fs-sm text-[var(--text-faint)]"
@@ -537,7 +562,7 @@
       <div class="flex items-center gap-2 pt-4 mt-4 border-t border-[var(--border)]">
         <button type="button" class="btn btn-primary fs-sm"
                 @click="submitAppCatalogPin()"
-                :disabled="appsPinSaving || !appsPinForm.host_id">
+                :disabled="appsPinSaving || !(appsPinForm.host_ids || []).length">
           <span x-show="!appsPinSaving" x-text="t('admin_apps.pin_submit') || 'Pin to host'"></span>
           <span x-show="appsPinSaving" x-text="t('admin_apps.pin_saving') || 'Pinning…'"></span>
         </button>
@@ -799,7 +824,7 @@
                 <!-- Clickable-port toggle — when ticked (+ protocol http/https)
                      the port pill links to <scheme>://<host>:<port>. -->
                 <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap"
-                       :title="t('admin_apps.port_open_url_title') || 'Open as URL (http/https) — makes the port pill a clickable link'">
+                       :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
                   <input type="checkbox" x-model="p.open_url">
                   <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
                 </label>
