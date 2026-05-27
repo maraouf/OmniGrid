@@ -210,6 +210,23 @@ export default {
         if (typeof row.http_probe.urls_text !== 'string') {
           row.http_probe.urls_text = '';
         }
+        // accepted_status_codes uses the SAME virtual-string pattern as
+        // urls_text: the input binds x-model to a raw `_text` string so
+        // typing never round-trips through the int array. The old
+        // :value="...Array.isArray(codes)? codes.join(',') : ''" + @input
+        // shape stored the typed STRING into accepted_status_codes, the
+        // Array.isArray() check then failed, and :value re-rendered ''
+        // -> the field cleared on every keystroke. Parsed back to an int
+        // array on save.
+        if (typeof row.http_probe.accepted_status_codes_text !== 'string') {
+          if (Array.isArray(row.http_probe.accepted_status_codes)) {
+            row.http_probe.accepted_status_codes_text = row.http_probe.accepted_status_codes.join(',');
+          } else if (typeof row.http_probe.accepted_status_codes === 'string') {
+            row.http_probe.accepted_status_codes_text = row.http_probe.accepted_status_codes;
+          } else {
+            row.http_probe.accepted_status_codes_text = '';
+          }
+        }
         // Stamp a stable per-row uid the first time we see this
         // row. Used as the x-for :key so DOM elements never tear
         // down + re-mount mid-typing (which loses input focus and
@@ -631,7 +648,19 @@ export default {
             httpProbe.content_match = cm.slice(0, 256);
           }
         }
-        if (Array.isArray(h.http_probe.accepted_status_codes)) {
+        // Prefer the editor's virtual `_text` string (current edits) over
+        // the stored array, then fall back to a legacy array / string.
+        const _ascExp = (typeof h.http_probe.accepted_status_codes_text === 'string')
+          ? h.http_probe.accepted_status_codes_text.trim()
+          : null;
+        if (_ascExp !== null) {
+          const cs = _ascExp.split(',')
+            .map(c => parseInt(c, 10))
+            .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
+          if (cs.length) {
+            httpProbe.accepted_status_codes = Array.from(new Set(cs)).sort((a, b) => a - b);
+          }
+        } else if (Array.isArray(h.http_probe.accepted_status_codes)) {
           const cs = h.http_probe.accepted_status_codes
             .map(c => parseInt(c, 10))
             .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
@@ -1274,10 +1303,23 @@ export default {
       if (cm && cm.length <= 256) {
         httpOut.content_match = cm;
       }
-      // accepted_status_codes: accept array (already parsed) OR CSV
-      // string. The backend's `parse_status_codes_csv` accepts both,
-      // so we just trim and pass through when non-empty.
-      if (Array.isArray(httpIn.accepted_status_codes)) {
+      // accepted_status_codes: the input binds to the virtual `_text`
+      // string (x-model), so parse THAT first into a deduped int array.
+      // Blank `_text` omits the field entirely (= use the deployment
+      // default range). Fall back to a legacy array / string value for
+      // rows that predate the `_text` field (e.g. a raw JSON import that
+      // skipped editor hydration).
+      const _ascText = (typeof httpIn.accepted_status_codes_text === 'string')
+        ? httpIn.accepted_status_codes_text.trim()
+        : null;
+      if (_ascText !== null) {
+        const codes = _ascText.split(',')
+          .map(c => parseInt(c, 10))
+          .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
+        if (codes.length) {
+          httpOut.accepted_status_codes = Array.from(new Set(codes)).sort((a, b) => a - b);
+        }
+      } else if (Array.isArray(httpIn.accepted_status_codes)) {
         const codes = httpIn.accepted_status_codes
           .map(c => parseInt(c, 10))
           .filter(c => Number.isFinite(c) && c >= 100 && c <= 599);
@@ -1285,7 +1327,6 @@ export default {
           httpOut.accepted_status_codes = Array.from(new Set(codes)).sort((a, b) => a - b);
         }
       } else if (typeof httpIn.accepted_status_codes === 'string' && httpIn.accepted_status_codes.trim()) {
-        // Operator typed a CSV — let backend parse.
         httpOut.accepted_status_codes = httpIn.accepted_status_codes.trim();
       }
       // verify_tls: explicit boolean only when the operator unticked
@@ -1426,6 +1467,11 @@ export default {
         row.http_probe.urls_text = Array.isArray(row.http_probe.urls)
           ? row.http_probe.urls.join('\n')
           : (typeof row.http_probe.urls_text === 'string' ? row.http_probe.urls_text : '');
+        // Same re-derivation for the accepted-status-codes CSV string so
+        // the field doesn't clear after Save (mirrors the urls_text fix).
+        row.http_probe.accepted_status_codes_text = Array.isArray(row.http_probe.accepted_status_codes)
+          ? row.http_probe.accepted_status_codes.join(',')
+          : (typeof row.http_probe.accepted_status_codes_text === 'string' ? row.http_probe.accepted_status_codes_text : '');
         if (!row.snmp || typeof row.snmp !== 'object') {
           row.snmp = {};
         }

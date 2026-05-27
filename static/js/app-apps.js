@@ -1258,6 +1258,11 @@ export default {
       probe_path: (p && p.probe_path) || '',
       probe_status: (p && p.probe_status != null) ? p.probe_status : 0,
       open_url: !!(p && p.open_url),
+      // Stable per-row key so the x-for keys on identity, NOT the array
+      // index — index keys made Alpine reuse port-row DOM nodes by
+      // position, so deleting a row appeared to do nothing / removed the
+      // wrong one. Stripped on save.
+      _uid: this._mintInstancePortUid(),
     }));
     this.appsInstanceEditForm = {
       host_id: inst.host_id,
@@ -1539,11 +1544,25 @@ export default {
     }
   },
 
+  // Stable id for an instance-editor port row — used as the x-for :key so
+  // splicing a row out doesn't make Alpine reuse DOM nodes by index.
+  _mintInstancePortUid() {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return 'pp_' + window.crypto.randomUUID();
+      }
+    } catch (_e) { /* fall through */ }
+    return 'pp_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+  },
+
   addInstancePort() {
     if (!Array.isArray(this.appsInstanceEditForm.ports)) {
       this.appsInstanceEditForm.ports = [];
     }
-    this.appsInstanceEditForm.ports.push({port: '', protocol: 'tcp', label: '', probe_path: '', probe_status: 0, open_url: false});
+    this.appsInstanceEditForm.ports.push({
+      port: '', protocol: 'tcp', label: '', probe_path: '', probe_status: 0,
+      open_url: false, _uid: this._mintInstancePortUid(),
+    });
   },
 
   removeInstancePort(i) {
@@ -1571,7 +1590,11 @@ export default {
         body: JSON.stringify({
           name: f.name, url: f.url, icon: f.icon,
           probe_enabled: f.probe_enabled, probe_type: f.probe_type,
-          ports: Array.isArray(f.ports) ? f.ports : [],
+          // Strip the editor-only `_uid` (x-for key) from each port row.
+          ports: Array.isArray(f.ports) ? f.ports.map((p) => ({
+            port: p.port, protocol: p.protocol, label: p.label,
+            probe_path: p.probe_path, probe_status: p.probe_status, open_url: p.open_url,
+          })) : [],
           docker_stack: f.docker_stack || '', docker_container: f.docker_container || '',
           docker_host: f.docker_host || '',
         }),
