@@ -212,12 +212,13 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
         if not tpl:
             skipped.append({"catalog_id": cid, "reason": "not_found"})
             continue
-        # Leave name / icon BLANK so the chip inherits from its catalog
-        # template at render time — a later template edit then propagates
-        # to this discovery-pinned chip (see the per-template pin route
-        # for the full rationale). Only ports are snapshotted (the
-        # sampler needs them on the chip to probe).
+        # CLONE-ON-PIN: snapshot name + icon + ports onto the chip so it's
+        # fully independent of the template (editing either side later does
+        # not affect the other). catalog_id stays for Apps-view grouping +
+        # pin-dedup. Same semantics as the per-template pin route.
         new_chip: dict[str, Any] = {"catalog_id": cid}
+        new_chip["name"] = tpl.get("name") or ""
+        new_chip["icon"] = tpl.get("icon") or tpl.get("slug") or ""
         default_ports = list(tpl.get("default_ports") or [])
         probe: dict[str, Any] = {"enabled": probe_enabled, "type": "tcp"}
         if default_ports:
@@ -326,17 +327,15 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
     probe_enabled = bool(payload.get("probe_enabled", True))
     probe_type_raw = (payload.get("probe_type") or "tcp").strip().lower()
     probe_type = probe_type_raw if probe_type_raw in ("tcp", "http") else "tcp"
-    # Only persist name / icon when the operator OVERRIDES them — leaving
-    # them blank lets the chip INHERIT from the catalog template at render
-    # time (iter_instances / _shape_host_apps / list_apps resolve
-    # name + icon from catalog_id), so editing the template later
-    # propagates to every un-overridden chip. Snapshotting them here was
-    # why a template rename never reached already-pinned instances.
+    # CLONE-ON-PIN: snapshot the template's name + icon onto the chip (the
+    # supplied override wins, else fall back to the template's value). The
+    # chip gets its OWN independent copy of every field — editing the
+    # template OR the instance later does NOT affect the other (no live
+    # inheritance). The catalog_id linkage is kept ONLY for Apps-view
+    # grouping + pin-dedup, not for resolving display fields.
     new_chip: dict[str, Any] = {"catalog_id": cid}
-    if override_name:
-        new_chip["name"] = override_name
-    if override_icon:
-        new_chip["icon"] = override_icon
+    new_chip["name"] = override_name or (template.get("name") or "")
+    new_chip["icon"] = override_icon or (template.get("icon") or template.get("slug") or "")
     if override_url:
         new_chip["url"] = override_url
     # Probe sub-dict — copy template's default_ports verbatim so the
@@ -3032,10 +3031,7 @@ def _shape_host_apps(h: dict) -> list[dict]:
             # removed/template ports are dropped. Shared with the top-level
             # Apps view via logic.service_catalog.merge_port_results.
             from logic.service_catalog import merge_port_results as _merge_port_results
-            port_results = _merge_port_results(
-                probe_block.get("ports"), raw_port_results,
-                (catalog_block or {}).get("default_ports"),
-            )
+            port_results = _merge_port_results(probe_block.get("ports"), raw_port_results)
         out.append({
             "service_idx": idx,
             "name": (chip.get("name") or "").strip(),

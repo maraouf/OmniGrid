@@ -98,6 +98,25 @@
       <span x-show="appsCatalogStatus" class="fs-xs text-[var(--text-faint)]" x-text="appsCatalogStatus"></span>
     </div>
 
+    <!-- Bulk-delete bar — appears when ≥1 template row is checked. Removes
+         every selected catalog template in one action (count-named confirm). -->
+    <div x-show="appsCatalogLoaded && appsCatalogSelectedCount() > 0"
+         class="flex items-center gap-2 mb-3 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]">
+      <span class="fs-xs text-[var(--text-dim)]"
+            x-text="t('admin_apps.bulk_selected', { n: appsCatalogSelectedCount() }) || (appsCatalogSelectedCount() + ' selected')"></span>
+      <button type="button" class="btn btn-danger fs-2xs inline-flex items-center gap-1 ms-auto"
+              :disabled="appsCatalogBulkDeleting"
+              @click="bulkDeleteCatalog()"
+              :title="t('admin_apps.bulk_delete_templates_title') || 'Delete all selected templates'">
+        <svg width="12" height="12" :class="appsCatalogBulkDeleting ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+        </svg>
+        <span x-text="t('admin_apps.bulk_delete', { n: appsCatalogSelectedCount() }) || ('Delete (' + appsCatalogSelectedCount() + ')')"></span>
+      </button>
+      <button type="button" class="btn btn-soft fs-2xs" @click="clearCatalogSelection()"
+              x-text="t('admin_apps.bulk_clear') || 'Clear'"></button>
+    </div>
+
     <div x-show="!appsCatalogLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
     </div>
@@ -105,6 +124,12 @@
     <table x-show="appsCatalogLoaded" class="w-full fs-sm">
       <thead>
       <tr class="text-[var(--text-dim)] border-b border-[var(--border)]">
+        <th class="text-start py-2 ps-2 w-[28px]">
+          <input type="checkbox" :checked="appsCatalogAllSelected()"
+                 x-effect="$el.indeterminate = appsCatalogSelectedCount() > 0 && !appsCatalogAllSelected()"
+                 @click.stop="toggleSelectAllCatalog()"
+                 :aria-label="t('admin_apps.bulk_select_all') || 'Select all'">
+        </th>
         <th class="text-start py-2 ps-2 w-[36px]"></th>
         <th class="text-start py-2" x-text="t('admin_apps.col_name') || 'Name'"></th>
         <th class="text-start py-2 hidden md:table-cell" x-text="t('admin_apps.col_slug') || 'Slug'"></th>
@@ -115,7 +140,13 @@
       </thead>
       <tbody>
       <template x-for="entry in appsCatalog" :key="entry.id">
-        <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)]">
+        <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)]"
+            :class="isCatalogSelected(entry) ? 'bg-[var(--row-hover)]' : ''">
+          <td class="py-2 ps-2" @click.stop>
+            <input type="checkbox" :checked="isCatalogSelected(entry)"
+                   @click.stop="toggleCatalogSelected(entry)"
+                   :aria-label="t('admin_apps.bulk_select_row') || 'Select'">
+          </td>
           <td class="py-2 ps-2">
             <img :src="iconUrlFor(entry.icon || entry.slug)" alt="" width="22" height="22" class="rounded"
                  @error="$event.target.style.visibility='hidden'">
@@ -138,7 +169,7 @@
                           <svg x-show="p.open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
                             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
                           </svg>
-                          <span x-text="p.port + (p.protocol !== 'tcp' ? '/' + p.protocol : '')"></span>
+                          <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
                         </span>
               </template>
               <span x-show="!(entry.default_ports || []).length" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.no_ports') || 'no ports'"></span>
@@ -178,7 +209,7 @@
         </tr>
       </template>
       <tr x-show="appsCatalogLoaded && !appsCatalog.length">
-        <td colspan="6" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_templates') || 'No templates yet — click Add or Re-seed built-ins.'"></td>
+        <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_templates') || 'No templates yet — click Add or Re-seed built-ins.'"></td>
       </tr>
       </tbody>
     </table>
@@ -322,7 +353,7 @@
                       <svg x-show="p.open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
                       </svg>
-                      <span x-text="p.port + ((p.protocol && p.protocol !== 'tcp') ? '/' + p.protocol : '')"></span>
+                      <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
                     </span>
                 </template>
                 <span x-show="!(inst.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic"
@@ -421,47 +452,58 @@
                 x-text="(t('admin_apps.add_port') || 'Add port')"></button>
       </div>
       <template x-for="(p, idx) in (appsCatalogEdit.default_ports || [])" :key="idx">
-        <div class="grid grid-cols-6 gap-2 mb-2 items-end">
-          <div>
-            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_port') || 'Port'"></label>
-            <input type="number" class="w-full fs-xs" min="1" max="65535" x-model.number="p.port">
-          </div>
-          <div>
-            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_protocol') || 'Proto'"></label>
-            <select class="w-full fs-xs" x-model="p.protocol">
-              <option value="tcp">tcp</option>
-              <option value="udp">udp</option>
-              <option value="http">http</option>
-              <option value="https">https</option>
-            </select>
-          </div>
-          <div class="col-span-2">
-            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_label') || 'Label'"></label>
-            <input type="text" class="w-full fs-xs" maxlength="64" x-model="p.label">
-          </div>
-          <div>
-            <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_path') || 'Probe path'"></label>
-            <input type="text" class="w-full fs-xs" maxlength="256" x-model="p.probe_path">
-          </div>
-          <div class="flex items-end gap-1">
-            <div class="flex-1">
-              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_status') || 'Status'"></label>
-              <input type="number" class="w-full fs-xs" min="0" max="599" x-model.number="p.probe_status">
+        <!-- Single root element — an <template x-for> renders ONLY its first
+             root child, so the grid row + the URL toggle MUST share one
+             wrapper or the toggle silently never renders. -->
+        <div class="mb-2">
+          <div class="grid grid-cols-6 gap-2 items-end">
+            <div>
+              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_port') || 'Port'"></label>
+              <input type="number" class="w-full fs-xs" min="1" max="65535" x-model.number="p.port">
             </div>
-            <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
-                    :aria-label="t('admin_apps.remove_port') || 'Remove port'">
-              <svg width="13" height="13" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-              </svg>
-            </button>
+            <div>
+              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_protocol') || 'Proto'"></label>
+              <select class="w-full fs-xs" x-model="p.protocol">
+                <option value="tcp">tcp</option>
+                <option value="udp">udp</option>
+                <option value="http">http</option>
+                <option value="https">https</option>
+              </select>
+            </div>
+            <div class="col-span-2">
+              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_label') || 'Label'"></label>
+              <input type="text" class="w-full fs-xs" maxlength="64" x-model="p.label">
+            </div>
+            <div>
+              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_path') || 'Probe path'"></label>
+              <input type="text" class="w-full fs-xs" maxlength="256" x-model="p.probe_path">
+            </div>
+            <div class="flex items-end gap-1">
+              <div class="flex-1">
+                <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_status') || 'Status'"></label>
+                <input type="number" class="w-full fs-xs" min="0" max="599" x-model.number="p.probe_status">
+              </div>
+              <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
+                      :aria-label="t('admin_apps.remove_port') || 'Remove port'">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+                </svg>
+              </button>
+            </div>
           </div>
+          <!-- URL toggle — when ticked, this port renders as a clickable link
+               (<scheme>://<host>:<port><path>) in the Apps view + host drawer,
+               on ANY protocol. Cloned onto the chip when the template is pinned. -->
+          <label class="inline-flex items-center gap-1.5 fs-xs mt-1 ps-1 cursor-pointer"
+                 :class="p.open_url ? 'text-[var(--primary)]' : 'text-[var(--text-dim)]'"
+                 :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
+            <input type="checkbox" x-model="p.open_url">
+            <svg x-show="p.open_url" width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+            </svg>
+            <span x-text="t('admin_apps.port_open_url') || 'Open as URL'"></span>
+          </label>
         </div>
-        <!-- When ticked (+ protocol http/https), this port renders as a
-             clickable link to <scheme>://<host>:<port> in the Apps view. -->
-        <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] mb-2 ps-1">
-          <input type="checkbox" x-model="p.open_url">
-          <span x-text="t('admin_apps.port_open_url') || 'Open as URL'"></span>
-        </label>
       </template>
     </div>
 

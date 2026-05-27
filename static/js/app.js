@@ -242,6 +242,10 @@ function app() {
     // tracks per-key reactivity for the row checkboxes + bulk bar.
     appsInstancesSelected: {},
     appsInstancesBulkDeleting: false,
+    // Bulk-delete selection for the Admin → Apps → Templates table —
+    // keyed by catalog id (template delete is by id, no index-shift).
+    appsCatalogSelected: {},
+    appsCatalogBulkDeleting: false,
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},
