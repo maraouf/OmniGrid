@@ -565,6 +565,94 @@ export default {
   // -------------------------------------------------------------------
   appsCustomLayout: null,  // hydrated lazily from me.ui_prefs
 
+  // Stable widget kinds the user can drop into a section (Phase-1 info
+  // tiles, all pure-frontend / reuse existing endpoints). Adding a kind
+  // here + a render branch in the markup + an i18n label is the whole
+  // contract — no backend.
+  appsWidgetKinds: ['clock', 'weather', 'public_ip', 'system_stats'],
+
+  // i18n label for a widget kind (picker + tile heading).
+  appsWidgetLabel(kind) {
+    return this.t('apps.custom.widget_' + kind) || kind;
+  },
+  // Live HH:MM for the clock widget — reads the 1s-ticked `hostHistoryNow`
+  // so it updates reactively; locale-formatted time-of-day.
+  appsWidgetClock() {
+    const ms = this.hostHistoryNow || Date.now();
+    try {
+      return new Date(ms).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    } catch (_) {
+      return '';
+    }
+  },
+  // Fleet rollup for the system-stats widget — {up, total, down} across the
+  // curated hosts the SPA already has loaded. Reuses this.hosts; no fetch.
+  appsWidgetSystemStats() {
+    const hosts = Array.isArray(this.hosts) ? this.hosts : [];
+    let up = 0, down = 0;
+    for (const h of hosts) {
+      const s = (h && h.status) || '';
+      if (s === 'up') {
+        up++;
+      } else if (s === 'down' || s === 'unknown') {
+        down++;
+      }
+    }
+    return {up, down, total: hosts.length};
+  },
+  // Hostname (without scheme / path) for a bookmark's subtitle line.
+  appsBookmarkHost(url) {
+    if (!url) {
+      return '';
+    }
+    try {
+      return new URL(url).host || url;
+    } catch (_) {
+      return String(url).replace(/^[a-z]+:\/\//i, '').split('/')[0];
+    }
+  },
+
+  _newId(prefix) {
+    try {
+      if (window.crypto && window.crypto.randomUUID) {
+        return (prefix || '') + window.crypto.randomUUID();
+      }
+    } catch (_) { /* fall through */ }
+    return (prefix || '') + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  },
+  _newSectionId() {
+    return this._newId('sec-');
+  },
+
+  // Normalise one stored item into the canonical {uid, kind, ...} shape.
+  // Back-compat: a bare string is a legacy app group_id. Returns null for
+  // anything unrecognisable so a tampered blob can't crash the render.
+  _normAppsItem(raw) {
+    if (typeof raw === 'string') {
+      return {uid: this._newId('it-'), kind: 'app', ref: raw};
+    }
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+    const uid = raw.uid ? String(raw.uid) : this._newId('it-');
+    const kind = raw.kind;
+    if (kind === 'app' && raw.ref != null) {
+      return {uid, kind: 'app', ref: String(raw.ref)};
+    }
+    if (kind === 'widget' && this.appsWidgetKinds.includes(raw.widget)) {
+      return {uid, kind: 'widget', widget: String(raw.widget)};
+    }
+    if (kind === 'bookmark' && (raw.url || raw.name)) {
+      return {
+        uid, kind: 'bookmark',
+        name: typeof raw.name === 'string' ? raw.name : '',
+        url: typeof raw.url === 'string' ? raw.url : '',
+        icon: typeof raw.icon === 'string' ? raw.icon : '',
+      };
+    }
+    return null;
+  },
+
   _hydrateAppsCustomLayout() {
     if (this.appsCustomLayout && Array.isArray(this.appsCustomLayout.sections)) {
       return;
@@ -576,35 +664,39 @@ export default {
       saved = null;
     }
     const sections = (saved && Array.isArray(saved.sections)) ? saved.sections : [];
-    // Defensive clean — each section needs id / name / app_ids[] / collapsed.
     this.appsCustomLayout = {
       sections: sections
         .filter(s => s && typeof s === 'object' && s.id)
-        .map(s => ({
-          id: String(s.id),
-          name: typeof s.name === 'string' ? s.name : '',
-          collapsed: s.collapsed === true,
-          app_ids: Array.isArray(s.app_ids) ? s.app_ids.map(String) : [],
-        })),
+        .map(s => {
+          // Heterogeneous items[] is canonical; legacy `app_ids:[gid]`
+          // (pre-widget schema) converts to app items so existing saved
+          // boards survive the upgrade untouched.
+          let items;
+          if (Array.isArray(s.items)) {
+            items = s.items.map(it => this._normAppsItem(it)).filter(Boolean);
+          } else if (Array.isArray(s.app_ids)) {
+            items = s.app_ids.map(gid => ({uid: this._newId('it-'), kind: 'app', ref: String(gid)}));
+          } else {
+            items = [];
+          }
+          return {
+            id: String(s.id),
+            name: typeof s.name === 'string' ? s.name : '',
+            collapsed: s.collapsed === true,
+            items,
+          };
+        }),
     };
   },
 
-  _newSectionId() {
-    try {
-      if (window.crypto && window.crypto.randomUUID) {
-        return window.crypto.randomUUID();
-      }
-    } catch (_) { /* fall through */ }
-    return 'sec-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-  },
-
   // Shared builder for the custom-mode render. Returns
-  // `{sections: [{id, name, collapsed, apps:[appObj]}], unsectioned: [appObj]}`.
-  // Resolves each stored group_id → the live (filtered) app object; a
-  // group_id that's filtered out (search / status chip) is still counted
-  // as "assigned" so it doesn't leak into Unsectioned, it just doesn't
-  // render this pass. Respects the same appsSearchQuery / appsStatusFilter
-  // as the other two modes (via filteredApps()).
+  // `{sections: [{id, name, collapsed, items:[renderable]}], unsectioned: [appObj]}`.
+  // Each renderable item is `{uid, kind, app?}` (app resolved to the live
+  // filtered object) / `{uid, kind:'widget', widget}` / `{uid, kind:'bookmark',
+  // name, url, icon}`. App refs filtered out by search / status are still
+  // marked "assigned" so they don't leak into Unsectioned, just not rendered.
+  // Unsectioned only ever holds APP cards (widgets / bookmarks live solely
+  // where the user placed them).
   _buildAppsCustom() {
     this._hydrateAppsCustomLayout();
     const apps = this.filteredApps() || [];
@@ -612,26 +704,41 @@ export default {
     for (const a of apps) {
       byId[a.group_id] = a;
     }
-    const assigned = new Set();
+    // Active search query (the Apps-view search box, shared across modes).
+    // App tiles already honour it via filteredApps() above; here it also
+    // filters bookmark tiles by name/url and HIDES widget tiles (they're
+    // info panels, not search targets) so a query turns the board into a
+    // focused results view.
+    const q = (this.appsSearchQuery || '').trim().toLowerCase();
+    const assignedRefs = new Set();
     const sections = (this.appsCustomLayout.sections || []).map(s => {
-      const tiles = [];
-      for (const gid of (s.app_ids || [])) {
-        // A group_id may only live in ONE section. The DnD path enforces
-        // this (appsTileDrop removes the gid from every section before
-        // inserting), but a tampered / hand-edited ui_prefs could place
-        // one gid in two sections — dedup on read (first section wins) so
-        // the same app card can't render twice.
-        if (assigned.has(gid)) {
-          continue;
-        }
-        assigned.add(gid);
-        if (byId[gid]) {
-          tiles.push(byId[gid]);
+      const items = [];
+      for (const it of (s.items || [])) {
+        if (it.kind === 'app') {
+          if (assignedRefs.has(it.ref)) {
+            continue;  // dedup: a ref may only live in one section (first wins)
+          }
+          assignedRefs.add(it.ref);
+          const app = byId[it.ref];
+          if (!app) {
+            continue;  // filtered out this pass (search / status) — stays assigned
+          }
+          items.push({uid: it.uid, kind: 'app', ref: it.ref, app});
+        } else if (it.kind === 'widget') {
+          if (q) {
+            continue;  // hide info widgets while searching
+          }
+          items.push({uid: it.uid, kind: 'widget', widget: it.widget});
+        } else if (it.kind === 'bookmark') {
+          if (q && !((it.name || '').toLowerCase().includes(q) || (it.url || '').toLowerCase().includes(q))) {
+            continue;  // bookmark doesn't match the search
+          }
+          items.push({uid: it.uid, kind: 'bookmark', name: it.name, url: it.url, icon: it.icon});
         }
       }
-      return {id: s.id, name: s.name, collapsed: !!s.collapsed, apps: tiles};
+      return {id: s.id, name: s.name, collapsed: !!s.collapsed, items};
     });
-    const unsectioned = apps.filter(a => !assigned.has(a.group_id));
+    const unsectioned = apps.filter(a => !assignedRefs.has(a.group_id));
     return {sections, unsectioned};
   },
 
@@ -641,6 +748,17 @@ export default {
   appsCustomUnsectioned() {
     return this._buildAppsCustom().unsectioned;
   },
+  // Renderable count of an app + the widgets/bookmarks in a section — drives
+  // the locked-view "hide empty section" gate (a section with only widgets
+  // still counts as non-empty).
+  appsSectionItemCount(sec) {
+    return (sec && Array.isArray(sec.items)) ? sec.items.length : 0;
+  },
+
+  _findAppsSection(sectionId) {
+    this._hydrateAppsCustomLayout();
+    return this.appsCustomLayout.sections.find(s => s.id === sectionId) || null;
+  },
 
   addAppsSection() {
     this._hydrateAppsCustomLayout();
@@ -648,14 +766,13 @@ export default {
       id: this._newSectionId(),
       name: this.t('apps.custom.new_section_name') || 'New section',
       collapsed: false,
-      app_ids: [],
+      items: [],
     });
     this._persistAppsCustomLayout();
   },
 
   renameAppsSection(sectionId, name) {
-    this._hydrateAppsCustomLayout();
-    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    const sec = this._findAppsSection(sectionId);
     if (!sec) {
       return;
     }
@@ -665,8 +782,8 @@ export default {
 
   deleteAppsSection(sectionId) {
     this._hydrateAppsCustomLayout();
-    // Its apps fall back to Unsectioned (we just drop the section; the
-    // group_ids are no longer assigned anywhere).
+    // App items fall back to Unsectioned (no longer referenced anywhere);
+    // any widgets / bookmarks the section held are removed with it.
     const i = this.appsCustomLayout.sections.findIndex(s => s.id === sectionId);
     if (i < 0) {
       return;
@@ -676,8 +793,7 @@ export default {
   },
 
   toggleAppsSectionCollapsed(sectionId) {
-    this._hydrateAppsCustomLayout();
-    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    const sec = this._findAppsSection(sectionId);
     if (!sec) {
       return;
     }
@@ -686,63 +802,176 @@ export default {
   },
 
   isAppsSectionCollapsed(sectionId) {
-    this._hydrateAppsCustomLayout();
-    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    const sec = this._findAppsSection(sectionId);
     return !!(sec && sec.collapsed);
   },
 
-  // --- native HTML5 drag-and-drop -----------------------------------
-  // Tile drag carries the app's group_id; section-header drag carries
-  // the section id. Both go through dataTransfer AND a transient state
-  // field (some browsers don't expose getData during dragover).
-  _appsDragGid: null,
-  _appsDragSectionId: null,
+  // Add a widget tile (clock / weather / …) to a section.
+  addAppsWidget(sectionId, widgetKind) {
+    if (!this.appsWidgetKinds.includes(widgetKind)) {
+      return;
+    }
+    const sec = this._findAppsSection(sectionId);
+    if (!sec) {
+      return;
+    }
+    sec.items.push({uid: this._newId('it-'), kind: 'widget', widget: widgetKind});
+    this._persistAppsCustomLayout();
+  },
 
-  appsTileDragStart(ev, groupId) {
-    this._appsDragGid = String(groupId);
+  // Add a bookmark (external link) tile to a section. `name` / `url` from
+  // the edit-mode add-bookmark form; icon optional (resolver falls back to
+  // a keyword/slug match on the name).
+  addAppsBookmark(sectionId, name, url, icon) {
+    const sec = this._findAppsSection(sectionId);
+    if (!sec) {
+      return;
+    }
+    const u = (url == null ? '' : String(url)).trim();
+    const nm = (name == null ? '' : String(name)).trim();
+    if (!u && !nm) {
+      return;
+    }
+    sec.items.push({
+      uid: this._newId('it-'), kind: 'bookmark',
+      name: nm.slice(0, 80), url: u.slice(0, 2048), icon: (icon || '').trim().slice(0, 80),
+    });
+    this._persistAppsCustomLayout();
+  },
+
+  // Inline add-bookmark form (edit mode) — open / submit / cancel.
+  openAppsBookmarkForm(sectionId) {
+    this.appsBookmarkOpenFor = (this.appsBookmarkOpenFor === sectionId) ? '' : sectionId;
+    this.appsBookmarkName = '';
+    this.appsBookmarkUrl = '';
+  },
+  submitAppsBookmark(sectionId) {
+    const name = (this.appsBookmarkName || '').trim();
+    let url = (this.appsBookmarkUrl || '').trim();
+    if (!url && !name) {
+      return;
+    }
+    // Forgive a missing scheme — default to https:// so the link works.
+    if (url && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
+    this.addAppsBookmark(sectionId, name || this.appsBookmarkHost(url), url, '');
+    this.appsBookmarkOpenFor = '';
+    this.appsBookmarkName = '';
+    this.appsBookmarkUrl = '';
+  },
+  cancelAppsBookmarkForm() {
+    this.appsBookmarkOpenFor = '';
+    this.appsBookmarkName = '';
+    this.appsBookmarkUrl = '';
+  },
+
+  // Remove ONE item (widget / bookmark / app) from its section by uid.
+  // (App items removed this way just re-appear in Unsectioned.)
+  removeAppsItem(sectionId, uid) {
+    const sec = this._findAppsSection(sectionId);
+    if (!sec) {
+      return;
+    }
+    const i = sec.items.findIndex(it => it.uid === uid);
+    if (i >= 0) {
+      sec.items.splice(i, 1);
+      this._persistAppsCustomLayout();
+    }
+  },
+
+  // --- native HTML5 drag-and-drop -----------------------------------
+  // Two tile drag sources: an EXISTING section item carries its uid; an
+  // UNSECTIONED app card carries its group_id (no item exists yet — the
+  // drop creates one). Section-header drag carries the section id. All go
+  // through a transient state field (browsers don't expose getData during
+  // dragover) AND dataTransfer for completeness.
+  _appsDragUid: null,        // moving an existing item
+  _appsDragAppRef: null,     // dragging an unsectioned app (create on drop)
+  _appsDragSectionId: null,  // reordering a section
+
+  appsItemDragStart(ev, uid) {
+    this._appsDragUid = String(uid);
+    this._appsDragAppRef = null;
     this._appsDragSectionId = null;
     try {
       ev.dataTransfer.effectAllowed = 'move';
-      ev.dataTransfer.setData('text/plain', 'tile:' + groupId);
-    } catch (_) { /* some browsers restrict setData */ }
+      ev.dataTransfer.setData('text/plain', 'item:' + uid);
+    } catch (_) { /* restricted */ }
+  },
+  appsUnsectionedDragStart(ev, groupId) {
+    this._appsDragAppRef = String(groupId);
+    this._appsDragUid = null;
+    this._appsDragSectionId = null;
+    try {
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', 'app:' + groupId);
+    } catch (_) { /* restricted */ }
   },
 
-  // Drop a tile into `sectionId` ('__unsectioned' to un-assign it),
-  // optionally BEFORE `beforeGroupId` (drop landed on an existing tile)
-  // — otherwise appended. Removes the gid from every section first so a
-  // cross-section move can't duplicate it.
-  appsTileDrop(sectionId, beforeGroupId) {
-    const gid = this._appsDragGid;
-    this._appsDragGid = null;
-    if (!gid) {
+  // Drop the dragged tile into `sectionId` ('__unsectioned' un-assigns an
+  // app item), optionally BEFORE the item identified by `beforeUid`.
+  appsTileDrop(sectionId, beforeUid) {
+    const dragUid = this._appsDragUid;
+    const dragRef = this._appsDragAppRef;
+    this._appsDragUid = null;
+    this._appsDragAppRef = null;
+    this._hydrateAppsCustomLayout();
+    const secs = this.appsCustomLayout.sections;
+
+    // 1) Pull the moving item out of wherever it currently lives.
+    let moving = null;
+    if (dragUid) {
+      for (const s of secs) {
+        const i = s.items.findIndex(it => it.uid === dragUid);
+        if (i >= 0) {
+          moving = s.items.splice(i, 1)[0];
+          break;
+        }
+      }
+    } else if (dragRef) {
+      // Unsectioned app → create an app item (and defensively strip any
+      // stale ref so it can't double-up).
+      for (const s of secs) {
+        const i = s.items.findIndex(it => it.kind === 'app' && it.ref === dragRef);
+        if (i >= 0) {
+          s.items.splice(i, 1);
+        }
+      }
+      moving = {uid: this._newId('it-'), kind: 'app', ref: dragRef};
+    }
+    if (!moving) {
       return;
     }
-    this._hydrateAppsCustomLayout();
-    for (const s of this.appsCustomLayout.sections) {
-      const idx = s.app_ids.indexOf(gid);
-      if (idx >= 0) {
-        s.app_ids.splice(idx, 1);
+
+    // 2) Re-insert. Dropping an APP item onto '__unsectioned' just drops it
+    // (leaving it referenced nowhere → it returns to the Unsectioned bucket).
+    // A widget / bookmark dropped on '__unsectioned' has nowhere to live, so
+    // it's discarded (they only exist inside sections by design).
+    if (!sectionId || sectionId === '__unsectioned') {
+      this._persistAppsCustomLayout();
+      return;
+    }
+    const sec = secs.find(s => s.id === sectionId);
+    if (!sec) {
+      this._persistAppsCustomLayout();
+      return;
+    }
+    let pos = sec.items.length;
+    if (beforeUid) {
+      const bi = sec.items.findIndex(it => it.uid === beforeUid);
+      if (bi >= 0) {
+        pos = bi;
       }
     }
-    if (sectionId && sectionId !== '__unsectioned') {
-      const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
-      if (sec) {
-        let pos = sec.app_ids.length;
-        if (beforeGroupId) {
-          const bi = sec.app_ids.indexOf(String(beforeGroupId));
-          if (bi >= 0) {
-            pos = bi;
-          }
-        }
-        sec.app_ids.splice(pos, 0, gid);
-      }
-    }
+    sec.items.splice(pos, 0, moving);
     this._persistAppsCustomLayout();
   },
 
   appsSectionDragStart(ev, sectionId) {
     this._appsDragSectionId = String(sectionId);
-    this._appsDragGid = null;
+    this._appsDragUid = null;
+    this._appsDragAppRef = null;
     try {
       ev.dataTransfer.effectAllowed = 'move';
       ev.dataTransfer.setData('text/plain', 'section:' + sectionId);

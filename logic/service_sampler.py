@@ -747,34 +747,14 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
     return out
 
 
-def populate_host_service_merge(host_id: str, merged: dict) -> None:
-    """Stamp per-service ``last_probe`` fields onto each
-    ``merged["services"][i]`` entry.
-
-    Shared helper called from BOTH ``/api/hosts/list`` (skeleton) AND
-    ``_merge_one_host`` (per-host detail) so both endpoints surface
-    the same on-disk state without duplicate SELECTs.
-
-    No-op when `merged["services"]` is missing or empty. Stamps
-    nothing onto services with no recorded probe sample yet —
-    `services[i].last_probe` stays absent so the frontend can
-    distinguish "never probed" from "probed and down".
-    """
-    if not host_id:
-        return
-    services = merged.get("services")
-    if not isinstance(services, list) or not services:
-        return
-    latest = latest_for_host(host_id)
-    if not latest:
-        return
-    for idx, svc in enumerate(services):
-        if not isinstance(svc, dict):
-            continue
-        sample = latest.get(idx)
-        if not sample:
-            continue
-        svc["last_probe"] = sample
+# NOTE: a former `populate_host_service_merge(host_id, merged)` helper was
+# removed — it gated on `merged["services"]` being the curated chip array,
+# but the provider-merged dict's service key holds the Beszel systemd
+# rollup (never the curated array), so the body never executed. Per-service
+# `last_probe` is delivered by `_shape_host_apps(h)` in apps_routes.py
+# (curated `h["services"]` + service_samples). See CLAUDE.md "Backend
+# populate_host_X_merge / shared list+detail helpers keyed on the WRONG
+# merged-dict field silently no-op".
 
 
 # Public aliases — main.py's manual probe-now endpoint reuses these

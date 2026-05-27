@@ -101,11 +101,11 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
 # cycle at runtime.
 # `_load_hosts_config` is defined in main_pkg.hosts_routes. We CAN'T
 # import it at the top level — hosts_routes loads AFTER apps_routes in
-# main.py's chain (main.py:2134 → admin_ai_routes → apps_routes →
-# returns; then main.py:2140 → hosts_routes → chain → auth_routes
-# mounts catch-all). A top-level import here would trigger hosts_routes'
-# tail chain BEFORE apps_routes finishes registering its decorators,
-# putting every apps_routes route AFTER the catch-all and 404'ing them.
+# main.py's route-registration chain (apps_routes is imported first, then
+# hosts_routes, with auth_routes mounting the static catch-all LAST). A
+# top-level import here would trigger hosts_routes' tail chain BEFORE
+# apps_routes finishes registering its decorators, putting every
+# apps_routes route AFTER the catch-all and 404'ing them.
 # Deferred via TYPE_CHECKING (False at runtime → no chain trigger).
 # Runtime resolution happens via `from main import *` (line 57) which
 # re-exports the symbol once main's namespace has been populated.
@@ -1780,9 +1780,13 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
         return False
     try:
         with db_conn() as c:
+            # The newest row's scan_id IS the newest scan — a plain
+            # ORDER BY ts DESC LIMIT 1 is covered by the (host_id, ts DESC)
+            # index and avoids a full GROUP BY + MAX aggregate. Called
+            # per-row on both hosts endpoints, so keep it index-friendly.
             head = c.execute(
-                "SELECT scan_id, MAX(ts) AS ts FROM host_port_scans "
-                "WHERE host_id = ? GROUP BY scan_id ORDER BY ts DESC LIMIT 1",
+                "SELECT scan_id, ts FROM host_port_scans "
+                "WHERE host_id = ? ORDER BY ts DESC LIMIT 1",
                 (host_id,),
             ).fetchone()
             if not head or not head["scan_id"]:
@@ -2539,16 +2543,11 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     except Exception as e:  # noqa: BLE001
         print(f"[hosts] http_probe merge failed for {h.get('id')!r}: {e}")
 
-    # Per-service reachability probe — stamps `last_probe` on every
-    # `services[]` entry that has a recent sample. Gate on master
-    # toggle so the merged dict doesn't carry stale per-chip status
-    # when the operator has flipped the feature off globally.
-    try:
-        if get_setting_bool(Settings.SERVICE_PROBE_ENABLED):
-            from logic.service_sampler import populate_host_service_merge
-            populate_host_service_merge(h["id"], merged)
-    except Exception as e:  # noqa: BLE001
-        print(f"[hosts] service_probe merge failed for {h.get('id')!r}: {e}")
+    # Per-service `last_probe` is stamped by `_shape_host_apps(h)` (which
+    # walks the curated `h["services"]` array and reads service_samples)
+    # — NOT here. The merged provider dict's service key holds the Beszel
+    # systemd rollup, never the curated array, so no per-service stamp
+    # belongs on `merged`.
 
     # Snapshot fallback — when a provider went down mid-session,
     # fill missing host_* fields from the previous gather's persisted
@@ -3538,8 +3537,9 @@ def _shape_host_api_row(
         # http_probe chip cleanly when the operator enabled the toggle
         # but didn't supply any URLs. Computed backend-side because the
         # API row's `services` field carries the Beszel systemd-rollup
-        # OBJECT (see L11377 above), NOT the curated services array
-        # (`hosts_config[].services`) — `Array.isArray(h.services)` is
+        # OBJECT (`{total, failed, failed_names}`, stamped from
+        # `host_services` later in this same row builder), NOT the curated
+        # services array (`hosts_config[].services`) — `Array.isArray(h.services)` is
         # always false on the SPA, so the chip-gate can't check the
         # third URL source itself.
         "http_probe_has_targets": (

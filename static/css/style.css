@@ -9431,6 +9431,83 @@ select.field-invalid {
   border-inline-start-color: var(--text-faint);
 }
 
+/* Custom-board heterogeneous tiles — info widgets + bookmarks live in the
+   same sections as app cards. The cell wrapper lets the per-kind <template>
+   branches share one grid/flex slot. */
+.apps-custom-cell {
+  display: contents;
+}
+
+.apps-widget-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.apps-widget-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-1);
+}
+
+.apps-widget-tile-title {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.apps-widget-tile-body {
+  font-size: var(--fs-md);
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-widget-clock {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.apps-bookmark-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: box-shadow 120ms ease;
+  min-width: 0;
+}
+
+.apps-bookmark-tile:hover {
+  box-shadow: 0 1px 6px var(--row-hover);
+}
+
+.apps-bookmark-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.apps-bookmark-text {
+  min-width: 0;
+}
+
 /* ==========================================================================
    APPS — host-grouped view (group-by=host). Each host card carries a
    server-icon avatar header + a wrap of app-icon tiles beneath. The

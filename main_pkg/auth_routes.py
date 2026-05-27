@@ -1416,8 +1416,11 @@ async def api_me_ui_prefs(body: UiPrefsIn, request: Request):
     SPA can confirm what's persisted.
     """
     user = _require_local_user(request, action="store UI prefs")
-    with db_conn() as c:
-        merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    try:
+        with db_conn() as c:
+            merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
     return {"ui_prefs": merged}
 
 
@@ -1499,8 +1502,11 @@ async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     valid; API tokens can't write prefs. Same merge semantics.
     """
     user = _require_local_user(request, action="store UI prefs")
-    with db_conn() as c:
-        merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    try:
+        with db_conn() as c:
+            merged = auth.update_ui_prefs(c, user.id, body.prefs)
+    except ValueError as e:
+        raise HTTPException(status_code=413, detail=str(e))
     return {"ui_prefs": merged}
 
 

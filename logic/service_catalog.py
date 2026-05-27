@@ -1272,7 +1272,7 @@ def _service_signature(svc: dict, catalog_by_id: dict) -> tuple[str, str, str]:
 
 def _instance_status(svc: dict) -> str:
     """Derive an instance's status from its `last_probe` field stamped
-    by populate_host_service_merge. ``up`` / ``down`` / ``unknown``."""
+    by `_shape_host_apps`. ``up`` / ``down`` / ``unknown``."""
     last = svc.get("last_probe")
     if not isinstance(last, dict):
         return "unknown"

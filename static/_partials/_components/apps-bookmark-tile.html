@@ -1,0 +1,34 @@
+<!-- Bookmark (external link) tile for the Custom Apps board. Bound inside
+     `<template x-for="item in sec.items">`, so `item` (kind='bookmark') and
+     `sec` are in scope, as is `appsCustomEditMode`. Pure-frontend on the
+     ui_prefs layout blob. In LOCKED mode it's a real <a> link opening in a
+     new tab; in EDIT mode the href is dropped, the tile is draggable, and a
+     remove button appears. -->
+<!--suppress HtmlUnknownAttribute -->
+<a class="apps-bookmark-tile"
+   :href="appsCustomEditMode ? null : (item.url || null)"
+   :target="appsCustomEditMode ? null : '_blank'" rel="noopener"
+   :draggable="appsCustomEditMode ? 'true' : 'false'"
+   :aria-label="(item.name || appsBookmarkHost(item.url)) + (item.url ? (' — ' + item.url) : '')"
+   @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
+   @dragover.prevent
+   @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"
+   @click="appsCustomEditMode ? $event.preventDefault() : null">
+  <img :src="iconUrlFor(item.icon || item.name)" alt="" width="24" height="24"
+       class="apps-bookmark-icon" @error="$event.target.style.visibility='hidden'">
+  <span class="apps-bookmark-text flex-1 min-w-0">
+    <span class="block truncate fs-sm" x-text="item.name || appsBookmarkHost(item.url)"></span>
+    <span class="block truncate fs-3xs text-[var(--text-faint)]" x-text="appsBookmarkHost(item.url)"></span>
+  </span>
+  <svg x-show="!appsCustomEditMode" width="11" height="11" class="flex-shrink-0 text-[var(--text-faint)]" aria-hidden="true">
+    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+  </svg>
+  <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+          @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
+          :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+          :title="t('apps.custom.remove_tile') || 'Remove tile'">
+    <svg width="12" height="12" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+    </svg>
+  </button>
+</a>
