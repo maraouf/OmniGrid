@@ -818,6 +818,16 @@ function app() {
     bootstrapEnvWarningDismissed: (typeof sessionStorage !== 'undefined' &&
       sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
 
+    // Mobile-viewport flag (<= 768px — matches the .hosts-mobile-cards CSS
+    // breakpoint). Drives PERF-03: the Hosts view gates each form factor's
+    // per-host x-for on this so only the ACTIVE tree's rows render + bind
+    // (the inactive one iterates [] -> zero per-row bindings, instead of both
+    // trees evaluating every per-host binding each flush under x-show).
+    // Initialized from matchMedia at construction so the first render is
+    // correct; kept live by a 'change' listener wired in init().
+    isMobileViewport: (typeof window !== 'undefined' && window.matchMedia)
+      ? window.matchMedia('(max-width: 768px)').matches : false,
+
     async init() {
       // Expose the live Alpine component instance globally for the
       // browser-console diagnostic helpers (e.g.
@@ -1040,6 +1050,13 @@ function app() {
         // without restarting the interval when the tunable changes.
         let tickCount = 0;
         setInterval(() => {
+          // PERF-10: idle-fill only does work on the Hosts view — bail
+          // immediately off it so the 1Hz tick is a single comparison (no
+          // client_config read, no modulo, no enqueue work) on every other
+          // view rather than running the full gate each second.
+          if (this.view !== 'hosts') {
+            return;
+          }
           tickCount += 1;
           const intervalSeconds = (this.me && this.me.client_config
             && Number(this.me.client_config.hosts_idle_fill_seconds)) || 0;
@@ -1376,6 +1393,16 @@ function app() {
           }
         };
         mq.addEventListener('change', onSys);
+      }
+      // PERF-03: keep isMobileViewport live so the Hosts view swaps which
+      // form factor's rows render when the viewport crosses 768px. matchMedia
+      // 'change' fires only on crossing the breakpoint (not per resize px),
+      // so no debounce is needed.
+      if (window.matchMedia) {
+        const mqHosts = window.matchMedia('(max-width: 768px)');
+        mqHosts.addEventListener('change', (e) => {
+          this.isMobileViewport = e.matches;
+        });
       }
       this.applyTheme();
       // URL routing — reflect current view + section in the path so a

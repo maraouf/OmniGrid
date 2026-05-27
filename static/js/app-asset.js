@@ -14,6 +14,38 @@
 // the OAuth2 client_credentials-backed asset API, plus per-host
 // lookups consumed by the Hosts drawer.
 
+// PERF (assetForHost): an O(1) custom_number index + a memoized descriptor
+// cache, both keyed on the assetCache.assets ARRAY REFERENCE. loadAssetCache
+// assigns a fresh `this.assetCache` object on every (re)load, so the assets
+// ref changes and both caches rebuild on the next call — no staleness, the
+// same freshness the old per-call linear scan gave. Module-scope singletons
+// (one app() instance). _ensureAssetIndex is a no-op when the ref is
+// unchanged, so it's cheap to call on every assetForHost().
+let _assetIndexSrc = null;
+let _assetIndex = null;
+let _assetDescriptorCache = null;
+
+function _ensureAssetIndex(assets) {
+  if (_assetIndexSrc === assets) {
+    return;
+  }
+  _assetIndexSrc = assets;
+  _assetIndex = new Map();
+  _assetDescriptorCache = new Map();
+  if (Array.isArray(assets)) {
+    for (const a of assets) {
+      if (!a) {
+        continue;
+      }
+      const k = parseInt(a.CustomNumber ?? a.custom_number ?? a.number ?? a.id, 10);
+      // First row wins for a given custom_number — matches the old
+      // `.some()` + first-match-in-loop behaviour.
+      if (Number.isFinite(k) && !_assetIndex.has(k)) {
+        _assetIndex.set(k, a);
+      }
+    }
+  }
+}
 
 export default {
   // Asset inventory. `assetForm` is the editable form
@@ -373,22 +405,28 @@ export default {
     const assets = (this.assetCache && Array.isArray(this.assetCache.assets))
       ? this.assetCache.assets : null;
     const n = parseInt(h.custom_number, 10);
-    // Prefer the LIVE asset cache when it holds a match for this host's
-    // custom_number, so an asset REFRESH is reflected immediately — incl.
-    // an OPEN host drawer + arrow-nav, where the backend-injected
-    // `h.asset` below is FROZEN at host-fetch time and otherwise left the
-    // port-scan "not in asset" mismatch markers stale after a refresh.
-    // The stamped `h.asset` stays as the fallback for the pre-cache-load
-    // window AND for no-agent hosts the cache doesn't list. (`assets` +
-    // `n` are reused by the matching loop below.)
-    const hasCacheMatch = !!(assets && assets.length && Number.isFinite(n)
-      && assets.some((a) => a
-        && parseInt(a.CustomNumber ?? a.custom_number ?? a.number ?? a.id, 10) === n));
-    if (!hasCacheMatch && h.asset && typeof h.asset === 'object') {
+    // PERF: an O(1) index + memoized descriptor replace the per-call linear
+    // scan + heavy rebuild (this getter is reached O(N log N) times from the
+    // Hosts sort comparator). Both caches key on the assets ARRAY REFERENCE,
+    // so an asset REFRESH (a fresh assetCache object) rebuilds them on the
+    // next call — reflected immediately, incl. an OPEN host drawer + arrow-
+    // nav. No staleness; same freshness the old per-call scan gave.
+    _ensureAssetIndex(assets);
+    const matched = (Number.isFinite(n) && _assetIndex) ? _assetIndex.get(n) : undefined;
+    // No live-cache match → fall back to the backend-injected `h.asset`
+    // (FROZEN at host-fetch time; covers the pre-cache-load window AND
+    // no-agent hosts the cache doesn't list), else null.
+    if (!matched && h.asset && typeof h.asset === 'object') {
       return Object.assign({_raw: null}, h.asset);
     }
-    if (!assets || !assets.length || !Number.isFinite(n)) {
+    if (!matched) {
       return null;
+    }
+    // Memoized descriptor for this custom_number within the current cache
+    // version — repeated calls in one flush / sort don't rebuild it.
+    const memo = _assetDescriptorCache.get(n);
+    if (memo !== undefined) {
+      return memo;
     }
     // Walk-helper: accepts a string OR a {Name}/{CalculatedName}
     // dict and returns the best display string. Catches both flat
@@ -410,165 +448,158 @@ export default {
       }
       return '';
     };
-    for (const a of assets) {
-      if (!a) {
-        continue;
+    const a = matched;
+    // Hostname CSV → array of FQDNs.
+    const hostnameStr = String(a.Hostname || a.hostname || '').trim();
+    const hostnames = hostnameStr ? hostnameStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+    // Interfaces — ordered by `Number` (then `Name`) so the
+    // drawer renders them in the operator's intended order
+    // rather than insertion order.
+    const ifacesRaw = Array.isArray(a.Interfaces) ? a.Interfaces : (a.interfaces || []);
+    const ifaces = ifacesRaw.slice().sort((x, y) => {
+      const xn = (x && x.Number != null) ? x.Number : Infinity;
+      const yn = (y && y.Number != null) ? y.Number : Infinity;
+      if (xn !== yn) {
+        return xn - yn;
       }
-      const candidate = a.CustomNumber ?? a.custom_number ?? a.number ?? a.id;
-      if (parseInt(candidate, 10) !== n) {
-        continue;
+      return String((x && x.Name) || '').localeCompare(String((y && y.Name) || ''));
+    }).map(i => ({
+      name: String((i && (i.Name || i.name)) || '').trim(),
+      ip: String((i && (i.IP || i.ip)) || '').trim(),
+      mac: String((i && (i.MacAddress || i.mac_address)) || '').trim(),
+      number: (i && i.Number != null) ? i.Number : null,
+      comment: String((i && i.Comment) || '').trim(),
+      enabled: !i || i.IsEnabled !== false,
+      ip_version: String((i && (i.IPVersion || i.ip_version)) || '').trim(),
+    }));
+    // Primary IP — first enabled iface, then any iface, then a
+    // flat `ip` alias on the asset row.
+    let primaryIp = '';
+    if (ifaces.length) {
+      const enabled = ifaces.find(i => i.enabled && i.ip);
+      const any = enabled || ifaces.find(i => i.ip);
+      if (any) {
+        primaryIp = any.ip;
       }
-      // Hostname CSV → array of FQDNs.
-      const hostnameStr = String(a.Hostname || a.hostname || '').trim();
-      const hostnames = hostnameStr ? hostnameStr.split(',').map(s => s.trim()).filter(Boolean) : [];
-      // Interfaces — ordered by `Number` (then `Name`) so the
-      // drawer renders them in the operator's intended order
-      // rather than insertion order.
-      const ifacesRaw = Array.isArray(a.Interfaces) ? a.Interfaces : (a.interfaces || []);
-      const ifaces = ifacesRaw.slice().sort((x, y) => {
-        const xn = (x && x.Number != null) ? x.Number : Infinity;
-        const yn = (y && y.Number != null) ? y.Number : Infinity;
-        if (xn !== yn) {
-          return xn - yn;
-        }
-        return String((x && x.Name) || '').localeCompare(String((y && y.Name) || ''));
-      }).map(i => ({
-        name: String((i && (i.Name || i.name)) || '').trim(),
-        ip: String((i && (i.IP || i.ip)) || '').trim(),
-        mac: String((i && (i.MacAddress || i.mac_address)) || '').trim(),
-        number: (i && i.Number != null) ? i.Number : null,
-        comment: String((i && i.Comment) || '').trim(),
-        enabled: !i || i.IsEnabled !== false,
-        ip_version: String((i && (i.IPVersion || i.ip_version)) || '').trim(),
-      }));
-      // Primary IP — first enabled iface, then any iface, then a
-      // flat `ip` alias on the asset row.
-      let primaryIp = '';
-      if (ifaces.length) {
-        const enabled = ifaces.find(i => i.enabled && i.ip);
-        const any = enabled || ifaces.find(i => i.ip);
-        if (any) {
-          primaryIp = any.ip;
-        }
-      }
-      if (!primaryIp) {
-        primaryIp = String(a.ip || '').trim();
-      }
-      // Ports — flatten the {Port: {...}} nesting MDI uses so the
-      // template can read port.name / port.number / port.service_name
-      // directly. ServiceName in MDI doubles as a clickable URL
-      // when it starts with http(s); we pass it through unchanged.
-      const portsRaw = Array.isArray(a.Ports) ? a.Ports : (a.ports || []);
-      const ports = portsRaw.map(p => {
-        const inner = (p && (p.Port || p.port)) || {};
-        return {
-          id: p && (p.ID || p.id),
-          name: String(inner.Name || inner.name || '').trim(),
-          number: (inner.Port != null) ? inner.Port : (inner.port != null ? inner.port : null),
-          service_name: String(inner.ServiceName || inner.service_name || '').trim(),
-          protocol: String(inner.Protocol || inner.protocol || '').trim(),
-        };
-      }).filter(p => p.name || p.number != null);
-      // Optional sub-fields from the guide's nested objects:
-      // - Brand.Link     — vendor URL, clickable from the drawer
-      // - Status.Color   — #RRGGBB used to tint the status pill
-      // - Location.Details — extra free-text address / detail
-      const brandObj = (a.Brand && typeof a.Brand === 'object') ? a.Brand : null;
-      const statusObj = (a.Status && typeof a.Status === 'object') ? a.Status : null;
-      const locObj = (a.Location && typeof a.Location === 'object') ? a.Location : null;
-      return {
-        id: a.ID ?? a.id ?? null,
-        vendor: pick(a.Brand, a.brand, a.vendor, a.manufacturer),
-        brand_link: brandObj ? String(brandObj.Link || brandObj.link || '').trim() : '',
-        model: pick(a.Model, a.model, a.product, a.product_name),
-        // Serial — placeholder values like "NONE224" / "NONE100" /
-        // "NONEXXX" mean "no real serial recorded upstream"
-        // (typically a VM that doesn't have a hardware serial).
-        // Return empty so the existing `x-if="assetForHost(h).serial"`
-        // gate hides the row entirely instead of surfacing a
-        // misleading placeholder string.
-        serial: (() => {
-          const s = pick(a.SerialNumber, a.serial, a.serial_number);
-          return /^NONE\d*$/i.test(s) ? '' : s;
-        })(),
-        location: pick(a.Location, a.location, a.site, a.room),
-        location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
-        type: pick(a.Type, a.type),
-        // Type SHORT-form — render a compact `[VM]` / `[PHY]` / etc.
-        // badge when the upstream Type object carries any short-form
-        // alias. <asset-api-host>'s payloads have surfaced multiple casings
-        // for this field across asset rows ("Virtual Machine" with
-        // shortname "VM", "Physical Server" with code "PHY"), so we
-        // walk every plausible naming the team has used. Returns ''
-        // when only the long Name is present, which lets
-        // hostTypePrefix fall back to that long form via `type`.
-        type_short: (() => {
-          const obj = (a.Type && typeof a.Type === 'object') ? a.Type
-            : (a.type && typeof a.type === 'object') ? a.type
-              : null;
-          if (!obj) {
-            return '';
-          }
-          // Cast a wide net — match every casing variant + every
-          // synonym for "short form" we've seen on this kind of
-          // payload. First non-blank wins.
-          const candidates = [
-            obj.shortname, obj.ShortName, obj.SHORTNAME,
-            obj.short_name, obj.Shortname, obj.shortName,
-            obj.short, obj.Short, obj.SHORT,
-            obj.code, obj.Code, obj.CODE,
-            obj.abbr, obj.Abbr, obj.ABBR,
-            obj.abbreviation, obj.Abbreviation,
-            obj.acronym, obj.Acronym, obj.ACRONYM,
-            obj.symbol, obj.Symbol,
-            obj.tag, obj.Tag, obj.TAG,
-            obj.slug, obj.Slug, obj.SLUG,
-            obj.alias, obj.Alias,
-          ];
-          for (const v of candidates) {
-            if (v == null) {
-              continue;
-            }
-            const s = String(v).trim();
-            if (s) {
-              return s;
-            }
-          }
-          return '';
-        })(),
-        name: pick(a.Name, a.name),
-        hostnames,
-        primary_ip: primaryIp,
-        ram: pick(a.RAM, a.ram, a.memory),
-        sku: pick(a.SKU, a.sku),
-        firmware: pick(a.Firmware, a.firmware),
-        hardware_version: pick(a.HardwareVersion, a.hardware_version),
-        barcode: pick(a.Barcode, a.barcode),
-        comment: pick(a.Comment, a.comment),
-        status_name: pick(a.Status, a.status),
-        status_color: statusObj ? String(statusObj.Color || statusObj.color || '').trim() : '',
-        // Server emits "Y-m-d H:i:s" strings in its local timezone.
-        // The drawer renders them with `fmtAssetDateString` (separate
-        // helper since the value is a string, not an epoch).
-        last_modified: String(a.LastModifiedOn || a.last_modified_on || '').trim(),
-        created_on: String(a.CreatedOn || a.created_on || '').trim(),
-        interfaces: ifaces,
-        ports,
-        // Child cert assets — when the upstream asset DB tracks SSL /
-        // TLS certificates as their own Type rows linked back to this
-        // host (typically via a parent / parent_id / ParentID field
-        // pointing at a.ID), surface them so the drawer's TLS row can
-        // render a "renewal record" link next to the cert subject.
-        // Walks the full asset list looking for entries whose Type
-        // ShortName matches a cert-like signal AND whose parent field
-        // resolves to this host's asset id. Empty list when no certs
-        // are tracked upstream — the drawer's link gates on length > 0
-        // so an empty array is a clean no-op.
-        certs: this._certsForAsset(a, assets),
-        _raw: a,
-      };
     }
-    return null;
+    if (!primaryIp) {
+      primaryIp = String(a.ip || '').trim();
+    }
+    // Ports — flatten the {Port: {...}} nesting MDI uses so the
+    // template can read port.name / port.number / port.service_name
+    // directly. ServiceName in MDI doubles as a clickable URL
+    // when it starts with http(s); we pass it through unchanged.
+    const portsRaw = Array.isArray(a.Ports) ? a.Ports : (a.ports || []);
+    const ports = portsRaw.map(p => {
+      const inner = (p && (p.Port || p.port)) || {};
+      return {
+        id: p && (p.ID || p.id),
+        name: String(inner.Name || inner.name || '').trim(),
+        number: (inner.Port != null) ? inner.Port : (inner.port != null ? inner.port : null),
+        service_name: String(inner.ServiceName || inner.service_name || '').trim(),
+        protocol: String(inner.Protocol || inner.protocol || '').trim(),
+      };
+    }).filter(p => p.name || p.number != null);
+    // Optional sub-fields from the guide's nested objects:
+    // - Brand.Link     — vendor URL, clickable from the drawer
+    // - Status.Color   — #RRGGBB used to tint the status pill
+    // - Location.Details — extra free-text address / detail
+    const brandObj = (a.Brand && typeof a.Brand === 'object') ? a.Brand : null;
+    const statusObj = (a.Status && typeof a.Status === 'object') ? a.Status : null;
+    const locObj = (a.Location && typeof a.Location === 'object') ? a.Location : null;
+    const descriptor = {
+      id: a.ID ?? a.id ?? null,
+      vendor: pick(a.Brand, a.brand, a.vendor, a.manufacturer),
+      brand_link: brandObj ? String(brandObj.Link || brandObj.link || '').trim() : '',
+      model: pick(a.Model, a.model, a.product, a.product_name),
+      // Serial — placeholder values like "NONE224" / "NONE100" /
+      // "NONEXXX" mean "no real serial recorded upstream"
+      // (typically a VM that doesn't have a hardware serial).
+      // Return empty so the existing `x-if="assetForHost(h).serial"`
+      // gate hides the row entirely instead of surfacing a
+      // misleading placeholder string.
+      serial: (() => {
+        const s = pick(a.SerialNumber, a.serial, a.serial_number);
+        return /^NONE\d*$/i.test(s) ? '' : s;
+      })(),
+      location: pick(a.Location, a.location, a.site, a.room),
+      location_details: locObj ? String(locObj.Details || locObj.details || '').trim() : '',
+      type: pick(a.Type, a.type),
+      // Type SHORT-form — render a compact `[VM]` / `[PHY]` / etc.
+      // badge when the upstream Type object carries any short-form
+      // alias. <asset-api-host>'s payloads have surfaced multiple casings
+      // for this field across asset rows ("Virtual Machine" with
+      // shortname "VM", "Physical Server" with code "PHY"), so we
+      // walk every plausible naming the team has used. Returns ''
+      // when only the long Name is present, which lets
+      // hostTypePrefix fall back to that long form via `type`.
+      type_short: (() => {
+        const obj = (a.Type && typeof a.Type === 'object') ? a.Type
+          : (a.type && typeof a.type === 'object') ? a.type
+            : null;
+        if (!obj) {
+          return '';
+        }
+        // Cast a wide net — match every casing variant + every
+        // synonym for "short form" we've seen on this kind of
+        // payload. First non-blank wins.
+        const candidates = [
+          obj.shortname, obj.ShortName, obj.SHORTNAME,
+          obj.short_name, obj.Shortname, obj.shortName,
+          obj.short, obj.Short, obj.SHORT,
+          obj.code, obj.Code, obj.CODE,
+          obj.abbr, obj.Abbr, obj.ABBR,
+          obj.abbreviation, obj.Abbreviation,
+          obj.acronym, obj.Acronym, obj.ACRONYM,
+          obj.symbol, obj.Symbol,
+          obj.tag, obj.Tag, obj.TAG,
+          obj.slug, obj.Slug, obj.SLUG,
+          obj.alias, obj.Alias,
+        ];
+        for (const v of candidates) {
+          if (v == null) {
+            continue;
+          }
+          const s = String(v).trim();
+          if (s) {
+            return s;
+          }
+        }
+        return '';
+      })(),
+      name: pick(a.Name, a.name),
+      hostnames,
+      primary_ip: primaryIp,
+      ram: pick(a.RAM, a.ram, a.memory),
+      sku: pick(a.SKU, a.sku),
+      firmware: pick(a.Firmware, a.firmware),
+      hardware_version: pick(a.HardwareVersion, a.hardware_version),
+      barcode: pick(a.Barcode, a.barcode),
+      comment: pick(a.Comment, a.comment),
+      status_name: pick(a.Status, a.status),
+      status_color: statusObj ? String(statusObj.Color || statusObj.color || '').trim() : '',
+      // Server emits "Y-m-d H:i:s" strings in its local timezone.
+      // The drawer renders them with `fmtAssetDateString` (separate
+      // helper since the value is a string, not an epoch).
+      last_modified: String(a.LastModifiedOn || a.last_modified_on || '').trim(),
+      created_on: String(a.CreatedOn || a.created_on || '').trim(),
+      interfaces: ifaces,
+      ports,
+      // Child cert assets — when the upstream asset DB tracks SSL /
+      // TLS certificates as their own Type rows linked back to this
+      // host (typically via a parent / parent_id / ParentID field
+      // pointing at a.ID), surface them so the drawer's TLS row can
+      // render a "renewal record" link next to the cert subject.
+      // Walks the full asset list looking for entries whose Type
+      // ShortName matches a cert-like signal AND whose parent field
+      // resolves to this host's asset id. Empty list when no certs
+      // are tracked upstream — the drawer's link gates on length > 0
+      // so an empty array is a clean no-op.
+      certs: this._certsForAsset(a, assets),
+      _raw: a,
+    };
+    _assetDescriptorCache.set(n, descriptor);
+    return descriptor;
   },
   // Edit-on-upstream URL for the asset. Resolution order:
   // 1. `asset_inventory.edit_url_template` from settings — the
@@ -714,7 +745,10 @@ export default {
     this._hostFullRefreshing = Object.assign({}, this._hostFullRefreshing, {[_hid]: true});
     try {
       if (typeof this.loadAssetCache === 'function') {
-        try { await this.loadAssetCache(); } catch (_e) { /* non-fatal */ }
+        try {
+          await this.loadAssetCache();
+        } catch (_e) { /* non-fatal */
+        }
       }
       // Re-probe + PERSIST the HTTP-probe URLs so a freshly-added URL +
       // the current up/down verdict show immediately (the drawer's
@@ -723,22 +757,35 @@ export default {
       // "N down" lingered after the URLs went green).
       try {
         await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/refresh', {method: 'POST'});
-      } catch (_e) { /* non-fatal */ }
+      } catch (_e) { /* non-fatal */
+      }
       // Re-probe + persist the apps on this host (same sample-table lag
       // for the apps "N down" badge). probeAllHostApps already persists
       // per-chip results via the probe endpoint.
       if (typeof this.probeAllHostApps === 'function') {
-        try { await this.probeAllHostApps(h); } catch (_e) { /* non-fatal */ }
+        try {
+          await this.probeAllHostApps(h);
+        } catch (_e) { /* non-fatal */
+        }
       }
       if (typeof this.refreshHostRow === 'function') {
-        try { await this.refreshHostRow(h.id, {force: true}); } catch (_e) { /* non-fatal */ }
+        try {
+          await this.refreshHostRow(h.id, {force: true});
+        } catch (_e) { /* non-fatal */
+        }
       }
       if (typeof this.loadHostHistory === 'function') {
-        try { await this.loadHostHistory(h.beszel_id || '', h.id); } catch (_e) { /* non-fatal */ }
+        try {
+          await this.loadHostHistory(h.beszel_id || '', h.id);
+        } catch (_e) { /* non-fatal */
+        }
       }
       if (this._snmpHasProbeTarget && this._snmpHasProbeTarget(h)
-          && typeof this.loadHostSnmpHistory === 'function') {
-        try { await this.loadHostSnmpHistory(h.id, 1); } catch (_e) { /* non-fatal */ }
+        && typeof this.loadHostSnmpHistory === 'function') {
+        try {
+          await this.loadHostSnmpHistory(h.id, 1);
+        } catch (_e) { /* non-fatal */
+        }
       }
       if (typeof this.showToast === 'function') {
         this.showToast(this.t('host_drawer.actions.full_refresh_ok') || 'Host data refreshed', 'success');
@@ -747,7 +794,7 @@ export default {
       if (typeof this.showToast === 'function') {
         this.showToast(
           (this.t('host_drawer.actions.full_refresh_failed') || 'Refresh failed')
-            + ': ' + ((e && e.message) ? e.message : e),
+          + ': ' + ((e && e.message) ? e.message : e),
           'error'
         );
       }

@@ -11,6 +11,83 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA chart renderers + chart-data helpers.
 
+// PERF (host-row sparklines): hostInlineSparkline + hostInlineSparklineArea
+// each walked the full history series to build an SVG path string on EVERY
+// call, and hostHasInlineSpark called hostInlineSparkline JUST to test
+// truthiness — so a row's 3 metrics paid ~3 series walks per reactive flush
+// (x2 via the desktop + mobile trees). _hostSparkData now resolves the series
+// ONCE and memoizes {line, area, has} keyed on the series ARRAY REFERENCE
+// (a fresh array is assigned on every history (re)load, so the ref changes
+// and the memo rebuilds — no staleness) plus the series length. Returning the
+// SAME string refs across flushes lets Alpine skip the :d DOM writes entirely.
+const _hostSparkMemo = new WeakMap();
+const _EMPTY_HOST_SPARK = {line: '', area: '', has: false};
+
+// Closes one gap-free area run into an SVG subpath (the run's line, then down
+// to the baseline and back), or null when the run is too short to fill.
+// Extracted from _buildHostSpark to keep that builder's statement count down.
+function _closeAreaRun(current, baseY) {
+  if (!current || current.points.length < 2) {
+    return null;
+  }
+  const first = current.points[0];
+  const last = current.points[current.points.length - 1];
+  const parts = [`M${first[0].toFixed(1)},${baseY.toFixed(1)}`];
+  for (const [x, y] of current.points) {
+    parts.push(`L${x.toFixed(1)},${y.toFixed(1)}`);
+  }
+  parts.push(`L${last[0].toFixed(1)},${baseY.toFixed(1)}`);
+  parts.push('Z');
+  return parts.join(' ');
+}
+
+// Builds the host-row sparkline {line, area, has} in a SINGLE pass over the
+// series. Line: M/L per gap-free point (a NaN is a gap; the next finite point
+// starts a fresh M). Area: each gap-free run closed to the baseline as its
+// own subpath so a gappy series renders as disconnected fills, not one
+// smeared polygon. A flat-all-zero series returns the EMPTY sentinel — the
+// live bar may read non-zero while the history blob is flat-0 (e.g. a Beszel
+// agent that emits info.dp but not stats.dp), and a 0% hairline reads as "no
+// spark", so the gate hides it instead of drawing a misleading line.
+function _buildHostSpark(series, pickValue) {
+  const W = 100, H = 16, PAD_T = 1, PAD_B = 1;
+  const usableH = H - PAD_T - PAD_B, baseY = H - PAD_B, n = series.length;
+  const lineOut = [], subpaths = [];
+  let lastNull = true, sawNonZero = false, current = null;
+  const flushArea = () => {
+    const sp = _closeAreaRun(current, baseY);
+    if (sp) {
+      subpaths.push(sp);
+    }
+    current = null;
+  };
+  for (let i = 0; i < n; i++) {
+    const v = pickValue(series[i]);
+    if (!Number.isFinite(v)) {
+      lastNull = true;
+      flushArea();
+      continue;
+    }
+    if (v > 0) {
+      sawNonZero = true;
+    }
+    const clamped = Math.max(0, Math.min(100, v)),
+      x = (i / (n - 1)) * W,
+      y = PAD_T + usableH - (clamped / 100) * usableH;
+    lineOut.push(`${lastNull ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
+    lastNull = false;
+    if (!current) {
+      current = {firstX: x, points: []};
+    }
+    current.points.push([x, y]);
+  }
+  flushArea();
+  if (!sawNonZero) {
+    return _EMPTY_HOST_SPARK;
+  }
+  return {line: lineOut.join(' '), area: subpaths.join(' '), has: true};
+}
+
 export default {
   // Stacked-area chart for fleet network throughput. Two series:
   // rx (incoming, primary colour) and tx (outgoing, success colour),
@@ -144,19 +221,21 @@ export default {
   // The output path uses a fixed 100×16 viewBox and `preserveAspectRatio="none"`
   // so it stretches to fill whatever width its parent element has —
   // overlaying the .stat-bar (~70-120px) without per-host width math.
-  hostInlineSparkline(h, metric) {
+  // Unified, memoized data source for the host-row inline sparkline — returns
+  // {line, area, has}. Resolves the series ONCE (Beszel/NE history, then SNMP
+  // fallback) and memoizes the built path strings by series identity (see
+  // _hostSparkMemo at module scope), so hostInlineSparkline / *Area /
+  // hostHasInlineSpark share ONE build and the :d strings stay referentially
+  // stable across flushes (Alpine then skips the DOM write).
+  _hostSparkData(h, metric) {
     if (!h) {
-      return '';
+      return _EMPTY_HOST_SPARK;
     }
-    const W = 100, H = 16;
-    const PAD_T = 1, PAD_B = 1;
-    const usableH = H - PAD_T - PAD_B;
-
-    // Try Beszel / NE history first (richest dataset).
+    // Beszel / NE history first (richest dataset); field per metric.
     const FIELD_BNE = {cpu: 'cpu', memory: 'mp', disk: 'dp'};
-    const beszelKey = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
     let series = null;
     let pickValue = null;
+    const beszelKey = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
     if (beszelKey) {
       const e = this.hostHistory && this.hostHistory[beszelKey];
       const f = FIELD_BNE[metric];
@@ -165,13 +244,10 @@ export default {
         pickValue = (r) => Number(r[f]);
       }
     }
-
-    // Fallback to SNMP history — the SNMP sampler writes a separate
-    // `host_snmp_samples` table consumed by `hostSnmpHistory[host.id]`.
-    // Field shape differs from Beszel/NE: cpu_used_pct already a
-    // percent; memory comes as raw mem_used / mem_total; disk isn't
-    // recorded in the SNMP series so disk sparklines for SNMP-only
-    // hosts will be empty (correct — the data isn't there).
+    // SNMP fallback — host_snmp_samples via hostSnmpHistory[host.id]. cpu is
+    // already a percent; memory/disk are raw used/total so derive percent
+    // (zero/NULL total -> NaN, treated as a gap not a flat-zero hairline).
+    // Some SNMP devices have no disk series -> empty (correct).
     if (!series) {
       const snmpEntry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
       const points = snmpEntry && Array.isArray(snmpEntry.points) ? snmpEntry.points : null;
@@ -187,11 +263,6 @@ export default {
             return tot > 0 ? (used / tot) * 100 : NaN;
           };
         } else if (metric === 'disk') {
-          // Disk added to host_snmp_samples — sampler writes
-          // disk_total / disk_used (bytes); we derive percent the
-          // same way the memory branch does. NULL or zero total
-          // → NaN so the path-builder treats it as a gap rather
-          // than a flat-zero hairline.
           series = points;
           pickValue = (p) => {
             const tot = Number(p.disk_total) || 0;
@@ -201,43 +272,30 @@ export default {
         }
       }
     }
-
     if (!series || !pickValue) {
-      return '';
+      return _EMPTY_HOST_SPARK;
     }
-    const n = series.length;
-    const out = [];
-    let lastNull = true;
-    let sawNonZero = false;
-    for (let i = 0; i < n; i++) {
-      const v = pickValue(series[i]);
-      if (!Number.isFinite(v)) {
-        lastNull = true;
-        continue;
-      }
-      if (v > 0) {
-        sawNonZero = true;
-      }
-      const clamped = Math.max(0, Math.min(100, v));
-      const x = (i / (n - 1)) * W;
-      const y = PAD_T + usableH - (clamped / 100) * usableH;
-      out.push(`${lastNull ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
-      lastNull = false;
+    // Memo by series identity (WeakMap) + (metric, length): a fresh array on
+    // (re)load busts it; the length guards an in-place append.
+    let perArr = _hostSparkMemo.get(series);
+    if (!perArr) {
+      perArr = new Map();
+      _hostSparkMemo.set(series, perArr);
     }
-    // Skip rendering a flat-zero line — it draws as an invisible
-    // hairline at the bottom edge of the .spark element and looks
-    // like "no sparkline at all" to the operator. Common cause:
-    // Beszel agents that populate `info.dp` (live disk %) but
-    // don't emit `stats.dp` in their history blob, so the live
-    // bar reads 53% while the historical series is flat-0%. By
-    // returning `''` here we let the gate (`hostHasInlineSpark`)
-    // hide the SVG cleanly so the operator sees "no spark"
-    // unambiguously instead of a misleading hairline. Same rule
-    // for any all-zero series across providers.
-    if (!sawNonZero) {
-      return '';
+    const key = metric + '|' + series.length;
+    const hit = perArr.get(key);
+    if (hit) {
+      return hit;
     }
-    return out.join(' ');
+    const built = _buildHostSpark(series, pickValue);
+    perArr.set(key, built);
+    return built;
+  },
+  // Line path for the host-row inline sparkline — thin wrapper over the
+  // memoized _hostSparkData. Empty string when there's no usable (>= 2-point,
+  // non-flat-zero) series; the caller's gate then hides the SVG.
+  hostInlineSparkline(h, metric) {
+    return this._hostSparkData(h, metric).line;
   },
   // Area-fill companion for `hostInlineSparkline`. Returns the same
   // line path closed to the baseline so the SVG can render a soft
@@ -246,99 +304,12 @@ export default {
   // free run so a NaN-interrupted series doesn't smear the fill
   // across the gap. Same viewBox geometry as `hostInlineSparkline`
   // (W=100, H=16, top/bottom padding=1 each).
+  // Area-fill companion for the host-row inline sparkline — thin wrapper over
+  // the memoized _hostSparkData. The line closed to the baseline per gap-free
+  // run (a NaN-interrupted series renders as disconnected fills, not one
+  // smeared polygon).
   hostInlineSparklineArea(h, metric) {
-    if (!h) {
-      return '';
-    }
-    const W = 100, H = 16;
-    const PAD_T = 1, PAD_B = 1;
-    const usableH = H - PAD_T - PAD_B;
-    const baseY = H - PAD_B; // 15
-    const FIELD_BNE = {cpu: 'cpu', memory: 'mp', disk: 'dp'};
-    const beszelKey = this.hostHistoryKey ? this.hostHistoryKey(h) : (h.beszel_id || h.id || '');
-    let series = null;
-    let pickValue = null;
-    if (beszelKey) {
-      const e = this.hostHistory && this.hostHistory[beszelKey];
-      const f = FIELD_BNE[metric];
-      if (e && Array.isArray(e.series) && e.series.length >= 2 && f) {
-        series = e.series;
-        pickValue = (r) => Number(r[f]);
-      }
-    }
-    if (!series) {
-      const snmpEntry = this.hostSnmpHistory && this.hostSnmpHistory[h.id];
-      const points = snmpEntry && Array.isArray(snmpEntry.points) ? snmpEntry.points : null;
-      if (points && points.length >= 2) {
-        if (metric === 'cpu') {
-          series = points;
-          pickValue = (p) => Number(p.cpu_used_pct);
-        } else if (metric === 'memory') {
-          series = points;
-          pickValue = (p) => {
-            const tot = Number(p.mem_total) || 0;
-            const used = Number(p.mem_used) || 0;
-            return tot > 0 ? (used / tot) * 100 : NaN;
-          };
-        } else if (metric === 'disk') {
-          series = points;
-          pickValue = (p) => {
-            const tot = Number(p.disk_total) || 0;
-            const used = Number(p.disk_used) || 0;
-            return tot > 0 ? (used / tot) * 100 : NaN;
-          };
-        }
-      }
-    }
-    if (!series || !pickValue) {
-      return '';
-    }
-    const n = series.length;
-    // Build run-segments: each gap-free run becomes its own closed
-    // sub-path. Empty segments are skipped — gappy series end up as
-    // disconnected filled regions rather than one smeared polygon.
-    const subpaths = [];
-    let current = null; // { firstX, points: [[x,y], ...] }
-    let sawNonZero = false;
-    const flush = () => {
-      if (!current || current.points.length < 2) {
-        current = null;
-        return;
-      }
-      const first = current.points[0];
-      const last = current.points[current.points.length - 1];
-      const parts = [];
-      parts.push(`M${first[0].toFixed(1)},${baseY.toFixed(1)}`);
-      for (const [x, y] of current.points) {
-        parts.push(`L${x.toFixed(1)},${y.toFixed(1)}`);
-      }
-      parts.push(`L${last[0].toFixed(1)},${baseY.toFixed(1)}`);
-      parts.push('Z');
-      subpaths.push(parts.join(' '));
-      current = null;
-    };
-    for (let i = 0; i < n; i++) {
-      const v = pickValue(series[i]);
-      if (!Number.isFinite(v)) {
-        flush();
-        continue;
-      }
-      if (v > 0) {
-        sawNonZero = true;
-      }
-      const clamped = Math.max(0, Math.min(100, v));
-      const x = (i / (n - 1)) * W;
-      const y = PAD_T + usableH - (clamped / 100) * usableH;
-      if (!current) {
-        current = {firstX: x, points: []};
-      }
-      current.points.push([x, y]);
-    }
-    flush();
-    if (!sawNonZero) {
-      return '';
-    }
-    return subpaths.join(' ');
+    return this._hostSparkData(h, metric).area;
   },
   // Memory / CPU history renderer — produces the same shell shape
   // as `_renderDiskProjectionInner` (header + body) so the outer

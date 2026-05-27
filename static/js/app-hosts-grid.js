@@ -35,6 +35,19 @@ function _clearFilteredHostsFlushCache() {
   _filteredHostsFlushScheduled = false;
 }
 
+// PERF-11: per-flush memo for hostDriftIndicator. The host row binds it ~5x
+// per metric chip (x-if gate + tone class + title + aria-label + indicator)
+// across 3 metrics, each rebuilding the same {indicator, tone, title} (incl.
+// the localized title). Cleared on the next microtask — hosts are reconciled
+// IN PLACE (stable h ref across polls), so a WeakMap-by-host would serve stale
+// drift after a poll; the per-flush clear is what keeps it correct.
+let _hostDriftFlushCache = null;
+let _hostDriftFlushScheduled = false;
+function _clearHostDriftFlushCache() {
+  _hostDriftFlushCache = null;
+  _hostDriftFlushScheduled = false;
+}
+
 export default {
   providerStates(h) {
     if (!h) {
@@ -244,7 +257,10 @@ export default {
   // sparkline has something to draw. Drives the SVG's x-show gate so
   // dead / unloaded rows don't render an empty placeholder.
   hostHasInlineSpark(h, metric) {
-    return !!this.hostInlineSparkline(h, metric);
+    // Reads the memoized has-points flag — no longer builds the path string
+    // just to test truthiness (that was a third wasted series walk per
+    // metric per host).
+    return this._hostSparkData(h, metric).has;
   },
   // Threshold-tier class for a host-row sparkline — mirrors
   // `sparkClass(item, key)` used by stacks/services rows so a host
@@ -1393,7 +1409,18 @@ export default {
           return 3;
       }
     };
-    const nameOf = (h) => this.hostDisplayName(h).toLowerCase();
+    // Memoized per host within this filteredHosts run (Schwartzian-style):
+    // the sort comparator invokes nameOf O(N log N) times, but
+    // hostDisplayName -> assetForHost should run at most ONCE per host.
+    const _nameKeyCache = new Map();
+    const nameOf = (h) => {
+      let v = _nameKeyCache.get(h);
+      if (v === undefined) {
+        v = this.hostDisplayName(h).toLowerCase();
+        _nameKeyCache.set(h, v);
+      }
+      return v;
+    };
     // Group key for 'type' sort — prefer platform over os so
     // Proxmox/LXC rows cluster distinctly from plain Debian, etc.
     // Empty values sort LAST ('~' > any printable letter).
@@ -1767,6 +1794,25 @@ export default {
     if (!h || !metric) {
       return null;
     }
+    // Per-flush memo (see _hostDriftFlushCache). Keyed by h.id + metric so the
+    // ~5 bindings per chip share one compute; cleared on the next microtask.
+    if (_hostDriftFlushCache === null) {
+      _hostDriftFlushCache = new Map();
+      if (!_hostDriftFlushScheduled) {
+        _hostDriftFlushScheduled = true;
+        queueMicrotask(_clearHostDriftFlushCache);
+      }
+    }
+    const _key = (h.id || '') + '|' + metric;
+    let _hit = _hostDriftFlushCache.get(_key);
+    if (_hit === undefined) {
+      _hit = this._hostDriftIndicatorCompute(h, metric);
+      _hostDriftFlushCache.set(_key, _hit);
+    }
+    return _hit;
+  },
+  // Uncached compute behind the per-flush memo above.
+  _hostDriftIndicatorCompute(h, metric) {
     const d = h.drift;
     if (!d || typeof d !== 'object') {
       return null;

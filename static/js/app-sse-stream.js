@@ -46,6 +46,37 @@ function _clearNodeItemsIndexCache() {
   _nodeItemsIndexScheduled = false;
 }
 
+// PERF-09: flush-memoize the Stacks/Services derived getters. Each is pure
+// within a synchronous reactive flush (depends only on this.items /
+// this.stacks / search / statusFilter / healthFilter / sortField / sortDir,
+// none of which change mid-flush) but was recomputed AND re-allocated on every
+// access — counts walks all items; filteredStacks spreads every stack +
+// filters its items; filteredItems filters; sortedFiltered spreads + sorts —
+// and they're read multiple times per flush (.length count bindings + x-for
+// sources). One module-scope per-flush cache, cleared on the next microtask
+// (zero staleness, same contract as the filteredHosts memo). `undefined` is
+// the not-cached sentinel (none of these getters ever return undefined).
+const _stacksFlushCache = {
+  counts: undefined,
+  filteredStacks: undefined,
+  filteredItems: undefined,
+  sortedFiltered: undefined,
+};
+let _stacksFlushScheduled = false;
+function _scheduleStacksFlushClear() {
+  if (_stacksFlushScheduled) {
+    return;
+  }
+  _stacksFlushScheduled = true;
+  queueMicrotask(() => {
+    _stacksFlushCache.counts = undefined;
+    _stacksFlushCache.filteredStacks = undefined;
+    _stacksFlushCache.filteredItems = undefined;
+    _stacksFlushCache.sortedFiltered = undefined;
+    _stacksFlushScheduled = false;
+  });
+}
+
 export default {
   // ===================================================================
   // Real-time event stream
@@ -641,6 +672,9 @@ export default {
     // fix anyway. Mirrors the per-stack rollup in `logic/gather.py`
     // and the per-node rollup in `nodesView` so all three count
     // sources read consistently.
+    if (_stacksFlushCache.counts !== undefined) {
+      return _stacksFlushCache.counts;
+    }
     const c = {update: 0, update_offline: 0, uptodate: 0, unknown: 0, error: 0, ignored: 0, healthy: 0, degraded: 0, offline: 0};
     for (const i of this.items) {
       if (i.status === 'update') {
@@ -676,19 +710,36 @@ export default {
         }
       }
     }
+    _stacksFlushCache.counts = c;
+    _scheduleStacksFlushClear();
     return c;
   },
   get filteredStacks() {
+    if (_stacksFlushCache.filteredStacks !== undefined) {
+      return _stacksFlushCache.filteredStacks;
+    }
     const q = this.search.toLowerCase();
-    return this.stacks
+    const out = this.stacks
       .map(s => ({...s, items: s.items.filter(i => this.matches(i, q))}))
       .filter(s => s.items.length > 0);
+    _stacksFlushCache.filteredStacks = out;
+    _scheduleStacksFlushClear();
+    return out;
   },
   get filteredItems() {
+    if (_stacksFlushCache.filteredItems !== undefined) {
+      return _stacksFlushCache.filteredItems;
+    }
     const q = this.search.toLowerCase();
-    return this.items.filter(i => this.matches(i, q));
+    const out = this.items.filter(i => this.matches(i, q));
+    _stacksFlushCache.filteredItems = out;
+    _scheduleStacksFlushClear();
+    return out;
   },
   get sortedFiltered() {
+    if (_stacksFlushCache.sortedFiltered !== undefined) {
+      return _stacksFlushCache.sortedFiltered;
+    }
     const arr = [...this.filteredItems];
     const f = this.sortField, dir = this.sortDir === 'asc' ? 1 : -1;
     const statusRank = {update: 0, error: 1, unknown: 2, 'up-to-date': 3, ignored: 4};
@@ -726,6 +777,8 @@ export default {
       }
       return 0;
     });
+    _stacksFlushCache.sortedFiltered = arr;
+    _scheduleStacksFlushClear();
     return arr;
   },
   matches(item, q) {
