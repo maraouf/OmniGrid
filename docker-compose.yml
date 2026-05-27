@@ -61,11 +61,20 @@ services:
       - omnigrid
 
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=3)"]
+      # Tolerant on purpose: /api/healthz is a trivial in-memory response, so
+      # it only fails when the single event loop is momentarily blocked (the
+      # samplers + gather hit SQLite synchronously on the loop). The urllib
+      # timeout (8s) rides out a transient stall; docker's timeout sits above
+      # it. retries 5 x interval 30s ~= 2.5 min of SUSTAINED unresponsiveness
+      # before a kill, and start_period 120s lets a busy first gather +
+      # migrations settle before the check is enforced. Pre-fix (3s/5s/3/60s)
+      # a brief stall flapped the check -> Swarm SIGKILLed the container
+      # (exit 137 "unhealthy") -> 502.
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=8)"]
       interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
     deploy:
       mode: replicated

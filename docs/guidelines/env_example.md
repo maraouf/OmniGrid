@@ -51,21 +51,23 @@ DB_TYPE=sqlite
 # relocate the bind mount.
 DB_PATH=/app/data/omnigrid.db
 
-# SQLite busy_timeout in milliseconds (per-connection). How long a
-# contended open WAITS for the write lock before raising SQLITE_BUSY.
-# OmniGrid runs the DB in WAL mode (readers don't block the writer), so
-# this only bites under heavy concurrent writes (many samplers + requests).
-# NOT a DB-backed tunable — resolving one would itself re-open the DB.
-# Unset = 5000 ms default; 0 keeps SQLite's immediate-fail behaviour.
-DB_BUSY_TIMEOUT_MS=5000
+# SQLite busy_timeout in milliseconds (per-connection). How long a contended
+# op WAITS for the lock before raising SQLITE_BUSY. Kept MODEST (2000) on
+# purpose: sqlite3 is synchronous, so the wait BLOCKS the single event loop —
+# a 5000 ms wait froze /api/healthz long enough for Swarm to mark the
+# container unhealthy and SIGKILL it (the 502 flap). NOT a DB-backed tunable
+# (resolving one would re-open the DB). Unset = 2000 ms; 0 = immediate fail.
+DB_BUSY_TIMEOUT_MS=2000
 
-# Master switch for SQLite WAL journal mode (default ON). WAL lets readers
-# proceed while a writer commits. WAL is set ONCE per process on the first
-# connection (switching journal mode takes a write lock; re-issuing it per
-# connection storms the lock at startup / during a deploy rollover). Set
-# 0/false/no/off to disable — the app then runs on the existing journal mode
-# (busy_timeout + synchronous still apply). A kill-switch so you can turn WAL
-# off without a code change if a filesystem can't host the -wal/-shm files.
+# SQLite WAL journal mode — default ON. WAL lets readers proceed while a
+# writer commits, REDUCING the reader/writer contention that otherwise stalls
+# the event loop (the samplers + gather hit SQLite synchronously). The
+# journal-mode switch is done ONCE per process on the first connection (NOT
+# per connection — re-issuing it stormed the lock during a deploy rollover and
+# caused a 502); on an already-WAL DB it's a no-op. Set 0/false/no/off to
+# disable — the app then reverts the DB to the rollback journal (DELETE) once,
+# self-healing a DB left in WAL on a filesystem that can't host the -wal/-shm
+# files (rare; ext4/xfs/btrfs are fine).
 DB_WAL_ENABLED=1
 ```
 
@@ -777,8 +779,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `VERIFY_TLS`                      | Bootstrap   | `true`               | Stored as `portainer_verify_tls` after seeding.                                 |
 | `DB_TYPE`                         | Runtime     | `sqlite`             | Database backend. Supported: `sqlite`. Invalid value → config-error page.       |
 | `DB_PATH`                         | Runtime     | `/app/data/omnigrid.db` | SQLite path inside container.                                                   |
-| `DB_BUSY_TIMEOUT_MS`              | Runtime     | `5000`               | SQLite per-connection busy_timeout (ms) — a contended open waits this long before `SQLITE_BUSY`. Env-only (a DB tunable would re-open the DB). |
-| `DB_WAL_ENABLED`                  | Runtime     | `1`                  | Master switch for SQLite WAL (set once per process on the first connection). `0`/`false`/`no`/`off` disables it (busy_timeout + synchronous still apply). Kill-switch for filesystems that can't host `-wal`/`-shm`. |
+| `DB_BUSY_TIMEOUT_MS`              | Runtime     | `2000`               | SQLite per-connection busy_timeout (ms). Kept modest — sqlite3 is synchronous so the wait blocks the event loop (5000 froze `/api/healthz` → unhealthy kill → 502). `0` = immediate fail. Env-only (a DB tunable would re-open the DB). |
+| `DB_WAL_ENABLED`                  | Runtime     | `1` (on)             | SQLite WAL (switched once per process on the first connection; reduces reader/writer contention). `0`/`false`/`no`/`off` disables it and reverts the DB to the rollback journal (DELETE) once. busy_timeout + synchronous apply regardless. |
 | `CACHE_TTL_SECONDS`               | Runtime     | `900`                | Items cache TTL.                                                                |
 | `STATS_CACHE_TTL_SECONDS`         | Runtime     | `30`                 | Stats cache TTL.                                                                |
 | `REGISTRY_CONCURRENCY`            | Runtime     | `8`                  | Parallel remote-digest fetches.                                                 |
