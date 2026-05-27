@@ -2479,12 +2479,29 @@ export default {
       }
       const j = await r.json();
       this.appsDiscoverResult = j;
-      // Pre-select proposals with confidence >= 0.9 — high-confidence
-      // matches (all template ports detected + name match OR multi-port
-      // exact match) are the safe bulk-bind candidates.
+      // Count how many proposals match each detected port. A port matched
+      // by 2+ templates is AMBIGUOUS (e.g. several apps share 80 / 443) —
+      // auto-checking them would pin multiple apps competing for the same
+      // port, so leave them UNCHECKED — the shared port's owner must be
+      // picked by hand rather than auto-bound to multiple apps.
+      const portMatchCount = {};
+      for (const prop of (j.proposals || [])) {
+        for (const port of (prop.matched_ports || [])) {
+          portMatchCount[port] = (portMatchCount[port] || 0) + 1;
+        }
+      }
+      // Pre-select proposals with confidence >= 0.9 (all template ports
+      // detected + name match OR multi-port exact match) — the safe
+      // bulk-bind candidates — EXCEPT those whose matched ports collide
+      // with another proposal.
       const preSelected = new Set();
       for (const prop of (j.proposals || [])) {
-        if (prop && prop.confidence >= 0.9 && prop.catalog && prop.catalog.id) {
+        if (!prop || prop.confidence < 0.9 || !prop.catalog || !prop.catalog.id) {
+          continue;
+        }
+        const ambiguous = (prop.matched_ports || []).some(
+          (port) => (portMatchCount[port] || 0) >= 2);
+        if (!ambiguous) {
           preSelected.add(prop.catalog.id);
         }
       }

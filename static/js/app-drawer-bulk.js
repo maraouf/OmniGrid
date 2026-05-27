@@ -866,11 +866,12 @@ export default {
   },
   agentStateClass(h, name) {
     const s = this._agentStateFor(h, name);
-    if (s === 'failing') {
+    // Both failing AND paused render RED (pill-error) — unified with the
+    // Hosts-page chip strip. A paused provider is a fault state that needs
+    // action, so it shouldn't read as a softer orange/amber warning here
+    // while the page shows red.
+    if (s === 'failing' || s === 'paused') {
       return 'pill-error';
-    }
-    if (s === 'paused') {
-      return 'pill-warning';
     }
     return 'pill-custom';
   },

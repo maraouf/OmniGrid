@@ -13,8 +13,11 @@
            Carries { name, state, consecutive_failures?, last_error? }.
 
   States rendered:
-    - failing             → pill-error
-    - paused              → pill-info (auto-paused after N failures)
+    - failing             → pill-error (red)
+    - paused              → pill-error (red) — auto-paused after N failures
+                            is a fault state, so it renders RED, unified
+                            with the host-drawer chip (agentStateClass) +
+                            the legend + the popover. (Was pill-info/blue.)
     - configured_inactive → pill-muted (host has provider mapped but
                             master toggle is OFF in Admin → Providers)
     - loading             → pill-custom chip-loading (probe in flight)
@@ -39,10 +42,9 @@
 <div class="relative inline-flex">
   <button type="button"
           class="chip fs-3xs-half px-1 py-0"
-          :class="p.state === 'failing' ? 'pill-error'
-                  : (p.state === 'paused' ? 'pill-info'
+          :class="(p.state === 'failing' || p.state === 'paused') ? 'pill-error'
                   : (p.state === 'configured_inactive' ? 'pill-muted'
-                  : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom')))"
+                  : (p.state === 'loading' ? 'pill-custom chip-loading' : 'pill-custom'))"
           :style="(p.state === 'failing' || p.state === 'paused' || p.state === 'configured_inactive') ? '' : providerChipStyle(p.name)"
           aria-haspopup="dialog"
           :aria-expanded="chipPopoverOpen

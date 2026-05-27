@@ -44,10 +44,9 @@
     </div>
     <div class="flex items-center gap-1.5">
       <span class="chip fs-3xs px-1.5 py-0"
-            :class="(chipPopoverOpen && chipPopoverOpen.state === 'failing') ? 'pill-error'
-                    : ((chipPopoverOpen && chipPopoverOpen.state === 'paused') ? 'pill-info'
+            :class="(chipPopoverOpen && (chipPopoverOpen.state === 'failing' || chipPopoverOpen.state === 'paused')) ? 'pill-error'
                     : ((chipPopoverOpen && chipPopoverOpen.state === 'configured_inactive') ? 'pill-muted'
-                    : ((chipPopoverOpen && chipPopoverOpen.state === 'loading') ? 'pill-custom chip-loading' : 'pill-ok')))"
+                    : ((chipPopoverOpen && chipPopoverOpen.state === 'loading') ? 'pill-custom chip-loading' : 'pill-ok'))"
             x-text="chipPopoverOpen ? t('hosts_extra.provider_popover.state_' + chipPopoverOpen.state) : ''"></span>
       <button type="button"
               @click.stop="closeProviderChipPopover()"
