@@ -9447,6 +9447,23 @@ select.field-invalid {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* App-name link — when the chip has a URL the tile name becomes a
+   clickable link opening in a new window. Dotted underline + primary
+   accent for parity with the clickable port pills (.apps-port-pill--link)
+   so the open-as-URL affordance reads consistently across the Apps surface. */
+a.apps-drawer-tile-name {
+  color: inherit;
+  text-decoration: none;
+}
+.apps-drawer-tile-name--link {
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.apps-drawer-tile-name--link:hover {
+  text-decoration-color: var(--primary);
+}
 .apps-drawer-tile-ports {
   display: inline-flex;
   align-items: center;

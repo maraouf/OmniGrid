@@ -340,7 +340,19 @@ export default {
       return '';
     }
     const proto = String(pr.protocol || '').toLowerCase();
-    return (proto === 'https' ? 'https' : 'http') + '://' + host + ':' + pr.port;
+    const base = (proto === 'https' ? 'https' : 'http') + '://' + host + ':' + pr.port;
+    // Append the per-port HTTP path (e.g. Pi-hole's /admin/) so the link
+    // lands on the app's real entry point, not the bare host root. Uses the
+    // same `probe_path` the HTTP health probe hits; normalise to a leading
+    // slash. A bare '/' adds nothing, so skip it.
+    let path = String(pr.probe_path || '').trim();
+    if (path && path !== '/') {
+      if (path[0] !== '/') {
+        path = '/' + path;
+      }
+      return base + path;
+    }
+    return base;
   },
 
   // ---- Apps-view per-app host-list cap (Show all / Show less) --------
@@ -1483,6 +1495,125 @@ export default {
     } catch (err) {
       if (typeof this.toast === 'function') {
         this.toast((this.t('admin_apps.instance_delete_failed') || 'Remove failed: ') + err.message, 'error');
+      }
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Instances bulk-delete — multi-select rows in the Admin → Apps →
+  // Instances table, delete every selected chip in one action. Selection
+  // is keyed by `host_id:service_idx`; reassigning appsInstancesSelected
+  // (rather than mutating in place) guarantees Alpine re-evaluates the
+  // row checkboxes + bulk bar.
+  // ----------------------------------------------------------------
+  instanceSelKey(inst) {
+    return inst ? ((inst.host_id || '') + ':' + inst.service_idx) : '';
+  },
+  isInstanceSelected(inst) {
+    return !!this.appsInstancesSelected[this.instanceSelKey(inst)];
+  },
+  toggleInstanceSelected(inst) {
+    const k = this.instanceSelKey(inst);
+    if (!k) {
+      return;
+    }
+    const next = Object.assign({}, this.appsInstancesSelected);
+    if (next[k]) {
+      delete next[k];
+    } else {
+      next[k] = true;
+    }
+    this.appsInstancesSelected = next;
+  },
+  appsInstancesSelectedCount() {
+    const s = this.appsInstancesSelected || {};
+    return Object.keys(s).filter((k) => s[k]).length;
+  },
+  appsInstancesAllSelected() {
+    const list = this.appsInstances || [];
+    if (!list.length) {
+      return false;
+    }
+    return list.every((i) => !!this.appsInstancesSelected[this.instanceSelKey(i)]);
+  },
+  toggleSelectAllInstances() {
+    if (this.appsInstancesAllSelected()) {
+      this.appsInstancesSelected = {};
+      return;
+    }
+    const next = {};
+    for (const i of (this.appsInstances || [])) {
+      next[this.instanceSelKey(i)] = true;
+    }
+    this.appsInstancesSelected = next;
+  },
+  clearInstanceSelection() {
+    this.appsInstancesSelected = {};
+  },
+  async bulkDeleteInstances() {
+    const sel = (this.appsInstances || []).filter(
+      (i) => i && this.appsInstancesSelected[this.instanceSelKey(i)]);
+    const n = sel.length;
+    if (!n) {
+      return;
+    }
+    const confirmed = typeof this.confirmDialog === 'function'
+      ? await this.confirmDialog({
+        title: this.t('admin_apps.bulk_delete_confirm_title', {n})
+          || ('Remove ' + n + ' app instance' + (n === 1 ? '' : 's') + '?'),
+        text: this.t('admin_apps.bulk_delete_confirm_text')
+          || 'This unpins the selected chips from their hosts. Catalog templates are unaffected.',
+        icon: 'warning',
+        confirmButtonText: this.t('actions.delete') || 'Delete',
+      })
+      : window.confirm('Remove ' + n + ' app instances?');
+    if (!confirmed) {
+      return;
+    }
+    this.appsInstancesBulkDeleting = true;
+    // The DELETE endpoint removes from each host's services[] BY INDEX,
+    // so deleting must go DESCENDING by service_idx per host — removing a
+    // higher index first keeps every lower index valid. Deleting low-first
+    // would shift the higher rows down and mis-target the next delete.
+    const byHost = {};
+    for (const inst of sel) {
+      const hid = inst.host_id || '';
+      (byHost[hid] = byHost[hid] || []).push(inst);
+    }
+    let ok = 0;
+    let failed = 0;
+    for (const hid of Object.keys(byHost)) {
+      const rows = byHost[hid].slice().sort((a, b) => b.service_idx - a.service_idx);
+      for (const inst of rows) {
+        try {
+          const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+            + '/' + encodeURIComponent(inst.service_idx), {method: 'DELETE'});
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error(j.detail || ('HTTP ' + r.status));
+          }
+          ok += 1;
+        } catch (err) {
+          failed += 1;
+        }
+      }
+    }
+    this.appsInstancesSelected = {};
+    this.appsInstancesBulkDeleting = false;
+    await this.loadAppsInstances();
+    if (typeof this.loadAppsList === 'function') {
+      await this.loadAppsList(true);
+      this._resyncDrawerApp();
+      this._resyncDrawerAppHost();
+    }
+    if (typeof this.toast === 'function') {
+      if (failed) {
+        this.toast(this.t('admin_apps.bulk_delete_partial', {ok, failed})
+          || (ok + ' removed, ' + failed + ' failed'),
+        ok ? 'warning' : 'error');
+      } else {
+        this.toast(this.t('admin_apps.bulk_deleted', {n: ok})
+          || (ok + ' app instances removed'), 'success');
       }
     }
   },

@@ -227,12 +227,36 @@
         </button>
       </div>
     </div>
+    <!-- Bulk-delete bar — appears when ≥1 instance row is checked. Removes
+         every selected chip in one action (count-named confirm). -->
+    <div x-show="appsInstancesLoaded && appsInstancesSelectedCount() > 0"
+         class="flex items-center gap-2 mb-3 p-2 rounded border border-[var(--border)] bg-[var(--surface-2)]">
+      <span class="fs-xs text-[var(--text-dim)]"
+            x-text="t('admin_apps.bulk_selected', { n: appsInstancesSelectedCount() }) || (appsInstancesSelectedCount() + ' selected')"></span>
+      <button type="button" class="btn btn-danger fs-2xs inline-flex items-center gap-1 ms-auto"
+              :disabled="appsInstancesBulkDeleting"
+              @click="bulkDeleteInstances()"
+              :title="t('admin_apps.bulk_delete_title') || 'Remove all selected instances'">
+        <svg width="12" height="12" :class="appsInstancesBulkDeleting ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+        </svg>
+        <span x-text="t('admin_apps.bulk_delete', { n: appsInstancesSelectedCount() }) || ('Delete (' + appsInstancesSelectedCount() + ')')"></span>
+      </button>
+      <button type="button" class="btn btn-soft fs-2xs" @click="clearInstanceSelection()"
+              x-text="t('admin_apps.bulk_clear') || 'Clear'"></button>
+    </div>
     <div x-show="!appsInstancesLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
     </div>
     <table x-show="appsInstancesLoaded" class="w-full fs-sm">
       <thead>
       <tr class="text-[var(--text-dim)] border-b border-[var(--border)]">
+        <th class="text-start py-2 ps-2 w-[28px]">
+          <input type="checkbox" :checked="appsInstancesAllSelected()"
+                 x-effect="$el.indeterminate = appsInstancesSelectedCount() > 0 && !appsInstancesAllSelected()"
+                 @click.stop="toggleSelectAllInstances()"
+                 :aria-label="t('admin_apps.bulk_select_all') || 'Select all instances'">
+        </th>
         <th class="text-start py-2 ps-2 w-[36px]"></th>
         <th class="text-start py-2" x-text="t('admin_apps.col_name') || 'Name'"></th>
         <th class="text-start py-2" x-text="t('admin_apps.col_host') || 'Host'"></th>
@@ -246,7 +270,7 @@
         <tbody>
         <tr x-show="grp.key !== '__all__'" class="cursor-pointer select-none bg-[var(--surface-2)]"
             @click="toggleAppsInstanceGroup(grp.key)">
-          <td colspan="7" class="py-1.5 px-2 border-y border-[var(--border)]">
+          <td colspan="8" class="py-1.5 px-2 border-y border-[var(--border)]">
               <span class="inline-flex items-center gap-1.5 fs-xs font-semibold">
                 <svg width="11" height="11" class="flip-rtl" aria-hidden="true"
                      :style="appsInstancesCollapsed[grp.key] ? '' : 'transform: rotate(90deg)'">
@@ -259,7 +283,13 @@
         </tr>
         <template x-for="inst in (appsInstancesCollapsed[grp.key] ? [] : grp.items)" :key="inst.host_id + ':' + inst.service_idx">
           <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)] cursor-pointer"
+              :class="isInstanceSelected(inst) ? 'bg-[var(--row-hover)]' : ''"
               @click="openInstanceEdit(inst)">
+            <td class="py-2 ps-2" @click.stop>
+              <input type="checkbox" :checked="isInstanceSelected(inst)"
+                     @click.stop="toggleInstanceSelected(inst)"
+                     :aria-label="t('admin_apps.bulk_select_row') || 'Select instance'">
+            </td>
             <td class="py-2 ps-2">
               <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
                    @error="$event.target.style.visibility='hidden'">
@@ -321,7 +351,7 @@
       </template>
       <tbody x-show="appsInstancesLoaded && !appsInstances.length">
       <tr>
-        <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm">
+        <td colspan="8" class="py-6 text-center text-[var(--text-faint)] fs-sm">
           <div class="mb-2" x-text="t('admin_apps.empty_instances') || 'No app instances yet.'"></div>
           <div class="flex items-center justify-center gap-2 flex-wrap">
             <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
