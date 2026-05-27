@@ -9488,3 +9488,19 @@ select.field-invalid {
 .apps-port-pill--unknown {
   border-color: var(--border);
 }
+/* Port pills are now <a> elements (single x-for root) so a port flagged
+   open_url + http/https can be a real link. Reset the default link chrome
+   so a NON-link pill looks identical to the old <span>; the --link variant
+   gets a pointer + primary-accent hover so clickable ports stand out. */
+a.apps-port-pill {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+.apps-port-pill--link {
+  cursor: pointer;
+}
+.apps-port-pill--link:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}

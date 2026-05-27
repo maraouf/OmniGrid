@@ -178,7 +178,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Bazarr", "slug": "bazarr", "icon": "bazarr",
         "description": "Subtitle management for Sonarr / Radarr",
         "default_ports": [
-            {"port": 6767, "protocol": "tcp", "label": "Web UI",
+            {"port": 6767, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -202,7 +202,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Apprise", "slug": "apprise", "icon": "apprise",
         "description": "Notification fan-out API",
         "default_ports": [
-            {"port": 8005, "protocol": "tcp", "label": "API",
+            {"port": 8005, "protocol": "http", "label": "API",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -210,7 +210,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "ddns-updater", "slug": "ddns-updater", "icon": "ddns-updater",
         "description": "Dynamic-DNS record updater",
         "default_ports": [
-            {"port": 8010, "protocol": "tcp", "label": "Web UI",
+            {"port": 8010, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -319,7 +319,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "AdGuardHome Sync", "slug": "adguardhome-sync", "icon": "adguard-home",
         "description": "Syncs config between AdGuard Home instances",
         "default_ports": [
-            {"port": 8091, "protocol": "tcp", "label": "Web UI",
+            {"port": 8091, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -751,6 +751,12 @@ def _coerce_ports(raw: Any) -> list[dict]:
             "label": label,
             "probe_path": probe_path,
             "probe_status": probe_status,
+            # When true (+ protocol http/https), the SPA renders this port
+            # as a clickable link to <scheme>://<host>:<port>. Operator-set
+            # per port in BOTH the catalog template editor and the per-chip
+            # instance editor; this shared coercion preserves it on every
+            # save/read path (chip probe.ports[] + catalog default_ports[]).
+            "open_url": bool(entry.get("open_url")),
         })
     return out
 
@@ -1190,7 +1196,7 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
     case (configured-but-unprobed) is also covered. The frontend maps
     ``alive`` true/false/None onto up/down/unknown pill states.
     """
-    by_port: dict[int, dict] = {}
+    by_port: dict[int, dict[str, Any]] = {}
     for pr in (sample_rows or []):
         if isinstance(pr, dict):
             pv = _coerce_int(pr.get("port"))
@@ -1205,13 +1211,29 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
         if not pv or pv in seen:
             continue
         seen.add(pv)
+        # Carry the CONFIG-side metadata onto every emitted port so the
+        # frontend can render the pill + (when open_url is set on an
+        # http/https port) a clickable link to <scheme>://<host>:<port>.
+        # The probe-sample row only has alive/rtt/error/ts, so protocol /
+        # open_url / label come from the chip's configured port `cp`.
+        cfg_proto = (cp.get("protocol") or "tcp")
+        cfg_open_url = bool(cp.get("open_url"))
+        cfg_label = cp.get("label") or ""
         sample = by_port.get(pv)
         if sample is not None:
-            out.append(sample)
+            entry: dict[str, Any] = dict(sample)
+            entry["port"] = pv
+            entry["protocol"] = entry.get("protocol") or cfg_proto
+            entry["open_url"] = cfg_open_url
+            if cfg_label and not entry.get("label"):
+                entry["label"] = cfg_label
+            out.append(entry)
         else:
             out.append({
                 "port": pv,
-                "protocol": (cp.get("protocol") or "tcp"),
+                "protocol": cfg_proto,
+                "open_url": cfg_open_url,
+                "label": cfg_label,
                 "alive": None,
                 "rtt_ms": None,
                 "error": None,

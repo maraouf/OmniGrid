@@ -172,11 +172,17 @@ def resolve_chip_probe_target(host_row: dict, service_idx: int, svc: dict,
             sub_path = (p.get("probe_path") or "").strip() or "/"
             sub_status = _safe_int(p.get("probe_status"))
             sub_label = (p.get("label") or "").strip()
-            # Per-port probe type = http when protocol is http/https OR a
-            # probe_path was supplied (operator opted into an HTTP-level
-            # check); TCP otherwise.
-            sub_type = ("http" if proto in ("http", "https") or sub_path != "/"
-                        else "tcp")
+            # Per-port probe type: udp ⇒ a real UDP probe (NOT a TCP
+            # connect — TCP-connecting a UDP-only port like OpenVPN 1194
+            # always fails, which is why udp chips read perpetually down);
+            # http when protocol is http/https OR a probe_path was supplied
+            # (HTTP-level check); TCP otherwise.
+            if proto == "udp":
+                sub_type = "udp"
+            elif proto in ("http", "https") or sub_path != "/":
+                sub_type = "http"
+            else:
+                sub_type = "tcp"
             sub_ports.append({
                 "port": pi,
                 "protocol": proto,
@@ -418,6 +424,25 @@ async def service_sampler_loop() -> None:
                                             sp.get("probe_status") or 0,
                                             timeout_s,
                                         )
+                                    elif sp.get("probe_type") == "udp":
+                                        # Real UDP probe (protocol-correct).
+                                        # A reply = up; silence (open|filtered)
+                                        # reads down because we can't confirm —
+                                        # a UDP VPN tunnel (OpenVPN/WireGuard)
+                                        # never answers an unsolicited probe, so
+                                        # disable the chip's probe to make such
+                                        # a service inventory-only rather than a
+                                        # perpetual red.
+                                        from logic.port_scanner_udp import _probe_one_udp as _udp_probe
+                                        _udp_out = await _udp_probe(
+                                            tgt["host"], int(sp["port"]), timeout_s,
+                                        )
+                                        port_outcome = {
+                                            "alive": bool(_udp_out.get("open")),
+                                            "rtt_ms": None,
+                                            "error": None if _udp_out.get("open")
+                                            else "udp: no response (open|filtered — can't confirm)",
+                                        }
                                     else:
                                         port_outcome = await _probe_tcp(
                                             tgt["host"],

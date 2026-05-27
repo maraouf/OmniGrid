@@ -435,6 +435,33 @@ async def probe_http_health(
     latency_ms: Optional[int] = None
     http_error: Optional[str] = None
     t0 = time.monotonic()
+    # TLS verify mode. When verify is OFF (operator opted into an insecure
+    # probe for a self-signed homelab device), ALSO relax the TLS floor:
+    # `verify=False` alone only skips CERT validation, not version/cipher
+    # negotiation, so a LEGACY device (old switches like Cisco SG300, IPMI
+    # BMCs, iDRAC) that only speaks TLS 1.0/1.1 + pre-modern ciphers still
+    # fails the handshake with modern openssl (SSLV3_ALERT_HANDSHAKE_FAILURE).
+    # A permissive context (CERT_NONE + TLS 1.0 floor + SECLEVEL=0) lets the
+    # probe reach those boxes. verify=True keeps the strict default.
+    _verify: "ssl.SSLContext | bool"
+    if verify_tls:
+        _verify = True
+    else:
+        _ctx = ssl.create_default_context()
+        _ctx.check_hostname = False
+        _ctx.verify_mode = ssl.CERT_NONE
+        try:
+            _ctx.minimum_version = ssl.TLSVersion.TLSv1
+        except (ValueError, AttributeError):
+            pass
+        try:
+            # SECLEVEL=0 re-enables legacy ciphers + small RSA keys the
+            # old gear presents; safe here because verification is already
+            # off and the probe is read-only.
+            _ctx.set_ciphers("DEFAULT@SECLEVEL=0")
+        except ssl.SSLError:
+            pass
+        _verify = _ctx
     try:
         # ``follow_redirects=True`` so 301 / 302 chains land on the
         # final response (typically a 200) — matches the broadened
@@ -444,7 +471,7 @@ async def probe_http_health(
         # final-hop code; intermediate 3xx chain is followed silently.
         async with httpx.AsyncClient(
             timeout=timeout,
-            verify=verify_tls,
+            verify=_verify,
             follow_redirects=True,
         ) as client:
             # codeql[py/full-ssrf] — `url_clean` is gated above by
