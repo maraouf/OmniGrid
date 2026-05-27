@@ -830,8 +830,34 @@ export default {
   // group (valid HTML, keeps column alignment with the shared thead)
   // with a collapsible header row. 'none' returns a single group with
   // an empty key/label so the markup suppresses its header row.
-  appsInstancesGroups() {
+  // Free-text filter for the Instances table — matches name / catalog /
+  // host (id / label / address) / port number / protocol, case-insensitive.
+  appsInstancesMatch(inst, q) {
+    if (!inst) {
+      return false;
+    }
+    const hay = [
+      inst.name || '', inst.catalog_name || '', inst.catalog_slug || '',
+      inst.host_id || '', inst.host_label || '', inst.host_address || '',
+      (inst.ports || []).map((p) => (p && p.port != null ? p.port : '')).join(' '),
+      (inst.ports || []).map((p) => (p && p.protocol) || '').join(' '),
+    ].join(' ').toLowerCase();
+    return hay.includes(q);
+  },
+  appsInstancesMatchCount() {
+    const q = (this.appsInstancesSearch || '').trim().toLowerCase();
     const list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
+    if (!q) {
+      return list.length;
+    }
+    return list.filter((inst) => this.appsInstancesMatch(inst, q)).length;
+  },
+  appsInstancesGroups() {
+    let list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
+    const q = (this.appsInstancesSearch || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter((inst) => this.appsInstancesMatch(inst, q));
+    }
     const mode = this.appsInstancesGroupBy || 'host';
     if (mode === 'none') {
       return [{key: '__all__', label: '', count: list.length, items: list}];

@@ -34,10 +34,12 @@ export default {
   assetTestResult: null,
   assetCache: null,
   assetRefreshing: false,
-  // Host-drawer FULL-refresh button in-flight flag (drives its :disabled +
-  // spinner). Declared up-front so Alpine tracks it reactively from init
-  // rather than on first lazy assignment.
-  _hostFullRefreshing: false,
+  // Host-drawer FULL-refresh button in-flight flags — keyed by host id so
+  // the loading state is PER-HOST (arrowing to another host shows an
+  // enabled button; arrowing back to a still-refreshing host shows the
+  // spinner; opening/closing the drawer preserves the per-host state).
+  // Declared up-front so Alpine tracks it reactively from init.
+  _hostFullRefreshing: {},
   assetSaving: false,
   // Test-before-Save gate for Asset Inventory — same pattern as
   // Portainer / OIDC. When asset_inventory_enabled is ON, Save is
@@ -702,10 +704,14 @@ export default {
   // cache + the 504 back-off. Each step is best-effort — one failing
   // surface doesn't abort the rest.
   async fullRefreshHost(h) {
-    if (!h || !h.id || this._hostFullRefreshing) {
+    if (!h || !h.id || this._hostFullRefreshing[h.id]) {
       return;
     }
-    this._hostFullRefreshing = true;
+    const _hid = h.id;
+    // Reassign (not in-place mutate) so Alpine reliably re-evaluates the
+    // per-host :disabled / spinner binding for a key it may not have read
+    // before (a host the drawer hasn't shown yet).
+    this._hostFullRefreshing = Object.assign({}, this._hostFullRefreshing, {[_hid]: true});
     try {
       if (typeof this.loadAssetCache === 'function') {
         try { await this.loadAssetCache(); } catch (_e) { /* non-fatal */ }
@@ -746,7 +752,9 @@ export default {
         );
       }
     } finally {
-      this._hostFullRefreshing = false;
+      const next = Object.assign({}, this._hostFullRefreshing);
+      delete next[_hid];
+      this._hostFullRefreshing = next;
     }
   },
 };

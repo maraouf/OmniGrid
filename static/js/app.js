@@ -249,6 +249,9 @@ function app() {
     // Free-text filter for the Admin → Apps → Templates table (name /
     // slug / description / port). Client-side over appsCatalog.
     appsCatalogSearch: '',
+    // Free-text filter for the Admin → Apps → Instances table (name /
+    // catalog / host / port). Client-side over appsInstances.
+    appsInstancesSearch: '',
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},

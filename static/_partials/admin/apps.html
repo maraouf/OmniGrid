@@ -279,6 +279,21 @@
         </button>
       </div>
     </div>
+    <!-- Search / filter — client-side over name / catalog / host / port. -->
+    <div x-show="appsInstancesLoaded && appsInstances.length" class="mb-3">
+      <div class="flex items-center gap-2">
+        <div class="inline-flex items-center gap-1.5 flex-1">
+          <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+          </svg>
+          <input type="search" x-model="appsInstancesSearch" class="fs-sm flex-1 w-full"
+                 :placeholder="t('admin_apps.instances_search_placeholder') || 'Search instances by name, host, or port…'"
+                 :aria-label="t('admin_apps.instances_search_placeholder') || 'Search instances'">
+        </div>
+        <span x-show="appsInstancesSearch.trim()" class="fs-2xs text-[var(--text-faint)] flex-shrink-0 whitespace-nowrap"
+              x-text="t('admin_apps.search_count', { shown: appsInstancesMatchCount(), total: appsInstances.length }) || (appsInstancesMatchCount() + ' / ' + appsInstances.length)"></span>
+      </div>
+    </div>
     <!-- Bulk-delete bar — appears when ≥1 instance row is checked. Removes
          every selected chip in one action (count-named confirm). -->
     <div x-show="appsInstancesLoaded && appsInstancesSelectedCount() > 0"
@@ -423,6 +438,12 @@
           </div>
           <p class="fs-2xs text-[var(--text-faint)] mt-3" x-text="t('admin_apps.empty_instances_hint') || 'Tip: on the Templates tab, click the link icon on any catalog row to pin it to a host.'"></p>
         </td>
+      </tr>
+      </tbody>
+      <tbody x-show="appsInstancesLoaded && appsInstances.length && appsInstancesSearch.trim() && appsInstancesMatchCount() === 0">
+      <tr>
+        <td colspan="8" class="py-6 text-center text-[var(--text-faint)] fs-sm"
+            x-text="t('admin_apps.instances_search_no_match', { q: appsInstancesSearch }) || ('No instances match “' + appsInstancesSearch + '”')"></td>
       </tr>
       </tbody>
     </table>

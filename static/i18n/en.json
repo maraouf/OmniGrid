@@ -4672,6 +4672,8 @@
     "bulk_deleted": "{n} app instances removed",
     "bulk_delete_partial": "{ok} removed, {failed} failed",
     "search_placeholder": "Search templates by name, slug, or port…",
+    "instances_search_placeholder": "Search instances by name, host, or port…",
+    "instances_search_no_match": "No instances match “{q}”",
     "search_count": "{shown} / {total}",
     "search_no_match": "No templates match “{q}”",
     "bulk_delete_templates_title": "Delete all selected templates",
