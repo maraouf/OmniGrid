@@ -644,6 +644,7 @@
             <input id="apps-pin-host-search" type="text" class="w-full"
                    autocomplete="off" role="combobox" aria-controls="apps-pin-host-list"
                    :aria-expanded="appsPinHostDropdownOpen ? 'true' : 'false'"
+                   :aria-activedescendant="appsPinHostActiveIdx >= 0 ? ('apps-pin-host-row-' + appsPinHostActiveIdx) : ''"
                    :placeholder="t('admin_apps.pin_hosts_search') || 'Type to filter, click to add hosts…'"
                    x-model="appsPinHostSearch"
                    @focus="appsPinHostDropdownOpen = true; appsPinHostActiveIdx = -1"
@@ -655,7 +656,7 @@
             <ul x-show="appsPinHostDropdownOpen" x-cloak id="apps-pin-host-list" role="listbox" aria-multiselectable="true"
                 class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
               <template x-for="(h, idx) in appsPinFilteredHosts()" :key="h.id">
-                <li role="option"
+                <li role="option" :id="'apps-pin-host-row-' + idx"
                     :aria-selected="appsPinHostChosen(h) ? 'true' : 'false'"
                     :class="idx === appsPinHostActiveIdx ? 'bg-[var(--row-hover)]' : ''"
                     class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)] flex items-center gap-2"
@@ -746,6 +747,7 @@
           <input id="apps-discover-host-search" type="text" class="w-full"
                  autocomplete="off" role="combobox" aria-controls="apps-discover-host-list"
                  :aria-expanded="appsDiscoverHostDropdownOpen ? 'true' : 'false'"
+                 :aria-activedescendant="appsDiscoverHostActiveIdx >= 0 ? ('apps-discover-host-row-' + appsDiscoverHostActiveIdx) : ''"
                  :placeholder="t('admin_apps.discover_host_search') || 'Type to filter hosts…'"
                  x-model="appsDiscoverHostSearch"
                  @focus="appsDiscoverHostDropdownOpen = true; appsDiscoverHostActiveIdx = -1"
@@ -757,7 +759,7 @@
           <ul x-show="appsDiscoverHostDropdownOpen" x-cloak id="apps-discover-host-list" role="listbox"
               class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded-md border border-[var(--border)] bg-[var(--surface-2)] shadow-lg">
             <template x-for="(h, idx) in appsDiscoverFilteredHosts()" :key="h.id">
-              <li role="option"
+              <li role="option" :id="'apps-discover-host-row-' + idx"
                   :aria-selected="appsDiscoverForm.host_id === h.id ? 'true' : 'false'"
                   :class="idx === appsDiscoverHostActiveIdx ? 'bg-[var(--row-hover)]' : ''"
                   class="px-3 py-1.5 fs-sm cursor-pointer hover:bg-[var(--row-hover)]"
@@ -1004,33 +1006,44 @@
             <input type="text" class="fs-xs w-full" autocomplete="off" role="combobox"
                    aria-controls="apps-docker-link-list"
                    :aria-expanded="appsDockerLinkDropdownOpen ? 'true' : 'false'"
+                   :aria-activedescendant="appsDockerLinkActiveDom()"
                    x-model="appsDockerLinkSearch"
-                   @focus="appsDockerLinkDropdownOpen = true"
-                   @input="appsDockerLinkDropdownOpen = true"
+                   @focus="appsDockerLinkDropdownOpen = true; appsDockerLinkActiveIdx = -1"
+                   @input="appsDockerLinkDropdownOpen = true; appsDockerLinkActiveIdx = -1"
+                   @keydown.arrow-down.prevent="appsDockerLinkMove(1)"
+                   @keydown.arrow-up.prevent="appsDockerLinkMove(-1)"
+                   @keydown.enter.prevent="appsDockerLinkEnter()"
                    @keydown.escape.prevent.stop="appsDockerLinkClose()"
                    :placeholder="t('admin_apps.instance_edit_docker_search') || 'Type to search containers / services…'"
                    :aria-label="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'">
             <ul x-show="appsDockerLinkDropdownOpen" x-cloak id="apps-docker-link-list" role="listbox"
                 class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg fs-xs">
-              <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] text-[var(--text-faint)] italic"
+              <li role="option" id="apps-docker-link-opt-none"
+                  class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] text-[var(--text-faint)] italic"
+                  :class="appsDockerLinkActiveDom() === 'apps-docker-link-opt-none' ? 'bg-[var(--row-hover)]' : ''"
+                  @mouseenter="appsDockerLinkActiveIdx = 0"
                   @click="appsDockerLinkPick('', '')"
                   x-text="t('admin_apps.instance_edit_docker_none') || '— Not linked —'"></li>
               <template x-if="appsDockerLinkFiltered().containers.length">
                 <li class="px-2 pt-1.5 pb-0.5 fs-3xs uppercase tracking-wider text-[var(--text-faint)]"
                     x-text="t('admin_apps.instance_edit_docker_containers') || 'Containers (on a host)'"></li>
               </template>
-              <template x-for="o in appsDockerLinkFiltered().containers" :key="o.id">
-                <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
-                    :class="appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)] font-semibold' : ''"
+              <template x-for="(o, idx) in appsDockerLinkFiltered().containers" :key="o.id">
+                <li role="option" :id="'apps-docker-link-opt-c' + idx"
+                    class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
+                    :class="(appsInstanceDockerLinkValue() === o.id ? 'font-semibold ' : '') + (appsDockerLinkActiveDom() === ('apps-docker-link-opt-c' + idx) || appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)]' : '')"
+                    @mouseenter="appsDockerLinkFocusDom('apps-docker-link-opt-c' + idx)"
                     @click="appsDockerLinkPick(o.id, o.label)" x-text="o.label"></li>
               </template>
               <template x-if="appsDockerLinkFiltered().services.length">
                 <li class="px-2 pt-1.5 pb-0.5 fs-3xs uppercase tracking-wider text-[var(--text-faint)]"
                     x-text="t('admin_apps.instance_edit_docker_services') || 'Services (span hosts)'"></li>
               </template>
-              <template x-for="o in appsDockerLinkFiltered().services" :key="o.id">
-                <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
-                    :class="appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)] font-semibold' : ''"
+              <template x-for="(o, idx) in appsDockerLinkFiltered().services" :key="o.id">
+                <li role="option" :id="'apps-docker-link-opt-s' + idx"
+                    class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
+                    :class="(appsInstanceDockerLinkValue() === o.id ? 'font-semibold ' : '') + (appsDockerLinkActiveDom() === ('apps-docker-link-opt-s' + idx) || appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)]' : '')"
+                    @mouseenter="appsDockerLinkFocusDom('apps-docker-link-opt-s' + idx)"
                     @click="appsDockerLinkPick(o.id, o.label)" x-text="o.label"></li>
               </template>
               <li x-show="!appsDockerLinkFiltered().containers.length && !appsDockerLinkFiltered().services.length"

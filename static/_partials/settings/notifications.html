@@ -116,7 +116,7 @@
                the channel can't be toggled until the admin
                re-enables it globally. -->
           <div class="notify-cat-chip-row" role="group"
-               :aria-label="t(cat.label_key) + ' bulk medium toggles'">
+               :aria-label="t('admin.notifications.bulk_medium_toggles_aria', { category: t(cat.label_key) })">
             <template x-for="m in notifyMediumNames()" :key="cat.id + '_chip_' + m">
               <button type="button"
                       class="notify-cat-chip"

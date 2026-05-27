@@ -22,7 +22,9 @@
       "service_unavailable": "Service temporarily unavailable. Try again in a moment.",
       "http_status": "Request failed (HTTP {status})."
     },
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "unit_seconds_short": "s",
+    "unit_minutes_short": "m"
   },
   "item": {
     "drawer_title": "Item details"
@@ -1578,6 +1580,7 @@
       "medium_app": "In-app notifications page",
       "medium_apprise": "Apprise (external)",
       "medium_telegram": "Telegram (external)",
+      "bulk_medium_toggles_aria": "{category} bulk medium toggles",
       "events": {
         "title": "Per-event notifications",
         "subtitle": "Enable / disable specific notification events. Test notifications always send regardless of these toggles.",
@@ -3483,6 +3486,7 @@
       "ping": "Ping",
       "ping_rtt": "RTT",
       "ping_down": "Unreachable",
+      "ping_loss": "{pct}% loss",
       "ping_loss_title": "Packet loss across the polled window",
       "source_ping": "ICMP round-trip latency in milliseconds. Source: OmniGrid's built-in ping sampler (host_ping_samples), opt-in per host via Admin → Hosts → ping_enabled. Hosts without the toggle hide this chart entirely.",
       "source_snmp_cpu": "CPU usage from the SNMP probe (hrProcessorLoad table average). Source: SNMP only. Surfaces on hosts where the SNMP agent exposes the host-resources MIB; missing on devices that ship a stripped MIB profile.",
@@ -4784,6 +4788,18 @@
     "group_by_label": "Group apps by",
     "group_by_app": "By app",
     "group_by_host": "By host",
+    "group_by_custom": "Custom",
+    "custom": {
+      "hint": "Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.",
+      "add_section": "Add section",
+      "new_section_name": "New section",
+      "section_name_placeholder": "Section name",
+      "section_name_aria": "Section name",
+      "delete_section": "Delete section",
+      "section_empty": "Drop apps here",
+      "unsectioned": "Unsectioned",
+      "all_sorted": "All apps are sorted into sections."
+    },
     "status_up": "up",
     "status_down": "down",
     "status_degraded": "degraded",

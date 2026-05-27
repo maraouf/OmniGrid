@@ -237,6 +237,7 @@ function app() {
     appLogModal: {open: false, loading: false, error: '', text: '', title: '', raw_id: '', node: '', tail: 200},
     appsInstances: [],
     appsInstancesLoaded: false,
+    appsInstancesStatus: '',
     // Bulk-delete selection for the Admin → Apps → Instances table —
     // keyed by `host_id:service_idx`. Plain object (not a Set) so Alpine
     // tracks per-key reactivity for the row checkboxes + bulk bar.
@@ -256,6 +257,7 @@ function app() {
     // dropdown-open flag.
     appsDockerLinkSearch: '',
     appsDockerLinkDropdownOpen: false,
+    appsDockerLinkActiveIdx: -1,
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},

@@ -271,6 +271,16 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "OPNsense", "slug": "opnsense", "icon": "opnsense",
+        "description": "OPNsense firewall / router web UI",
+        "default_ports": [
+            {"port": 80, "protocol": "http", "label": "Web UI (HTTP)",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+            {"port": 443, "protocol": "https", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+        ],
+    },
+    {
         "name": "PostgreSQL", "slug": "postgresql", "icon": "postgresql",
         "description": "PostgreSQL relational database server",
         "default_ports": [
