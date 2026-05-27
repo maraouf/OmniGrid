@@ -621,15 +621,23 @@ async def probe_http_health(
                     # server is listening, just refusing the TLS negotiation by
                     # name), so treat it as a soft pass. Only when the TCP
                     # connect ALSO fails do we surface the hard SNI diagnosis.
-                    print(f"[http_probe] no-SNI retry FAILED for {url_clean} "
-                          f"(via {_ip}): {type(_retry_err).__name__}: {str(_retry_err)[:100]}")
                     if await _tcp_reachable(hostname, port, timeout):
                         tls_refused_reachable = True
                         http_error = None
                         latency_ms = int((time.monotonic() - t0) * 1000)
-                        print(f"[http_probe] verify-off TCP fallback OK for {url_clean} "
+                        # NEUTRAL wording on purpose — this is an EXPECTED
+                        # fallback recovery (the host is reachable, just
+                        # SNI-strict), NOT a failure, so it must not contain
+                        # "fail"/"error" or the persistent-log severity
+                        # classifier paints it red ERROR on every sampler tick.
+                        print(f"[http_probe] no-SNI retry refused for {url_clean} "
+                              f"(via {_ip}); verify-off TCP fallback OK "
                               f"(port {port} reachable; TLS handshake refused by name)")
                     else:
+                        # Genuine failure: SNI refused, no-SNI refused, AND the
+                        # port is not TCP-reachable. THIS one is a real ERROR.
+                        print(f"[http_probe] no-SNI retry FAILED for {url_clean} "
+                              f"(via {_ip}): {type(_retry_err).__name__}: {str(_retry_err)[:100]}")
                         http_error = ("https TLS: server rejected the SNI AND a no-SNI "
                                       "retry, and the port is not TCP-reachable — the "
                                       "server refuses any handshake whose SNI isn't a "
