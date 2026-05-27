@@ -3032,7 +3032,10 @@ def _shape_host_apps(h: dict) -> list[dict]:
             # removed/template ports are dropped. Shared with the top-level
             # Apps view via logic.service_catalog.merge_port_results.
             from logic.service_catalog import merge_port_results as _merge_port_results
-            port_results = _merge_port_results(probe_block.get("ports"), raw_port_results)
+            port_results = _merge_port_results(
+                probe_block.get("ports"), raw_port_results,
+                (catalog_block or {}).get("default_ports"),
+            )
         out.append({
             "service_idx": idx,
             "name": (chip.get("name") or "").strip(),

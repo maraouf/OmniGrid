@@ -62,7 +62,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Syncthing", "slug": "syncthing", "icon": "syncthing",
         "description": "Continuous peer-to-peer file synchronisation",
         "default_ports": [
-            {"port": 8384, "protocol": "tcp", "label": "Web UI",
+            {"port": 8384, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -98,7 +98,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Rundeck", "slug": "rundeck", "icon": "rundeck",
         "description": "Runbook automation / job scheduler",
         "default_ports": [
-            {"port": 4440, "protocol": "tcp", "label": "Web UI",
+            {"port": 4440, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -126,7 +126,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Uptime Kuma", "slug": "uptime-kuma", "icon": "uptime-kuma",
         "description": "Self-hosted uptime monitoring",
         "default_ports": [
-            {"port": 3001, "protocol": "tcp", "label": "Web UI",
+            {"port": 3001, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -134,7 +134,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Tracearr", "slug": "tracearr", "icon": "tracearr",
         "description": "Media-request tracing dashboard",
         "default_ports": [
-            {"port": 3003, "protocol": "tcp", "label": "Web UI",
+            {"port": 3003, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -160,9 +160,9 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Speedtest Tracker", "slug": "speedtest-tracker", "icon": "speedtest-tracker",
         "description": "Scheduled internet-speed tracking dashboard",
         "default_ports": [
-            {"port": 5050, "protocol": "tcp", "label": "Web UI",
+            {"port": 5050, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
-            {"port": 5051, "protocol": "tcp", "label": "Web UI (alt)",
+            {"port": 5051, "protocol": "https", "label": "Web UI (alt)",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -170,7 +170,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Seerr", "slug": "seerr", "icon": "seerr",
         "description": "Media-request management",
         "default_ports": [
-            {"port": 5055, "protocol": "tcp", "label": "Web UI",
+            {"port": 5055, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -194,7 +194,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Pulse", "slug": "pulse-server", "icon": "pulse",
         "description": "Proxmox Pulse monitoring server (distinct from the agent)",
         "default_ports": [
-            {"port": 7655, "protocol": "tcp", "label": "Web UI",
+            {"port": 7655, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -301,7 +301,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "RustDesk", "slug": "rustdesk", "icon": "rustdesk",
         "description": "Self-hosted RustDesk remote-desktop server (hbbs/hbbr)",
         "default_ports": [
-            {"port": 21114, "protocol": "tcp", "label": "hbbs Web",
+            {"port": 21114, "protocol": "http", "label": "hbbs Web",
              "probe_path": "", "probe_status": 0},
             {"port": 21115, "protocol": "tcp", "label": "hbbs NAT",
              "probe_path": "", "probe_status": 0},
@@ -335,7 +335,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Tautulli", "slug": "tautulli", "icon": "tautulli",
         "description": "Plex monitoring + statistics",
         "default_ports": [
-            {"port": 8181, "protocol": "tcp", "label": "Web UI",
+            {"port": 8181, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -393,7 +393,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Radarr", "slug": "radarr", "icon": "radarr",
         "description": "Movie collection manager (*arr stack)",
         "default_ports": [
-            {"port": 7878, "protocol": "tcp", "label": "Web UI",
+            {"port": 7878, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -401,7 +401,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Sonarr", "slug": "sonarr", "icon": "sonarr",
         "description": "TV series collection manager (*arr stack)",
         "default_ports": [
-            {"port": 8989, "protocol": "tcp", "label": "Web UI",
+            {"port": 8989, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -417,7 +417,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "qBittorrent", "slug": "qbittorrent", "icon": "qbittorrent",
         "description": "BitTorrent client with Web UI",
         "default_ports": [
-            {"port": 8080, "protocol": "tcp", "label": "Web UI",
+            {"port": 8080, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -516,7 +516,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Webmin", "slug": "webmin", "icon": "webmin",
         "description": "Unix system administration UI",
         "default_ports": [
-            {"port": 10000, "protocol": "tcp", "label": "HTTPS",
+            {"port": 10000, "protocol": "http", "label": "HTTPS",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -620,7 +620,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Readarr", "slug": "readarr", "icon": "readarr",
         "description": "Book / audiobook collection manager (*arr stack)",
         "default_ports": [
-            {"port": 7888, "protocol": "tcp", "label": "Web UI",
+            {"port": 7888, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -674,7 +674,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Whisparr", "slug": "whisparr", "icon": "whisparr",
         "description": "Adult media collection manager (*arr stack)",
         "default_ports": [
-            {"port": 6969, "protocol": "tcp", "label": "Web UI",
+            {"port": 6969, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -684,7 +684,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "default_ports": [
             {"port": 8265, "protocol": "tcp", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
-            {"port": 8266, "protocol": "tcp", "label": "Server",
+            {"port": 8266, "protocol": "http", "label": "Server",
              "probe_path": "", "probe_status": 0},
         ],
     },
@@ -1182,7 +1182,37 @@ def _instance_status(svc: dict) -> str:
     return "down"
 
 
-def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
+def _ports_with_template_open_url(probe_ports: Any, template_ports: Any) -> list:
+    """Return a display copy of ``probe_ports`` where each port's
+    ``open_url`` is OR'd with the catalog template's open_url for that
+    same port. Checking "Open as URL" on the template applies to every
+    linked instance automatically; the chip's own per-port flag still
+    wins (OR, never overwrite). Non-dict entries pass through untouched.
+    Does not mutate the input. Used for the raw ``ports`` display lists
+    that don't go through ``merge_port_results`` (it carries the same
+    inheritance internally)."""
+    tpl_open: set[int] = set()
+    for tp in (template_ports or []):
+        if isinstance(tp, dict) and bool(tp.get("open_url")):
+            tpv = _coerce_int(tp.get("port"))
+            if tpv:
+                tpl_open.add(tpv)
+    if not tpl_open:
+        return list(probe_ports or [])
+    out: list = []
+    for cp in (probe_ports or []):
+        if isinstance(cp, dict):
+            d = dict(cp)
+            pv = _coerce_int(cp.get("port"))
+            d["open_url"] = bool(cp.get("open_url")) or (pv in tpl_open)
+            out.append(d)
+        else:
+            out.append(cp)
+    return out
+
+
+def merge_port_results(probe_ports: Any, sample_rows: Any,
+                       template_ports: Any = None) -> list[dict]:
     """Per-port display list = the chip's CONFIGURED ports merged with
     probe-sample HISTORY.
 
@@ -1202,6 +1232,26 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
             pv = _coerce_int(pr.get("port"))
             if pv:
                 by_port[pv] = pr
+    # Ports the CATALOG TEMPLATE marks open_url — inherited onto the chip's
+    # ports so checking "Open as URL" on the template applies to every
+    # linked instance automatically (existing + new), even when the chip's
+    # own per-port flag isn't set. Chip-port open_url still wins (OR).
+    # tpl_path mirrors this for the HTTP path (e.g. /admin/): when the chip's
+    # own port has no probe_path, fall back to the template's so an inherited
+    # open_url link still lands on the app's real entry point, not the root.
+    tpl_open: set[int] = set()
+    tpl_path: dict[int, str] = {}
+    for tp in (template_ports or []):
+        if not isinstance(tp, dict):
+            continue
+        tpv = _coerce_int(tp.get("port"))
+        if not tpv:
+            continue
+        if bool(tp.get("open_url")):
+            tpl_open.add(tpv)
+        tp_path = (tp.get("probe_path") or "")
+        if tp_path:
+            tpl_path[tpv] = tp_path
     out: list[dict] = []
     seen: set[int] = set()
     for cp in (probe_ports or []):
@@ -1217,14 +1267,21 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
         # The probe-sample row only has alive/rtt/error/ts, so protocol /
         # open_url / label come from the chip's configured port `cp`.
         cfg_proto = (cp.get("protocol") or "tcp")
-        cfg_open_url = bool(cp.get("open_url"))
+        cfg_open_url = bool(cp.get("open_url")) or (pv in tpl_open)
         cfg_label = cp.get("label") or ""
+        # The per-port HTTP path (e.g. Pi-hole's /admin/) — carried onto
+        # the display port so an open_url pill links to the app's real
+        # entry point (<scheme>://host:port<path>), not the bare root. Chip
+        # path wins; else inherit the template's so an instance pinned
+        # before the template gained a path still links correctly.
+        cfg_path = (cp.get("probe_path") or "") or tpl_path.get(pv, "")
         sample = by_port.get(pv)
         if sample is not None:
             entry: dict[str, Any] = dict(sample)
             entry["port"] = pv
             entry["protocol"] = entry.get("protocol") or cfg_proto
             entry["open_url"] = cfg_open_url
+            entry["probe_path"] = entry.get("probe_path") or cfg_path
             if cfg_label and not entry.get("label"):
                 entry["label"] = cfg_label
             out.append(entry)
@@ -1233,6 +1290,7 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
                 "port": pv,
                 "protocol": cfg_proto,
                 "open_url": cfg_open_url,
+                "probe_path": cfg_path,
                 "label": cfg_label,
                 "alive": None,
                 "rtt_ms": None,
@@ -1338,7 +1396,10 @@ def list_apps() -> list[dict[str, Any]]:
             # probe-sample HISTORY: every configured port shows (a just-
             # added one as PENDING until the sampler probes it), and a
             # sample for a port no longer in config is dropped (stale).
-            port_results = merge_port_results(probe_cfg.get("ports"), per_port.get(idx))
+            port_results = merge_port_results(
+                probe_cfg.get("ports"), per_port.get(idx),
+                (grp.get("catalog") or {}).get("default_ports"),
+            )
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,
@@ -1348,7 +1409,8 @@ def list_apps() -> list[dict[str, Any]]:
                 "status": inst_status,
                 "last_probe": sample,
                 "probe_enabled": bool(probe_cfg.get("enabled")),
-                "ports": probe_cfg.get("ports") or [],
+                "ports": _ports_with_template_open_url(
+                    probe_cfg.get("ports"), (grp.get("catalog") or {}).get("default_ports")),
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1442,7 +1504,8 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "name": name,
                 "icon": icon or tpl_slug,
                 "url": (svc.get("url") or "").strip(),
-                "ports": probe_cfg.get("ports") or [],
+                "ports": _ports_with_template_open_url(
+                    probe_cfg.get("ports"), (tpl or {}).get("default_ports")),
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "probe_type": (probe_cfg.get("type") or "tcp").strip().lower(),
                 "docker_stack": (svc.get("docker_stack") or "").strip(),

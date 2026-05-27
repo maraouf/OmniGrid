@@ -5589,7 +5589,11 @@
                       <img :src="iconUrlFor(app.icon || (app.catalog && (app.catalog.icon || app.catalog.slug)) || app.name)"
                            alt="" width="16" height="16" class="rounded flex-shrink-0"
                            @error="$event.target.style.visibility='hidden'">
-                      <span class="apps-drawer-tile-name"
+                      <a x-show="app.url" class="apps-drawer-tile-name apps-drawer-tile-name--link"
+                         :href="app.url" target="_blank" rel="noopener" @click.stop
+                         :title="(app.name || (app.catalog && app.catalog.name) || '') + ' — ' + (t('host_drawer.apps.open') || 'Open')"
+                         x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></a>
+                      <span x-show="!app.url" class="apps-drawer-tile-name"
                             x-text="app.name || (app.catalog && app.catalog.name) || (t('host_drawer.apps.unnamed') || 'unnamed')"></span>
                       <span class="apps-drawer-tile-ports">
                         <template x-for="pr in (app.port_results || [])" :key="pr.port">
