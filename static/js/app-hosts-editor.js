@@ -1601,10 +1601,28 @@ export default {
     this.httpProbeRowTestBusy[h.id] = true;
     this.httpProbeRowTestResult[h.id] = {pending: true, results: [], error: null};
     try {
+      // Send the row's CURRENTLY-EDITED (possibly unsaved) http_probe
+      // values so the Test reflects what's on screen — a just-typed
+      // accepted-codes CSV or an unchecked verify-TLS — instead of the
+      // last-saved config. The backend overrides the saved config with
+      // any field present here.
+      const hp = h.http_probe || {};
+      const formUrls = (typeof hp.urls_text === 'string')
+        ? hp.urls_text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+        : (Array.isArray(hp.urls) ? hp.urls : []);
+      const codesText = (typeof hp.accepted_status_codes_text === 'string')
+        ? hp.accepted_status_codes_text.trim()
+        : (Array.isArray(hp.accepted_status_codes) ? hp.accepted_status_codes.join(',') : '');
+      const testBody = {
+        urls: formUrls,
+        accepted_status_codes: codesText,
+        content_match: (hp.content_match || ''),
+        verify_tls: hp.verify_tls !== false,
+      };
       const resp = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/test', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: '{}',
+        body: JSON.stringify(testBody),
       });
       const j = await resp.json().catch(() => ({}));
       this.httpProbeRowTestResult[h.id] = {

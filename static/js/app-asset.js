@@ -34,10 +34,10 @@ export default {
   assetTestResult: null,
   assetCache: null,
   assetRefreshing: false,
-  // Host-drawer asset-card refresh button in-flight flag (drives its
-  // :disabled + spinner). Declared up-front so Alpine tracks it reactively
-  // from init rather than on first lazy assignment.
-  _drawerAssetRefreshing: false,
+  // Host-drawer FULL-refresh button in-flight flag (drives its :disabled +
+  // spinner). Declared up-front so Alpine tracks it reactively from init
+  // rather than on first lazy assignment.
+  _hostFullRefreshing: false,
   assetSaving: false,
   // Test-before-Save gate for Asset Inventory — same pattern as
   // Portainer / OIDC. When asset_inventory_enabled is ON, Save is
@@ -689,38 +689,50 @@ export default {
     }
   },
 
-  // Host-drawer asset card refresh button. Reloads this host's asset
-  // details from the SERVER cache (loadAssetCache — NO upstream hit, fast)
-  // AND re-fetches the host row so the backend-injected `h.asset` is
-  // re-stamped. Both paths matter: assetForHost(h) builds from the live
-  // `assetCache` when the host's custom_number matches a cached asset, but
-  // FALLS BACK to the frozen `h.asset` when it doesn't — so an admin asset
-  // refresh could leave an open drawer's ports stale on the fallback path.
-  // Refreshing both guarantees the ports update regardless of which path
-  // assetForHost takes.
-  async refreshDrawerAsset(h) {
-    if (!h || this._drawerAssetRefreshing) {
+  // Host-drawer FULL refresh button (drawer header, before Edit). One
+  // click re-pulls every surface the drawer shows for THIS host:
+  //   - assets        → loadAssetCache() (server cache, no upstream hit;
+  //                      also re-stamps the backend-injected h.asset via
+  //                      the host-row re-fetch below)
+  //   - providers / hardware / interfaces / detected ports / http probes /
+  //     apps → refreshHostRow(id, {force}) (per-host re-probe; reads the
+  //     LAST port scan — does NOT trigger a new scan)
+  //   - graphs        → loadHostHistory() + loadHostSnmpHistory()
+  // Manual / user-initiated, so it forces past the 10s provider-state
+  // cache + the 504 back-off. Each step is best-effort — one failing
+  // surface doesn't abort the rest.
+  async fullRefreshHost(h) {
+    if (!h || !h.id || this._hostFullRefreshing) {
       return;
     }
-    this._drawerAssetRefreshing = true;
+    this._hostFullRefreshing = true;
     try {
-      await this.loadAssetCache();
+      if (typeof this.loadAssetCache === 'function') {
+        try { await this.loadAssetCache(); } catch (_e) { /* non-fatal */ }
+      }
       if (typeof this.refreshHostRow === 'function') {
-        await this.refreshHostRow(h.id, {force: true}).catch(() => undefined);
+        try { await this.refreshHostRow(h.id, {force: true}); } catch (_e) { /* non-fatal */ }
+      }
+      if (typeof this.loadHostHistory === 'function') {
+        try { await this.loadHostHistory(h.beszel_id || '', h.id); } catch (_e) { /* non-fatal */ }
+      }
+      if (this._snmpHasProbeTarget && this._snmpHasProbeTarget(h)
+          && typeof this.loadHostSnmpHistory === 'function') {
+        try { await this.loadHostSnmpHistory(h.id, 1); } catch (_e) { /* non-fatal */ }
       }
       if (typeof this.showToast === 'function') {
-        this.showToast(this.t('host_drawer.asset.refresh_ok') || 'Asset details refreshed', 'success');
+        this.showToast(this.t('host_drawer.actions.full_refresh_ok') || 'Host data refreshed', 'success');
       }
     } catch (e) {
       if (typeof this.showToast === 'function') {
         this.showToast(
-          (this.t('host_drawer.asset.refresh_failed') || 'Asset refresh failed')
+          (this.t('host_drawer.actions.full_refresh_failed') || 'Refresh failed')
             + ': ' + ((e && e.message) ? e.message : e),
           'error'
         );
       }
     } finally {
-      this._drawerAssetRefreshing = false;
+      this._hostFullRefreshing = false;
     }
   },
 };

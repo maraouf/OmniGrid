@@ -3539,7 +3539,11 @@
     },
     "actions": {
       "edit_in_admin": "Edit",
-      "edit_in_admin_title": "Open this host's row in Admin → Hosts"
+      "edit_in_admin_title": "Open this host's row in Admin → Hosts",
+      "full_refresh": "Refresh",
+      "full_refresh_title": "Refresh all host data — assets, providers, hardware, interfaces, ports (no new scan), HTTP probes, apps, and graphs",
+      "full_refresh_ok": "Host data refreshed",
+      "full_refresh_failed": "Refresh failed"
     },
     "timeline": {
       "heading": "Timeline",

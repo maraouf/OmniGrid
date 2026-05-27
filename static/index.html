@@ -4050,6 +4050,22 @@
                       x-text="healthScore(h)"></button>
             </div>
             <div class="flex items-center gap-1">
+              <!-- Full refresh — re-pull every surface this drawer shows for
+                   the host in one click: assets, providers / hardware /
+                   interfaces, last-known ports (NO new scan), http probes,
+                   apps, and the time-series graphs. Bypasses the provider
+                   cache (force). Spins while its own batch runs. -->
+              <button type="button"
+                      :disabled="_hostFullRefreshing"
+                      @click.stop="fullRefreshHost(h)"
+                      class="btn btn-ghost fs-xs flex items-center gap-1.5"
+                      :title="t('host_drawer.actions.full_refresh_title') || 'Refresh all host data'"
+                      :aria-label="t('host_drawer.actions.full_refresh') || 'Refresh'">
+                <svg width="13" height="13" :class="_hostFullRefreshing ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('host_drawer.actions.full_refresh') || 'Refresh'"></span>
+              </button>
               <!-- quick "Edit in Admin" jump from the host
                        drawer header. Same close-drawer + view-switch +
                        focusHostsConfigRow chain the System card's
@@ -4553,22 +4569,9 @@
                        class="fs-xs text-[var(--primary)] hover:underline"
                        :title="t('host_drawer.asset.edit_title')"
                        x-text="t('host_drawer.asset.edit_link')"></a>
-                    <!-- Reload this host's asset details from the server's
-                         asset cache (no upstream hit) AND re-stamp the
-                         backend-injected h.asset, so an admin asset refresh
-                         reflects in the open drawer without arrow-nav. Admin-
-                         only — the asset-inventory endpoints are admin-gated. -->
-                    <button type="button" x-show="isAdmin()"
-                            class="btn btn-soft fs-2xs inline-flex items-center gap-1"
-                            :disabled="_drawerAssetRefreshing"
-                            @click.stop="refreshDrawerAsset(h)"
-                            :title="t('host_drawer.asset.refresh_title') || 'Reload asset details from cache'"
-                            :aria-label="t('host_drawer.asset.refresh_aria') || 'Refresh asset details'">
-                      <svg width="11" height="11" :class="_drawerAssetRefreshing ? 'spin-md' : ''" aria-hidden="true">
-                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                      </svg>
-                      <span x-text="t('host_drawer.asset.refresh_button') || 'Refresh'"></span>
-                    </button>
+                    <!-- Per-card refresh removed — the drawer header's full
+                         refresh button now reloads assets along with every
+                         other host surface in one action. -->
                   </div>
                 </div>
                 <dl class="drawer-dl fs-sm">
