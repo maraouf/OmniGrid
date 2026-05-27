@@ -55,7 +55,7 @@ export const KNOWN_ICONS = new Set([
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
   'influxdb', 'jellyfin', 'jellyseerr', 'seerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',
   'komodo', 'kubernetes', 'lenovo', 'lidarr', 'linuxmint', 'lubelogger', 'mail',
-  'mailcow', 'manageengine', 'mariadb', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola',
+  'mailcow', 'manageengine', 'mariadb', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola', 'mysql',
   'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nextcloud', 'nginx', 'nixplay',
   'nginx-proxy-manager', 'nintendo-switch', 'node-exporter', 'nzbget', 'oculus', 'omnigrid', 'openvpn', 'opnsense',
   'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',

@@ -110,17 +110,24 @@ export default {
       if (!mapped) {
         return;
       }
-      if (!active.includes(name)) {
-        // Provider is mapped on this row but not in the
-        // `host_stats_source` CSV — the master toggle in Admin →
-        // Providers is off, so the sampler isn't probing. Surface
-        // a muted chip per-row so the operator notices the gap
-        // (paired with the toolbar filter chip's warning surface
-        // for the same condition). Without this branch the row
-        // chip stayed hidden and a freshly-configured provider
-        // (URLs typed into the editor + per-host enabled but
-        // master toggle never flipped) looked like the chip was
-        // broken.
+      // The probe-result providers (http_probe / service_probe) aren't in
+      // the `host_stats_source` CSV — they have their OWN master toggles
+      // (http_probe_enabled / service_probe_enabled). `active` only carries
+      // the CSV providers, so without this the probe-providers always read
+      // as configured_inactive (muted). Treat them as active when their
+      // master is on (hasHostStatsSource special-cases them), so a host
+      // with apps shows a real Service-probe chip + stats like SNMP.
+      const isActive = active.includes(name)
+        || ((name === 'http_probe' || name === 'service_probe') && this.hasHostStatsSource(name));
+      if (!isActive) {
+        // Provider is mapped on this row but not active — the master
+        // toggle in Admin → Providers is off, so the sampler isn't
+        // probing. Surface a muted chip per-row so the gap is visible
+        // (paired with the toolbar filter chip's warning surface for the
+        // same condition). Without this branch the row chip stayed hidden
+        // and a freshly-configured provider (URLs typed into the editor +
+        // per-host enabled but master toggle never flipped) looked like
+        // the chip was broken.
         out.push({
           name,
           state: 'configured_inactive',
