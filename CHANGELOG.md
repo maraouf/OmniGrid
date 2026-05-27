@@ -41,6 +41,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Added Dockge (Docker stack manager) to the built-in Apps catalog templates with a bundled brand icon.
 - Added Splunk (8080), Beszel Hub (8090, distinct from the Beszel agent), and RustDesk (relay ports 21114–21119) to the built-in Apps catalog templates, with a bundled Splunk brand icon and the RustDesk ports added to the default port-scan list.
 - The Apps "Pin to host" picker is now a searchable, type-to-filter dropdown (matching the discovery wizard) instead of a long plain list of every host.
+- Added Proxmox VE (8006 HTTPS Web UI + 8443), MySQL (3306), and UniFi OS Server (8080/8443/11443) to the built-in Apps catalog templates. Proxmox's 8006 and the Windows Update Delivery Optimization port (7680) were added to the default port-scan list so an open port is matched to its app in the discovery wizard.
 
 ### Changed
 
@@ -52,6 +53,8 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Fixed
 
+- Schedules that got stuck "in flight" — a fire was recorded but never completed because the op hung or the container was restarted mid-run — now self-heal and re-fire automatically on the next tick instead of staying skipped until the next restart. A new tunable (default 1 hour) sets how long a run may stall before it is treated as wedged.
+- The Service-probe provider chip now appears on hosts that have app probes enabled (it was silently never rendered on the Hosts page), and both the HTTP-probe and Service-probe providers now show their "Updated X ago" and sample-count stats reliably — previously the HTTP-probe periodic sampler could stay dormant, and a failed probe could wrongly clear the last-success timestamp, freezing the chip on a stale time.
 - Saving, editing, deleting, and re-seeding Apps service-catalog templates no longer fail with an internal error. The discovery bulk-apply and provider-resume cross-tab live refreshes now propagate over the event stream as intended.
 - Apps pinned from a catalog template (no explicit URL) are now actually probed against the host's configured Address instead of being silently skipped — this was why catalog-pinned apps showed "degraded" while only URL-based ones reported. The manual "Probe now" action works on them too.
 - The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.

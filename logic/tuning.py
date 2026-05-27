@@ -133,6 +133,7 @@ class Tunable(str, Enum):
     PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK = "tuning_port_scan_schedule_max_hosts_per_tick"
     PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS = "tuning_port_scan_schedule_min_age_seconds"
     PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY = "tuning_port_scan_schedule_per_host_concurrency"
+    SCHEDULE_STUCK_RUN_THRESHOLD_SECONDS = "tuning_schedule_stuck_run_threshold_seconds"
     PORT_SCAN_UDP_DEFAULT_CONCURRENCY = "tuning_port_scan_udp_default_concurrency"
     PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS = "tuning_port_scan_udp_default_timeout_seconds"
     PORTAINER_OP_TIMEOUT_LONG_SECONDS = "tuning_portainer_op_timeout_long_seconds"
@@ -529,6 +530,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_port_scan_schedule_max_hosts_per_tick": ("PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK", 5, 1, 50),
     "tuning_port_scan_schedule_min_age_seconds": ("PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS", 1800, 60, 86400),
     "tuning_port_scan_schedule_per_host_concurrency": ("PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY", 1, 1, 4),
+    "tuning_schedule_stuck_run_threshold_seconds": ("SCHEDULE_STUCK_RUN_THRESHOLD_SECONDS", 3600, 600, 86400),
     # SSE heartbeat cadence (seconds). The /api/events stream
     # emits a `: keepalive\n\n` comment every N seconds so an idle NPM
     # / cloudflare proxy doesn't drop the connection on its own

@@ -1892,6 +1892,10 @@
           "label": "Scheduled refresh — per-host concurrency",
           "help": "How many hosts the scheduled runner scans IN PARALLEL within one fire. Default 1 — strictly sequential to keep load low (one host at a time). Raise to 2-4 on quiet networks where the operator wants the tick to complete faster; the per-host scan itself still uses `Probe concurrency` above for its internal port-probe parallelism. Range 1..4."
         },
+        "tuning_schedule_stuck_run_threshold_seconds": {
+          "label": "Schedule wedged-run self-heal threshold (seconds)",
+          "help": "How long a schedule may sit marked 'running' — its previous fire recorded but never completed because the waiter died, the op hung, or the container was killed mid-run — before the next tick treats it as a wedged ghost and re-fires it. Without this, such a schedule is skipped on every tick until the next restart re-runs the startup ghost-sweep, which could be days. Default 3600 (1 hour). Lower it for snappier recovery when your schedules all finish quickly; raise it if you run a legitimately long schedule (a large backup / full-fleet prune) that can exceed the threshold, otherwise the tick could re-fire it while it is still running. Time-based so it works for every kind, including synthetic-op kinds (gather_refresh) that never appear in the live ops list. Range 600..86400. Takes effect on the next tick."
+        },
         "tuning_sse_heartbeat_seconds": {
           "label": "SSE heartbeat cadence (seconds)",
           "help": "How often the /api/events stream emits a `: keepalive` comment so an idle reverse proxy (NPM / Cloudflare / Traefik) doesn't drop the connection on its own idle-keepalive timer. Lower this if your proxy has a tight idle timeout (some defaults are 30s); raise it to cut comment-traffic on long-lived tabs. Default 25 seconds. Takes effect on the NEXT SSE reconnect — already-open connections keep their old cadence until they cycle (every 6h via the lifetime cap, OR after a network drop)."
