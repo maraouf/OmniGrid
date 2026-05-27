@@ -3422,7 +3422,7 @@
                          @click.stop
                          :title="appsPortTitle(pr)">
                         <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                        <span x-text="pr.port" class="mono"></span>
+                        <span x-text="pr.port + '/' + (pr.protocol || 'tcp')" class="mono"></span>
                       </a>
                     </template>
                   </div>
@@ -5605,7 +5605,7 @@
                              @click.stop
                              :title="appsPortTitle(pr)">
                             <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                            <span class="mono" x-text="pr.port"></span>
+                            <span class="mono" x-text="pr.port + '/' + (pr.protocol || 'tcp')"></span>
                           </a>
                         </template>
                         <!-- No configured ports (e.g. a url-only chip) — fall back
@@ -9521,7 +9521,7 @@
                            @click.stop
                            :title="appsPortTitle(pr)">
                           <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                          <span x-text="pr.port" class="mono"></span>
+                          <span x-text="pr.port + '/' + (pr.protocol || 'tcp')" class="mono"></span>
                         </a>
                       </template>
                     </div>
@@ -9743,7 +9743,7 @@
                            @click.stop
                            :title="appsPortTitle(pr)">
                           <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                          <span x-text="pr.port" class="mono"></span>
+                          <span x-text="pr.port + '/' + (pr.protocol || 'tcp')" class="mono"></span>
                         </a>
                       </template>
                     </div>

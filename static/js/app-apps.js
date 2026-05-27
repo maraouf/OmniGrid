@@ -1085,6 +1085,107 @@ export default {
   },
 
   // ----------------------------------------------------------------
+  // Templates bulk-delete — multi-select rows in the Admin → Apps →
+  // Templates table, delete every selected catalog template in one
+  // action. Keyed by catalog id; reassigning appsCatalogSelected (not
+  // mutating in place) keeps Alpine's row checkboxes + bulk bar reactive.
+  // Template delete is by id (no index-shift), so order doesn't matter.
+  // ----------------------------------------------------------------
+  catalogSelKey(entry) {
+    return entry && entry.id != null ? String(entry.id) : '';
+  },
+  isCatalogSelected(entry) {
+    return !!this.appsCatalogSelected[this.catalogSelKey(entry)];
+  },
+  toggleCatalogSelected(entry) {
+    const k = this.catalogSelKey(entry);
+    if (!k) {
+      return;
+    }
+    const next = Object.assign({}, this.appsCatalogSelected);
+    if (next[k]) {
+      delete next[k];
+    } else {
+      next[k] = true;
+    }
+    this.appsCatalogSelected = next;
+  },
+  appsCatalogSelectedCount() {
+    const s = this.appsCatalogSelected || {};
+    return Object.keys(s).filter((k) => s[k]).length;
+  },
+  appsCatalogAllSelected() {
+    const list = this.appsCatalog || [];
+    if (!list.length) {
+      return false;
+    }
+    return list.every((e) => !!this.appsCatalogSelected[this.catalogSelKey(e)]);
+  },
+  toggleSelectAllCatalog() {
+    if (this.appsCatalogAllSelected()) {
+      this.appsCatalogSelected = {};
+      return;
+    }
+    const next = {};
+    for (const e of (this.appsCatalog || [])) {
+      next[this.catalogSelKey(e)] = true;
+    }
+    this.appsCatalogSelected = next;
+  },
+  clearCatalogSelection() {
+    this.appsCatalogSelected = {};
+  },
+  async bulkDeleteCatalog() {
+    const sel = (this.appsCatalog || []).filter(
+      (e) => e && this.appsCatalogSelected[this.catalogSelKey(e)]);
+    const n = sel.length;
+    if (!n) {
+      return;
+    }
+    const confirmed = typeof this.confirmDialog === 'function'
+      ? await this.confirmDialog({
+        title: this.t('admin_apps.bulk_delete_templates_confirm_title', {n})
+          || ('Delete ' + n + ' template' + (n === 1 ? '' : 's') + '?'),
+        text: this.t('admin_apps.bulk_delete_templates_confirm_text')
+          || 'Per-host chips linked to these templates keep their own name + icon, just lose the catalog binding.',
+        icon: 'warning',
+        confirmButtonText: this.t('actions.delete') || 'Delete',
+      })
+      : window.confirm('Delete ' + n + ' templates?');
+    if (!confirmed) {
+      return;
+    }
+    this.appsCatalogBulkDeleting = true;
+    let ok = 0;
+    let failed = 0;
+    for (const entry of sel) {
+      try {
+        const r = await fetch(`/api/services/catalog/${entry.id}`, {method: 'DELETE'});
+        if (!r.ok) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j.detail || ('HTTP ' + r.status));
+        }
+        ok += 1;
+      } catch (_e) {
+        failed += 1;
+      }
+    }
+    this.appsCatalogSelected = {};
+    this.appsCatalogBulkDeleting = false;
+    await this.loadAppsCatalog();
+    if (typeof this.toast === 'function') {
+      if (failed) {
+        const msg = this.t('admin_apps.bulk_delete_partial', {ok, failed})
+          || (ok + ' deleted, ' + failed + ' failed');
+        this.toast(msg, ok ? 'warning' : 'error');
+      } else {
+        this.toast(this.t('admin_apps.bulk_deleted_templates', {n: ok})
+          || (ok + ' templates deleted'), 'success');
+      }
+    }
+  },
+
+  // ----------------------------------------------------------------
   // Apps → Instances tab — edit / delete a pinned chip in place. Chips
   // are otherwise create-only (pin / discovery); this is the per-app
   // editor the Hosts tab deferred to Apps. Routes through the per-chip
@@ -1593,7 +1694,7 @@ export default {
             throw new Error(j.detail || ('HTTP ' + r.status));
           }
           ok += 1;
-        } catch (err) {
+        } catch (_e) {
           failed += 1;
         }
       }
@@ -1608,9 +1709,9 @@ export default {
     }
     if (typeof this.toast === 'function') {
       if (failed) {
-        this.toast(this.t('admin_apps.bulk_delete_partial', {ok, failed})
-          || (ok + ' removed, ' + failed + ' failed'),
-        ok ? 'warning' : 'error');
+        const msg = this.t('admin_apps.bulk_delete_partial', {ok, failed})
+          || (ok + ' removed, ' + failed + ' failed');
+        this.toast(msg, ok ? 'warning' : 'error');
       } else {
         this.toast(this.t('admin_apps.bulk_deleted', {n: ok})
           || (ok + ' app instances removed'), 'success');
@@ -2128,11 +2229,9 @@ export default {
         if (failed) {
           parts.push(this.t('admin_apps.pin_result_failed', {n: failed}) || (failed + ' failed'));
         }
-        this.toast(
-          (this.t('admin_apps.pin_success_multi', {name: tpl.name || ''}) || ('Pinned ' + (tpl.name || '') + ': '))
-            + parts.join(', '),
-          failed ? 'warning' : 'success'
-        );
+        const pinMsg = (this.t('admin_apps.pin_success_multi', {name: tpl.name || ''})
+          || ('Pinned ' + (tpl.name || '') + ': ')) + parts.join(', ');
+        this.toast(pinMsg, failed ? 'warning' : 'success');
       }
       if (failed) {
         // Keep the modal open so failures stay visible.

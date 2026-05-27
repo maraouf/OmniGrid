@@ -52,7 +52,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Plex", "slug": "plex", "icon": "plex",
         "description": "Media streaming server (Plex Media Server)",
         "default_ports": [
-            {"port": 32400, "protocol": "tcp", "label": "Web UI",
+            {"port": 32400, "protocol": "http", "label": "Web UI",
              "probe_path": "/web/", "probe_status": 0},
             {"port": 32469, "protocol": "tcp", "label": "DLNA",
              "probe_path": "", "probe_status": 0},
@@ -258,7 +258,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "InfluxDB", "slug": "influxdb", "icon": "influxdb",
         "description": "InfluxDB time-series database (HTTP API + RPC)",
         "default_ports": [
-            {"port": 8086, "protocol": "tcp", "label": "HTTP API",
+            {"port": 8086, "protocol": "http", "label": "HTTP API",
              "probe_path": "/ping", "probe_status": 0},
             {"port": 8088, "protocol": "tcp", "label": "RPC",
              "probe_path": "", "probe_status": 0},
@@ -367,7 +367,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "OmniGrid", "slug": "omnigrid", "icon": "omnigrid",
         "description": "OmniGrid update + management dashboard",
         "default_ports": [
-            {"port": 9500, "protocol": "tcp", "label": "Web UI",
+            {"port": 9500, "protocol": "http", "label": "Web UI",
              "probe_path": "/api/healthz", "probe_status": 200},
         ],
     },
@@ -383,7 +383,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Jellyfin", "slug": "jellyfin", "icon": "jellyfin",
         "description": "Open-source media streaming server",
         "default_ports": [
-            {"port": 8096, "protocol": "tcp", "label": "HTTP",
+            {"port": 8096, "protocol": "http", "label": "HTTP",
              "probe_path": "/health", "probe_status": 200},
             {"port": 8920, "protocol": "tcp", "label": "HTTPS",
              "probe_path": "/health", "probe_status": 200},
@@ -409,7 +409,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Prowlarr", "slug": "prowlarr", "icon": "prowlarr",
         "description": "Indexer manager (*arr stack)",
         "default_ports": [
-            {"port": 7886, "protocol": "tcp", "label": "Web UI",
+            {"port": 7886, "protocol": "http", "label": "Web UI",
              "probe_path": "/ping", "probe_status": 200},
         ],
     },
@@ -425,13 +425,13 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Portainer", "slug": "portainer", "icon": "portainer",
         "description": "Docker container management UI",
         "default_ports": [
-            {"port": 8000, "protocol": "tcp", "label": "Edge tunnel",
+            {"port": 8000, "protocol": "http", "label": "Edge tunnel",
              "probe_path": "", "probe_status": 0},
-            {"port": 8443, "protocol": "tcp", "label": "HTTPS (alt)",
+            {"port": 8443, "protocol": "https", "label": "HTTPS (alt)",
              "probe_path": "/api/system/status", "probe_status": 200},
-            {"port": 9000, "protocol": "tcp", "label": "HTTP",
+            {"port": 9000, "protocol": "http", "label": "HTTP",
              "probe_path": "/api/system/status", "probe_status": 200},
-            {"port": 9443, "protocol": "tcp", "label": "HTTPS",
+            {"port": 9443, "protocol": "https", "label": "HTTPS",
              "probe_path": "/api/system/status", "probe_status": 200},
         ],
     },
@@ -482,7 +482,9 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Pi-hole", "slug": "pi-hole", "icon": "pi-hole",
         "description": "DNS-level ad-blocker",
         "default_ports": [
-            {"port": 80, "protocol": "tcp", "label": "Admin UI",
+            {"port": 80, "protocol": "http", "label": "Admin UI",
+             "probe_path": "/admin/", "probe_status": 0},
+            {"port": 443, "protocol": "https", "label": "Admin UI (HTTPS)",
              "probe_path": "/admin/", "probe_status": 0},
             {"port": 53, "protocol": "tcp", "label": "DNS",
              "probe_path": "", "probe_status": 0},
@@ -492,7 +494,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Grafana", "slug": "grafana", "icon": "grafana",
         "description": "Metrics + observability dashboard",
         "default_ports": [
-            {"port": 3000, "protocol": "tcp", "label": "Web UI",
+            {"port": 3000, "protocol": "http", "label": "Web UI",
              "probe_path": "/api/health", "probe_status": 200},
         ],
     },
@@ -500,7 +502,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Prometheus", "slug": "prometheus", "icon": "prometheus",
         "description": "Time-series metrics scraper",
         "default_ports": [
-            {"port": 9090, "protocol": "tcp", "label": "Web UI",
+            {"port": 9090, "protocol": "http", "label": "Web UI",
              "probe_path": "/-/healthy", "probe_status": 200},
         ],
     },
@@ -534,7 +536,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "node-exporter", "slug": "node-exporter", "icon": "node-exporter",
         "description": "Prometheus host-metrics exporter (Linux / FreeBSD)",
         "default_ports": [
-            {"port": 9100, "protocol": "tcp", "label": "Metrics",
+            {"port": 9100, "protocol": "http", "label": "Metrics",
              "probe_path": "/metrics", "probe_status": 200},
         ],
     },
@@ -543,7 +545,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "icon": "nginx-proxy-manager",
         "description": "Reverse-proxy admin UI (NPM) with LetsEncrypt + SQLite",
         "default_ports": [
-            {"port": 81, "protocol": "tcp", "label": "Admin UI",
+            {"port": 81, "protocol": "http", "label": "Admin UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -551,9 +553,11 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "AdGuard Home", "slug": "adguard-home", "icon": "adguard-home",
         "description": "Network-wide DNS-level ad / tracker blocker + DHCP",
         "default_ports": [
-            {"port": 3000, "protocol": "tcp", "label": "Admin UI",
+            {"port": 3000, "protocol": "http", "label": "Admin UI (initial setup)",
              "probe_path": "/", "probe_status": 0},
-            {"port": 80, "protocol": "tcp", "label": "Admin UI (post-setup)",
+            {"port": 80, "protocol": "http", "label": "Admin UI (post-setup)",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 443, "protocol": "https", "label": "Admin UI (HTTPS)",
              "probe_path": "/", "probe_status": 0},
             {"port": 53, "protocol": "tcp", "label": "DNS (TCP)",
              "probe_path": "", "probe_status": 0},
@@ -576,9 +580,9 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Zabbix Web", "slug": "zabbix-web", "icon": "zabbix",
         "description": "Zabbix server web frontend",
         "default_ports": [
-            {"port": 80, "protocol": "tcp", "label": "HTTP",
+            {"port": 80, "protocol": "http", "label": "HTTP",
              "probe_path": "/", "probe_status": 0},
-            {"port": 443, "protocol": "tcp", "label": "HTTPS",
+            {"port": 443, "protocol": "https", "label": "HTTPS",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -682,7 +686,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Tdarr", "slug": "tdarr", "icon": "tdarr",
         "description": "Distributed media transcode automation",
         "default_ports": [
-            {"port": 8265, "protocol": "tcp", "label": "Web UI",
+            {"port": 8265, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
             {"port": 8266, "protocol": "http", "label": "Server",
              "probe_path": "", "probe_status": 0},
@@ -1182,37 +1186,7 @@ def _instance_status(svc: dict) -> str:
     return "down"
 
 
-def _ports_with_template_open_url(probe_ports: Any, template_ports: Any) -> list:
-    """Return a display copy of ``probe_ports`` where each port's
-    ``open_url`` is OR'd with the catalog template's open_url for that
-    same port. Checking "Open as URL" on the template applies to every
-    linked instance automatically; the chip's own per-port flag still
-    wins (OR, never overwrite). Non-dict entries pass through untouched.
-    Does not mutate the input. Used for the raw ``ports`` display lists
-    that don't go through ``merge_port_results`` (it carries the same
-    inheritance internally)."""
-    tpl_open: set[int] = set()
-    for tp in (template_ports or []):
-        if isinstance(tp, dict) and bool(tp.get("open_url")):
-            tpv = _coerce_int(tp.get("port"))
-            if tpv:
-                tpl_open.add(tpv)
-    if not tpl_open:
-        return list(probe_ports or [])
-    out: list = []
-    for cp in (probe_ports or []):
-        if isinstance(cp, dict):
-            d = dict(cp)
-            pv = _coerce_int(cp.get("port"))
-            d["open_url"] = bool(cp.get("open_url")) or (pv in tpl_open)
-            out.append(d)
-        else:
-            out.append(cp)
-    return out
-
-
-def merge_port_results(probe_ports: Any, sample_rows: Any,
-                       template_ports: Any = None) -> list[dict]:
+def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
     """Per-port display list = the chip's CONFIGURED ports merged with
     probe-sample HISTORY.
 
@@ -1232,26 +1206,6 @@ def merge_port_results(probe_ports: Any, sample_rows: Any,
             pv = _coerce_int(pr.get("port"))
             if pv:
                 by_port[pv] = pr
-    # Ports the CATALOG TEMPLATE marks open_url — inherited onto the chip's
-    # ports so checking "Open as URL" on the template applies to every
-    # linked instance automatically (existing + new), even when the chip's
-    # own per-port flag isn't set. Chip-port open_url still wins (OR).
-    # tpl_path mirrors this for the HTTP path (e.g. /admin/): when the chip's
-    # own port has no probe_path, fall back to the template's so an inherited
-    # open_url link still lands on the app's real entry point, not the root.
-    tpl_open: set[int] = set()
-    tpl_path: dict[int, str] = {}
-    for tp in (template_ports or []):
-        if not isinstance(tp, dict):
-            continue
-        tpv = _coerce_int(tp.get("port"))
-        if not tpv:
-            continue
-        if bool(tp.get("open_url")):
-            tpl_open.add(tpv)
-        tp_path = (tp.get("probe_path") or "")
-        if tp_path:
-            tpl_path[tpv] = tp_path
     out: list[dict] = []
     seen: set[int] = set()
     for cp in (probe_ports or []):
@@ -1267,14 +1221,14 @@ def merge_port_results(probe_ports: Any, sample_rows: Any,
         # The probe-sample row only has alive/rtt/error/ts, so protocol /
         # open_url / label come from the chip's configured port `cp`.
         cfg_proto = (cp.get("protocol") or "tcp")
-        cfg_open_url = bool(cp.get("open_url")) or (pv in tpl_open)
+        cfg_open_url = bool(cp.get("open_url"))
         cfg_label = cp.get("label") or ""
-        # The per-port HTTP path (e.g. Pi-hole's /admin/) — carried onto
-        # the display port so an open_url pill links to the app's real
-        # entry point (<scheme>://host:port<path>), not the bare root. Chip
-        # path wins; else inherit the template's so an instance pinned
-        # before the template gained a path still links correctly.
-        cfg_path = (cp.get("probe_path") or "") or tpl_path.get(pv, "")
+        # The per-port HTTP path (e.g. Pi-hole's /admin/) — carried onto the
+        # display port so an open_url pill links to the app's real entry
+        # point (<scheme>://host:port<path>), not the bare root. Read from
+        # the chip's OWN config (cloned from the template at pin time, then
+        # independent) — no live template inheritance.
+        cfg_path = (cp.get("probe_path") or "")
         sample = by_port.get(pv)
         if sample is not None:
             entry: dict[str, Any] = dict(sample)
@@ -1396,10 +1350,7 @@ def list_apps() -> list[dict[str, Any]]:
             # probe-sample HISTORY: every configured port shows (a just-
             # added one as PENDING until the sampler probes it), and a
             # sample for a port no longer in config is dropped (stale).
-            port_results = merge_port_results(
-                probe_cfg.get("ports"), per_port.get(idx),
-                (grp.get("catalog") or {}).get("default_ports"),
-            )
+            port_results = merge_port_results(probe_cfg.get("ports"), per_port.get(idx))
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,
@@ -1409,8 +1360,7 @@ def list_apps() -> list[dict[str, Any]]:
                 "status": inst_status,
                 "last_probe": sample,
                 "probe_enabled": bool(probe_cfg.get("enabled")),
-                "ports": _ports_with_template_open_url(
-                    probe_cfg.get("ports"), (grp.get("catalog") or {}).get("default_ports")),
+                "ports": probe_cfg.get("ports") or [],
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1504,8 +1454,7 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "name": name,
                 "icon": icon or tpl_slug,
                 "url": (svc.get("url") or "").strip(),
-                "ports": _ports_with_template_open_url(
-                    probe_cfg.get("ports"), (tpl or {}).get("default_ports")),
+                "ports": probe_cfg.get("ports") or [],
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "probe_type": (probe_cfg.get("type") or "tcp").strip().lower(),
                 "docker_stack": (svc.get("docker_stack") or "").strip(),

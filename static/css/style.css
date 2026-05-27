@@ -1620,6 +1620,16 @@ button:disabled {
   display: inline-block;
   white-space: nowrap;
 }
+/* When a chip opts into flex layout (`class="chip ... inline-flex"`), the
+ * `.chip` rule's `display: inline-block` would otherwise WIN over Tailwind's
+ * `.inline-flex` utility (author styles beat the utilities layer), leaving
+ * the chip inline-block. Tailwind preflight makes `svg { display: block }`,
+ * so a leading icon inside an inline-block chip drops onto its OWN line and
+ * pushes the port text to a second line. This 2-class override restores real
+ * flex layout so the icon + port number stay on ONE line. */
+.chip.inline-flex {
+  display: inline-flex;
+}
 
 /* When `.chip` is combined with a `.pill-*` colour modifier
  * (e.g. `<span class="chip pill-ok">`), the pill colours must win.
