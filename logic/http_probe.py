@@ -160,6 +160,34 @@ def _port_of(url: str) -> int:
     return 0
 
 
+async def _first_ip(hostname: str, timeout_seconds: float) -> Optional[str]:
+    """Resolve ``hostname`` to its first IP literal (for the SNI-disable
+    retry). Python's ssl omits the SNI extension when ``server_hostname``
+    is an IP address, so passing the resolved IP as httpx's
+    ``sni_hostname`` extension probes the server's DEFAULT vhost without
+    SNI — the legitimate fallback when verify is OFF and the named vhost
+    rejected the handshake with ``unrecognized_name``. Returns None on any
+    resolution failure (caller then keeps the original error)."""
+    if not hostname:
+        return None
+    try:
+        infos = await asyncio.wait_for(
+            asyncio.to_thread(socket.getaddrinfo, hostname, None),
+            timeout=timeout_seconds,
+        )
+        for info in (infos or []):
+            sockaddr = info[4]
+            if sockaddr and sockaddr[0]:
+                return str(sockaddr[0])
+    except (asyncio.TimeoutError, socket.gaierror, OSError, ValueError):
+        return None
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 async def _dns_probe(hostname: str, timeout_seconds: float) -> tuple[bool, Optional[str]]:
     """Resolve hostname via ``socket.getaddrinfo`` in a thread executor.
 
@@ -194,7 +222,8 @@ async def _dns_probe(hostname: str, timeout_seconds: float) -> tuple[bool, Optio
         return False, f"dns: {type(e).__name__}: {str(e)[:60]}"
 
 
-async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tls: bool) -> dict:
+async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tls: bool,
+                     _sni_override: Optional[str] = None) -> dict:
     """Extract leaf cert info via a raw asyncio TLS handshake.
 
     Returns ``{tls_expires_in_days, tls_subject, tls_issuer,
@@ -225,8 +254,13 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
         if not verify_tls:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
+        # SNI sent in the handshake. Normally the named host; on a no-SNI
+        # retry (verify off + the server rejected the named vhost) we pass
+        # the resolved IP — Python's ssl omits the SNI extension for an IP
+        # server_hostname, so the server answers with its DEFAULT vhost cert.
+        _sni = _sni_override or hostname
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(hostname, port, ssl=ctx, server_hostname=hostname),
+            asyncio.open_connection(hostname, port, ssl=ctx, server_hostname=_sni),
             timeout=timeout_seconds,
         )
         try:
@@ -324,6 +358,17 @@ async def _tls_probe(hostname: str, port: int, timeout_seconds: float, verify_tl
         out["tls_error"] = f"tls verify: {str(e)[:80]}"
         return out
     except (ssl.SSLError, OSError) as e:
+        # No-SNI retry (verify off only): when the server rejected the named
+        # vhost with `unrecognized_name`, re-probe its DEFAULT vhost without
+        # SNI by passing the resolved IP as server_hostname (ssl omits SNI
+        # for an IP). Mirrors the GET-path retry so the expiry pill still
+        # resolves for verify-off probes against SNI-strict servers.
+        _low = str(e).lower()
+        if (not verify_tls) and (_sni_override is None) and (
+                "unrecognized_name" in _low or "unrecognized name" in _low):
+            _ip = await _first_ip(hostname, timeout_seconds)
+            if _ip and _ip != hostname:
+                return await _tls_probe(hostname, port, timeout_seconds, verify_tls, _sni_override=_ip)
         out["tls_error"] = f"tls: {type(e).__name__}: {str(e)[:60]}"
         return out
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -497,6 +542,41 @@ async def probe_http_health(
         http_error = "http timeout"
     except httpx.ConnectError as e:
         http_error = _clarify_http_connect_error(str(e))
+        # SNI-disable retry: when verify is OFF and the server rejected the
+        # named vhost with `unrecognized_name`, TLS correctness was explicitly
+        # disabled, so re-probe the DEFAULT vhost WITHOUT SNI. Python's
+        # ssl omits the SNI extension when server_hostname is an IP, so we
+        # pass the resolved IP as httpx's `sni_hostname` extension. A success
+        # here is a legitimate default-vhost liveness result for a verify-off
+        # probe (NOT done when verify is on — that would mask a real vhost
+        # misconfiguration; see _clarify_http_connect_error's docstring).
+        _raw = str(e).lower()
+        if (not verify_tls) and scheme == "https" and (
+                "unrecognized_name" in _raw or "unrecognized name" in _raw):
+            _ip = await _first_ip(hostname, dns_timeout)
+            if _ip:
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=timeout, verify=_verify, follow_redirects=True,
+                    ) as _client2:
+                        # codeql[py/full-ssrf] — same gate as the primary GET.
+                        _resp2 = await _client2.get(  # noqa: S310
+                            url_clean,
+                            headers={"User-Agent": "OmniGrid/http-probe"},
+                            extensions={"sni_hostname": _ip},
+                        )
+                    status_code = _resp2.status_code
+                    latency_ms = int((time.monotonic() - t0) * 1000)
+                    http_error = None  # retry succeeded — clear the SNI error
+                    cm_local = (content_match or "").strip()
+                    if cm_local:
+                        try:
+                            content_match_ok = (cm_local in (_resp2.text or ""))
+                        except (ValueError, UnicodeDecodeError):
+                            content_match_ok = False
+                except (httpx.HTTPError, OSError):
+                    # Retry also failed — keep the original SNI diagnosis.
+                    pass
     except httpx.HTTPError as e:
         http_error = f"http: {type(e).__name__}: {str(e)[:60]}"
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -527,11 +607,17 @@ async def probe_http_health(
     # configured), and TLS cert parse for https URLs (verify failure
     # already short-circuited via the SSLCertVerificationError
     # branch above).
+    # The TLS-cert sub-probe is a HARD gate only when verify is ON. With
+    # verify OFF (TLS correctness explicitly disabled, "just reach the box"),
+    # a cert that won't parse (self-signed quirk, SNI-strict vhost that
+    # refuses the cert probe) must NOT fail an otherwise-healthy GET — the
+    # HTTP status is the source of truth. Cert metadata stays best-effort for
+    # the expiry pill.
     overall_ok = (
         status_ok
         and content_match_ok
         and (dns_resolved or not hostname or _is_ip_literal(hostname))
-        and (scheme != "https" or tls_info.get("tls_expires_in_days") is not None)
+        and (scheme != "https" or not verify_tls or tls_info.get("tls_expires_in_days") is not None)
     )
     error: Optional[str] = None
     if not overall_ok:

@@ -1501,7 +1501,7 @@ export default {
       return;
     }
     if (!row.http_probe || typeof row.http_probe !== 'object') {
-      row.http_probe = {urls_text: ''};
+      row.http_probe = {urls_text: '', accepted_status_codes_text: ''};
     }
     row.http_probe[key] = value;
     this.markHostRowDirty(idx);

@@ -962,9 +962,13 @@
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.http_probe_status_codes_label')"></label>
+                  <!-- x-model on a raw `_text` string (NOT :value/@input over
+                       the array) so typing doesn't round-trip through the
+                       array and clear the field on every keystroke. Parsed to
+                       an int array on save; hydrated from the array on load. -->
                   <input type="text"
-                         :value="(row.http_probe && Array.isArray(row.http_probe.accepted_status_codes)) ? row.http_probe.accepted_status_codes.join(',') : ''"
-                         @input="setHttpProbeField(idx, 'accepted_status_codes', $event.target.value || null)"
+                         x-model="row.http_probe.accepted_status_codes_text"
+                         @input="markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
                          class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.http_probe_status_codes_placeholder')">

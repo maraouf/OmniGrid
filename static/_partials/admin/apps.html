@@ -867,7 +867,16 @@
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeInstanceEdit()"></div>
     <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[480px] w-full mx-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold fs-md truncate" x-text="t('admin_apps.instance_edit_title') || 'Edit app instance'"></h3>
+        <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
+          <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+          </svg>
+          <img x-show="appsInstanceEditForm.icon || appsInstanceEditForm.catalog_slug || appsInstanceEditForm.name"
+               :src="iconUrlFor(appsInstanceEditForm.icon || appsInstanceEditForm.catalog_slug || appsInstanceEditForm.name)"
+               alt="" width="20" height="20" class="rounded flex-shrink-0"
+               @error="$event.target.style.display='none'">
+          <span class="truncate" x-text="t('admin_apps.instance_edit_title') || 'Edit app instance'"></span>
+        </h3>
         <button type="button" class="user-action-btn" :aria-label="t('actions.close') || 'Close'"
                 :title="t('actions.close') || 'Close'" @click="closeInstanceEdit()">
           <svg width="14" height="14" aria-hidden="true">
@@ -916,7 +925,7 @@
           <p x-show="!(appsInstanceEditForm.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic mb-1"
              x-text="t('admin_apps.instance_edit_no_ports') || 'No ports — this chip has no reachability ports configured.'"></p>
           <div class="space-y-1.5">
-            <template x-for="(p, pi) in appsInstanceEditForm.ports" :key="pi">
+            <template x-for="(p, pi) in appsInstanceEditForm.ports" :key="p._uid || pi">
               <div class="flex items-center gap-1.5">
                 <input type="number" min="1" max="65535" class="w-[78px] fs-xs" x-model.number="p.port"
                        :placeholder="t('admin_apps.instance_edit_port') || 'Port'">
