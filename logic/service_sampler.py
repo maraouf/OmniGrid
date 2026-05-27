@@ -270,14 +270,21 @@ async def _probe_http(url: str, expected_status: int, timeout: float) -> dict:
             # HEAD status isn't the success/expected one. A HEAD-hostile
             # endpoint that serves GET fine must not read as down.
             r = await client.head(url)
-            head_ok = (r.status_code == expected_status) if expected_status else (200 <= r.status_code < 400)
+            head_ok = (r.status_code == expected_status) if expected_status else (200 <= r.status_code < 500)
             if not head_ok:
                 r = await client.get(url)
         rtt_ms = int((time.monotonic() - started) * 1000)
         if expected_status:
             ok = r.status_code == expected_status
         else:
-            ok = 200 <= r.status_code < 400
+            # `expected_status == 0` means "accept any response" — a probe
+            # is a REACHABILITY check, so ANY HTTP answer (2xx, a 3xx
+            # redirect to a login, OR a 4xx like 401/403/404 from an
+            # auth-gated UI / API — e.g. Proxmox 8006, UniFi 8443) proves
+            # the service is up. Only a 5xx (server error / dead backend
+            # behind a live proxy) counts as down. Operators wanting a
+            # stricter health check set an explicit expected_status.
+            ok = 200 <= r.status_code < 500
         if ok:
             return {"alive": True, "rtt_ms": rtt_ms, "error": None}
         return {
