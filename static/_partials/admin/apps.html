@@ -361,7 +361,18 @@
               <img :src="iconUrlFor(inst.icon || inst.catalog_slug || inst.name)" alt="" width="22" height="22" class="rounded"
                    @error="$event.target.style.visibility='hidden'">
             </td>
-            <td class="py-2 font-medium" x-text="inst.name || '—'"></td>
+            <td class="py-2 font-medium">
+              <span x-text="inst.name || '—'"></span>
+              <!-- Tiny Docker-linked indicator — shows ONLY when the chip is
+                   linked to a container / stack, so rows WITHOUT it stand out
+                   as candidates to link. Title names the target. -->
+              <svg x-show="inst.docker_container || inst.docker_stack"
+                   width="11" height="11" class="inline-block ms-1 text-[var(--primary)] align-[-1px]"
+                   aria-hidden="true"
+                   :title="t('admin_apps.docker_linked_title', { target: inst.docker_container || inst.docker_stack }) || ('Linked to Docker: ' + (inst.docker_container || inst.docker_stack))">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/>
+              </svg>
+            </td>
             <td class="py-2">
               <code class="fs-xs text-[var(--text-dim)]"
                     x-text="inst.host_address || inst.host_id"></code>
@@ -828,22 +839,21 @@
               </td>
               <td class="py-2">
                 <div class="flex flex-wrap gap-1">
-                  <template x-for="port in (prop.matched_ports || [])" :key="'m:' + port">
-                    <span class="chip pill-ok fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
-                          :title="discoverPortMeta(prop, port).open_url ? (t('admin_apps.port_open_url') || 'opens as URL') : ''">
-                      <svg x-show="discoverPortMeta(prop, port).open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
+                  <!-- Show EVERY template port. Detected-on-host -> green
+                       (pill-ok); not detected (incl. detected-but-claimed
+                       by another app) -> greyed (pill-muted) instead of
+                       hidden, so the full template port set is visible. -->
+                  <template x-for="dp in ((prop.catalog && prop.catalog.default_ports) || [])"
+                            :key="'p:' + dp.port + ':' + (dp.protocol || 'tcp')">
+                    <span class="chip fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
+                          :class="discoverPortIsMatched(prop, dp.port) ? 'pill-ok' : 'pill-muted'"
+                          :title="discoverPortIsMatched(prop, dp.port)
+                                  ? (dp.open_url ? (t('admin_apps.port_open_url') || 'opens as URL') : '')
+                                  : (t('admin_apps.discover_unmatched_tip') || 'Template defines this port but the host scan did not detect it open')">
+                      <svg x-show="dp.open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
                       </svg>
-                      <span x-text="port + '/' + (discoverPortMeta(prop, port).protocol || 'tcp')"></span>
-                    </span>
-                  </template>
-                  <template x-for="port in (prop.unmatched_ports || [])" :key="'u:' + port">
-                    <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
-                          :title="t('admin_apps.discover_unmatched_tip') || 'Template defines this port but the host scan did not detect it open'">
-                      <svg x-show="discoverPortMeta(prop, port).open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
-                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                      </svg>
-                      <span x-text="port + '/' + (discoverPortMeta(prop, port).protocol || 'tcp')"></span>
+                      <span x-text="dp.port + '/' + (dp.protocol || 'tcp')"></span>
                     </span>
                   </template>
                 </div>
@@ -985,22 +995,47 @@
         <div>
           <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'"></label>
           <p class="fs-2xs text-[var(--text-faint)] mb-1" x-text="t('admin_apps.instance_edit_docker_hint') || 'Link this app to a Docker container on a specific host (precise — a stack can span hosts) or a Swarm service, to enable inline Restart / Update in the app drawer. Pick from running items — no free text.'"></p>
-          <select class="fs-xs w-full"
-                  @change="setAppsInstanceDockerLink($event.target.value)"
-                  x-effect="$el.value = appsInstanceDockerLinkValue()"
-                  :aria-label="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'">
-            <option value="" x-text="t('admin_apps.instance_edit_docker_none') || '— Not linked —'"></option>
-            <optgroup :label="t('admin_apps.instance_edit_docker_containers') || 'Containers (on a host)'">
-              <template x-for="o in appsDockerLinkOptions().containers" :key="o.id">
-                <option :value="o.id" x-text="o.label"></option>
+          <!-- Searchable combobox — type to filter a long containers /
+               services list instead of scrolling a giant <select>. Click an
+               option to link; the X clears the link. -->
+          <div class="relative" @click.outside="appsDockerLinkDropdownOpen = false">
+            <input type="text" class="fs-xs w-full" autocomplete="off" role="combobox"
+                   aria-controls="apps-docker-link-list"
+                   :aria-expanded="appsDockerLinkDropdownOpen ? 'true' : 'false'"
+                   x-model="appsDockerLinkSearch"
+                   @focus="appsDockerLinkDropdownOpen = true"
+                   @input="appsDockerLinkDropdownOpen = true"
+                   @keydown.escape.prevent.stop="appsDockerLinkDropdownOpen = false"
+                   :placeholder="t('admin_apps.instance_edit_docker_search') || 'Type to search containers / services…'"
+                   :aria-label="t('admin_apps.instance_edit_docker_label') || 'Link to Docker (optional)'">
+            <ul x-show="appsDockerLinkDropdownOpen" x-cloak id="apps-docker-link-list" role="listbox"
+                class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto scrollbar rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg fs-xs">
+              <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] text-[var(--text-faint)] italic"
+                  @click="appsDockerLinkPick('', '')"
+                  x-text="t('admin_apps.instance_edit_docker_none') || '— Not linked —'"></li>
+              <template x-if="appsDockerLinkFiltered().containers.length">
+                <li class="px-2 pt-1.5 pb-0.5 fs-3xs uppercase tracking-wider text-[var(--text-faint)]"
+                    x-text="t('admin_apps.instance_edit_docker_containers') || 'Containers (on a host)'"></li>
               </template>
-            </optgroup>
-            <optgroup :label="t('admin_apps.instance_edit_docker_services') || 'Services (span hosts)'">
-              <template x-for="o in appsDockerLinkOptions().services" :key="o.id">
-                <option :value="o.id" x-text="o.label"></option>
+              <template x-for="o in appsDockerLinkFiltered().containers" :key="o.id">
+                <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
+                    :class="appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)] font-semibold' : ''"
+                    @click="appsDockerLinkPick(o.id, o.label)" x-text="o.label"></li>
               </template>
-            </optgroup>
-          </select>
+              <template x-if="appsDockerLinkFiltered().services.length">
+                <li class="px-2 pt-1.5 pb-0.5 fs-3xs uppercase tracking-wider text-[var(--text-faint)]"
+                    x-text="t('admin_apps.instance_edit_docker_services') || 'Services (span hosts)'"></li>
+              </template>
+              <template x-for="o in appsDockerLinkFiltered().services" :key="o.id">
+                <li role="option" class="px-2 py-1 cursor-pointer hover:bg-[var(--row-hover)] mono"
+                    :class="appsInstanceDockerLinkValue() === o.id ? 'bg-[var(--row-hover)] font-semibold' : ''"
+                    @click="appsDockerLinkPick(o.id, o.label)" x-text="o.label"></li>
+              </template>
+              <li x-show="!appsDockerLinkFiltered().containers.length && !appsDockerLinkFiltered().services.length"
+                  class="px-2 py-1 text-[var(--text-faint)] italic"
+                  x-text="t('admin_apps.instance_edit_docker_no_match') || 'No containers / services match'"></li>
+            </ul>
+          </div>
           <p class="fs-2xs text-[var(--text-faint)] mt-1 mono"
              x-show="appsInstanceEditForm.docker_container || appsInstanceEditForm.docker_stack"
              x-text="appsInstanceDockerLinkSummary()"></p>

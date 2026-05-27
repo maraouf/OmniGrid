@@ -1132,6 +1132,15 @@ export default {
     });
   },
 
+  // True when a template port number is in the proposal's matched set
+  // (detected open on the host). Number-coerced both sides so an int
+  // template port matches a string/number matched_ports entry.
+  discoverPortIsMatched(prop, portNum) {
+    const m = (prop && prop.matched_ports) || [];
+    const n = Number(portNum);
+    return m.some((p) => Number(p) === n);
+  },
+
   // Resolve a Discover-proposal port NUMBER to its catalog-template port
   // definition so the matched / unmatched chips can show the protocol kind
   // (/http, /https, /tcp) + the open-as-URL marker like every other port
@@ -1306,6 +1315,10 @@ export default {
       docker_host: inst.docker_host || '',
     };
     this.appsInstanceEditError = '';
+    // Seed the Link-to-Docker combobox input with the current link's label
+    // (so it shows what's linked) + start with the dropdown closed.
+    this.appsDockerLinkSearch = this.appsInstanceDockerLinkLabel();
+    this.appsDockerLinkDropdownOpen = false;
     this.appsInstanceEditOpen = true;
   },
 
@@ -1339,6 +1352,37 @@ export default {
     containers.sort(byLabel);
     services.sort(byLabel);
     return {containers, services};
+  },
+
+  // Searchable combobox support for the Link-to-Docker picker. Filters the
+  // grouped options by the typed text so a host with many containers /
+  // services isn't a long unscrollable dropdown.
+  appsDockerLinkFiltered() {
+    const opts = this.appsDockerLinkOptions();
+    const q = (this.appsDockerLinkSearch || '').trim().toLowerCase();
+    if (!q) {
+      return opts;
+    }
+    const f = (arr) => (arr || []).filter((o) => (o.label || '').toLowerCase().includes(q));
+    return {containers: f(opts.containers), services: f(opts.services)};
+  },
+  // Display label of the CURRENTLY-linked item (seeds the combobox input
+  // on open + restored after a pick) — '' when not linked.
+  appsInstanceDockerLinkLabel() {
+    const v = this.appsInstanceDockerLinkValue();
+    if (!v) {
+      return '';
+    }
+    const opts = this.appsDockerLinkOptions();
+    const found = (opts.containers || []).concat(opts.services || []).find((o) => o.id === v);
+    return found ? found.label : '';
+  },
+  // Apply a combobox pick: set the link + show the chosen label in the
+  // input + close the dropdown.
+  appsDockerLinkPick(itemId, label) {
+    this.setAppsInstanceDockerLink(itemId);
+    this.appsDockerLinkSearch = label || '';
+    this.appsDockerLinkDropdownOpen = false;
   },
 
   // Current <select> value for the edit form: the item id matching the

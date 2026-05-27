@@ -554,7 +554,10 @@ async def probe_http_health(
         if (not verify_tls) and scheme == "https" and (
                 "unrecognized_name" in _raw or "unrecognized name" in _raw):
             _ip = await _first_ip(hostname, dns_timeout)
-            if _ip:
+            if not _ip:
+                print(f"[http_probe] no-SNI retry SKIPPED for {url_clean}: "
+                      f"could not resolve {hostname!r} to an IP")
+            else:
                 try:
                     async with httpx.AsyncClient(
                         timeout=timeout, verify=_verify, follow_redirects=True,
@@ -568,15 +571,29 @@ async def probe_http_health(
                     status_code = _resp2.status_code
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     http_error = None  # retry succeeded — clear the SNI error
+                    print(f"[http_probe] no-SNI retry OK for {url_clean} "
+                          f"(via {_ip}, default vhost) status={status_code}")
                     cm_local = (content_match or "").strip()
                     if cm_local:
                         try:
                             content_match_ok = (cm_local in (_resp2.text or ""))
                         except (ValueError, UnicodeDecodeError):
                             content_match_ok = False
-                except (httpx.HTTPError, OSError):
-                    # Retry also failed — keep the original SNI diagnosis.
-                    pass
+                except (httpx.HTTPError, OSError) as _retry_err:
+                    # No-SNI retry ALSO failed. The server refuses a handshake
+                    # whose SNI doesn't match a configured vhost EVEN with no
+                    # SNI (typically nginx `ssl_reject_handshake on`, or no
+                    # default-server on 443) — a SERVER-side config the client
+                    # cannot work around. Surface that explicitly so the cause
+                    # is clear, and log the underlying retry error.
+                    print(f"[http_probe] no-SNI retry FAILED for {url_clean} "
+                          f"(via {_ip}): {type(_retry_err).__name__}: {str(_retry_err)[:100]}")
+                    http_error = ("https TLS: server rejected the SNI AND a no-SNI "
+                                  "retry — the server refuses any handshake whose SNI "
+                                  "isn't a configured vhost (e.g. nginx "
+                                  "ssl_reject_handshake / no default 443 server). Add a "
+                                  "matching server block or default_server, or probe a "
+                                  "hostname the server's cert/vhost serves.")
     except httpx.HTTPError as e:
         http_error = f"http: {type(e).__name__}: {str(e)[:60]}"
     except (asyncio.CancelledError, KeyboardInterrupt):

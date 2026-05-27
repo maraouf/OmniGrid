@@ -252,6 +252,10 @@ function app() {
     // Free-text filter for the Admin → Apps → Instances table (name /
     // catalog / host / port). Client-side over appsInstances.
     appsInstancesSearch: '',
+    // Searchable Link-to-Docker combobox (instance editor): filter text +
+    // dropdown-open flag.
+    appsDockerLinkSearch: '',
+    appsDockerLinkDropdownOpen: false,
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},
