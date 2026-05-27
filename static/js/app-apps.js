@@ -324,6 +324,27 @@ export default {
     return 'unknown';
   },
 
+  // Clickable-port URL: when a port is flagged `open_url` (per-port
+  // checkbox in the catalog template / instance editor) AND its protocol
+  // is http/https, return <scheme>://<host>:<port> so the pill renders as
+  // a link. Empty string ⇒ not clickable (plain pill). `ctx` is the
+  // instance (Apps view) OR the host row (host drawer) — both carry a
+  // host address under one of these keys.
+  appsPortHref(pr, ctx) {
+    if (!pr || !pr.open_url || !pr.port) {
+      return '';
+    }
+    const proto = String(pr.protocol || '').toLowerCase();
+    if (proto !== 'http' && proto !== 'https') {
+      return '';
+    }
+    const host = ctx && (ctx.host_address || ctx.address || ctx.host || ctx.host_id || ctx.id);
+    if (!host) {
+      return '';
+    }
+    return (proto === 'https' ? 'https' : 'http') + '://' + host + ':' + pr.port;
+  },
+
   // Aggregate app-health summary for a host's pinned apps — drives the
   // Hosts-view row "N apps" badge (count) AND its colour (aggregate
   // health). Returns {total, up, down, unknown, state} where state is
@@ -929,6 +950,7 @@ export default {
       label: '',
       probe_path: '/',
       probe_status: 0,
+      open_url: false,
     });
   },
 
@@ -1050,6 +1072,7 @@ export default {
       label: (p && p.label) || '',
       probe_path: (p && p.probe_path) || '',
       probe_status: (p && p.probe_status != null) ? p.probe_status : 0,
+      open_url: !!(p && p.open_url),
     }));
     this.appsInstanceEditForm = {
       host_id: inst.host_id,
@@ -1335,7 +1358,7 @@ export default {
     if (!Array.isArray(this.appsInstanceEditForm.ports)) {
       this.appsInstanceEditForm.ports = [];
     }
-    this.appsInstanceEditForm.ports.push({port: '', protocol: 'tcp', label: '', probe_path: '', probe_status: 0});
+    this.appsInstanceEditForm.ports.push({port: '', protocol: 'tcp', label: '', probe_path: '', probe_status: 0, open_url: false});
   },
 
   removeInstancePort(i) {

@@ -412,6 +412,12 @@
             </button>
           </div>
         </div>
+        <!-- When ticked (+ protocol http/https), this port renders as a
+             clickable link to <scheme>://<host>:<port> in the Apps view. -->
+        <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] mb-2 ps-1">
+          <input type="checkbox" x-model="p.open_url">
+          <span x-text="t('admin_apps.port_open_url') || 'Open as URL (http/https)'"></span>
+        </label>
       </template>
     </div>
 
@@ -776,6 +782,13 @@
                 <input type="number" min="0" max="599" class="w-[64px] fs-xs" x-model.number="p.probe_status"
                        :title="t('admin_apps.instance_edit_status') || 'Expected HTTP status (0 = any 2xx/3xx)'"
                        :placeholder="t('admin_apps.instance_edit_status_ph') || 'Status'">
+                <!-- Clickable-port toggle — when ticked (+ protocol http/https)
+                     the port pill links to <scheme>://<host>:<port>. -->
+                <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap"
+                       :title="t('admin_apps.port_open_url_title') || 'Open as URL (http/https) — makes the port pill a clickable link'">
+                  <input type="checkbox" x-model="p.open_url">
+                  <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
+                </label>
                 <button type="button" class="user-action-btn user-action-btn--danger" @click="removeInstancePort(pi)"
                         :aria-label="t('actions.remove') || 'Remove'" :title="t('actions.remove') || 'Remove'">
                   <svg width="13" height="13" aria-hidden="true">
