@@ -198,6 +198,22 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
     existing_catalog_ids = {_coerce_int_local(chip.get("catalog_id")) for chip in existing_services
                             if isinstance(chip, dict)}
     existing_catalog_ids.discard(None)
+    # Resolve the host's last-scan detected (open) ports ONCE so a multi-port
+    # template only contributes the ports the host ACTUALLY has open — pinning
+    # from Discover shouldn't apply the FULL template port list when the host
+    # exposes only a subset. Empty detected set (host never scanned) leaves the
+    # full template list intact (nothing to filter against).
+    _detected_ports: set[int] = set()
+    try:
+        _dmerge: dict[str, Any] = {}
+        _populate_detected_ports(host_id, _dmerge)
+        for _dp in (_dmerge.get("detected_ports") or []):
+            _pn = _coerce_int_local(_dp.get("port")) if isinstance(_dp, dict) else None
+            if _pn:
+                _detected_ports.add(_pn)
+    except Exception as e:  # noqa: BLE001
+        print(f"[apps] discover-apply detected-port resolve failed for {host_id!r}: {e}")
+        _detected_ports = set()
     applied: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for raw_cid in raw_ids:
@@ -220,6 +236,16 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
         new_chip["name"] = tpl.get("name") or ""
         new_chip["icon"] = tpl.get("icon") or tpl.get("slug") or ""
         default_ports = list(tpl.get("default_ports") or [])
+        # Apply ONLY the template ports the host actually has open (matched
+        # against the last scan). Keeps a multi-port template from stamping
+        # ports the host doesn't expose. Falls back to the full list when the
+        # host has no scan data OR none of the template ports were detected
+        # (so the chip is never left port-less).
+        if _detected_ports and default_ports:
+            _matched = [p for p in default_ports
+                        if isinstance(p, dict) and _coerce_int_local(p.get("port")) in _detected_ports]
+            if _matched:
+                default_ports = _matched
         probe: dict[str, Any] = {"enabled": probe_enabled, "type": "tcp"}
         if default_ports:
             probe["ports"] = default_ports

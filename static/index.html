@@ -4056,12 +4056,12 @@
                    apps, and the time-series graphs. Bypasses the provider
                    cache (force). Spins while its own batch runs. -->
               <button type="button"
-                      :disabled="_hostFullRefreshing"
+                      :disabled="!!_hostFullRefreshing[h.id]"
                       @click.stop="fullRefreshHost(h)"
                       class="btn btn-ghost fs-xs flex items-center gap-1.5"
                       :title="t('host_drawer.actions.full_refresh_title') || 'Refresh all host data'"
                       :aria-label="t('host_drawer.actions.full_refresh') || 'Refresh'">
-                <svg width="13" height="13" :class="_hostFullRefreshing ? 'spin-md' : ''" aria-hidden="true">
+                <svg width="13" height="13" :class="_hostFullRefreshing[h.id] ? 'spin-md' : ''" aria-hidden="true">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
                 </svg>
                 <span x-text="t('host_drawer.actions.full_refresh') || 'Refresh'"></span>

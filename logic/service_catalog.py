@@ -401,8 +401,8 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Sonarr", "slug": "sonarr", "icon": "sonarr",
         "description": "TV series collection manager (*arr stack)",
         "default_ports": [
-            {"port": 8989, "protocol": "http", "label": "Web UI",
-             "probe_path": "/ping", "probe_status": 200},
+            {"port": 7880, "protocol": "http", "label": "Web UI",
+             "probe_path": "/ping", "probe_status": 200, "open_url": True},
         ],
     },
     {
