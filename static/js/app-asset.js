@@ -710,6 +710,20 @@ export default {
       if (typeof this.loadAssetCache === 'function') {
         try { await this.loadAssetCache(); } catch (_e) { /* non-fatal */ }
       }
+      // Re-probe + PERSIST the HTTP-probe URLs so a freshly-added URL +
+      // the current up/down verdict show immediately (the drawer's
+      // http-probe card reads the sample table, which otherwise only
+      // updates on the next sampler tick — that lag is why a stale
+      // "N down" lingered after the URLs went green).
+      try {
+        await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/refresh', {method: 'POST'});
+      } catch (_e) { /* non-fatal */ }
+      // Re-probe + persist the apps on this host (same sample-table lag
+      // for the apps "N down" badge). probeAllHostApps already persists
+      // per-chip results via the probe endpoint.
+      if (typeof this.probeAllHostApps === 'function') {
+        try { await this.probeAllHostApps(h); } catch (_e) { /* non-fatal */ }
+      }
       if (typeof this.refreshHostRow === 'function') {
         try { await this.refreshHostRow(h.id, {force: true}); } catch (_e) { /* non-fatal */ }
       }

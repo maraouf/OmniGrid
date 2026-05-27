@@ -181,6 +181,27 @@ async def api_hosts_http_probe_history(
     return {"series": series_out, "collectors": {"sample_count": len(rows), "urls": len(by_url)}, "error": None}
 
 
+@app.post("/api/hosts/{host_id}/http-probe/refresh")
+async def api_hosts_http_probe_refresh_row(
+    host_id: str,
+    _admin: AdminUser,
+):
+    """Probe THIS host's HTTP-probe URLs NOW and PERSIST to
+    ``host_http_samples`` (unlike ``/test`` which is diagnostic-only).
+
+    Drives the host-drawer Refresh button: the drawer's HTTP-probe card
+    reads from the sample table, so a freshly-added URL (or a verdict
+    that just flipped green) only shows after a sampler tick — this
+    on-demand probe+persist makes it show immediately. Returns the
+    persist summary; the SPA then re-reads the row via /api/hosts/one.
+    """
+    from logic.host_http_sampler import probe_and_persist_host as _probe_persist
+    hid = (host_id or "").strip()
+    if not hid:
+        raise HTTPException(400, "host_id required")
+    return await _probe_persist(hid)
+
+
 @app.post("/api/hosts/{host_id}/http-probe/test")
 async def api_hosts_http_probe_test_row(
     host_id: str,

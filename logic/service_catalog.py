@@ -417,8 +417,12 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "qBittorrent", "slug": "qbittorrent", "icon": "qbittorrent",
         "description": "BitTorrent client with Web UI",
         "default_ports": [
-            {"port": 8080, "protocol": "http", "label": "Web UI",
+            {"port": 8090, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
+            {"port": 51510, "protocol": "tcp", "label": "BitTorrent (TCP)",
+             "probe_path": "", "probe_status": 0},
+            {"port": 51511, "protocol": "tcp", "label": "BitTorrent (TCP alt)",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {

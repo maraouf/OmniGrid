@@ -487,6 +487,38 @@ def latest_for_host(host_id: str) -> dict:
     }
 
 
+async def probe_and_persist_host(host_id: str) -> dict:
+    """On-demand: probe ONE curated host's HTTP-probe URLs NOW and persist
+    the per-URL rows to ``host_http_samples`` (same shape + schema as a
+    sampler tick). Used by the host-drawer Refresh button so a freshly
+    added / edited URL — and the current up/down verdict — appears
+    immediately instead of waiting out the next sampler interval (which
+    is also why a stale "N down" lingered after the URLs went green).
+
+    Returns ``{ok, probed, persisted, skipped, error}``. Never raises —
+    a resolution / probe failure collapses into the result dict.
+    """
+    hid = (host_id or "").strip()
+    if not hid:
+        return {"ok": False, "skipped": True, "error": "no host_id"}
+    try:
+        matching = [h for h in _curated_http_probe_hosts() if h.get("id") == hid]
+        if not matching or not (matching[0].get("urls") or []):
+            return {"ok": False, "skipped": True, "error": "no URLs resolved"}
+        host = matching[0]
+        sem = asyncio.Semaphore(max(1, tuning.tuning_int(_Tunable.HTTP_PROBE_CONCURRENCY)))
+        outcome = await _probe_one_host(host, sem)
+        if outcome.get("skipped_paused"):
+            return {"ok": False, "skipped": True, "error": "provider paused"}
+        results = outcome.get("results") or []
+        persisted = _persist_rows(hid, results, int(time.time()))
+        return {"ok": True, "probed": len(results), "persisted": persisted, "skipped": False}
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "skipped": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+
+
 def populate_host_http_merge(host_id: str, merged: dict) -> None:
     """Stamp ``host_http_*`` fields onto the merged dict for one host.
 
