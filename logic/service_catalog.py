@@ -105,7 +105,7 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "Email (SMTP)", "slug": "smtp", "icon": "smtp",
+        "name": "Email (SMTP)", "slug": "smtp", "icon": "mail",
         "description": "Mail transfer agent (SMTP / SMTPS / Submission)",
         "default_ports": [
             {"port": 25, "protocol": "tcp", "label": "SMTP",

@@ -188,6 +188,34 @@ async def _first_ip(hostname: str, timeout_seconds: float) -> Optional[str]:
     return None
 
 
+async def _tcp_reachable(host: str, port: int, timeout_seconds: float) -> bool:
+    """Bare TCP-connect liveness check. Used as the verify-OFF fallback when
+    an HTTPS handshake is REFUSED by the server (SNI rejected + no-SNI retry
+    also rejected, e.g. nginx ssl_reject_handshake). With verify off TLS
+    correctness is explicitly disabled, so a port that ACCEPTS a TCP
+    connection (something IS listening, it just refuses the TLS negotiation
+    by name) counts as 'reachable'. Returns False on any failure."""
+    if not host or port <= 0:
+        return False
+    writer = None
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout_seconds)
+        return True
+    except (asyncio.TimeoutError, OSError, ConnectionError):
+        return False
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        if writer is not None:
+            try:
+                writer.close()
+            except (OSError, ConnectionError):
+                pass
+
+
 async def _dns_probe(hostname: str, timeout_seconds: float) -> tuple[bool, Optional[str]]:
     """Resolve hostname via ``socket.getaddrinfo`` in a thread executor.
 
@@ -479,6 +507,10 @@ async def probe_http_health(
     content_match_ok = not bool((content_match or "").strip())
     latency_ms: Optional[int] = None
     http_error: Optional[str] = None
+    # Set True by the verify-off fallback when an HTTPS handshake is refused
+    # (SNI + no-SNI both rejected) but a bare TCP connect to the port
+    # succeeds — i.e. the server is reachable, just refusing TLS by name.
+    tls_refused_reachable = False
     t0 = time.monotonic()
     # TLS verify mode. When verify is OFF (operator opted into an insecure
     # probe for a self-signed homelab device), ALSO relax the TLS floor:
@@ -583,17 +615,28 @@ async def probe_http_health(
                     # No-SNI retry ALSO failed. The server refuses a handshake
                     # whose SNI doesn't match a configured vhost EVEN with no
                     # SNI (typically nginx `ssl_reject_handshake on`, or no
-                    # default-server on 443) — a SERVER-side config the client
-                    # cannot work around. Surface that explicitly so the cause
-                    # is clear, and log the underlying retry error.
+                    # default-server on 443). Since verify is OFF the probe
+                    # only needs REACHABILITY — fall back to a bare TCP connect
+                    # to the port: if it accepts, the host IS reachable (the
+                    # server is listening, just refusing the TLS negotiation by
+                    # name), so treat it as a soft pass. Only when the TCP
+                    # connect ALSO fails do we surface the hard SNI diagnosis.
                     print(f"[http_probe] no-SNI retry FAILED for {url_clean} "
                           f"(via {_ip}): {type(_retry_err).__name__}: {str(_retry_err)[:100]}")
-                    http_error = ("https TLS: server rejected the SNI AND a no-SNI "
-                                  "retry — the server refuses any handshake whose SNI "
-                                  "isn't a configured vhost (e.g. nginx "
-                                  "ssl_reject_handshake / no default 443 server). Add a "
-                                  "matching server block or default_server, or probe a "
-                                  "hostname the server's cert/vhost serves.")
+                    if await _tcp_reachable(hostname, port, timeout):
+                        tls_refused_reachable = True
+                        http_error = None
+                        latency_ms = int((time.monotonic() - t0) * 1000)
+                        print(f"[http_probe] verify-off TCP fallback OK for {url_clean} "
+                              f"(port {port} reachable; TLS handshake refused by name)")
+                    else:
+                        http_error = ("https TLS: server rejected the SNI AND a no-SNI "
+                                      "retry, and the port is not TCP-reachable — the "
+                                      "server refuses any handshake whose SNI isn't a "
+                                      "configured vhost (e.g. nginx ssl_reject_handshake / "
+                                      "no default 443 server). Add a matching server block "
+                                      "or default_server, or probe a hostname the server "
+                                      "serves.")
     except httpx.HTTPError as e:
         http_error = f"http: {type(e).__name__}: {str(e)[:60]}"
     except (asyncio.CancelledError, KeyboardInterrupt):
@@ -630,12 +673,19 @@ async def probe_http_health(
     # refuses the cert probe) must NOT fail an otherwise-healthy GET — the
     # HTTP status is the source of truth. Cert metadata stays best-effort for
     # the expiry pill.
-    overall_ok = (
-        status_ok
-        and content_match_ok
-        and (dns_resolved or not hostname or _is_ip_literal(hostname))
-        and (scheme != "https" or not verify_tls or tls_info.get("tls_expires_in_days") is not None)
-    )
+    # verify-off TCP-reachability fallback: when an HTTPS handshake was
+    # refused (SNI + no-SNI) but the port accepts a TCP connection, the host
+    # is reachable — for a verify-off "is it up?" probe that's a pass, with
+    # no HTTP status / content / cert to check.
+    if tls_refused_reachable:
+        overall_ok = True
+    else:
+        overall_ok = (
+            status_ok
+            and content_match_ok
+            and (dns_resolved or not hostname or _is_ip_literal(hostname))
+            and (scheme != "https" or not verify_tls or tls_info.get("tls_expires_in_days") is not None)
+        )
     error: Optional[str] = None
     if not overall_ok:
         # Priority order: status_ok lives at the top because that's
@@ -666,6 +716,10 @@ async def probe_http_health(
         "dns_error": dns_error,
         "latency_ms": latency_ms,
         "error": error,
+        # True when the pass came from the verify-off TCP-reachability
+        # fallback (HTTPS handshake refused but the port is open). Lets a
+        # caller distinguish a real HTTP 2xx from a bare reachability pass.
+        "tls_refused_reachable": bool(tls_refused_reachable),
     }
 
 
