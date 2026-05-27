@@ -5483,7 +5483,7 @@
                     <div class="flex flex-wrap gap-1.5">
                       <template x-for="p in sortedDetectedPorts(h)" :key="(h.id || h.host || '') + ':' + (p.protocol || 'tcp') + ':' + p.port">
                           <span class="chip fs-xs mono inline-flex items-center"
-                                x-data="{ mapped: portScanMappedApp(h, p) }"
+                                x-data="{ get mapped() { return portScanMappedApp(h, p); } }"
                                 :class="portScanChipClass(h, p)"
                                 :title="portScanChipTitle(h, p)">
                             <!-- Single status dot — green/red/amber/grey for the
