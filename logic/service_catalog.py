@@ -118,7 +118,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Forgejo", "slug": "forgejo", "icon": "forgejo",
         "description": "Self-hosted Git service",
         "default_ports": [
-            {"port": 3000, "protocol": "tcp", "label": "Web UI",
+            {"port": 3000, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -218,7 +218,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Dozzle", "slug": "dozzle", "icon": "dozzle",
         "description": "Real-time Docker container log viewer",
         "default_ports": [
-            {"port": 8080, "protocol": "tcp", "label": "Web UI",
+            {"port": 8080, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -226,7 +226,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "Dockge", "slug": "dockge", "icon": "dockge",
         "description": "Docker compose stack manager",
         "default_ports": [
-            {"port": 8085, "protocol": "tcp", "label": "Web UI",
+            {"port": 8085, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
@@ -285,7 +285,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "GitSync Connector", "slug": "gitsync", "icon": "gitsync",
         "description": "Git repository sync connector",
         "default_ports": [
-            {"port": 8020, "protocol": "tcp", "label": "Connector",
+            {"port": 8020, "protocol": "http", "label": "Connector",
              "probe_path": "", "probe_status": 0},
         ],
     },
@@ -343,7 +343,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "FlareSolverr", "slug": "flaresolverr", "icon": "flaresolverr",
         "description": "Cloudflare-challenge solver proxy",
         "default_ports": [
-            {"port": 8191, "protocol": "tcp", "label": "API",
+            {"port": 8191, "protocol": "http", "label": "API",
              "probe_path": "/", "probe_status": 0},
         ],
     },

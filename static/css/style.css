@@ -9497,10 +9497,20 @@ a.apps-port-pill {
   text-decoration: none;
   cursor: default;
 }
+/* Clickable (open_url + http/https) port — PERSISTENT indicator so it
+   reads as a link at rest, not only on hover (parity with the link marker
+   in the Apps tables): primary-tinted border + primary text + a dotted
+   underline on the port number. */
 .apps-port-pill--link {
   cursor: pointer;
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  color: var(--primary);
+}
+.apps-port-pill--link .mono {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 .apps-port-pill--link:hover {
   border-color: var(--primary);
-  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface-2));
 }

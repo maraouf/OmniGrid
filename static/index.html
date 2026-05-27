@@ -3376,7 +3376,7 @@
               </header>
             <!-- Per-host instance list -->
             <ul class="space-y-1 fs-xs">
-              <template x-for="inst in app.instances" :key="inst.host_id + ':' + inst.service_idx">
+              <template x-for="inst in appsVisibleInstances(app)" :key="inst.host_id + ':' + inst.service_idx">
                 <li class="flex flex-col gap-0.5">
                   <div class="flex items-center gap-2">
                     <span class="apps-card-dot"
@@ -3429,6 +3429,11 @@
                 </li>
               </template>
             </ul>
+            <!-- Show-all / Show-less toggle so an app on many hosts doesn't
+                 grow the card tall + break the grid's uniform rows. -->
+            <button type="button" x-show="appsInstancesCollapsible(app)"
+                    class="btn btn-ghost fs-3xs mt-1" @click.stop="toggleAppsInstances(app)"
+                    x-text="(appsInstancesExpanded[app.group_id]) ? (t('apps.show_less') || 'Show less') : (t('apps.show_all', { n: (app.instances || []).length }) || ('Show all (' + (app.instances || []).length + ')'))"></button>
             </div>
           </article>
         </template>
