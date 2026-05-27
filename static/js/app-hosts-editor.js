@@ -1614,11 +1614,17 @@ export default {
         ? hp.accepted_status_codes_text.trim()
         : (Array.isArray(hp.accepted_status_codes) ? hp.accepted_status_codes.join(',') : '');
       const testBody = {
-        urls: formUrls,
         accepted_status_codes: codesText,
         content_match: (hp.content_match || ''),
         verify_tls: hp.verify_tls !== false,
       };
+      // ONLY override urls when the row's http_probe.urls field is
+      // non-empty. A blank urls_text means the URLs come from the host's
+      // url / services[].url fallback chain — sending [] would make the
+      // backend report "no URLs" instead of resolving that chain.
+      if (formUrls.length) {
+        testBody.urls = formUrls;
+      }
       const resp = await fetch('/api/hosts/' + encodeURIComponent(h.id) + '/http-probe/test', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

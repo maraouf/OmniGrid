@@ -5486,6 +5486,17 @@
                                 x-data="{ mapped: portScanMappedApp(h, p) }"
                                 :class="portScanChipClass(h, p)"
                                 :title="portScanChipTitle(h, p)">
+                            <!-- Single status dot — green/red/amber/grey for the
+                                 mapped target. Prefers this port's per-port probe
+                                 verdict (port_status); falls back to the app's
+                                 overall status when there's no per-port result.
+                                 Rendered FIRST (before the port number) for parity
+                                 with the Apps port pills, which lead with the dot. -->
+                            <span x-show="mapped"
+                                  class="apps-card-dot me-1"
+                                  :class="mapped ? 'apps-card-dot--' + (mapped.port_status || mapped.status) : ''"
+                                  :title="mapped ? ((mapped.port_status || mapped.status) === 'up' ? (t('host_drawer.port_scan.probe_up') || 'Probe: reachable') : ((mapped.port_status || mapped.status) === 'down' ? (t('host_drawer.port_scan.probe_down') || 'Probe: unreachable') : '')) : ''"
+                                  aria-hidden="true"></span>
                             <!-- Asset-vs-scan mismatch marker — round
                                  exclamation icon prepended when the
                                  detected port isn't in the host's
@@ -5502,17 +5513,6 @@
                               </svg>
                             </template>
                             <span x-text="p.port + '/' + (p.protocol || 'tcp')"></span>
-                            <!-- Single status dot — green/red/amber/grey for the
-                                 mapped target. Prefers this port's per-port probe
-                                 verdict (port_status); falls back to the app's
-                                 overall status when there's no per-port result.
-                                 ONE dot per chip (the app annotation no longer
-                                 carries a second, redundant dot). -->
-                            <span x-show="mapped"
-                                  class="apps-card-dot ms-1"
-                                  :class="mapped ? 'apps-card-dot--' + (mapped.port_status || mapped.status) : ''"
-                                  :title="mapped ? ((mapped.port_status || mapped.status) === 'up' ? (t('host_drawer.port_scan.probe_up') || 'Probe: reachable') : ((mapped.port_status || mapped.status) === 'down' ? (t('host_drawer.port_scan.probe_down') || 'Probe: unreachable') : '')) : ''"
-                                  aria-hidden="true"></span>
                             <span x-show="p.service_hint" class="ms-1 opacity-70"
                                   x-text="'· ' + p.service_hint"></span>
                             <!-- Mapped-target annotation — when a scanned open
