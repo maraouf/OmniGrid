@@ -130,9 +130,16 @@
           <td class="py-2">
             <div class="flex flex-wrap gap-1">
               <template x-for="p in (entry.default_ports || [])" :key="p.port + ':' + p.protocol">
-                        <span class="chip pill-muted fs-2xs"
-                              :title="(p.label || '') + ' (' + p.protocol + ')'"
-                              x-text="p.port + (p.protocol !== 'tcp' ? '/' + p.protocol : '')"></span>
+                        <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5"
+                              :title="(p.label || '') + ' (' + p.protocol + ')' + (p.open_url ? ' — ' + (t('admin_apps.port_open_url') || 'opens as URL') : '')">
+                          <!-- Link indicator: this port is marked open-as-URL
+                               (clickable in the Apps view) — visible without
+                               opening the edit popup. -->
+                          <svg x-show="p.open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                          </svg>
+                          <span x-text="p.port + (p.protocol !== 'tcp' ? '/' + p.protocol : '')"></span>
+                        </span>
               </template>
               <span x-show="!(entry.default_ports || []).length" class="fs-2xs text-[var(--text-faint)] italic" x-text="t('admin_apps.no_ports') || 'no ports'"></span>
             </div>
@@ -277,9 +284,16 @@
             <td class="py-2 hidden md:table-cell">
               <div class="flex flex-wrap gap-1">
                 <template x-for="p in (inst.ports || [])" :key="p.port + ':' + (p.protocol || 'tcp')">
-                    <span class="chip pill-muted fs-2xs"
-                          :title="(p.label || '') + ' (' + (p.protocol || 'tcp') + ')'"
-                          x-text="p.port + ((p.protocol && p.protocol !== 'tcp') ? '/' + p.protocol : '')"></span>
+                    <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5"
+                          :title="(p.label || '') + ' (' + (p.protocol || 'tcp') + ')' + (p.open_url ? ' — ' + (t('admin_apps.port_open_url') || 'opens as URL') : '')">
+                      <!-- Open-as-URL indicator (inherited from the template at
+                           pin time, or set per-chip) — see it without opening
+                           the edit popup. -->
+                      <svg x-show="p.open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                      </svg>
+                      <span x-text="p.port + ((p.protocol && p.protocol !== 'tcp') ? '/' + p.protocol : '')"></span>
+                    </span>
                 </template>
                 <span x-show="!(inst.ports || []).length" class="fs-2xs text-[var(--text-faint)] italic"
                       x-text="t('admin_apps.no_ports') || 'no ports'"></span>

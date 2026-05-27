@@ -345,6 +345,38 @@ export default {
     return (proto === 'https' ? 'https' : 'http') + '://' + host + ':' + pr.port;
   },
 
+  // ---- Apps-view per-app host-list cap (Show all / Show less) --------
+  // An app pinned to many hosts would make its Apps-view card grow very
+  // tall and break the grid's uniform rows. Cap the rendered instance
+  // list at APPS_INSTANCES_COLLAPSED_LIMIT until the operator expands it.
+  _appsInstancesLimit() {
+    return 6;
+  },
+  appsVisibleInstances(app) {
+    const all = (app && Array.isArray(app.instances)) ? app.instances : [];
+    if (this.appsInstancesExpanded && this.appsInstancesExpanded[app.group_id]) {
+      return all;
+    }
+    return all.slice(0, this._appsInstancesLimit());
+  },
+  appsInstancesCollapsible(app) {
+    const all = (app && Array.isArray(app.instances)) ? app.instances : [];
+    return all.length > this._appsInstancesLimit();
+  },
+  appsInstancesHiddenCount(app) {
+    const all = (app && Array.isArray(app.instances)) ? app.instances : [];
+    return Math.max(0, all.length - this._appsInstancesLimit());
+  },
+  toggleAppsInstances(app) {
+    if (!app || !app.group_id) {
+      return;
+    }
+    if (!this.appsInstancesExpanded) {
+      this.appsInstancesExpanded = {};
+    }
+    this.appsInstancesExpanded[app.group_id] = !this.appsInstancesExpanded[app.group_id];
+  },
+
   // Aggregate app-health summary for a host's pinned apps — drives the
   // Hosts-view row "N apps" badge (count) AND its colour (aggregate
   // health). Returns {total, up, down, unknown, state} where state is
@@ -1014,14 +1046,14 @@ export default {
     }
     const confirmed = typeof this.confirmDialog === 'function'
       ? await this.confirmDialog({
-        title: this.t('admin_apps.delete_confirm_title') || 'Delete template?',
-        text: (this.t('admin_apps.delete_confirm_text')
-            || 'Per-host chips linked to this template will keep their own name + icon, just lose the catalog binding.')
-          + ' (' + entry.name + ')',
+        title: this.t('admin_apps.delete_confirm_title', {name: entry.name || ''})
+          || ('Delete ' + (entry.name || 'template') + '?'),
+        text: this.t('admin_apps.delete_confirm_text')
+          || 'Per-host chips linked to this template will keep their own name + icon, just lose the catalog binding.',
         icon: 'warning',
         confirmButtonText: this.t('actions.delete') || 'Delete',
       })
-      : window.confirm('Delete "' + entry.name + '"?');
+      : window.confirm('Delete "' + (entry.name || 'template') + '"?');
     if (!confirmed) {
       return;
     }

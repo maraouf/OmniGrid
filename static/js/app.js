@@ -223,6 +223,10 @@ function app() {
     appsListLoaded: false,
     appsListLoading: false,
     appsListError: '',
+    // Per-app (group_id) "show all hosts" toggle for the Apps-view card —
+    // an app on many hosts caps its instance list (see appsVisibleInstances)
+    // so the card doesn't grow tall and disrupt the grid.
+    appsInstancesExpanded: {},
     appsCatalog: [],
     appsCatalogLoaded: false,
     appsCatalogStatus: '',
