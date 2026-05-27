@@ -98,18 +98,21 @@
       <span x-show="appsCatalogStatus" class="fs-xs text-[var(--text-faint)]" x-text="appsCatalogStatus"></span>
     </div>
 
-    <!-- Search / filter — client-side over name / slug / description / port. -->
-    <div x-show="appsCatalogLoaded" class="flex items-center gap-2 mb-3 flex-wrap">
-      <div class="inline-flex items-center gap-1.5 flex-1 max-w-sm">
-        <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
-        </svg>
-        <input type="search" x-model="appsCatalogSearch" class="fs-sm flex-1"
-               :placeholder="t('admin_apps.search_placeholder') || 'Search templates by name, slug, or port…'"
-               :aria-label="t('admin_apps.search_placeholder') || 'Search templates'">
+    <!-- Search / filter — client-side over name / slug / description / port.
+         Full-width input (we have the room) with the match count beside it. -->
+    <div x-show="appsCatalogLoaded" class="mb-3">
+      <div class="flex items-center gap-2">
+        <div class="inline-flex items-center gap-1.5 flex-1">
+          <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+          </svg>
+          <input type="search" x-model="appsCatalogSearch" class="fs-sm flex-1 w-full"
+                 :placeholder="t('admin_apps.search_placeholder') || 'Search templates by name, slug, or port…'"
+                 :aria-label="t('admin_apps.search_placeholder') || 'Search templates'">
+        </div>
+        <span x-show="appsCatalogSearch.trim()" class="fs-2xs text-[var(--text-faint)] flex-shrink-0 whitespace-nowrap"
+              x-text="t('admin_apps.search_count', { shown: filteredAppsCatalog().length, total: appsCatalog.length }) || (filteredAppsCatalog().length + ' / ' + appsCatalog.length)"></span>
       </div>
-      <span x-show="appsCatalogSearch.trim()" class="fs-2xs text-[var(--text-faint)]"
-            x-text="t('admin_apps.search_count', { shown: filteredAppsCatalog().length, total: appsCatalog.length }) || (filteredAppsCatalog().length + ' / ' + appsCatalog.length)"></span>
     </div>
 
     <!-- Bulk-delete bar — appears when ≥1 template row is checked. Removes
@@ -552,14 +555,17 @@
          @click="closeAppCatalogPin()"></div>
     <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[480px] w-full mx-4">
       <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2 min-w-0">
+        <div class="flex items-center gap-1.5 min-w-0">
           <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pin"/>
           </svg>
+          <!-- Brand icon: collapse to display:none on load failure (NOT
+               visibility:hidden) so a missing icon leaves no empty 22px box
+               between the pin glyph and the title. -->
           <img x-show="appsPinForm.template"
                :src="iconUrlFor((appsPinForm.template && (appsPinForm.template.icon || appsPinForm.template.slug)) || '')"
                alt="" width="22" height="22" class="rounded flex-shrink-0"
-               @error="$event.target.style.visibility='hidden'">
+               @error="$event.target.style.display='none'">
           <h3 class="font-semibold fs-md truncate"
               x-text="(t('admin_apps.pin_title') || 'Pin to host') + (appsPinForm.template ? ' — ' + appsPinForm.template.name : '')"></h3>
         </div>
