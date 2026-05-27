@@ -55,33 +55,45 @@ else:
 
 # Per-connection SQLite tuning, applied on every db_conn() open.
 #
-# journal_mode=WAL lets readers proceed while a writer commits — the
-# default rollback journal takes an EXCLUSIVE lock that blocks ALL readers
-# for the commit's duration, which serializes the per-tick samplers + the
-# per-request session touch against the SPA's polls. busy_timeout makes a
-# contended open WAIT up to N ms instead of raising SQLITE_BUSY immediately
-# (the default is 0). synchronous=NORMAL is the SQLite-recommended pairing
-# with WAL: durable across an app crash, only at risk on an OS crash /
-# power loss, and much faster than the FULL default.
+# busy_timeout + synchronous=NORMAL are PER-CONNECTION settings that take NO
+# lock, so they run on every connection. busy_timeout makes a contended open
+# WAIT up to N ms instead of raising SQLITE_BUSY immediately (default 0);
+# synchronous=NORMAL is the SQLite-recommended pairing with WAL (durable
+# across an app crash, faster than the FULL default). busy_timeout is
+# env-overridable (DB_BUSY_TIMEOUT_MS) but NOT a DB-backed TUNABLE: resolving
+# a tunable opens a db_conn(), which would recurse through this function.
 #
-# busy_timeout is env-overridable (DB_BUSY_TIMEOUT_MS) but is NOT a
-# DB-backed TUNABLE: resolving a tunable opens a db_conn(), which would
-# recurse through this very function. journal_mode=WAL is persistent in the
-# DB header so it only truly needs setting once, but re-issuing it per
-# connection is cheap + idempotent and covers a fresh DB on first boot
-# without a dedicated migration. Wrapped defensively — a filesystem that
-# can't host the -wal / -shm files (some network mounts) must fall back to
-# the SQLite default rather than break every connection.
+# journal_mode=WAL lets readers proceed while a writer commits (the default
+# rollback journal takes an EXCLUSIVE lock that blocks all readers for the
+# commit). It is PERSISTENT in the DB header, so it only needs setting ONCE
+# per database — and SWITCHING it acquires a write lock. Re-issuing it on
+# EVERY connection (the original #0148 mistake) created a thundering-herd of
+# journal-switch lock attempts at startup (init + migrations + seed +
+# samplers all opening connections at once) AND during a start-first deploy
+# rollover (old + new container sharing the bind-mounted DB), which surfaced
+# as "database is locked" and could stall the new container's startup enough
+# to flap its healthcheck → 502. So WAL is attempted ONCE per process, on the
+# FIRST connection (init_db's, before the samplers start), gated by the
+# DB_WAL_ENABLED kill-switch (set 0/false/no/off to disable). On an
+# already-WAL DB the single attempt is a no-op (no mode change, no lock).
+# Wrapped defensively so a volume that can't host the -wal / -shm files (some
+# network mounts) falls back to the existing journal mode instead of breaking
+# the connection.
 _DB_BUSY_TIMEOUT_MS_DEFAULT = 5000
+_wal_attempted = False
+_WAL_ENABLED = (env_get(EnvKey.DB_WAL_ENABLED) or "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
 
 
 def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
-    """Enable WAL + busy_timeout + synchronous=NORMAL on a fresh connection.
+    """Per-connection SQLite tuning — see the module comment above.
 
     Best-effort: any PRAGMA failure (e.g. a volume that can't host WAL's
-    side files) is logged and swallowed so the connection still works on
-    SQLite defaults.
+    side files, or a rollover-window lock) is logged and swallowed so the
+    connection still works on the existing journal mode.
     """
+    global _wal_attempted
     raw = env_get(EnvKey.DB_BUSY_TIMEOUT_MS)
     try:
         busy_ms = int(raw) if raw else _DB_BUSY_TIMEOUT_MS_DEFAULT
@@ -91,22 +103,32 @@ def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
         busy_ms = _DB_BUSY_TIMEOUT_MS_DEFAULT
     try:
         # PRAGMA can't bind params; busy_ms is a sanitized int so the
-        # f-string is injection-safe.
+        # f-string is injection-safe. These two take no lock.
         conn.execute(f"PRAGMA busy_timeout={busy_ms}")
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
     except sqlite3.Error as e:
-        print(f"[db] PRAGMA tuning skipped ({e}); using SQLite defaults")
+        print(f"[db] busy_timeout/synchronous PRAGMA skipped ({e})")
+    # journal_mode=WAL exactly once per process (set the flag BEFORE the
+    # attempt so a failed switch during a rollover window isn't retried on
+    # every subsequent connection).
+    if _WAL_ENABLED and not _wal_attempted:
+        _wal_attempted = True
+        try:
+            row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+            print(f"[db] journal_mode set once -> {row[0] if row else '?'}")
+        except sqlite3.Error as e:
+            print(f"[db] journal_mode=WAL skipped ({e}); using existing journal mode")
 
 
 @contextmanager
 def db_conn():
     """Context-managed SQLite connection with Row factory.
 
-    Commits on clean exit, closes in finally. Every connection enables
-    WAL + a non-zero busy_timeout + synchronous=NORMAL (see
-    ``_apply_sqlite_pragmas``) so readers don't block behind a writer's
-    commit and a contended open waits instead of raising SQLITE_BUSY.
+    Commits on clean exit, closes in finally. Every connection gets a
+    non-zero busy_timeout + synchronous=NORMAL; WAL is enabled once per
+    process on the first connection (see ``_apply_sqlite_pragmas``) so
+    readers don't block behind a writer's commit and a contended open
+    waits instead of raising SQLITE_BUSY.
 
     Raises ``RuntimeError`` (not ``sqlite3.OperationalError``) if
     ``DB_PATH`` is unset — lets the config-error middleware in main.py

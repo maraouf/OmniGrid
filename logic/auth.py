@@ -36,6 +36,28 @@ from logic.env_keys import EnvKey, env_get
 # ----------------------------------------------------------------------------
 SESSION_LIFETIME = 8 * 3600  # 8h hard cap
 SESSION_SLIDE_WITHIN = 3600  # re-issue cookie if less than 1h left
+# Throttle for the per-request `last_seen_at` write. Pre-fix EVERY
+# authenticated request issued an `UPDATE sessions SET last_seen_at`, which
+# takes the DB write lock — so the SPA's steady-state polls + the per-host
+# fan-out serialized against each other AND the samplers, making clicks feel
+# laggy. We now write at most once per this many seconds PER SESSION, tracked
+# in the process-local `_LAST_SEEN_WRITE_TS` map (single-replica → a process
+# dict is authoritative). `last_seen_at` is a UI nicety (Admin → Sessions
+# "last seen"), so minute granularity is plenty. Env-overridable via
+# SESSION_LAST_SEEN_THROTTLE_SECONDS; 0 = write on every request (legacy).
+# Deliberately NOT a DB-backed tunable: resolving one would issue a SELECT on
+# this same per-request hot path, reintroducing the per-request DB I/O this
+# change removes. The slide-window write (rare, near expiry) stays
+# unconditional. The map holds ~one entry per active cookie session (8h cap),
+# so its cardinality is bounded by the live session count.
+_LAST_SEEN_THROTTLE_DEFAULT = 60
+try:
+    _LAST_SEEN_THROTTLE_SECONDS = max(
+        0, int(env_get(EnvKey.SESSION_LAST_SEEN_THROTTLE_SECONDS) or _LAST_SEEN_THROTTLE_DEFAULT)
+    )
+except (TypeError, ValueError):
+    _LAST_SEEN_THROTTLE_SECONDS = _LAST_SEEN_THROTTLE_DEFAULT
+_LAST_SEEN_WRITE_TS: dict[str, int] = {}
 COOKIE_NAME = "og_session"
 CSRF_COOKIE = "og_csrf"
 
@@ -1474,13 +1496,29 @@ def slide_session_if_needed(
     """
     now = int(time.time())
     if current_expires_at - now > SESSION_SLIDE_WITHIN:
-        conn.execute("UPDATE sessions SET last_seen_at=? WHERE token_id=?", (now, token_id))
+        # Throttle the last_seen_at write to at most once per
+        # _LAST_SEEN_THROTTLE_SECONDS per session (see the constant's
+        # comment). Skipping it just leaves last_seen_at up to the throttle
+        # window stale, which is fine for the UI. 0 = write every request.
+        last_write = _LAST_SEEN_WRITE_TS.get(token_id, 0)
+        if _LAST_SEEN_THROTTLE_SECONDS <= 0 or (now - last_write) >= _LAST_SEEN_THROTTLE_SECONDS:
+            conn.execute("UPDATE sessions SET last_seen_at=? WHERE token_id=?", (now, token_id))
+            _LAST_SEEN_WRITE_TS[token_id] = now
+            # Bound the map's memory — drop entries for sessions older than
+            # the hard lifetime cap (expired / revoked) when it grows large.
+            if len(_LAST_SEEN_WRITE_TS) > 4096:
+                cutoff = now - SESSION_LIFETIME
+                for tid in [k for k, v in _LAST_SEEN_WRITE_TS.items() if v < cutoff]:
+                    del _LAST_SEEN_WRITE_TS[tid]
         return None
     new_expires_at = now + SESSION_LIFETIME
     conn.execute(
         "UPDATE sessions SET last_seen_at=?, expires_at=? WHERE token_id=?",
         (now, new_expires_at, token_id),
     )
+    # Keep the throttle map consistent — we just wrote last_seen_at here, so
+    # the next common-path request won't immediately re-write it.
+    _LAST_SEEN_WRITE_TS[token_id] = now
     # publish a session:renewed event so the SPA tab
     # can update its "session expires in X" tooltip in real time
     # without polling. Best-effort: never let a publish failure block

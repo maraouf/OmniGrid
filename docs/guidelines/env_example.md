@@ -58,6 +58,15 @@ DB_PATH=/app/data/omnigrid.db
 # NOT a DB-backed tunable — resolving one would itself re-open the DB.
 # Unset = 5000 ms default; 0 keeps SQLite's immediate-fail behaviour.
 DB_BUSY_TIMEOUT_MS=5000
+
+# Master switch for SQLite WAL journal mode (default ON). WAL lets readers
+# proceed while a writer commits. WAL is set ONCE per process on the first
+# connection (switching journal mode takes a write lock; re-issuing it per
+# connection storms the lock at startup / during a deploy rollover). Set
+# 0/false/no/off to disable — the app then runs on the existing journal mode
+# (busy_timeout + synchronous still apply). A kill-switch so you can turn WAL
+# off without a code change if a filesystem can't host the -wal/-shm files.
+DB_WAL_ENABLED=1
 ```
 
 ## Runtime tuning (process-level)
@@ -651,6 +660,15 @@ PING_PACKET_INTERVAL_MS=200
 # Leaving this empty auto-generates an ephemeral one at startup; sessions
 # will then die on every restart. Set it explicitly in prod.
 SESSION_SECRET=
+
+# How often (seconds) to persist a session's `last_seen_at` (the Admin →
+# Sessions "last seen" column). The auth middleware touches this on every
+# authenticated request; throttling it to ~once/minute/session removes a
+# per-request DB write that otherwise serializes the SPA's polls + per-host
+# fan-out against the samplers. 0 = write on every request (legacy). Unset
+# = 60. Env-only (a DB-backed tunable would re-read the DB on this same hot
+# path, defeating the point).
+SESSION_LAST_SEEN_THROTTLE_SECONDS=60
 ```
 
 ## Auth — OIDC SSO (UI-managed, NO env vars)
@@ -759,7 +777,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `VERIFY_TLS`                      | Bootstrap   | `true`               | Stored as `portainer_verify_tls` after seeding.                                 |
 | `DB_TYPE`                         | Runtime     | `sqlite`             | Database backend. Supported: `sqlite`. Invalid value → config-error page.       |
 | `DB_PATH`                         | Runtime     | `/app/data/omnigrid.db` | SQLite path inside container.                                                   |
-| `DB_BUSY_TIMEOUT_MS`              | Runtime     | `5000`               | SQLite per-connection busy_timeout (ms) — a contended open waits this long before `SQLITE_BUSY`. WAL is always on; env-only (a DB tunable would re-open the DB). |
+| `DB_BUSY_TIMEOUT_MS`              | Runtime     | `5000`               | SQLite per-connection busy_timeout (ms) — a contended open waits this long before `SQLITE_BUSY`. Env-only (a DB tunable would re-open the DB). |
+| `DB_WAL_ENABLED`                  | Runtime     | `1`                  | Master switch for SQLite WAL (set once per process on the first connection). `0`/`false`/`no`/`off` disables it (busy_timeout + synchronous still apply). Kill-switch for filesystems that can't host `-wal`/`-shm`. |
 | `CACHE_TTL_SECONDS`               | Runtime     | `900`                | Items cache TTL.                                                                |
 | `STATS_CACHE_TTL_SECONDS`         | Runtime     | `30`                 | Stats cache TTL.                                                                |
 | `REGISTRY_CONCURRENCY`            | Runtime     | `8`                  | Parallel remote-digest fetches.                                                 |
@@ -900,6 +919,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |
+| `SESSION_LAST_SEEN_THROTTLE_SECONDS` | Auth     | `60`                 | Min seconds between per-session `last_seen_at` writes (Admin → Sessions). Throttles a per-request DB write that serialized polls against samplers. `0` = every request. Env-only. |
 | `BOOTSTRAP_ADMIN_USER`            | First-boot  | unset                | First-boot-only admin seed.                                                     |
 | `BOOTSTRAP_ADMIN_PASSWORD`        | First-boot  | unset                | First-boot-only admin seed.                                                     |
 
