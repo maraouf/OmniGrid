@@ -344,15 +344,38 @@ export default {
     // Append the per-port HTTP path (e.g. Pi-hole's /admin/) so the link
     // lands on the app's real entry point, not the bare host root. Uses the
     // same `probe_path` the HTTP health probe hits; normalise to a leading
-    // slash. A bare '/' adds nothing, so skip it.
+    // slash. A bare '/' adds nothing, so skip it. BUT health-check endpoints
+    // (/ping, /api/v1/info, /healthz, …) are NOT user-facing pages — the
+    // probe keeps hitting them, but the clickable link drops them so it
+    // opens the app's UI root instead of a JSON/health response.
     let path = String(pr.probe_path || '').trim();
-    if (path && path !== '/') {
+    if (path && path !== '/' && !this._isHealthCheckPath(path)) {
       if (path[0] !== '/') {
         path = '/' + path;
       }
       return base + path;
     }
     return base;
+  },
+
+  // True when a probe_path is a health/status endpoint (not a navigable
+  // page) — so appsPortHref drops it from the clickable URL while the
+  // probe still hits it. Matches the common health paths + the `/api/vN/…`
+  // info/health family. Trailing slashes are ignored.
+  _isHealthCheckPath(path) {
+    const p = String(path || '').trim().toLowerCase().replace(/\/+$/, '');
+    if (!p) {
+      return false;
+    }
+    const exact = [
+      '/ping', '/health', '/healthz', '/healthcheck', '/api/health',
+      '/status', '/-/healthy', '/-/ready', '/livez', '/readyz', '/health/ready',
+    ];
+    if (exact.includes(p)) {
+      return true;
+    }
+    // /api/v1/info (NetData), /api/v2/info, /api/v1/health, etc.
+    return /^\/api\/v\d+\/(?:info|health|status|ready)$/.test(p);
   },
 
   // ---- Apps-view per-app host-list cap (Show all / Show less) --------
@@ -1343,6 +1366,13 @@ export default {
         continue;
       }
       if (it.type === 'container' || it.type === 'orphan') {
+        // Only offer RUNNING containers as link targets. Exclude stopped /
+        // exited / dead / removed (orphan task) + offline ("faulty")
+        // containers — none of them are a useful restart / update target
+        // and they only clutter the picker.
+        if ((it.state || '').toLowerCase() !== 'running') {
+          continue;
+        }
         containers.push({id: it.id, label: it.name + (it.node ? ' · ' + it.node : ''), name: it.name, host: it.node || ''});
       } else if (it.type === 'service') {
         services.push({id: it.id, label: it.name + (it.stack ? ' · ' + it.stack : ''), name: it.name, host: ''});
@@ -1621,7 +1651,8 @@ export default {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
         return 'pp_' + window.crypto.randomUUID();
       }
-    } catch (_e) { /* fall through */ }
+    } catch (_e) { /* fall through */
+    }
     return 'pp_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
   },
 
