@@ -596,25 +596,22 @@ export default {
     {
       name: 'service_probe', label: 'Service probe',
       // Per-service-chip reachability sampler — surfaces when ANY
-      // `services[].probe.enabled === true`. NOTE: the curated path
-      // walks `row.services` (raw operator config); the API path also
-      // walks `h.services` — UNLIKE the other providers, the API row
-      // DOES carry the operator's services[] array (`_shape_host_api_row`
-      // passes it through). This is the one case where the curated +
-      // API shapes ARE structurally identical.
+      // `services[].probe.enabled === true`. The curated path walks
+      // `row.services` (raw config array). The API path CANNOT do the
+      // same: `_shape_host_api_row` overwrites the row's `services` key
+      // with the Beszel systemd ROLLUP object ({total, failed, ...}),
+      // not the curated array — so it stamps a backend-computed
+      // `service_probe_has_targets` boolean instead (mirroring
+      // `http_probe_has_targets`), which the API gate reads here.
       curatedGate: r => !!(Array.isArray(r.services)
         && r.services.some(s => s && s.probe && s.probe.enabled === true)),
-      apiGate: h => !!(Array.isArray(h.services)
-        && h.services.some(s => s && s.probe && s.probe.enabled === true)),
+      apiGate: h => !!h.service_probe_has_targets,
       apiStatus: () => null,
-      // Fingerprint a stable digest of which services have probes on —
-      // operator toggling probe.enabled on a single chip should
-      // invalidate without forcing a deep-equal walk per Alpine tick.
-      fpFields: h => (Array.isArray(h.services)
-        ? h.services.map((s, i) => (s && s.probe && s.probe.enabled === true)
-          ? String(i)
-          : '').filter(Boolean).join(',')
-        : ''),
+      // Fingerprint the backend has-targets boolean — the API row carries
+      // the Beszel rollup under `services`, not the curated array, so the
+      // per-chip digest can't be computed here; the boolean flips whenever
+      // the host gains/loses a probe-enabled service chip.
+      fpFields: h => (h.service_probe_has_targets ? '1' : ''),
     },
   ],
 

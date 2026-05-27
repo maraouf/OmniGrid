@@ -36,7 +36,6 @@ from logic.tuning import Tunable as _Tunable
 from logic.db import (
     db_conn,
     get_setting_bool,
-    active_host_stats_providers,
     iter_curated_hosts,
 )
 from logic.settings_keys import Settings
@@ -290,9 +289,18 @@ async def host_http_sampler_loop() -> None:
     tick = 0
     while True:
         try:
-            active = active_host_stats_providers()
             master_enabled = get_setting_bool(Settings.HTTP_PROBE_ENABLED)
-            if "http_probe" not in active or not master_enabled:
+            # Gate ONLY on the master toggle — matching service_sampler.
+            # http_probe is a master-toggle provider (the SPA's
+            # hasHostStatsSource() special-cases it, NOT a host_stats_source
+            # CSV member). Requiring the CSV token too was a desync trap:
+            # if the toggle was enabled before _sync_host_stats_source landed
+            # (or via a path that didn't re-save settings), the token never
+            # entered the CSV and the sampler stayed permanently dormant
+            # → "Updated 18d ago" with no obvious cause. Per-host opt-in is
+            # already enforced by _curated_http_probe_hosts() (http_probe.enabled
+            # + resolvable URLs), so dropping the CSV gate cannot over-probe.
+            if not master_enabled:
                 pass  # globally disabled — stay alive for runtime toggle
             else:
                 hosts = _curated_http_probe_hosts()

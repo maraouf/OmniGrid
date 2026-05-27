@@ -261,6 +261,16 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Proxmox VE", "slug": "proxmox", "icon": "proxmox",
+        "description": "Proxmox Virtual Environment (hypervisor management UI)",
+        "default_ports": [
+            {"port": 8006, "protocol": "https", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+            {"port": 8443, "protocol": "tcp", "label": "Proxmox 8443",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "PostgreSQL", "slug": "postgresql", "icon": "postgresql",
         "description": "PostgreSQL relational database server",
         "default_ports": [
