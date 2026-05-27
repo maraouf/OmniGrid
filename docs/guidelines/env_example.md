@@ -421,6 +421,13 @@ PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK=5
 PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS=1800
 PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY=1
 
+# How long a schedule may sit marked "running" (previous fire recorded but
+# never completed — waiter died / op hung / container killed mid-run) before
+# the next tick treats it as a wedged ghost and re-fires it. Self-heals a
+# stuck schedule without a restart. Raise if you run a legitimately long
+# schedule that can exceed this. Range 600..86400.
+SCHEDULE_STUCK_RUN_THRESHOLD_SECONDS=3600
+
 # Per-vendor SNMP walk-concurrency overrides. When `active_vendors`
 # auto-detect resolves to EXACTLY ONE vendor AND no per-host override is set
 # AND the vendor's tunable is non-zero, the resolver picks the vendor-specific
@@ -833,6 +840,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK` | Runtime | `5`                | `port_scan_refresh` runner cap — max hosts touched per tick (oldest-scanned-first). Range 1..50. |
 | `PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS` | Runtime  | `1800`               | `port_scan_refresh` runner — min age (s) of a host's previous scan before re-eligible. Range 60..86400. |
 | `PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY` | Runtime | `1`              | `port_scan_refresh` runner — host-level parallelism within ONE tick (per-host scan still uses `PORT_SCAN_DEFAULT_CONCURRENCY`). Range 1..4. |
+| `SCHEDULE_STUCK_RUN_THRESHOLD_SECONDS` | Runtime | `3600`            | Seconds a schedule may sit marked "running" (fire recorded, completion never stamped — waiter died / op hung / killed mid-run) before the next tick treats it as a wedged ghost and re-fires. Self-heals without a restart. Raise above a legitimately long schedule's runtime. Range 600..86400. |
 | `SNMP_WALK_CONCURRENCY_DELL`      | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override. 0 = disabled (fall through to `SNMP_PER_HOST_WALK_CONCURRENCY`). Range 0..16. |
 | `SNMP_WALK_CONCURRENCY_CISCO`     | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (Cisco). Range 0..16. |
 | `SNMP_WALK_CONCURRENCY_SYNOLOGY`  | Runtime     | `0`                  | Per-vendor SNMP walk-concurrency override (Synology). Range 0..16. |

@@ -395,6 +395,11 @@ export default {
     'tuning_port_scan_schedule_max_hosts_per_tick',
     'tuning_port_scan_schedule_min_age_seconds',
     'tuning_port_scan_schedule_per_host_concurrency',
+    // Scheduler wedged-run self-heal — how long a schedule may sit with
+    // last_duration=NULL (waiter died / op hung) before the next tick
+    // treats it as a ghost and re-fires. Consumed by
+    // logic/schedules.py:_is_previous_run_active.
+    'tuning_schedule_stuck_run_threshold_seconds',
     // Backup retention count — rendered under Admin → Backups
     // (form field "Keep N most recent backups"). 0 = keep all.
     'tuning_backup_retention_count',

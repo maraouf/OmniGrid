@@ -2676,20 +2676,47 @@ def seed_default_schedules(conn: sqlite3.Connection, nodes: list[str]) -> None:
 # ----------------------------------------------------------------------------
 # Tick loop — lifespan task
 # ----------------------------------------------------------------------------
+def _stuck_run_threshold_seconds() -> int:
+    """Seconds a fire may sit with last_duration=NULL before it's treated
+    as a wedged ghost (waiter died / op hung / lifespan cancelled mid-run)
+    and allowed to re-fire. Per-use read so an Admin -> Config change takes
+    effect on the next tick without a restart."""
+    from logic.tuning import Tunable, tuning_int
+    return tuning_int(Tunable.SCHEDULE_STUCK_RUN_THRESHOLD_SECONDS)
+
+
 def _is_previous_run_active(schedule: dict) -> bool:
     """True when the schedule's previous fire hasn't recorded completion yet.
 
-    Two signals:
+    Signals:
       1. `last_op_id` is set but `last_duration` is NULL — the waiter
-         hasn't stamped the outcome yet. That's the authoritative
-         in-memory signal regardless of kind.
+         hasn't stamped the outcome yet. Normally means genuinely
+         in-flight, regardless of kind.
       2. If the op is still in the ops.py live dict with status='running',
          belt-and-braces for ops.py-backed kinds.
+
+    Self-heal for the NULL-duration case: if the fire was recorded longer
+    ago than the stuck-run threshold, the waiter almost certainly died
+    (op hung forever, process killed mid-run, lifespan cancelled before
+    the second record_run) — last_duration would otherwise stay NULL
+    FOREVER and the schedule would be skipped on every tick until the
+    next restart re-runs the startup ghost-sweep. Treat it as a wedged
+    ghost and allow the next tick to re-fire. This is TIME-based (not
+    _ops.ops-based) on purpose: synthetic-op kinds (gather_refresh) never
+    enter the live ops dict, so a dict-membership check can't tell a
+    running synthetic op from a wedged one — elapsed wall-clock can.
     """
     last_op_id = schedule.get("last_op_id")
     if not last_op_id:
         return False
     if schedule.get("last_duration") is None:
+        last_run = int(schedule.get("last_run_at") or 0)
+        if last_run and (int(time.time()) - last_run) > _stuck_run_threshold_seconds():
+            print(
+                f"[scheduler] '{schedule.get('name')}' previous run wedged "
+                f"(last_duration NULL for > threshold) — allowing re-fire"
+            )
+            return False
         return True
     live = _ops.ops.get(str(last_op_id))
     return bool(live and getattr(live, "status", None) == "running")

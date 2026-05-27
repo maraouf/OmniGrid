@@ -1577,6 +1577,9 @@ class SettingsIn(BaseModel):
     tuning_port_scan_schedule_max_hosts_per_tick: Optional[str] = None
     tuning_port_scan_schedule_min_age_seconds: Optional[str] = None
     tuning_port_scan_schedule_per_host_concurrency: Optional[str] = None
+    # Scheduler wedged-run self-heal threshold (s) — see
+    # `logic.schedules._is_previous_run_active`.
+    tuning_schedule_stuck_run_threshold_seconds: Optional[str] = None
     # / SSE heartbeat cadence + connection lifetime cap.
     tuning_sse_heartbeat_seconds: Optional[str] = None
     tuning_sse_max_lifetime_seconds: Optional[str] = None
