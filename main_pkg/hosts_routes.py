@@ -237,6 +237,51 @@ def _build_provider_state_index() -> dict:
                 "paused_at": 0,
                 "last_ok_ts": ts,
             }
+    # Derived-last_ok fallback for the master-toggle providers
+    # (http_probe / service_probe). Their `host_provider_last_ok` row is
+    # stamped by the background samplers on a SUCCESSFUL outcome — but
+    # the "Updated X ago" chip subtitle must stay honest even if that
+    # stamp path ever gaps (a probe wrote a sample row but the
+    # outcome-record was interrupted, a schema blip, a transient
+    # exception swallowed by the sampler's outer catch). The sample
+    # tables are the ground truth for "when did this provider last
+    # report OK", so derive last_ok from the latest successful sample
+    # when no canonical stamp exists. Gap-fill ONLY (last_ok_ts == 0) —
+    # the explicit stamp always wins. Two bulk GROUP BY queries on the
+    # (host_id, ts) index; cheap on the once-per-TTL index build.
+    try:
+        with db_conn() as c:
+            derived = (
+                ("http_probe",
+                 "SELECT host_id, MAX(ts) FROM host_http_samples "
+                 "WHERE status_ok = 1 GROUP BY host_id"),
+                ("service_probe",
+                 "SELECT host_id, MAX(ts) FROM service_samples "
+                 "WHERE alive = 1 GROUP BY host_id"),
+            )
+            for provider, sql in derived:
+                for srow in c.execute(sql).fetchall():
+                    hid = srow[0] or ""
+                    max_ts = int(srow[1] or 0)
+                    if not hid or not max_ts:
+                        continue
+                    entry = by_host.setdefault(hid, {}).get(provider)
+                    if entry is None:
+                        by_host.setdefault(hid, {})[provider] = {
+                            "paused": False,
+                            "consecutive_failures": 0,
+                            "last_error": "",
+                            "first_failure_ts": 0,
+                            "last_failure_ts": 0,
+                            "paused_at": 0,
+                            "last_ok_ts": max_ts,
+                        }
+                    elif not entry.get("last_ok_ts"):
+                        entry["last_ok_ts"] = max_ts
+    except (sqlite3.Error, OSError) as e:
+        # Missing table (fresh deploy) / DB blip — non-fatal; the
+        # canonical host_provider_last_ok rows above still apply.
+        print(f"[hosts] derived http/service last_ok fallback skipped: {e}")
     return by_host
 
 

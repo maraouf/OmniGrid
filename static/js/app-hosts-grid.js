@@ -11,6 +11,30 @@
 
 import {CURATED_REFRESH_FIELDS} from './app-curated-fields.js?v=__APP_VERSION__';
 
+// Per-flush memo for filteredHosts(). The getter is read ~4× per
+// reactive flush — groupedHosts() calls it on line 1 of its body
+// (desktop AND mobile x-for both invoke groupedHosts), plus the two
+// `filteredHosts().length` count bindings in index.html. Each call
+// re-runs the full filter + sort + per-host hostEnabledAgents() walk
+// (O(N) with per-host array allocations). The cache holds the result
+// for exactly ONE synchronous flush and is dropped on the next
+// microtask, so it can NEVER serve a stale list across a genuine state
+// change: Alpine re-runs the binding on the next flush, by which point
+// the cache is already cleared. Pure within-flush dedup, zero staleness
+// risk — the safe "measured subset" of the hosts/settings perf work
+// (a store migration would NOT help: Alpine reactivity is per-property
+// fine-grained and Alpine.store() is the same deep Proxy, so the getter
+// would re-run identically regardless of where `hosts` lives). Module-
+// scope (non-reactive) so writing the cache can't re-trigger the effect
+// that reads it. There is exactly one app() component instance, so a
+// module-level singleton is correct.
+let _filteredHostsFlushCache = null;
+let _filteredHostsFlushScheduled = false;
+function _clearFilteredHostsFlushCache() {
+  _filteredHostsFlushCache = null;
+  _filteredHostsFlushScheduled = false;
+}
+
 export default {
   providerStates(h) {
     if (!h) {
@@ -1352,6 +1376,10 @@ export default {
     return this.hostHasCpuMetric(h) || this.hostHasMemMetric(h) || this.hostHasDiskMetric(h);
   },
   filteredHosts() {
+    // Per-flush memo — see _filteredHostsFlushCache at module scope.
+    if (_filteredHostsFlushCache !== null) {
+      return _filteredHostsFlushCache;
+    }
     const q = (this.hostsSearch || '').trim().toLowerCase();
     const statusWeight = (s) => {
       switch ((s || '').toLowerCase()) {
@@ -1531,6 +1559,13 @@ export default {
         break;
     }
     list.sort(cmp);
+    // Stash for the rest of THIS flush; drop on the next microtask so
+    // the next reactive flush recomputes against fresh state.
+    _filteredHostsFlushCache = list;
+    if (!_filteredHostsFlushScheduled) {
+      _filteredHostsFlushScheduled = true;
+      queueMicrotask(_clearFilteredHostsFlushCache);
+    }
     return list;
   },
   // True when this host has SNMP data worth charting (per-core CPU

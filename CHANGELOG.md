@@ -45,6 +45,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Changed
 
+- The Hosts view is snappier on large fleets: the host filter/sort/group computation is now memoized per render pass, so it runs once instead of several times per update (it was recomputed by both the desktop and mobile layouts plus the count badges every time a single host's stats refreshed). No change to filtering, sorting, grouping, or the live in-place row updates.
 - The Apps discovery wizard now proposes every catalog app applicable to an open port — including single-port apps on shared ports like 8080 (Dozzle / qBittorrent) or 3000 (Forgejo / Grafana / AdGuard Home) that were previously suppressed — so you can pick the right one. A port already mapped to an app on the host is still never offered again (no over-mapping); best/exact matches rank first.
 - The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
 - Apps latency now displays with a thousands separator and a space before the unit (e.g. "1,234 ms"), and the App detail drawer's Probe-now / Show-debug buttons now have icons matching the host drawer.
