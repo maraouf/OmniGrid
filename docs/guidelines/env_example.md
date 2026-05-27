@@ -50,6 +50,14 @@ DB_TYPE=sqlite
 # on the host via the bind mount in docker-compose.yml. Change only if you
 # relocate the bind mount.
 DB_PATH=/app/data/omnigrid.db
+
+# SQLite busy_timeout in milliseconds (per-connection). How long a
+# contended open WAITS for the write lock before raising SQLITE_BUSY.
+# OmniGrid runs the DB in WAL mode (readers don't block the writer), so
+# this only bites under heavy concurrent writes (many samplers + requests).
+# NOT a DB-backed tunable — resolving one would itself re-open the DB.
+# Unset = 5000 ms default; 0 keeps SQLite's immediate-fail behaviour.
+DB_BUSY_TIMEOUT_MS=5000
 ```
 
 ## Runtime tuning (process-level)
@@ -751,6 +759,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `VERIFY_TLS`                      | Bootstrap   | `true`               | Stored as `portainer_verify_tls` after seeding.                                 |
 | `DB_TYPE`                         | Runtime     | `sqlite`             | Database backend. Supported: `sqlite`. Invalid value → config-error page.       |
 | `DB_PATH`                         | Runtime     | `/app/data/omnigrid.db` | SQLite path inside container.                                                   |
+| `DB_BUSY_TIMEOUT_MS`              | Runtime     | `5000`               | SQLite per-connection busy_timeout (ms) — a contended open waits this long before `SQLITE_BUSY`. WAL is always on; env-only (a DB tunable would re-open the DB). |
 | `CACHE_TTL_SECONDS`               | Runtime     | `900`                | Items cache TTL.                                                                |
 | `STATS_CACHE_TTL_SECONDS`         | Runtime     | `30`                 | Stats cache TTL.                                                                |
 | `REGISTRY_CONCURRENCY`            | Runtime     | `8`                  | Parallel remote-digest fetches.                                                 |

@@ -5063,23 +5063,27 @@
                               </button>
                             </template>
                           </span>
-                      <!-- Last successful probe timestamp subtitle.
-                               Reads provider_pause_state[<name>].last_ok_ts
-                               (epoch seconds). Hidden when the provider has
-                               never had a successful probe recorded yet
-                               (last_ok_ts === 0 or null). Helps operators
-                               distinguish "this chip is fine but we haven't
-                               heard from it in 6 hours" from "fresh data". -->
-                      <!-- One-line subtitle: last-OK age · sample count ·
-                               cadence. Collapsed from three stacked
-                               fs-3xs-half lines into a single dot-separated
-                               string (providerChipSubtitle) so a host with
-                               several providers doesn't grow a tall column
-                               of micro-text. Each segment is included only
-                               when its value is present. -->
-                      <span x-show="providerChipSubtitle(h, agent.name)"
+                      <!-- Per-provider stat subtitle — three stacked
+                               micro-text lines (last-OK age, sample count,
+                               cadence), each shown below the other so the
+                               display reads correctly. Per user request
+                               these are NOT collapsed onto one dot-separated
+                               line. Each line is gated on its own value, so
+                               a chip with no data yet shows nothing; the
+                               flex-col wrapper above stacks them via gap-0.5.
+                               last-OK reads
+                               provider_pause_state[<name>].last_ok_ts (epoch
+                               seconds) — hidden until the provider has had at
+                               least one successful probe. -->
+                      <span x-show="providerLastOkSeconds(h, agent.name) > 0"
                             class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
-                            x-text="providerChipSubtitle(h, agent.name)"></span>
+                            x-text="t('hosts_extra.provider_last_ok', { age: providerLastOkAge(h, agent.name) })"></span>
+                      <span x-show="providerSampleCount(h, agent.name) > 0"
+                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
+                            x-text="t('hosts_extra.provider_sample_count', { count: Number(providerSampleCount(h, agent.name)).toLocaleString() })"></span>
+                      <span x-show="providerSampleInterval(h, agent.name) > 0"
+                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
+                            x-text="t('hosts_extra.provider_sample_interval', { every: providerSampleIntervalLabel(h, agent.name) })"></span>
                     </div>
                   </template>
                 </div>

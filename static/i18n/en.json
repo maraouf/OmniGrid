@@ -4838,6 +4838,7 @@
     "chip_tooltip": "{name} — {status}",
     "error_suffix": " — {error}",
     "host_tooltip": "{host} — {label}",
+    "spark_title": "Uptime {pct}% over the last {n} probes",
     "drawer": {
       "title": "App detail",
       "open": "View app details",
