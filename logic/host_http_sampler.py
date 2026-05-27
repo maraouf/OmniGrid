@@ -229,7 +229,14 @@ def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
         rows.append((
             ts, host_id, url,
             r.get("status_code"),
-            1 if r.get("status_ok") else 0,
+            # Per-URL health signal the drawer card reads. status_ok is
+            # "HTTP status accepted"; OR-in tls_refused_reachable so a
+            # verify-off URL that's TCP-reachable but refuses the TLS
+            # handshake (e.g. nginx ssl_reject_handshake) persists as
+            # healthy — matching the live Test (which keys off the overall
+            # `ok`). Without this the sampler stored status_ok=0 and the
+            # card showed red while the Test showed green.
+            1 if (r.get("status_ok") or r.get("tls_refused_reachable")) else 0,
             1 if r.get("content_match_ok") else 0,
             r.get("tls_expires_in_days"),
             _clamp200(r.get("tls_subject")),

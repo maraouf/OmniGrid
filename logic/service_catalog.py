@@ -241,6 +241,26 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "MySQL", "slug": "mysql", "icon": "mysql",
+        "description": "MySQL relational database server",
+        "default_ports": [
+            {"port": 3306, "protocol": "tcp", "label": "MySQL",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
+        "name": "UniFi OS Server", "slug": "unifi-os-server", "icon": "unifi",
+        "description": "Ubiquiti UniFi OS Server (network controller)",
+        "default_ports": [
+            {"port": 8080, "protocol": "http", "label": "Device inform",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+            {"port": 8443, "protocol": "https", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+            {"port": 11443, "protocol": "https", "label": "UniFi OS UI",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+        ],
+    },
+    {
         "name": "PostgreSQL", "slug": "postgresql", "icon": "postgresql",
         "description": "PostgreSQL relational database server",
         "default_ports": [

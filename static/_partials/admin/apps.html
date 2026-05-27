@@ -136,6 +136,7 @@
 
     <div x-show="!appsCatalogLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
+      <span class="fs-sm text-[var(--text-dim)]" x-text="t('common.loading') || 'Loading…'"></span>
     </div>
 
     <table x-show="appsCatalogLoaded" class="w-full fs-sm">
@@ -314,6 +315,7 @@
     </div>
     <div x-show="!appsInstancesLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>
+      <span class="fs-sm text-[var(--text-dim)]" x-text="t('common.loading') || 'Loading…'"></span>
     </div>
     <table x-show="appsInstancesLoaded" class="w-full fs-sm">
       <thead>

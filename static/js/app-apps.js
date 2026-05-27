@@ -368,14 +368,23 @@ export default {
       return false;
     }
     const exact = [
-      '/ping', '/health', '/healthz', '/healthcheck', '/api/health',
+      '/ping', '/health', '/healthz', '/healthcheck', '/api/health', '/api/healthz',
       '/status', '/-/healthy', '/-/ready', '/livez', '/readyz', '/health/ready',
+      '/health/live', '/health/ready', '/health/started',
+      '/metrics', '/-/metrics',
     ];
     if (exact.includes(p)) {
       return true;
     }
     // /api/v1/info (NetData), /api/v2/info, /api/v1/health, etc.
-    return /^\/api\/v\d+\/(?:info|health|status|ready)$/.test(p);
+    if (/^\/api\/v\d+\/(?:info|health|status|ready)$/.test(p)) {
+      return true;
+    }
+    // Prometheus / k8s style: /-/health, /-/health/live, /-/health/ready,
+    // /-/live, /-/started, /healthz/live, etc.
+    return /^\/-\/health(?:\/(?:live|ready|started))?$/.test(p)
+      || /^\/-\/(?:live|started)$/.test(p)
+      || /^\/healthz?\/(?:live|ready|started)$/.test(p);
   },
 
   // ---- Apps-view per-app host-list cap (Show all / Show less) --------
