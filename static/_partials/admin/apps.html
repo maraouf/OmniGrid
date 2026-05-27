@@ -98,6 +98,20 @@
       <span x-show="appsCatalogStatus" class="fs-xs text-[var(--text-faint)]" x-text="appsCatalogStatus"></span>
     </div>
 
+    <!-- Search / filter — client-side over name / slug / description / port. -->
+    <div x-show="appsCatalogLoaded" class="flex items-center gap-2 mb-3 flex-wrap">
+      <div class="inline-flex items-center gap-1.5 flex-1 max-w-sm">
+        <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+        </svg>
+        <input type="search" x-model="appsCatalogSearch" class="fs-sm flex-1"
+               :placeholder="t('admin_apps.search_placeholder') || 'Search templates by name, slug, or port…'"
+               :aria-label="t('admin_apps.search_placeholder') || 'Search templates'">
+      </div>
+      <span x-show="appsCatalogSearch.trim()" class="fs-2xs text-[var(--text-faint)]"
+            x-text="t('admin_apps.search_count', { shown: filteredAppsCatalog().length, total: appsCatalog.length }) || (filteredAppsCatalog().length + ' / ' + appsCatalog.length)"></span>
+    </div>
+
     <!-- Bulk-delete bar — appears when ≥1 template row is checked. Removes
          every selected catalog template in one action (count-named confirm). -->
     <div x-show="appsCatalogLoaded && appsCatalogSelectedCount() > 0"
@@ -139,7 +153,7 @@
       </tr>
       </thead>
       <tbody>
-      <template x-for="entry in appsCatalog" :key="entry.id">
+      <template x-for="entry in filteredAppsCatalog()" :key="entry.id">
         <tr class="border-b border-[var(--border)] hover:bg-[var(--row-hover)]"
             :class="isCatalogSelected(entry) ? 'bg-[var(--row-hover)]' : ''">
           <td class="py-2 ps-2" @click.stop>
@@ -210,6 +224,10 @@
       </template>
       <tr x-show="appsCatalogLoaded && !appsCatalog.length">
         <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm" x-text="t('admin_apps.empty_templates') || 'No templates yet — click Add or Re-seed built-ins.'"></td>
+      </tr>
+      <tr x-show="appsCatalogLoaded && appsCatalog.length && !filteredAppsCatalog().length">
+        <td colspan="7" class="py-6 text-center text-[var(--text-faint)] fs-sm"
+            x-text="t('admin_apps.search_no_match', { q: appsCatalogSearch }) || ('No templates match “' + appsCatalogSearch + '”')"></td>
       </tr>
       </tbody>
     </table>
@@ -660,8 +678,12 @@
          @click="closeAppsDiscoverWizard()"></div>
     <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[640px] w-full mx-4 max-h-[85vh] flex flex-col">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold fs-md"
-            x-text="t('admin_apps.discover_title') || 'Discover apps on host'"></h3>
+        <h3 class="font-semibold fs-md inline-flex items-center gap-2">
+          <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+          </svg>
+          <span x-text="t('admin_apps.discover_title') || 'Discover apps on host'"></span>
+        </h3>
         <button type="button" class="user-action-btn"
                 :aria-label="t('actions.close') || 'Close'"
                 :title="t('actions.close') || 'Close'"
@@ -780,12 +802,22 @@
               <td class="py-2">
                 <div class="flex flex-wrap gap-1">
                   <template x-for="port in (prop.matched_ports || [])" :key="'m:' + port">
-                    <span class="chip pill-ok fs-2xs" x-text="port"></span>
+                    <span class="chip pill-ok fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
+                          :title="discoverPortMeta(prop, port).open_url ? (t('admin_apps.port_open_url') || 'opens as URL') : ''">
+                      <svg x-show="discoverPortMeta(prop, port).open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                      </svg>
+                      <span x-text="port + '/' + (discoverPortMeta(prop, port).protocol || 'tcp')"></span>
+                    </span>
                   </template>
                   <template x-for="port in (prop.unmatched_ports || [])" :key="'u:' + port">
-                    <span class="chip pill-muted fs-2xs"
-                          :title="t('admin_apps.discover_unmatched_tip') || 'Template defines this port but the host scan did not detect it open'"
-                          x-text="port"></span>
+                    <span class="chip pill-muted fs-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
+                          :title="t('admin_apps.discover_unmatched_tip') || 'Template defines this port but the host scan did not detect it open'">
+                      <svg x-show="discoverPortMeta(prop, port).open_url" width="9" height="9" class="flex-shrink-0 text-[var(--primary)]" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                      </svg>
+                      <span x-text="port + '/' + (discoverPortMeta(prop, port).protocol || 'tcp')"></span>
+                    </span>
                   </template>
                 </div>
               </td>

@@ -246,6 +246,9 @@ function app() {
     // keyed by catalog id (template delete is by id, no index-shift).
     appsCatalogSelected: {},
     appsCatalogBulkDeleting: false,
+    // Free-text filter for the Admin → Apps → Templates table (name /
+    // slug / description / port). Client-side over appsCatalog.
+    appsCatalogSearch: '',
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},

@@ -1084,6 +1084,39 @@ export default {
     }
   },
 
+  // Free-text filter for the Templates table — matches the search term
+  // (case-insensitive) against the template name, slug, description, and
+  // any of its default-port numbers. Empty search returns the full list.
+  filteredAppsCatalog() {
+    const q = (this.appsCatalogSearch || '').trim().toLowerCase();
+    const list = Array.isArray(this.appsCatalog) ? this.appsCatalog : [];
+    if (!q) {
+      return list;
+    }
+    return list.filter((e) => {
+      if (!e) {
+        return false;
+      }
+      const hay = [
+        e.name || '', e.slug || '', e.description || '',
+        (e.default_ports || []).map((p) => (p && p.port != null ? p.port : '')).join(' '),
+        (e.default_ports || []).map((p) => (p && p.protocol) || '').join(' '),
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  },
+
+  // Resolve a Discover-proposal port NUMBER to its catalog-template port
+  // definition so the matched / unmatched chips can show the protocol kind
+  // (/http, /https, /tcp) + the open-as-URL marker like every other port
+  // view. matched_ports / unmatched_ports are bare numbers; the metadata
+  // lives on prop.catalog.default_ports. Falls back to tcp / no-url.
+  discoverPortMeta(prop, port) {
+    const dp = (prop && prop.catalog && prop.catalog.default_ports) || [];
+    const found = dp.find((p) => p && Number(p.port) === Number(port));
+    return found || {protocol: 'tcp', open_url: false};
+  },
+
   // ----------------------------------------------------------------
   // Templates bulk-delete — multi-select rows in the Admin → Apps →
   // Templates table, delete every selected catalog template in one
@@ -1115,19 +1148,28 @@ export default {
     return Object.keys(s).filter((k) => s[k]).length;
   },
   appsCatalogAllSelected() {
-    const list = this.appsCatalog || [];
+    // Reflects the VISIBLE (filtered) rows so select-all + the header
+    // checkbox track what the operator can actually see.
+    const list = this.filteredAppsCatalog();
     if (!list.length) {
       return false;
     }
     return list.every((e) => !!this.appsCatalogSelected[this.catalogSelKey(e)]);
   },
   toggleSelectAllCatalog() {
+    const list = this.filteredAppsCatalog();
     if (this.appsCatalogAllSelected()) {
-      this.appsCatalogSelected = {};
+      // Deselect only the visible rows; selections outside the current
+      // filter are left intact.
+      const next = Object.assign({}, this.appsCatalogSelected);
+      for (const e of list) {
+        delete next[this.catalogSelKey(e)];
+      }
+      this.appsCatalogSelected = next;
       return;
     }
-    const next = {};
-    for (const e of (this.appsCatalog || [])) {
+    const next = Object.assign({}, this.appsCatalogSelected);
+    for (const e of list) {
       next[this.catalogSelKey(e)] = true;
     }
     this.appsCatalogSelected = next;
