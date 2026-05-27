@@ -72,14 +72,25 @@ else:
 # samplers all opening connections at once) AND during a start-first deploy
 # rollover (old + new container sharing the bind-mounted DB), which surfaced
 # as "database is locked" and could stall the new container's startup enough
-# to flap its healthcheck → 502. So WAL is attempted ONCE per process, on the
-# FIRST connection (init_db's, before the samplers start), gated by the
-# DB_WAL_ENABLED kill-switch (set 0/false/no/off to disable). On an
-# already-WAL DB the single attempt is a no-op (no mode change, no lock).
-# Wrapped defensively so a volume that can't host the -wal / -shm files (some
-# network mounts) falls back to the existing journal mode instead of breaking
-# the connection.
-_DB_BUSY_TIMEOUT_MS_DEFAULT = 5000
+# to flap its healthcheck → 502. So the journal mode is set exactly ONCE per
+# process, on the FIRST connection (init_db's, before the samplers start) —
+# which is what makes WAL safe to keep ON by default (on an already-WAL DB the
+# one attempt is a no-op, and ext4/xfs/btrfs host WAL fine). WAL is preferred
+# because it REDUCES reader/writer contention, and that matters a lot here:
+# the samplers + gather hit SQLite synchronously ON THE EVENT LOOP, so less
+# contention = fewer event-loop stalls = fewer healthcheck flaps.
+# DB_WAL_ENABLED is the kill-switch — set 0/false/no/off to disable, and that
+# same once-per-process step then REVERTS the DB to the rollback journal
+# (DELETE), self-healing a DB a prior deploy left in WAL on a filesystem that
+# can't host it. Wrapped defensively so a volume that can't switch falls back
+# to the existing mode instead of breaking the connection.
+#
+# busy_timeout is deliberately MODEST (2000 ms, not 5000): sqlite3 is
+# synchronous, so a contended op BLOCKS the single event loop for the whole
+# wait. A 5 s busy wait froze /api/healthz long enough for Swarm to mark the
+# container unhealthy and SIGKILL it (exit 137) — the 502 flap. 2 s bounds the
+# stall while still riding out brief contention.
+_DB_BUSY_TIMEOUT_MS_DEFAULT = 2000
 _wal_attempted = False
 _WAL_ENABLED = (env_get(EnvKey.DB_WAL_ENABLED) or "1").strip().lower() not in (
     "0", "false", "no", "off",
@@ -108,16 +119,19 @@ def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA synchronous=NORMAL")
     except sqlite3.Error as e:
         print(f"[db] busy_timeout/synchronous PRAGMA skipped ({e})")
-    # journal_mode=WAL exactly once per process (set the flag BEFORE the
+    # Set the journal mode exactly once per process (set the flag BEFORE the
     # attempt so a failed switch during a rollover window isn't retried on
-    # every subsequent connection).
-    if _WAL_ENABLED and not _wal_attempted:
+    # every subsequent connection). WAL when opted in; otherwise actively
+    # REVERT to the rollback journal (DELETE) so disabling WAL self-heals a DB
+    # a prior deploy left in WAL.
+    if not _wal_attempted:
         _wal_attempted = True
+        target_mode = "WAL" if _WAL_ENABLED else "DELETE"
         try:
-            row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
-            print(f"[db] journal_mode set once -> {row[0] if row else '?'}")
+            row = conn.execute(f"PRAGMA journal_mode={target_mode}").fetchone()
+            print(f"[db] journal_mode set once -> {row[0] if row else '?'} (target {target_mode})")
         except sqlite3.Error as e:
-            print(f"[db] journal_mode=WAL skipped ({e}); using existing journal mode")
+            print(f"[db] journal_mode={target_mode} skipped ({e}); using existing journal mode")
 
 
 @contextmanager

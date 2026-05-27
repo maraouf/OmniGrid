@@ -32,6 +32,20 @@
 // binding gymnastics because they all merge onto the same target
 // object before Alpine instantiation.
 
+// Per-flush node->items index for the Nodes view. itemsForNode(host) used to
+// this.items.filter() on EVERY call, and the Nodes view calls it once per
+// node card (via nodeStats) PLUS once per spark (nodeSparkPoints) — O(nodes *
+// items) per flush. This builds the bucket map ONCE per flush by iterating
+// this.items a single time, making itemsForNode an O(1) lookup. Cleared on
+// the next microtask (same zero-staleness contract as the filteredHosts
+// memo). Module-scope singleton — exactly one app() instance.
+let _nodeItemsIndexCache = null;
+let _nodeItemsIndexScheduled = false;
+function _clearNodeItemsIndexCache() {
+  _nodeItemsIndexCache = null;
+  _nodeItemsIndexScheduled = false;
+}
+
 export default {
   // ===================================================================
   // Real-time event stream
@@ -1772,12 +1786,42 @@ export default {
   // contribute to every node they run on).
   // -----------------------------------------------------------------
   itemsForNode(host) {
-    return this.items.filter(it => {
-      if (Array.isArray(it.placements) && it.placements.length) {
-        return it.placements.some(p => p && p.node === host);
+    // Per-flush node->items index — see _nodeItemsIndexCache at module scope.
+    // Built once per flush by bucketing this.items: an item with placements
+    // contributes to EACH DISTINCT node it runs on (the inner Set dedupes so
+    // a service with 2 replicas on the same node isn't double-counted —
+    // matches the old .some() filter), an item without placements goes to its
+    // own node bucket.
+    if (_nodeItemsIndexCache === null) {
+      const idx = new Map();
+      const add = (node, it) => {
+        let arr = idx.get(node);
+        if (!arr) {
+          arr = [];
+          idx.set(node, arr);
+        }
+        arr.push(it);
+      };
+      for (const it of this.items) {
+        if (Array.isArray(it.placements) && it.placements.length) {
+          const seen = new Set();
+          for (const p of it.placements) {
+            if (p && p.node && !seen.has(p.node)) {
+              seen.add(p.node);
+              add(p.node, it);
+            }
+          }
+        } else if (it.node) {
+          add(it.node, it);
+        }
       }
-      return it.node === host;
-    });
+      _nodeItemsIndexCache = idx;
+      if (!_nodeItemsIndexScheduled) {
+        _nodeItemsIndexScheduled = true;
+        queueMicrotask(_clearNodeItemsIndexCache);
+      }
+    }
+    return _nodeItemsIndexCache.get(host) || [];
   },
 
   nodeInfoFor(host) {

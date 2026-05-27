@@ -16,6 +16,22 @@
 // Also includes the Nodes view's per-node spark + stats helpers
 // (`nodeGroups`, `nodeStats`, `nodeSparkPoints`, `nodeSparkClass`).
 
+// Per-flush memo for nodeStats(host), keyed by host name. nodeStats is pure
+// within a synchronous reactive flush (depends only on this.items /
+// this.stats / this.nodesInfo / settings, none of which change mid-flush),
+// and the Nodes view reads it ~15x per node card (directly + via
+// nodeCpuPercent / nodeMemPercent / nodeDiskPercent / nodeProviderChip /
+// nodeProviderList). Caching it for the flush turns that into ONE compute
+// per host. Module-scope (non-reactive) singleton — exactly one app()
+// instance — cleared on the next microtask so the following flush recomputes
+// against fresh state (zero staleness, same contract as filteredHosts).
+let _nodeStatsFlushCache = null;
+let _nodeStatsFlushScheduled = false;
+function _clearNodeStatsFlushCache() {
+  _nodeStatsFlushCache = null;
+  _nodeStatsFlushScheduled = false;
+}
+
 export default {
   stats: {}, _statsTimer: null, _maxSize: 1,
   // Flips to true on the first successful `/api/stats` response so
@@ -620,6 +636,20 @@ export default {
   },
 
   nodeStats(host) {
+    // Per-flush memo — see _nodeStatsFlushCache at module scope. The Nodes
+    // view reads nodeStats ~15x per node card; this collapses it to one
+    // compute per host per flush.
+    if (_nodeStatsFlushCache === null) {
+      _nodeStatsFlushCache = new Map();
+      if (!_nodeStatsFlushScheduled) {
+        _nodeStatsFlushScheduled = true;
+        queueMicrotask(_clearNodeStatsFlushCache);
+      }
+    }
+    const _cached = _nodeStatsFlushCache.get(host);
+    if (_cached !== undefined) {
+      return _cached;
+    }
     // Mixed-source stats:
     // - CPU + container-memory: summed from per-item Docker stats.
     // - Host disk / host memory / host uptime: node-exporter when
@@ -683,7 +713,7 @@ export default {
     // haven't been re-gathered since this field was added (e.g.
     // first boot before a fresh gather lands).
     const providersHit = Array.isArray(info._providers) ? info._providers : [];
-    return {
+    const result = {
       cpuRaw,                        // 0..cores*100 (can exceed 100)
       hostCpuRaw,                    // 0..100 — host-provider CPU%
       hasHostCpu: hostCpuRaw > 0,
@@ -702,6 +732,8 @@ export default {
       hostStatsSources: [...sourceSet],     // array form for new callers (GLOBAL)
       nodeProvidersHit: providersHit, // per-node list
     };
+    _nodeStatsFlushCache.set(host, result);
+    return result;
   },
 
   // Time-series aggregation for node-level sparklines. Bins samples by
