@@ -533,14 +533,14 @@ export default {
   appsViewGroupBy: (() => {
     try {
       const v = localStorage.getItem('appsViewGroupBy');
-      return ['app', 'host'].includes(v) ? v : 'app';
+      return ['app', 'host', 'custom'].includes(v) ? v : 'app';
     } catch (_) {
       return 'app';
     }
   })(),
 
   setAppsViewGroupBy(mode) {
-    if (!['app', 'host'].includes(mode)) {
+    if (!['app', 'host', 'custom'].includes(mode)) {
       return;
     }
     this.appsViewGroupBy = mode;
@@ -549,6 +549,245 @@ export default {
     } catch (_) {
       // private mode — in-memory only
     }
+  },
+
+  // -------------------------------------------------------------------
+  // Custom layout (Apps Phase 1) — Homarr-style board where the user
+  // drags app cards into their own collapsible sections. The layout
+  // (section list + per-section ordered group_id lists + collapse
+  // state) persists PER-USER in `users.ui_prefs.apps_custom_layout` via
+  // the existing /api/me/ui-prefs channel (same as datetime_format /
+  // ai_conversation) — NO new backend. App-tile stable key is the
+  // app's `group_id` (the catalog-template grouping that the 'By app'
+  // view already keys cards on). Apps not placed in any section render
+  // in a trailing "Unsectioned" bucket; newly-pinned apps land there
+  // automatically until the user drags them into a section.
+  // -------------------------------------------------------------------
+  appsCustomLayout: null,  // hydrated lazily from me.ui_prefs
+
+  _hydrateAppsCustomLayout() {
+    if (this.appsCustomLayout && Array.isArray(this.appsCustomLayout.sections)) {
+      return;
+    }
+    let saved = null;
+    try {
+      saved = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
+    } catch (_) {
+      saved = null;
+    }
+    const sections = (saved && Array.isArray(saved.sections)) ? saved.sections : [];
+    // Defensive clean — each section needs id / name / app_ids[] / collapsed.
+    this.appsCustomLayout = {
+      sections: sections
+        .filter(s => s && typeof s === 'object' && s.id)
+        .map(s => ({
+          id: String(s.id),
+          name: typeof s.name === 'string' ? s.name : '',
+          collapsed: s.collapsed === true,
+          app_ids: Array.isArray(s.app_ids) ? s.app_ids.map(String) : [],
+        })),
+    };
+  },
+
+  _newSectionId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) {
+        return window.crypto.randomUUID();
+      }
+    } catch (_) { /* fall through */ }
+    return 'sec-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  },
+
+  // Shared builder for the custom-mode render. Returns
+  // `{sections: [{id, name, collapsed, apps:[appObj]}], unsectioned: [appObj]}`.
+  // Resolves each stored group_id → the live (filtered) app object; a
+  // group_id that's filtered out (search / status chip) is still counted
+  // as "assigned" so it doesn't leak into Unsectioned, it just doesn't
+  // render this pass. Respects the same appsSearchQuery / appsStatusFilter
+  // as the other two modes (via filteredApps()).
+  _buildAppsCustom() {
+    this._hydrateAppsCustomLayout();
+    const apps = this.filteredApps() || [];
+    const byId = {};
+    for (const a of apps) {
+      byId[a.group_id] = a;
+    }
+    const assigned = new Set();
+    const sections = (this.appsCustomLayout.sections || []).map(s => {
+      const tiles = [];
+      for (const gid of (s.app_ids || [])) {
+        // A group_id may only live in ONE section. The DnD path enforces
+        // this (appsTileDrop removes the gid from every section before
+        // inserting), but a tampered / hand-edited ui_prefs could place
+        // one gid in two sections — dedup on read (first section wins) so
+        // the same app card can't render twice.
+        if (assigned.has(gid)) {
+          continue;
+        }
+        assigned.add(gid);
+        if (byId[gid]) {
+          tiles.push(byId[gid]);
+        }
+      }
+      return {id: s.id, name: s.name, collapsed: !!s.collapsed, apps: tiles};
+    });
+    const unsectioned = apps.filter(a => !assigned.has(a.group_id));
+    return {sections, unsectioned};
+  },
+
+  appsCustomSections() {
+    return this._buildAppsCustom().sections;
+  },
+  appsCustomUnsectioned() {
+    return this._buildAppsCustom().unsectioned;
+  },
+
+  addAppsSection() {
+    this._hydrateAppsCustomLayout();
+    this.appsCustomLayout.sections.push({
+      id: this._newSectionId(),
+      name: this.t('apps.custom.new_section_name') || 'New section',
+      collapsed: false,
+      app_ids: [],
+    });
+    this._persistAppsCustomLayout();
+  },
+
+  renameAppsSection(sectionId, name) {
+    this._hydrateAppsCustomLayout();
+    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    if (!sec) {
+      return;
+    }
+    sec.name = (name == null ? '' : String(name)).slice(0, 80);
+    this._persistAppsCustomLayout();
+  },
+
+  deleteAppsSection(sectionId) {
+    this._hydrateAppsCustomLayout();
+    // Its apps fall back to Unsectioned (we just drop the section; the
+    // group_ids are no longer assigned anywhere).
+    const i = this.appsCustomLayout.sections.findIndex(s => s.id === sectionId);
+    if (i < 0) {
+      return;
+    }
+    this.appsCustomLayout.sections.splice(i, 1);
+    this._persistAppsCustomLayout();
+  },
+
+  toggleAppsSectionCollapsed(sectionId) {
+    this._hydrateAppsCustomLayout();
+    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    if (!sec) {
+      return;
+    }
+    sec.collapsed = !sec.collapsed;
+    this._persistAppsCustomLayout();
+  },
+
+  isAppsSectionCollapsed(sectionId) {
+    this._hydrateAppsCustomLayout();
+    const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+    return !!(sec && sec.collapsed);
+  },
+
+  // --- native HTML5 drag-and-drop -----------------------------------
+  // Tile drag carries the app's group_id; section-header drag carries
+  // the section id. Both go through dataTransfer AND a transient state
+  // field (some browsers don't expose getData during dragover).
+  _appsDragGid: null,
+  _appsDragSectionId: null,
+
+  appsTileDragStart(ev, groupId) {
+    this._appsDragGid = String(groupId);
+    this._appsDragSectionId = null;
+    try {
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', 'tile:' + groupId);
+    } catch (_) { /* some browsers restrict setData */ }
+  },
+
+  // Drop a tile into `sectionId` ('__unsectioned' to un-assign it),
+  // optionally BEFORE `beforeGroupId` (drop landed on an existing tile)
+  // — otherwise appended. Removes the gid from every section first so a
+  // cross-section move can't duplicate it.
+  appsTileDrop(sectionId, beforeGroupId) {
+    const gid = this._appsDragGid;
+    this._appsDragGid = null;
+    if (!gid) {
+      return;
+    }
+    this._hydrateAppsCustomLayout();
+    for (const s of this.appsCustomLayout.sections) {
+      const idx = s.app_ids.indexOf(gid);
+      if (idx >= 0) {
+        s.app_ids.splice(idx, 1);
+      }
+    }
+    if (sectionId && sectionId !== '__unsectioned') {
+      const sec = this.appsCustomLayout.sections.find(s => s.id === sectionId);
+      if (sec) {
+        let pos = sec.app_ids.length;
+        if (beforeGroupId) {
+          const bi = sec.app_ids.indexOf(String(beforeGroupId));
+          if (bi >= 0) {
+            pos = bi;
+          }
+        }
+        sec.app_ids.splice(pos, 0, gid);
+      }
+    }
+    this._persistAppsCustomLayout();
+  },
+
+  appsSectionDragStart(ev, sectionId) {
+    this._appsDragSectionId = String(sectionId);
+    this._appsDragGid = null;
+    try {
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', 'section:' + sectionId);
+    } catch (_) { /* ignore */ }
+  },
+
+  // Reorder sections — drop the dragged section BEFORE `targetSectionId`.
+  appsSectionDrop(targetSectionId) {
+    const src = this._appsDragSectionId;
+    this._appsDragSectionId = null;
+    if (!src || src === targetSectionId) {
+      return;
+    }
+    this._hydrateAppsCustomLayout();
+    const secs = this.appsCustomLayout.sections;
+    const si = secs.findIndex(s => s.id === src);
+    const ti = secs.findIndex(s => s.id === targetSectionId);
+    if (si < 0 || ti < 0) {
+      return;
+    }
+    const moved = secs.splice(si, 1)[0];
+    const newTi = secs.findIndex(s => s.id === targetSectionId);
+    secs.splice(newTi, 0, moved);
+    this._persistAppsCustomLayout();
+  },
+
+  // Fire-and-forget PATCH to the existing ui-prefs channel + immediate
+  // local me.ui_prefs sync so a re-render (or a same-session view switch)
+  // reads the fresh layout without waiting for the round-trip.
+  _persistAppsCustomLayout() {
+    this._hydrateAppsCustomLayout();
+    const payload = {sections: this.appsCustomLayout.sections};
+    if (this.me) {
+      if (!this.me.ui_prefs) {
+        this.me.ui_prefs = {};
+      }
+      this.me.ui_prefs.apps_custom_layout = payload;
+    }
+    try {
+      fetch('/api/me/ui-prefs', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prefs: {apps_custom_layout: payload}}),
+      }).catch(() => { /* silent — me.ui_prefs already updated in-memory */ });
+    } catch (_) { /* ignore */ }
   },
 
   // Host-grouped view of the filtered apps. Walks every app's per-host
@@ -950,9 +1189,13 @@ export default {
       }
       const j = await r.json();
       this.appsInstances = Array.isArray(j.instances) ? j.instances : [];
+      this.appsInstancesStatus = '';
       this.appsInstancesLoaded = true;
-    } catch {
-      this.appsInstances = [];
+    } catch (err) {
+      // Mirror loadAppsCatalog: on a transient blip, record the error
+      // but LEAVE appsInstances intact so a prior good list survives
+      // (don't blank the table). Mark loaded so the skeleton clears.
+      this.appsInstancesStatus = err && err.message ? err.message : String(err);
       this.appsInstancesLoaded = true;
     }
   },
@@ -1433,6 +1676,63 @@ export default {
   appsDockerLinkClose() {
     this.appsDockerLinkDropdownOpen = false;
     this.appsDockerLinkSearch = this.appsInstanceDockerLinkLabel();
+  },
+
+  // Keyboard-nav support for the Link-to-Docker combobox — mirrors the
+  // pin-host / discover-host comboboxes so all three share the same
+  // contract (arrow move + Enter select + Escape close + aria-
+  // activedescendant). The dropdown spans two groups (containers +
+  // services) plus the "Not linked" row, so nav walks a FLATTENED list;
+  // each entry carries a stable dom id for aria-activedescendant + the
+  // per-row highlight.
+  appsDockerLinkFlat() {
+    const f = this.appsDockerLinkFiltered();
+    const out = [{
+      id: '',
+      label: this.t('admin_apps.instance_edit_docker_none') || '— Not linked —',
+      dom: 'apps-docker-link-opt-none',
+    }];
+    (f.containers || []).forEach((o, i) => out.push({id: o.id, label: o.label, dom: 'apps-docker-link-opt-c' + i}));
+    (f.services || []).forEach((o, i) => out.push({id: o.id, label: o.label, dom: 'apps-docker-link-opt-s' + i}));
+    return out;
+  },
+  appsDockerLinkActiveDom() {
+    const flat = this.appsDockerLinkFlat();
+    const i = this.appsDockerLinkActiveIdx;
+    return (i >= 0 && i < flat.length) ? flat[i].dom : '';
+  },
+  appsDockerLinkFocusDom(dom) {
+    const i = this.appsDockerLinkFlat().findIndex(x => x.dom === dom);
+    if (i >= 0) {
+      this.appsDockerLinkActiveIdx = i;
+    }
+  },
+  appsDockerLinkMove(delta) {
+    this.appsDockerLinkDropdownOpen = true;
+    const n = this.appsDockerLinkFlat().length;
+    if (!n) {
+      this.appsDockerLinkActiveIdx = -1;
+      return;
+    }
+    let idx = this.appsDockerLinkActiveIdx + delta;
+    if (idx < 0) {
+      idx = n - 1;
+    }
+    if (idx >= n) {
+      idx = 0;
+    }
+    this.appsDockerLinkActiveIdx = idx;
+  },
+  appsDockerLinkEnter() {
+    const flat = this.appsDockerLinkFlat();
+    const i = this.appsDockerLinkActiveIdx;
+    if (i < 0 || i >= flat.length) {
+      return;
+    }
+    const it = flat[i];
+    // The "Not linked" row clears the link (label '' so the input blanks);
+    // every other row links to its item id + shows its label.
+    this.appsDockerLinkPick(it.id, it.id ? it.label : '');
   },
 
   // Current <select> value for the edit form: the item id matching the

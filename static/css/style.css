@@ -9300,6 +9300,138 @@ select.field-invalid {
 }
 
 /* ==========================================================================
+   APPS — custom layout (group-by=custom). Homarr-style board: user-defined
+   collapsible sections holding draggable app tiles. Native HTML5 DnD; the
+   per-user layout persists in ui_prefs.apps_custom_layout. Component
+   dimensions (icon / dot / drop-zone min-height) follow the same fixed-px
+   convention as .apps-card-dot / .apps-host-avatar; spacing uses --s-* tokens.
+   ========================================================================== */
+.apps-section {
+  background: var(--surface);
+}
+
+.apps-section + .apps-section {
+  margin-top: var(--s-3);
+}
+
+.apps-section-head {
+  cursor: grab;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  border-start-start-radius: var(--r-md);
+  border-start-end-radius: var(--r-md);
+}
+
+.apps-section-head:active {
+  cursor: grabbing;
+}
+
+.apps-section--unsectioned .apps-section-head {
+  cursor: default;
+}
+
+.apps-section-name {
+  color: var(--text);
+  outline: none;
+  min-width: 0;
+}
+
+.apps-section-name:focus-visible {
+  box-shadow: 0 0 0 2px var(--primary-soft);
+  border-radius: var(--r-sm);
+}
+
+.apps-section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s-2);
+  padding: var(--s-2);
+  min-height: 56px;
+}
+
+.apps-section-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+}
+
+.apps-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border: 1px solid var(--border);
+  border-inline-start-width: var(--apps-card-border-w);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  cursor: grab;
+  transition: box-shadow 120ms ease;
+  min-width: 0;
+}
+
+.apps-tile:hover {
+  box-shadow: 0 1px 6px var(--row-hover);
+}
+
+.apps-tile:active {
+  cursor: grabbing;
+}
+
+.apps-tile-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.apps-tile-name {
+  flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  min-width: 0;
+}
+
+.apps-tile-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.apps-tile--up {
+  border-inline-start-color: var(--success);
+}
+
+.apps-tile--up .apps-tile-dot {
+  background: var(--success);
+}
+
+.apps-tile--down {
+  border-inline-start-color: var(--danger);
+}
+
+.apps-tile--down .apps-tile-dot {
+  background: var(--danger);
+}
+
+.apps-tile--degraded {
+  border-inline-start-color: var(--warning);
+}
+
+.apps-tile--degraded .apps-tile-dot {
+  background: var(--warning);
+}
+
+.apps-tile--unknown {
+  border-inline-start-color: var(--text-faint);
+}
+
+/* ==========================================================================
    APPS — host-grouped view (group-by=host). Each host card carries a
    server-icon avatar header + a wrap of app-icon tiles beneath. The
    host-app drawer reuses the tile dot + a clickable row variant.
@@ -9531,7 +9663,11 @@ a.apps-port-pill {
    reads as a link at rest, not only on hover (parity with the link marker
    in the Apps tables): primary-tinted border + primary text + a dotted
    underline on the port number. */
-.apps-port-pill--link {
+/* Selector is `a.apps-port-pill--link` (not the bare class) on purpose:
+   it must out-specify `a.apps-port-pill { cursor: default; color: inherit }`
+   above (element+class beats a lone class), otherwise the linked pill's
+   pointer cursor + primary accent lose to the non-link reset. */
+a.apps-port-pill--link {
   cursor: pointer;
   border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
   color: var(--primary);

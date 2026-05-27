@@ -881,16 +881,22 @@ export default {
   },
   agentStateTitle(h, name) {
     const s = this._agentStateFor(h, name);
+    // Resolve the provider's i18n'd label (settings.host_stats.source_<name>)
+    // so the tooltip reads the same display name as the chip — never the
+    // raw DB enum (node_exporter / service_probe / ...).
+    const _k = 'settings.host_stats.source_' + name;
+    const _lbl = this.t(_k);
+    const provider = (_lbl && _lbl !== _k) ? _lbl : name;
     if (s === 'paused') {
       const info = this.agentPauseInfo(h, name) || {};
       return this.t('hosts_extra.provider_paused', {
-        provider: name,
+        provider,
         count: info.consecutive_failures || 0,
         error: info.last_error || '—',
       });
     }
     if (s === 'failing') {
-      return this.t('hosts_extra.provider_failing', {provider: name});
+      return this.t('hosts_extra.provider_failing', {provider});
     }
     return '';
   },
@@ -985,25 +991,48 @@ export default {
     const v = map[name];
     return Number.isFinite(+v) ? +v : 0;
   },
-  // Human-friendly "Every Ns" / "Every Nm" / "Every Nm Ks" cadence
-  // label for the chip subtitle. Routes through the same locale
-  // formatter the SPA uses for last-OK ages so it reads naturally
-  // alongside "Updated 24s ago". Returns empty string on 0 so the
-  // caller's x-show gate hides cleanly.
+  // Human-friendly "Ns" / "Nm" / "Nm Ks" cadence label for the chip
+  // subtitle. The seconds / minutes unit abbreviations are routed through
+  // t() (common.unit_seconds_short / unit_minutes_short) so a locale can
+  // localise them; the numbers stay as-is. Returns empty string on 0 so
+  // the caller's x-show gate hides cleanly.
   providerSampleIntervalLabel(h, name) {
     const s = this.providerSampleInterval(h, name);
     if (!s) {
       return '';
     }
+    const us = this.t('common.unit_seconds_short') || 's';
+    const um = this.t('common.unit_minutes_short') || 'm';
     if (s < 60) {
-      return s + 's';
+      return s + us;
     }
     const m = Math.floor(s / 60);
     const rem = s - m * 60;
     if (rem === 0) {
-      return m + 'm';
+      return m + um;
     }
-    return m + 'm ' + rem + 's';
+    return m + um + ' ' + rem + us;
+  },
+  // One-line per-provider chip subtitle — joins the three segments
+  // (last-OK age / sample count / cadence) that were previously three
+  // stacked fs-3xs-half lines into a single dot-separated string, so a
+  // host with 5-6 providers doesn't grow a tall column of micro-text.
+  // Each segment is included only when its underlying value is present
+  // (same x-show gates the three spans used). Returns '' so the caller's
+  // x-show hides the line cleanly when nothing has landed yet.
+  providerChipSubtitle(h, name) {
+    const parts = [];
+    if (this.providerLastOkSeconds(h, name) > 0) {
+      parts.push(this.t('hosts_extra.provider_last_ok', {age: this.providerLastOkAge(h, name)}));
+    }
+    const cnt = this.providerSampleCount(h, name);
+    if (cnt > 0) {
+      parts.push(this.t('hosts_extra.provider_sample_count', {count: Number(cnt).toLocaleString()}));
+    }
+    if (this.providerSampleInterval(h, name) > 0) {
+      parts.push(this.t('hosts_extra.provider_sample_interval', {every: this.providerSampleIntervalLabel(h, name)}));
+    }
+    return parts.join(' · ');
   },
   // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
   // simultaneous resumes on different providers don't collide.

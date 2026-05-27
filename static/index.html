@@ -3281,6 +3281,11 @@
                     :aria-pressed="appsViewGroupBy === 'host'"
                     @click="setAppsViewGroupBy('host')"
                     x-text="t('apps.group_by_host') || 'By host'"></button>
+            <button type="button" class="chip fs-2xs"
+                    :class="appsViewGroupBy === 'custom' ? 'pill-info' : 'pill-muted'"
+                    :aria-pressed="appsViewGroupBy === 'custom'"
+                    @click="setAppsViewGroupBy('custom')"
+                    x-text="t('apps.group_by_custom') || 'Custom'"></button>
           </div>
           <button type="button" class="btn btn-soft fs-sm" @click="loadAppsList(true)"
                   :disabled="appsListLoading"
@@ -3496,6 +3501,103 @@
             </div>
           </article>
         </template>
+      </div>
+
+      <!-- Custom layout (Homarr-style) — the user drags app cards into
+           their own collapsible sections; the layout (sections + order +
+           collapse state) persists PER-USER in ui_prefs.apps_custom_layout
+           via the existing /api/me/ui-prefs channel. Native HTML5 DnD:
+           tiles carry group_id, section headers carry the section id. -->
+      <div x-show="appsListLoaded && appsViewGroupBy === 'custom'" class="space-y-3">
+        <div class="flex items-center justify-between gap-2 px-1">
+          <p class="fs-xs text-[var(--text-faint)]"
+             x-text="t('apps.custom.hint') || 'Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.'"></p>
+          <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1"
+                  @click="addAppsSection()">
+            <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+            <span x-text="t('apps.custom.add_section') || 'Add section'"></span>
+          </button>
+        </div>
+
+        <template x-for="sec in appsCustomSections()" :key="sec.id">
+          <section class="apps-section border border-[var(--border)] rounded-md"
+                   @dragover.prevent @drop.stop="appsSectionDrop(sec.id)">
+            <header class="apps-section-head flex items-center gap-2 px-2 py-1.5" draggable="true"
+                    @dragstart="appsSectionDragStart($event, sec.id)">
+              <button type="button" class="user-action-btn"
+                      @click="toggleAppsSectionCollapsed(sec.id)"
+                      :aria-expanded="(!sec.collapsed).toString()"
+                      :aria-label="sec.collapsed ? (t('actions.expand') || 'Expand') : (t('actions.collapse') || 'Collapse')">
+                <svg width="14" height="14" aria-hidden="true" class="flip-rtl"
+                     :class="sec.collapsed ? '' : 'rotate-90'">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                </svg>
+              </button>
+              <input type="text"
+                     class="apps-section-name flex-1 fs-sm font-semibold bg-transparent border-0"
+                     :value="sec.name"
+                     :placeholder="t('apps.custom.section_name_placeholder') || 'Section name'"
+                     :aria-label="t('apps.custom.section_name_aria') || 'Section name'"
+                     @change="renameAppsSection(sec.id, $event.target.value)"
+                     @keydown.enter.prevent="$event.target.blur()">
+              <span class="fs-2xs text-[var(--text-faint)]" x-text="sec.apps.length"></span>
+              <button type="button" class="user-action-btn user-action-btn--danger"
+                      @click="deleteAppsSection(sec.id)"
+                      :aria-label="t('apps.custom.delete_section') || 'Delete section'"
+                      :title="t('apps.custom.delete_section') || 'Delete section'">
+                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/></svg>
+              </button>
+            </header>
+            <div class="apps-section-grid" x-show="!sec.collapsed"
+                 @dragover.prevent @drop="appsTileDrop(sec.id, null)">
+              <template x-for="app in sec.apps" :key="app.group_id">
+                <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
+                         @dragstart.stop="appsTileDragStart($event, app.group_id)"
+                         @dragover.prevent @drop.stop="appsTileDrop(sec.id, app.group_id)"
+                         role="button" tabindex="0"
+                         :aria-label="t('apps.drawer.open_aria', {name: app.name})"
+                         @click="openAppDrawer(app)"
+                         @keydown.enter="openAppDrawer(app)"
+                         @keydown.space.prevent="openAppDrawer(app)">
+                  <img :src="iconUrlFor(app.icon || app.name)" alt="" width="32" height="32"
+                       class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
+                  <span class="apps-tile-name truncate" x-text="app.name"></span>
+                  <span class="apps-tile-dot" :title="t('apps.status_' + app.status) || app.status"></span>
+                </article>
+              </template>
+              <div x-show="!sec.apps.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.custom.section_empty') || 'Drop apps here'"></div>
+            </div>
+          </section>
+        </template>
+
+        <section class="apps-section apps-section--unsectioned border border-[var(--border)] rounded-md"
+                 x-show="appsCustomUnsectioned().length || !appsCustomSections().length">
+          <header class="apps-section-head flex items-center gap-2 px-2 py-1.5">
+            <span class="fs-sm font-semibold text-[var(--text-dim)]"
+                  x-text="t('apps.custom.unsectioned') || 'Unsectioned'"></span>
+            <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
+          </header>
+          <div class="apps-section-grid" @dragover.prevent @drop="appsTileDrop('__unsectioned', null)">
+            <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
+              <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
+                       @dragstart.stop="appsTileDragStart($event, app.group_id)"
+                       @dragover.prevent @drop.stop="appsTileDrop('__unsectioned', app.group_id)"
+                       role="button" tabindex="0"
+                       :aria-label="t('apps.drawer.open_aria', {name: app.name})"
+                       @click="openAppDrawer(app)"
+                       @keydown.enter="openAppDrawer(app)"
+                       @keydown.space.prevent="openAppDrawer(app)">
+                <img :src="iconUrlFor(app.icon || app.name)" alt="" width="32" height="32"
+                     class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
+                <span class="apps-tile-name truncate" x-text="app.name"></span>
+                <span class="apps-tile-dot" :title="t('apps.status_' + app.status) || app.status"></span>
+              </article>
+            </template>
+            <div x-show="!appsCustomUnsectioned().length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.custom.all_sorted') || 'All apps are sorted into sections.'"></div>
+          </div>
+        </section>
       </div>
 
       <!-- Empty states -->
@@ -4972,9 +5074,9 @@
                                       @click="resumeProvider(h, agent.name)"
                                       :disabled="!canResume(h, agent.name)"
                                       :aria-busy="providerResumeBusy[h.id + ':' + agent.name] ? 'true' : 'false'"
-                                      :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.name })"
+                                      :aria-label="t('hosts_extra.provider_resume_aria', { provider: agent.label })"
                                       :aria-keyshortcuts="'Enter'"
-                                      :title="t('hosts_extra.provider_resume_title', { provider: agent.name })">
+                                      :title="t('hosts_extra.provider_resume_title', { provider: agent.label })">
                                 <svg width="9" height="9" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                                   <polygon points="5 3 19 12 5 21 5 3"/>
                                 </svg>
@@ -4989,35 +5091,16 @@
                                (last_ok_ts === 0 or null). Helps operators
                                distinguish "this chip is fine but we haven't
                                heard from it in 6 hours" from "fresh data". -->
-                      <span x-show="providerLastOkSeconds(h, agent.name) > 0"
+                      <!-- One-line subtitle: last-OK age · sample count ·
+                               cadence. Collapsed from three stacked
+                               fs-3xs-half lines into a single dot-separated
+                               string (providerChipSubtitle) so a host with
+                               several providers doesn't grow a tall column
+                               of micro-text. Each segment is included only
+                               when its value is present. -->
+                      <span x-show="providerChipSubtitle(h, agent.name)"
                             class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
-                            :title="t('hosts_extra.provider_last_ok_title', { provider: agent.name })"
-                            x-text="t('hosts_extra.provider_last_ok', { age: providerLastOkAge(h, agent.name) })"></span>
-                      <!-- Per-(provider, host) row count from the
-                               provider's local samples table. Read from
-                               `h.provider_sample_counts[<name>]` (stamped
-                               by `_merge_one_host` on /api/hosts/one/{id}
-                               only — bulk /api/hosts/list path skips the
-                               COUNT(*) round-trips). Hidden until the
-                               per-host probe has run (cold-load skeleton
-                               leaves the map empty). Locale-formatted
-                               thousands separator for fleets with
-                               millions of rows. -->
-                      <span x-show="providerSampleCount(h, agent.name) > 0"
-                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
-                            :title="t('hosts_extra.provider_sample_count_title', { provider: agent.name })"
-                            x-text="t('hosts_extra.provider_sample_count', { count: Number(providerSampleCount(h, agent.name)).toLocaleString() })"></span>
-                      <!-- Effective sampler cadence for this provider.
-                               Reads `h.provider_sample_intervals[<name>]`
-                               (post-floor, post-inherit-resolution seconds).
-                               The label collapses inherit-from-global so the
-                               user sees the ACTUAL applied cadence, never
-                               the raw `0 = inherit` sentinel. Hidden on 0
-                               (cold-load skeleton). -->
-                      <span x-show="providerSampleInterval(h, agent.name) > 0"
-                            class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
-                            :title="t('hosts_extra.provider_sample_interval_title', { provider: agent.name, seconds: providerSampleInterval(h, agent.name) })"
-                            x-text="t('hosts_extra.provider_sample_interval', { every: providerSampleIntervalLabel(h, agent.name) })"></span>
+                            x-text="providerChipSubtitle(h, agent.name)"></span>
                     </div>
                   </template>
                 </div>
@@ -6758,7 +6841,7 @@
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.ping')"></span>
                   <span class="unit">ms</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'ping')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'ping')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'ping')" :title="metricSource(h, 'ping')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'ping')"
                           @click.stop="toggleMetricTooltip(h, 'ping')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -6778,7 +6861,7 @@
                   <span x-show="hostPingWindowLoss(hostPingHistoryKey(h)) > 0"
                         class="chip pill-update fs-2xs px-1.5 py-0"
                         :title="t('hosts_extra.metrics.ping_loss_title')"
-                        x-text="hostPingWindowLoss(hostPingHistoryKey(h)) + '% loss'"></span>
+                        x-text="t('hosts_extra.metrics.ping_loss', { pct: hostPingWindowLoss(hostPingHistoryKey(h)) })"></span>
                   <span x-show="hostMetricStats(hostPingHistoryKey(h), 'rtt', false)">
                         <span class="metric-legend-dot" style="background: var(--success);"></span>
                         <span x-text="t('hosts_extra.metrics.ping_rtt')"></span>
@@ -6894,7 +6977,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.cpu_title')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_cpu')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_cpu')" :title="metricSource(h, 'snmp_cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_cpu')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_cpu')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -6956,7 +7039,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.load_title')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_load')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_load')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_load')" :title="metricSource(h, 'snmp_load')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_load')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_load')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7033,7 +7116,7 @@
                          misaligned). -->
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.mem_title')"></span><span class="unit" x-text="unitForBytes(snmpMemMax(h))"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_memory')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_memory')" :title="metricSource(h, 'snmp_memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_memory')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_memory')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7116,7 +7199,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.throughput_title')"></span><span class="unit" x-text="unitForBytes(snmpThroughputMaxBps(h.id)) + '/s'"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_throughput')" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_throughput')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7235,7 +7318,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.per_port_title')"></span><span class="unit" x-text="unitForBytes(snmpIfaceMaxBps(h.id)) + '/s'"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_throughput')" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_per_port')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7318,7 +7401,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.heatmap_title')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'snmp_throughput')" :title="metricSource(h, 'snmp_throughput')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'snmp_throughput')"
                           @click.stop="toggleMetricTooltip(h, 'snmp_heatmap')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7572,7 +7655,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('host_drawer.snmp_charts.dell_temps_title')"></span><span class="unit">°C</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'dell_temps')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'dell_temps')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'dell_temps')" :title="metricSource(h, 'dell_temps')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'dell_temps')"
                           @click.stop="toggleMetricTooltip(h, 'dell_temps')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7670,7 +7753,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('columns.cpu')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'cpu')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'cpu')" :title="metricSource(h, 'cpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'cpu')"
                           @click.stop="toggleMetricTooltip(h, 'cpu')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7733,7 +7816,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('columns.memory')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'memory')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'memory')" :title="metricSource(h, 'memory')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'memory')"
                           @click.stop="toggleMetricTooltip(h, 'memory')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7788,7 +7871,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('columns.disk')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'disk')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'disk')" :title="metricSource(h, 'disk')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk')"
                           @click.stop="toggleMetricTooltip(h, 'disk')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -7862,7 +7945,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.network')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['nr','ns'])) + '/s'"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'network')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'network')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'network')" :title="metricSource(h, 'network')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'network')"
                           @click.stop="toggleMetricTooltip(h, 'network')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8067,7 +8150,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.disk_io')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['dr','dw'])) + '/s'"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'disk_io')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk_io')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'disk_io')" :title="metricSource(h, 'disk_io')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'disk_io')"
                           @click.stop="toggleMetricTooltip(h, 'disk_io')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8172,7 +8255,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.load_avg')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'load_avg')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'load_avg')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'load_avg')" :title="metricSource(h, 'load_avg')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'load_avg')"
                           @click.stop="toggleMetricTooltip(h, 'load_avg')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8253,7 +8336,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.bandwidth')"></span><span class="unit" x-text="unitForBytes(hostChartMax(hostHistoryKey(h), ['net'])) + '/s'"></span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'bandwidth')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'bandwidth')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'bandwidth')" :title="metricSource(h, 'bandwidth')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'bandwidth')"
                           @click.stop="toggleMetricTooltip(h, 'bandwidth')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8314,7 +8397,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.swap')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'swap')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'swap')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'swap')" :title="metricSource(h, 'swap')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'swap')"
                           @click.stop="toggleMetricTooltip(h, 'swap')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8379,7 +8462,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.temperature')"></span><span class="unit">°C</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'temperature')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'temperature')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'temperature')" :title="metricSource(h, 'temperature')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'temperature')"
                           @click.stop="toggleMetricTooltip(h, 'temperature')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8503,7 +8586,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.gpu_power')"></span><span class="unit">W</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'gpu')" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                           @click.stop="toggleMetricTooltip(h, 'gpu_pwr')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8563,7 +8646,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.gpu_usage')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'gpu')" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                           @click.stop="toggleMetricTooltip(h, 'gpu_usage')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -8621,7 +8704,7 @@
               <div class="metric-card-head">
                 <div class="metric-card-title">
                   <span x-text="t('hosts_extra.metrics.gpu_vram')"></span><span class="unit">%</span>
-                  <button type="button" class="metric-source-help" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
+                  <button type="button" class="metric-source-help" aria-haspopup="true" :aria-label="metricSource(h, 'gpu')" :title="metricSource(h, 'gpu')" :aria-expanded="metricTooltipOpen === metricTooltipKey(h, 'gpu')"
                           @click.stop="toggleMetricTooltip(h, 'gpu_vram')"
                           @keydown.escape.window="metricTooltipOpen = null">
                     <svg width="12" height="12" aria-hidden="true">
@@ -9474,8 +9557,9 @@
                   </div>
                 </div>
               </div>
-              <button type="button" @click="closeAppDrawer()" class="btn btn-ghost text-base leading-none"
-                      :aria-label="t('actions.close')" :title="t('actions.close')">✕
+              <button type="button" @click="closeAppDrawer()" class="user-action-btn"
+                      :aria-label="t('actions.close')" :title="t('actions.close')">
+                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
               </button>
             </div>
 
@@ -9706,8 +9790,9 @@
                   </div>
                 </div>
               </div>
-              <button type="button" @click="closeAppHostDrawer()" class="btn btn-ghost text-base leading-none"
-                      :aria-label="t('actions.close')" :title="t('actions.close')">✕
+              <button type="button" @click="closeAppHostDrawer()" class="user-action-btn"
+                      :aria-label="t('actions.close')" :title="t('actions.close')">
+                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
               </button>
             </div>
 
