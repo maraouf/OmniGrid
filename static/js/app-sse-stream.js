@@ -46,18 +46,26 @@ function _clearNodeItemsIndexCache() {
   _nodeItemsIndexScheduled = false;
 }
 
-// PERF-09: flush-memoize the Stacks/Services derived getters. Each is pure
+// PERF-09: flush-memoize the EXPENSIVE Stacks/Services getters. Each is pure
 // within a synchronous reactive flush (depends only on this.items /
 // this.stacks / search / statusFilter / healthFilter / sortField / sortDir,
 // none of which change mid-flush) but was recomputed AND re-allocated on every
-// access — counts walks all items; filteredStacks spreads every stack +
-// filters its items; filteredItems filters; sortedFiltered spreads + sorts —
-// and they're read multiple times per flush (.length count bindings + x-for
-// sources). One module-scope per-flush cache, cleared on the next microtask
-// (zero staleness, same contract as the filteredHosts memo). `undefined` is
-// the not-cached sentinel (none of these getters ever return undefined).
+// access — filteredStacks spreads every stack + filters its items;
+// filteredItems filters; sortedFiltered spreads + sorts — and they're read
+// multiple times per flush as x-for sources. One module-scope per-flush cache,
+// cleared on the next microtask (zero staleness, same contract as the
+// filteredHosts memo). `undefined` is the not-cached sentinel.
+//
+// IMPORTANT — these three are safe to memo BECAUSE their dominant consumer is a
+// heavy x-for (the Stacks / Services table) that reads the getter granularly
+// every flush, so Alpine's fine-grained reactivity re-subscribes the render
+// effect to this.items on every flush. `counts` is DELIBERATELY excluded: all
+// its consumers are lightweight (nav badge x-show, filter-chip x-text, title)
+// and never iterate this.items, so a cache-hit early-return would return before
+// touching this.items and Alpine would never register the dependency for those
+// effects — the badge would FREEZE at its last value after an in-place items
+// reconcile. `counts` therefore always-computes (see its getter).
 const _stacksFlushCache = {
-  counts: undefined,
   filteredStacks: undefined,
   filteredItems: undefined,
   sortedFiltered: undefined,
@@ -69,7 +77,6 @@ function _scheduleStacksFlushClear() {
   }
   _stacksFlushScheduled = true;
   queueMicrotask(() => {
-    _stacksFlushCache.counts = undefined;
     _stacksFlushCache.filteredStacks = undefined;
     _stacksFlushCache.filteredItems = undefined;
     _stacksFlushCache.sortedFiltered = undefined;
@@ -672,9 +679,16 @@ export default {
     // fix anyway. Mirrors the per-stack rollup in `logic/gather.py`
     // and the per-node rollup in `nodesView` so all three count
     // sources read consistently.
-    if (_stacksFlushCache.counts !== undefined) {
-      return _stacksFlushCache.counts;
-    }
+    //
+    // NOT flush-memoized (unlike filteredStacks / sortedFiltered below):
+    // every consumer of `counts` is lightweight — the Stacks nav badge
+    // (x-show), the filter-chip x-text counts, the nav title — none of
+    // them iterate this.items. A cache-hit early-return would return
+    // before reading this.items, so Alpine's fine-grained reactivity
+    // (@vue/reactivity) would never subscribe those effects to the items
+    // they depend on, and the badge would FREEZE at its last value after
+    // an in-place items reconcile. The single O(items) pass per read is
+    // cheap; correctness wins over the micro-optimization here.
     const c = {update: 0, update_offline: 0, uptodate: 0, unknown: 0, error: 0, ignored: 0, healthy: 0, degraded: 0, offline: 0};
     for (const i of this.items) {
       if (i.status === 'update') {
@@ -710,8 +724,6 @@ export default {
         }
       }
     }
-    _stacksFlushCache.counts = c;
-    _scheduleStacksFlushClear();
     return c;
   },
   get filteredStacks() {
