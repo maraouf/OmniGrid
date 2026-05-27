@@ -1369,6 +1369,7 @@ def list_apps() -> list[dict[str, Any]]:
                     "last_probe":   { alive, rtt_ms, ts, error } | None,
                     "probe_enabled": bool,
                     "ports":         [...]  # operator-set, may be empty
+                    "status_history": [{ts, up}, ...]  # recent rollup uptime, oldest->newest
                 },
                 ...
             ],
@@ -1388,7 +1389,7 @@ def list_apps() -> list[dict[str, Any]]:
     # query per host (same profile as latest_for_host) so multi-port chips
     # can surface which specific port failed in the Apps card's diagnosis
     # row without an extra DB hit per instance.
-    from logic.service_sampler import latest_for_host, latest_per_port_all_for_host
+    from logic.service_sampler import latest_for_host, latest_per_port_all_for_host, history_rollup_all_for_host
     groups: dict[str, dict[str, Any]] = {}
     for host_row in iter_curated_hosts():
         hid = (host_row.get("id") or "").strip()
@@ -1405,6 +1406,9 @@ def list_apps() -> list[dict[str, Any]]:
             continue
         latest = latest_for_host(hid)
         per_port = latest_per_port_all_for_host(hid)
+        # Recent per-chip rollup uptime history (one query per host) — drives
+        # the Apps card's inline per-instance uptime sparkline.
+        hist = history_rollup_all_for_host(hid)
         for idx, svc in enumerate(services):
             if not isinstance(svc, dict):
                 continue
@@ -1467,6 +1471,10 @@ def list_apps() -> list[dict[str, Any]]:
                 # not just the rolled-up chip status. Filtered to current
                 # config ports above.
                 "port_results": port_results,
+                # Recent rollup uptime history ([{ts, up}], oldest->newest,
+                # capped) for the Apps card's inline sparkline. Empty when
+                # the chip has no probe samples yet.
+                "status_history": hist.get(idx, []),
             })
     # Tally + roll-up status
     out: list[dict] = []

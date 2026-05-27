@@ -53,13 +53,60 @@ else:
     os.makedirs(_db_path_dir, exist_ok=True)
 
 
+# Per-connection SQLite tuning, applied on every db_conn() open.
+#
+# journal_mode=WAL lets readers proceed while a writer commits — the
+# default rollback journal takes an EXCLUSIVE lock that blocks ALL readers
+# for the commit's duration, which serializes the per-tick samplers + the
+# per-request session touch against the SPA's polls. busy_timeout makes a
+# contended open WAIT up to N ms instead of raising SQLITE_BUSY immediately
+# (the default is 0). synchronous=NORMAL is the SQLite-recommended pairing
+# with WAL: durable across an app crash, only at risk on an OS crash /
+# power loss, and much faster than the FULL default.
+#
+# busy_timeout is env-overridable (DB_BUSY_TIMEOUT_MS) but is NOT a
+# DB-backed TUNABLE: resolving a tunable opens a db_conn(), which would
+# recurse through this very function. journal_mode=WAL is persistent in the
+# DB header so it only truly needs setting once, but re-issuing it per
+# connection is cheap + idempotent and covers a fresh DB on first boot
+# without a dedicated migration. Wrapped defensively — a filesystem that
+# can't host the -wal / -shm files (some network mounts) must fall back to
+# the SQLite default rather than break every connection.
+_DB_BUSY_TIMEOUT_MS_DEFAULT = 5000
+
+
+def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
+    """Enable WAL + busy_timeout + synchronous=NORMAL on a fresh connection.
+
+    Best-effort: any PRAGMA failure (e.g. a volume that can't host WAL's
+    side files) is logged and swallowed so the connection still works on
+    SQLite defaults.
+    """
+    raw = env_get(EnvKey.DB_BUSY_TIMEOUT_MS)
+    try:
+        busy_ms = int(raw) if raw else _DB_BUSY_TIMEOUT_MS_DEFAULT
+    except (TypeError, ValueError):
+        busy_ms = _DB_BUSY_TIMEOUT_MS_DEFAULT
+    if busy_ms < 0:
+        busy_ms = _DB_BUSY_TIMEOUT_MS_DEFAULT
+    try:
+        # PRAGMA can't bind params; busy_ms is a sanitized int so the
+        # f-string is injection-safe.
+        conn.execute(f"PRAGMA busy_timeout={busy_ms}")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error as e:
+        print(f"[db] PRAGMA tuning skipped ({e}); using SQLite defaults")
+
+
 @contextmanager
 def db_conn():
     """Context-managed SQLite connection with Row factory.
 
-    Commits on clean exit, closes in finally. Fine for our write volume
-    (a few ops per minute); if we ever grow a hot write path we can
-    switch to WAL + autocommit, but SQLite's default is enough today.
+    Commits on clean exit, closes in finally. Every connection enables
+    WAL + a non-zero busy_timeout + synchronous=NORMAL (see
+    ``_apply_sqlite_pragmas``) so readers don't block behind a writer's
+    commit and a contended open waits instead of raising SQLITE_BUSY.
 
     Raises ``RuntimeError`` (not ``sqlite3.OperationalError``) if
     ``DB_PATH`` is unset — lets the config-error middleware in main.py
@@ -80,6 +127,7 @@ def db_conn():
         raise RuntimeError("DB_PATH is None")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    _apply_sqlite_pragmas(conn)
     try:
         yield conn
         conn.commit()

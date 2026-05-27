@@ -754,6 +754,63 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
     return out
 
 
+# Presentational: how many of the MOST-RECENT rollup samples a per-chip
+# Apps-card uptime sparkline draws. A point-count for a fixed-width spark
+# (same class as the CSS-only chart-coordinate constants), NOT an operator
+# behaviour knob — so it stays a code constant rather than a TUNABLE.
+_APPS_SPARK_MAX_POINTS = 24
+
+
+def history_rollup_all_for_host(host_id: str,
+                                max_points: int = _APPS_SPARK_MAX_POINTS) -> dict:
+    """Recent per-chip ROLLUP uptime history for EVERY chip on one host,
+    in a SINGLE query — keyed by ``service_idx``.
+
+    Returns ``{service_idx: [{ts, up}, ...], ...}`` where each list holds
+    up to ``max_points`` of the MOST-RECENT rollup samples (``port=0``)
+    ordered OLDEST->NEWEST, so the Apps card can draw a tiny per-instance
+    uptime sparkline without an extra DB hit per chip — one query per host,
+    same profile as :func:`latest_for_host` (NOT per-tile fan-out). ``up``
+    is the boolean alive flag. Empty dict when the host has no rollup
+    history.
+
+    Uses a ``ROW_NUMBER()`` window partitioned by ``service_idx`` so the
+    per-chip cap is applied IN SQL (the ``idx_service_samples_host_idx_ts``
+    index covers the partition) rather than fetching the whole retention
+    window and slicing in Python.
+    """
+    if not host_id:
+        return {}
+    try:
+        n = max(1, int(max_points))
+    except (TypeError, ValueError):
+        n = _APPS_SPARK_MAX_POINTS
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT service_idx, ts, alive FROM ("
+                "  SELECT service_idx, ts, alive, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY service_idx ORDER BY ts DESC"
+                "         ) AS rn "
+                "  FROM service_samples "
+                "  WHERE host_id = ? AND port = 0"
+                ") WHERE rn <= ? "
+                "ORDER BY service_idx ASC, ts ASC",
+                (host_id, n),
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] history_rollup_all_for_host({host_id!r}) skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        out.setdefault(int(r[0]), []).append({
+            "ts": int(r[1]),
+            "up": bool(r[2]),
+        })
+    return out
+
+
 # NOTE: a former `populate_host_service_merge(host_id, merged)` helper was
 # removed — it gated on `merged["services"]` being the curated chip array,
 # but the provider-merged dict's service key holds the Beszel systemd

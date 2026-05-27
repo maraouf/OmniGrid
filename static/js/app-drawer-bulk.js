@@ -1013,27 +1013,6 @@ export default {
     }
     return m + um + ' ' + rem + us;
   },
-  // One-line per-provider chip subtitle — joins the three segments
-  // (last-OK age / sample count / cadence) that were previously three
-  // stacked fs-3xs-half lines into a single dot-separated string, so a
-  // host with 5-6 providers doesn't grow a tall column of micro-text.
-  // Each segment is included only when its underlying value is present
-  // (same x-show gates the three spans used). Returns '' so the caller's
-  // x-show hides the line cleanly when nothing has landed yet.
-  providerChipSubtitle(h, name) {
-    const parts = [];
-    if (this.providerLastOkSeconds(h, name) > 0) {
-      parts.push(this.t('hosts_extra.provider_last_ok', {age: this.providerLastOkAge(h, name)}));
-    }
-    const cnt = this.providerSampleCount(h, name);
-    if (cnt > 0) {
-      parts.push(this.t('hosts_extra.provider_sample_count', {count: Number(cnt).toLocaleString()}));
-    }
-    if (this.providerSampleInterval(h, name) > 0) {
-      parts.push(this.t('hosts_extra.provider_sample_interval', {every: this.providerSampleIntervalLabel(h, name)}));
-    }
-    return parts.join(' · ');
-  },
   // Resume-button busy-state map. Keyed `<host_id>:<provider>` so
   // simultaneous resumes on different providers don't collide.
   providerResumeBusy: {},

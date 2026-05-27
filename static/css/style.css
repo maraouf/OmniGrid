@@ -9667,21 +9667,22 @@ select.field-invalid {
   white-space: nowrap;
 }
 /* App-name link — when the chip has a URL the tile name becomes a
-   clickable link opening in a new window. Dotted underline + primary
-   accent for parity with the clickable port pills (.apps-port-pill--link)
-   so the open-as-URL affordance reads consistently across the Apps surface. */
+   clickable link opening in a new window. Dotted underline only (no
+   blue/primary accent — too strong on the dark theme) for parity with the
+   clickable port pills (.apps-port-pill--link), so the open-as-URL
+   affordance reads consistently across the Apps surface. */
 a.apps-drawer-tile-name {
   color: inherit;
   text-decoration: none;
 }
 .apps-drawer-tile-name--link {
-  color: var(--primary);
+  color: inherit;
   cursor: pointer;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
 .apps-drawer-tile-name--link:hover {
-  text-decoration-color: var(--primary);
+  text-decoration-style: solid;
 }
 .apps-drawer-tile-ports {
   display: inline-flex;
@@ -9698,6 +9699,29 @@ a.apps-drawer-tile-name {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
+}
+
+/* Per-instance uptime sparkline on the Apps card — a fixed 48x12 SVG
+   polyline drawn by appsInstanceSpark(): a flat top line reads as healthy,
+   a dip to the baseline as an outage. The colour signals all-up (success)
+   vs has-down (warning); the polyline strokes currentColor so the class
+   owns the hue. The fixed px dims are presentational spark coordinates
+   (a fixed-size chart), not spacing tokens. */
+.apps-spark-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.apps-spark {
+  width: 48px;
+  height: 12px;
+  display: block;
+}
+.apps-spark--up {
+  color: var(--success);
+}
+.apps-spark--mixed {
+  color: var(--warning);
 }
 
 .apps-port-pill {
@@ -9736,24 +9760,23 @@ a.apps-port-pill {
   text-decoration: none;
   cursor: default;
 }
-/* Clickable (open_url + http/https) port — PERSISTENT indicator so it
-   reads as a link at rest, not only on hover (parity with the link marker
-   in the Apps tables): primary-tinted border + primary text + a dotted
-   underline on the port number. */
+/* Clickable (open_url + http/https) port — the dotted underline on the
+   port number is the link affordance at rest. Intentionally NO blue/primary
+   accent (it read as too strong on the dark theme): the text keeps the
+   chip's normal colour and the border falls through to the base/status
+   colour (so a linkable up/down port still shows its status-coloured
+   border), leaving the dotted underline + pointer as the only link signal. */
 /* Selector is `a.apps-port-pill--link` (not the bare class) on purpose:
    it must out-specify `a.apps-port-pill { cursor: default; color: inherit }`
    above (element+class beats a lone class), otherwise the linked pill's
-   pointer cursor + primary accent lose to the non-link reset. */
+   pointer cursor loses to the non-link reset. */
 a.apps-port-pill--link {
   cursor: pointer;
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  color: var(--primary);
 }
 .apps-port-pill--link .mono {
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
 .apps-port-pill--link:hover {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface-2));
+  background: var(--surface-3);
 }

@@ -16,6 +16,15 @@
 // edited via Admin → Hosts (unchanged); this module handles the
 // catalog-template lifecycle + the cross-host viewing experience.
 
+// Per-instance uptime-sparkline memo — keyed on the instance's
+// `status_history` array REFERENCE (stable across reactive flushes until
+// /api/apps reloads), so the SVG points string + uptime % are built ONCE
+// per series, not on every Alpine flush (see CLAUDE.md "Template-read
+// getters … MUST be flush-memoized"). Module-scope so Alpine reactivity
+// never wraps it; WeakMap so a cache entry is GC'd with its history array
+// when the app list reloads.
+const _appsSparkCache = new WeakMap();
+
 export default {
   // ----------------------------------------------------------------
   // Top-level Apps view — cross-host aggregate.
@@ -272,6 +281,50 @@ export default {
   appsLatencyParen(n) {
     const num = (typeof n === 'number') ? n.toLocaleString() : n;
     return this.t('common.latency_paren', {n: num}) || ('(' + num + ' ms)');
+  },
+
+  // Per-instance uptime sparkline for the Apps card. Reads the backend-
+  // supplied `inst.status_history` ([{ts, up}, ...], oldest->newest) and
+  // returns a MEMOIZED descriptor {points, pct, n, allUp}:
+  //   points = SVG polyline coords in a 0..48 x 0..12 viewBox — up sits at
+  //            the top edge, a down sample drops to the baseline, so one
+  //            <polyline> reads as "flat = healthy, dip = outage";
+  //   pct    = uptime % over the window; n = sample count;
+  //   allUp  = no down samples (drives the green-vs-amber colour class).
+  // Returns null when there are < 2 points (caller hides the spark). The
+  // result is cached against the status_history array ref so :points +
+  // :title + the colour class all read it without rebuilding per flush.
+  appsInstanceSpark(inst) {
+    const hist = inst && inst.status_history;
+    if (!Array.isArray(hist) || hist.length < 2) {
+      return null;
+    }
+    const cached = _appsSparkCache.get(hist);
+    if (cached) {
+      return cached;
+    }
+    const width = 48;
+    const top = 1;
+    const bottom = 11;
+    const n = hist.length;
+    const stepX = width / (n - 1);
+    const coords = [];
+    let upCount = 0;
+    for (let i = 0; i < n; i++) {
+      const up = !!(hist[i] && hist[i].up);
+      if (up) {
+        upCount++;
+      }
+      coords.push((i * stepX).toFixed(1) + ',' + (up ? top : bottom));
+    }
+    const out = {
+      points: coords.join(' '),
+      pct: Math.round((upCount / n) * 100),
+      n: n,
+      allUp: upCount === n,
+    };
+    _appsSparkCache.set(hist, out);
+    return out;
   },
 
   // Host-drawer chip-strip tooltip: "<name> — <status> (<rtt>ms)". The
