@@ -9473,6 +9473,9 @@ select.field-invalid {
   border: 1px solid var(--border);
   background: var(--surface-2);
   line-height: 1.4;
+  /* Keep the status dot + port number (+ any indicator) on one line —
+     never wrap the glyph below the dot. */
+  white-space: nowrap;
 }
 
 .apps-port-pill--up {

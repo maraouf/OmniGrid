@@ -325,23 +325,21 @@ export default {
   },
 
   // Clickable-port URL: when a port is flagged `open_url` (per-port
-  // checkbox in the catalog template / instance editor) AND its protocol
-  // is http/https, return <scheme>://<host>:<port> so the pill renders as
-  // a link. Empty string ⇒ not clickable (plain pill). `ctx` is the
-  // instance (Apps view) OR the host row (host drawer) — both carry a
-  // host address under one of these keys.
+  // checkbox in the catalog template / instance editor), return
+  // <scheme>://<host>:<port> so the pill renders as a link. Works on ANY
+  // protocol — the operator ticked the box, so they know the port serves
+  // a browsable URL even if it's labelled tcp (e.g. an app on a bare-TCP
+  // chip that actually speaks HTTP). Scheme follows the protocol: https
+  // for `https`, otherwise http. Empty string ⇒ not clickable.
   appsPortHref(pr, ctx) {
     if (!pr || !pr.open_url || !pr.port) {
-      return '';
-    }
-    const proto = String(pr.protocol || '').toLowerCase();
-    if (proto !== 'http' && proto !== 'https') {
       return '';
     }
     const host = ctx && (ctx.host_address || ctx.address || ctx.host || ctx.host_id || ctx.id);
     if (!host) {
       return '';
     }
+    const proto = String(pr.protocol || '').toLowerCase();
     return (proto === 'https' ? 'https' : 'http') + '://' + host + ':' + pr.port;
   },
 
@@ -1814,7 +1812,7 @@ export default {
     }
     this.appsPinForm = {
       template: entry,
-      host_id: '',
+      host_ids: [],
       url: '',
       probe_enabled: true,
     };
@@ -1836,7 +1834,7 @@ export default {
 
   closeAppCatalogPin() {
     this.appsPinModalOpen = false;
-    this.appsPinForm = {template: null, host_id: '', url: '', probe_enabled: true};
+    this.appsPinForm = {template: null, host_ids: [], url: '', probe_enabled: true};
     this.appsPinError = '';
     this.appsPinHostSearch = '';
     this.appsPinHostDropdownOpen = false;
@@ -1867,14 +1865,46 @@ export default {
     return out.slice(0, 50);
   },
 
-  selectAppsPinHost(h) {
+  // Multi-host pin: clicking a host TOGGLES it into the selected set
+  // (host_ids) and keeps the picker open + clears the filter so the
+  // operator can keep adding more. Selected hosts render as removable
+  // chips above the input.
+  toggleAppsPinHost(h) {
     if (!h || !h.id) {
       return;
     }
-    this.appsPinForm.host_id = h.id;
-    this.appsPinHostSearch = this.appsHostLabel(h);
-    this.appsPinHostDropdownOpen = false;
+    if (!this.appsPinForm || !Array.isArray(this.appsPinForm.host_ids)) {
+      this.appsPinForm.host_ids = [];
+    }
+    const i = this.appsPinForm.host_ids.indexOf(h.id);
+    if (i >= 0) {
+      this.appsPinForm.host_ids.splice(i, 1);
+    } else {
+      this.appsPinForm.host_ids.push(h.id);
+    }
+    this.appsPinHostSearch = '';
     this.appsPinHostActiveIdx = -1;
+  },
+  appsPinHostChosen(h) {
+    return !!(h && this.appsPinForm
+      && Array.isArray(this.appsPinForm.host_ids)
+      && this.appsPinForm.host_ids.includes(h.id));
+  },
+  removeAppsPinHost(id) {
+    if (!this.appsPinForm || !Array.isArray(this.appsPinForm.host_ids)) {
+      return;
+    }
+    const i = this.appsPinForm.host_ids.indexOf(id);
+    if (i >= 0) {
+      this.appsPinForm.host_ids.splice(i, 1);
+    }
+  },
+  // Selected host rows (objects) for the removable chip strip.
+  appsPinSelectedHosts() {
+    const ids = (this.appsPinForm && Array.isArray(this.appsPinForm.host_ids))
+      ? this.appsPinForm.host_ids : [];
+    const cfg = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+    return ids.map((id) => cfg.find((h) => h && h.id === id) || {id});
   },
 
   appsPinHostMove(delta) {
@@ -1897,9 +1927,9 @@ export default {
   appsPinHostEnter() {
     const list = this.appsPinFilteredHosts();
     if (this.appsPinHostActiveIdx >= 0 && this.appsPinHostActiveIdx < list.length) {
-      this.selectAppsPinHost(list[this.appsPinHostActiveIdx]);
+      this.toggleAppsPinHost(list[this.appsPinHostActiveIdx]);
     } else if (list.length === 1) {
-      this.selectAppsPinHost(list[0]);
+      this.toggleAppsPinHost(list[0]);
     }
   },
 
@@ -1913,39 +1943,72 @@ export default {
       this.appsPinError = this.t('admin_apps.pin_no_template') || 'No template selected';
       return;
     }
-    if (!form.host_id) {
-      this.appsPinError = this.t('admin_apps.pin_pick_host') || 'Pick a host';
+    const hostIds = Array.isArray(form.host_ids) ? form.host_ids.slice() : [];
+    if (!hostIds.length) {
+      this.appsPinError = this.t('admin_apps.pin_pick_host') || 'Pick at least one host';
       return;
     }
     this.appsPinSaving = true;
     this.appsPinError = '';
+    // Multi-host: pin to each selected host in turn. 409 = already pinned
+    // (the backend's duplicate guard) — counted separately, not a failure.
+    let pinned = 0;
+    let already = 0;
+    let failed = 0;
+    const failMsgs = [];
     try {
-      const r = await fetch(`/api/services/catalog/${tpl.id}/pin`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          host_id: form.host_id,
-          url: (form.url || '').trim(),
-          probe_enabled: !!form.probe_enabled,
-        }),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+      for (const hid of hostIds) {
+        try {
+          const r = await fetch(`/api/services/catalog/${tpl.id}/pin`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              host_id: hid,
+              url: (form.url || '').trim(),
+              probe_enabled: !!form.probe_enabled,
+            }),
+          });
+          if (r.status === 409) {
+            already += 1;
+            continue;
+          }
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            failed += 1;
+            failMsgs.push(hid + ': ' + (j.detail || ('HTTP ' + r.status)));
+            continue;
+          }
+          pinned += 1;
+        } catch (e) {
+          failed += 1;
+          failMsgs.push(hid + ': ' + ((e && e.message) ? e.message : e));
+        }
       }
-      const j = await r.json();
-      // Refresh the instance list so the new chip appears.
+      // Refresh the instance list so the new chips appear.
       await this.loadAppsInstances();
-      // Toast confirmation with a quick path back to the host editor.
       if (typeof this.toast === 'function') {
+        const parts = [];
+        if (pinned) {
+          parts.push(this.t('admin_apps.pin_result_pinned', {n: pinned}) || (pinned + ' pinned'));
+        }
+        if (already) {
+          parts.push(this.t('admin_apps.pin_result_already', {n: already}) || (already + ' already pinned'));
+        }
+        if (failed) {
+          parts.push(this.t('admin_apps.pin_result_failed', {n: failed}) || (failed + ' failed'));
+        }
         this.toast(
-          (this.t('admin_apps.pin_success') || 'Pinned to host: ') + (j.host_id || ''),
-          'success'
+          (this.t('admin_apps.pin_success_multi', {name: tpl.name || ''}) || ('Pinned ' + (tpl.name || '') + ': '))
+            + parts.join(', '),
+          failed ? 'warning' : 'success'
         );
       }
-      this.closeAppCatalogPin();
-    } catch (err) {
-      this.appsPinError = err && err.message ? err.message : String(err);
+      if (failed) {
+        // Keep the modal open so failures stay visible.
+        this.appsPinError = failMsgs.slice(0, 5).join('; ');
+      } else {
+        this.closeAppCatalogPin();
+      }
     } finally {
       this.appsPinSaving = false;
     }
