@@ -297,10 +297,9 @@ async def api_admin_stats_overview(
             # `hosts_config[].service_probe = {enabled: true}` flag —
             # any curated row with at least one service entry that
             # carries a probe URL counts as opting that host into
-            # service_probe. Mirrors how the live merge path treats
-            # the provider (main.py:10789 → populate_host_service_merge
-            # runs whenever ANY service URL exists), so the Stats
-            # Dashboard card now agrees with reality.
+            # service_probe. Mirrors how the live path treats the
+            # provider (a host opts in whenever ANY services[] chip has
+            # a probe URL), so the Stats Dashboard card agrees with reality.
             svcs = h.get("services")
             if isinstance(svcs, list):
                 for svc in svcs:

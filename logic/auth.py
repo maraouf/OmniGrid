@@ -742,6 +742,14 @@ def _load_user_ui_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
     return cur
 
 
+# Defence-in-depth cap on the single `users.ui_prefs` TEXT column. It's a
+# shared blob — ai_conversation (50-turn capped) + apps_custom_layout
+# (bounded by app count) + assorted toggles — none individually validated
+# for size. 256 KiB is far above any legitimate prefs payload; the cap just
+# stops a tampered / misbehaving client bloating the row unbounded.
+_UI_PREFS_MAX_BYTES = 256 * 1024
+
+
 def update_ui_prefs(
     conn: sqlite3.Connection,
     user_id: int,
@@ -754,6 +762,9 @@ def update_ui_prefs(
     they want to change. To delete a pref, send the value `None` (the
     merge drops null values so the dict stays compact). Validation is
     intentionally lenient — these are UI toggles, not security state.
+
+    Raises `ValueError` when the merged blob would exceed
+    ``_UI_PREFS_MAX_BYTES`` (the routes translate that to HTTP 413).
     """
     import json as _json
     if not isinstance(new_prefs, dict):
@@ -765,9 +776,16 @@ def update_ui_prefs(
             merged.pop(k, None)
         else:
             merged[k] = v
+    merged_json = _json.dumps(merged)
+    size = len(merged_json.encode("utf-8"))
+    if size > _UI_PREFS_MAX_BYTES:
+        raise ValueError(
+            "ui_prefs payload too large (%d bytes > %d cap)"
+            % (size, _UI_PREFS_MAX_BYTES)
+        )
     conn.execute(
         "UPDATE users SET ui_prefs=? WHERE id=?",
-        (_json.dumps(merged), user_id),
+        (merged_json, user_id),
     )
     return merged
 

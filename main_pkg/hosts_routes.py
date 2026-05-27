@@ -564,14 +564,10 @@ async def api_hosts_list(force: bool = False):
             _http_populate(h["id"], merged)
         except Exception as e:  # noqa: BLE001
             print(f"[hosts/list] http_probe populate failed for {h.get('id')!r}: {e}")
-        # Per-service reachability — stamp `last_probe` on services[]
-        # so the skeleton chips render with green / red dots without
-        # waiting for the per-host fan-out.
-        try:
-            from logic.service_sampler import populate_host_service_merge as _svc_populate
-            _svc_populate(h["id"], merged)
-        except Exception as e:  # noqa: BLE001
-            print(f"[hosts/list] service_probe populate failed for {h.get('id')!r}: {e}")
+        # Per-service `last_probe` is delivered by `_shape_host_apps(h)`
+        # (curated `h["services"]` + service_samples), not via the merged
+        # provider dict — whose service key is the Beszel rollup, never
+        # the curated array.
         # Providers list is empty for snapshot-only rows — the SPA's
         # stale-rendering pipeline cues off `_stale_fields` not the
         # providers list. The next `/api/hosts/one/{id}` refresh

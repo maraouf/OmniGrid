@@ -3319,129 +3319,7 @@
       <div x-show="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length"
            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="app in filteredApps()" :key="app.group_id">
-          <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer flex items-start gap-3"
-                   :class="'apps-card--' + app.status"
-                   role="button" tabindex="0"
-                   :aria-label="t('apps.drawer.open_aria', {name: app.name})"
-                   @click="openAppDrawer(app)"
-                   @keydown.enter="openAppDrawer(app)"
-                   @keydown.space.prevent="openAppDrawer(app)">
-            <!-- Big app logo on the LEFT (3x the old 32px); everything else —
-                 name / status / description / Probe-all + Open-all actions /
-                 per-host services — stacks in the flex-1 column to its right.
-                 w-24 h-24 + object-contain forces a uniform 96px square slot
-                 that defeats Tailwind's img{height:auto} preflight for the
-                 non-square brand marks (so a portrait logo can't stretch tall). -->
-            <img :src="iconUrlFor(app.icon || app.name)" alt=""
-                 width="96" height="96" class="w-24 h-24 object-contain rounded flex-shrink-0"
-                 @error="$event.target.style.visibility='hidden'">
-            <div class="flex-1 min-w-0">
-              <header class="mb-3">
-                <div class="flex items-start justify-between gap-2">
-                  <h3 class="font-semibold fs-sm truncate" x-text="app.name"></h3>
-                  <!-- Status pill, with the bulk actions as SUBTLE icon-only
-                       buttons stacked below it (was a prominent labelled
-                       "Probe all (N)" / "Open all (N)" row that crowded the
-                       card). Probe-all = small refresh icon (admin-only);
-                       Open-all = external-link icon. @click.stop so neither
-                       opens the app drawer. -->
-                  <div class="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span class="chip fs-3xs whitespace-nowrap"
-                          :aria-label="appsChipAriaLabel(app)"
-                          :class="appStatusPillClass(app.status)"
-                          x-text="(t('apps.status_' + app.status) || app.status)"></span>
-                    <div class="flex items-center gap-0.5"
-                         x-show="appsProbeTargetCount(app) || appsOpenableCount(app)">
-                      <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
-                              class="btn btn-ghost p-1 fs-3xs inline-flex items-center"
-                              :disabled="appsProbingAll(app)"
-                              @click.stop="probeAllInstances(app)"
-                              :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
-                              :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
-                        <svg width="12" height="12" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
-                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                        </svg>
-                      </button>
-                      <button type="button" x-show="appsOpenableCount(app)"
-                              class="btn btn-ghost p-1 fs-3xs inline-flex items-center"
-                              @click.stop="openAllInstances(app)"
-                              :title="t('apps.open_all_title') || 'Open every instance URL in a new tab'"
-                              :aria-label="t('apps.open_all_aria', {name: app.name}) || ('Open all URLs for ' + app.name)">
-                        <svg width="12" height="12" aria-hidden="true">
-                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <p class="fs-3xs text-[var(--text-faint)] truncate"
-                   x-text="(app.catalog && app.catalog.description) || t('apps.counts.instances_up', { up: app.up_count, total: app.instance_count })"></p>
-                <span x-show="appsProbeAllSummary(app)" class="fs-3xs text-[var(--text-faint)]"
-                      aria-live="polite"
-                      x-text="appsProbeAllSummary(app)"></span>
-              </header>
-            <!-- Per-host instance list -->
-            <ul class="space-y-1 fs-xs">
-              <template x-for="inst in appsVisibleInstances(app)" :key="inst.host_id + ':' + inst.service_idx">
-                <li class="flex flex-col gap-0.5">
-                  <div class="flex items-center gap-2">
-                    <span class="apps-card-dot"
-                          :class="'apps-card-dot--' + inst.status"
-                          :title="inst.status"
-                          aria-hidden="true"></span>
-                    <span class="truncate flex-1"
-                          :title="appsInstanceHostTitle(inst)"
-                          x-text="inst.host_address || inst.host_id"></span>
-                    <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
-                          x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
-                    <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
-                       class="text-[var(--primary)] hover:underline" :aria-label="t('apps.open_link') || 'Open service URL'"
-                       @click.stop>
-                      <svg width="11" height="11" aria-hidden="true">
-                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                      </svg>
-                    </a>
-                  </div>
-                  <!-- Diagnosis: WHY this instance is degraded / down. Shows the
-                       failing port's error (multi-port) or the chip-level probe
-                       error so operators don't have to guess. Hidden for up. -->
-                  <div x-show="appsInstanceReason(inst)"
-                       class="ps-4 fs-3xs truncate"
-                       :class="inst.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
-                       :title="appsInstanceReason(inst)"
-                       x-text="appsInstanceReason(inst)"></div>
-                  <!-- Per-port pills for multi-port chips — which port is up /
-                       down + its rtt + error tooltip. Mirrors the host-drawer
-                       Apps card. Single-port chips skip this (reason line above
-                       already carries their one error). -->
-                  <!-- Show the port pill for EVERY app (was multi-port only).
-                       A pill flagged open_url (+ http/https) renders as a
-                       clickable link to <scheme>://<host>:<port>; @click.stop
-                       so it doesn't also open the app drawer. -->
-                  <div x-show="(inst.port_results || []).length" class="apps-port-grid ps-4">
-                    <template x-for="pr in (inst.port_results || [])" :key="pr.port">
-                      <a class="apps-port-pill"
-                         :class="'apps-port-pill--' + appsPortState(pr) + (appsPortHref(pr, inst) ? ' apps-port-pill--link' : '')"
-                         :href="appsPortHref(pr, inst) || null"
-                         :target="appsPortHref(pr, inst) ? '_blank' : null"
-                         rel="noopener"
-                         @click.stop
-                         :title="appsPortTitle(pr)">
-                        <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                        <span x-text="pr.port + '/' + (pr.protocol || 'tcp')" class="mono"></span>
-                      </a>
-                    </template>
-                  </div>
-                </li>
-              </template>
-            </ul>
-            <!-- Show-all / Show-less toggle so an app on many hosts doesn't
-                 grow the card tall + break the grid's uniform rows. -->
-            <button type="button" x-show="appsInstancesCollapsible(app)"
-                    class="btn btn-ghost fs-3xs mt-1" @click.stop="toggleAppsInstances(app)"
-                    x-text="(appsInstancesExpanded[app.group_id]) ? (t('apps.show_less') || 'Show less') : (t('apps.show_all', { n: (app.instances || []).length }) || ('Show all (' + (app.instances || []).length + ')'))"></button>
-            </div>
-          </article>
+          <!-- INCLUDE: _components/apps-card.html -->
         </template>
       </div>
 
@@ -3503,98 +3381,189 @@
         </template>
       </div>
 
-      <!-- Custom layout (Homarr-style) — the user drags app cards into
+      <!-- Custom layout (Homarr-style) — the user organises app cards into
            their own collapsible sections; the layout (sections + order +
            collapse state) persists PER-USER in ui_prefs.apps_custom_layout
-           via the existing /api/me/ui-prefs channel. Native HTML5 DnD:
-           tiles carry group_id, section headers carry the section id. -->
+           via the existing /api/me/ui-prefs channel. Two views toggled by
+           `appsCustomEditMode`: a LOCKED view (default) renders the big app
+           cards (the same shared apps-card the by-app grid uses) so the
+           board can't be moved accidentally; EDIT mode swaps in condensed
+           draggable tiles + section CRUD (native HTML5 DnD: tiles carry
+           group_id, section headers carry the section id). -->
       <div x-show="appsListLoaded && appsViewGroupBy === 'custom'" class="space-y-3">
         <div class="flex items-center justify-between gap-2 px-1">
           <p class="fs-xs text-[var(--text-faint)]"
-             x-text="t('apps.custom.hint') || 'Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.'"></p>
-          <button type="button" class="btn btn-soft fs-sm inline-flex items-center gap-1"
-                  @click="addAppsSection()">
-            <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
-            <span x-text="t('apps.custom.add_section') || 'Add section'"></span>
-          </button>
+             x-text="appsCustomEditMode
+               ? (t('apps.custom.hint') || 'Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.')
+               : (t('apps.custom.locked_hint') || 'Your custom board. Click Edit to rearrange sections.')"></p>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button type="button" x-show="appsCustomEditMode"
+                    class="btn btn-soft fs-sm inline-flex items-center gap-1"
+                    @click="addAppsSection()">
+              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+              <span x-text="t('apps.custom.add_section') || 'Add section'"></span>
+            </button>
+            <!-- Edit ⇄ Save (lock) toggle — pencil when locked, check when
+                 editing. Switching OFF re-locks to the big-card view; the
+                 layout itself is already persisted on every change. -->
+            <button type="button"
+                    class="btn fs-sm inline-flex items-center gap-1"
+                    :class="appsCustomEditMode ? 'btn-primary' : 'btn-soft'"
+                    :aria-pressed="appsCustomEditMode ? 'true' : 'false'"
+                    @click="appsCustomEditMode = !appsCustomEditMode"
+                    :title="appsCustomEditMode ? (t('apps.custom.save_title') || 'Lock the board') : (t('apps.custom.edit_title') || 'Rearrange the board')">
+              <svg width="13" height="13" aria-hidden="true" x-show="!appsCustomEditMode"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pencil"/></svg>
+              <svg width="13" height="13" aria-hidden="true" x-show="appsCustomEditMode"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/></svg>
+              <span x-text="appsCustomEditMode ? (t('apps.custom.save') || 'Save') : (t('apps.custom.edit') || 'Edit')"></span>
+            </button>
+          </div>
         </div>
 
+        <!-- Unified sections — ONE template serves both the LOCKED view
+             (big cards, read-only) and the EDIT view (condensed draggable
+             tiles + section CRUD): the chrome (rename input vs static name,
+             delete, add-widget / add-bookmark, header drag) and the app-tile
+             size (big card vs condensed tile) gate on appsCustomEditMode.
+             Widget / bookmark tiles self-gate their drag + remove. Items are
+             heterogeneous (kind=app|widget|bookmark) — see _buildAppsCustom. -->
         <template x-for="sec in appsCustomSections()" :key="sec.id">
           <section class="apps-section border border-[var(--border)] rounded-md"
-                   @dragover.prevent @drop.stop="appsSectionDrop(sec.id)">
-            <header class="apps-section-head flex items-center gap-2 px-2 py-1.5" draggable="true"
-                    @dragstart="appsSectionDragStart($event, sec.id)">
+                   x-show="appsCustomEditMode || sec.items.length"
+                   @dragover.prevent
+                   @drop.stop="appsCustomEditMode ? appsSectionDrop(sec.id) : null">
+            <header class="apps-section-head flex items-center gap-2 px-2 py-1.5"
+                    :draggable="appsCustomEditMode ? 'true' : 'false'"
+                    @dragstart="appsCustomEditMode ? appsSectionDragStart($event, sec.id) : null">
               <button type="button" class="user-action-btn"
                       @click="toggleAppsSectionCollapsed(sec.id)"
                       :aria-expanded="(!sec.collapsed).toString()"
                       :aria-label="sec.collapsed ? (t('actions.expand') || 'Expand') : (t('actions.collapse') || 'Collapse')">
-                <svg width="14" height="14" aria-hidden="true" class="flip-rtl"
-                     :class="sec.collapsed ? '' : 'rotate-90'">
+                <svg width="14" height="14" aria-hidden="true" class="flip-rtl" :class="sec.collapsed ? '' : 'rotate-90'">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
                 </svg>
               </button>
-              <input type="text"
+              <input x-show="appsCustomEditMode" type="text"
                      class="apps-section-name flex-1 fs-sm font-semibold bg-transparent border-0"
                      :value="sec.name"
                      :placeholder="t('apps.custom.section_name_placeholder') || 'Section name'"
                      :aria-label="t('apps.custom.section_name_aria') || 'Section name'"
                      @change="renameAppsSection(sec.id, $event.target.value)"
                      @keydown.enter.prevent="$event.target.blur()">
-              <span class="fs-2xs text-[var(--text-faint)]" x-text="sec.apps.length"></span>
-              <button type="button" class="user-action-btn user-action-btn--danger"
-                      @click="deleteAppsSection(sec.id)"
-                      :aria-label="t('apps.custom.delete_section') || 'Delete section'"
-                      :title="t('apps.custom.delete_section') || 'Delete section'">
-                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/></svg>
-              </button>
-            </header>
-            <div class="apps-section-grid" x-show="!sec.collapsed"
-                 @dragover.prevent @drop="appsTileDrop(sec.id, null)">
-              <template x-for="app in sec.apps" :key="app.group_id">
-                <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
-                         @dragstart.stop="appsTileDragStart($event, app.group_id)"
-                         @dragover.prevent @drop.stop="appsTileDrop(sec.id, app.group_id)"
-                         role="button" tabindex="0"
-                         :aria-label="t('apps.drawer.open_aria', {name: app.name})"
-                         @click="openAppDrawer(app)"
-                         @keydown.enter="openAppDrawer(app)"
-                         @keydown.space.prevent="openAppDrawer(app)">
-                  <img :src="iconUrlFor(app.icon || app.name)" alt="" width="32" height="32"
-                       class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
-                  <span class="apps-tile-name truncate" x-text="app.name"></span>
-                  <span class="apps-tile-dot" :title="t('apps.status_' + app.status) || app.status"></span>
-                </article>
+              <span x-show="!appsCustomEditMode" class="fs-sm font-semibold flex-1 truncate"
+                    x-text="sec.name || (t('apps.custom.unsectioned') || 'Unsectioned')"></span>
+              <span class="fs-2xs text-[var(--text-faint)]" x-text="sec.items.length"></span>
+              <template x-if="appsCustomEditMode">
+                <span class="flex items-center gap-1 flex-shrink-0">
+                  <select class="fs-2xs" :aria-label="t('apps.custom.add_widget') || 'Add widget'"
+                          @change="addAppsWidget(sec.id, $event.target.value); $event.target.value=''">
+                    <option value="" x-text="t('apps.custom.add_widget') || '+ Widget'"></option>
+                    <template x-for="wk in appsWidgetKinds" :key="wk">
+                      <option :value="wk" x-text="appsWidgetLabel(wk)"></option>
+                    </template>
+                  </select>
+                  <button type="button" class="user-action-btn"
+                          @click="openAppsBookmarkForm(sec.id)"
+                          :aria-label="t('apps.custom.add_bookmark') || 'Add bookmark'"
+                          :title="t('apps.custom.add_bookmark') || 'Add bookmark'">
+                    <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/></svg>
+                  </button>
+                  <button type="button" class="user-action-btn user-action-btn--danger"
+                          @click="deleteAppsSection(sec.id)"
+                          :aria-label="t('apps.custom.delete_section') || 'Delete section'"
+                          :title="t('apps.custom.delete_section') || 'Delete section'">
+                    <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/></svg>
+                  </button>
+                </span>
               </template>
-              <div x-show="!sec.apps.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
+            </header>
+            <div x-show="appsCustomEditMode && appsBookmarkOpenFor === sec.id"
+                 class="flex items-center gap-2 px-2 py-1.5 border-t border-[var(--border)]">
+              <input type="text" class="fs-xs" style="flex:1;min-width:0;"
+                     x-model="appsBookmarkName"
+                     :placeholder="t('apps.custom.bookmark_name_placeholder') || 'Name'"
+                     :aria-label="t('apps.custom.bookmark_name_placeholder') || 'Name'">
+              <input type="url" class="fs-xs" style="flex:1.4;min-width:0;"
+                     x-model="appsBookmarkUrl"
+                     :placeholder="t('apps.custom.bookmark_url_placeholder') || 'https://…'"
+                     :aria-label="t('apps.custom.bookmark_url_placeholder') || 'URL'"
+                     @keydown.enter.prevent="submitAppsBookmark(sec.id)">
+              <button type="button" class="btn btn-primary fs-2xs" @click="submitAppsBookmark(sec.id)"
+                      x-text="t('actions.add') || 'Add'"></button>
+              <button type="button" class="btn btn-ghost fs-2xs" @click="cancelAppsBookmarkForm()"
+                      x-text="t('actions.cancel') || 'Cancel'"></button>
+            </div>
+            <div x-show="!sec.collapsed"
+                 :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+                 @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
+              <template x-for="item in sec.items" :key="item.uid">
+                <div class="apps-custom-cell min-w-0">
+                  <template x-if="item.kind === 'app' && !appsCustomEditMode">
+                    <template x-for="app in [item.app]" :key="app.group_id">
+                      <!-- INCLUDE: _components/apps-card.html -->
+                    </template>
+                  </template>
+                  <template x-if="item.kind === 'app' && appsCustomEditMode">
+                    <article class="apps-tile" :class="'apps-tile--' + item.app.status" draggable="true"
+                             @dragstart.stop="appsItemDragStart($event, item.uid)"
+                             @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
+                             role="button" tabindex="0"
+                             :aria-label="t('apps.drawer.open_aria', {name: item.app.name})"
+                             @click="openAppDrawer(item.app)"
+                             @keydown.enter="openAppDrawer(item.app)"
+                             @keydown.space.prevent="openAppDrawer(item.app)">
+                      <img :src="iconUrlFor(item.app.icon || item.app.name)" alt="" width="32" height="32"
+                           class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
+                      <span class="apps-tile-name truncate" x-text="item.app.name"></span>
+                      <span class="apps-tile-dot" :title="t('apps.status_' + item.app.status) || item.app.status"></span>
+                    </article>
+                  </template>
+                  <template x-if="item.kind === 'widget'">
+                    <!-- INCLUDE: _components/apps-widget-tile.html -->
+                  </template>
+                  <template x-if="item.kind === 'bookmark'">
+                    <!-- INCLUDE: _components/apps-bookmark-tile.html -->
+                  </template>
+                </div>
+              </template>
+              <div x-show="appsCustomEditMode && !sec.items.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
                    x-text="t('apps.custom.section_empty') || 'Drop apps here'"></div>
             </div>
           </section>
         </template>
 
+        <!-- Unsectioned (apps only) — big cards locked, condensed draggable edit -->
         <section class="apps-section apps-section--unsectioned border border-[var(--border)] rounded-md"
-                 x-show="appsCustomUnsectioned().length || !appsCustomSections().length">
+                 x-show="appsCustomUnsectioned().length || (appsCustomEditMode && !appsCustomSections().length)">
           <header class="apps-section-head flex items-center gap-2 px-2 py-1.5">
-            <span class="fs-sm font-semibold text-[var(--text-dim)]"
+            <span class="fs-sm font-semibold text-[var(--text-dim)] flex-1"
                   x-text="t('apps.custom.unsectioned') || 'Unsectioned'"></span>
             <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
           </header>
-          <div class="apps-section-grid" @dragover.prevent @drop="appsTileDrop('__unsectioned', null)">
+          <div :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+               @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop('__unsectioned', null) : null">
             <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
-              <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
-                       @dragstart.stop="appsTileDragStart($event, app.group_id)"
-                       @dragover.prevent @drop.stop="appsTileDrop('__unsectioned', app.group_id)"
-                       role="button" tabindex="0"
-                       :aria-label="t('apps.drawer.open_aria', {name: app.name})"
-                       @click="openAppDrawer(app)"
-                       @keydown.enter="openAppDrawer(app)"
-                       @keydown.space.prevent="openAppDrawer(app)">
-                <img :src="iconUrlFor(app.icon || app.name)" alt="" width="32" height="32"
-                     class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
-                <span class="apps-tile-name truncate" x-text="app.name"></span>
-                <span class="apps-tile-dot" :title="t('apps.status_' + app.status) || app.status"></span>
-              </article>
+              <div class="apps-custom-cell min-w-0">
+                <template x-if="!appsCustomEditMode">
+                  <!-- INCLUDE: _components/apps-card.html -->
+                </template>
+                <template x-if="appsCustomEditMode">
+                  <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
+                           @dragstart.stop="appsUnsectionedDragStart($event, app.group_id)"
+                           @dragover.prevent @drop.stop="appsTileDrop('__unsectioned', null)"
+                           role="button" tabindex="0"
+                           :aria-label="t('apps.drawer.open_aria', {name: app.name})"
+                           @click="openAppDrawer(app)"
+                           @keydown.enter="openAppDrawer(app)"
+                           @keydown.space.prevent="openAppDrawer(app)">
+                    <img :src="iconUrlFor(app.icon || app.name)" alt="" width="32" height="32"
+                         class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
+                    <span class="apps-tile-name truncate" x-text="app.name"></span>
+                    <span class="apps-tile-dot" :title="t('apps.status_' + app.status) || app.status"></span>
+                  </article>
+                </template>
+              </div>
             </template>
-            <div x-show="!appsCustomUnsectioned().length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
+            <div x-show="appsCustomEditMode && !appsCustomUnsectioned().length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
                  x-text="t('apps.custom.all_sorted') || 'All apps are sorted into sections.'"></div>
           </div>
         </section>

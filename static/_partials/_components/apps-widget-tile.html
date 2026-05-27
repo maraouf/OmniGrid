@@ -1,0 +1,43 @@
+<!-- Info-widget tile for the Custom Apps board. Bound inside
+     `<template x-for="item in sec.items">`, so `item` (kind='widget') and
+     `sec` are in scope, as is `appsCustomEditMode`. Pure-frontend — each
+     widget reads existing SPA state (clock tick, this.weather, this.publicIp,
+     this.hosts rollup); no backend. Drag handle + remove button only appear
+     in edit mode. -->
+<!--suppress HtmlUnknownAttribute -->
+<div class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
+     :draggable="appsCustomEditMode ? 'true' : 'false'"
+     @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
+     @dragover.prevent
+     @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
+  <div class="apps-widget-tile-head">
+    <span class="apps-widget-tile-title truncate" x-text="appsWidgetLabel(item.widget)"></span>
+    <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+            @click.stop="removeAppsItem(sec.id, item.uid)"
+            :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+            :title="t('apps.custom.remove_tile') || 'Remove tile'">
+      <svg width="12" height="12" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+      </svg>
+    </button>
+  </div>
+  <div class="apps-widget-tile-body">
+    <template x-if="item.widget === 'clock'">
+      <span class="apps-widget-clock" x-text="appsWidgetClock()"></span>
+    </template>
+    <template x-if="item.widget === 'weather'">
+      <span x-text="(weather && weather.temp_c != null)
+        ? (Math.round(weather.temp_c) + '° ' + (weather.condition || ''))
+        : (t('apps.custom.widget_no_data') || 'No data')"></span>
+    </template>
+    <template x-if="item.widget === 'public_ip'">
+      <span class="mono" x-text="(publicIp && publicIp.enabled && publicIp.ip)
+        ? publicIp.ip
+        : (t('apps.custom.widget_no_data') || 'No data')"></span>
+    </template>
+    <template x-if="item.widget === 'system_stats'">
+      <span x-text="t('apps.custom.widget_system_summary', { up: appsWidgetSystemStats().up, total: appsWidgetSystemStats().total })
+        || (appsWidgetSystemStats().up + ' / ' + appsWidgetSystemStats().total + ' hosts up')"></span>
+    </template>
+  </div>
+</div>

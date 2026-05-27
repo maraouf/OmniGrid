@@ -258,6 +258,15 @@ function app() {
     appsDockerLinkSearch: '',
     appsDockerLinkDropdownOpen: false,
     appsDockerLinkActiveIdx: -1,
+    // Custom Apps-layout edit/lock toggle. Transient (default LOCKED each
+    // visit) — the layout itself persists in ui_prefs; this flag just
+    // gates the condensed-draggable editor vs the locked big-card view.
+    appsCustomEditMode: false,
+    // Inline add-bookmark form (edit mode) — set to a section id to open
+    // its name/url form; cleared on submit/cancel. Transient.
+    appsBookmarkOpenFor: '',
+    appsBookmarkName: '',
+    appsBookmarkUrl: '',
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},
