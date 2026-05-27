@@ -865,7 +865,7 @@
        :aria-label="t('admin_apps.instance_edit_title') || 'Edit app instance'"
        @keydown.escape.window="closeInstanceEdit()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeInstanceEdit()"></div>
-    <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[480px] w-full mx-4">
+    <div class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[640px] w-full mx-4 max-h-[85vh] overflow-y-auto scrollbar">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
           <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
@@ -926,7 +926,7 @@
              x-text="t('admin_apps.instance_edit_no_ports') || 'No ports — this chip has no reachability ports configured.'"></p>
           <div class="space-y-1.5">
             <template x-for="(p, pi) in appsInstanceEditForm.ports" :key="p._uid || pi">
-              <div class="flex items-center gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
                 <input type="number" min="1" max="65535" class="w-[78px] fs-xs" x-model.number="p.port"
                        :placeholder="t('admin_apps.instance_edit_port') || 'Port'">
                 <select class="fs-xs" x-model="p.protocol">
@@ -935,7 +935,7 @@
                   <option value="http">http</option>
                   <option value="https">https</option>
                 </select>
-                <input type="text" maxlength="256" class="flex-1 fs-xs" x-model="p.probe_path"
+                <input type="text" maxlength="256" class="flex-1 min-w-[120px] fs-xs" x-model="p.probe_path"
                        :placeholder="t('admin_apps.instance_edit_path') || 'HTTP path (e.g. /health)'">
                 <input type="number" min="0" max="599" class="w-[64px] fs-xs" x-model.number="p.probe_status"
                        :title="t('admin_apps.instance_edit_status') || 'Expected HTTP status (0 = any 2xx/3xx)'"

@@ -184,6 +184,7 @@ async def api_hosts_http_probe_history(
 @app.post("/api/hosts/{host_id}/http-probe/test")
 async def api_hosts_http_probe_test_row(
     host_id: str,
+    request: Request,
     _admin: AdminUser,
 ):
     """Per-row HTTP / TLS / DNS test — fires against THIS row's
@@ -198,6 +199,14 @@ async def api_hosts_http_probe_test_row(
     ``host_http_samples`` — the test is a diagnostic affordance,
     not a sampler tick.
 
+    The SPA's editor posts the row's CURRENTLY-EDITED (possibly
+    unsaved) http_probe values in the body — ``urls`` / ``verify_tls`` /
+    ``content_match`` / ``accepted_status_codes`` (CSV string or list).
+    When a field is present it OVERRIDES the saved config so the Test
+    button reflects the values currently on screen (e.g. an unchecked
+    verify-TLS or a just-typed ``404`` accepted code) without needing a
+    Save first. An empty body falls back entirely to the saved config.
+
     Returns ``{results: [{url, ok, status_code, latency_ms,
     tls_expires_in_days, error}, ...], elapsed_ms, error}``.
     """
@@ -206,6 +215,12 @@ async def api_hosts_http_probe_test_row(
     hid = (host_id or "").strip()
     if not hid:
         raise HTTPException(400, "host_id required")
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:  # noqa: BLE001
+        body = {}
     # Find the curated row for this host via the sampler's shared
     # URL-resolver helper. Keeps the sampler + manual-test paths in
     # sync on resolution rules (override vs fallback) without
@@ -218,14 +233,33 @@ async def api_hosts_http_probe_test_row(
             "error": "host has no HTTP probe URLs configured (enable http_probe + add URLs OR ensure url / services[].url is set)",
         }
     host_cfg = matching[0]
-    urls = list(host_cfg.get("urls") or [])
+    # URLs: the editor's unsaved form list wins when it sent a non-empty
+    # one; else fall back to the saved-config resolver (override OR
+    # url + services[].url chain).
+    body_urls = body.get("urls")
+    if isinstance(body_urls, list):
+        urls = [str(u).strip() for u in body_urls if str(u or "").strip()]
+    else:
+        urls = list(host_cfg.get("urls") or [])
     if not urls:
         return {"results": [], "elapsed_ms": 0, "error": "no URLs resolved for this host"}
     timeout = float(tuning.tuning_int(Tunable.HTTP_PROBE_TIMEOUT_SECONDS))
     dns_timeout = float(tuning.tuning_int(Tunable.HTTP_PROBE_DNS_TIMEOUT_SECONDS))
-    content_match = host_cfg.get("content_match")
-    codes = host_cfg.get("accepted_status_codes") or []
-    verify_tls = bool(host_cfg.get("verify_tls", True))
+    # content_match / accepted_status_codes / verify_tls: prefer the
+    # body's edited value when the field was sent, else the saved config.
+    if "content_match" in body:
+        content_match = (str(body.get("content_match") or "").strip()) or None
+    else:
+        content_match = host_cfg.get("content_match")
+    if "accepted_status_codes" in body:
+        # CSV string OR list — parse_status_codes_csv accepts both.
+        codes = _http_probe.parse_status_codes_csv(body.get("accepted_status_codes"))
+    else:
+        codes = host_cfg.get("accepted_status_codes") or []
+    if "verify_tls" in body:
+        verify_tls = bool(body.get("verify_tls"))
+    else:
+        verify_tls = bool(host_cfg.get("verify_tls", True))
     started = time.monotonic()
     # Probe each URL in parallel — same bounded shape the sampler uses.
     sem = asyncio.Semaphore(max(1, tuning.tuning_int(Tunable.HTTP_PROBE_CONCURRENCY)))
