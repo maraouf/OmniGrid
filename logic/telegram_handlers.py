@@ -1241,10 +1241,16 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             f"❌ Time lookup upstream error: <code>{_listener()._escape(str(err))}</code>"
         )
         return
-    # api_weather's untyped return-shape lets dict values widen to
-    # `str | bool | None` in pyright's view; coerce to str at the
-    # boundary so .strip() / index access below stay well-typed.
-    tz_name = str(data.get("timezone") or "").strip()
+    # Cross-provider timezone resolution — api_weather's response
+    # shape differs by provider:
+    #   - Open-Meteo: top-level `timezone` (IANA name) + `timezone_abbrev`
+    #   - WeatherAPI.com: nested under `location.tz_id` (IANA name)
+    # Reading both keys covers either provider; first non-empty wins.
+    _loc = data.get("location") if isinstance(data.get("location"), dict) else {}
+    tz_name = (
+        str(data.get("timezone") or "").strip()
+        or str(_loc.get("tz_id") or "").strip()
+    )
     tz_abbrev = str(data.get("timezone_abbrev") or "").strip()
     if not tz_name:
         await _listener()._send_reply(

@@ -1839,7 +1839,28 @@ export default {
     try {
       const r = await fetch('/api/items' + (force ? '?force=true' : ''));
       if (!r.ok) {
-        throw new Error(await r.text());
+        // Build a concise error message — NEVER include the raw
+        // response body (a 502/504 proxy page is multi-kilobyte
+        // HTML that, dumped into a toast, makes a wall of `<html>
+        // ...openresty...` text). Prefer JSON `detail` from
+        // FastAPI; fall back to the status text; otherwise just
+        // the status code. Inline this rather than helper-ing
+        // because each fetch site has slightly different gates
+        // (some need r.text in the OK path).
+        let _msg = `HTTP ${r.status}`;
+        try {
+          const _ct = r.headers.get('content-type') || '';
+          if (_ct.includes('application/json')) {
+            const _j = await r.json();
+            if (_j && (_j.detail || _j.error || _j.message)) {
+              _msg += ': ' + String(_j.detail || _j.error || _j.message).slice(0, 200);
+            }
+          } else if (r.statusText) {
+            _msg += ` ${r.statusText}`;
+          }
+        } catch (_) { /* leave bare HTTP nnn */
+        }
+        throw new Error(_msg);
       }
       const d = await r.json();
       // in-place reconcile for items + stacks instead of

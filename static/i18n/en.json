@@ -2962,6 +2962,7 @@
       "portainer": "Admin → Portainer",
       "debug": "Admin → Debug",
       "public_ip": "Admin → Public IP",
+      "weather": "Admin → Weather",
       "apps": "Apps"
     },
     "view": {
