@@ -1697,20 +1697,28 @@ async def api_tabs_activity_list(request: Request):
 
 @app.get("/api/healthz")
 async def healthz():
-    """Liveness probe — returns 200 with the running version + uptime."""
-    # Re-read VERSION.txt per request so operator edits on the server
-    # (e.g. hand-bumping MAJOR/MINOR) show up without restarting the
-    # container. File is tiny — a couple-microsecond stat+read each call.
-    #
-    # The container healthcheck only cares about HTTP 200 vs non-200, so
-    # we intentionally keep returning 200 when config is broken — that
-    # way Swarm doesn't crash-loop the task and the config-error page
-    # stays reachable for the operator. The `ok` and `config_error`
-    # fields let any JSON caller (Grafana, Uptime Kuma) distinguish
-    # healthy from degraded.
+    """Liveness probe — MUST be bulletproof.
+
+    Returns 200 with minimal in-memory state ONLY. No file IO, no DB
+    access, no anything that could be blocked by a hung sampler or a
+    SQLite contention. The Docker swarm healthcheck only checks for
+    HTTP 200 — anything that delays this endpoint past the
+    healthcheck timeout triggers a container restart.
+    `read_version()` was previously called inline (small file read,
+    micro-second-cost in steady state) but under event-loop
+    starvation that file IO becomes a multi-second wait. Removed so
+    healthz can NEVER be slower than what an in-memory dict lookup
+    takes. `/api/version` is the dedicated endpoint for version
+    queries (still reads the file — but it's not on the critical
+    healthcheck path).
+    """
+    # cache_age is a single dict lookup; DB_PATH_ERROR is a
+    # module-level string. Neither can block. `version` is OMITTED
+    # from this response on purpose — keeping healthz under any
+    # possible-starvation-budget is more important than reporting
+    # the version here (operators use /api/version for that).
     return {
         "ok": _db.DB_PATH_ERROR is None,
-        "version": read_version(),
         "cache_age": int(time.time() - _cache["ts"]) if _cache["ts"] else None,
         "config_error": _db.DB_PATH_ERROR,
     }

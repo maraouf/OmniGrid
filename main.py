@@ -327,8 +327,14 @@ async def _lifespan(_app: FastAPI):
                       f"(no exception object — full context: {context!r})")
 
         _loop.set_exception_handler(_async_exception_handler)
-        print("[boot] asyncio exception handler installed — "
-              "unhandled task crashes will log with full traceback")
+        # NEUTRAL wording — the body is logged at INFO during normal
+        # boot, so it must not contain the words `fail` / `error` /
+        # `crash` / `exception` that the severity classifier picks
+        # up. The handler INSTALL is a normal startup step; only
+        # actual unhandled exceptions caught later should bucket as
+        # ERROR (and those carry their own traceback text).
+        print("[boot] asyncio diagnostic hook wired — unhandled "
+              "task outcomes will log with full traceback")
     except Exception as _e:  # noqa: BLE001
         print(f"[boot] asyncio exception handler install failed "
               f"(non-fatal): {_e}")
