@@ -149,6 +149,7 @@ class Tunable(str, Enum):
     RATE_LIMIT_MAX_FAILURES = "tuning_rate_limit_max_failures"
     RATE_LIMIT_WINDOW_SECONDS = "tuning_rate_limit_window_seconds"
     REGISTRY_CONCURRENCY = "tuning_registry_concurrency"
+    REGISTRY_DIGEST_CACHE_TTL_SECONDS = "tuning_registry_digest_cache_ttl_seconds"
     SNMP_CONCURRENCY = "tuning_snmp_concurrency"
     SNMP_DEFAULT_PORT = "tuning_snmp_default_port"
     SNMP_FAILURE_PAUSE_ROUNDS = "tuning_snmp_failure_pause_rounds"
@@ -208,6 +209,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_cache_ttl_seconds": ("CACHE_TTL_SECONDS", 900, 30, 86400),
     "tuning_stats_cache_ttl_seconds": ("STATS_CACHE_TTL_SECONDS", 30, 5, 3600),
     "tuning_registry_concurrency": ("REGISTRY_CONCURRENCY", 8, 1, 64),
+    "tuning_registry_digest_cache_ttl_seconds": ("REGISTRY_DIGEST_CACHE_TTL_SECONDS", 600, 0, 86400),
     "tuning_stats_concurrency": ("STATS_CONCURRENCY", 16, 1, 128),
     # Per-container stats fetch timeouts. `_one_container_stats` makes
     # up to two HTTP calls per running container per gather:

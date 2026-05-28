@@ -1490,6 +1490,7 @@ class SettingsIn(BaseModel):
     tuning_cache_ttl_seconds: Optional[str] = None
     tuning_stats_cache_ttl_seconds: Optional[str] = None
     tuning_registry_concurrency: Optional[str] = None
+    tuning_registry_digest_cache_ttl_seconds: Optional[str] = None
     tuning_stats_concurrency: Optional[str] = None
     tuning_stats_targeted_timeout_seconds: Optional[str] = None
     tuning_stats_untargeted_timeout_seconds: Optional[str] = None

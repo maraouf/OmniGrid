@@ -18,6 +18,17 @@
 // SPLIT FROM `app-sse-stream.js`. Cross-method `this.X` references keep
 // working through the `_mergeKeepDescriptors` chain in app.js.
 
+// PERF-21: memo topologyGroups(item) per item.placements ARRAY REFERENCE. The
+// Stacks/Services templates read it 2-3x per item per flush (x-show length +
+// x-for source + x-if), and it allocated a fresh array every call -> the
+// `<template x-for>` re-diffed even when placements were unchanged. _reconcileById
+// assigns the incoming placements array on each items refresh (fresh ref ->
+// busts), and the ref is stable between refreshes (-> hits). Reactivity-safe
+// with NO freeze risk: the lookup reads item.placements to compute the key, so
+// the binding subscribes to it even on a cache hit (unlike a no-arg getter
+// memo). WeakMap auto-GCs when an item's placements array is replaced/dropped.
+const _topologyGroupsMemo = new WeakMap();
+
 export default {
   itemSubline(item) {
     // Node hostname is rendered by the topology chip strip below,
@@ -236,8 +247,16 @@ export default {
     if (!item || !Array.isArray(item.placements) || !item.placements.length) {
       return [];
     }
+    // PERF-21: serve from the per-placements memo (see _topologyGroupsMemo).
+    // Reading item.placements here doubles as the reactive subscription, so
+    // the x-for/x-show bindings still re-run when placements change.
+    const placements = item.placements;
+    const hit = _topologyGroupsMemo.get(placements);
+    if (hit !== undefined) {
+      return hit;
+    }
     const by = new Map();
-    for (const p of item.placements) {
+    for (const p of placements) {
       const node = p.node || '?';
       if (node === 'local' || node === '?') {
         continue;
@@ -247,7 +266,9 @@ export default {
       }
       by.get(node).push(p);
     }
-    return Array.from(by.entries()).map(([node, chips]) => ({node, chips}));
+    const out = Array.from(by.entries()).map(([node, chips]) => ({node, chips}));
+    _topologyGroupsMemo.set(placements, out);
+    return out;
   },
   // i18n-aware topology pill tooltips. Pre-fix
   // both the Stacks and Services views inlined `:title="group.node

@@ -49,6 +49,7 @@ Endpoints:
 # including stdlib re-exports (json, os, re, sqlite3, time, Any, ...)
 # that main.py imports at its own top.
 from main import *  # noqa: E402,F401,F403
+import asyncio
 import json
 import sqlite3
 
@@ -479,7 +480,19 @@ async def api_admin_stats_database(
     Computed on demand — no background sampler since DB-size growth is
     slow (multi-day timescale) and the operator opens this page
     intermittently.
+
+    PERF-17: the body does `SELECT COUNT(*)` per table (SQLite COUNT(*) is a
+    FULL TABLE SCAN, not a metadata read) plus a second dbstat pass — on a
+    fleet with weeks of per-tick samples those tables are millions of rows, so
+    a single scan can take hundreds of ms to seconds. It runs in a worker
+    thread via asyncio.to_thread so it can't block the event loop (+ the SSE
+    heartbeat + /api/healthz — the same 502-flap class as the WAL fix).
+    Read-only; db_conn opens a fresh per-call connection inside the thread.
     """
+    return await asyncio.to_thread(_compute_admin_stats_database)
+
+
+def _compute_admin_stats_database() -> dict:
     import os as _os
     out: dict = {
         "size": {"bytes": 0, "history": []},
@@ -1276,9 +1289,20 @@ async def api_admin_stats_samples(
                      None otherwise
 
     Total + grand-total across every table are also included for the
-    summary card. Counts are computed via fast metadata queries
-    (COUNT(*) + MIN/MAX) — fine even on multi-million-row tables.
+    summary card.
+
+    PERF-17: COUNT(*) in SQLite is a FULL TABLE SCAN, not a metadata read.
+    Across 15 sample tables (several millions of rows on a long-lived fleet),
+    plus COUNT(DISTINCT host_id) and the per-bucket GROUP BY, this body is
+    genuinely heavy — so it runs in a worker thread via asyncio.to_thread and
+    can't block the event loop (+ the SSE heartbeat + /api/healthz — the same
+    502-flap class the WAL change addressed). Read-only; db_conn opens a fresh
+    per-call connection inside the thread.
     """
+    return await asyncio.to_thread(_compute_admin_stats_samples, range)
+
+
+def _compute_admin_stats_samples(range: str = "90d") -> dict:
     # Canonical roster of sample-bearing tables. Each entry knows
     # which `ts` column to query for oldest/newest (most use `ts`
     # but some legacy tables differ) and whether `host_id` exists.

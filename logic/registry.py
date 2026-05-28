@@ -60,6 +60,23 @@ def _classify_registry(host: str) -> str:
 # rotate slightly before the server's clock says they're dead.
 _token_cache: dict[str, tuple[str, float]] = {}
 
+# PERF-18: result cache for resolved manifest digests, keyed on the parsed
+# (registry|repo|tag) ref. get_remote_digest does one outbound HEAD per item
+# per gather; a full gather fires 80+ HEADs (bounded by REGISTRY_CONCURRENCY),
+# and gather re-runs on CACHE_TTL_SECONDS, on every write-op invalidation, AND
+# on every auto-refresh / forced refresh (the SPA's auto-refresh tick uses
+# ?force=true). Manifest digests change only on an upstream push, so a short
+# TTL cache collapses repeated gathers — especially sub-TTL auto-refresh ticks
+# — to "new-or-changed images only". Each entry is (digest, ts_monotonic).
+# Cache SUCCESS ONLY: a transient registry failure (digest=None) must NOT pin
+# "error" for the TTL. Deliberately NOT bypassed by ?force=true — the SPA's
+# auto-refresh already sends force=true, so bypassing would re-HEAD every tick
+# and defeat the cache; the time-based TTL is the freshness bound instead (an
+# "update available" signal can lag by up to the TTL). A re-tag is still picked
+# up because the tag is part of the key. TTL is the
+# tuning_registry_digest_cache_ttl_seconds TUNABLE (0 disables the cache).
+_digest_cache: dict[str, tuple[str, float]] = {}
+
 
 def parse_image_ref(ref: str) -> tuple[str, str, str]:
     """Return (registry, repo, tag) from an image reference.
@@ -528,6 +545,17 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
     except Exception as e:
         print(f"[digest] parse {image}: {e}")
         return None
+    # PERF-18: serve a recently-resolved digest from the result cache (see
+    # _digest_cache). Lazy import keeps registry.py a leaf at module load; the
+    # value is read per-use (no module-import caching) per the no-static-config
+    # contract. ttl<=0 disables the cache entirely.
+    from logic.tuning import tuning_int, Tunable
+    _ttl = tuning_int(Tunable.REGISTRY_DIGEST_CACHE_TTL_SECONDS)
+    _ck = f"{reg}|{repo}|{tag}"
+    if _ttl > 0:
+        _hit = _digest_cache.get(_ck)
+        if _hit is not None and (time.monotonic() - _hit[1]) < _ttl:
+            return _hit[0]
     _t0 = time.monotonic()
     digest: Optional[str] = None
     try:
@@ -553,6 +581,9 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
                 digest = r.headers.get("docker-content-digest")
         if digest is None:
             metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()
+        elif _ttl > 0:
+            # Cache SUCCESS only — never store a None (transient failure).
+            _digest_cache[_ck] = (digest, time.monotonic())
         return digest
     except Exception as e:
         metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()

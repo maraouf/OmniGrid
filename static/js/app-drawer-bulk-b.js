@@ -35,9 +35,13 @@ export default {
   snmpLoadLine(hostId, key) {
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
     const cores = this.snmpCoresFor(hostId);
-    const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
-    const times = series.map(p => p.ts);
-    return this._snmpPathGapped(vals, 100, {times});
+    // PERF-14: memo keyed on points identity + key + cores (host-static, but
+    // included for safety) + length (via _snmpMemo). See _snmpPathMemo.
+    return this._snmpMemo(series, 'load|' + key + '|' + cores, () => {
+      const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
+      const times = series.map(p => p.ts);
+      return this._snmpPathGapped(vals, 100, {times});
+    });
   },
   // Legend / live value as percent (0..100, capped). Operator wants
   // "12 %" not "0.18".
@@ -52,19 +56,23 @@ export default {
     if (!series.length) {
       return '';
     }
-    // Normalise against the largest mem_total seen (handles probes
-    // pre/post a memory hot-add cleanly).
-    let maxTotal = 0;
-    for (const p of series) {
-      maxTotal = Math.max(maxTotal, p.mem_total || 0);
-    }
-    if (!maxTotal) {
-      return '';
-    }
-    const fieldKey = 'mem_' + key;
-    const vals = series.map(p => p[fieldKey] || 0);
-    const times = series.map(p => p.ts);
-    return this._snmpPathGapped(vals, maxTotal, {times});
+    // PERF-14: memo keyed on points identity + mem key + length. maxTotal is
+    // derived from the same series so it's captured by the points identity.
+    return this._snmpMemo(series, 'mem|' + key, () => {
+      // Normalise against the largest mem_total seen (handles probes
+      // pre/post a memory hot-add cleanly).
+      let maxTotal = 0;
+      for (const p of series) {
+        maxTotal = Math.max(maxTotal, p.mem_total || 0);
+      }
+      if (!maxTotal) {
+        return '';
+      }
+      const fieldKey = 'mem_' + key;
+      const vals = series.map(p => p[fieldKey] || 0);
+      const times = series.map(p => p.ts);
+      return this._snmpPathGapped(vals, maxTotal, {times});
+    });
   },
   // derive per-tick throughput series in bytes/sec from the
   // cumulative IF-MIB ifHCInOctets / ifHCOutOctets samples. Skip-
@@ -80,6 +88,11 @@ export default {
     if (series.length < 2) {
       return [];
     }
+    // PERF-14: memo the derived bps array per points identity + dir + length
+    // (see _snmpPathMemo in app-drawer-bulk.js). Collapses the per-second
+    // re-derivations done by the legend (snmpThroughputLast), the peak
+    // (snmpThroughputMaxBps), and snmpThroughputLine while the drawer sits open.
+    return this._snmpMemo(series, 'tps|' + dir, () => {
     const fieldKey = 'net_' + dir + '_total_bytes';
     // Dt cap scales with the server-side bucket cadence. Pre-fix a
     // hardcoded 3600s cap rejected every delta on 7d windows where
@@ -130,6 +143,7 @@ export default {
       out[i] = db / dt;
     }
     return out;
+    });
   },
   // APC UPS Output Load % over the picker window.
   // Renders the percentage of UPS capacity in use — e.g. 13% on a
@@ -470,17 +484,22 @@ export default {
     return Object.keys(probes).length > 0;
   },
   snmpThroughputLine(hostId, dir) {
-    const vals = this.snmpThroughputBpsSeries(hostId, dir);
-    if (!vals.length) {
-      return '';
-    }
-    const m = this.snmpThroughputMaxBps(hostId);
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-    const times = series.map(p => p.ts);
-    // Gap-aware path so wrap / reboot / gap nulls render as visual
-    // breaks instead of straight-line bridges. Consumer must use
-    // SVG <path :d> not <polyline :points>.
-    return this._snmpPathGapped(vals, m || 1, {times});
+    // PERF-14: memo the :d path per points identity + dir + length. The inner
+    // bps series + peak are pure functions of the same points array, so the
+    // points identity fully captures them. See _snmpPathMemo.
+    return this._snmpMemo(series, 'tpsline|' + dir, () => {
+      const vals = this.snmpThroughputBpsSeries(hostId, dir);
+      if (!vals.length) {
+        return '';
+      }
+      const m = this.snmpThroughputMaxBps(hostId);
+      const times = series.map(p => p.ts);
+      // Gap-aware path so wrap / reboot / gap nulls render as visual
+      // breaks instead of straight-line bridges. Consumer must use
+      // SVG <path :d> not <polyline :points>.
+      return this._snmpPathGapped(vals, m || 1, {times});
+    });
   },
   snmpThroughputMaxBps(hostId) {
     const rx = this.snmpThroughputBpsSeries(hostId, 'rx');

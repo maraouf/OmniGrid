@@ -1426,7 +1426,16 @@ async def host_metrics_sampler_loop() -> None:
             interval = _resolve_outer_interval()
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
-                n = _prune_old_samples()
+                # PERF-20: the hourly prune runs five large DELETE ... WHERE
+                # ts<? on the densest sample tables; on a long-lived large
+                # fleet that's hundreds of thousands of rows AND — because the
+                # indexes are (host_id, ts DESC) composites, so a ts-only
+                # predicate can't seek the leading column — a full scan. Offload
+                # it to a worker thread so a multi-second prune can't stall the
+                # event loop (+ the SSE heartbeat + /api/healthz — the 502-flap
+                # class). _prune_old_samples stays synchronous; to_thread gives
+                # it its own per-call db_conn inside the worker thread.
+                n = await asyncio.to_thread(_prune_old_samples)
                 if n:
                     print(f"[host_metrics_sampler] pruned {n} rows older than "
                           f"{days}d")

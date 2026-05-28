@@ -208,18 +208,8 @@ def publish(
     """
     # request-correlation log line at every publish site.
     # Instrumenting here (single point) instead of each of the 12 call
-    # sites means new publishers automatically get the trace. Identity
-    # hint mirrors the failure-path's lookup order so the log line
-    # stays useful regardless of which publisher fired. The dict
-    # value is routed through `_sanitise_ident` (regex-match-then-
-    # group(0)) so CodeQL's `py/clear-text-logging-sensitive-data`
-    # taint tracker doesn't flag the print site — even a tainted
-    # value short-circuits to the literal `"<id>"` placeholder.
-    _ident_raw = (payload or {}).get("id")
-    if _ident_raw is None:
-        _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
-                     or (payload or {}).get("schedule_id")
-    _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
+    # sites means new publishers automatically get the trace.
+    #
     # Suppress the trace for high-frequency event types whose only
     # consumer is the SPA's per-row chip pulse — on a 200-host fleet
     # `host:provider_probing` / `host:provider_done` fire thousands of
@@ -232,7 +222,25 @@ def publish(
     # events per minute. Same suppression as `host:provider_*`: the
     # event still publishes + dispatches; only the trace print is
     # silenced.
+    #
+    # PERF: the suppression gate runs FIRST so the high-frequency
+    # suppressed types skip the identity lookup + the `_sanitise_ident`
+    # regex entirely — that was thousands of wasted regex fullmatches per
+    # minute on the hottest publish path. `_ident` is used ONLY for the
+    # trace print, so it's computed lazily inside this branch; the
+    # client_id stamping + bus.publish below stay unconditional.
     if not type_.startswith("host:provider_") and not type_.startswith("tab:"):
+        # Identity hint mirrors the failure-path's lookup order so the log
+        # line stays useful regardless of which publisher fired. The value
+        # is routed through `_sanitise_ident` (regex-match-then-group(0))
+        # so CodeQL's `py/clear-text-logging-sensitive-data` taint tracker
+        # doesn't flag the print site — even a tainted value short-circuits
+        # to the literal `"<id>"` placeholder.
+        _ident_raw = (payload or {}).get("id")
+        if _ident_raw is None:
+            _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
+                         or (payload or {}).get("schedule_id")
+        _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
         if _ident:
             print(f"[events] publish {type_} id={_ident}")
         else:

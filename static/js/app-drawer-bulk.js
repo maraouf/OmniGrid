@@ -31,6 +31,20 @@
 // binding gymnastics because they all merge onto the same target
 // object before Alpine instantiation.
 
+// PERF-14: shared SNMP drawer-chart memo. The :d-binding builders
+// (snmpCpuUsedPctLine / snmpLoadLine / snmpMemArea / snmpThroughputLine +
+// snmpThroughputBpsSeries — some in the sibling app-drawer-bulk-b.js module)
+// each walk hostSnmpHistory[hostId].points and route through _snmpPathGapped
+// (which reads _drawerTimeDomain, a Date.now()-drifting window) on EVERY call,
+// and the 1-second hostHistoryNow ticker re-fires them every second the drawer
+// is open. _snmpMemo caches the built string/array per points ARRAY REFERENCE
+// (app-host-drawer.js replaces hostSnmpHistory[hostId] — and thus .points — on
+// every SNMP-history fetch, busting the WeakMap entry; an in-place append bumps
+// the length sub-key) so the per-second re-evals return the SAME reference and
+// Alpine skips the :d write. Defined HERE (not in -b.js) so both modules share
+// ONE WeakMap through the this._snmpMemo method after _mergeKeepDescriptors.
+const _snmpPathMemo = new WeakMap();
+
 export default {
   // ----- Stacks / Services / Nodes drawer debug panel ----------
   // Shared helpers keyed by `kind:id`. `kind` is 'item' (covers
@@ -2200,11 +2214,36 @@ export default {
     const lines = this.snmpCpuPerCoreLines(hostId);
     return lines && lines.length ? lines.join(' ') : '';
   },
+  // PERF-14 shared memo for the SNMP drawer-chart builders. Caches the built
+  // value per points-array identity + (subkey, length). Empty/absent series
+  // skip the cache (a fresh [] each call would just churn the WeakMap) and
+  // build directly. `undefined` is the not-cached sentinel — builders return
+  // '' / [] / number, never undefined. See _snmpPathMemo at module scope.
+  _snmpMemo(series, subkey, build) {
+    if (!series || !series.length) {
+      return build();
+    }
+    let perArr = _snmpPathMemo.get(series);
+    if (!perArr) {
+      perArr = new Map();
+      _snmpPathMemo.set(series, perArr);
+    }
+    const k = subkey + '|' + series.length;
+    const hit = perArr.get(k);
+    if (hit !== undefined) {
+      return hit;
+    }
+    const built = build();
+    perArr.set(k, built);
+    return built;
+  },
   snmpCpuUsedPctLine(hostId) {
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-    const vals = series.map(p => p.cpu_used_pct ?? 0);
-    const times = series.map(p => p.ts);
-    return this._snmpPathGapped(vals, 100, {times});
+    return this._snmpMemo(series, 'cpu', () => {
+      const vals = series.map(p => p.cpu_used_pct ?? 0);
+      const times = series.map(p => p.ts);
+      return this._snmpPathGapped(vals, 100, {times});
+    });
   },
   // Operator-flagged: SNMP Load chart should render as % of cores
   // rather than raw `load_1m=0.18` numbers. Converts each load
