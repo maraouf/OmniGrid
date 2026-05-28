@@ -77,6 +77,7 @@ class Tunable(str, Enum):
     ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS = "tuning_asset_inventory_fetch_timeout_seconds"
     ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS = "tuning_asset_inventory_token_timeout_seconds"
     AUTH_FAILURE_COOLDOWN_SECONDS = "tuning_auth_failure_cooldown_seconds"
+    BACKEND_UNREACHABLE_THRESHOLD_SECONDS = "tuning_backend_unreachable_threshold_seconds"
     BACKUP_RETENTION_COUNT = "tuning_backup_retention_count"
     BESZEL_FAILURE_PAUSE_ROUNDS = "tuning_beszel_failure_pause_rounds"
     BESZEL_PROBE_TIMEOUT_SECONDS = "tuning_beszel_probe_timeout_seconds"
@@ -1057,6 +1058,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # once this count is exceeded. Default 0 = keep ALL backups (back-
     # compat with pre-existing deploys). Operator typically wants 7-30
     # to bound disk growth on a daily schedule. Range 0..1000.
+    "tuning_backend_unreachable_threshold_seconds": ("BACKEND_UNREACHABLE_THRESHOLD_SECONDS", 30, 0, 600),
     "tuning_backup_retention_count": ("BACKUP_RETENTION_COUNT", 0, 0, 1000),
     # Settings-as-Code (config_backup schedule kind) retention. Same
     # 0 = unlimited semantics as the backup-zip retention. Operators

@@ -1130,6 +1130,14 @@ async def api_me(request: Request):
             # consumer keeps its existing ms-based contract. Renaming
             # the SPA field would touch every call site for no gain.
             "ops_poll_ms": tuning.tuning_int(Tunable.OPS_POLL_INTERVAL_SECONDS) * 1000,
+            # Seconds without a successful backend signal (any SSE event OR
+            # any REST 2xx) before the SPA's top-of-page "backend unreachable"
+            # banner appears. 0 disables the banner — useful for dev / single-
+            # operator setups where the noise isn't wanted. Hides immediately
+            # on the next recovered signal.
+            "backend_unreachable_threshold_seconds": tuning.tuning_int(
+                Tunable.BACKEND_UNREACHABLE_THRESHOLD_SECONDS
+            ),
             # SPA's loadHosts() reads this and uses it as the cap on
             # parallel /api/hosts/one/<id> calls during fan-out. Resolved
             # per /api/me round-trip so an Admin → Config save takes

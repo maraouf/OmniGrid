@@ -66,7 +66,7 @@ PromQL expressions are hardcoded to them. All definitions live in `logic/metrics
 
 | Metric                              | Labels              | Description                                                                                                          |
 | ----------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `omnigrid_ops_total`                | `op_type`, `status` | One-click ops performed. `op_type ∈ update_stack|update_container|restart_service|restart_container|remove_container`; `status ∈ success|error`. |
+| `omnigrid_ops_total`                | `op_type`, `status` | One-click ops performed (every Operation persisted via `persist_history`). `op_type` covers the full Operation set — `update_stack` / `update_container` / `restart_service` / `restart_container` / `remove_container` / `prune_node` / `prune_all_nodes` / `backup` / `swarm_agent_restart` / `cleanup_overlay_network` / `ssh_run` / `port_scan` and others; the canonical set lives in `logic.ops:OP_TYPES`. `status ∈ success|error`. Direct-INSERT audit rows (admin CRUD, TOTP audit, AI calls) do NOT increment this counter; only Operations do. |
 | `omnigrid_registry_errors_total`    | `registry`          | Registry probe failures per registry host.                                                                           |
 
 ### Histograms

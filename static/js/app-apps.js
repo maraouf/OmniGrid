@@ -25,7 +25,7 @@
 // when the app list reloads.
 const _appsSparkCache = new WeakMap();
 
-// PERF-11: per-flush memo for hostAppsHealth — the host row binds it ~3x per
+// per-flush memo for hostAppsHealth — the host row binds it ~3x per
 // apps pill (count badge text + colour class + title). Cleared on the next
 // microtask; hosts reconcile IN PLACE (stable h ref), so the per-flush clear
 // is what keeps it correct when h.apps updates on the next poll.

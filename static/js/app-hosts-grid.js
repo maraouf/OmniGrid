@@ -35,7 +35,7 @@ function _clearFilteredHostsFlushCache() {
   _filteredHostsFlushScheduled = false;
 }
 
-// PERF-11: per-flush memo for hostDriftIndicator. The host row binds it ~5x
+// per-flush memo for hostDriftIndicator. The host row binds it ~5x
 // per metric chip (x-if gate + tone class + title + aria-label + indicator)
 // across 3 metrics, each rebuilding the same {indicator, tone, title} (incl.
 // the localized title). Cleared on the next microtask — hosts are reconciled

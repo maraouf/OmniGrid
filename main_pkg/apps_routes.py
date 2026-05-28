@@ -1757,6 +1757,75 @@ def _publish_provider_probe_event(host_id: str, provider: str, kind: str,
               f"{host_id!r}/{provider!r}: {e}")
 
 
+def bulk_detected_ports(host_ids: list) -> dict:
+    """bulk version of :func:`_populate_detected_ports` for many hosts.
+
+    Returns ``{host_id: (detected_ports_list, last_port_scan_ts)}``. Hosts with
+    no scan rows are absent from the dict (caller leaves the merged dict
+    untouched, matching the single-host helper's behaviour). Two SQL queries
+    total — one for the latest (scan_id, ts) per host, one for the ports
+    belonging to those scan_ids — INDEPENDENT of fleet size; callers in the
+    ``/api/hosts/list`` loop replace the per-host helper with a dict lookup.
+
+    Capped by SQLite's parameter limit (999 by default); chunk if a fleet
+    ever pushes past ~500 hosts.
+    """
+    ids = [hid for hid in (host_ids or []) if hid]
+    if not ids:
+        return {}
+    out: dict = {}
+    try:
+        with db_conn() as c:
+            placeholders = ",".join(["?"] * len(ids))
+            # Latest scan per host: rows where ts = MAX(ts) per host_id. If
+            # two scans share the max ts (rare), pick the lexicographically
+            # smallest scan_id for determinism (matches the single-host
+            # helper's "ORDER BY ts DESC LIMIT 1" + the index covering shape).
+            head_rows = c.execute(
+                f"SELECT s.host_id, s.scan_id, s.ts FROM host_port_scans s "
+                f"INNER JOIN (SELECT host_id, MAX(ts) AS mts FROM host_port_scans "
+                f"            WHERE host_id IN ({placeholders}) GROUP BY host_id) m "
+                f"ON s.host_id = m.host_id AND s.ts = m.mts",
+                ids,
+            ).fetchall()
+            per_host_head: dict = {}
+            for r in head_rows:
+                hid = r["host_id"]
+                sid = r["scan_id"]
+                if not hid or not sid:
+                    continue
+                ts = int(r["ts"] or 0)
+                cur = per_host_head.get(hid)
+                if cur is None or sid < cur[0]:
+                    per_host_head[hid] = (sid, ts)
+            if not per_host_head:
+                return {}
+            scan_ids = list({sid for (sid, _ts) in per_host_head.values()})
+            sph = ",".join(["?"] * len(scan_ids))
+            port_rows = c.execute(
+                f"SELECT scan_id, port, service_hint, banner_excerpt, protocol "
+                f"FROM host_port_scans WHERE scan_id IN ({sph}) "
+                f"ORDER BY protocol ASC, port ASC",
+                scan_ids,
+            ).fetchall()
+            ports_by_scan: dict = {}
+            for r in port_rows:
+                ports_by_scan.setdefault(r["scan_id"], []).append(r)
+            for hid, (sid, ts) in per_host_head.items():
+                rows = ports_by_scan.get(sid, [])
+                out[hid] = ([{
+                    "port": int(r["port"]),
+                    "protocol": (r["protocol"] or "tcp"),
+                    "service_hint": r["service_hint"] or "",
+                    "banner_excerpt": r["banner_excerpt"] or "",
+                    "scanned_at": ts,
+                } for r in rows], ts)
+    except Exception as e:  # noqa: BLE001
+        print(f"[port_scan] bulk_detected_ports failed: {e}")
+        return {}
+    return out
+
+
 def _populate_detected_ports(host_id: str, merged: dict) -> bool:
     """Fill `merged.detected_ports[]` + `merged.last_port_scan_ts` from
     the latest scan in `host_port_scans` for this host. Returns True
@@ -2977,7 +3046,9 @@ def _get_shape_host_apps_catalog_map() -> dict:
     return by_id
 
 
-def _shape_host_apps(h: dict) -> list[dict]:
+def _shape_host_apps(h: dict, *,
+                     _latest_map: Optional[dict] = None,
+                     _per_port_map: Optional[dict] = None) -> list[dict]:
     """Return the Apps feature's per-chip array for the API row.
 
     Walks ``h["services"]`` (operator-curated chip array on the
@@ -3004,16 +3075,23 @@ def _shape_host_apps(h: dict) -> list[dict]:
     host_id = (h.get("id") or "").strip()
     if not host_id:
         return []
-    try:
-        from logic.service_sampler import (
-            latest_for_host as _latest_for_host,
-            latest_per_port_for_host as _latest_per_port,
-        )
-        latest = _latest_for_host(host_id)
-    except Exception as e:  # noqa: BLE001
-        print(f"[apps] latest_for_host({host_id!r}) skipped: {e}")
-        latest = {}
-        _latest_per_port = None  # type: ignore[assignment]
+    # when bulk maps are passed (api_hosts_list's bulk loop), look
+    # the host's latest + per-port rows up from them — no per-host DB hit;
+    # otherwise fall through to the per-host helpers (detail path).
+    if _latest_map is not None:
+        latest = _latest_map.get(host_id, {}) or {}
+        _latest_per_port = None  # bulk path uses _per_port_map instead
+    else:
+        try:
+            from logic.service_sampler import (
+                latest_for_host as _latest_for_host,
+                latest_per_port_for_host as _latest_per_port,
+            )
+            latest = _latest_for_host(host_id)
+        except Exception as e:  # noqa: BLE001
+            print(f"[apps] latest_for_host({host_id!r}) skipped: {e}")
+            latest = {}
+            _latest_per_port = None  # type: ignore[assignment]
     # Catalog lookup map — preloaded once for the WHOLE request (not
     # per-host call) via the module-level TTL cache. Pre-fix every call
     # to `_shape_host_apps` ran `get_catalog_by_id(cid)` per unique chip
@@ -3044,12 +3122,20 @@ def _shape_host_apps(h: dict) -> list[dict]:
         port_results: list[dict] = []
         probe_block = chip.get("probe") or {}
         is_multi_port = isinstance(probe_block.get("ports"), list) and bool(probe_block.get("ports"))
-        if is_multi_port and _latest_per_port is not None:
-            try:
-                raw_port_results = _latest_per_port(host_id, idx)
-            except Exception as e:  # noqa: BLE001
-                print(f"[apps] latest_per_port({host_id!r}/{idx}) skipped: {e}")
-                raw_port_results = []
+        raw_port_results: list = []
+        # Original gate preserved: only run when we have SOME per-port source —
+        # either the bulk-prefetched map (api_hosts_list path) OR the per-host
+        # helper (detail path; None only when the service_sampler import failed).
+        if is_multi_port and (_per_port_map is not None or _latest_per_port is not None):
+            if _per_port_map is not None:
+                # bulk path — pre-fetched per-(host, chip) rows.
+                raw_port_results = list(_per_port_map.get((host_id, idx), []))
+            elif _latest_per_port is not None:
+                try:
+                    raw_port_results = _latest_per_port(host_id, idx)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[apps] latest_per_port({host_id!r}/{idx}) skipped: {e}")
+                    raw_port_results = []
             # Per-port display = the chip's CONFIGURED ports merged with the
             # probe-sample HISTORY: every configured port shows (a just-added
             # one as PENDING until the sampler probes it), stale samples for
@@ -3084,6 +3170,9 @@ def _shape_host_api_row(
     providers_hit: list[str],
     any_provider_enabled: bool = True,
     active: Optional[Iterable[str]] = None,
+    *,
+    _apps_latest_map: Optional[dict] = None,
+    _apps_per_port_map: Optional[dict] = None,
 ) -> dict:
     """Shape a (curated_host, merged_stats) pair into the wire format.
 
@@ -3586,7 +3675,7 @@ def _shape_host_api_row(
         # chip. `service_idx` is the position in the source array; the
         # manual probe endpoint (`POST /api/services/{host_id}/{idx}/
         # probe`) keys off it. Empty list = host has no chips pinned.
-        "apps": _shape_host_apps(h),
+        "apps": _shape_host_apps(h, _latest_map=_apps_latest_map, _per_port_map=_apps_per_port_map),
     }
 
 

@@ -557,13 +557,20 @@ async def api_set_settings(
 ):
     """Partial-update the settings KV; `None` fields keep their current value."""
     from logic import portainer as _portainer
-    from logic.db import defer_settings_version_bump
+    from logic.db import defer_settings_version_bump, batch_settings_writes
     # Multi-field Saves call set_setting N times. Without the defer
     # context, each call bumps `_settings_version` and other tabs see
     # N version mismatches → N reloads of /api/settings + /api/me per
     # Save. The defer context collapses to ONE bump at end-of-request.
+    # batch_settings_writes additionally buffers the row WRITES into ONE
+    # INSERT OR REPLACE transaction at context exit (excluded high-
+    # frequency keys bypass the buffer so a background tick during the
+    # handler's `await`s can't mis-buffer). The two contexts compose
+    # cleanly: defer handles the cross-tab notification, batch handles
+    # the DB transaction count.
     with defer_settings_version_bump():
-        result = await _api_set_settings_inner(s, request, _portainer)
+        with batch_settings_writes():
+            result = await _api_set_settings_inner(s, request, _portainer)
     # Audit row — record which top-level fields were touched (Pydantic
     # `model_dump(exclude_unset=True)` keys). Secret-suffix fields are
     # already filtered server-side; the audit row carries field NAMES

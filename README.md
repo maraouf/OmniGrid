@@ -27,7 +27,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 ## Features
 
 ### Cluster updates & operations
-- **Five views**: Stacks (grouped, default) · Services (flat sortable) · Nodes (per-host swarm grouping with HOST stats) · Hosts (curated inventory + telemetry) · History (audit log)
+- **Seven views**: Stacks (grouped, default) · Services (flat sortable) · Nodes (per-host swarm grouping with HOST stats) · Hosts (curated inventory + telemetry) · Apps (per-host pinned services + catalog) · History (audit log) · Timeline (cross-host event timeline) — plus the **Stats** top-nav for cluster-wide dashboards (Overview / Database / Samples / Network / Incidents / AI Cost).
 - **Digest-level update detection** — compares your running `image@sha256:...` against the remote manifest. Supports Docker Hub, GHCR, lscr.io, and any v2 registry. Token-cached www-authenticate dance for private registries.
 - **Click-to-act** — Update Stack (prune+repull+redeploy), Recreate container, Restart service (no pull), Remove offline / orphan containers, all via the Portainer REST API.
 - **Bulk operations** — checkbox multi-select; dedupes by stack so one stack = one update call.
@@ -47,6 +47,8 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
 - **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
+- **Apps view + service catalog** — operator-pinned services on each curated host, paired with a built-in catalog of templates (AdGuard Home, Plex, Sonarr, Authentik, …). Discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart/Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
+- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` / `/cleanup` / `/link` / `/whoami` / `/weather` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
 - **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) palette + multi-turn sidebar with persistent chat history, inline charts (`memory_history` / `cpu_history` / `disk_projection`), per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives), structured `ACTION:` directives the SPA dispatches inline, fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
 - **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
@@ -380,6 +382,38 @@ GET / DELETE                  /api/logs                                tail / cl
 GET                           /api/admin/logs/files                    list on-disk daily log files
 GET                           /api/admin/logs/files/{name}             stream one file
 GET                           /api/admin/logs/files/{name}/download    download one file
+
+# Apps + service catalog (admin-only)
+GET                           /api/apps                              one row per distinct app (grouped by catalog_id/name)
+GET                           /api/apps/instances                    flat per-instance iterator (every chip across every host)
+GET / POST                    /api/services/catalog                  list / create catalog templates
+PATCH / DELETE                /api/services/catalog/{cid}            update / remove one template
+POST                          /api/services/catalog/seed             re-seed built-in templates (idempotent)
+GET / POST                    /api/services/catalog/{export,import}  portable JSON pack export / import
+POST                          /api/services/catalog/{cid}/pin        pin a template to one host
+POST                          /api/services/discover/{host_id}       run discovery wizard for one host
+POST                          /api/services/discover/{host_id}/apply bulk-apply a discovery proposal
+PATCH / DELETE                /api/services/{host_id}/{service_idx}  edit / remove one pinned instance
+POST                          /api/services/{host_id}/{service_idx}/probe   admin-only one-shot probe
+GET                           /api/services/{host_id}/{service_idx}/debug   per-chip diagnostics
+GET                           /api/services/{host_id}/{service_idx}/history per-chip probe-result series
+GET                           /api/container/{raw_id}/logs?lines=N   Portainer-routed container logs (admin)
+GET                           /api/service/{raw_id}/logs?lines=N     Portainer-routed Swarm service logs (admin)
+
+# HTTP probe (admin-only)
+POST                          /api/http-probe/test                   probe one HTTP / TLS / DNS target (no save)
+POST                          /api/hosts/{id}/http-probe/refresh     re-run + persist all URLs for the host
+
+# Ignores
+GET                           /api/ignores                           list ignore patterns
+POST                          /api/ignores                           add pattern (admin)
+DELETE                        /api/ignores/{pattern}                 remove pattern (admin)
+
+# Settings version probe
+GET                           /api/settings/version                  {version: int} — bumped on every Save (admin)
+
+# Debug subject
+GET                           /api/debug/subject?kind=&id=&since_hours=N  raw Stacks/Services/Nodes diagnostic (admin)
 
 # Cleanup overlay network (Portainer-API-only path for stale VXLAN overlays)
 POST                          /api/cleanup-overlay-network           {network_id?, service_id?, cidr?} → {op_id}

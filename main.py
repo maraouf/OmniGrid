@@ -690,7 +690,7 @@ async def _log_unhandled_exception(request: Request, exc: Exception):
     )
 
 
-# PERF-13: long-lived immutable caching for version-busted static assets.
+# long-lived immutable caching for version-busted static assets.
 # Asset refs in the shell carry ?v=<APP_VERSION> (rewritten by _render_shell);
 # a real deploy bumps the PATCH version → the ?v= value changes → the URL is a
 # fresh cache key, so marking the response immutable for a year is safe and
@@ -717,7 +717,7 @@ async def _immutable_versioned_assets(request: Request, call_next):
     return resp
 
 
-# PERF-08: gzip text responses (JSON API payloads, HTML shell, CSS / JS) above
+# gzip text responses (JSON API payloads, HTML shell, CSS / JS) above
 # a size threshold — meaningful on the larger /api/items + /api/hosts payloads
 # and the SPA shell. The SSE stream (/api/events, text/event-stream) is
 # BYPASSED: GZipMiddleware's chunk buffering would hold events back until the

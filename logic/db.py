@@ -172,7 +172,7 @@ def db_conn():
         conn.close()
 
 
-# PERF-07: read-through cache for the settings KV. get_setting (and the
+# read-through cache for the settings KV. get_setting (and the
 # get_setting_bool / load_settings_json / tuning_int / active_host_stats_
 # providers / iter_curated_hosts helpers that all funnel through it) is read
 # MANY times per gather / request / sampler tick, and each call was a fresh
@@ -207,6 +207,12 @@ def get_setting(key: str, default: str = "") -> str:
     cache is empty or older than the TTL.
     """
     global _SETTINGS_KV_CACHE, _SETTINGS_KV_CACHE_TS
+    # Multi-field-Save batch buffer wins for read-after-write inside the
+    # batch context: a value the handler just wrote (still buffered, not yet
+    # committed) must be visible to a same-request re-read. See
+    # `_settings_write_buffer`.
+    if _settings_write_buffer[0] is not None and key in _settings_write_buffer[0]:
+        return _settings_write_buffer[0][key]
     now = time.monotonic()
     if not _SETTINGS_KV_CACHE_TS or (now - _SETTINGS_KV_CACHE_TS) >= _SETTINGS_KV_CACHE_TTL:
         with db_conn() as c:
@@ -232,12 +238,32 @@ def set_setting(key: str, value: str) -> None:
     the N bumps into ONE end-of-request bump (the SPA sees one
     version mismatch instead of N reloads).
     """
+    # Multi-field-Save batch buffer — collect non-excluded writes into one
+    # transaction at context exit. Excluded keys (the version row itself + the
+    # high-frequency background writes) bypass the buffer so they commit
+    # immediately, which keeps background ticks (telegram listener offset,
+    # swarm autoheal cooldown anchors) unaffected even if they race the
+    # admin-save handler's `await`s. See `_settings_write_buffer`.
+    if (_settings_write_buffer[0] is not None
+            and key != _SETTINGS_VERSION_KEY
+            and key not in _SETTINGS_VERSION_EXCLUDED):
+        _settings_write_buffer[0][key] = value
+        # Keep the read-through cache coherent so a same-request get_setting
+        # returns the buffered value through the cache path too (the buffer
+        # check in get_setting is the primary read-after-write guarantee;
+        # this is belt-and-braces for any direct cache touch).
+        if _SETTINGS_KV_CACHE_TS:
+            _SETTINGS_KV_CACHE[key] = value
+        # Mark version-bump pending so the outer defer context bumps once on
+        # exit — same contract as the inline-write path's pending flag below.
+        _settings_version_pending[0] = True
+        return
     with db_conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
-        # PERF-07: drop the read-through cache so the next get_setting reloads
+        # drop the read-through cache so the next get_setting reloads
         # (correct read-after-write; the db_conn commits on exit and nothing
         # runs between here and that commit on the single-threaded event loop).
         _invalidate_settings_cache()
@@ -277,6 +303,15 @@ _SETTINGS_VERSION_EXCLUDED = frozenset({
 # count because the context manager's enter/exit is synchronous.
 _settings_version_deferred_count = [0]
 _settings_version_pending = [False]
+# Multi-field admin Save batch buffer — when active (set by
+# `batch_settings_writes()`) the OUTER context manager collects non-excluded
+# `set_setting` calls into one dict and flushes them in ONE INSERT-OR-REPLACE
+# transaction on exit (instead of N separate db_conn open/insert/commit/close
+# cycles). Excluded keys (high-frequency background writes — telegram offset,
+# swarm autoheal cooldowns) bypass the buffer and commit immediately, so a
+# background tick during the save handler's `await`s can't mis-buffer.
+# Single-element list mirrors the version-bump defer pattern above.
+_settings_write_buffer: list = [None]
 
 
 @contextmanager
@@ -316,6 +351,65 @@ def defer_settings_version_bump():
                 pass
 
 
+@contextmanager
+def batch_settings_writes():
+    """Buffer non-excluded ``set_setting`` calls and flush them in ONE
+    ``INSERT OR REPLACE`` transaction at context exit.
+
+    Usage:
+
+        with batch_settings_writes():
+            for k, v in fields.items():
+                set_setting(k, v)
+        # → one transaction commits every buffered write
+
+    A multi-field admin Save would otherwise open N db_conn / commit / close
+    cycles. The cross-tab ``settings:updated`` storm is already collapsed by
+    :func:`defer_settings_version_bump`; this complements it by collapsing
+    the row writes themselves. Excluded keys (the version row +
+    ``_SETTINGS_VERSION_EXCLUDED`` housekeeping rows) bypass the buffer and
+    commit immediately, so a high-frequency background tick (telegram
+    listener offset, swarm autoheal cooldowns) that races the save handler's
+    ``await``s can't mis-buffer into this request's flush.
+
+    Read-after-write inside the context is correct: :func:`get_setting`
+    checks the buffer FIRST before falling back to the cache + DB.
+
+    Nestable — only the outermost exit flushes. The flush runs in ``finally``
+    so writes the handler made before raising still persist (preserves the
+    pre-batch "partial writes persist on a mid-way exception" behaviour
+    closely; the writes commit at exit instead of incrementally during the
+    handler). A flush failure is swallowed — same defence-in-depth as the
+    version-bump defer's flush-failure handling — so the caller's request
+    isn't broken by a transient DB error on the way out.
+    """
+    if _settings_write_buffer[0] is not None:
+        # nested — reuse the outer buffer; only the outermost flushes
+        yield
+        return
+    _settings_write_buffer[0] = {}
+    try:
+        yield
+    finally:
+        buf = _settings_write_buffer[0]
+        # Deactivate BEFORE the flush so the flush's db_conn + any get_setting
+        # called from the flush path (none today, defence-in-depth) see normal
+        # mode — the buffered values are about to land in the DB anyway.
+        _settings_write_buffer[0] = None
+        if buf:
+            try:
+                with db_conn() as c:
+                    c.executemany(
+                        "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+                        list(buf.items()),
+                    )
+            except (sqlite3.Error, RuntimeError, OSError):
+                pass
+            # Invalidate the read-through cache so post-context get_setting
+            # calls reload from the committed DB state.
+            _invalidate_settings_cache()
+
+
 def _bump_settings_version_in(c) -> None:
     """Increment `_settings_version` inside an existing connection.
     Caller is responsible for the commit (the surrounding `db_conn()`
@@ -338,7 +432,7 @@ def _bump_settings_version_in(c) -> None:
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (_SETTINGS_VERSION_KEY, str(cur + 1)),
         )
-        # PERF-07: the version row changed via a direct write — invalidate so
+        # the version row changed via a direct write — invalidate so
         # get_settings_version() (and any get_setting) reloads.
         _invalidate_settings_cache()
     except (sqlite3.Error, RuntimeError):
@@ -402,8 +496,8 @@ def active_host_stats_providers() -> set[str]:
 from typing import Iterator
 
 
-# PERF-19: cache the PARSED hosts_config alongside PERF-07's cached string.
-# get_setting(HOSTS_CONFIG) is now a cheap dict lookup (PERF-07), but every
+# cache the PARSED hosts_config alongside the cached settings string.
+# get_setting(HOSTS_CONFIG) is now a cheap dict lookup, but every
 # curated-host helper still ran json.loads() on the full (tens-of-KB on a large
 # fleet) blob, and the gather + 6 samplers call one or more of them ~a dozen
 # times per tick cycle. This memoizes the json.loads result keyed on the raw

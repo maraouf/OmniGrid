@@ -116,6 +116,22 @@
     init = attachAllHeaders(init);
     let r = await orig.call(this, input, init);
 
+    // Stamp the last successful backend signal so the SPA's
+    // backend-unreachable banner watcher can tell when we've gone quiet.
+    // Only /api/* responses count (static assets may be browser-cached and
+    // would falsely keep the timestamp fresh during a real backend outage).
+    // 2xx-only — a 5xx error still proves the server is talking, but the
+    // outage banner cares about success; the next successful poll resets it.
+    try {
+      if (r.ok) {
+        const urlStr = typeof input === 'string' ? input : (input && input.url) || '';
+        if (urlStr.indexOf('/api/') !== -1) {
+          window.__ogLastBackendOkTs = Date.now();
+        }
+      }
+    } catch (_) {
+    }
+
     // CSRF mismatch recovery — only on cookie-authed write requests. Don't
     // loop: we retry exactly once after pinging /api/me to mint a fresh
     // CSRF cookie. If the second attempt also fails, surface the error.

@@ -1426,7 +1426,7 @@ async def host_metrics_sampler_loop() -> None:
             interval = _resolve_outer_interval()
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
-                # PERF-20: the hourly prune runs five large DELETE ... WHERE
+                # the hourly prune runs five large DELETE ... WHERE
                 # ts<? on the densest sample tables; on a long-lived large
                 # fleet that's hundreds of thousands of rows AND — because the
                 # indexes are (host_id, ts DESC) composites, so a ts-only

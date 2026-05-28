@@ -44,7 +44,7 @@ context for service-related questions.
 
 ### Beszel section tunables
 
-Two knobs live in **Settings → Providers → Beszel**:
+Three knobs live in **Admin → Providers → Beszel**:
 
 | Env var | Default | Range | Purpose |
 | --- | --- | --- | --- |
