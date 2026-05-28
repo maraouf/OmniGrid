@@ -4695,14 +4695,22 @@
                      live telemetry sections. Visible only when
                      `assetForHost(h)` returns a populated shape;
                      hosts without a match show nothing here. -->
-            <template x-if="assetForHost(h)">
+            <!-- PERF (F3): `x-for over [assetForHost(h)].filter(Boolean)` replaces
+                 the old `x-if="assetForHost(h)"` gate so the heavy descriptor
+                 is computed ONCE per render and rebound as `asset` for every
+                 inner reference. Same render-or-skip semantic as x-if (empty
+                 array = zero copies) but collapses ~30 per-binding calls into
+                 one. :key keeps the DOM stable across reactive flushes; the
+                 descriptor is memoized backend-side so the array literal here
+                 returns the same object identity within one cache version. -->
+            <template x-for="asset in [assetForHost(h)].filter(Boolean)" :key="(h && h.id) || 'asset'">
               <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-12">
                 <div class="flex items-center justify-between mb-3">
                   <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
                       x-text="t('host_drawer.asset.heading')"></h4>
                   <div class="flex items-center gap-2">
-                    <a x-show="assetEditUrl(assetForHost(h))"
-                       :href="assetEditUrl(assetForHost(h))" target="_blank" rel="noopener"
+                    <a x-show="assetEditUrl(asset)"
+                       :href="assetEditUrl(asset)" target="_blank" rel="noopener"
                        class="fs-xs text-[var(--primary)] hover:underline"
                        :title="t('host_drawer.asset.edit_title')"
                        x-text="t('host_drawer.asset.edit_link')"></a>
@@ -4712,73 +4720,73 @@
                   </div>
                 </div>
                 <dl class="drawer-dl fs-sm">
-                  <template x-if="assetForHost(h).name">
+                  <template x-if="asset.name">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.name')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).name">
-                    <dd class="text-end break-words" x-text="assetForHost(h).name"></dd>
+                  <template x-if="asset.name">
+                    <dd class="text-end break-words" x-text="asset.name"></dd>
                   </template>
-                  <template x-if="assetForHost(h).type">
+                  <template x-if="asset.type">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.type')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).type">
-                    <dd class="text-end break-all" x-text="assetForHost(h).type"></dd>
+                  <template x-if="asset.type">
+                    <dd class="text-end break-all" x-text="asset.type"></dd>
                   </template>
-                  <template x-if="(assetForHost(h).hostnames || []).length">
+                  <template x-if="(asset.hostnames || []).length">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hostnames')"></dt>
                   </template>
-                  <template x-if="(assetForHost(h).hostnames || []).length">
+                  <template x-if="(asset.hostnames || []).length">
                     <dd class="text-end mono break-all">
-                      <template x-for="hn in assetForHost(h).hostnames" :key="hn">
+                      <template x-for="hn in asset.hostnames" :key="hn">
                         <div x-text="hn"></div>
                       </template>
                     </dd>
                   </template>
-                  <template x-if="assetForHost(h).location">
+                  <template x-if="asset.location">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.location')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).location">
-                    <dd class="text-end" x-text="assetForHost(h).location"></dd>
+                  <template x-if="asset.location">
+                    <dd class="text-end" x-text="asset.location"></dd>
                   </template>
-                  <template x-if="assetForHost(h).serial">
+                  <template x-if="asset.serial">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.serial')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).serial">
+                  <template x-if="asset.serial">
                     <dd class="mono text-end break-all text-[var(--text-faint)]"
-                        x-text="assetForHost(h).serial"></dd>
+                        x-text="asset.serial"></dd>
                   </template>
-                  <template x-if="assetForHost(h).sku">
+                  <template x-if="asset.sku">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.sku')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).sku">
-                    <dd class="mono text-end break-all" x-text="assetForHost(h).sku"></dd>
+                  <template x-if="asset.sku">
+                    <dd class="mono text-end break-all" x-text="asset.sku"></dd>
                   </template>
-                  <template x-if="assetForHost(h).ram">
+                  <template x-if="asset.ram">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.ram')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).ram">
-                    <dd class="mono text-end" x-text="assetForHost(h).ram"></dd>
+                  <template x-if="asset.ram">
+                    <dd class="mono text-end" x-text="asset.ram"></dd>
                   </template>
-                  <template x-if="assetForHost(h).firmware">
+                  <template x-if="asset.firmware">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.firmware')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).firmware">
-                    <dd class="mono text-end break-all" x-text="assetForHost(h).firmware"></dd>
+                  <template x-if="asset.firmware">
+                    <dd class="mono text-end break-all" x-text="asset.firmware"></dd>
                   </template>
-                  <template x-if="assetForHost(h).hardware_version">
+                  <template x-if="asset.hardware_version">
                     <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.asset.hardware_version')"></dt>
                   </template>
-                  <template x-if="assetForHost(h).hardware_version">
-                    <dd class="mono text-end" x-text="assetForHost(h).hardware_version"></dd>
+                  <template x-if="asset.hardware_version">
+                    <dd class="mono text-end" x-text="asset.hardware_version"></dd>
                   </template>
                 </dl>
 
-                <template x-if="(assetForHost(h).interfaces || []).length">
+                <template x-if="(asset.interfaces || []).length">
                   <div class="mt-4 pt-3 border-t border-[var(--border)]">
                     <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
                          x-text="t('host_drawer.asset.interfaces_heading')"></div>
                     <div class="space-y-1.5">
-                      <template x-for="iface in assetForHost(h).interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
+                      <template x-for="iface in asset.interfaces" :key="iface.number + ':' + iface.name + ':' + iface.ip">
                         <div class="grid grid-cols-[1fr_auto] gap-x-3 fs-sm"
                              :class="iface.enabled ? '' : 'opacity-50'">
                           <div class="flex items-center gap-2 min-w-0">
@@ -4803,7 +4811,7 @@
                   </div>
                 </template>
 
-                <template x-if="(assetForHost(h).ports || []).length">
+                <template x-if="(asset.ports || []).length">
                   <div class="mt-4 pt-3 border-t border-[var(--border)]">
                     <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-2"
                          x-text="t('host_drawer.asset.ports_heading')"></div>
@@ -4821,7 +4829,7 @@
                                (URL-only ports), silently dropping
                                every non-URL port. Wrapping them in
                                one <span> per iteration fixes it. -->
-                      <template x-for="port in assetForHost(h).ports" :key="port.id || (port.name + ':' + port.number)">
+                      <template x-for="port in asset.ports" :key="port.id || (port.name + ':' + port.number)">
                             <span>
                               <!-- The icon-info marker renders BEFORE the port and
                                    the whole chip flips to pill-warning when the port
