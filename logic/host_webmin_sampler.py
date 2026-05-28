@@ -145,6 +145,27 @@ async def _probe_one_host(client_url: str, user: str, password: str,
     """Probe one Webmin host, return its merged host_* stats dict
     or None when the probe failed / returned empty.
     """
+    # DNS-failure short-circuit — skip the full Webmin probe (which
+    # would otherwise pay the per-host timeout) when the URL's
+    # hostname is in the DNS-skip cache. Latches off on the next
+    # successful resolution. Local-bind `_host` so the type narrows
+    # from `str | None` to `str` for the helper call. Narrow except
+    # to the two failure classes that can realistically surface here
+    # (missing module, malformed URL); any other exception during a
+    # cheap pre-check is unexpected and should propagate so it lands
+    # in Admin → Logs instead of being silently swallowed.
+    try:
+        from urllib.parse import urlparse as _urlparse
+        from logic.dns_skip import should_skip_dns as _should_skip_dns
+        _host = _urlparse(client_url).hostname
+        if _host and _should_skip_dns(_host):
+            return None
+    except (ImportError, ValueError):
+        # ImportError: dns_skip module unavailable (deferred-import edge).
+        # ValueError: urlparse rejected an unparseable client_url string.
+        # Either way, fall through to the probe — the cost of one
+        # un-skipped probe is small vs blocking on a pre-check helper.
+        pass
     try:
         result = await _webmin.probe_webmin(
             client_url, user, password,

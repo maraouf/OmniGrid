@@ -132,16 +132,45 @@ def _as_list(v: Any) -> list[Any]:
     return []
 
 
+# Latches True when the most recent probe attempt raised a
+# ConnectError / Timeout (hub unreachable) — the next call gets the
+# SHORT timeout below to fail fast instead of blocking the whole
+# /api/hosts/list path for 15s. Latches back to False on the next
+# successful probe so a recovered hub gets its normal timeout back.
+# Single-process single-replica → plain module flag is correct.
+_last_probe_unreachable: list[bool] = [False]
+
+
+def _mark_unreachable() -> None:
+    """Latch True. Called from probe_hub's exception path when the
+    failure is a ConnectError / Timeout."""
+    _last_probe_unreachable[0] = True
+
+
+def _mark_reachable() -> None:
+    """Latch False. Called from probe_hub's success path."""
+    _last_probe_unreachable[0] = False
+
+
 def _resolve_probe_timeout(default: float = 15.0) -> float:
     """Resolve the Beszel probe timeout via the live TUNABLE.
 
     Per-use read so a Save in Admin → Host stats → Beszel takes effect
     on the next call without restart. Defensive fallback to the legacy
     15s on resolver failure (import error / corrupt DB / missing key).
+    When the previous probe was unreachable, returns the SHORT timeout
+    (`tuning_beszel_probe_timeout_unreachable_seconds`) so subsequent
+    cold-cache callers fail fast instead of paying the full 15s.
+    Latches back to the long timeout on the next successful probe.
     """
     # noinspection PyBroadException
     try:
         from logic.tuning import Tunable, tuning_int as _tuning_int
+        if _last_probe_unreachable[0]:
+            try:
+                return float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS))
+            except (KeyError, ValueError, TypeError):
+                return 3.0
         return float(_tuning_int(Tunable.BESZEL_PROBE_TIMEOUT_SECONDS))
     except Exception:  # noqa: BLE001
         return default
@@ -1302,6 +1331,22 @@ async def probe_hub(
         # raw container log.
         print(f"[beszel] probe failed: {type(e).__name__}: {e} "
               f"url={base_url!r} verify_tls={verify_tls}")
+        # Latch the unreachable state on any ConnectError / Timeout so
+        # subsequent cold-cache callers use the SHORT timeout and fail
+        # fast instead of all paying 15s. Catches httpx ConnectError +
+        # ConnectTimeout + ReadTimeout + RemoteProtocolError; the
+        # auth-failure path raises RuntimeError further up + doesn't
+        # latch (different signal — credentials, not reachability).
+        try:
+            import httpx as _httpx
+            if isinstance(e, (
+                _httpx.ConnectError, _httpx.ConnectTimeout,
+                _httpx.ReadTimeout, _httpx.RemoteProtocolError,
+                OSError,
+            )):
+                _mark_unreachable()
+        except Exception:  # noqa: BLE001
+            pass
         return {"systems": {}, "error": str(e)}
 
     # Log the first system_stats row's ``efs`` contents so an
@@ -1431,6 +1476,11 @@ async def probe_hub(
         else:
             print(f"[beszel] systemd_services attached to "
                   f"{services_match_count}/{len(out)} hosts")
+    # Latch the reachable state so the next call uses the long
+    # timeout again — a recovered hub immediately gets its normal
+    # 15s budget back instead of permanently capping at the short
+    # unreachable timeout.
+    _mark_reachable()
     return {"systems": out, "error": None}
 
 

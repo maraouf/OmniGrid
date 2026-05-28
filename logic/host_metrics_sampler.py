@@ -1073,6 +1073,18 @@ async def _probe_one(
         state = _get_failure_state(hid)
         if state and state["paused"]:
             return
+        # DNS-failure short-circuit — when the boot DNS check (or a
+        # previous probe attempt) caught the ne_url's hostname as
+        # unresolvable, skip the probe entirely for the cached TTL.
+        # Eliminates the per-tick executor-thrash on a fleet with
+        # unresolvable hostnames. Latches off on the next successful
+        # DNS resolution so a recovered DNS server brings the host
+        # back without operator intervention.
+        from urllib.parse import urlparse as _urlparse
+        from logic.dns_skip import should_skip_dns as _should_skip_dns
+        _parsed = _urlparse(ne_url)
+        if _parsed.hostname and _should_skip_dns(_parsed.hostname):
+            return
         now = time.time()
         # Per-use read so Admin → Config edits to the NE probe timeout
         # land on the next sampler tick. Defensive fallback to the

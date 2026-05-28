@@ -111,6 +111,51 @@ def _curated_http_probe_hosts() -> list[dict]:
     return out
 
 
+def _dns_skip_synth_result(url: str) -> dict:
+    """Synthetic probe-result dict returned when the DNS-skip cache
+    short-circuits a probe. Same shape as the real `probe_http_health`
+    output so the downstream row-build code in `_one` / `_persist_rows`
+    doesn't need a special-case path. Extracted to a module helper so
+    the dict shape lives in ONE place — if a new probe-result field
+    lands (e.g. `tls_chain_ok`), this helper is the only stop besides
+    the real probe."""
+    return {
+        "url": url,
+        "ok": False,
+        "status_code": None,
+        "status_ok": False,
+        "content_match_ok": False,
+        "tls_expires_in_days": None,
+        "tls_subject": None,
+        "tls_issuer": None,
+        "dns_resolved": False,
+        "dns_error": "skipped — DNS resolution cached as failing",
+        "latency_ms": None,
+        "error": "dns_skip_cache",
+    }
+
+
+def _build_url_row(r: dict) -> dict:
+    """Shape one probe-result dict into the per-URL row stored in
+    `host_http_samples` / surfaced via `latest_for_host` /
+    `bulk_latest_for_hosts`. Single definition prevents the
+    13-line dict-construction block from drifting across the two
+    read sites (was duplicated; now shared)."""
+    return {
+        "url": r["url"],
+        "status_code": r["status_code"],
+        "status_ok": bool(r["status_ok"]),
+        "content_match_ok": bool(r["content_match_ok"]),
+        "tls_expires_in_days": r["tls_expires_in_days"],
+        "tls_subject": r["tls_subject"],
+        "tls_issuer": r["tls_issuer"],
+        "tls_error": r["tls_error"],
+        "dns_resolved": bool(r["dns_resolved"]),
+        "latency_ms": r["latency_ms"],
+        "error": r["error"],
+    }
+
+
 def _resolve_http_probe_interval() -> int:
     """Sampler tick cadence — thin wrapper for binary-compat. The
     canonical implementation lives at `tuning.resolve_provider_interval`
@@ -150,6 +195,24 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
 
     async def _one(url: str) -> dict:
         async with sem:
+            # DNS-failure short-circuit — synthesize a failure result
+            # without paying the full probe path when the URL's
+            # hostname is in the shared DNS-skip cache. Latches off
+            # on next successful resolution via the cache helper.
+            # Local-bind `_host` so the type narrows from `str | None`
+            # to `str` for the helper call. Narrow except to the two
+            # failure classes that can realistically surface here.
+            try:
+                from urllib.parse import urlparse as _urlparse
+                from logic.dns_skip import should_skip_dns as _should_skip_dns
+                _host = _urlparse(url).hostname
+                if _host and _should_skip_dns(_host):
+                    return _dns_skip_synth_result(url)
+            except (ImportError, ValueError):
+                # ImportError: dns_skip module unavailable.
+                # ValueError: urlparse rejected an unparseable URL.
+                # Either way, fall through to the real probe.
+                pass
             try:
                 probe_result = await _http_probe.probe_http_health(
                     url,
@@ -469,19 +532,7 @@ def bulk_latest_for_hosts(host_ids: list) -> dict:
         min_tls: Optional[int] = None
         for r in host_rows:
             ok = bool(r["status_ok"]) and bool(r["content_match_ok"])
-            url_rows.append({
-                "url": r["url"],
-                "status_code": r["status_code"],
-                "status_ok": bool(r["status_ok"]),
-                "content_match_ok": bool(r["content_match_ok"]),
-                "tls_expires_in_days": r["tls_expires_in_days"],
-                "tls_subject": r["tls_subject"],
-                "tls_issuer": r["tls_issuer"],
-                "tls_error": r["tls_error"],
-                "dns_resolved": bool(r["dns_resolved"]),
-                "latency_ms": r["latency_ms"],
-                "error": r["error"],
-            })
+            url_rows.append(_build_url_row(r))
             if ok:
                 n_ok += 1
             tls = r["tls_expires_in_days"]
@@ -550,19 +601,7 @@ def latest_for_host(host_id: str) -> dict:
     min_tls: Optional[int] = None
     for r in rows:
         ok = bool(r["status_ok"]) and bool(r["content_match_ok"])
-        url_rows.append({
-            "url": r["url"],
-            "status_code": r["status_code"],
-            "status_ok": bool(r["status_ok"]),
-            "content_match_ok": bool(r["content_match_ok"]),
-            "tls_expires_in_days": r["tls_expires_in_days"],
-            "tls_subject": r["tls_subject"],
-            "tls_issuer": r["tls_issuer"],
-            "tls_error": r["tls_error"],
-            "dns_resolved": bool(r["dns_resolved"]),
-            "latency_ms": r["latency_ms"],
-            "error": r["error"],
-        })
+        url_rows.append(_build_url_row(r))
         if ok:
             n_ok += 1
         tls = r["tls_expires_in_days"]

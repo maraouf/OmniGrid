@@ -95,6 +95,9 @@ class Tunable(str, Enum):
     HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
     HOST_PROVIDER_CACHE_DIAG_INTERVAL = "tuning_host_provider_cache_diag_interval"
     STATS_PER_NODE_UNREACHABLE_TTL_SECONDS = "tuning_stats_per_node_unreachable_ttl_seconds"
+    DNS_FAILED_SKIP_SECONDS = "tuning_dns_failed_skip_seconds"
+    BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_beszel_probe_timeout_unreachable_seconds"
+    PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_pulse_probe_timeout_unreachable_seconds"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
@@ -642,6 +645,32 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # repeat-log noise across multiple SPA poll ticks.
     "tuning_stats_per_node_unreachable_ttl_seconds": (
         "STATS_PER_NODE_UNREACHABLE_TTL_SECONDS", 60, 5, 600,
+    ),
+    # DNS-failure skip cache TTL — when `logic/dns_skip.should_skip_dns`
+    # logs a host as unresolvable, subsequent sampler probes skip the
+    # host entirely for this window instead of paying the per-host
+    # probe timeout × N samplers per tick. Latches off on the next
+    # successful resolution. Default 300 (5 min) — short enough that a
+    # recovered DNS server brings hosts back within a chart's refresh
+    # window, long enough to fully suppress the executor-thrash. Range
+    # 60-3600.
+    "tuning_dns_failed_skip_seconds": (
+        "DNS_FAILED_SKIP_SECONDS", 300, 60, 3600,
+    ),
+    # Short probe timeout for Beszel when the previous probe latched
+    # as unreachable. Eliminates the cold-cache 15s wait that every
+    # /api/hosts/list / /api/hosts/one caller pays during a hub
+    # outage. Latches back to the long timeout
+    # (`tuning_beszel_probe_timeout_seconds`) on next successful
+    # probe so a recovered hub immediately gets its full budget back.
+    # Default 3s; range 1-30.
+    "tuning_beszel_probe_timeout_unreachable_seconds": (
+        "BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS", 3, 1, 30,
+    ),
+    # Same shape for Pulse — short timeout when the previous probe
+    # latched as unreachable. Default 3s; range 1-30.
+    "tuning_pulse_probe_timeout_unreachable_seconds": (
+        "PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS", 3, 1, 30,
     ),
     # In-process cache TTL (seconds) for `_host_provider_config()`
     # in logic/host_metrics_sampler.py — the per-(host_id, providers)

@@ -101,6 +101,18 @@ export default {
     // Cadence (in cache-access calls) for the host-provider
     // cache hit/miss diagnostic log line.
     'tuning_host_provider_cache_diag_interval',
+    // gather_stats per-node fail-cache TTL (skip known-unreachable
+    // Swarm workers for this window after first ConnectTimeout).
+    'tuning_stats_per_node_unreachable_ttl_seconds',
+    // DNS-failure skip cache TTL — every sampler that resolves
+    // hostnames consults logic.dns_skip to skip probes for
+    // unresolvable hosts within this window.
+    'tuning_dns_failed_skip_seconds',
+    // Short probe timeout when Beszel/Pulse hub latched as
+    // unreachable on previous probe — cold-cache callers fail
+    // fast instead of paying the full 15s budget.
+    'tuning_beszel_probe_timeout_unreachable_seconds',
+    'tuning_pulse_probe_timeout_unreachable_seconds',
     // host_metrics_sampler.py _host_provider_config() cache TTL.
     'tuning_host_provider_config_cache_ttl_seconds',
     // per-host Webmin caches MOVED to Admin → Providers
