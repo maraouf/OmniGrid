@@ -98,6 +98,9 @@ export default {
     'tuning_rate_limit_lockout_seconds',
     // outer host-provider cache.
     'tuning_host_provider_cache_ttl_seconds',
+    // Cadence (in cache-access calls) for the host-provider
+    // cache hit/miss diagnostic log line.
+    'tuning_host_provider_cache_diag_interval',
     // host_metrics_sampler.py _host_provider_config() cache TTL.
     'tuning_host_provider_config_cache_ttl_seconds',
     // per-host Webmin caches MOVED to Admin → Providers

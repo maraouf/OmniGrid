@@ -708,6 +708,32 @@ def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("DELETE FROM users WHERE id=?", (user_id,))
 
 
+# Per-process short-TTL cache for get_user_profile. /api/me is called
+# on every page load, every auth-state change, every cross-tab SSE
+# settings:updated handler, and every cross-tab tab:activity heartbeat
+# — on a busy multi-tab session that's dozens of calls per minute,
+# each hitting a fresh SQLite connection + JSON parse of ui_prefs.
+# Cache TTL is intentionally short (5s) so operator edits propagate
+# quickly without explicit invalidation on every mutating path; the
+# explicit invalidate_user_profile(user_id) hook below is defence-
+# in-depth for sites that need immediate read-through (admin password
+# reset, role change, disable). Single-process single-replica → plain
+# module dict is correct.
+_user_profile_cache: dict[int, tuple[float, dict]] = {}
+_USER_PROFILE_CACHE_TTL_SECONDS = 5.0
+
+
+def invalidate_user_profile(user_id: Optional[int] = None) -> None:
+    """Drop a cached user-profile row so the next get_user_profile reads
+    fresh from the DB. Pass ``None`` to clear every cached entry — used
+    after admin bulk-edit paths (e.g. password reset on N users) where
+    enumerating individual ids is wasted work."""
+    if user_id is None:
+        _user_profile_cache.clear()
+    else:
+        _user_profile_cache.pop(user_id, None)
+
+
 def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     """Full profile row (all columns) as a dict — used by /api/me and the
     profile page. Returns None for missing users.
@@ -716,6 +742,10 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     rows where it's NULL or invalid (older deployments before the
     column was added, or DB rows hand-tampered).
     """
+    cached = _user_profile_cache.get(user_id)
+    now = time.time()
+    if cached is not None and (now - cached[0]) < _USER_PROFILE_CACHE_TTL_SECONDS:
+        return cached[1]
     r = conn.execute("""
                      SELECT id,
                             username,
@@ -734,6 +764,8 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
                      WHERE id = ?
                      """, (user_id,)).fetchone()
     if not r:
+        # Negative result NOT cached — a freshly-created user should be
+        # visible on the very next /api/me, not after the TTL.
         return None
     out = dict(r)
     raw = out.pop("ui_prefs", None)
@@ -745,6 +777,7 @@ def get_user_profile(conn: sqlite3.Connection, user_id: int) -> Optional[dict]:
     except (ValueError, TypeError):
         prefs = {}
     out["ui_prefs"] = prefs
+    _user_profile_cache[user_id] = (now, out)
     return out
 
 
@@ -819,6 +852,9 @@ def update_ui_prefs(
         "UPDATE users SET ui_prefs=? WHERE id=?",
         (merged_json, user_id),
     )
+    # Drop the cached profile row so the next /api/me reads the
+    # fresh ui_prefs without waiting for the TTL window.
+    invalidate_user_profile(user_id)
     return merged
 
 
@@ -905,6 +941,7 @@ def set_user_notify_prefs(
         "UPDATE users SET ui_prefs=? WHERE id=?",
         (_json.dumps(cur), user_id),
     )
+    invalidate_user_profile(user_id)
     return clean
 
 
@@ -936,6 +973,7 @@ def update_user_profile(
         return
     values.append(user_id)
     conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=?", values)
+    invalidate_user_profile(user_id)
 
 
 def set_user_avatar_path(
@@ -947,6 +985,7 @@ def set_user_avatar_path(
     Callers pass None to clear.
     """
     conn.execute("UPDATE users SET avatar_path=? WHERE id=?", (path, user_id))
+    invalidate_user_profile(user_id)
 
 
 def admin_reset_password(

@@ -981,7 +981,7 @@ async def _probe_one(
             stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
         # noinspection PyBroadException
         except Exception as e:
-            print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
+            print(f"[host_metrics_sampler] {hid!r} target={ne_url} probe error: {e}")
             # Unified outcome — TWO writes via ONE state machine: the
             # whole-host bare-key row (provider="") + the per-(provider,
             # host) prefixed row. Pre-fix this was a bare `_record_failure`
@@ -1027,11 +1027,12 @@ async def _probe_one(
             _last_counters[hid] = next_counter
         if row is None:
             if prev is None and next_counter is not None:
-                print(f"[host_metrics_sampler] {hid!r} first sample established "
-                      "counter baseline; no row to write yet")
+                print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
+                      f"first sample established counter baseline; "
+                      f"no row to write yet")
             else:
-                print(f"[host_metrics_sampler] {hid!r} probe returned no meaningful "
-                      "metrics; skipping INSERT")
+                print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
+                      f"probe returned no meaningful metrics; skipping INSERT")
             return
 
         try:
@@ -1052,7 +1053,7 @@ async def _probe_one(
                 )
         # noinspection PyBroadException
         except Exception as e:
-            print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
+            print(f"[host_metrics_sampler] {hid!r} target={ne_url} DB insert failed: {e}")
             return
         # Successful probe + write — clear any in-flight failure tracking
         # so a previously-pausing host can recover quietly. Whole-host
@@ -1083,7 +1084,7 @@ async def _probe_one(
             })
         # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
-            print(f"[host_metrics_sampler] {hid!r} history_appended publish failed: {e}")
+            print(f"[host_metrics_sampler] {hid!r} target={ne_url} history_appended publish failed: {e}")
         net_blurb = (
             f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
             if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)
@@ -1094,7 +1095,14 @@ async def _probe_one(
             if (row["disk_read_bps"] is not None and row["disk_write_bps"] is not None)
             else "diskio=skip"
         )
-        print(f"[host_metrics_sampler] {hid!r} wrote cpu={row['cpu_percent']} "
+        # Include the resolved ne_url so operators can verify WHICH
+        # exporter URL the sample came from — the curated `id` is
+        # often a short alias and a misconfigured `ne_url` would
+        # silently pull data from a different host. Matches the
+        # convention surfaced by host_net_sampler / ping_sampler /
+        # SNMP for every per-host probe log line.
+        print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
+              f"wrote cpu={row['cpu_percent']} "
               f"mem={row['mem_used']}/{row['mem_total']} "
               f"disk={row['disk_used']}/{row['disk_total']} {net_blurb} {disk_blurb}")
 
@@ -1206,7 +1214,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             )
         # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
-            print(f"[host_metrics_sampler] {snmp_key} probe error: {e}")
+            print(f"[host_metrics_sampler] {snmp_key} target={snmp_target} probe error: {e}")
             await record_provider_outcome(
                 hid, "snmp", False,
                 error=str(e), round_threshold=snmp_pause_rounds,
@@ -1222,9 +1230,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
             # `r.get("skipped_cooldown")` when the probe wires it;
             # fall back to substring for legacy.
             if r.get("skipped_cooldown") or (isinstance(err, str) and "cool-down" in err):
-                print(f"[host_metrics_sampler] {snmp_key} cool-down skip: {err}")
+                print(f"[host_metrics_sampler] {snmp_key} target={snmp_target} cool-down skip: {err}")
                 return
-            print(f"[host_metrics_sampler] {snmp_key} snmp error: {err}")
+            print(f"[host_metrics_sampler] {snmp_key} target={snmp_target} snmp error: {err}")
             await record_provider_outcome(
                 hid, "snmp", False,
                 error=str(err), round_threshold=snmp_pause_rounds,
@@ -1414,7 +1422,7 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 )
         # noinspection PyBroadException
         except Exception as e:  # noqa: BLE001
-            print(f"[host_metrics_sampler] {snmp_key} snmp_sample insert failed: {e}")
+            print(f"[host_metrics_sampler] {snmp_key} target={snmp_target} snmp_sample insert failed: {e}")
 
 
 def _prune_old_samples() -> int:

@@ -93,6 +93,7 @@ class Tunable(str, Enum):
     HOST_METRICS_PROBE_CONCURRENCY = "tuning_host_metrics_probe_concurrency"
     HOST_PERMANENT_FAIL_WINDOW_SECONDS = "tuning_host_permanent_fail_window_seconds"
     HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
+    HOST_PROVIDER_CACHE_DIAG_INTERVAL = "tuning_host_provider_cache_diag_interval"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
@@ -623,6 +624,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # happened, but something changed upstream" can re-flow through.
     # Default 10s. Strict-rule category (d) "trades freshness for cost".
     "tuning_host_provider_cache_ttl_seconds": ("HOST_PROVIDER_CACHE_TTL_SECONDS", 10, 1, 300),
+    # Diagnostic interval for the host-provider cache hit/miss log.
+    # Every Nth call, the periodic helper logs a `[provider_state]
+    # cache window: H hits / M misses (X% hit rate)` line so operators
+    # can verify the cache is doing its job from Admin → Logs. Higher
+    # values reduce log noise on busy multi-tab sessions; lower values
+    # surface a finer-grain hit ratio for debugging. Strict-rule
+    # category — diagnostic verbosity knob.
+    "tuning_host_provider_cache_diag_interval": ("HOST_PROVIDER_CACHE_DIAG_INTERVAL", 100, 1, 10000),
     # In-process cache TTL (seconds) for `_host_provider_config()`
     # in logic/host_metrics_sampler.py — the per-(host_id, providers)
     # map that `record_provider_outcome`'s defensive guard consults to
