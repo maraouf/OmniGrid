@@ -687,6 +687,15 @@ SSH_DEFAULT_PORT=22
 SNMP_DEFAULT_PORT=161
 PING_DEFAULT_PORT=443
 
+# EMERGENCY KILL SWITCH — set to `1` / `true` / `yes` to completely
+# short-circuit the SNMP sampler tick (no probes fire, no provider
+# state changes). Use this when SNMP is causing event-loop starvation
+# / healthcheck flap and you need to bring the container back up
+# before fixing the root cause in Admin → Providers / Admin → Hosts.
+# Read via `os.environ` directly (NOT through the DB) so it works
+# even when the DB is unreachable / corrupted.
+OMNIGRID_DISABLE_SNMP=0
+
 # Per-host ping packet interval (ms) between consecutive ICMP / TCP
 # probes within ONE round-trip-time measurement. Range 100..2000.
 # Lower for finer-grained RTT (more traffic to the target); raise

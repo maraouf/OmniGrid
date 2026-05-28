@@ -243,8 +243,16 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
         # TypeError. Today's synthesized error path always populates
         # 100.0; the guard is forward-looking.
         loss_for_log = result.get("loss_pct") or 0
-        print(f"[ping_sampler] {host['id']!r} alive={result.get('alive')} "
-              f"loss={loss_for_log:.0f}% {rtt_blurb}")
+        # Include the resolved target (`host['host']`) AND port in the
+        # log line so the operator can verify the sampler is probing
+        # the RIGHT address (the curated `id` is often a short alias
+        # like 'synology' while the resolved target may be an FQDN
+        # like `synology.home.lan` or an IP like `10.0.6.3`).
+        # Operator-flagged: "i need to see if system getting it right
+        # or wrong to troubleshoot".
+        target_blurb = f"target={host.get('host') or '?'}:{host.get('port') or '?'}"
+        print(f"[ping_sampler] {host['id']!r} {target_blurb} "
+              f"alive={result.get('alive')} loss={loss_for_log:.0f}% {rtt_blurb}")
 
 
 def _prune_old_samples() -> int:

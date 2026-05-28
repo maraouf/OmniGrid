@@ -156,10 +156,14 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
         # retries; no cumulative state to clean up beyond the cached
         # counter pair, which we intentionally leave in place so a
         # transient blip doesn't force a "first sample" skip.
-        print(f"[host_net_sampler] {hid!r} probe error: {e}")
+        print(f"[host_net_sampler] {hid!r} target={ne_url} probe error: {e}")
         return
     if stats.get("exporter_error"):
-        print(f"[host_net_sampler] {hid!r} exporter_error: {stats['exporter_error']}")
+        # Include the resolved ne_url in the log so the operator can
+        # verify the sampler is probing the RIGHT address (the curated
+        # `id` is often a short alias).
+        print(f"[host_net_sampler] {hid!r} target={ne_url} "
+              f"exporter_error: {stats['exporter_error']}")
         return
     rx = int(stats.get("host_net_rx_total") or 0)
     tx = int(stats.get("host_net_tx_total") or 0)
