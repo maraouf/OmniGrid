@@ -380,6 +380,74 @@ async def _lifespan(_app: FastAPI):
     # Create /app/data/backups/ + /app/data/avatars/ if missing so endpoint
     # handlers don't each have to guard for first-boot state.
     backups.ensure_dirs()
+    # Startup DNS-resolution diagnostic — walks every curated host's
+    # resolved target (FQDN / IP / short name) and tries to resolve
+    # it once via the container's libc resolver. Logs a one-line
+    # summary so the operator sees AT BOOT whether their hostnames
+    # are reachable from the container's DNS perspective (often
+    # NOT — short names like `transmission` won't resolve unless
+    # the Docker DNS knows about them). Best-effort: never blocks
+    # startup, never fails on read errors. Runs in a worker thread
+    # so we don't burn the event loop on N getaddrinfo calls in a
+    # row (one socket call per host).
+    try:
+        from logic.db import iter_curated_hosts
+        import socket as _socket
+
+        def _dns_probe_all() -> dict:
+            """Return {ok_count, fail_count, samples_failed[:5]}."""
+            ok = 0
+            fail = 0
+            failed: list[str] = []
+            for h in iter_curated_hosts():
+                hid = (h.get("id") or "").strip()
+                if not hid:
+                    continue
+                _ssh = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+                target = (
+                    (h.get("address") or "").strip()
+                    or (_ssh.get("fqdn") or "").strip()
+                    or (_ssh.get("host") or "").strip()
+                    or hid
+                )
+                # Skip already-an-IP — those bypass DNS entirely.
+                try:
+                    _socket.inet_aton(target)
+                    ok += 1
+                    continue
+                except OSError:
+                    pass
+                try:
+                    _socket.getaddrinfo(target, None)
+                    ok += 1
+                except (_socket.gaierror, OSError):
+                    fail += 1
+                    if len(failed) < 5:
+                        failed.append(f"{hid}→{target}")
+            return {"ok_count": ok, "fail_count": fail, "samples_failed": failed}
+
+        _dns_result = await asyncio.to_thread(_dns_probe_all)
+        _ok = _dns_result["ok_count"]
+        _fail = _dns_result["fail_count"]
+        if _fail == 0:
+            print(f"[boot] DNS startup check: all {_ok} curated host targets "
+                  f"resolved cleanly")
+        else:
+            _samples = ", ".join(_dns_result["samples_failed"])
+            # `warning:` token bumps to WARN bucket per the
+            # `_severity_for` classifier — no `fail` / `error` token
+            # so this stays out of the ERROR bucket (a partial
+            # failure is normal on a fresh deploy where the
+            # operator hasn't fixed the container DNS yet).
+            print(f"[boot] DNS startup check warning: {_fail} of "
+                  f"{_ok + _fail} curated host targets failed to resolve "
+                  f"via the container's libc resolver "
+                  f"(first {len(_dns_result['samples_failed'])}: {_samples}) "
+                  f"— check Docker DNS / use FQDNs / add `extra_hosts:` "
+                  f"in docker-compose.yml")
+    except Exception as _dns_e:  # noqa: BLE001
+        # Never let the startup-check error break the lifespan.
+        print(f"[boot] DNS startup check skipped (non-fatal): {_dns_e}")
     # Seed the schedules table with reasonable defaults on first boot.
     # Fleet-cache refresh is enabled; prune-node is disabled-by-default.
     # Pull the current node list (may be empty on a brand-new install —

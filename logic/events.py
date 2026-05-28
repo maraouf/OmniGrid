@@ -241,10 +241,22 @@ def publish(
             _ident_raw = (payload or {}).get("host_id") or (payload or {}).get("op_id") \
                          or (payload or {}).get("schedule_id")
         _ident = _sanitise_ident(_ident_raw) if _ident_raw is not None else ""
+        # Also surface a `target` / `host` / `address` hint when the
+        # payload carries one — lets the operator see at a glance
+        # WHICH resolved address the publishing sampler / handler is
+        # working against. The curated `id` is often a short alias
+        # ('synology' / 'idrac') while the target is the actual
+        # FQDN / IP the probe ran against. Sanitised via the same
+        # `_sanitise_ident` guard.
+        _target_raw = (payload or {}).get("target") \
+            or (payload or {}).get("host") \
+            or (payload or {}).get("address")
+        _target = _sanitise_ident(_target_raw) if _target_raw else ""
+        _target_blurb = f" target={_target}" if _target else ""
         if _ident:
-            print(f"[events] publish {type_} id={_ident}")
+            print(f"[events] publish {type_} id={_ident}{_target_blurb}")
         else:
-            print(f"[events] publish {type_}")
+            print(f"[events] publish {type_}{_target_blurb}")
     # Stamp client_id into the payload (non-destructive: callers'
     # original dict isn't mutated; we make a shallow copy when needed).
     if client_id:

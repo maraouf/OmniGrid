@@ -54,11 +54,31 @@ async def _baseline_tick(tick: int) -> None:
     ``KeyboardInterrupt`` re-raise so the lifespan cancel propagates
     cleanly through the helper's outer envelope.
     """
-    hosts = _curated_host_ids()
+    # Walk every curated host AND surface its resolved target so the
+    # baseline-diagnostic log line includes WHICH address the
+    # underlying samplers were pointed at. Operator-flagged: chasing
+    # "no samples for host X" needs to see at a glance whether X's
+    # probe targets are correct in the first place.
+    host_targets: dict[str, str] = {}
+    for h in iter_curated_hosts():
+        hid = (h.get("id") or "").strip()
+        if not hid:
+            continue
+        # Resolution chain mirrors `_resolve_ping_target` /
+        # ping_sampler / SNMP / SSH per the canonical contract:
+        # address → ssh.fqdn → ssh.host → bare host_id.
+        _ssh = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+        host_targets[hid] = (
+            (h.get("address") or "").strip()
+            or (_ssh.get("fqdn") or "").strip()
+            or (_ssh.get("host") or "").strip()
+            or hid
+        )
+    hosts = list(host_targets.keys())
     start = time.time()
     for hid in hosts:
         try:
-            _baseline.compute_baselines(hid)
+            _baseline.compute_baselines(hid, target=host_targets.get(hid, ""))
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         except Exception as exc:  # noqa: BLE001
