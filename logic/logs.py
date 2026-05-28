@@ -149,6 +149,19 @@ _RE_ERROR = re.compile(
 )
 _RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)
 _RE_OK = re.compile(r"\bsuccess\b|\bok —|→ ok\b", re.IGNORECASE)
+# Lines that ALREADY carry a level prefix — uvicorn's
+# `INFO:     <body>` / `WARNING:    <body>` / `ERROR:     <body>` /
+# `DEBUG:    <body>` / `CRITICAL:    <body>` shape, OR an ISO 8601
+# timestamp followed by a level (our own persistent-log shape that
+# could get fed back in if something re-reads + re-writes a log
+# file). `_TeeStream._prefixed()` uses this to skip already-classified
+# lines so we never end up with `INFO:    INFO:    <body>` double-
+# prefixes.
+_RE_ALREADY_PREFIXED = re.compile(
+    r"^(?:INFO|WARN|WARNING|ERROR|DEBUG|CRITICAL|SUCCESS|FATAL|TRACE|NOTICE)\s*:|"
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?\s+(?:INFO|WARN|ERROR|SUCCESS|DEBUG|CRITICAL)\b",
+    re.IGNORECASE,
+)
 
 
 def _severity_for(text: str, _stream: str) -> str:
@@ -625,31 +638,83 @@ class _TeeStream:
         self._label = label
         self._partial = ""
 
+    @staticmethod
+    def _prefixed(line: str) -> str:
+        """Return `line` with a uvicorn-style `<LEVEL>:` prefix iff it
+        doesn't already start with one. Matches uvicorn's
+        `INFO:     <message>` format so external log processors
+        (Dozzle, docker logs viewers, Loki) can classify the line
+        without reading the persistent log file separately. Empty
+        lines pass through unchanged. The level is derived via the
+        same `_severity_for` classifier that drives the persistent
+        log + the SPA's Logs tab so classification stays consistent
+        across every surface."""
+        stripped = line.lstrip()
+        if not stripped:
+            return line
+        # Already prefixed with a level — uvicorn-style `INFO:` /
+        # `WARNING:` / `ERROR:` / `DEBUG:` / `CRITICAL:` (with the
+        # optional spaces uvicorn pads with) OR our own
+        # `<ISO 8601> <LEVEL>` shape from a previous tee write that
+        # got fed back in. Pass through unchanged.
+        if _RE_ALREADY_PREFIXED.match(stripped):
+            return line
+        level = _severity_for(line, "stdout")
+        # Uvicorn pads its level to 8 chars total (`INFO:    `) so
+        # all messages align in the terminal. Match that format.
+        prefix = f"{level}:".ljust(9)
+        return prefix + line
+
     def write(self, data: str) -> int:
-        """Forward `data` to the wrapped stream and tee into the ring buffer + log file."""
-        # Forward to the real stream FIRST so any exception on our side
-        # can't suppress real diagnostics. The ring buffer is an
-        # auxiliary view, not the source of truth.
-        n = self._stream.write(data) if data else 0
+        """Forward `data` to the wrapped stream and tee into the ring buffer + log file.
+
+        Lines without an existing level prefix get one prepended
+        (uvicorn-style `INFO:    <body>`) BEFORE being forwarded to
+        the real stream so external log viewers (Dozzle, docker
+        logs, Loki) can classify them without reading the persistent
+        log file separately. The ring buffer + persistent log get
+        the ORIGINAL (un-prefixed) text because they have their own
+        per-record `level` field — no need to embed it in the body.
+        """
         try:
             if not data:
-                return n
+                return self._stream.write(data) if data else 0
             buf = self._partial + data
             lines = buf.split("\n")
             # All but the last are complete lines; the last is carry-over
             # (either the next partial or the empty string after a
             # trailing newline).
             self._partial = lines[-1]
-            now = time.time()
+            # Forward each complete line WITH a level prefix; the
+            # partial tail (no newline yet) gets forwarded raw — the
+            # next write that brings a newline will re-prefix it as
+            # one complete line. This avoids splitting a level prefix
+            # across two writes.
+            prefixed_lines = [self._prefixed(line) for line in lines[:-1]]
+            forwarded = "\n".join(prefixed_lines)
+            if prefixed_lines:
+                forwarded += "\n"
+            forwarded += lines[-1]  # partial tail (no prefix yet)
+            n = self._stream.write(forwarded) if forwarded else 0
+            # Per-line timestamp (not batch-shared) so the SPA's Logs
+            # tab renders each line with its own arrival time even
+            # when uvicorn / sampler batches several writes in one
+            # `write()` call. The `time.time()` here is monotonic
+            # within the same call so the timestamps still preserve
+            # arrival order — important for the renderer's ts-sort.
             for line in lines[:-1]:
-                rec = {"ts": now, "stream": self._label, "text": line}
+                rec = {"ts": time.time(), "stream": self._label, "text": line}
                 _buf.append(rec)
                 # Persist to today's daily file. Best-effort — see
                 # _persist_line() for the failure-mode contract.
                 _persist_line(rec)
         except (OSError, ValueError, TypeError):
-            # Never let the tee break real logging. Swallow and move on.
-            pass
+            # Never let the tee break real logging. Forward the raw
+            # data + swallow + move on.
+            try:
+                n = self._stream.write(data) if data else 0
+            except OSError:
+                n = 0
         return n
 
     def flush(self) -> None:
