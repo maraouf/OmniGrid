@@ -1944,7 +1944,12 @@ async def api_weather_test(
         if not raw_key:
             return {"ok": False, "detail": "no API key configured or supplied"}
         if not base:
-            base = _weather_mod.DEFAULT_WEATHERAPI_URL
+            base = _weather_mod.base_url()
+        if not base:
+            return {"ok": False,
+                    "detail": "no WeatherAPI base URL configured — "
+                              "paste one in Admin → Weather or set the "
+                              "WEATHER_WEATHERAPI_ENDPOINT env var"}
         upstream = base + "/forecast.json"
         params = {
             "key": raw_key,
@@ -1979,9 +1984,14 @@ async def api_weather_test(
             "supports_moon": True,
             "upstream": upstream,
         }
-    # Open-Meteo — no API key, plain GET against the public endpoint.
+    # Open-Meteo — no API key, plain GET against the configured endpoint.
     if not base:
-        base = _weather_mod.DEFAULT_OPEN_METEO_URL
+        base = _weather_mod.base_url()
+    if not base:
+        return {"ok": False,
+                "detail": "no Open-Meteo base URL configured — "
+                          "paste one in Admin → Weather or set the "
+                          "WEATHER_OPEN_METEO_ENDPOINT env var"}
     upstream = base
     params = {
         "latitude": str(round(lat, 2)),

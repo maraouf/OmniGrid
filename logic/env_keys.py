@@ -66,6 +66,12 @@ class EnvKey(str, Enum):
     SESSION_LAST_SEEN_THROTTLE_SECONDS = "SESSION_LAST_SEEN_THROTTLE_SECONDS"
     SESSION_SECRET = "SESSION_SECRET"
     VERIFY_TLS = "VERIFY_TLS"
+    # Weather provider endpoints — operator-configurable via .env so
+    # the URL strings live in ops config, NOT baked into Python source.
+    # Empty default; operator MUST set per the active provider OR
+    # paste into Admin → Weather → Base URL.
+    WEATHER_OPEN_METEO_ENDPOINT = "WEATHER_OPEN_METEO_ENDPOINT"
+    WEATHER_WEATHERAPI_ENDPOINT = "WEATHER_WEATHERAPI_ENDPOINT"
 
 
 def env_get(key: EnvKey, default: str = "") -> str:

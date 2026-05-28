@@ -672,7 +672,6 @@ function app() {
     // — never collides with a real section id because real sections
     // never start with `_`.
     adminSections: [
-      {id: 'general', label: 'General', icon: 'sliders'},
       {id: 'users', label: 'Users', icon: 'users'},
       {id: 'authentication', label: 'Authentication', icon: 'shield'},
       {id: 'oidc', label: 'Authentik OIDC', icon: 'authentik'},

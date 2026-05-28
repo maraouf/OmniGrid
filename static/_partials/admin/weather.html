@@ -7,12 +7,17 @@
      AI palette moon-question handling + Telegram /moon command all
      auto-disable when Open-Meteo is selected (no moon data on that
      provider).
+     Location is per-USER (Settings → Profile → Weather) — the admin
+     tab no longer carries a fallback location field; the SPA widget,
+     AI palette context, and Telegram /weather all read each user's
+     own saved location. The lifespan historical sampler iterates
+     over every distinct user-configured location.
      Layout mirrors the other provider admin tabs (Portainer / OIDC
      / Asset Inventory) with provider-conditional fields hidden via
-     x-show. Section-owned save bundles the per-section tunables +
-     plain settings into one POST so a single Save commits the whole
-     weather configuration. Test-before-Save gate only applies to
-     WeatherAPI (Open-Meteo has no key to validate).  -->
+     x-show, Portainer-style result-box for the Test action, and a
+     section-owned save that bundles per-section tunables + plain
+     settings into one POST. Test-before-Save gate only applies to
+     WeatherAPI (Open-Meteo has no key to validate). -->
 <section x-show="adminTab==='weather'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
   <div class="flex items-center gap-2 mb-2">
     <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
@@ -38,8 +43,7 @@
   <!-- Provider selector — Open-Meteo (default, free, no key, NO
        moon data) vs WeatherAPI.com (requires free key, full moon
        astronomy). Radio-group ARIA so screen readers announce as
-       a single mutually-exclusive choice; arrow-key nav courtesy
-       of the existing _radiogroupArrowKey handler. -->
+       a single mutually-exclusive choice. -->
   <fieldset class="mb-4 border border-[var(--border)] rounded-md p-3"
             :disabled="isReadonly() || !settings.weather_enabled">
     <legend class="fs-xs font-medium px-1" x-text="t('admin.weather.provider_label')"></legend>
@@ -103,72 +107,57 @@
     <input x-model="settings.weather_api_base_url" type="url"
            @input="markWeatherDirty()"
            :disabled="isReadonly() || !settings.weather_enabled"
-           :placeholder="settings.weather_provider === 'weatherapi' ? 'https://api.weatherapi.com/v1' : 'https://api.open-meteo.com/v1/forecast'"
+           :placeholder="t('admin.weather.api_base_url_placeholder')"
            class="w-full mono fs-sm">
     <p class="fs-2xs text-[var(--text-faint)] mt-1"
        x-text="settings.weather_provider === 'weatherapi' ? t('admin.weather.api_base_url_hint_weatherapi') : t('admin.weather.api_base_url_hint_open_meteo')"></p>
   </div>
 
-  <!-- Default location — operator-configured fallback used by the
-       lifespan sampler (it needs a target to poll every tick), the
-       AI palette context-builder, and the Telegram /weather no-arg
-       form. "Use my profile location" stamps lat/lon/label from the
-       user's saved profile weather location. -->
-  <div class="mb-3">
-    <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-      <label class="block fs-sm font-medium" x-text="t('admin.weather.default_location_label')"></label>
-      <button type="button"
-              @click="weatherUseProfileLocation()"
-              :disabled="isReadonly() || !settings.weather_enabled || !weatherProfileLocationAvailable()"
-              :title="weatherProfileLocationAvailable() ? t('admin.weather.use_profile_title') : t('admin.weather.use_profile_unavailable')"
-              class="btn btn-ghost btn-sm fs-xs flex items-center gap-1">
-        <svg width="12" height="12" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
-        </svg>
-        <span x-text="t('admin.weather.use_profile_button')"></span>
-      </button>
+  <!-- Location-source hint — operators see the contract at a glance:
+       weather location is per-USER (Settings → Profile → Weather),
+       NOT operator-set here. Removes the old default_label/lat/lon
+       form fields that were confusing alongside the user-side
+       location pref. -->
+  <div class="mb-4 p-3 rounded-md border border-[var(--border)] bg-[var(--surface-2)]">
+    <div class="flex items-start gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)] flex-shrink-0 mt-0.5" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+      </svg>
+      <div>
+        <p class="fs-sm font-medium mb-1" x-text="t('admin.weather.location_per_user_title')"></p>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.weather.location_per_user_hint')"></p>
+      </div>
     </div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-      <input x-model="settings.weather_default_label" type="text"
-             @input="markWeatherDirty()"
-             :disabled="isReadonly() || !settings.weather_enabled"
-             :placeholder="t('admin.weather.default_label_placeholder')"
-             class="fs-sm">
-      <input x-model="settings.weather_default_lat" type="text"
-             @input="markWeatherDirty()"
-             :disabled="isReadonly() || !settings.weather_enabled"
-             :placeholder="t('admin.weather.default_lat_placeholder')"
-             inputmode="decimal"
-             class="mono fs-sm">
-      <input x-model="settings.weather_default_lon" type="text"
-             @input="markWeatherDirty()"
-             :disabled="isReadonly() || !settings.weather_enabled"
-             :placeholder="t('admin.weather.default_lon_placeholder')"
-             inputmode="decimal"
-             class="mono fs-sm">
-    </div>
-    <p class="fs-2xs text-[var(--text-faint)] mt-1" x-text="t('admin.weather.default_location_hint')"></p>
   </div>
 
-  <!-- Test connection button + result line. Probes the SELECTED
-       provider — WeatherAPI validates the API key, Open-Meteo just
-       confirms the endpoint is reachable. Result detail includes a
-       moon-data-availability hint so the operator sees the trade-off
-       inline. -->
-  <div class="flex items-center gap-2 flex-wrap mb-4">
-    <button type="button"
-            @click="testWeather()"
-            :disabled="isReadonly() || !settings.weather_enabled || weatherTesting"
-            class="btn btn-secondary fs-sm flex items-center gap-1.5">
-      <svg width="14" height="14" :class="weatherTesting ? 'spin-md' : ''" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plug-zap"/>
-      </svg>
-      <span x-text="weatherTesting ? t('actions.testing') : t('actions.test_connection')"></span>
-    </button>
-    <span x-show="weatherTestResult.detail"
-          class="fs-xs"
-          :class="weatherTestResult.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-          x-text="weatherTestResult.detail"></span>
+  <!-- Test connection button + Portainer-style result box. Probes
+       the SELECTED provider — WeatherAPI validates the API key,
+       Open-Meteo just confirms the endpoint is reachable. Box
+       background flips ok/error tones via pill-token classes. -->
+  <div class="mb-4">
+    <div class="flex items-center gap-2 flex-wrap mb-2">
+      <button type="button"
+              @click="testWeather()"
+              :disabled="isReadonly() || !settings.weather_enabled || weatherTesting"
+              class="btn btn-secondary fs-sm flex items-center gap-1.5">
+        <svg width="13" height="13" :class="weatherTesting ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plug-zap"/>
+        </svg>
+        <span x-show="!weatherTesting" x-text="t('actions.test_connection')"></span>
+        <span x-show="weatherTesting" x-text="t('actions.testing')"></span>
+      </button>
+      <span x-show="settings.weather_enabled && !canSaveWeather()"
+            class="fs-xs text-[var(--text-faint)]"
+            x-text="t('admin.weather.save_requires_test')"></span>
+    </div>
+    <div x-show="weatherTestResult && weatherTestResult.detail"
+         class="fs-sm rounded-md px-3 py-2"
+         :class="(weatherTestResult && weatherTestResult.ok)
+           ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+           : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
+      <span x-text="(weatherTestResult && weatherTestResult.ok) ? '✓' : '✗'"></span>
+      <span class="ms-1" x-text="weatherTestResult && weatherTestResult.detail"></span>
+    </div>
   </div>
 
   <!-- Moon-data availability badge — visible affordance so the
@@ -188,19 +177,21 @@
   </div>
 
   <!-- Per-section tunables — surfaced from the canonical TUNABLES
-       registry via the existing tuningKeys array. The section-owned
-       save bundles them into the same POST as the weather settings
-       above so a single Save commits the whole configuration. -->
-  <details class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mb-4"
-           x-data="{ open: false }">
-    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2"
-             @click.prevent="open = !open">
-      <svg width="12" height="12" :class="open ? 'rotate-90' : ''" class="transition-transform" aria-hidden="true">
+       registry via the existing tuningKeys array. Hidden entirely
+       when the array is empty (degenerate case — collapse-arrow
+       UX without expandable content is a known frustration the
+       operator flagged). The section-owned save bundles them into
+       the same POST as the weather settings above so a single Save
+       commits the whole configuration. -->
+  <details x-show="weatherTuningKeys().length > 0"
+           class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mb-4">
+    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
       </svg>
       <span x-text="t('admin.weather.advanced_label')"></span>
     </summary>
-    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3" x-show="open" x-transition>
+    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
       <template x-for="key in weatherTuningKeys()" :key="key">
         <div>
           <label class="block fs-xs font-medium mb-1" x-text="tuningFieldLabel(key)"></label>
@@ -240,8 +231,5 @@
       <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
       <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
     </span>
-    <span x-show="!canSaveWeather() && weatherSectionDirty()"
-          class="fs-xs text-[var(--text-faint)]"
-          x-text="t('admin.weather.save_requires_test')"></span>
   </div>
 </section>

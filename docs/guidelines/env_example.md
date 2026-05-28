@@ -571,6 +571,16 @@ PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
 # per coordinate). Sampler interval drives the historical-data writer
 # the AI palette + Telegram /weather command consume. Retention
 # bounds DB growth (0 = keep every sample forever).
+# Provider endpoints — operator-set (NOT baked into Python). Paste
+# the public endpoint your deployment uses, or override via the
+# Admin → Weather UI on a per-deployment basis. Empty = the weather
+# feature can't probe (the dispatcher returns a "configure URL"
+# error). Public reference values that work for most deployments
+# (uncomment + paste to use):
+# WEATHER_OPEN_METEO_ENDPOINT=https://api.open-meteo.com/v1/forecast
+# WEATHER_WEATHERAPI_ENDPOINT=https://api.weatherapi.com/v1
+WEATHER_OPEN_METEO_ENDPOINT=
+WEATHER_WEATHERAPI_ENDPOINT=
 WEATHER_CACHE_TTL_SECONDS=600
 WEATHER_FETCH_TIMEOUT_SECONDS=8
 WEATHER_HISTORY_RETENTION_DAYS=90
@@ -941,8 +951,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PUBLIC_IP_ENABLED`               | Runtime     | `0`                  | Master gate for the Public-IP lookup module (Admin → Public IP). Default OFF — enabling authorises outbound calls to ifconfig.co. |
 | `PUBLIC_IP_CACHE_TTL_SECONDS`     | Runtime     | `600`                | In-process cache TTL for Public-IP lookups. Range 60..3600. |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS` | Runtime     | `8`                  | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60. |
-| `WEATHER_CACHE_TTL_SECONDS`            | Runtime | `600`  | WeatherAPI.com in-process per-coordinate cache TTL. Range 60..86400. |
-| `WEATHER_FETCH_TIMEOUT_SECONDS`        | Runtime | `8`    | WeatherAPI.com outbound HTTP wall-clock. Range 1..60. |
+| `WEATHER_OPEN_METEO_ENDPOINT`          | Runtime | `""`   | Open-Meteo forecast endpoint URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error. |
+| `WEATHER_WEATHERAPI_ENDPOINT`          | Runtime | `""`   | WeatherAPI.com base URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error. |
+| `WEATHER_CACHE_TTL_SECONDS`            | Runtime | `600`  | Weather provider in-process per-coordinate cache TTL. Range 60..86400. |
+| `WEATHER_FETCH_TIMEOUT_SECONDS`        | Runtime | `8`    | Weather provider outbound HTTP wall-clock. Range 1..60. |
 | `WEATHER_HISTORY_RETENTION_DAYS`       | Runtime | `90`   | Days of weather + moon-phase samples kept in `weather_samples`. 0 disables pruning. Range 0..3650. |
 | `WEATHER_SAMPLER_INTERVAL_SECONDS`     | Runtime | `3600` | Lifespan-managed weather sampler cadence. 0 disables the historical-data sampler. Range 0..86400. |
 | `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS` | Runtime | `10`              | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120. |

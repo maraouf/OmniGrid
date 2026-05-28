@@ -33,25 +33,26 @@ from typing import Optional
 import httpx
 
 from logic.db import get_setting, get_setting_bool
+from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
 from logic.tuning import Tunable, tuning_int
 
-
-# Per-provider default endpoints. Operator override via
-# ``weather_api_base_url`` (the setting is shared — its meaning
-# depends on the active provider). Stripping trailing slashes so
-# the per-endpoint formatter (``base + "/forecast.json"``) works
-# either way the operator typed it.
-DEFAULT_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-DEFAULT_WEATHERAPI_URL = "https://api.weatherapi.com/v1"
+# Per-provider endpoint URLs come from ops config (env vars or the
+# admin form), NOT from baked-in Python constants. Operator sets the
+# URL in their `.env` file (``WEATHER_OPEN_METEO_ENDPOINT`` /
+# ``WEATHER_WEATHERAPI_ENDPOINT``) OR pastes one in Admin → Weather
+# → Base URL (per-deployment override). The dispatcher resolves the
+# effective URL via the ``base_url()`` helper in priority order:
+# DB setting → env var → empty (caller surfaces a "configure URL"
+# error). Trailing slash stripped so the per-endpoint formatter
+# (``base + "/forecast.json"``) composes cleanly.
 
 # In-process cache keyed by (provider, lat, lon) at 2-decimal
 # quantisation so minor coord variants for the same city share a
 # cache entry. A provider switch invalidates the cache via
 # ``invalidate_cache()`` so the next call fires the new endpoint
-# immediately.
-_cache: dict = {}
-
+# immediately. Value is ``(fetched_ts: float, body: dict)``.
+_cache: dict[tuple[str, float, float], tuple[float, dict[str, object]]] = {}
 
 # WMO weather code → (description, local sprite key) for Open-Meteo's
 # response. WeatherAPI.com uses its own numeric codes; the
@@ -102,7 +103,7 @@ def is_enabled() -> bool:
     """Master gate. WeatherAPI requires a non-empty API key OR the
     call is guaranteed to 401; Open-Meteo just needs the master toggle
     on (no key needed)."""
-    if not get_setting_bool(Settings.WEATHER_ENABLED, default=False):
+    if not get_setting_bool(Settings.WEATHER_ENABLED):
         return False
     if provider() == "weatherapi":
         return bool((get_setting(Settings.WEATHER_API_KEY) or "").strip())
@@ -119,16 +120,40 @@ def supports_moon() -> bool:
 
 
 def base_url() -> str:
-    """Per-provider base URL with operator override. Trailing slash
-    stripped so the per-endpoint formatter composes cleanly."""
+    """Per-provider base URL — resolved from ops config.
+
+    Priority order:
+      1. DB setting (``weather_api_base_url``) — operator's per-deploy
+         override pasted in Admin → Weather.
+      2. Env var (``WEATHER_WEATHERAPI_ENDPOINT`` or
+         ``WEATHER_OPEN_METEO_ENDPOINT`` depending on active provider)
+         — operator's `.env`-level default.
+      3. Empty string — caller surfaces a "Configure the base URL in
+         Admin → Weather (or set the env var)" error.
+
+    Trailing slash stripped so ``base + "/forecast.json"`` composes
+    cleanly regardless of how the operator typed it.
+    """
     raw = (get_setting(Settings.WEATHER_API_BASE_URL) or "").strip().rstrip("/")
     if raw:
         return raw
-    return DEFAULT_WEATHERAPI_URL if provider() == "weatherapi" else DEFAULT_OPEN_METEO_URL
+    env_key = (EnvKey.WEATHER_WEATHERAPI_ENDPOINT
+               if provider() == "weatherapi"
+               else EnvKey.WEATHER_OPEN_METEO_ENDPOINT)
+    return env_get(env_key).strip().rstrip("/")
 
 
 def default_location() -> Optional[dict]:
-    """Operator-configured default lat/lon/label, or None when unset."""
+    """Legacy operator-configured fallback location.
+
+    Kept for back-compat — the admin Weather tab no longer surfaces
+    these fields, but the seed values still round-trip on the wire
+    and a deploy that hasn't been re-saved keeps using its old
+    default. The active sampler + AI palette code path is now
+    ``user_locations()`` — this default is consulted only when the
+    user-location iterator returns NO locations (no users have
+    configured a weather location in Settings → Profile yet).
+    """
     lat_raw = (get_setting(Settings.WEATHER_DEFAULT_LAT) or "").strip()
     lon_raw = (get_setting(Settings.WEATHER_DEFAULT_LON) or "").strip()
     if not lat_raw or not lon_raw:
@@ -145,8 +170,66 @@ def default_location() -> Optional[dict]:
     }
 
 
-def _quantise_key(lat: float, lon: float) -> tuple:
-    return (round(float(lat), 2), round(float(lon), 2))
+def user_locations() -> list[dict]:
+    """Every distinct user-configured weather location across the
+    `users.ui_prefs.weather_*` blocks. Deduplicated by quantised
+    (lat, lon) so two users in the same city contribute one sample
+    per tick instead of two. Returns a list of
+    ``{lat, lon, label}`` dicts; empty when no user has configured
+    a location yet.
+
+    The lifespan sampler iterates this list per tick — one row per
+    location per tick — so the AI palette + Telegram + per-user
+    UI surfaces all have historical samples to draw from.
+    """
+    import json
+    from logic.db import db_conn
+    seen: set[tuple[float, float]] = set()
+    locations: list[dict] = []
+    try:
+        with db_conn() as c:
+            cur = c.execute(
+                "SELECT ui_prefs FROM users WHERE disabled IS NULL OR disabled = 0"
+            )
+            for (raw,) in cur.fetchall():
+                if not raw:
+                    continue
+                try:
+                    prefs = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(prefs, dict):
+                    continue
+                # Coerce via str() so Pyright narrows from `Any | None`
+                # cleanly — empty / None values are caught by the
+                # subsequent try/except. Skip the row when either coord
+                # can't parse as a float (operator typed garbage,
+                # blank, or never configured a location).
+                lat_raw = prefs.get("weather_lat")
+                lon_raw = prefs.get("weather_lon")
+                if lat_raw in (None, "") or lon_raw in (None, ""):
+                    continue
+                try:
+                    lat = float(str(lat_raw))
+                    lon = float(str(lon_raw))
+                except (TypeError, ValueError):
+                    continue
+                key = (round(lat, 2), round(lon, 2))
+                if key in seen:
+                    continue
+                seen.add(key)
+                locations.append({
+                    "lat": lat,
+                    "lon": lon,
+                    "label": (prefs.get("weather_label") or "").strip(),
+                })
+    except Exception as e:  # noqa: BLE001
+        print(f"[weather] user_locations read failed: {e}")
+    return locations
+
+
+def _quantise_key(lat: float, lon: float) -> tuple[float, float]:
+    return round(float(lat), 2), round(float(lon), 2)
 
 
 def _cache_ttl() -> float:
@@ -187,11 +270,13 @@ async def fetch(lat: float, lon: float, *, label: str = "") -> dict:
         body["cached"] = True
         return body
     if active == "weatherapi":
-        body = await _fetch_weatherapi(qkey[0], qkey[1], label=label,
-                                         fetched_at=int(now))
+        body = await _fetch_weatherapi(
+            qkey[0], qkey[1], label=label, fetched_at=int(now),
+        )
     else:
-        body = await _fetch_open_meteo(qkey[0], qkey[1], label=label,
-                                         fetched_at=int(now))
+        body = await _fetch_open_meteo(
+            qkey[0], qkey[1], label=label, fetched_at=int(now),
+        )
     if not body.get("error"):
         _cache[key] = (now, dict(body))
     body["cached"] = False
@@ -201,9 +286,14 @@ async def fetch(lat: float, lon: float, *, label: str = "") -> dict:
 # --------------------------------------------------------------------
 # Open-Meteo (default — no API key required, NO moon data)
 # --------------------------------------------------------------------
-async def _fetch_open_meteo(lat: float, lon: float, *, label: str,
-                              fetched_at: int) -> dict:
+async def _fetch_open_meteo(
+    lat: float, lon: float, *, label: str, fetched_at: int,
+) -> dict:
     upstream = base_url()
+    if not upstream:
+        return {"configured": False, "supports_moon": False, "provider": "open-meteo",
+                "error": "Configure the Open-Meteo base URL in Admin → Weather "
+                         "(or set the WEATHER_OPEN_METEO_ENDPOINT env var)"}
     params = {
         "latitude": str(lat),
         "longitude": str(lon),
@@ -281,12 +371,18 @@ async def _fetch_open_meteo(lat: float, lon: float, *, label: str,
 # --------------------------------------------------------------------
 # WeatherAPI.com — requires API key, returns full astronomy block
 # --------------------------------------------------------------------
-async def _fetch_weatherapi(lat: float, lon: float, *, label: str,
-                              fetched_at: int) -> dict:
+async def _fetch_weatherapi(
+    lat: float, lon: float, *, label: str, fetched_at: int,
+) -> dict:
     api_key = (get_setting(Settings.WEATHER_API_KEY) or "").strip()
     if not api_key:
         return {"configured": False, "supports_moon": True, "provider": "weatherapi"}
-    upstream = base_url() + "/forecast.json"
+    base = base_url()
+    if not base:
+        return {"configured": False, "supports_moon": True, "provider": "weatherapi",
+                "error": "Configure the WeatherAPI base URL in Admin → Weather "
+                         "(or set the WEATHER_WEATHERAPI_ENDPOINT env var)"}
+    upstream = base + "/forecast.json"
     params = {
         "key": api_key,
         "q": f"{lat},{lon}",
