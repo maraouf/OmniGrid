@@ -388,6 +388,11 @@ NODE_EXPORTER_PROBE_TIMEOUT_SECONDS=10
 # Outer host-provider cache TTL + sampler concurrency +
 # auth-failure cool-down shared by Webmin + SSH.
 HOST_PROVIDER_CACHE_TTL_SECONDS=10
+# Diagnostic-log interval (in cache-access calls) for the
+# `_get_host_provider_state` hit/miss summary line. Default 100;
+# operators chasing cache regressions can lower to 25 for verbose
+# debugging, or raise to 1000 to cut noise on busy multi-tab sessions.
+HOST_PROVIDER_CACHE_DIAG_INTERVAL=100
 # Cache TTL for the per-host configured-providers map consulted by
 # `record_provider_outcome`'s defensive guard (refuses + cleans orphan
 # rows when a probe fires for an unconfigured provider). Canonical
@@ -918,6 +923,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime  | `5`                  | Per-host Webmin failure cache TTL.                                               |
 | `NODE_EXPORTER_PROBE_TIMEOUT_SECONDS` | Runtime | `10`                 | Per-host NE scrape timeout.                                                      |
 | `HOST_PROVIDER_CACHE_TTL_SECONDS` | Runtime     | `10`                 | Outer host-provider memo TTL.                                                    |
+| `HOST_PROVIDER_CACHE_DIAG_INTERVAL` | Runtime   | `100`                | Cache hit/miss diagnostic-log cadence (calls). Lower = more verbose.            |
 | `HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS` | Runtime | `60`                 | Per-host configured-providers map cache TTL (record_provider_outcome guard).     |
 | `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out.                                  |
 | `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down.                                      |

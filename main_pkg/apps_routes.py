@@ -1298,6 +1298,41 @@ _host_provider_cache: dict = {"ts": 0.0, "state": None}
 # parallel forced calls from each re-running the probe.
 _host_provider_lock = asyncio.Lock()
 
+# Lightweight hit/miss diagnostic for the host-provider cache. The
+# SPA polls /api/hosts/list every 15s and the TTL defaults to 10s, so
+# on a healthy fleet the hit ratio should sit at 90%+. A persistent
+# low ratio means the cache key is changing too often (e.g. a settings
+# value is bouncing) — operators rarely notice this without a counter.
+# Counters reset on container restart AND every log window so
+# subsequent entries reflect the recent hit ratio, not the lifetime
+# average. The log-emit cadence is operator-tunable via
+# `tuning_host_provider_cache_diag_interval` per the strict no-static-
+# config rule.
+_host_provider_cache_diag: dict = {"hits": 0, "misses": 0}
+
+
+def _maybe_log_host_provider_cache_diag() -> None:
+    """Log a hit/miss summary line every Nth call to the cache. Keeps
+    the diagnostic visible in Admin → Logs without spamming on every
+    poll tick. Resets the counters after each log so subsequent
+    windows reflect the recent hit ratio, not the lifetime average.
+    Per-use read of the tunable so an Admin → Config edit takes effect
+    on the next window without a restart."""
+    total = _host_provider_cache_diag["hits"] + _host_provider_cache_diag["misses"]
+    try:
+        interval = tuning.tuning_int(Tunable.HOST_PROVIDER_CACHE_DIAG_INTERVAL)
+    except (KeyError, ValueError, TypeError):
+        interval = 100
+    if total < interval:
+        return
+    hits = _host_provider_cache_diag["hits"]
+    misses = _host_provider_cache_diag["misses"]
+    pct = (hits * 100) // total if total else 0
+    print(f"[provider_state] cache window: {hits} hits / {misses} misses "
+          f"({pct}% hit rate over last {total} calls)")
+    _host_provider_cache_diag["hits"] = 0
+    _host_provider_cache_diag["misses"] = 0
+
 # Per-host Webmin result cache. Webmin probes are the slowest link in
 # the /api/hosts/one/{id} path (up to 20s each on slow Miniserv); a
 # 30s TTL means repeated drawer opens / refresh ticks within half a
@@ -1536,7 +1571,11 @@ async def _get_host_provider_state(force: bool = False) -> dict:
         not force and cached and cached_key == cache_key
         and (now - _host_provider_cache.get("ts", 0.0)) < cache_ttl
     ):
+        _host_provider_cache_diag["hits"] += 1
+        _maybe_log_host_provider_cache_diag()
         return cached
+    _host_provider_cache_diag["misses"] += 1
+    _maybe_log_host_provider_cache_diag()
 
     # Single-flight — only ONE concurrent caller does the cold-
     # cache probe; the rest await on the lock and pick up the populated

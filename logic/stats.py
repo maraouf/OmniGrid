@@ -402,7 +402,21 @@ async def gather_stats() -> None:
         print("[stats] gather_stats early-return: portainer.is_configured() == False")
         return
     print(f"[stats] gather_stats start: items={len(items_cache['items'])}")
-    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=30.0) as client:
+    # The AsyncClient's default timeout governs the per-node sweep
+    # below — for unreachable workers, each Portainer call waits the
+    # full timeout before raising ConnectTimeout. Was hardcoded 30s;
+    # binding to the same TUNABLE that already governs the per-
+    # container stats calls (`STATS_TARGETED_TIMEOUT_SECONDS`, default
+    # 12s) means operators dialing down for faster fleet recovery get
+    # 12s per-node sweep failures instead of 30s. The per-call
+    # `_one_container_stats` path already used `targeted_to`; the
+    # client-level default was the missing piece. Fallback to the
+    # legacy 30s if the tunable read raises (corrupt DB state).
+    try:
+        _client_to = float(tuning.tuning_int(Tunable.STATS_TARGETED_TIMEOUT_SECONDS))
+    except (KeyError, ValueError, TypeError):
+        _client_to = 30.0
+    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
         # Container LIST — per-node sweep when the Swarm has 2+ nodes. The
