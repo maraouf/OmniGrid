@@ -303,15 +303,14 @@ async def _persist_services(host_id: str, services_raw: list, now: float) -> Non
         print(f"[host_beszel_sampler] services persist failed: {e}")
 
 
-async def _prune_old_rows() -> None:
-    """Drop rows older than ``STATS_HISTORY_DAYS`` (default 7).
-
-    Sweeps both the time-series `host_beszel_samples` table AND the
-    per-unit `host_beszel_services` table. Service rows whose
-    `last_seen_ts` predates the retention cutoff are deleted (the
-    Beszel agent stopped reporting them — operator removed the unit,
-    moved the host, etc.).
-    """
+def _prune_old_rows_sync() -> None:
+    """Synchronous prune body. Sweeps both the time-series
+    `host_beszel_samples` table AND the per-unit `host_beszel_services`
+    table. Service rows whose `last_seen_ts` predates the retention
+    cutoff are deleted (the Beszel agent stopped reporting them —
+    operator removed the unit, moved the host, etc.). Called from
+    the async wrapper below via `asyncio.to_thread` so the sync SQLite
+    DELETEs don't stall the event loop."""
     days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
@@ -325,6 +324,13 @@ async def _prune_old_rows() -> None:
             )
     except Exception as e:  # noqa: BLE001
         print(f"[host_beszel_sampler] prune failed: {e}")
+
+
+async def _prune_old_rows() -> None:
+    """Async wrapper — offloads to worker thread (same pattern as
+    host_metrics_sampler) so large fleets don't block the event loop
+    during the hourly prune."""
+    await asyncio.to_thread(_prune_old_rows_sync)
 
 
 # noinspection DuplicatedCode,PyTypeChecker

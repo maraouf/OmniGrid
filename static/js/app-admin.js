@@ -546,6 +546,22 @@ export default {
               } else if (tab === 'config') {
                 await this.loadTuning();
               }
+                // Weather admin tab — same lazy-load pattern as
+                // Providers / Notifications / Logs / AI / Port Scan:
+                // the four weather tunables (cache TTL / fetch timeout
+                // / history retention / sampler interval) bind to
+                // `tuningForm[...]` and `tuningEffective[...]` so
+                // first-visit needs the tuning state hydrated before
+                // the inputs + bounds-chips + effective-value chip
+                // render. Without this, the Advanced section shows
+                // "default:" / "Effective: undefined" everywhere
+                // (operator-reported bug).
+              else if (tab === 'weather') {
+                await this.loadSettings();
+                if (!this.tuningLoaded) {
+                  await this.loadTuning();
+                }
+              }
                 // Port Scan admin tab — same lazy-load pattern as Providers /
                 // Notifications / Logs / AI: the four port-scan tunables
                 // (timeout / concurrency / max_seconds / banner_read) bind to

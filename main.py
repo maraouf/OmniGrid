@@ -1038,6 +1038,12 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_net_samples_host_ts
             ON host_net_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune's `WHERE ts < ?` predicate.
+        -- The composite above can't seek from the leading column when
+        -- only `ts` is filtered, so without this the prune degrades to
+        -- a full scan. Matches the canonical pattern (see stats_samples).
+        CREATE INDEX IF NOT EXISTS idx_host_net_samples_ts
+            ON host_net_samples(ts);
 
         -- Per-host historical CPU/memory/disk/network samples for
         -- node-exporter-only hosts (no Beszel agent). Populated by
@@ -1063,6 +1069,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_host_ts
             ON host_metrics_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_metrics_samples_ts
+            ON host_metrics_samples(ts);
 
         -- Pulse-only history. Mirrors host_metrics_samples shape so
         -- the SPA's chart helpers + inline sparkline data-source
@@ -1086,6 +1097,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_pulse_samples_host_ts
             ON host_pulse_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_pulse_samples_ts
+            ON host_pulse_samples(ts);
 
         -- Beszel-only history. Same shape as host_pulse_samples; the
         -- separate table is the canonical "every provider has its own
@@ -1132,6 +1148,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_beszel_samples_host_ts
             ON host_beszel_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_beszel_samples_ts
+            ON host_beszel_samples(ts);
 
         -- Beszel per-host systemd unit table — one row per
         -- (host_id, service_name) tuple, snapshot of the latest
@@ -1173,6 +1194,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_webmin_samples_host_ts
             ON host_webmin_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_webmin_samples_ts
+            ON host_webmin_samples(ts);
 
         -- SNMP-specific time-series. Separate from
         -- host_metrics_samples because: (a) SNMP exposes per-core CPU
@@ -1205,6 +1231,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_host_ts
             ON host_snmp_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_samples_ts
+            ON host_snmp_samples(ts);
 
         -- per-interface SNMP counter samples for switch / router
         -- per-port throughput charts. One row per (ts, host_id, ifname);
@@ -1222,6 +1253,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_snmp_iface_samples_host_ts
             ON host_snmp_iface_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_iface_samples_ts
+            ON host_snmp_iface_samples(ts);
 
         -- Per-temperature-probe history for Dell server hosts. One row per (ts, host_id, probe_idx); the
         -- temperatureProbeTable typically reports 4-12 probes per
@@ -1241,6 +1277,9 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_snmp_temp_samples_host_probe_ts
             ON host_snmp_temp_samples(host_id, probe_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_host_snmp_temp_samples_ts
+            ON host_snmp_temp_samples(ts);
 
         -- Per-host rolling baseline (median + IQR) for drift detection.
         -- One row per (host_id, metric) — UPSERT on every recompute.
@@ -1404,6 +1443,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
             ON ping_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_ping_samples_ts
+            ON ping_samples(ts);
 
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
@@ -1486,6 +1530,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_http_samples_host_ts
             ON host_http_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_host_http_samples_ts
+            ON host_http_samples(ts);
 
         -- Per-service reachability probe results — one row per
         -- (host_id, service_idx, ts). `service_idx` is the position
@@ -1522,6 +1571,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_service_samples_host_ts
             ON service_samples(host_id, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate; without it
+        -- the composite above can't seek from ts alone and the prune
+        -- degrades to a full scan (see stats_samples for the pattern).
+        CREATE INDEX IF NOT EXISTS idx_service_samples_ts
+            ON service_samples(ts);
         CREATE INDEX IF NOT EXISTS idx_service_samples_host_idx_ts
             ON service_samples(host_id, service_idx, ts DESC);
 

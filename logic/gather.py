@@ -1028,11 +1028,19 @@ async def _gather_impl() -> None:
                 print(f"[gather] {gather_err}")
                 return fb
 
-        services = await safe(portainer.pg(client, f"{ep}/services"), [])
-        containers = await safe(portainer.pg(client, f"{ep}/containers/json?all=1"), [])
-        tasks = await safe(portainer.pg(client, f"{ep}/tasks"), [])
-        nodes = await safe(portainer.pg(client, f"{ep}/nodes"), [])
-        stacks_list = await safe(portainer.pg(client, "/api/stacks"), [])
+        # Parallel fan-out — closes the doc/code drift CLAUDE.md
+        # already documents at the "Data gathering flow" section.
+        # `safe()` swallows exceptions per call so `asyncio.gather`
+        # can run with `return_exceptions=False` (no exception can
+        # escape a `safe(...)` task). Net cost: max-of-five
+        # instead of sum-of-five round-trips per gather.
+        services, containers, tasks, nodes, stacks_list = await asyncio.gather(
+            safe(portainer.pg(client, f"{ep}/services"), []),
+            safe(portainer.pg(client, f"{ep}/containers/json?all=1"), []),
+            safe(portainer.pg(client, f"{ep}/tasks"), []),
+            safe(portainer.pg(client, f"{ep}/nodes"), []),
+            safe(portainer.pg(client, "/api/stacks"), []),
+        )
 
         node_map = {n["ID"]: n["Description"]["Hostname"] for n in nodes}
         stack_by_name = {s["Name"]: s for s in stacks_list}

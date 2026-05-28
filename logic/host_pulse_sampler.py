@@ -202,8 +202,11 @@ async def _persist_tick(rows: list[tuple]) -> None:
         print(f"[host_pulse_sampler] persist failed: {e}")
 
 
-async def _prune_old_rows() -> None:
-    """Drop rows older than ``STATS_HISTORY_DAYS`` (default 7)."""
+def _prune_old_rows_sync() -> None:
+    """Synchronous body — DELETE rows older than ``STATS_HISTORY_DAYS``
+    (default 7). Called from the async wrapper below via
+    `asyncio.to_thread` so the sync SQLite DELETE doesn't stall the
+    event loop on large fleets where the prune can take seconds."""
     days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
@@ -213,6 +216,14 @@ async def _prune_old_rows() -> None:
             )
     except Exception as e:  # noqa: BLE001
         print(f"[host_pulse_sampler] prune failed: {e}")
+
+
+async def _prune_old_rows() -> None:
+    """Async wrapper — offloads the sync prune to a worker thread so
+    the event loop stays responsive for /api/* + SSE during the
+    hourly DELETE. Same pattern as
+    `host_metrics_sampler._prune_old_samples`."""
+    await asyncio.to_thread(_prune_old_rows_sync)
 
 
 # noinspection DuplicatedCode,PyTypeChecker

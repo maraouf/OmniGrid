@@ -175,7 +175,11 @@ async def stats_sampler_loop() -> None:
             # Prune hourly rather than every tick — single cheap DELETE,
             # but no need to churn on every 5-minute cycle.
             if tick % max(1, 3600 // interval) == 0:
-                pruned = _prune_old_samples()
+                # Offload to worker thread — the DELETE can scan
+                # hundreds of thousands of rows on a large fleet
+                # (composite index can't seek on ts alone). Same
+                # pattern as host_metrics_sampler.
+                pruned = await asyncio.to_thread(_prune_old_samples)
                 if pruned:
                     print(f"[sampler] pruned {pruned} rows older than {days}d")
             if n:

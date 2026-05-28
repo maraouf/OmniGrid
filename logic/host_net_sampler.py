@@ -263,7 +263,10 @@ async def _net_tick(tick: int) -> None:
     interval = _net_sampler_interval()
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     if tick % max(1, 3600 // interval) == 0:
-        n = _prune_old_samples()
+        # Offload prune to worker thread so the event loop stays
+        # responsive during the DELETE (same pattern as
+        # host_metrics_sampler).
+        n = await asyncio.to_thread(_prune_old_samples)
         if n:
             print(f"[host_net_sampler] pruned {n} rows older than {days}d")
 

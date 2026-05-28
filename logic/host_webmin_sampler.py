@@ -180,7 +180,9 @@ async def _persist_tick(rows: list[tuple]) -> None:
         print(f"[host_webmin_sampler] persist failed: {e}")
 
 
-async def _prune_old_rows() -> None:
+def _prune_old_rows_sync() -> None:
+    """Synchronous prune body — offloaded to worker thread via
+    `_prune_old_rows`. Pattern matches host_metrics_sampler."""
     days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
     try:
@@ -190,6 +192,12 @@ async def _prune_old_rows() -> None:
             )
     except Exception as e:  # noqa: BLE001
         print(f"[host_webmin_sampler] prune failed: {e}")
+
+
+async def _prune_old_rows() -> None:
+    """Async wrapper — offloads to worker thread so the sync DELETE
+    doesn't stall the event loop on large fleets."""
+    await asyncio.to_thread(_prune_old_rows_sync)
 
 
 async def host_webmin_sampler_loop() -> None:
