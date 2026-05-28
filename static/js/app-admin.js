@@ -285,6 +285,7 @@ export default {
       dashboard: this.loadStatsOverview,
       database: this.loadStatsDatabase,
       samples: this.loadStatsSamples,
+      samplers: this.loadStatsSamplers,
       incidents: this.loadStatsIncidents,
       network: this.loadStatsNetwork,
       ai_cost: this.loadStatsAiCost,

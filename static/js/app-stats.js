@@ -67,19 +67,20 @@ export default {
     {id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard'},
     {id: 'database', label: 'Database', icon: 'database'},
     {id: 'samples', label: 'Samples', icon: 'layers'},
+    {id: 'samplers', label: 'Samplers', icon: 'activity'},
     {id: 'incidents', label: 'Incidents', icon: 'alert-triangle'},
     {id: 'network', label: 'Network', icon: 'activity'},
     {id: 'ai_cost', label: 'AI Cost', icon: 'zap'},
   ],
   // Operator-selected sub-tab (Dashboard / Database / Samples /
-  // Incidents / Network / AI Cost). Persisted to
+  // Samplers / Incidents / Network / AI Cost). Persisted to
   // `localStorage.statsTab` so the operator's last tab is restored
   // on next visit. Validated against `statsSections[].id` so a
   // stale localStorage value can't crash the binding.
   statsTab: (() => {
     try {
       const v = (typeof localStorage !== 'undefined' && localStorage.getItem('statsTab')) || '';
-      if (['dashboard', 'database', 'samples', 'incidents', 'network', 'ai_cost'].includes(v)) {
+      if (['dashboard', 'database', 'samples', 'samplers', 'incidents', 'network', 'ai_cost'].includes(v)) {
         return v;
       }
     } catch (_) { /* private mode — fall through */
@@ -87,6 +88,11 @@ export default {
     return 'dashboard';
   })(),
   statsOverview: {},
+  // Stats → Samplers (per-sampler tick + prune health). Lazy-loaded
+  // on first tab activation; reloadable via the panel's Reload
+  // button.
+  statsSamplers: [],
+  statsSamplersLoaded: false,
   statsOverviewLoaded: false,
   statsDatabase: {},
   statsDatabaseLoaded: false,
@@ -277,6 +283,74 @@ export default {
     } finally {
       this.statsDatabaseLoaded = true;
     }
+  },
+  // Stats → Samplers loader. Reads `/api/admin/stats/samplers`
+  // (single module-level dict read, sub-millisecond) so the panel
+  // can paint fresh on Reload click. Defensive: swallows network /
+  // shape errors so a transient blip during a sampler restart
+  // doesn't leave the panel stuck in a loading state.
+  async loadStatsSamplers() {
+    try {
+      const r = await fetch('/api/admin/stats/samplers');
+      if (!r.ok) {
+        return;
+      }
+      const data = await r.json();
+      this.statsSamplers = Array.isArray(data && data.samplers) ? data.samplers : [];
+    } catch (_) {
+    } finally {
+      this.statsSamplersLoaded = true;
+    }
+  },
+  // Format ms-duration for the samplers table. Sub-1s renders as
+  // `Nms` (operator-friendly); >=1s renders as `N.Ns` so the table
+  // doesn't show "4823ms" — `4.8s` reads faster + matches the
+  // host-drawer chart-card format. Defensive on non-numeric input.
+  statsSamplersFormatMs(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0) {
+      return '—';
+    }
+    if (n < 1000) {
+      return Math.round(n) + 'ms';
+    }
+    return (n / 1000).toFixed(1) + 's';
+  },
+  // Colour the duration cell when it crosses the slow-loop boundary
+  // (100ms — the same boundary CLAUDE.md uses for the `to_thread`
+  // offload rule). Amber at 100ms-1s; red at >=1s. Operators spot
+  // a sampler that started taking 5 seconds when it used to take 50
+  // ms at a glance via the colour.
+  statsSamplersDurationClass(ms) {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0) {
+      return 'text-[var(--text-faint)]';
+    }
+    if (n >= 1000) {
+      return 'text-[var(--danger)] font-semibold';
+    }
+    if (n >= 100) {
+      return 'text-[var(--warning)] font-semibold';
+    }
+    return 'text-[var(--text-dim)]';
+  },
+  // Operator-friendly "N ago" age formatter for the last-tick /
+  // last-prune columns. Sub-60s as seconds, sub-60min as minutes,
+  // beyond as hours. Hours is the right ceiling — prune runs
+  // hourly so a 25h gap on a sampler tick is the strongest signal
+  // the operator wants ("did this sampler stop?").
+  statsSamplersAge(seconds) {
+    const n = Number(seconds);
+    if (!Number.isFinite(n) || n < 0) {
+      return '—';
+    }
+    if (n < 60) {
+      return n + 's ago';
+    }
+    if (n < 3600) {
+      return Math.floor(n / 60) + 'm ago';
+    }
+    return Math.floor(n / 3600) + 'h ago';
   },
   // Range for the "Samples written per day" chart. Distinct from
   // the global stats range (rest of the Samples tab is all-time);

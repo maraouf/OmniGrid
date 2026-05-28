@@ -307,7 +307,8 @@ async def _ping_tick(tick: int) -> None:
         # Offload prune to worker thread — keeps the event loop
         # responsive during the hourly DELETE (same pattern as
         # host_metrics_sampler).
-        n = await asyncio.to_thread(_prune_old_samples)
+        from logic.sampler_metrics import prune_with_metrics
+        n = await prune_with_metrics("ping_sampler", _prune_old_samples)
         if n:
             print(f"[ping_sampler] pruned {n} rows older than {days}d")
 

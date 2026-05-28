@@ -329,8 +329,11 @@ def _prune_old_rows_sync() -> None:
 async def _prune_old_rows() -> None:
     """Async wrapper — offloads to worker thread (same pattern as
     host_metrics_sampler) so large fleets don't block the event loop
-    during the hourly prune."""
-    await asyncio.to_thread(_prune_old_rows_sync)
+    during the hourly prune. Routed through `prune_with_metrics` so
+    the Stats → Samplers panel records the prune's row count + wall-
+    clock duration."""
+    from logic.sampler_metrics import prune_with_metrics
+    await prune_with_metrics("host_beszel_sampler", _prune_old_rows_sync)
 
 
 # noinspection DuplicatedCode,PyTypeChecker
