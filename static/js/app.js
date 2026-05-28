@@ -819,7 +819,7 @@ function app() {
       sessionStorage.getItem('bootstrapEnvWarningDismissed') === '1') || false,
 
     // Mobile-viewport flag (<= 768px — matches the .hosts-mobile-cards CSS
-    // breakpoint). Drives PERF-03: the Hosts view gates each form factor's
+    // breakpoint). Drives the Hosts-view gate that lets each form factor's
     // per-host x-for on this so only the ACTIVE tree's rows render + bind
     // (the inactive one iterates [] -> zero per-row bindings, instead of both
     // trees evaluating every per-host binding each flush under x-show).
@@ -1050,7 +1050,7 @@ function app() {
         // without restarting the interval when the tunable changes.
         let tickCount = 0;
         setInterval(() => {
-          // PERF-10: idle-fill only does work on the Hosts view — bail
+          // idle-fill only does work on the Hosts view — bail
           // immediately off it so the 1Hz tick is a single comparison (no
           // client_config read, no modulo, no enqueue work) on every other
           // view rather than running the full gate each second.
@@ -1394,7 +1394,7 @@ function app() {
         };
         mq.addEventListener('change', onSys);
       }
-      // PERF-03: keep isMobileViewport live so the Hosts view swaps which
+      // keep isMobileViewport live so the Hosts view swaps which
       // form factor's rows render when the viewport crosses 768px. matchMedia
       // 'change' fires only on crossing the breakpoint (not per resize px),
       // so no debounce is needed.

@@ -1718,6 +1718,10 @@ class SettingsIn(BaseModel):
     # 4-step audit-fix promotion; consumed via `tuning_int(...)`;
     # rendered in Admin → Backups and Admin → SSH respectively.
     tuning_backup_retention_count: Optional[str] = None
+    # Threshold (seconds) before the SPA's top-of-page "backend unreachable"
+    # banner appears after the last successful backend signal (SSE event or
+    # REST 2xx). 0 disables the banner entirely.
+    tuning_backend_unreachable_threshold_seconds: Optional[str] = None
     # Settings-as-Code (config_backup schedule kind) snapshot retention.
     tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None

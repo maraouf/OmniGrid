@@ -32,7 +32,7 @@ function _clearNodeStatsFlushCache() {
   _nodeStatsFlushScheduled = false;
 }
 
-// PERF-15: per-flush memo for nodeSparkPoints(host, key) — same contract as
+// per-flush memo for nodeSparkPoints(host, key) — same contract as
 // _nodeStatsFlushCache. The Nodes view binds nodeSparkPoints for cpu/mem/disk
 // per node card (disk twice + via x-show AND :points), ~8 calls/card/flush,
 // each O(items x history) (it bins EVERY item's spark series). One build per
@@ -755,7 +755,7 @@ export default {
   // rounded timestamp (matching the sampler's cadence) so items with
   // near-identical-but-not-exact timestamps still stack correctly.
   nodeSparkPoints(host, key) {
-    // PERF-15: per-flush memo — see _nodeSparkFlushCache. `undefined` = not
+    // per-flush memo — see _nodeSparkFlushCache. `undefined` = not
     // cached (the builder returns '' or a points string, never undefined).
     if (_nodeSparkFlushCache === null) {
       _nodeSparkFlushCache = new Map();

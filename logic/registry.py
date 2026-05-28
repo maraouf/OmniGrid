@@ -60,7 +60,7 @@ def _classify_registry(host: str) -> str:
 # rotate slightly before the server's clock says they're dead.
 _token_cache: dict[str, tuple[str, float]] = {}
 
-# PERF-18: result cache for resolved manifest digests, keyed on the parsed
+# result cache for resolved manifest digests, keyed on the parsed
 # (registry|repo|tag) ref. get_remote_digest does one outbound HEAD per item
 # per gather; a full gather fires 80+ HEADs (bounded by REGISTRY_CONCURRENCY),
 # and gather re-runs on CACHE_TTL_SECONDS, on every write-op invalidation, AND
@@ -545,7 +545,7 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
     except Exception as e:
         print(f"[digest] parse {image}: {e}")
         return None
-    # PERF-18: serve a recently-resolved digest from the result cache (see
+    # serve a recently-resolved digest from the result cache (see
     # _digest_cache). Lazy import keeps registry.py a leaf at module load; the
     # value is read per-use (no module-import caching) per the no-static-config
     # contract. ttl<=0 disables the cache entirely.

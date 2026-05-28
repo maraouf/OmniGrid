@@ -422,6 +422,80 @@ async def host_http_sampler_loop() -> None:
             raise
 
 
+def bulk_latest_for_hosts(host_ids: list) -> dict:
+    """bulk version of :func:`latest_for_host` for many hosts.
+
+    Returns ``{host_id: latest_dict}`` (same dict shape as `latest_for_host`).
+    Hosts with no samples are absent. ONE SQL query independent of fleet size
+    (capped by SQLite's parameter limit; chunk past ~500 hosts).
+
+    Used by ``/api/hosts/list``'s bulk loop to replace N per-host queries with
+    a single bulk read; passed through to ``populate_host_http_merge`` via the
+    ``_latest`` kwarg so the per-host stamping logic stays the single source
+    of truth.
+    """
+    ids = [hid for hid in (host_ids or []) if hid]
+    if not ids:
+        return {}
+    try:
+        with db_conn() as c:
+            placeholders = ",".join(["?"] * len(ids))
+            rows = c.execute(
+                f"SELECT s.host_id, s.ts, s.url, s.status_code, s.status_ok, "
+                f"       s.content_match_ok, s.tls_expires_in_days, s.tls_subject, "
+                f"       s.tls_issuer, s.tls_error, s.dns_resolved, s.latency_ms, s.error "
+                f"FROM host_http_samples s "
+                f"INNER JOIN (SELECT host_id, MAX(ts) AS mts FROM host_http_samples "
+                f"            WHERE host_id IN ({placeholders}) GROUP BY host_id) m "
+                f"ON s.host_id = m.host_id AND s.ts = m.mts",
+                ids,
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[http_probe_sampler] bulk_latest_for_hosts skipped: {e}")
+        return {}
+    bucket: dict = {}
+    ts_by_host: dict = {}
+    for r in rows:
+        hid = r["host_id"]
+        bucket.setdefault(hid, []).append(r)
+        ts_by_host[hid] = int(r["ts"] or 0)
+    out: dict = {}
+    for hid, host_rows in bucket.items():
+        url_rows: list = []
+        n_ok = 0
+        min_tls: Optional[int] = None
+        for r in host_rows:
+            ok = bool(r["status_ok"]) and bool(r["content_match_ok"])
+            url_rows.append({
+                "url": r["url"],
+                "status_code": r["status_code"],
+                "status_ok": bool(r["status_ok"]),
+                "content_match_ok": bool(r["content_match_ok"]),
+                "tls_expires_in_days": r["tls_expires_in_days"],
+                "tls_subject": r["tls_subject"],
+                "tls_issuer": r["tls_issuer"],
+                "tls_error": r["tls_error"],
+                "dns_resolved": bool(r["dns_resolved"]),
+                "latency_ms": r["latency_ms"],
+                "error": r["error"],
+            })
+            if ok:
+                n_ok += 1
+            tls = r["tls_expires_in_days"]
+            if tls is not None:
+                if min_tls is None or tls < min_tls:
+                    min_tls = tls
+        out[hid] = {
+            "ts": ts_by_host[hid],
+            "urls": url_rows,
+            "url_count_total": len(url_rows),
+            "url_count_ok": n_ok,
+            "any_ok": n_ok > 0,
+            "min_tls_expires_in_days": min_tls,
+        }
+    return out
+
+
 def latest_for_host(host_id: str) -> dict:
     """Latest per-URL probe outcome for one host — used by
     ``/api/hosts/list`` (skeleton) AND ``_merge_one_host`` (detail)
@@ -534,7 +608,7 @@ async def probe_and_persist_host(host_id: str) -> dict:
         return {"ok": False, "skipped": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
 
 
-def populate_host_http_merge(host_id: str, merged: dict) -> None:
+def populate_host_http_merge(host_id: str, merged: dict, *, _latest: Optional[dict] = None) -> None:
     """Stamp ``host_http_*`` fields onto the merged dict for one host.
 
     Shared helper called from BOTH ``/api/hosts/list`` (skeleton) AND
@@ -563,7 +637,10 @@ def populate_host_http_merge(host_id: str, merged: dict) -> None:
     """
     if not host_id:
         return
-    latest = latest_for_host(host_id)
+    # bulk callers pre-fetch via bulk_latest_for_hosts and pass the
+    # per-host result through `_latest`; falls back to the per-host query when
+    # called from the detail path (`_merge_one_host`).
+    latest = _latest if _latest is not None else latest_for_host(host_id)
     if not latest:
         return
     urls = latest.get("urls") or []

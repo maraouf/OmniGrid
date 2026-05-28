@@ -31,7 +31,7 @@
 // binding gymnastics because they all merge onto the same target
 // object before Alpine instantiation.
 
-// PERF-14: shared SNMP drawer-chart memo. The :d-binding builders
+// shared SNMP drawer-chart memo. The :d-binding builders
 // (snmpCpuUsedPctLine / snmpLoadLine / snmpMemArea / snmpThroughputLine +
 // snmpThroughputBpsSeries — some in the sibling app-drawer-bulk-b.js module)
 // each walk hostSnmpHistory[hostId].points and route through _snmpPathGapped
@@ -2214,7 +2214,7 @@ export default {
     const lines = this.snmpCpuPerCoreLines(hostId);
     return lines && lines.length ? lines.join(' ') : '';
   },
-  // PERF-14 shared memo for the SNMP drawer-chart builders. Caches the built
+  // shared memo for the SNMP drawer-chart builders. Caches the built
   // value per points-array identity + (subkey, length). Empty/absent series
   // skip the cache (a fresh [] each call would just churn the WeakMap) and
   // build directly. `undefined` is the not-cached sentinel — builders return

@@ -35,7 +35,7 @@ export default {
   snmpLoadLine(hostId, key) {
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
     const cores = this.snmpCoresFor(hostId);
-    // PERF-14: memo keyed on points identity + key + cores (host-static, but
+    // memo keyed on points identity + key + cores (host-static, but
     // included for safety) + length (via _snmpMemo). See _snmpPathMemo.
     return this._snmpMemo(series, 'load|' + key + '|' + cores, () => {
       const vals = series.map(p => Math.min(100, ((p[key] ?? 0) / cores) * 100));
@@ -56,7 +56,7 @@ export default {
     if (!series.length) {
       return '';
     }
-    // PERF-14: memo keyed on points identity + mem key + length. maxTotal is
+    // memo keyed on points identity + mem key + length. maxTotal is
     // derived from the same series so it's captured by the points identity.
     return this._snmpMemo(series, 'mem|' + key, () => {
       // Normalise against the largest mem_total seen (handles probes
@@ -88,7 +88,7 @@ export default {
     if (series.length < 2) {
       return [];
     }
-    // PERF-14: memo the derived bps array per points identity + dir + length
+    // memo the derived bps array per points identity + dir + length
     // (see _snmpPathMemo in app-drawer-bulk.js). Collapses the per-second
     // re-derivations done by the legend (snmpThroughputLast), the peak
     // (snmpThroughputMaxBps), and snmpThroughputLine while the drawer sits open.
@@ -485,7 +485,7 @@ export default {
   },
   snmpThroughputLine(hostId, dir) {
     const series = (this.hostSnmpHistory[hostId] || {}).points || [];
-    // PERF-14: memo the :d path per points identity + dir + length. The inner
+    // memo the :d path per points identity + dir + length. The inner
     // bps series + peak are pure functions of the same points array, so the
     // points identity fully captures them. See _snmpPathMemo.
     return this._snmpMemo(series, 'tpsline|' + dir, () => {

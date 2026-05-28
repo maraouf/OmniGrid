@@ -208,6 +208,7 @@ type:
 | `telegram:linked` | The Telegram listener's `/link` command bound a sender's Telegram user_id to an OmniGrid user. | `{username, telegram_user_id, linked_at_ms}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips to its linked-state banner. |
 | `telegram:unlinked` | The Telegram listener's `/unlink` command (or admin-side `DELETE /api/telegram/links/{tg_id}`) dropped a mapping. | `{username, telegram_user_id}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips back to "Generate code". |
 | `host:bulk_action_applied` | A bulk host action (`/api/hosts/bulk/{pause,resume,snmp_vendors,snmp_tunables}`) committed across N hosts. | `{action, host_ids:[...], actor, ...action-specific}` — single frame for the whole batch, not N per-host frames. Tabs reconcile via in-place row updates keyed on `host_ids`; originating tab self-filters via `client_id`. |
+| `apps:bulk_pinned` | A discovery-wizard bulk-apply (`POST /api/services/discover/{host_id}/apply`) committed N pins on one host. | `{host_id, applied:[...], skipped:[...]}` — single frame for the whole batch. SPA's handler iterates the lists and patches `appsInstances` in place. Originating tab self-filters via `client_id`. |
 | `tab:activity` | A tab heartbeated (current view, last interaction) into the `_tab_activity_registry`. | `{client_id, username, view, ts, ...}` — drives the Admin → Sessions "active tabs" panel so admins can see who's looking at what. Originating tab self-filters. |
 | `tab:closed` | A tab fired its `pagehide` cleanup. | `{client_id}` — peer tabs drop the entry from their local view of the registry without waiting for the 90s TTL. Originating tab self-filters. |
 | `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
@@ -776,6 +777,43 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 `range` values: `1h` / `24h` / `7d` / `30d` (defaults to 24h when omitted). The frontend
 range-picker writes back to the user's date / time prefs so the choice persists per-tab.
 
+### Apps + service catalog (admin-only)
+
+The Apps surface tracks operator-pinned services on each curated host, plus a service catalog
+of built-in templates (AdGuard Home, Plex, Sonarr, Authentik, etc.) that the discovery wizard
+matches against open ports. Two view planes — the aggregate `/api/apps` (one row per distinct
+app grouped by `catalog_id` or `name`) and the flat `/api/apps/instances` (one entry per
+chip across every host).
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/apps` | Cross-host aggregate — one row per distinct app, with every host that runs an instance + per-instance status. |
+| `GET`  | `/api/apps/instances` | Flat per-instance iterator — every chip across every host. |
+| `GET`  | `/api/services/catalog` | List every catalog template (built-in + operator-added). |
+| `POST` | `/api/services/catalog` | Create a new operator-defined catalog template. |
+| `PATCH` | `/api/services/catalog/{cid}` | Update a template (name / icon / default ports / probe shape / etc.). |
+| `DELETE` | `/api/services/catalog/{cid}` | Remove a template. Built-ins are protected unless the operator explicitly deletes them; a seeded-slug ledger prevents the same built-in from being re-seeded after deletion. |
+| `POST` | `/api/services/catalog/seed` | Re-seed built-in templates. Idempotent — skips slugs that already exist OR have been deleted-on-purpose. |
+| `GET`  | `/api/services/catalog/export` | Export the full catalog as a portable JSON pack (for backup / sharing). |
+| `POST` | `/api/services/catalog/import` | Import a catalog pack — upserts by slug. |
+| `POST` | `/api/services/catalog/{cid}/pin` | Pin a catalog template to a host. Body: `{host_id, port?, url?, name_override?, icon_override?}`. Creates a new entry under `hosts_config[].services[]`. |
+| `POST` | `/api/services/discover/{host_id}` | Run the discovery wizard for one host — matches the host's open-port set against catalog templates and returns a proposal list. |
+| `POST` | `/api/services/discover/{host_id}/apply` | Bulk-apply a discovery proposal. Body: `{picks: [{catalog_id, port, ...}]}`. |
+| `PATCH` | `/api/services/{host_id}/{service_idx}` | Edit a pinned instance (name / URL / icon / ports / probe). |
+| `DELETE` | `/api/services/{host_id}/{service_idx}` | Remove a pinned instance from a host. |
+| `POST` | `/api/services/{host_id}/{service_idx}/probe` | Admin-only synchronous probe of one chip. Routes through the same TCP / HTTP probe helpers as the lifespan sampler; persists to `service_samples` so the SPA picks it up. |
+| `GET`  | `/api/services/{host_id}/{service_idx}/debug` | Per-chip diagnostics — resolved probe target, per-port outcomes, plain-language reason when probing is suppressed. |
+| `GET`  | `/api/services/{host_id}/{service_idx}/history` | Per-chip probe-result time series. |
+| `GET`  | `/api/container/{raw_id}/logs?lines=N` | Stream the last N log lines from a container linked to an app instance via Portainer. Routes through the Portainer agent so worker-node containers are reachable. |
+| `GET`  | `/api/service/{raw_id}/logs?lines=N` | Same shape for a Swarm service. |
+
+### HTTP probe one-shot (admin-only)
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `POST` | `/api/http-probe/test` | Probe one HTTP / TLS-cert / DNS target with the form-provided URL + options (no save). |
+| `POST` | `/api/hosts/{id}/http-probe/refresh` | Re-run the HTTP probe across all configured URLs for the given host and persist to `host_http_probe_samples`. |
+
 ### Stack + container retag-to-latest (admin-only)
 
 When OmniGrid detects a stack / container running a pinned tag (`:v1.2.3`) that an update would
@@ -902,6 +940,39 @@ opt-in via the topbar widget setting.
 | `GET`  | `/api/admin/logs/files` | List on-disk daily log files (`omnigrid-YYYY-MM-DD.log`) with size + modified-time. |
 | `GET`  | `/api/admin/logs/files/{name}` | Stream the contents of one file. |
 | `GET`  | `/api/admin/logs/files/{name}/download` | Download one file as an attachment. |
+
+### TOTP self-service + admin (covered above in the SPA flow, listed here for the API map)
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/me/totp` | Current user's TOTP state (enabled / required / backup-code count). |
+| `POST` | `/api/me/totp/enroll-start` | Returns secret + QR `otpauth://` URI. |
+| `POST` | `/api/me/totp/enroll-confirm` | Verifies the first code; mints backup codes. |
+| `POST` | `/api/me/totp/regenerate-codes` | Rotates backup codes. |
+| `POST` | `/api/me/totp/disable` | User self-disable (requires password). |
+| `POST` | `/api/users/{id}/disable-totp` | Admin-side disable of one user's TOTP enrolment. |
+| `POST` | `/api/users/{id}/totp-force` | Admin-side per-user `totp_force_required` flag. |
+
+### Ignore list
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/ignores` | Return the operator-curated ignore patterns (kind = `image` substring OR `stack` exact). |
+| `POST` | `/api/ignores` | Admin-only. Body: `{pattern: str, kind: "image"|"stack"}`. |
+| `DELETE` | `/api/ignores/{pattern}` | Admin-only. Delete the matching pattern row. |
+
+### Settings version probe
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET`  | `/api/settings/version` | Admin-only cheap probe for cross-tab settings-change detection. Returns the monotonic `_settings_version` int that's bumped on every successful `POST /api/settings`. Use as a polling fallback when SSE is unavailable. |
+
+### Debug subject (admin-only)
+
+`GET /api/debug/subject?kind=<stack|service|container>&id=<id>&since_hours=N` returns a raw
+diagnostic payload for the Stacks / Services / Nodes drawer's "Show debug data" toggle —
+fanned-out Portainer responses, gather-cache entries, recent ops, history rows. Same shape
+the host-drawer `GET /api/hosts/debug?id=<host>` returns for hosts.
 
 ### Cleanup overlay network (admin-only)
 

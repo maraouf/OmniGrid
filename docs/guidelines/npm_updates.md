@@ -37,10 +37,11 @@ Apprise-pings on findings — it is a passive monitor, no auto-fix.
 | `@xterm/xterm`                | 5.x     | Terminal renderer used by the SSH console drawer.                        |
 | `@xterm/addon-fit`            | 0.x     | xterm fit-to-container addon.                                            |
 | `@xterm/addon-web-links`      | 0.x     | xterm clickable-URL addon.                                               |
+| `qrcode-generator`            | 1.x     | TOTP enrolment QR code rendering (Settings → Security card).             |
 
 When adding a new dep that needs serving, ALSO add its dist path to `_NPM_ALLOWED` in
-`main.py` — the route 404s anything not in the set. The current allowlist holds 7 paths
-(one per script/css tag in `index.html` / `login.html`).
+`main_pkg/users_routes.py` — the route 404s anything not in the set. The current allowlist
+holds 8 paths (one per script/css tag in `index.html` / `login.html`).
 
 ## Checking for updates
 

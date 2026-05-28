@@ -170,14 +170,17 @@ aid for existing deploys, then ignored — the DB is authoritative after seeding
   - **API tokens** — create named tokens with role; raw value shown ONCE in a reveal modal
     (we store SHA-256 only); revoke any token.
   - **Notifications** — global Apprise URL + tag + per-medium master toggles (`app` /
-    `apprise`) + per-event toggles (14 op events + 2 security events: `user_login` /
-    `host_paused`). Master toggle gates dependent inputs.
+    `apprise` / `telegram`) + per-event toggles (24 events; canonical set in
+    `logic.ops:NOTIFY_EVENT_NAMES`) plus per-event title + body template overrides.
+    Master toggle gates dependent inputs.
   - **Portainer** — connection settings + public URL. Master toggle.
   - **Authentik OIDC** — SSO provider config. Master toggle. See `docs/guidelines/authentik.md`.
-  - **Providers** (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP — renamed from
-    "Host stats"), **Hosts**, **Host Groups**, **SSH**, **Asset inventory**,
-    **Schedules**, **Backups**, **Logs**, **Debug**, **Config** (process-level tunables —
-    see `docs/guidelines/env_example.md`).
+  - **Providers** (Beszel / Pulse / node-exporter / Webmin / Ping / SNMP / HTTP probe /
+    per-service reachability probe — renamed from "Host stats"), **Hosts**, **Host Groups**,
+    **Apps** (service catalog + pinned per-host instances), **SSH**, **Port Scan**,
+    **Public IP**, **Asset inventory**, **AI integration**, **Schedules**, **Backups**,
+    **Config** (process-level tunables — see `docs/guidelines/env_example.md`),
+    **Config Backup**, **Logs**, **Debug**.
 - **Profile modal** opened by clicking the username pill in the top-right is now retired —
   identity / password / TOTP have all moved into the Settings → Profile and Settings → Security
   sub-sections. The username pill in the topbar opens a small dropdown (avatar, role chip,

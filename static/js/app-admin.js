@@ -34,7 +34,7 @@
 // SPLIT FROM `app.js`. Cross-method `this.X` references keep working
 // through the `_mergeKeepDescriptors` chain in app.js.
 
-// PERF-15: memo the Stacks/Services per-item sparkline `points` string per
+// memo the Stacks/Services per-item sparkline `points` string per
 // sparks-row ARRAY REFERENCE. this.sparks is replaced wholesale on every
 // pollSparks (app-stats.js) so each item's rows array is a fresh reference per
 // poll -> the WeakMap entry busts; between polls it's stable -> hits. Sub-keyed
@@ -1671,7 +1671,7 @@ export default {
     if (!rows || rows.length < 2) {
       return '';
     }
-    // PERF-15 memo — see _sparkPointsMemo. `undefined` = not cached (the
+    // memo — see _sparkPointsMemo. `undefined` = not cached (the
     // builder returns '' or a points string, never undefined).
     let _perArr = _sparkPointsMemo.get(rows);
     if (!_perArr) {

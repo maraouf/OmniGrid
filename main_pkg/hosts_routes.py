@@ -438,6 +438,7 @@ async def api_hosts_list(force: bool = False):
         _peek_cached_host_provider_state,
         _populate_detected_ports,
         _shape_host_api_row,
+        bulk_detected_ports,
     )
     curated = _load_hosts_config()
 
@@ -524,6 +525,38 @@ async def api_hosts_list(force: bool = False):
         # — degrade gracefully to "no fallback data".
         snapshots = {}
 
+    # Bulk-prefetch port-scan / http-probe / service-sample data for the
+    # entire enabled fleet in a few SQL reads (one per sample table) so the
+    # per-host loop below is a dict lookup instead of opening its own db_conn
+    # per helper per host (~5N connect/select/close on a 200-host fleet). The
+    # single-host helpers stay intact for the detail endpoint /api/hosts/one;
+    # bulk failures degrade gracefully — the loop's per-host helpers run as
+    # before when a map is empty/missing.
+    _bulk_ids = [h["id"] for h in curated if h.get("enabled", True) and (h.get("id") or "").strip()]
+    _bulk_ports: dict = {}
+    _bulk_http_latest: dict = {}
+    _bulk_apps_latest: dict = {}
+    _bulk_apps_per_port: dict = {}
+    if _bulk_ids:
+        try:
+            _bulk_ports = bulk_detected_ports(_bulk_ids)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts/list] bulk_detected_ports failed: {e}")
+        try:
+            from logic.host_http_sampler import bulk_latest_for_hosts as _http_bulk
+            _bulk_http_latest = _http_bulk(_bulk_ids)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts/list] bulk http latest failed: {e}")
+        try:
+            from logic.service_sampler import (
+                bulk_latest_for_hosts as _svc_bulk,
+                bulk_latest_per_port_for_hosts as _svc_pp_bulk,
+            )
+            _bulk_apps_latest = _svc_bulk(_bulk_ids)
+            _bulk_apps_per_port = _svc_pp_bulk(_bulk_ids)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hosts/list] bulk service-samples failed: {e}")
+
     hosts = []
     for h in curated:
         if not h.get("enabled", True):
@@ -552,16 +585,26 @@ async def api_hosts_list(force: bool = False):
         # scan rows were sitting in the DB. The /api/hosts/one/{id}
         # path eventually populated detected_ports via _merge_one_host
         # but the list endpoint is the SPA's primary skeleton paint.
-        _populate_detected_ports(h["id"], merged)
+        # Detected ports — bulk map lookup first; fall back to the per-host
+        # helper if the bulk fetch was empty (e.g. it threw) so behaviour
+        # degrades to the pre-bulk shape rather than dropping data.
+        _bulk_pp = _bulk_ports.get(h["id"]) if _bulk_ports else None
+        if _bulk_pp is not None:
+            _ports_list, _ports_ts = _bulk_pp
+            merged["detected_ports"] = _ports_list
+            merged["last_port_scan_ts"] = _ports_ts
+        else:
+            _populate_detected_ports(h["id"], merged)
         # HTTP probe — populate the merged dict from `host_http_samples`
         # so the skeleton row surfaces the latest probe outcome (status
         # codes, TLS expiry warning, etc.) without waiting for the
         # per-host fan-out. Same shared-helper pattern as detected_ports
         # above: ONE SELECT in the helper, called from both the list
-        # endpoint AND `_merge_one_host`.
+        # endpoint AND `_merge_one_host`. Bulk path passes the pre-fetched
+        # latest dict via `_latest=` so the helper skips its own DB read.
         try:
             from logic.host_http_sampler import populate_host_http_merge as _http_populate
-            _http_populate(h["id"], merged)
+            _http_populate(h["id"], merged, _latest=_bulk_http_latest.get(h["id"]))
         except Exception as e:  # noqa: BLE001
             print(f"[hosts/list] http_probe populate failed for {h.get('id')!r}: {e}")
         # Per-service `last_probe` is delivered by `_shape_host_apps(h)`
@@ -576,6 +619,8 @@ async def api_hosts_list(force: bool = False):
             h, merged, [],
             any_provider_enabled=any_enabled,
             active=state["active"],
+            _apps_latest_map=_bulk_apps_latest,
+            _apps_per_port_map=_bulk_apps_per_port,
         ))
     agg_error = "; ".join(f"{k}: {v}" for k, v in state["errors"].items()) or None
     return {

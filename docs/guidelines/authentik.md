@@ -234,13 +234,13 @@ The issuer URL is wrong. In Authentik → Providers → your OIDC provider → M
 ### Clicking "Sign in with Authentik" works, consent granted, but the callback shows "OIDC token exchange failed: HTTP 401"
 
 - Wrong `client_secret`. Authentik regenerates it if you click the "Rotate Client Secret" button
-  — copy the new value into the Settings → Client secret field and Save.
+  — copy the new value into Admin → Authentik OIDC → Client secret and Save.
 - Could also be a `client_id` mismatch — double-check both.
 
 ### Callback 400s with "redirect_uri mismatch" (or Authentik shows its own error page before ever hitting OmniGrid)
 
 - The Redirect URI field in Authentik's provider MUST contain the **exact** URL shown in
-  OmniGrid's Settings → Redirect URI field, character-for-character. Hit the Copy button in
+  OmniGrid's Admin → Authentik OIDC → Redirect URI field, character-for-character. Hit the Copy button in
   OmniGrid, paste into Authentik, Save the provider.
 - Common cause: trailing slash on one side only.
 - Second common cause: scheme mismatch (http vs https) — check the proxy is passing
@@ -260,7 +260,7 @@ The issuer URL is wrong. In Authentik → Providers → your OIDC provider → M
   from the session's debug output (or watch the network tab), paste into [jwt.io](https://jwt.io/),
   and check whether the `groups` claim is present. If it isn't, add/tick the groups scope on
   the provider.
-- Second cause: the admin group name doesn't match. OmniGrid's Settings → Admin group and
+- Second cause: the admin group name doesn't match. OmniGrid's Admin → Authentik OIDC → Admin group and
   Authentik's group Name must be byte-for-byte identical.
 
 ### `/api/oidc/login` returns 503 "OIDC is not configured"
@@ -292,5 +292,5 @@ If anything breaks, OIDC can be disabled without touching Authentik:
 | `main.py:/api/oidc/*`            | Route bindings + test-connection endpoint.                                             |
 | `main.py:/api/auth/providers`    | Public endpoint the login page reads.                                                  |
 | `static/login.html`              | SSO button, appears once OIDC is live.                                                 |
-| `static/index.html` (Settings)   | Authentik OIDC panel.                                                                  |
+| `static/_partials/admin/oidc.html` | Authentik OIDC admin panel (extracted partial; inlined into `static/index.html` at request time via `<!-- INCLUDE: admin/oidc.html -->`).               |
 | `docs/guidelines/auth.md`       | Full auth runbook incl. local login, bootstrap, CSRF, API tokens.                      |

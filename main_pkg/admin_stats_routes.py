@@ -398,7 +398,8 @@ async def api_admin_stats_overview(
     except Exception as e:
         out["backups_error"] = str(e)
     try:
-        out["config_backups"] = {"total": len(config_export.list_snapshots())}
+        from logic import config_export as _ce
+        out["config_backups"] = {"total": len(_ce.list_snapshots())}
     except Exception as e:
         out["config_backups_error"] = str(e)
     # Schedules — DB-stored cron-style jobs. Report total + enabled split.
@@ -481,7 +482,7 @@ async def api_admin_stats_database(
     slow (multi-day timescale) and the operator opens this page
     intermittently.
 
-    PERF-17: the body does `SELECT COUNT(*)` per table (SQLite COUNT(*) is a
+    The body does `SELECT COUNT(*)` per table (SQLite COUNT(*) is a
     FULL TABLE SCAN, not a metadata read) plus a second dbstat pass — on a
     fleet with weeks of per-tick samples those tables are millions of rows, so
     a single scan can take hundreds of ms to seconds. It runs in a worker
@@ -1291,7 +1292,7 @@ async def api_admin_stats_samples(
     Total + grand-total across every table are also included for the
     summary card.
 
-    PERF-17: COUNT(*) in SQLite is a FULL TABLE SCAN, not a metadata read.
+    COUNT(*) in SQLite is a FULL TABLE SCAN, not a metadata read.
     Across 15 sample tables (several millions of rows on a long-lived fleet),
     plus COUNT(DISTINCT host_id) and the per-bucket GROUP BY, this body is
     genuinely heavy — so it runs in a worker thread via asyncio.to_thread and
@@ -1302,7 +1303,7 @@ async def api_admin_stats_samples(
     return await asyncio.to_thread(_compute_admin_stats_samples, range)
 
 
-def _compute_admin_stats_samples(range: str = "90d") -> dict:
+def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
     # Canonical roster of sample-bearing tables. Each entry knows
     # which `ts` column to query for oldest/newest (most use `ts`
     # but some legacy tables differ) and whether `host_id` exists.
@@ -1347,12 +1348,12 @@ def _compute_admin_stats_samples(range: str = "90d") -> dict:
         "30d": {"sql_offset": "-30 days", "bucket_fmt": "%Y-%m-%d", "bucket_seconds": 86400, "n_buckets": 30},
         "90d": {"sql_offset": "-90 days", "bucket_fmt": "%Y-%m-%d", "bucket_seconds": 604800, "n_buckets": 13},
     }
-    sel = range_spec.get(range) or range_spec["90d"]
+    sel = range_spec.get(range_str) or range_spec["90d"]
     bucket_fmt = sel["bucket_fmt"]
     bucket_totals: dict[str, int] = {}
     out: dict = {
         "tables": [], "grand_total": 0, "errors": [],
-        "range": range if range in range_spec else "90d",
+        "range": range_str if range_str in range_spec else "90d",
         "daily_totals": [],  # back-compat alias of bucket_totals
         "bucket_totals": [],
     }
@@ -1375,10 +1376,7 @@ def _compute_admin_stats_samples(range: str = "90d") -> dict:
             try:
                 if cutoff_ts > 0:
                     bucket_seconds = int(sel["bucket_seconds"])
-                    # `range` shadowed by the parameter name above; use
-                    # builtins.range to avoid calling the str.
-                    import builtins as _b
-                    for i in _b.range(int(sel["n_buckets"]) + 1):
+                    for i in range(int(sel["n_buckets"]) + 1):
                         anchor_ts = cutoff_ts + i * bucket_seconds
                         anchor_key = c.execute(
                             f"SELECT strftime('{bucket_fmt}', ?, 'unixepoch')",

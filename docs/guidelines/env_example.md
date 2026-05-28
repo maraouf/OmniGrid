@@ -726,14 +726,19 @@ settings (`#RRGGBB` or blank for default).
   widget reports `configured: false`; there is NO fallback to `api.open-meteo.com` anymore.
 - **Apprise** (`apprise_url`, `apprise_tag`, `portainer_public_url`). Edited from
   Admin → Notifications.
-- **Per-event notification toggles** — 14 op events
-  (`notify_event_{stack_update, container_update, container_restart, container_remove,
-  service_restart, swarm_agent_restart, prune}_{success, failure}`) plus two security events
-  (`notify_event_user_login`, default OFF; `notify_event_host_paused`, default ON). Admin →
-  Notifications hosts the global gates AND the per-medium master toggles
-  (`notify_medium_app` / `notify_medium_apprise`, both default ON); Settings → Notifications
-  hosts the per-user opt-in/out (stored in `users.ui_prefs.notify_events`). Two-layer
-  scoping: admin gate + medium gate first, then per-user.
+- **Per-event notification toggles** — 24 events today (the canonical set lives in
+  `logic.ops:NOTIFY_EVENT_NAMES`). Covers the seven write-op success/failure pairs
+  (`stack_update` / `container_update` / `container_restart` / `container_remove` /
+  `service_restart` / `prune` / `swarm_agent_restart`), the two swarm-agent transition
+  events (`swarm_agent_unhealthy` / `swarm_agent_recovered`), two overlay-cleanup events
+  (`overlay_cleanup_success` / `overlay_cleanup_failure`), and security / observability
+  events (`user_login` — default OFF; `host_paused` — default ON; `http_probe_failure` /
+  `service_probe_failure` / `port_scan_new_port` — default OFF;
+  `totp_audit_log_failed` — default ON). Admin → Notifications hosts the global gates
+  AND the per-medium master toggles (`notify_medium_app` / `notify_medium_apprise` /
+  `notify_medium_telegram`, all default ON); Settings → Notifications hosts the per-user
+  opt-in/out (stored in `users.ui_prefs.notify_events`). Two-layer scoping: admin gate +
+  medium gate first, then per-user.
 - **TOTP / 2FA policy** (`totp_allowed`, `totp_required_for_admins`,
   `totp_required_for_users`, `totp_lockout_max_failures`, `totp_lockout_minutes`). Edited
   from Admin → Authentication. Per-user `totp_force_required` flag lives on the `users`

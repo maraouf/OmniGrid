@@ -23,7 +23,7 @@
 const _hostSparkMemo = new WeakMap();
 const _EMPTY_HOST_SPARK = {line: '', area: '', has: false};
 
-// PERF-14: drawer-chart memos — same WeakMap-on-series-identity contract as
+// drawer-chart memos — same WeakMap-on-series-identity contract as
 // _hostSparkMemo. hostChart's built object {points, pathGapped, area, ...} and
 // hostChartMax's numeric peak are cached per series ARRAY REFERENCE, sub-keyed
 // by the variable inputs (metric key + series.length + geometry for hostChart;
@@ -1592,7 +1592,7 @@ export default {
     if (!entry || !entry.series || entry.series.length < 2) {
       return null;
     }
-    // PERF-14: serve the built chart object from the per-series memo when the
+    // serve the built chart object from the per-series memo when the
     // inputs are unchanged (see _hostChartMemo). The template reads
     // hostChart(...).gridPath AND .pathGapped for ONE chart, so this also
     // collapses those two calls in a single render to one build.
@@ -1781,7 +1781,7 @@ export default {
     if (!entry || !entry.series) {
       return 0;
     }
-    // PERF-14: memoize the O(points) peak reduction per series identity + the
+    // memoize the O(points) peak reduction per series identity + the
     // key set + length. Called 2-3x per chart (y-axis labels + each hostChart
     // opts.max); a cached number short-circuits the repeat scans. `0` is a
     // valid cached value, so the hit check is `!== undefined`.

@@ -41,13 +41,12 @@
           <label class="flex items-center gap-2 fs-sm font-medium mb-1 flex-wrap">
             <span x-text="t('admin.config.fields.' + key + '.label')"></span>
             <!-- Dead-tunable badge — surfaces when the audit shows the
-                 knob has no live consumer (BUG-003 drift class). The
-                 input still saves to the DB but the value silently
-                 no-ops at runtime; this badge tells the operator not
-                 to spend time tuning it. Resolved server-side via
-                 `effective_state()` → `unused: bool`; see CLAUDE.md
-                 "Dead-tunable drift class" for the canonical audit.
-                 -->
+                 knob has no live consumer. The input still saves to the
+                 DB but the value silently no-ops at runtime; this badge
+                 tells the operator not to spend time tuning it. Resolved
+                 server-side via `effective_state()` → `unused: bool`;
+                 see CLAUDE.md "Dead-tunable drift class" for the
+                 canonical audit. -->
             <span x-show="(tuningEffective[key] || {}).unused === true"
                   class="chip fs-2xs pill-muted"
                   :title="t('admin.config.unused_badge_title')"

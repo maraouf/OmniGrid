@@ -629,6 +629,95 @@ async def service_sampler_loop() -> None:
             raise
 
 
+def bulk_latest_for_hosts(host_ids: list) -> dict:
+    """bulk version of :func:`latest_for_host` for many hosts.
+
+    Returns ``{host_id: {service_idx: {alive, rtt_ms, ts, error}}}``. Hosts
+    with no rollup rows are absent. ONE SQL query independent of fleet size.
+
+    Used by ``/api/hosts/list``'s bulk loop to replace the per-host correlated
+    subquery (one DB round-trip per host) with a single aggregated read.
+    """
+    ids = [hid for hid in (host_ids or []) if hid]
+    if not ids:
+        return {}
+    try:
+        with db_conn() as c:
+            ph = ",".join(["?"] * len(ids))
+            rows = c.execute(
+                f"SELECT s.host_id, s.service_idx, s.ts, s.alive, s.rtt_ms, s.error "
+                f"FROM service_samples s "
+                f"INNER JOIN (SELECT host_id, service_idx, MAX(ts) AS mts "
+                f"            FROM service_samples "
+                f"            WHERE host_id IN ({ph}) AND port = 0 "
+                f"            GROUP BY host_id, service_idx) m "
+                f"  ON s.host_id = m.host_id "
+                f" AND s.service_idx = m.service_idx "
+                f" AND s.ts = m.mts "
+                f"WHERE s.port = 0",
+                ids,
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] bulk_latest_for_hosts skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        hid = r[0]
+        idx = int(r[1])
+        per_host = out.setdefault(hid, {})
+        per_host[idx] = {
+            "alive": bool(r[3]),
+            "rtt_ms": r[4],
+            "ts": int(r[2]),
+            "error": r[5],
+        }
+    return out
+
+
+def bulk_latest_per_port_for_hosts(host_ids: list) -> dict:
+    """bulk version of :func:`latest_per_port_for_host` for many hosts.
+
+    Returns ``{(host_id, service_idx): [{port, alive, rtt_ms, ts, error}, ...]}``
+    — one entry per (host, chip) that has multi-port history; absent for
+    chips without per-port samples. ONE SQL query for the whole fleet.
+    """
+    ids = [hid for hid in (host_ids or []) if hid]
+    if not ids:
+        return {}
+    try:
+        with db_conn() as c:
+            ph = ",".join(["?"] * len(ids))
+            rows = c.execute(
+                f"SELECT s.host_id, s.service_idx, s.port, s.ts, s.alive, s.rtt_ms, s.error "
+                f"FROM service_samples s "
+                f"INNER JOIN (SELECT host_id, service_idx, port, MAX(ts) AS mts "
+                f"            FROM service_samples "
+                f"            WHERE host_id IN ({ph}) AND port > 0 "
+                f"            GROUP BY host_id, service_idx, port) m "
+                f"  ON s.host_id = m.host_id "
+                f" AND s.service_idx = m.service_idx "
+                f" AND s.port = m.port "
+                f" AND s.ts = m.mts "
+                f"WHERE s.port > 0 "
+                f"ORDER BY s.host_id, s.service_idx, s.port ASC",
+                ids,
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] bulk_latest_per_port_for_hosts skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        key = (r[0], int(r[1]))
+        out.setdefault(key, []).append({
+            "port": int(r[2]),
+            "ts": int(r[3]),
+            "alive": bool(r[4]),
+            "rtt_ms": r[5],
+            "error": r[6],
+        })
+    return out
+
+
 def latest_for_host(host_id: str) -> dict:
     """Latest per-service ROLLUP probe outcome for one host — keyed
     by `service_idx`. Filters to ``port=0`` rows so multi-port chips

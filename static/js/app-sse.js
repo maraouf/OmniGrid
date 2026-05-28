@@ -14,6 +14,12 @@
 
 export default {
 
+  // Reactive flag — flips true after `backend_unreachable_threshold_seconds`
+  // of silence from both SSE + REST, drives the top-of-page offline banner.
+  // Seeded false so the banner never flashes on first paint before init()
+  // has had a chance to stamp `window.__ogLastBackendOkTs`.
+  backendUnreachable: false,
+
   _initSSE() {
     // Defence-in-depth: never start two streams. ``init()`` runs once
     // per Alpine component instance but a future hot-reload path
@@ -37,6 +43,11 @@ export default {
     const onAny = () => {
       this._sseLastEventTs = Date.now();
       this._sseConnected = true;
+      // Any SSE frame (incl. keepalive) is a fresh proof-of-life from the
+      // backend — feed the backend-unreachable banner watcher's clock so the
+      // banner hides as soon as the stream resumes. Window-global mirrors
+      // the same channel the fetch wrapper writes to (auth-fetch.js).
+      window.__ogLastBackendOkTs = Date.now();
     };
     es.addEventListener('open', () => {
       onAny();
@@ -964,6 +975,16 @@ export default {
   // gone → "Cleanup (N)" button hidden) lands in every tab without the
   // operator refreshing each one. The timer handle is process-local to the
   // component; a fresh event resets it so only the trailing call survives.
+  //
+  // Browser background-tab throttling caveat: Chrome / Edge / Firefox
+  // throttle setTimeout in hidden tabs to ~1 firing per minute (sometimes
+  // longer under battery-saver / intensive throttling). A 400ms timer set
+  // while the tab is in the background may not fire until the tab is
+  // re-foregrounded, leaving the operator with a stale Cleanup button +
+  // stale items list when they switch to the other tab. The
+  // `visibilitychange` companion listener below pre-empts the throttled
+  // timer: when the tab becomes visible AND a refresh is pending, fire
+  // it immediately so the catch-up is instant on tab-focus.
   _scheduleCacheInvalidatedRefresh() {
     if (this._cacheInvalidatedRefreshTimer) {
       clearTimeout(this._cacheInvalidatedRefreshTimer);
@@ -975,6 +996,66 @@ export default {
       } catch (_) {
       }
     }, 400);
+    // Idempotent: attach the visibility catch-up listener exactly once
+    // per page load. A duplicate listener would cause N concurrent
+    // refreshes on every tab-focus after a tab-blur, which is the
+    // exact regression this fix is supposed to remove.
+    if (!this._cacheInvalidatedVisibilityHookAttached) {
+      this._cacheInvalidatedVisibilityHookAttached = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') {
+          return;
+        }
+        if (!this._cacheInvalidatedRefreshTimer) {
+          return;
+        }
+        // A refresh is queued but throttled — fire it now.
+        clearTimeout(this._cacheInvalidatedRefreshTimer);
+        this._cacheInvalidatedRefreshTimer = null;
+        try {
+          this.refresh(true);
+        } catch (_) {
+        }
+      });
+    }
+  },
+
+  // Backend-unreachable banner watcher. Polls every 5s (cheap — one
+  // subtraction + a comparison) and flips `backendUnreachable` based on how
+  // long ago the SPA last saw a successful backend signal. The signal sources
+  // are the SSE `onAny()` stamp (every event including keepalive) AND the
+  // auth-fetch.js wrapper's 2xx stamp on /api/* responses, both writing to
+  // `window.__ogLastBackendOkTs`. Threshold is the
+  // tuning_backend_unreachable_threshold_seconds TUNABLE delivered via
+  // /api/me.client_config.backend_unreachable_threshold_seconds; 0 disables
+  // the banner entirely. Init() seeds the timestamp + starts the ticker so a
+  // dead-on-arrival page doesn't false-positive before the first signal.
+  _startBackendReachabilityWatcher() {
+    if (this._backendReachabilityTimer) {
+      return;
+    }
+    if (!window.__ogLastBackendOkTs) {
+      window.__ogLastBackendOkTs = Date.now();
+    }
+    const evaluate = () => {
+      const cfg = (this.me && this.me.client_config) || {};
+      const thresholdS = +cfg.backend_unreachable_threshold_seconds;
+      // 0 / NaN / negative -> banner disabled. Honors the operator-facing
+      // "set 0 to silence" contract documented on the TUNABLE.
+      if (!thresholdS || thresholdS < 0) {
+        if (this.backendUnreachable) {
+          this.backendUnreachable = false;
+        }
+        return;
+      }
+      const lastOk = window.__ogLastBackendOkTs || Date.now();
+      const stale = (Date.now() - lastOk) > thresholdS * 1000;
+      if (stale !== this.backendUnreachable) {
+        this.backendUnreachable = stale;
+      }
+    };
+    evaluate();
+    this._backendReachabilityTimer = setInterval(evaluate, 5000);
   },
 
   // Helper for the toolbar indicator — exposes a concise status string

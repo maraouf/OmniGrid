@@ -18,7 +18,7 @@
 // SPLIT FROM `app-sse-stream.js`. Cross-method `this.X` references keep
 // working through the `_mergeKeepDescriptors` chain in app.js.
 
-// PERF-21: memo topologyGroups(item) per item.placements ARRAY REFERENCE. The
+// memo topologyGroups(item) per item.placements ARRAY REFERENCE. The
 // Stacks/Services templates read it 2-3x per item per flush (x-show length +
 // x-for source + x-if), and it allocated a fresh array every call -> the
 // `<template x-for>` re-diffed even when placements were unchanged. _reconcileById
@@ -247,7 +247,7 @@ export default {
     if (!item || !Array.isArray(item.placements) || !item.placements.length) {
       return [];
     }
-    // PERF-21: serve from the per-placements memo (see _topologyGroupsMemo).
+    // serve from the per-placements memo (see _topologyGroupsMemo).
     // Reading item.placements here doubles as the reactive subscription, so
     // the x-for/x-show bindings still re-run when placements change.
     const placements = item.placements;

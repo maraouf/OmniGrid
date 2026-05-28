@@ -46,7 +46,7 @@ function _clearNodeItemsIndexCache() {
   _nodeItemsIndexScheduled = false;
 }
 
-// PERF-09: flush-memoize the EXPENSIVE Stacks/Services getters. Each is pure
+// flush-memoize the EXPENSIVE Stacks/Services getters. Each is pure
 // within a synchronous reactive flush (depends only on this.items /
 // this.stacks / search / statusFilter / healthFilter / sortField / sortDir,
 // none of which change mid-flush) but was recomputed AND re-allocated on every
