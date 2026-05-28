@@ -147,9 +147,9 @@
       <button type="button"
               @click="testWeather()"
               :disabled="isReadonly() || !settings.weather_enabled || weatherTesting"
-              class="btn btn-soft fs-sm flex items-center gap-1.5">
+              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
         <svg width="13" height="13" :class="weatherTesting ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plug-zap"/>
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
         </svg>
         <span x-show="!weatherTesting" x-text="t('actions.test_connection')"></span>
         <span x-show="weatherTesting" x-text="t('actions.testing')"></span>

@@ -200,13 +200,26 @@ def user_locations() -> list[dict]:
                     continue
                 if not isinstance(prefs, dict):
                     continue
+                # The SPA writes the user's weather pref under the
+                # camelCase `headerWeather*` keys (see
+                # `static/js/app-admin.js` save-prefs payload). Read
+                # those FIRST + fall back to legacy `weather_*` keys
+                # so older preferences-format installs still work.
                 # Coerce via str() so Pyright narrows from `Any | None`
                 # cleanly — empty / None values are caught by the
                 # subsequent try/except. Skip the row when either coord
                 # can't parse as a float (operator typed garbage,
                 # blank, or never configured a location).
-                lat_raw = prefs.get("weather_lat")
-                lon_raw = prefs.get("weather_lon")
+                lat_raw = (
+                    prefs.get("headerWeatherLat")
+                    if prefs.get("headerWeatherLat") not in (None, "")
+                    else prefs.get("weather_lat")
+                )
+                lon_raw = (
+                    prefs.get("headerWeatherLon")
+                    if prefs.get("headerWeatherLon") not in (None, "")
+                    else prefs.get("weather_lon")
+                )
                 if lat_raw in (None, "") or lon_raw in (None, ""):
                     continue
                 try:
@@ -218,10 +231,15 @@ def user_locations() -> list[dict]:
                 if key in seen:
                     continue
                 seen.add(key)
+                label_raw = (
+                    prefs.get("headerWeatherLabel")
+                    or prefs.get("weather_label")
+                    or ""
+                )
                 locations.append({
                     "lat": lat,
                     "lon": lon,
-                    "label": (prefs.get("weather_label") or "").strip(),
+                    "label": str(label_raw).strip(),
                 })
     except Exception as e:  # noqa: BLE001
         print(f"[weather] user_locations read failed: {e}")

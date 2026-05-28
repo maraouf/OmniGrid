@@ -533,10 +533,14 @@ export default {
     // hooks (debounced auto-validate, live preview) have a single
     // attach point.
   },
+  // The SPA saves the user's weather location under `headerWeather*`
+  // camelCase keys (see save-prefs payload in app-admin.js). Read
+  // those FIRST with legacy `weather_*` fallback for back-compat
+  // with older preference shapes.
   weatherProfileLocationAvailable() {
     const p = (this.me && this.me.ui_prefs) || {};
-    const lat = Number(p.weather_lat);
-    const lon = Number(p.weather_lon);
+    const lat = Number(p.headerWeatherLat != null ? p.headerWeatherLat : p.weather_lat);
+    const lon = Number(p.headerWeatherLon != null ? p.headerWeatherLon : p.weather_lon);
     return Number.isFinite(lat) && Number.isFinite(lon);
   },
   weatherUseProfileLocation() {
@@ -544,10 +548,13 @@ export default {
     if (!this.weatherProfileLocationAvailable()) {
       return;
     }
-    this.settings.weather_default_lat = String(p.weather_lat || '');
-    this.settings.weather_default_lon = String(p.weather_lon || '');
-    if (p.weather_label) {
-      this.settings.weather_default_label = String(p.weather_label || '');
+    const lat = p.headerWeatherLat != null ? p.headerWeatherLat : p.weather_lat;
+    const lon = p.headerWeatherLon != null ? p.headerWeatherLon : p.weather_lon;
+    const label = p.headerWeatherLabel || p.weather_label || '';
+    this.settings.weather_default_lat = String(lat || '');
+    this.settings.weather_default_lon = String(lon || '');
+    if (label) {
+      this.settings.weather_default_label = String(label);
     }
     this.markWeatherDirty();
   },
