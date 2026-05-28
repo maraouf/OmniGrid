@@ -813,6 +813,13 @@ export default {
     const sysLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
     const resolved = this.themePref === 'auto' ? (sysLight ? 'light' : 'dark') : this.themePref;
     document.documentElement.setAttribute('data-theme', resolved);
+    // Invalidate the icon-resolver caches so the theme-dependent
+    // URL swap (`<slug>` vs `<slug>-dark`) re-resolves on the next
+    // binding read. Without this, KNOWN_DARK_ICONS brands would
+    // keep showing their pre-theme variant after a theme cycle.
+    if (typeof this._iconCacheClear === 'function') {
+      this._iconCacheClear();
+    }
   },
   cycleTheme() {
     const order = ['auto', 'light', 'dark'];

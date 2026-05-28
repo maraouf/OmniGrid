@@ -9,7 +9,35 @@
 
 import {KNOWN_DARK_ICONS, KNOWN_ICONS} from './app-icons.js?v=__APP_VERSION__';
 
+// Module-scope memo caches — these helpers are pure functions of
+// their string inputs (no reactive deps beyond `this.themePref`
+// which is captured into the cache key), so a process-long cache
+// is safe and dramatically cheaper than re-walking the ~100-token
+// keyword table on every reactive flush. The Hosts view alone has
+// `hostIconUrl(h)` in several spots per row × 200 hosts; pre-cache
+// that fired thousands of times per second under load.
+//
+// `_ICON_PRE_THEME_CACHE` — cache the slug-resolution layer keyed
+// by raw input name. Returns the bare URL BEFORE `_themeIcon`
+// applies the theme swap; that lets `_themeIcon` do its own caching
+// keyed on `url|theme` so a theme flip doesn't bloat this cache.
+const _ICON_PRE_THEME_CACHE = new Map();
+// `_ICON_THEMED_CACHE` — cache the themed-URL layer keyed by
+// `url|theme`. Theme is binary (dark / not-dark) so the cardinality
+// is at most 2 × |distinct urls|. Cleared by `_iconCacheClear()`
+// on themePref change to keep memory bounded over hours of use.
+const _ICON_THEMED_CACHE = new Map();
+
 export default {
+  // Diagnostic counter — exposed via `window.__ogPerf.iconResolveCount`
+  // when the perf dev tool is wired (best-practice item from the perf
+  // review). Increment on every cache MISS (the work that matters);
+  // hits are cheap dict lookups.
+  _iconCacheMissCount: 0,
+  _iconCacheClear() {
+    _ICON_PRE_THEME_CACHE.clear();
+    _ICON_THEMED_CACHE.clear();
+  },
   // Theme-aware icon swap. Wraps every icon-URL emit point so
   // brands that ship a `<slug>-dark.svg` variant (KNOWN_DARK_ICONS)
   // get the dark URL when the document is in dark theme. Reads
@@ -31,6 +59,15 @@ export default {
       dark = !sysLight;
     } else {
       dark = pref !== 'light';
+    }
+    // Cache lookup — key on `url|dark` (binary theme). Hit fast
+    // path returns immediately; miss path falls through to the
+    // existing logic + caches the result. Pure function of (url,
+    // dark) so the process-long cache is safe.
+    const cacheKey = `${url}|${dark ? '1' : '0'}`;
+    const cached = _ICON_THEMED_CACHE.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
     }
     let final = url;
     if (dark) {
@@ -65,9 +102,43 @@ export default {
         final = `${final}?v=${encodeURIComponent(v)}`;
       }
     }
+    // Stash in cache before returning so the next call with the
+    // same (url, theme) short-circuits.
+    _ICON_THEMED_CACHE.set(cacheKey, final);
     return final;
   },
   iconUrlFor(name) {
+    // Fast path — full themed-URL cache keyed by `name|themePref`.
+    // The keyword table is ~100 entries and walked from declaration
+    // order on every miss; this short-circuits hot bindings (200+
+    // hosts × multiple per-row consumers) to a dict lookup. Pure
+    // function of (name, theme) so the process-long cache is safe;
+    // the `_themeIcon` layer's own cache keyed on (url, theme)
+    // catches the secondary path (`hostIconUrl` returning a URL
+    // not produced by this function).
+    if (name) {
+      const themeKey = (this.themePref === 'auto')
+        ? ((typeof window !== 'undefined' && window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'L' : 'D')
+        : (this.themePref === 'light' ? 'L' : 'D');
+      const cacheKey = `${name}|${themeKey}`;
+      const cached = _ICON_PRE_THEME_CACHE.get(cacheKey);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const fresh = this._iconUrlForUncached(name);
+      _ICON_PRE_THEME_CACHE.set(cacheKey, fresh);
+      this._iconCacheMissCount += 1;
+      return fresh;
+    }
+    return this._iconUrlForUncached(name);
+  },
+  // Uncached body — the previous `iconUrlFor`. Caller is `iconUrlFor`
+  // ABOVE which memoizes the return value. Split into a separate
+  // method so the existing N return paths (each calling
+  // `this._themeIcon(...)`) didn't need to be rewritten to also
+  // populate the cache; the wrapper handles it once.
+  _iconUrlForUncached(name) {
     // Resolve an app name to an icon URL. Every icon is local (in
     // static/img/icons/) so the dashboard works offline. Override values
     // can either be:

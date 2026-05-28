@@ -2038,16 +2038,50 @@ function app() {
       // unified picker). The 1s timer that drove it is gone too — no
       // sense burning a tick per second on a no-op.
       // Tick `hostHistoryNow` every second so the host-drawer charts'
-      // "Updated Xs/Xm/Xh ago" label counts in real time.
-      // Operator needs the seconds digit to tick visibly — a 30s
-      // cadence made the label feel frozen. One int assignment per
-      // second is a negligible cost; Alpine only re-evaluates the
-      // freshness helper on bound elements (the small span near the
-      // time-range picker), so most renders are skipped.
+      // "Updated Xs/Xm/Xh ago" label counts in real time. Gated on
+      // a drawer being OPEN — when no drawer is shown, the ticker
+      // stops entirely so an idle SPA doesn't burn a flush every
+      // second of every minute. Arms on drawer open, clears on
+      // close; pattern matches the `_drawerHistoryTimer` shape in
+      // app-host-drawer.js.
       this.hostHistoryNow = Date.now();
-      setInterval(() => {
-        this.hostHistoryNow = Date.now();
-      }, 1000);
+      this._hostHistoryTicker = null;
+      const _startHistoryTicker = () => {
+        if (this._hostHistoryTicker) {
+          return;
+        }
+        this._hostHistoryTicker = setInterval(() => {
+          this.hostHistoryNow = Date.now();
+        }, 1000);
+      };
+      const _stopHistoryTicker = () => {
+        if (this._hostHistoryTicker) {
+          clearInterval(this._hostHistoryTicker);
+          this._hostHistoryTicker = null;
+        }
+      };
+      // Re-evaluate on every reactive flush whether ANY drawer is
+      // open; toggle the ticker accordingly. Alpine's `$watch` doesn't
+      // accept multi-prop dependencies in a single call, so use the
+      // composite reactive expression via `Alpine.effect`.
+      try {
+        if (typeof Alpine !== 'undefined' && typeof Alpine.effect === 'function') {
+          Alpine.effect(() => {
+            const anyOpen = !!(this.drawerHost || this.drawerApp
+              || this.drawerAppHost || this.drawerItem
+              || this.drawerNode);
+            if (anyOpen) {
+              _startHistoryTicker();
+            } else {
+              _stopHistoryTicker();
+            }
+          });
+        }
+      } catch (_) {
+        // Fallback — if Alpine.effect isn't available, just start
+        // the ticker unconditionally (original behaviour).
+        _startHistoryTicker();
+      }
       // Multi-tab activity wiring. Boot-hydrate the
       // sibling-tab map, fire the first heartbeat so OTHER tabs see us,
       // then arm a 30s tick + cleanup hooks. Cross-tab focus channel
