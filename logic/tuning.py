@@ -1167,7 +1167,12 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # once this count is exceeded. Default 0 = keep ALL backups (back-
     # compat with pre-existing deploys). Operator typically wants 7-30
     # to bound disk growth on a daily schedule. Range 0..1000.
-    "tuning_backend_unreachable_threshold_seconds": ("BACKEND_UNREACHABLE_THRESHOLD_SECONDS", 30, 0, 600),
+    # Default 75s (3 × the 25s SSE heartbeat cadence) — was 30s
+    # which left only a 5s margin past one heartbeat, so any single
+    # tick miss (network blip, GC pause, browser-tab throttle) would
+    # false-fire the banner. 75s tolerates 2 missed heartbeats while
+    # still surfacing a real outage within ~1 min.
+    "tuning_backend_unreachable_threshold_seconds": ("BACKEND_UNREACHABLE_THRESHOLD_SECONDS", 75, 0, 600),
     "tuning_backup_retention_count": ("BACKUP_RETENTION_COUNT", 0, 0, 1000),
     # Settings-as-Code (config_backup schedule kind) retention. Same
     # 0 = unlimited semantics as the backup-zip retention. Operators

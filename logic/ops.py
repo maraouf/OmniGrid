@@ -1474,7 +1474,25 @@ async def notify(
     if event:
         default_on = NOTIFY_EVENT_DEFAULTS.get(event, True)
         if not get_setting_bool(notify_event_key(event), default=default_on):
-            print(f"[notify] skipped — event '{event}' disabled by operator")
+            # Include target context so operators can see WHICH host /
+            # provider tried to fire — `'http_probe_failure' disabled
+            # by operator` is ambiguous when 50 hosts are flapping.
+            # Resolution order matches the placeholder priority used
+            # by the template renderer below: metadata.host →
+            # target_id → (none).
+            _meta = metadata or {}
+            _target_bits = []
+            if isinstance(_meta, dict):
+                _host = (_meta.get("host") or "").strip()
+                if _host:
+                    _target_bits.append(f"host={_host!r}")
+                _provider = (_meta.get("provider") or "").strip()
+                if _provider:
+                    _target_bits.append(f"provider={_provider!r}")
+            if target_id:
+                _target_bits.append(f"target={(target_kind or '?')}:{target_id!r}")
+            _ctx = (" (" + ", ".join(_target_bits) + ")") if _target_bits else ""
+            print(f"[notify] skipped — event '{event}' disabled by operator{_ctx}")
             return
     # Template override. Pull the legacy literal `title` / `body` apart
     # into structured placeholder values so the renderer has something

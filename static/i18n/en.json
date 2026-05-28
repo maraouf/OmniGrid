@@ -1909,7 +1909,7 @@
         },
         "tuning_backend_unreachable_threshold_seconds": {
           "label": "Backend-unreachable banner threshold (seconds)",
-          "help": "How long to wait without a successful backend signal (any SSE event OR any /api/* 2xx response) before the SPA shows the full-width sticky 'Backend unreachable' banner. Default 30s — short enough to surface a real outage promptly but long enough that a transient network blip doesn't flash the banner. Lower to 10-15s for tight-watchdog deployments; raise to 60-120s for high-latency / over-WAN deployments where short blips are expected. Set 0 to disable the banner entirely. Range 0..600."
+          "help": "How long to wait without a successful backend signal (any SSE event OR any /api/* 2xx response) before the SPA shows the full-width sticky 'Backend unreachable' banner. Default 75s — sized at 3× the 25s SSE heartbeat cadence so 2 missed keepalives are tolerated before the banner fires. Combined with the watcher's 2-tick hysteresis (~10s) + auto-reset on tab-visible, this eliminates false positives from browser-tab throttling, GC pauses, and single SSE blips while still surfacing a real outage within ~85s. Lower to 30-45s for tight-watchdog deployments (you'll catch real outages faster but pay occasional false-flap on network blips); raise to 120-300s for high-latency / over-WAN deployments. Set 0 to disable the banner entirely. Range 0..600."
         },
         "tuning_backup_retention_count": {
           "label": "Backup retention count",
