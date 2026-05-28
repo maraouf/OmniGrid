@@ -1,0 +1,99 @@
+<!--suppress HtmlUnknownAttribute -->
+<div x-show="statsTab==='samplers'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
+           :aria-busy="_loadBusy.stats_samplers === true ? 'true' : 'false'">
+    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('stats.samplers.title')"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.samplers.hint')"></p>
+      </div>
+      <button type="button"
+              @click="_runWithBusy('stats_samplers', () => loadStatsSamplers())"
+              :disabled="_loadBusy.stats_samplers === true"
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
+        <svg width="13" height="13" :class="_loadBusy.stats_samplers === true ? 'spin-md' : ''" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+        <span x-text="t('actions.reload')"></span>
+      </button>
+    </div>
+
+    <div x-show="!statsSamplersLoaded" class="loading-state">
+      <span class="spin-lg" aria-hidden="true"></span>
+      <span x-text="t('loading.section')"></span>
+    </div>
+
+    <template x-if="statsSamplersLoaded">
+      <div>
+        <template x-if="!(statsSamplers || []).length">
+          <div class="p-8 text-center fs-sm text-[var(--text-faint)]"
+               x-text="t('stats.samplers.empty')"></div>
+        </template>
+        <template x-if="(statsSamplers || []).length">
+          <div class="overflow-x-auto scrollbar">
+            <table class="w-full fs-sm">
+              <thead class="bg-[var(--surface-2)] border-b border-[var(--border)]">
+                <tr>
+                  <th class="text-start px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_name')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_ticks')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_last_tick_age')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_last_tick_ms')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_tick_errors')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_prunes')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_last_prune_age')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_last_prune_ms')"></th>
+                  <th class="text-end px-4 py-2 fs-2xs uppercase tracking-wider text-[var(--text-faint)]"
+                      x-text="t('stats.samplers.col_last_prune_rows')"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in (statsSamplers || [])" :key="row.name">
+                  <tr class="border-b border-[var(--border)] last:border-0 hover:bg-[var(--row-hover)]">
+                    <td class="px-4 py-2 mono font-semibold"
+                        :class="row.last_tick_ok === false ? 'text-[var(--danger)]' : ''"
+                        x-text="row.name"></td>
+                    <td class="px-4 py-2 mono text-end"
+                        x-text="(row.tick_count || 0).toLocaleString()"></td>
+                    <td class="px-4 py-2 mono text-end fs-2xs text-[var(--text-dim)]"
+                        x-text="(row.tick_age_seconds == null) ? '—' : statsSamplersAge(row.tick_age_seconds)"></td>
+                    <td class="px-4 py-2 mono text-end"
+                        :class="statsSamplersDurationClass(row.last_tick_duration_ms)"
+                        x-text="statsSamplersFormatMs(row.last_tick_duration_ms)"></td>
+                    <td class="px-4 py-2 mono text-end"
+                        :class="(row.tick_error_count || 0) > 0 ? 'text-[var(--danger)] font-semibold' : 'text-[var(--text-faint)]'"
+                        :title="row.last_tick_error || ''"
+                        x-text="(row.tick_error_count || 0).toLocaleString()"></td>
+                    <td class="px-4 py-2 mono text-end text-[var(--text-dim)]"
+                        x-text="(row.prune_count || 0).toLocaleString()"></td>
+                    <td class="px-4 py-2 mono text-end fs-2xs text-[var(--text-dim)]"
+                        x-text="(row.prune_age_seconds == null) ? '—' : statsSamplersAge(row.prune_age_seconds)"></td>
+                    <td class="px-4 py-2 mono text-end"
+                        :class="statsSamplersDurationClass(row.last_prune_duration_ms)"
+                        x-text="(row.prune_count || 0) > 0 ? statsSamplersFormatMs(row.last_prune_duration_ms) : '—'"></td>
+                    <td class="px-4 py-2 mono text-end text-[var(--text-dim)]"
+                        x-text="(row.prune_count || 0) > 0 ? (row.last_prune_rows || 0).toLocaleString() : '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </template>
+  </section>
+</div>

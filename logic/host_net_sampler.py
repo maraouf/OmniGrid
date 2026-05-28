@@ -274,7 +274,8 @@ async def _net_tick(tick: int) -> None:
         # Offload prune to worker thread so the event loop stays
         # responsive during the DELETE (same pattern as
         # host_metrics_sampler).
-        n = await asyncio.to_thread(_prune_old_samples)
+        from logic.sampler_metrics import prune_with_metrics
+        n = await prune_with_metrics("host_net_sampler", _prune_old_samples)
         if n:
             print(f"[host_net_sampler] pruned {n} rows older than {days}d")
 

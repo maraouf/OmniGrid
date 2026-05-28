@@ -286,9 +286,24 @@
       "dashboard": "Dashboard",
       "database": "Database",
       "samples": "Samples",
+      "samplers": "Samplers",
       "incidents": "Incidents",
       "network": "Network",
       "ai_cost": "AI Cost"
+    },
+    "samplers": {
+      "title": "Samplers health",
+      "hint": "Per-sampler tick + prune wall-clock metrics. A sampler whose tick duration jumped from 50 ms to 5 s is the kind of regression that flips healthcheck flap before any log line surfaces it — this panel makes the trend visible. Duration cells highlight amber at ≥100 ms (the to_thread offload boundary) and red at ≥1 s.",
+      "empty": "No samplers have ticked since the process started. Try again after the first tick window of the slowest sampler.",
+      "col_name": "Sampler",
+      "col_ticks": "Ticks",
+      "col_last_tick_age": "Last tick",
+      "col_last_tick_ms": "Tick duration",
+      "col_tick_errors": "Errors",
+      "col_prunes": "Prunes",
+      "col_last_prune_age": "Last prune",
+      "col_last_prune_ms": "Prune duration",
+      "col_last_prune_rows": "Prune rows"
     },
     "network": {
       "title": "Network",

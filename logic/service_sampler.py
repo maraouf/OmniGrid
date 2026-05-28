@@ -618,7 +618,8 @@ async def service_sampler_loop() -> None:
                 # Offload prune to worker thread — same pattern as
                 # host_metrics_sampler. Keeps the event loop hot for
                 # /api/* requests during the hourly DELETE.
-                n = await asyncio.to_thread(_prune_old_samples)
+                from logic.sampler_metrics import prune_with_metrics
+                n = await prune_with_metrics("service_sampler", _prune_old_samples)
                 if n:
                     print(f"[service_sampler] pruned {n} rows older than {days}d")
         except asyncio.CancelledError:

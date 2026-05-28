@@ -1672,7 +1672,13 @@ async def host_metrics_sampler_loop() -> None:
                 # event loop (+ the SSE heartbeat + /api/healthz — the 502-flap
                 # class). _prune_old_samples stays synchronous; to_thread gives
                 # it its own per-call db_conn inside the worker thread.
-                n = await asyncio.to_thread(_prune_old_samples)
+                # Route through `prune_with_metrics` so the Stats →
+                # Samplers panel surfaces per-prune row count +
+                # duration trends. Operators spot a prune that
+                # started taking 5s when it used to take 50ms before
+                # it triggers healthcheck flap.
+                from logic.sampler_metrics import prune_with_metrics
+                n = await prune_with_metrics("host_metrics_sampler", _prune_old_samples)
                 if n:
                     print(f"[host_metrics_sampler] pruned {n} rows older than "
                           f"{days}d")

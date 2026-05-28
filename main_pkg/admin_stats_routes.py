@@ -1268,6 +1268,32 @@ async def api_admin_stats_ai_cost(
     return out
 
 
+@app.get("/api/admin/stats/samplers")
+async def api_admin_stats_samplers(
+    _admin: AdminUser,
+):
+    """Admin-only: per-sampler tick + prune health metrics.
+
+    Returns a list of ``{name, tick_count, last_tick_started_ts,
+    last_tick_duration_ms, last_tick_ok, last_tick_error,
+    tick_error_count, last_prune_ts, last_prune_duration_ms,
+    last_prune_rows, prune_count, tick_age_seconds,
+    prune_age_seconds}`` rows. One row per sampler that has ticked
+    at least once since the process started.
+
+    Used by Stats → Samplers to surface per-sampler tick + prune
+    duration trends so operators can spot a sampler that started
+    taking 5 seconds when it used to take 50 ms — the kind of
+    regression that's otherwise invisible until it triggers
+    healthcheck flap or executor saturation.
+
+    Lightweight: reads a single module-level dict — no DB IO, no
+    network, sub-millisecond per call. Safe to poll at the SPA's
+    standard cadence."""
+    from logic import sampler_metrics as _sampler_metrics
+    return {"samplers": _sampler_metrics.get_snapshot()}
+
+
 # noinspection PyShadowingBuiltins
 @app.get("/api/admin/stats/samples")
 async def api_admin_stats_samples(

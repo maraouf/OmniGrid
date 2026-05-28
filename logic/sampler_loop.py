@@ -85,6 +85,12 @@ async def lifespan_sampler_loop(
     Pass ``None`` to skip (e.g. the host_baseline sampler uses its
     own tunable-driven delay outside the helper).
     """
+    # Lazy import keeps the metrics module out of the cold-import
+    # graph for samplers that don't use the shared loop helper —
+    # they call sampler_metrics.record_* directly when they want
+    # the same observability surface.
+    from logic.sampler_metrics import record_tick as _record_tick
+    import time as _time
     print(f"[{name}] lifespan started")
     if first_tick_delay and first_tick_delay > 0:
         try:
@@ -96,12 +102,28 @@ async def lifespan_sampler_loop(
     try:
         while True:
             tick += 1
+            # Wall-clock timing around the tick body so the Stats →
+            # Samplers panel surfaces per-tick duration trends.
+            # perf_counter for the diff; record_tick stamps the
+            # epoch ts via time.time() for operator-friendly display.
+            _tick_t0 = _time.perf_counter()
+            _tick_ok = True
+            _tick_err = ""
             try:
                 await tick_fn(tick)
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except Exception as exc:  # noqa: BLE001
+                _tick_ok = False
+                _tick_err = type(exc).__name__
                 print(f"[{name}] tick {tick} error: {exc}")
+            finally:
+                _record_tick(
+                    name,
+                    (_time.perf_counter() - _tick_t0) * 1000.0,
+                    ok=_tick_ok,
+                    error=_tick_err,
+                )
             interval = interval_fn()
             if interval <= 0:
                 interval = 1
