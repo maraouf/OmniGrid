@@ -165,11 +165,107 @@ def db_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     _apply_sqlite_pragmas(conn)
+    _install_slow_query_log(conn)
     try:
         yield conn
         conn.commit()
     finally:
         conn.close()
+
+
+def _slow_query_threshold_ms() -> int:
+    """Resolve the slow-query threshold via the live TUNABLE.
+
+    Per-use read so an Admin → Config edit takes effect on the next
+    query without restart. Returns 0 to disable; the helper that
+    consults this short-circuits without timing when 0. Defensive
+    fallback to 100ms on resolver failure (corrupt DB / missing
+    key) so a tunable misconfiguration doesn't disable the
+    diagnostic permanently."""
+    # noinspection PyBroadException
+    try:
+        # Lazy import to dodge the import-time cycle with logic.tuning
+        # (tuning calls back into get_setting which lives here).
+        from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
+        return int(_tuning_int(_Tunable.SLOW_QUERY_THRESHOLD_MS))
+    except Exception:  # noqa: BLE001
+        return 100
+
+
+def _install_slow_query_log(conn: "sqlite3.Connection") -> None:
+    """Wrap ``conn.execute`` and ``conn.executemany`` with timing
+    instrumentation so any query exceeding
+    ``tuning_slow_query_threshold_ms`` lands in Admin → Logs with the
+    ``[slow_query]`` prefix.
+
+    Operator-friendly diagnostic for spotting SQL hot paths without
+    setting up Grafana / a slow_log table. Threshold default is 100ms
+    (the same boundary CLAUDE.md uses for its sync-loop-block rule),
+    operator-tunable from 1ms (verbose debugging) to 10000ms (only
+    catastrophic queries). 0 disables. The wrapper is per-connection
+    so the cost (a single perf_counter pair around each execute) only
+    applies once per opened connection — no global monkeypatch.
+
+    Captures the first 120 chars of the SQL so a multi-table joined
+    query is recognisable in the log without flooding the line. Also
+    surfaces param-count (NOT values — params can be secrets / large
+    blobs).
+
+    Cursor-level `cur.execute(...)` calls (rare in OmniGrid) are NOT
+    timed by this wrapper — they go through the un-wrapped cursor
+    method directly. If a future regression depends on tight timing of
+    cursor-level paths, we'd need to override `conn.cursor()` too.
+    """
+    threshold_ms = _slow_query_threshold_ms()
+    if threshold_ms <= 0:
+        return  # Diagnostic disabled — no wrapping cost.
+    real_execute = conn.execute
+    real_executemany = conn.executemany
+
+    def _log_slow(verb: str, sql: object, dt_ms: float, param_count: int) -> None:
+        # `warning:` token keeps the line in the WARN bucket (per
+        # logic/logs.py:_severity_for) — operators see it as amber
+        # in Admin → Logs without conflating with real ERRORs.
+        sql_text = str(sql).replace("\n", " ").strip()
+        if len(sql_text) > 120:
+            sql_text = sql_text[:117] + "..."
+        print(f"[slow_query] warning: {verb} took {dt_ms:.0f}ms "
+              f"(params={param_count}) sql={sql_text!r}")
+
+    def _timed_execute(sql, parameters=()):  # type: ignore[no-untyped-def]
+        # sqlite3's execute signature is `execute(sql, parameters=())`.
+        # `parameters` may be a sequence OR a dict for named-style;
+        # `len()` covers both shapes.
+        t0 = time.perf_counter()
+        try:
+            return real_execute(sql, parameters)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            if dt_ms >= threshold_ms:
+                try:
+                    _pc = len(parameters)  # type: ignore[arg-type]
+                except TypeError:
+                    _pc = 0
+                _log_slow("execute", sql, dt_ms, _pc)
+
+    def _timed_executemany(sql, parameters):  # type: ignore[no-untyped-def]
+        t0 = time.perf_counter()
+        try:
+            return real_executemany(sql, parameters)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            if dt_ms >= threshold_ms:
+                try:
+                    _pc = len(parameters)  # type: ignore[arg-type]
+                except TypeError:
+                    _pc = 0
+                _log_slow("executemany", sql, dt_ms, _pc)
+
+    # Per-connection attribute override — sqlite3.Connection allows
+    # method assignment; the override is scoped to this connection
+    # and disappears when it closes.
+    conn.execute = _timed_execute  # type: ignore[method-assign]
+    conn.executemany = _timed_executemany  # type: ignore[method-assign]
 
 
 # read-through cache for the settings KV. get_setting (and the

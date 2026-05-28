@@ -415,6 +415,11 @@ DNS_FAILED_SKIP_SECONDS=300
 # Default 3s; range 1-30 for both.
 BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS=3
 PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS=3
+# Slow-query log threshold (ms) — every db_conn() wraps execute /
+# executemany with timing; queries exceeding this threshold land
+# in Admin → Logs with the `[slow_query] warning:` prefix (WARN
+# bucket). Default 100ms; set 0 to disable entirely. Range 0-10000.
+SLOW_QUERY_THRESHOLD_MS=100
 # Cache TTL for the per-host configured-providers map consulted by
 # `record_provider_outcome`'s defensive guard (refuses + cleans orphan
 # rows when a probe fires for an unconfigured provider). Canonical
@@ -950,6 +955,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `DNS_FAILED_SKIP_SECONDS`            | Runtime   | `300`                | Shared sampler skip-window for hosts with failing DNS resolution.               |
 | `BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS` | Runtime | `3`              | Short Beszel probe timeout when previous probe latched as unreachable.          |
 | `PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS`  | Runtime | `3`              | Short Pulse probe timeout when previous probe latched as unreachable.           |
+| `SLOW_QUERY_THRESHOLD_MS`            | Runtime   | `100`                | Per-query timing threshold (ms) — exceeding logs `[slow_query]`. 0 disables.    |
 | `HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS` | Runtime | `60`                 | Per-host configured-providers map cache TTL (record_provider_outcome guard).     |
 | `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out.                                  |
 | `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down.                                      |

@@ -98,6 +98,7 @@ class Tunable(str, Enum):
     DNS_FAILED_SKIP_SECONDS = "tuning_dns_failed_skip_seconds"
     BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_beszel_probe_timeout_unreachable_seconds"
     PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_pulse_probe_timeout_unreachable_seconds"
+    SLOW_QUERY_THRESHOLD_MS = "tuning_slow_query_threshold_ms"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
@@ -671,6 +672,20 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # latched as unreachable. Default 3s; range 1-30.
     "tuning_pulse_probe_timeout_unreachable_seconds": (
         "PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS", 3, 1, 30,
+    ),
+    # Slow-query log threshold (ms). Every db_conn() wraps its
+    # connection's execute / executemany with a perf_counter pair;
+    # queries exceeding this threshold land in Admin → Logs with
+    # the `[slow_query] warning:` prefix family (WARN bucket).
+    # Default 100ms — matches the sync-loop-block boundary CLAUDE.md
+    # uses for the to_thread offload rule. Lower (e.g. 25) for
+    # verbose debugging when hunting a regression; raise (e.g. 500)
+    # to focus only on catastrophic queries on a noisy fleet. 0
+    # disables the wrapper entirely (no perf_counter overhead).
+    # Range 0-10000; per-use resolution so an Admin → Config edit
+    # applies to the NEXT connection opened.
+    "tuning_slow_query_threshold_ms": (
+        "SLOW_QUERY_THRESHOLD_MS", 100, 0, 10000,
     ),
     # In-process cache TTL (seconds) for `_host_provider_config()`
     # in logic/host_metrics_sampler.py — the per-(host_id, providers)

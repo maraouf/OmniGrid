@@ -113,6 +113,10 @@ export default {
     // fast instead of paying the full 15s budget.
     'tuning_beszel_probe_timeout_unreachable_seconds',
     'tuning_pulse_probe_timeout_unreachable_seconds',
+    // Slow-query log threshold (ms) — every db_conn() wraps its
+    // execute / executemany with timing; queries exceeding land in
+    // Admin → Logs with the [slow_query] WARN prefix. 0 disables.
+    'tuning_slow_query_threshold_ms',
     // host_metrics_sampler.py _host_provider_config() cache TTL.
     'tuning_host_provider_config_cache_ttl_seconds',
     // per-host Webmin caches MOVED to Admin → Providers

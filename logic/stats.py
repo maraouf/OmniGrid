@@ -388,10 +388,16 @@ async def _one_container_stats(
     if fallback_status_map:
         fb_parts = ", ".join(f"{h}={s}" for h, s in fallback_status_map.items())
         parts.append(f"fallback {{{fb_parts}}}")
+    # `warning:` token routes through logic/logs.py:_severity_for
+    # into the WARN bucket — a per-container stats failure where
+    # EVERY agent attempt missed is a real signal the operator wants
+    # to see in amber, not just INFO noise. Distinct from a probe
+    # error (would be ERROR via the `error` keyword) and distinct
+    # from a deliberate skip (no log line at all).
     if parts:
-        print(f"[stats] {cid[:12]} no stats — " + "; ".join(parts))
+        print(f"[stats] warning: {cid[:12]} no stats — " + "; ".join(parts))
     else:
-        print(f"[stats] {cid[:12]} no stats")
+        print(f"[stats] warning: {cid[:12]} no stats")
     return None
 
 

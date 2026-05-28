@@ -32,7 +32,6 @@ import asyncio
 import json
 import sqlite3
 import time
-from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Optional
 
 import httpx
@@ -311,6 +310,45 @@ def _compute_row(
 # short-circuit paused hosts AND writes on every probe outcome to
 # advance the counter / clear-on-success / auto-pause when the failure
 # window is exceeded.
+def _resolve_target_for_log(host_id: str) -> str:
+    """Resolve the operator-visible target (FQDN / IP) for a host id
+    by walking iter_curated_hosts(). Used by failure-state error log
+    paths so a `Cannot operate on...` / `failure-state write error:`
+    line surfaces WHICH host the curated row is pointing at — the
+    bare host_id is often a short alias the operator may not
+    immediately recognise. Best-effort: returns empty string on any
+    lookup failure (the caller falls back to the bare host_id). The
+    chain mirrors the canonical address-fallback contract documented
+    in CLAUDE.md: address → ssh.fqdn → ssh.host → SKIP."""
+    try:
+        for _h in iter_curated_hosts():
+            if (_h.get("id") or "").strip() != host_id:
+                continue
+            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+            return (
+                (_h.get("address") or "").strip()
+                or (_ssh.get("fqdn") or "").strip()
+                or (_ssh.get("host") or "").strip()
+                or ""
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _log_label_with_target(host_id: str, provider: str = "") -> str:
+    """Combine the canonical `<provider>:<host_id>` (or bare host_id)
+    label with the resolved target FQDN/IP for the error-log paths.
+    Format: `node_exporter:pihole2(target=pihole2.example.com)`.
+    Empty target → falls back to the bare label so logs stay quiet
+    on hosts the resolver can't find."""
+    label = f"{provider}:{host_id}" if provider else host_id
+    target = _resolve_target_for_log(host_id)
+    if target and target != host_id:
+        return f"{label}(target={target})"
+    return label
+
+
 def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
     """Read the host_failure_state row for ``(host_id, provider)``.
 
@@ -331,7 +369,7 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
             row = cur.fetchone()
     # noinspection PyBroadException
     except Exception as e:
-        print(f"[host_metrics_sampler] {host_id!r}/{provider!r} "
+        print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)!r} "
               f"failure-state read error: {e}")
         return None
     if row is None:
@@ -517,75 +555,6 @@ def _host_provider_config() -> dict[str, set[str]]:
     return out
 
 
-# Shared-connection context for per-tick failure-state writes. When a
-# fleet-wide outage hits N hosts at once, each per-host probe failure
-# calls `_record_failure` which would open its own db_conn() — N
-# independent connection opens, all serialised against SQLite's
-# single-writer lock and each carrying ~50µs of connect overhead.
-# Wrapping the sampler's asyncio.gather in
-# `use_shared_failure_state_conn()` opens ONE connection up-front;
-# every `_record_failure` / `_clear_failure` invocation inside the
-# context reuses it. Single-threaded asyncio + per-statement SQLite
-# atomicity means interleaved coroutines serialise naturally at the
-# c.execute() boundary — no explicit asyncio.Lock required (each
-# c.execute is brief sync work, no yield while a cursor is open).
-# Net result: N opens collapse to 1, the auto-pause + transition
-# logic stays unchanged. Behaviour is identical to the unwrapped
-# path; only the connection-pool overhead changes. Safe to leave the
-# helpers' calling conventions alone outside the context (the
-# singleton check falls through to the legacy db_conn() open).
-_failure_state_shared_conn: list = [None]
-
-
-@asynccontextmanager
-async def use_shared_failure_state_conn():
-    """Async context manager — opens ONE db_conn for the lifetime of
-    the gather, so every `_record_failure` / `_clear_failure` call
-    inside reuses it. Caller pattern:
-
-        async with use_shared_failure_state_conn():
-            await asyncio.gather(*per_host_probes)
-
-    Nested usage is a no-op (the inner block sees the outer's already-
-    open connection and falls through to it). Releases the connection
-    on context exit so a future tick opens a fresh one.
-    """
-    # Nested-call short-circuit — if a parent already set up the
-    # shared connection, ride along; don't replace it (and don't
-    # close it on exit, the parent owns the lifecycle).
-    if _failure_state_shared_conn[0] is not None:
-        yield
-        return
-    conn = db_conn().__enter__()
-    _failure_state_shared_conn[0] = conn
-    try:
-        yield
-    finally:
-        _failure_state_shared_conn[0] = None
-        try:
-            conn.close()
-        except Exception:  # noqa: BLE001
-            pass
-
-
-@contextmanager
-def _maybe_shared_failure_state_conn():
-    """Internal helper — yield the shared connection when one is
-    active, otherwise open a fresh one via the canonical db_conn()
-    context manager. Same return contract as `with db_conn() as c:`.
-    Called by `_record_failure` / `_clear_failure` instead of opening
-    db_conn() directly so the per-tick batching wrapper above can
-    transparently fold their writes into one shared connection."""
-    shared = _failure_state_shared_conn[0]
-    if shared is not None:
-        # Don't yield-then-close — the parent context owns the
-        # connection lifecycle. Just yield the existing handle.
-        yield shared
-        return
-    with db_conn() as c:
-        yield c
-
-
 async def _record_failure(
     host_id: str, now: float, error: str,
     *, round_threshold: Optional[int] = None,
@@ -628,15 +597,7 @@ async def _record_failure(
     bare_host = host_id
     log_label = f"{provider}:{host_id}" if provider else host_id
     try:
-        # `_maybe_shared_failure_state_conn` rides the per-tick shared
-        # connection when one is open (sampler tick wraps gather in
-        # `use_shared_failure_state_conn()`), saving N connection-open
-        # round-trips. Falls back to a fresh db_conn() for any caller
-        # outside the wrapper — current pattern preserved. Single-
-        # threaded asyncio + per-statement SQLite atomicity means no
-        # extra lock is required; interleaved coroutines serialise
-        # naturally at the c.execute() boundary.
-        with _maybe_shared_failure_state_conn() as c:
+        with db_conn() as c:
             cur = c.execute(
                 "SELECT first_failure_ts, consecutive_failures, paused "
                 "FROM host_failure_state WHERE host_id = ? AND provider = ?",
@@ -822,28 +783,22 @@ async def _record_failure(
                 )
     # noinspection PyBroadException
     except Exception as e:
-        print(f"[host_metrics_sampler] {log_label!r} failure-state write error: {e}")
+        print(f"[host_metrics_sampler] {_log_label_with_target(bare_host, provider)!r} failure-state write error: {e}")
 
 
-# Future-work batching target. When a fleet-wide outage hits N hosts
-# at once (e.g. Webmin OOM kills the Miniserv on 50 hosts), each
-# per-host probe failure calls `_record_failure` which opens its own
-# `db_conn()` for a SELECT + UPDATE/INSERT pair. That's N independent
-# transactions all serialised against SQLite's single-writer lock.
-# The clean fix is a `defer_failure_state_writes()` context manager
-# that collects outcomes into an in-memory list during the gather AND
-# flushes them in ONE transaction at the end of the tick (similar
-# shape to `defer_settings_version_bump` / `batch_settings_writes`
-# in logic/db.py). The SSE emit + Apprise notify can still fire per-
-# host inside the loop; only the DB writes batch. Caveat: the SELECT-
-# then-decide-then-write pattern requires precomputing the existing
-# rows via `SELECT host_id, provider, consecutive_failures,
-# first_failure_ts FROM host_failure_state WHERE (host_id, provider)
-# IN (...)` so each UPDATE can compute the new transition in Python
-# before the executemany flush. The behaviour is correct today —
-# this is a perf optimisation for fleet-wide-outage scenarios only,
-# not a correctness fix. The transitions are atomic per-host so
-# there's no race risk in the current pattern.
+# Per-host record_provider_outcome opens its own db_conn per call.
+# An earlier attempt at a shared-conn context manager
+# (`use_shared_failure_state_conn`) was REVERTED — it bypassed
+# db_conn's commit path AND caused "Cannot operate on a closed
+# database" errors when notify_with_retry's background task (spawned
+# from inside _record_failure's auto-pause branch) outlived the
+# outer context. Per-call connection opens are correct + safe; the
+# fleet-wide-outage perf optimisation is a real but minor concern
+# that does NOT warrant the implementation complexity. If a future
+# session wants to batch per-host writes during gather, the safe
+# shape is "collect outcomes in-memory, flush via executemany at the
+# end of the tick" — NOT a shared connection across concurrent
+# probes + background tasks.
 async def record_provider_outcome(
     host_id: str, provider: str, ok: bool,
     *, error: str = "", round_threshold: int = 0,
@@ -959,12 +914,7 @@ async def record_provider_outcome(
         if provider:
             try:
                 now_ts = int(time.time())
-                # Same shared-conn ride-along pattern as _record_failure
-                # above: when the sampler tick wraps gather in
-                # use_shared_failure_state_conn() this skips the
-                # connect+commit overhead. Falls back to fresh db_conn
-                # for any out-of-context caller.
-                with _maybe_shared_failure_state_conn() as c:
+                with db_conn() as c:
                     c.execute(
                         "INSERT OR REPLACE INTO host_provider_last_ok "
                         "(host_id, provider, last_ok_ts) VALUES (?, ?, ?)",
@@ -972,7 +922,7 @@ async def record_provider_outcome(
                     )
             # noinspection PyBroadException
             except Exception as e:
-                print(f"[host_metrics_sampler] {log_label} last_ok upsert failed: {e}")
+                print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)} last_ok upsert failed: {e}")
     else:
         await _record_failure(  # audit: bare-failure-ok
             host_id, time.time(), error,
@@ -997,10 +947,7 @@ def _clear_failure(
     had_row = False
     log_label = f"{provider}:{host_id}" if provider else host_id
     try:
-        # Same shared-conn ride-along — when sampler tick wraps
-        # gather in use_shared_failure_state_conn() the per-host
-        # connect overhead collapses to one tick-wide open.
-        with _maybe_shared_failure_state_conn() as c:
+        with db_conn() as c:
             # Snapshot whether the row was paused BEFORE the delete so
             # we know whether to emit a 'recovered' transition event.
             # Recovery from a non-paused failure streak (the streak
@@ -1035,7 +982,7 @@ def _clear_failure(
                           f"recovery-event log write failed: {ev_err}")
     # noinspection PyBroadException
     except Exception as e:
-        print(f"[host_metrics_sampler] {log_label!r} failure-state clear error: {e}")
+        print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)!r} failure-state clear error: {e}")
         return
     if had_row:
         # SSE — only publish when something actually cleared. Most ticks
@@ -1643,18 +1590,10 @@ async def host_metrics_sampler_loop() -> None:
                         # 15s while the other sites used 10s — drift class.
                         _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
                         async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
-                            # Wrap the gather in the shared-conn context
-                            # so every per-host record_provider_outcome /
-                            # _record_failure / _clear_failure call inside
-                            # rides ONE db_conn instead of opening its own.
-                            # On a fleet-wide outage scenario (50+ NE
-                            # hosts failing simultaneously) this collapses
-                            # ~50 connection opens into 1.
-                            async with use_shared_failure_state_conn():
-                                await asyncio.gather(
-                                    *(_probe_one(client, h, sem) for h in hosts),
-                                    return_exceptions=True,
-                                )
+                            await asyncio.gather(
+                                *(_probe_one(client, h, sem) for h in hosts),
+                                return_exceptions=True,
+                            )
                     last_ne_ts = now_ts
             # SNMP-aware permanent-fail tracking. Independent of
             # the NE block above (a host can have NE off + SNMP on, or
@@ -1708,28 +1647,18 @@ async def host_metrics_sampler_loop() -> None:
                         # tasks get CREATED at once and the first N
                         # all wake simultaneously when their UDP
                         # timeouts fire together.
-                        # Wrap the WHOLE batch loop in the shared-conn
-                        # context so every batch's per-host
-                        # record_provider_outcome calls ride ONE
-                        # db_conn for the full tick. The inter-batch
-                        # asyncio.sleep yields to other coroutines but
-                        # the shared connection stays open across the
-                        # sleep — connection persistence is the win
-                        # we want, the brief sleeps just let
-                        # /api/healthz + SSE handlers run.
-                        async with use_shared_failure_state_conn():
-                            for i in range(0, len(snmp_hosts), snmp_conc):
-                                batch = snmp_hosts[i:i + snmp_conc]
-                                await asyncio.gather(
-                                    *(_probe_one_snmp(h, snmp_sem) for h in batch),
-                                    return_exceptions=True,
-                                )
-                                # Brief yield between batches — lets
-                                # the event loop dispatch a backlog of
-                                # pending HTTP requests + SSE events
-                                # before the next SNMP wave fires.
-                                if i + snmp_conc < len(snmp_hosts):
-                                    await asyncio.sleep(0.05)
+                        for i in range(0, len(snmp_hosts), snmp_conc):
+                            batch = snmp_hosts[i:i + snmp_conc]
+                            await asyncio.gather(
+                                *(_probe_one_snmp(h, snmp_sem) for h in batch),
+                                return_exceptions=True,
+                            )
+                            # Brief yield between batches — lets the
+                            # event loop dispatch a backlog of pending
+                            # HTTP requests + SSE events before the
+                            # next SNMP wave fires.
+                            if i + snmp_conc < len(snmp_hosts):
+                                await asyncio.sleep(0.05)
                     last_snmp_ts = now_ts
             interval = _resolve_outer_interval()
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
