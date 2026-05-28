@@ -59,6 +59,16 @@ LOG_DIR = env_get(EnvKey.LOG_DIR, "/app/data/logs")
 _LOG_NAME_RE = re.compile(r"^omnigrid-(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})\.log$")
 _LOG_FAILED_ONCE = False  # latch so a sustained write failure doesn't spam stderr
 
+# Kept-open log file handle — avoids the per-line `open()/close()`
+# overhead that pushed `/api/healthz` past the 10s healthcheck
+# timeout under bursty per-tick logging (50+ ping samples → 50+
+# sync file opens in a single event-loop iteration). The handle
+# is opened lazily on the first write + rotated when the date
+# rolls over (next-day's filename). Pair of (path, handle) so we
+# can detect a date-rollover by comparing paths cheaply.
+_LOG_FH_PATH: Optional[str] = None
+_LOG_FH = None  # actual file handle
+
 
 def _resolved_tz():
     """Return the ZoneInfo OmniGrid uses for log-file dates.
@@ -214,9 +224,8 @@ def _persist_line(record: dict[str, Any]) -> None:
     fixed-width level keeps the file grep-friendly and parseable by
     standard log aggregators (Promtail, Vector, Fluent Bit, etc.).
     """
-    global _LOG_FAILED_ONCE
+    global _LOG_FAILED_ONCE, _LOG_FH_PATH, _LOG_FH
     try:
-        os.makedirs(LOG_DIR, exist_ok=True)
         # ISO 8601 with seconds precision + Z suffix for explicit UTC.
         # Matches the format Python's stdlib logging uses with
         # ``datefmt="%Y-%m-%dT%H:%M:%SZ"`` and what most log viewers
@@ -226,9 +235,38 @@ def _persist_line(record: dict[str, Any]) -> None:
         # 5-char fixed-width level so columns align in a terminal /
         # tail viewer regardless of content length.
         line = f"{ts} {level:<5} {record['text']}\n"
-        with open(_today_log_path(), "a", encoding="utf-8") as f:
-            f.write(line)
+        # Reuse the open file handle across writes — was previously
+        # `with open(...) as f: f.write(...)` PER LINE which became
+        # the event-loop bottleneck under bursty per-tick logging
+        # (the ping sampler alone writes 50+ lines per tick across
+        # ~30+ hosts; the resulting sync file-open burst starved the
+        # event loop enough that `/api/healthz` missed the 10s
+        # Docker healthcheck timeout → container restart).
+        target = _today_log_path()
+        if _LOG_FH is None or _LOG_FH_PATH != target:
+            # First write OR the date rolled over → close the old
+            # handle (if any) and open the new one.
+            if _LOG_FH is not None:
+                try:
+                    _LOG_FH.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                _LOG_FH = None
+            os.makedirs(LOG_DIR, exist_ok=True)
+            _LOG_FH = open(target, "a", encoding="utf-8", buffering=1)
+            _LOG_FH_PATH = target
+        _LOG_FH.write(line)
     except Exception as e:
+        # Close the kept-open handle on ANY error so the next call
+        # retries opening fresh (e.g. transient EBADF / EIO survives
+        # one bad write instead of forever-failing).
+        if _LOG_FH is not None:
+            try:
+                _LOG_FH.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _LOG_FH = None
+            _LOG_FH_PATH = None
         if not _LOG_FAILED_ONCE:
             _LOG_FAILED_ONCE = True
             try:
