@@ -92,6 +92,15 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     set_setting,
     tuning,
 )
+# Hoisted top-level import for the canonical per-(provider, host)
+# outcome recorder. Safe at module top because `host_metrics_sampler`
+# does NOT import from `apps_routes` (one-way dep graph) — no cycle.
+# Previously this was imported inside ~10 inner-function branches per
+# `_merge_one_host` call body (`from logic.host_metrics_sampler import
+# record_provider_outcome` repeated verbatim), wasted overhead + noise.
+from logic.host_metrics_sampler import (  # noqa: E402
+    record_provider_outcome as _record_provider_outcome,
+)
 # `_clean_host_services` lives in main_pkg.hosts_routes — same chain-
 # order problem as `_load_hosts_config` below: top-level import would
 # trigger hosts_routes' tail chain and 404 every apps_routes decorator
@@ -232,9 +241,11 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
         # fully independent of the template (editing either side later does
         # not affect the other). catalog_id stays for Apps-view grouping +
         # pin-dedup. Same semantics as the per-template pin route.
-        new_chip: dict[str, Any] = {"catalog_id": cid}
-        new_chip["name"] = tpl.get("name") or ""
-        new_chip["icon"] = tpl.get("icon") or tpl.get("slug") or ""
+        new_chip: dict[str, Any] = {
+            "catalog_id": cid,
+            "name": tpl.get("name") or "",
+            "icon": tpl.get("icon") or tpl.get("slug") or "",
+        }
         default_ports = list(tpl.get("default_ports") or [])
         # Apply ONLY the template ports the host actually has open (matched
         # against the last scan). Keeps a multi-port template from stamping
@@ -359,9 +370,11 @@ async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: R
     # template OR the instance later does NOT affect the other (no live
     # inheritance). The catalog_id linkage is kept ONLY for Apps-view
     # grouping + pin-dedup, not for resolving display fields.
-    new_chip: dict[str, Any] = {"catalog_id": cid}
-    new_chip["name"] = override_name or (template.get("name") or "")
-    new_chip["icon"] = override_icon or (template.get("icon") or template.get("slug") or "")
+    new_chip: dict[str, Any] = {
+        "catalog_id": cid,
+        "name": override_name or (template.get("name") or ""),
+        "icon": override_icon or (template.get("icon") or template.get("slug") or ""),
+    }
     if override_url:
         new_chip["url"] = override_url
     # Probe sub-dict — copy template's default_ports verbatim so the
@@ -1788,7 +1801,12 @@ def bulk_detected_ports(host_ids: list) -> dict:
                 f"ON s.host_id = m.host_id AND s.ts = m.mts",
                 ids,
             ).fetchall()
-            per_host_head: dict = {}
+            # Typed as `dict[str, tuple[Any, int]]` so the static
+            # analyser narrows `cur` to a concrete tuple after the None
+            # branch — pre-fix the dict was annotated bare `dict` so
+            # `cur[0]` was flagged as a subscript on `Any | None` even
+            # after the explicit None check below.
+            per_host_head: dict[str, tuple[Any, int]] = {}
             for r in head_rows:
                 hid = r["host_id"]
                 sid = r["scan_id"]
@@ -1796,7 +1814,13 @@ def bulk_detected_ports(host_ids: list) -> dict:
                     continue
                 ts = int(r["ts"] or 0)
                 cur = per_host_head.get(hid)
-                if cur is None or sid < cur[0]:
+                # Explicit None-then-compare instead of `cur is None or
+                # sid < cur[0]` — the two-branch form makes the
+                # narrowing explicit so the IDE recognises that
+                # `cur[0]` is only subscripted on a concrete tuple.
+                if cur is None:
+                    per_host_head[hid] = (sid, ts)
+                elif sid < cur[0]:
                     per_host_head[hid] = (sid, ts)
             if not per_host_head:
                 return {}
@@ -1880,6 +1904,76 @@ def _populate_detected_ports(host_id: str, merged: dict) -> bool:
         return False
 
 
+# noinspection PyUnresolvedReferences,PyTypeChecker
+async def _process_hub_provider(
+    *,
+    name: str,
+    h: dict,
+    key: str,
+    hub_map: dict,
+    lookup_fn,
+    hub_errors: dict,
+    status_field: str,
+    pause_round_threshold: int,
+    merged: dict,
+    providers_hit: list[str],
+    active,
+) -> None:
+    """Canonical state machine for a HUB-style provider (Pulse, Beszel).
+
+    Shared shape across the two providers + any future hub-style
+    addition (Glances, PocketBase-style, etc.):
+
+      1. gate on `name in active` + `key` non-empty (per-host opt-in)
+      2. gate on `_is_provider_paused(h["id"], name)` short-circuit
+      3. lookup `key` in `hub_map` via `lookup_fn`
+      4. on hit:
+         - if `<status_field>` is down/paused/unreachable AND hub_ok:
+           record failure
+         - else: merge stats into `merged`, append to `providers_hit`,
+           record success
+      5. on miss + hub_ok: record "host not found in hub map" failure
+
+    `hub_ok` is computed from `hub_errors` (state["errors"] — when
+    `name not in hub_errors` the hub fetch succeeded so we can blame
+    a per-host miss on the host itself; otherwise we suppress the
+    failure record to avoid cascade-pausing every host on a hub blip).
+
+    Mutates `merged` + `providers_hit` in place. Awaits the
+    per-(provider, host) outcome recorder.
+
+    `lookup_fn` is provider-specific — Pulse uses `_pulse.lookup`
+    (case + whitespace tolerant); Beszel passes `lambda m, k: m.get(k)`
+    (exact-match dict get). The status-field name varies per provider
+    (`pulse_status` / `beszel_status`) — extract once at the call site.
+    """
+    if name not in active or not key:
+        return
+    if _is_provider_paused(h["id"], name):
+        return
+    stats = lookup_fn(hub_map, key)
+    hub_ok = name not in hub_errors
+    if stats:
+        st = (stats.get(status_field) or "").lower()
+        if st in ("down", "paused", "unreachable"):
+            if hub_ok:
+                await _record_provider_outcome(
+                    h["id"], name, False,
+                    error=f"{name} status={st}",
+                    round_threshold=pause_round_threshold,
+                )
+        else:
+            _merge_best(merged, stats)
+            providers_hit.append(name)
+            await _record_provider_outcome(h["id"], name, True)
+    elif hub_ok:
+        await _record_provider_outcome(
+            h["id"], name, False,
+            error=f"host not found in {name.capitalize()} hub map",
+            round_threshold=pause_round_threshold,
+        )
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                           client_id: str | None = None) -> tuple[dict, list[str]]:
@@ -1930,39 +2024,19 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # paused" on hosts they'd never configured for Pulse. Strict gate:
     # operator must set `pulse_name` explicitly to opt this host into
     # the Pulse probe.
-    pulse_key = (h.get("pulse_name") or "").strip()
-    if "pulse" in active and pulse_key:
-        # Per-(pulse, host) auto-pause short-circuit.
-        if not _is_provider_paused(h["id"], "pulse"):
-            pstats = _pulse.lookup(state["pulse_map"], pulse_key)
-            # Hub-fetch-OK gate: only count as a per-host failure when
-            # the hub fetch itself succeeded (errors map has no entry).
-            # Without this guard a single hub outage would auto-pause
-            # every host with a pulse_name.
-            hub_ok = "pulse" not in (state.get("errors") or {})
-            if pstats:
-                # status=down/paused on a hub-OK probe = real failure.
-                pst = (pstats.get("pulse_status") or "").lower()
-                if pst in ("down", "paused", "unreachable"):
-                    if hub_ok:
-                        from logic.host_metrics_sampler import record_provider_outcome
-                        await record_provider_outcome(
-                            h["id"], "pulse", False,
-                            error=f"pulse status={pst}",
-                            round_threshold=tuning.tuning_int(Tunable.PULSE_FAILURE_PAUSE_ROUNDS),
-                        )
-                else:
-                    _merge_best(merged, pstats)
-                    providers_hit.append("pulse")
-                    from logic.host_metrics_sampler import record_provider_outcome
-                    await record_provider_outcome(h["id"], "pulse", True)
-            elif hub_ok:
-                from logic.host_metrics_sampler import record_provider_outcome
-                await record_provider_outcome(
-                    h["id"], "pulse", False,
-                    error="host not found in Pulse hub map",
-                    round_threshold=tuning.tuning_int(Tunable.PULSE_FAILURE_PAUSE_ROUNDS),
-                )
+    await _process_hub_provider(
+        name="pulse",
+        h=h,
+        key=(h.get("pulse_name") or "").strip(),
+        hub_map=state["pulse_map"],
+        lookup_fn=_pulse.lookup,
+        hub_errors=state.get("errors") or {},
+        status_field="pulse_status",
+        pause_round_threshold=tuning.tuning_int(Tunable.PULSE_FAILURE_PAUSE_ROUNDS),
+        merged=merged,
+        providers_hit=providers_hit,
+        active=active,
+    )
 
     # SNMP — runs AFTER Pulse but BEFORE Beszel so the unix-
     # style providers can override SNMP's coarser data wherever they
@@ -2126,10 +2200,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # chip's "Updated Xm ago" subtitle reads from
                         # that table. Mirrors the Webmin sister block.
                         try:
-                            from logic.host_metrics_sampler import (
-                                record_provider_outcome as _snmp_outcome,
-                            )
-                            await _snmp_outcome(h["id"], "snmp", True)
+                            await _record_provider_outcome(h["id"], "snmp", True)
                         except Exception as ex:
                             print(f"[hosts] snmp success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
@@ -2178,13 +2249,10 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # auth, no response) DO count.
                         if not skipped:
                             try:
-                                from logic.host_metrics_sampler import (
-                                    record_provider_outcome as _snmp_outcome,
-                                )
                                 _snmp_threshold = tuning.tuning_int(
                                     Tunable.SNMP_FAILURE_PAUSE_ROUNDS
                                 )
-                                await _snmp_outcome(
+                                await _record_provider_outcome(
                                     h["id"], "snmp", False,
                                     error=err_str,
                                     round_threshold=_snmp_threshold,
@@ -2215,36 +2283,22 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
     # alias was set, so non-Beszel hosts accumulated "host not found
     # in Beszel hub map" failures and auto-paused on a provider they
     # were never configured for.
-    beszel_key = (h.get("beszel_name") or "").strip()
-    if "beszel" in active and beszel_key:
-        # Per-(beszel, host) auto-pause short-circuit. Same
-        # hub-fetch-OK gate as Pulse so a global hub blip doesn't
-        # cascade-pause every host.
-        if not _is_provider_paused(h["id"], "beszel"):
-            bstats = state["beszel_map"].get(beszel_key)
-            hub_ok = "beszel" not in (state.get("errors") or {})
-            if bstats:
-                bst = (bstats.get("beszel_status") or "").lower()
-                if bst in ("down", "paused", "unreachable"):
-                    if hub_ok:
-                        from logic.host_metrics_sampler import record_provider_outcome
-                        await record_provider_outcome(
-                            h["id"], "beszel", False,
-                            error=f"beszel status={bst}",
-                            round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
-                        )
-                else:
-                    _merge_best(merged, bstats)
-                    providers_hit.append("beszel")
-                    from logic.host_metrics_sampler import record_provider_outcome
-                    await record_provider_outcome(h["id"], "beszel", True)
-            elif hub_ok:
-                from logic.host_metrics_sampler import record_provider_outcome
-                await record_provider_outcome(
-                    h["id"], "beszel", False,
-                    error="host not found in Beszel hub map",
-                    round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
-                )
+    await _process_hub_provider(
+        name="beszel",
+        h=h,
+        key=(h.get("beszel_name") or "").strip(),
+        hub_map=state["beszel_map"],
+        # Beszel uses bare dict.get (no forgiving alias matching) — match
+        # the pre-helper behaviour. Pulse passes _pulse.lookup, which
+        # handles case + whitespace tolerance.
+        lookup_fn=lambda m, k: m.get(k),
+        hub_errors=state.get("errors") or {},
+        status_field="beszel_status",
+        pause_round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
+        merged=merged,
+        providers_hit=providers_hit,
+        active=active,
+    )
 
     # Node-exporter (per-host probe).
     # operator-tunable timeout via `tuning_node_exporter_probe_timeout_seconds`.
@@ -2253,7 +2307,6 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         if not _is_provider_paused(h["id"], "node_exporter"):
             _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
             _ne_pause_rounds = tuning.tuning_int(Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS)
-            from logic.host_metrics_sampler import record_provider_outcome
             # Per-provider probing SSE event — NE has no per-host
             # cache (each call hits the wire), so every entry to this
             # block fires the start/done pair.
@@ -2267,18 +2320,18 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 _merge_best(merged, stats or {})
                 if stats and not stats.get("exporter_error"):
                     providers_hit.append("node_exporter")
-                    await record_provider_outcome(h["id"], "node_exporter", True)
+                    await _record_provider_outcome(h["id"], "node_exporter", True)
                     ne_ok = True
                 else:
                     err = (stats or {}).get("exporter_error") or "no response"
-                    await record_provider_outcome(
+                    await _record_provider_outcome(
                         h["id"], "node_exporter", False,
                         error=str(err),
                         round_threshold=_ne_pause_rounds,
                     )
             except Exception as e:  # noqa: BLE001
                 print(f"[hosts] NE probe failed for {h.get('id')!r}: {e}")
-                await record_provider_outcome(
+                await _record_provider_outcome(
                     h["id"], "node_exporter", False,
                     error=str(e),
                     round_threshold=_ne_pause_rounds,
@@ -2365,10 +2418,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # that table. Pre-fix the bypass left the subtitle
                         # invisible forever for Webmin chips.
                         try:
-                            from logic.host_metrics_sampler import (
-                                record_provider_outcome as _wm_outcome,
-                            )
-                            await _wm_outcome(h["id"], "webmin", True)
+                            await _record_provider_outcome(h["id"], "webmin", True)
                         except Exception as ex:
                             print(f"[hosts] webmin success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
@@ -2411,13 +2461,10 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # connection refused, agent rejection) DO count.
                         if not skipped:
                             try:
-                                from logic.host_metrics_sampler import (
-                                    record_provider_outcome as _wm_outcome,
-                                )
                                 _wm_threshold = tuning.tuning_int(
                                     Tunable.WEBMIN_FAILURE_PAUSE_ROUNDS
                                 )
-                                await _wm_outcome(
+                                await _record_provider_outcome(
                                     h["id"], "webmin", False,
                                     error=err_str,
                                     round_threshold=_wm_threshold,
@@ -2699,6 +2746,17 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         print(f"[hosts] provider_sample_intervals failed for {h.get('id')!r}: {e}")
         merged["provider_sample_intervals"] = {}
 
+    # Per-provider NEWEST sample ts — drives the SPA's "freshness
+    # disagreement ⚠" overlay on a chip whose `last_ok_ts` lags this
+    # value by significantly more than the matching sample interval.
+    # Operator-debug surface for future per-(provider, host)
+    # `host_provider_last_ok` stamping drift; absent ⇒ no overlay.
+    try:
+        merged["provider_sample_newest_ts"] = _provider_sample_newest_ts(h["id"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[hosts] provider_sample_newest_ts failed for {h.get('id')!r}: {e}")
+        merged["provider_sample_newest_ts"] = {}
+
     # Drift-from-baseline enrichment. Reads the cached
     # `host_baselines` row for THIS host and classifies each live
     # metric (CPU% / mem% / disk% / ping RTT) as ▲ / ▼ / ━ vs the
@@ -2794,6 +2852,43 @@ def _provider_sample_counts(host_id: str) -> dict:
                 except (sqlite3.Error, ValueError, TypeError):
                     # Missing table on fresh deploy / sampler never ran.
                     out[name] = 0
+    except (sqlite3.Error, OSError):
+        return {}
+    return out
+
+
+def _provider_sample_newest_ts(host_id: str) -> dict:
+    """Return ``{<provider>: epoch_seconds}`` — newest sample ts per
+    provider for THIS host. Companion to ``_provider_sample_counts`` +
+    ``_provider_sample_intervals``. Used by the SPA's per-provider
+    chip to surface a ⚠ overlay when the chip's `last_ok_ts` lags the
+    newest sample timestamp by significantly more than the configured
+    sample interval — proves the sampler IS writing but the per-
+    (provider, host) `host_provider_last_ok` stamp is going stale
+    separately (operator-debug surface for future per-provider
+    plumbing drift). Best-effort; missing tables → omitted key
+    (drives the SPA's gate cleanly).
+    """
+    out: dict[str, int] = {}
+    queries = (
+        ("ping", "SELECT MAX(ts) FROM ping_samples WHERE host_id = ?"),
+        ("snmp", "SELECT MAX(ts) FROM host_snmp_samples WHERE host_id = ?"),
+        ("beszel", "SELECT MAX(ts) FROM host_beszel_samples WHERE host_id = ?"),
+        ("pulse", "SELECT MAX(ts) FROM host_pulse_samples WHERE host_id = ?"),
+        ("webmin", "SELECT MAX(ts) FROM host_webmin_samples WHERE host_id = ?"),
+        ("node_exporter", "SELECT MAX(ts) FROM host_metrics_samples WHERE host_id = ?"),
+        ("http_probe", "SELECT MAX(ts) FROM host_http_samples WHERE host_id = ?"),
+        ("service_probe", "SELECT MAX(ts) FROM service_samples WHERE host_id = ?"),
+    )
+    try:
+        with db_conn() as c:
+            for name, sql in queries:
+                try:
+                    row = c.execute(sql, (host_id,)).fetchone()
+                    if row and row[0] is not None:
+                        out[name] = int(row[0])
+                except (sqlite3.Error, ValueError, TypeError):
+                    pass
     except (sqlite3.Error, OSError):
         return {}
     return out
@@ -3648,6 +3743,20 @@ def _shape_host_api_row(
             isinstance(svc, dict) and isinstance(svc.get("probe"), dict)
             and svc.get("probe", {}).get("enabled") is True
             for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+        ),
+        # Whether this host has ANY Webmin target — alias key (`webmin_name`)
+        # OR direct per-host `webmin_url`. Mirrors `_merge_one_host`'s
+        # Webmin URL resolver chain (`webmin_aliases[id]` → per-host
+        # `webmin_url` → SKIP) at the curated-row level — the row's
+        # `webmin_name` IS the lookup key that resolves through
+        # `webmin_aliases` server-side, so a non-empty `webmin_name`
+        # implies an alias-routed target without the SPA needing to read
+        # the alias map. Pre-fix the SPA's apiGate read `h.webmin_name`
+        # only, so a `webmin_url`-configured host's chip silently vanished
+        # while the curatedGate (Admin → Hosts editor) still rendered it.
+        "webmin_has_target": bool(
+            (h.get("webmin_url") or "").strip()
+            or (h.get("webmin_name") or "").strip()
         ),
         # Latest sample roll-up. Renders the drawer card + the chip
         # state. None / empty when no sample has landed yet (cold-load

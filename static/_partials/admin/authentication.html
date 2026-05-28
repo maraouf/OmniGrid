@@ -1,5 +1,37 @@
 <!--suppress HtmlUnknownAttribute, HtmlFormInputWithoutLabel -->
 <div x-show="adminTab==='authentication'" class="space-y-4">
+  <!-- SESSION_SECRET auto-generated banner — fires when the operator
+       hasn't set the env var explicitly so SESSION_SECRET was generated
+       at startup. Every session + every TOTP secret is encrypted with
+       a key derived from SESSION_SECRET — on the next restart that key
+       changes, sessions die, TOTP becomes un-decryptable, and 2FA-
+       enrolled users get locked out. role="alert" + warning chrome.
+       Dismissable via local session storage so the operator can hide
+       it after acknowledging (banner reappears on next browser session
+       because the threat persists across deploys). -->
+  <div x-show="me && me.client_config && me.client_config.session_secret_auto_generated && !sessionSecretBannerDismissed"
+       role="alert"
+       class="border rounded-md p-3 flex items-start gap-2"
+       :style="'background: color-mix(in srgb, var(--warning) 12%, transparent); border-color: var(--warning); color: var(--text);'">
+    <svg width="16" height="16" class="text-[var(--warning)] flex-shrink-0" style="margin-top: 2px;" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+    </svg>
+    <div class="flex-1 fs-sm">
+      <div class="font-semibold mb-1"
+           x-text="t('admin_authentication.session_secret_banner.title') || 'SESSION_SECRET not set — sessions + TOTP will die on restart'"></div>
+      <div class="fs-xs text-[var(--text-dim)]"
+           x-text="t('admin_authentication.session_secret_banner.body') || 'OmniGrid generated an ephemeral SESSION_SECRET because the env var is empty. On the next container restart the secret rotates and every session cookie + every TOTP secret stored in the DB becomes invalid — 2FA-enrolled users will need an admin reset. Set SESSION_SECRET=<a long random value> in /app/.env on the Swarm manager and redeploy.'"></div>
+    </div>
+    <button type="button" class="user-action-btn"
+            :aria-label="t('actions.dismiss') || 'Dismiss'"
+            :title="t('actions.dismiss') || 'Dismiss'"
+            @click="sessionSecretBannerDismissed = true; try { sessionStorage.setItem('og_session_secret_banner_dismissed','1'); } catch (_) {}">
+      <svg width="14" height="14" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+      </svg>
+    </button>
+  </div>
+
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
     <!-- Title row + Enabled/Disabled pill — matches Portainer /
          Notifications / SSH / OIDC pattern. Pill is "Enabled"

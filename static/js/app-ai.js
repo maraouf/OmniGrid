@@ -877,6 +877,15 @@ export default {
       await this._ensurePublicIp();
     } catch (_) {
     }
+    // Also pre-fetch the IP change history so the AI can answer
+    // "when did my IP / ISP last change?" questions in the same turn.
+    // Same fire-and-forget contract — cached for 10 minutes; empty
+    // cache → AI sees no history block + says it doesn't know rather
+    // than hallucinating.
+    try {
+      await this._ensurePublicIpHistory();
+    } catch (_) {
+    }
     // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
     // only fired in the `finally` block after the AI response landed,
     // so a refresh / redeploy that hit during a slow LLM round-trip
@@ -2314,6 +2323,19 @@ export default {
         country: this.publicIp.country || '',
         city: this.publicIp.city || '',
       };
+      // Public-IP CHANGE history — lets the AI answer questions like
+      // "when did my IP last change?" / "what was my previous ISP?".
+      // Reads from the same `this._publicIpHistoryCache` populated by
+      // `_ensurePublicIpHistory()` (pre-fetched ALONGSIDE _ensurePublicIp
+      // in the AI-sidebar send path so this synchronous context-builder
+      // can fold it in). Empty / null → block omitted, AI sees no
+      // history and says it doesn't know rather than hallucinating.
+      if (Array.isArray(this._publicIpHistoryCache) && this._publicIpHistoryCache.length) {
+        ctx.public_ip.history = this._publicIpHistoryCache.map(h => ({
+          ts: h.ts, ip: h.ip, isp: h.isp || '', asn: h.asn || '',
+          country: h.country || '', city: h.city || '',
+        }));
+      }
     }
     // Current time context. Mirrors the Telegram listener's `time`
     // block in `_build_telegram_ai_context` so the AI palette in the

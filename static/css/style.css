@@ -1620,6 +1620,7 @@ button:disabled {
   display: inline-block;
   white-space: nowrap;
 }
+
 /* When a chip opts into flex layout (`class="chip ... inline-flex"`), the
  * `.chip` rule's `display: inline-block` would otherwise WIN over Tailwind's
  * `.inline-flex` utility (author styles beat the utilities layer), leaving
@@ -9251,12 +9252,19 @@ select.field-invalid {
    ========================================================================== */
 .apps-card {
   position: relative;
-  transition: box-shadow 120ms ease, transform 120ms ease;
+  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
   border-inline-start-width: var(--apps-card-border-w);
 }
 
 .apps-card:hover {
-  box-shadow: 0 1px 6px var(--row-hover);
+  box-shadow: 0 4px 12px var(--row-hover);
+  transform: translateY(-1px);
+  border-color: var(--border-bright);
+}
+
+.apps-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .apps-card--up {
@@ -9441,12 +9449,20 @@ select.field-invalid {
 .apps-widget-tile {
   display: flex;
   flex-direction: column;
-  gap: var(--s-1);
-  padding: var(--s-2);
+  gap: var(--s-2);
+  padding: var(--s-3);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface-2);
   min-width: 0;
+  min-height: 110px;
+  position: relative;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.apps-widget-tile:hover {
+  border-color: var(--border-bright);
+  box-shadow: 0 1px 3px var(--row-hover);
 }
 
 .apps-widget-tile-head {
@@ -9461,21 +9477,76 @@ select.field-invalid {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
+  font-weight: 600;
 }
 
 .apps-widget-tile-body {
-  font-size: var(--fs-md);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
   color: var(--text);
   min-width: 0;
+}
+
+/* Hero row — the big primary value (time / temperature / IP / fleet
+   count). Tabular-nums keeps mono-width digits aligned across ticks. */
+.apps-widget-hero {
+  font-size: var(--fs-display-md);
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.apps-widget-hero--xl {
+  font-size: var(--fs-display-lg);
+}
+
+/* Secondary label — location / condition / ISP / "of N hosts". */
+.apps-widget-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Bottom detail row — humidity + wind / country + city / degraded
+   count / etc. Wraps when content is wider than the tile (the tile
+   has min-height so an extra line stays visually balanced). */
+.apps-widget-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  margin-top: auto;
+}
+
+.apps-widget-detail-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
   white-space: nowrap;
 }
 
 .apps-widget-clock {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-display-md);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* Empty-state line for widgets whose data source hasn't loaded yet
+   (or whose underlying tunable is disabled). Subdued grey so the
+   tile still reads as intentional rather than broken. */
+.apps-widget-empty {
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+  font-style: italic;
 }
 
 .apps-bookmark-tile {
@@ -9645,6 +9716,7 @@ select.field-invalid {
 .apps-drawer-row:hover {
   background: var(--row-hover);
 }
+
 /* Compact wrapping app tiles in the host-drawer Apps card — each app
    is one inline chip (icon + name + per-port pills + actions) that
    flows + wraps instead of occupying a full row. Same chip vocabulary
@@ -9659,6 +9731,7 @@ select.field-invalid {
   background: var(--surface-2);
   max-width: 100%;
 }
+
 .apps-drawer-tile-name {
   font-weight: 500;
   max-width: 160px;
@@ -9666,6 +9739,7 @@ select.field-invalid {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 /* App-name link — when the chip has a URL the tile name becomes a
    clickable link opening in a new window. Dotted underline only (no
    blue/primary accent — too strong on the dark theme) for parity with the
@@ -9675,15 +9749,18 @@ a.apps-drawer-tile-name {
   color: inherit;
   text-decoration: none;
 }
+
 .apps-drawer-tile-name--link {
   color: inherit;
   cursor: pointer;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
+
 .apps-drawer-tile-name--link:hover {
   text-decoration-style: solid;
 }
+
 .apps-drawer-tile-ports {
   display: inline-flex;
   align-items: center;
@@ -9712,14 +9789,17 @@ a.apps-drawer-tile-name {
   align-items: center;
   flex-shrink: 0;
 }
+
 .apps-spark {
   width: 48px;
   height: 12px;
   display: block;
 }
+
 .apps-spark--up {
   color: var(--success);
 }
+
 .apps-spark--mixed {
   color: var(--warning);
 }
@@ -9745,12 +9825,14 @@ a.apps-drawer-tile-name {
 .apps-port-pill--down {
   border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
 }
+
 /* Pending — port is configured on the chip but not probed yet (just
    added, awaiting the next sampler tick). Neutral border so it reads
    as "no verdict" rather than down. */
 .apps-port-pill--unknown {
   border-color: var(--border);
 }
+
 /* Port pills are now <a> elements (single x-for root) so a port flagged
    open_url + http/https can be a real link. Reset the default link chrome
    so a NON-link pill looks identical to the old <span>; the --link variant
@@ -9760,6 +9842,7 @@ a.apps-port-pill {
   text-decoration: none;
   cursor: default;
 }
+
 /* Clickable (open_url + http/https) port — the dotted underline on the
    port number is the link affordance at rest. Intentionally NO blue/primary
    accent (it read as too strong on the dark theme): the text keeps the
@@ -9773,10 +9856,41 @@ a.apps-port-pill {
 a.apps-port-pill--link {
   cursor: pointer;
 }
+
 .apps-port-pill--link .mono {
   text-decoration: underline dotted;
   text-underline-offset: 2px;
 }
+
 .apps-port-pill--link:hover {
   background: var(--surface-3);
+}
+
+/* Backend-unreachable offline banner. Thin full-width sticky strip at the
+   very top of the viewport — flips visible after the operator-tunable
+   threshold (default 30s) of silence from both SSE + REST, gated by
+   `tuning_backend_unreachable_threshold_seconds`. Auto-hides on the next
+   recovered signal. Sized + tokenised so it sits ABOVE the topbar nav
+   without disrupting the existing flex-column layout (it's the first
+   child of `.og-app-shell`, claiming its own height in the normal flow).
+   Colour: --warning (amber) — operator-visible "something is wrong but
+   recoverable" rather than --danger red (which reads as "fatal"). */
+.backend-offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--warning);
+  color: var(--text-on-warning);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-align: center;
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.backend-offline-banner svg {
+  color: currentcolor;
+  flex-shrink: 0;
 }

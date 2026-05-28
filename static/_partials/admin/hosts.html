@@ -291,6 +291,15 @@
                         :title="p.label"
                         aria-hidden="false"></span>
           </template>
+          <!-- Empty-state hint when NO providers map to this row. Pre-fix
+               the chip strip was rendered as zero-width so operators
+               asked "is this row broken?" — the placeholder reads as
+               intentional-empty (curated metadata only, no probes) vs
+               broken-empty. Soft `--text-faint` colour so it sits
+               quietly next to the populated rows. -->
+          <span x-show="!curatedHostProviderChips(row).length"
+                class="fs-3xs text-[var(--text-faint)] italic"
+                x-text="t('admin_hosts.no_providers_placeholder') || '(no providers configured)'"></span>
           <!-- SSH-enabled indicator. Replaces the prior green/grey dot —
                an explicit icon reads more decisively than a
                tinted circle. COMPLETELY HIDDEN when SSH is not

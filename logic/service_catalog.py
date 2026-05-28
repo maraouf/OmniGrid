@@ -744,30 +744,30 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,63}$")
 
 
 def _coerce_int(v: Any) -> Optional[int]:
-    """Narrow an ``Any | None`` cell into ``Optional[int]``.
+    """Narrow an ``Any | None`` cell into ``Optional[int]`` with
+    catalog-specific guards layered on top of the shared
+    ``logic.coerce.int_or_none``.
 
-    Used at every JSON / dict cell boundary so static analysis can
-    see the type narrow before the value reaches downstream consumers
-    that demand a concrete ``int``. Mirrors the same-shape helper in
-    ``logic.service_sampler`` — duplicated rather than imported to
-    keep the module dependency graph one-way (sampler depends on
-    catalog, not the other way around).
+    Two catalog-specific extras the shared helper deliberately doesn't
+    apply (would break sampler call sites that DO want 0 from "0" or
+    True→1 coercion):
+
+    * Empty-string treated as None (operator-authored JSON payloads
+      commonly carry ``""`` for unset numeric fields).
+    * ``bool`` rejected entirely (bool is a subclass of int but most
+      boolean-looking entries in JSON payloads are protocol flags
+      we'd reject downstream anyway).
+
+    Beyond those two pre-filters, the shared ``int_or_none`` handles
+    the int/float/str→int narrowing. Promotion to the shared helper
+    eliminates the previously-duplicated narrowing arms documented in
+    CLAUDE.md "Numeric-coercion helpers live in the shared
+    ``logic/coerce.py`` leaf module".
     """
-    if v is None or v == "":
+    if v is None or v == "" or isinstance(v, bool):
         return None
-    if isinstance(v, bool):
-        # bool is a subclass of int but should not be coerced — most
-        # boolean-looking entries in JSON payloads are protocol flags
-        # we'd reject downstream anyway.
-        return None
-    if isinstance(v, (int, float)):
-        return int(v)
-    if isinstance(v, str):
-        try:
-            return int(v)
-        except ValueError:
-            return None
-    return None
+    from logic.coerce import int_or_none
+    return int_or_none(v)
 
 
 def _coerce_ports(raw: Any) -> list[dict]:

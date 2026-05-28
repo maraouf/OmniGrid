@@ -1019,6 +1019,17 @@ async def api_change_password(
         if cookie:
             current_token_id = auth.parse_session_cookie(cookie)
         auth.change_password(c, user.id, new_password, keep_session_token=current_token_id)
+        # Audit-trail row — self-service password change is a security-
+        # critical event. Matches the admin-driven `user_pw_reset` audit
+        # path in users_routes.py so post-mortem ("who changed their
+        # password yesterday?") shows BOTH operator-initiated and
+        # self-service rotations under the same op_type filter.
+        _ops_mod.write_admin_audit(
+            c, "user_pw_reset",
+            target_kind="user", target_name=user.username, target_id=user.username,
+            actor=user.username,
+            message=f"Self-service password change from {ip}",
+        )
 
     return {"status": "ok"}
 
@@ -1137,6 +1148,22 @@ async def api_me(request: Request):
             # on the next recovered signal.
             "backend_unreachable_threshold_seconds": tuning.tuning_int(
                 Tunable.BACKEND_UNREACHABLE_THRESHOLD_SECONDS
+            ),
+            # SESSION_SECRET auto-generated flag — true on a fresh deploy
+            # where the operator hasn't explicitly set the env var. The
+            # SPA renders a dismissable banner in Admin → Authentication
+            # for admins so the print-only warning at startup doesn't
+            # stay invisible (consequence: every session + every TOTP
+            # enrolment dies on the next restart, locking 2FA-enrolled
+            # users out until an admin resets them). Default-true on
+            # missing key (defensive — if /api/me doesn't carry this
+            # field for some reason the banner stays hidden, not falsely
+            # alerting). Only surfaced when caller is an admin since
+            # only admins can act on it.
+            "session_secret_auto_generated": (
+                auth.is_session_secret_auto_generated()
+                if user.role == "admin"
+                else False
             ),
             # SPA's loadHosts() reads this and uses it as the cap on
             # parallel /api/hosts/one/<id> calls during fan-out. Resolved

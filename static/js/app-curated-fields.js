@@ -23,6 +23,12 @@ export const CURATED_REFRESH_FIELDS = new Set([
   // Per-provider effective sampler interval (seconds) — third chip
   // subtitle line. Same stamping path as provider_sample_counts.
   'provider_sample_intervals',
+  // Per-provider newest sample TS (epoch seconds) — drives the SPA
+  // freshness-disagreement ⚠ overlay on chips whose last_ok stamp
+  // lags this value by significantly more than the sampler interval.
+  // Same stamping path as provider_sample_counts; cleared in-place
+  // when the SPA poll reconciles (defaults to {} on absence).
+  'provider_sample_newest_ts',
   // CPU / memory / disk / swap rollups.
   'cpu_percent', 'mem_percent', 'disk_percent',
   'host_cpu_percent', 'host_mem_total', 'host_mem_used',
@@ -155,6 +161,14 @@ export const CURATED_REFRESH_FIELDS = new Set([
   // on the stale `true` value, so the http_probe chip in
   // providerStates(h) keeps rendering until a hard refresh.
   'http_probe_enabled', 'http_probe_urls', 'http_probe_has_targets',
+  // Webmin target gate — `webmin_has_target` is stamped backend-side by
+  // `_shape_host_api_row` (mirrors http_probe_has_targets / service_probe_has_targets)
+  // so the SPA's chip apiGate can read ONE boolean instead of trying to
+  // re-derive "is there a target?" from the row shape. Same explicit
+  // overlay rationale as the http_probe siblings — if the operator removes
+  // `webmin_url` AND `webmin_name`, the boolean must flip to false in
+  // place, never stay stale.
+  'webmin_has_target',
   // Drift-from-baseline classification — per-metric
   // {indicator, value, median, iqr, ...} dict keyed by cpu_pct /
   // mem_pct / disk_pct / ping_rtt_ms. Empty {} when the host has no

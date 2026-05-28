@@ -231,6 +231,14 @@ OP_TYPES: frozenset[str] = frozenset({
     "services_catalog_create",
     "services_catalog_update",
     "services_catalog_delete",
+    # Both `services_catalog_seed` (imperative — matches the AI palette
+    # action name + the sibling create/update/delete style) and
+    # `services_catalog_seeded` (past-tense — legacy audit-row label kept
+    # for back-compat with existing history rows) are accepted. New
+    # code should prefer the imperative form so the action name + op_type
+    # name match. The i18n bundle aliases both keys to the same label so
+    # the History filter dropdown shows one option for the pair.
+    "services_catalog_seed",
     "services_catalog_seeded",
     "services_catalog_import",
     "services_pin",

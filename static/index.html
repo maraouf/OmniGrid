@@ -160,6 +160,24 @@
      :class="aiSidebarPinned ? 'og-app-shell--ai-pinned' : ''"
      x-effect="_applyDrawerScrollLock(drawerHost, drawerItem, drawerNode, aiSidebarOpen, aiSidebarPinned, drawerApp, drawerAppHost)">
 
+  <!-- Backend-unreachable offline banner. Thin sticky strip at the very
+       top of the viewport; slides in after `backendUnreachable` flips true,
+       gated by the `tuning_backend_unreachable_threshold_seconds` TUNABLE
+       (default 30s of silence from both SSE + REST; 0 disables). Auto-hides
+       on the next successful backend signal. role=alert + aria-live so
+       screen readers announce the transition; aria-hidden on the icon so it
+       isn't announced twice. -->
+  <div x-show="backendUnreachable"
+       x-transition.opacity.duration.200ms
+       role="alert"
+       aria-live="assertive"
+       class="backend-offline-banner">
+    <svg width="14" height="14" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+    </svg>
+    <span x-text="t('app.backend_offline_banner.message')"></span>
+  </div>
+
   <!-- ================== TOPBAR ================== -->
   <!-- On mobile (<sm), the <header> itself becomes a flex-wrap container
        so the utility-belt items (SYNC picker, theme, hotkeys, language)
@@ -2557,12 +2575,23 @@
                          x-show="Array.isArray(h.apps) && h.apps.length"
                          role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
                       <!-- Count + aggregate-health badge: "N" coloured green
-                           (all up) / amber (>=1 app down). Separate from the
-                           host status dot (amber there = paused). -->
+                           (all up) / amber (>=1 app down or degraded). Sibling
+                           pills surface the degraded + down breakdown so the
+                           operator can see HOW MANY are off without opening
+                           the host drawer. Separate from the host status dot
+                           (amber there = paused). -->
                       <span class="chip fs-3xs mono"
                             :class="hostAppsHealth(h).state === 'warn' ? 'pill-warning' : 'pill-ok'"
                             :title="t('hosts_extra.apps_count_title', { up: hostAppsHealth(h).up, total: hostAppsHealth(h).total }) || (hostAppsHealth(h).up + '/' + hostAppsHealth(h).total + ' apps up')"
                             x-text="t('hosts_extra.apps_count', { n: hostAppsHealth(h).total }) || (hostAppsHealth(h).total + ' apps')"></span>
+                      <span x-show="hostAppsHealth(h).degraded > 0"
+                            class="chip fs-3xs pill-warning"
+                            :title="t('hosts_extra.apps_degraded_title', { n: hostAppsHealth(h).degraded }) || (hostAppsHealth(h).degraded + ' apps degraded on this host')"
+                            x-text="t('hosts_extra.apps_degraded', { n: hostAppsHealth(h).degraded }) || (hostAppsHealth(h).degraded + ' degraded')"></span>
+                      <span x-show="hostAppsHealth(h).down > 0"
+                            class="chip fs-3xs pill-error"
+                            :title="t('hosts_extra.apps_down_title', { n: hostAppsHealth(h).down }) || (hostAppsHealth(h).down + ' apps down on this host')"
+                            x-text="t('hosts_extra.apps_down', { n: hostAppsHealth(h).down }) || (hostAppsHealth(h).down + ' down')"></span>
                       <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
                         <!-- INCLUDE: _components/host-app-chip.html -->
                       </template>
@@ -2940,12 +2969,23 @@
                              x-show="Array.isArray(h.apps) && h.apps.length"
                              role="group" :aria-label="t('hosts_extra.app_chips_label') || 'Apps on this host'">
                           <!-- Count + aggregate-health badge: "N" coloured green
-                               (all up) / amber (>=1 app down). Separate from the
-                               host status dot (amber there = paused). -->
+                               (all up) / amber (>=1 app down or degraded). Sibling
+                               pills surface the degraded + down breakdown so the
+                               operator can see HOW MANY are off without opening
+                               the host drawer. Separate from the host status dot
+                               (amber there = paused). -->
                           <span class="chip fs-3xs mono"
                                 :class="hostAppsHealth(h).state === 'warn' ? 'pill-warning' : 'pill-ok'"
                                 :title="t('hosts_extra.apps_count_title', { up: hostAppsHealth(h).up, total: hostAppsHealth(h).total }) || (hostAppsHealth(h).up + '/' + hostAppsHealth(h).total + ' apps up')"
                                 x-text="t('hosts_extra.apps_count', { n: hostAppsHealth(h).total }) || (hostAppsHealth(h).total + ' apps')"></span>
+                          <span x-show="hostAppsHealth(h).degraded > 0"
+                                class="chip fs-3xs pill-warning"
+                                :title="t('hosts_extra.apps_degraded_title', { n: hostAppsHealth(h).degraded }) || (hostAppsHealth(h).degraded + ' apps degraded on this host')"
+                                x-text="t('hosts_extra.apps_degraded', { n: hostAppsHealth(h).degraded }) || (hostAppsHealth(h).degraded + ' degraded')"></span>
+                          <span x-show="hostAppsHealth(h).down > 0"
+                                class="chip fs-3xs pill-error"
+                                :title="t('hosts_extra.apps_down_title', { n: hostAppsHealth(h).down }) || (hostAppsHealth(h).down + ' apps down on this host')"
+                                x-text="t('hosts_extra.apps_down', { n: hostAppsHealth(h).down }) || (hostAppsHealth(h).down + ' down')"></span>
                           <template x-for="app in sortedHostApps(h)" :key="'happ:' + app.service_idx">
                             <!-- INCLUDE: _components/host-app-chip.html -->
                           </template>
@@ -5090,6 +5130,18 @@
                       <span x-show="providerSampleInterval(h, agent.name) > 0"
                             class="fs-3xs-half text-[var(--text-faint)] mono ps-0.5"
                             x-text="t('hosts_extra.provider_sample_interval', { every: providerSampleIntervalLabel(h, agent.name) })"></span>
+                      <!-- Freshness-disagreement warning overlay.
+                           Fires when the per-(provider, host) last_ok stamp
+                           lags this provider's sample-table newest_ts by
+                           significantly more than the sampler interval —
+                           proves the sampler IS writing samples but the
+                           per-provider stamp is going stale separately.
+                           Operator-debug surface for future per-provider
+                           plumbing drift. :title carries the exact gap. -->
+                      <span x-show="providerFreshnessLag(h, agent.name)"
+                            class="fs-3xs-half text-[var(--warning)] ps-0.5"
+                            :title="providerFreshnessLagTitle(h, agent.name)"
+                            :aria-label="providerFreshnessLagTitle(h, agent.name)">⚠</span>
                     </div>
                   </template>
                 </div>
@@ -5700,6 +5752,9 @@
                     </div>
                   </template>
                 </div>
+                <div x-show="(h.apps || []).filter(a => a.status === 'degraded').length"
+                     class="mt-2 fs-2xs text-[var(--warning)]"
+                     x-text="(h.apps || []).filter(a => a.status === 'degraded').length + ' ' + (t('host_drawer.apps.degraded_suffix') || 'degraded')"></div>
                 <div x-show="(h.apps || []).filter(a => a.status === 'down').length"
                      class="mt-2 fs-2xs text-[var(--danger)]"
                      x-text="(h.apps || []).filter(a => a.status === 'down').length + ' ' + (t('host_drawer.apps.down_suffix') || 'down')"></div>

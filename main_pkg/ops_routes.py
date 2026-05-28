@@ -1160,6 +1160,7 @@ class SettingsIn(BaseModel):
     # editor — declared here so the additive POST validator accepts them.
     tuning_telegram_long_poll_timeout_seconds: Optional[str] = None
     tuning_telegram_http_timeout_seconds: Optional[str] = None
+    tuning_telegram_destructive_cooldown_seconds: Optional[str] = None
     tuning_telegram_ai_calls_per_minute: Optional[str] = None
     tuning_telegram_bulk_update_concurrency: Optional[str] = None
     notify_medium_telegram: Optional[str] = None
@@ -1604,6 +1605,7 @@ class SettingsIn(BaseModel):
     tuning_rate_limit_lockout_seconds: Optional[str] = None
     # / outer host-provider cache + per-host Webmin caches.
     tuning_host_provider_cache_ttl_seconds: Optional[str] = None
+    tuning_host_provider_config_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_fail_cache_ttl_seconds: Optional[str] = None
     # host_metrics_sampler per-tick NE probe concurrency.

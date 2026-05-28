@@ -1597,7 +1597,16 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
             configured.add("pulse")
         if (h.get("ne_url") or "").strip():
             configured.add("node_exporter")
-        if (h.get("webmin_name") or "").strip():
+        # Webmin: configured when EITHER `webmin_name` (alias lookup)
+        # OR per-host `webmin_url` is non-empty. MUST stay in lock-step
+        # with `logic/host_metrics_sampler.py:_host_provider_config` AND
+        # the canonical resolver chain (`webmin_aliases[id]` →
+        # `h["webmin_url"]` → SKIP) used by `_merge_one_host`. Pre-fix
+        # the gate required `webmin_name` non-empty, so a host using
+        # `webmin_url` had its per-(webmin, host) failure-state +
+        # last_ok rows DELETED by this sweep — actively destroying
+        # state instead of just skipping it.
+        if (h.get("webmin_name") or "").strip() or (h.get("webmin_url") or "").strip():
             configured.add("webmin")
         if bool((h.get("ping") or {}).get("enabled", False)):
             configured.add("ping")

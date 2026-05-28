@@ -98,6 +98,8 @@ export default {
     'tuning_rate_limit_lockout_seconds',
     // outer host-provider cache.
     'tuning_host_provider_cache_ttl_seconds',
+    // host_metrics_sampler.py _host_provider_config() cache TTL.
+    'tuning_host_provider_config_cache_ttl_seconds',
     // per-host Webmin caches MOVED to Admin → Providers
     // → Webmin section per operator request. See
     // `relocatedTuningKeys` below — they keep the same Alpine
@@ -226,6 +228,7 @@ export default {
     // the other Telegram fields.
     'tuning_telegram_long_poll_timeout_seconds',
     'tuning_telegram_http_timeout_seconds',
+    'tuning_telegram_destructive_cooldown_seconds',
     'tuning_telegram_ai_calls_per_minute',
     'tuning_telegram_bulk_update_concurrency',
     // Gather fan-out client timeout + orphan-probe per-call timeout —

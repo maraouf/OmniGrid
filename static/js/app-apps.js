@@ -515,14 +515,20 @@ export default {
     return this._hostAppsHealthCompute(h);
   },
   // Uncached compute behind the per-flush memo above.
+  // Tracks `degraded` as a first-class counter (was silently lumped into
+  // `unknown`, which hid the count from the host-row apps pill); state is
+  // 'warn' when any apps are down OR degraded so the pill flips amber on
+  // partial-outage too. Operators reading the pill see the breakdown via
+  // the new degraded/down chips beside the total count.
   _hostAppsHealthCompute(h) {
     const apps = (h && Array.isArray(h.apps)) ? h.apps : [];
     const total = apps.length;
     if (!total) {
-      return {total: 0, up: 0, down: 0, unknown: 0, state: ''};
+      return {total: 0, up: 0, down: 0, degraded: 0, unknown: 0, state: ''};
     }
     let up = 0;
     let down = 0;
+    let degraded = 0;
     let unknown = 0;
     for (const a of apps) {
       const s = a && a.status;
@@ -530,11 +536,20 @@ export default {
         up += 1;
       } else if (s === 'down') {
         down += 1;
+      } else if (s === 'degraded') {
+        degraded += 1;
       } else {
         unknown += 1;
       }
     }
-    return {total, up, down, unknown, state: down > 0 ? 'warn' : 'ok'};
+    return {
+      total,
+      up,
+      down,
+      degraded,
+      unknown,
+      state: (down > 0 || degraded > 0) ? 'warn' : 'ok',
+    };
   },
 
   // Per-port pill tooltip: "<status> (<rtt>ms) — <error>" (rtt + error both
@@ -672,20 +687,38 @@ export default {
       return '';
     }
   },
-  // Fleet rollup for the system-stats widget — {up, total, down} across the
-  // curated hosts the SPA already has loaded. Reuses this.hosts; no fetch.
+  // Date subtitle for the clock widget — weekday + month + day. Format
+  // follows the browser locale so an operator in es-MX sees "lun, 28
+  // may" while en-US sees "Mon, May 28".
+  appsWidgetClockDate() {
+    const ms = this.hostHistoryNow || Date.now();
+    try {
+      return new Date(ms).toLocaleDateString([], {
+        weekday: 'short', month: 'short', day: 'numeric',
+      });
+    } catch (_) {
+      return '';
+    }
+  },
+  // Fleet rollup for the system-stats widget — {up, total, down, paused}
+  // across the curated hosts the SPA already has loaded. Reuses this.hosts;
+  // no fetch. `paused` covers hosts whose probing is suspended (auto-paused
+  // OR operator-paused) — surfaced separately so the operator can spot a
+  // partial-degradation state at a glance.
   appsWidgetSystemStats() {
     const hosts = Array.isArray(this.hosts) ? this.hosts : [];
-    let up = 0, down = 0;
+    let up = 0, down = 0, paused = 0;
     for (const h of hosts) {
       const s = (h && h.status) || '';
       if (s === 'up') {
         up++;
       } else if (s === 'down' || s === 'unknown') {
         down++;
+      } else if (s === 'paused') {
+        paused++;
       }
     }
-    return {up, down, total: hosts.length};
+    return {up, down, paused, total: hosts.length};
   },
   // Hostname (without scheme / path) for a bookmark's subtitle line.
   appsBookmarkHost(url) {
@@ -741,14 +774,41 @@ export default {
   },
 
   _hydrateAppsCustomLayout() {
-    if (this.appsCustomLayout && Array.isArray(this.appsCustomLayout.sections)) {
-      return;
-    }
+    // Once me.ui_prefs has landed we can cache forever (the first
+    // hydration after /api/me populates is the canonical state). But
+    // when hydration runs BEFORE /api/me lands, this.me may be null
+    // OR this.me.ui_prefs may be empty — caching the empty result
+    // permanently strands every operator's saved layout in the DB
+    // (operator drags tiles → SPA persists → backend stores → reload
+    // → SPA never re-reads because `Array.isArray(sections)` was set
+    // to [] in the empty-me window). Re-check on every call until
+    // EITHER me.ui_prefs is populated OR the layout has at least one
+    // section: any subsequent call after me has loaded re-hydrates
+    // from the real prefs; any operator-driven mutation flips the
+    // sections array non-empty which then sticks via the early-return.
     let saved = null;
     try {
       saved = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
     } catch (_) {
       saved = null;
+    }
+    const me_ready = !!(this.me && this.me.ui_prefs);
+    const already_hydrated = (
+      this.appsCustomLayout
+      && Array.isArray(this.appsCustomLayout.sections)
+      && (
+        // Have content — operator-driven mutation, don't re-hydrate.
+        this.appsCustomLayout.sections.length > 0
+        // OR me.ui_prefs has landed AND has nothing for us — settled
+        // empty state (operator just hasn't saved a layout yet).
+        || (me_ready && !saved)
+        // OR we already pulled from a real saved blob — re-hydrating
+        // would clobber drag/drop made AFTER the initial pull.
+        || (this.appsCustomLayout._hydrated_from_saved === true)
+      )
+    );
+    if (already_hydrated) {
+      return;
     }
     const sections = (saved && Array.isArray(saved.sections)) ? saved.sections : [];
     this.appsCustomLayout = {
@@ -777,6 +837,10 @@ export default {
       // real section so it needs its own persisted flag (mirrors a section's
       // `collapsed`).
       unsectioned_collapsed: !!(saved && saved.unsectioned_collapsed),
+      // Stamp so subsequent `_hydrateAppsCustomLayout` calls short-
+      // circuit instead of re-clobbering an in-flight drag. The
+      // early-return gate above checks this.
+      _hydrated_from_saved: !!saved,
     };
   },
 

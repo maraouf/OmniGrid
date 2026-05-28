@@ -1545,6 +1545,13 @@ async def _run_swarm_agent_health(
         err: Optional[str] = None
         action_taken = "noop"
         unhealthy_hosts: list[str] = []
+        # When the autoheal fires a restart, surface the spawned Op's id
+        # in the schedule's history events JSON so the operator (or AI
+        # palette / post-mortem query) can cross-reference the schedule
+        # row → restart Operation row without scanning every history row
+        # with op_type=restart_swarm_agent in the same time window. None
+        # for non-restart actions (noop / skipped_cooldown / notified).
+        triggered_op_id: Optional[str] = None
         try:
             threshold = _tuning_mod.tuning_int(
                 Tunable.SWARM_AGENT_UNHEALTHY_THRESHOLD,
@@ -1598,12 +1605,24 @@ async def _run_swarm_agent_health(
                                 "<portainer-agent>",
                                 actor=SCHEDULER_ACTOR,
                             )
-                            _restart_task = asyncio.create_task(
+                            # Lazy main import — same circular-break +
+                            # strong-ref + done-callback contract as the
+                            # other schedule kinds (prune_node /
+                            # prune_all_nodes / Telegram cleanups). Pre-fix
+                            # the spawn was a bare `asyncio.create_task`
+                            # bound to a local `_restart_task` that fell
+                            # out of scope, exposing the running task to
+                            # asyncio GC mid-execution per the canonical
+                            # background-task lifecycle rule.
+                            import main as _main
+                            _main.spawn_background_task(
                                 _ops.do_restart_swarm_agent(op),
+                                label="schedule swarm_autoheal_restart",
                             )
                             _swarm_autoheal_last_restart_ts = started
                             _persist_swarm_autoheal_restart_ts(started)
                             action_taken = "restart_triggered"
+                            triggered_op_id = op.id
                             print(
                                 f"[scheduler] swarm_agent_health: restart "
                                 f"triggered op_id={op.id}; "
@@ -1751,7 +1770,17 @@ async def _run_swarm_agent_health(
                         op_id, None,
                         status, duration,
                         json.dumps([
-                            {"action": action_taken, "unhealthy": unhealthy_hosts},
+                            {
+                                "action": action_taken,
+                                "unhealthy": unhealthy_hosts,
+                                # `triggered_op_id` is the spawned restart
+                                # Operation's id when action_taken is
+                                # `restart_triggered`; None otherwise. Lets
+                                # the operator jump from schedule row →
+                                # restart Op row with one click instead of
+                                # hunting through history.
+                                "triggered_op_id": triggered_op_id,
+                            },
                         ]),
                         err, SCHEDULER_ACTOR,
                     ),

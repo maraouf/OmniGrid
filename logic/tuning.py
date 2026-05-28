@@ -93,6 +93,7 @@ class Tunable(str, Enum):
     HOST_METRICS_PROBE_CONCURRENCY = "tuning_host_metrics_probe_concurrency"
     HOST_PERMANENT_FAIL_WINDOW_SECONDS = "tuning_host_permanent_fail_window_seconds"
     HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
+    HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
     HOSTS_IDLE_FILL_INTERVAL_SECONDS = "tuning_hosts_idle_fill_interval_seconds"
@@ -192,6 +193,7 @@ class Tunable(str, Enum):
     SWARM_AUTOHEAL_COOLDOWN_MINUTES = "tuning_swarm_autoheal_cooldown_minutes"
     TELEGRAM_AI_CALLS_PER_MINUTE = "tuning_telegram_ai_calls_per_minute"
     TELEGRAM_BULK_UPDATE_CONCURRENCY = "tuning_telegram_bulk_update_concurrency"
+    TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS = "tuning_telegram_destructive_cooldown_seconds"
     TELEGRAM_HTTP_TIMEOUT_SECONDS = "tuning_telegram_http_timeout_seconds"
     TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = "tuning_telegram_long_poll_timeout_seconds"
     WEBMIN_FAILURE_PAUSE_ROUNDS = "tuning_webmin_failure_pause_rounds"
@@ -266,6 +268,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # 5..120. Operators behind a tight reverse-proxy `proxy_read_timeout`
     # may want to lower both this and the long-poll timeout in lock-step.
     "tuning_telegram_http_timeout_seconds": ("TELEGRAM_HTTP_TIMEOUT_SECONDS", 35, 5, 120),
+    # Telegram destructive-command cooldown (seconds). After a destructive
+    # verb (`/restart`, `/cleanup`, `/update` confirm flow) lands, the
+    # same (sender_id, command) pair is rate-limited for this many seconds
+    # so a duplicate / fat-fingered re-send doesn't double-execute. The
+    # 30s default fits a single-admin chat; multi-admin chats may want
+    # higher (60-120s) to prevent admin-vs-admin race. Lower for solo
+    # operators who intentionally re-fire after a real wait. Range 1..600.
+    "tuning_telegram_destructive_cooldown_seconds": ("TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS", 30, 1, 600),
     # Per-Telegram-user AI rate limit (calls per minute). An authorised
     # user typing rapid-fire questions can rack up AI calls faster than
     # the user intends — every non-`/command` Telegram message routes
@@ -609,6 +619,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # happened, but something changed upstream" can re-flow through.
     # Default 10s. Strict-rule category (d) "trades freshness for cost".
     "tuning_host_provider_cache_ttl_seconds": ("HOST_PROVIDER_CACHE_TTL_SECONDS", 10, 1, 300),
+    # In-process cache TTL (seconds) for `_host_provider_config()`
+    # in logic/host_metrics_sampler.py — the per-(host_id, providers)
+    # map that `record_provider_outcome`'s defensive guard consults to
+    # decide whether to record a failure or refuse + clean orphans. The
+    # canonical save endpoint invalidates immediately on a hosts_config
+    # write; this TTL is the belt-and-braces backstop for any future
+    # code path that writes hosts_config without going through that
+    # endpoint. Lower for snappier recovery after a write that bypassed
+    # the invalidator; raise on a stable fleet to lighten DB reads
+    # during a probe-burst tick. Default 60s. Strict-rule category (d)
+    # "trades freshness for cost".
+    "tuning_host_provider_config_cache_ttl_seconds": ("HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS", 60, 1, 3600),
     # per-host Webmin success-cache TTL (seconds). Successful
     # Webmin probes are cached for this window so burst refreshes
     # (e.g. SPA fan-out) skip the repeat probe. Default 30s. Lower
@@ -1227,9 +1249,9 @@ def stats_range_seconds(range_key: str) -> int | None:
 
 
 def resolve_provider_interval(provider_tunable_key: "Tunable",
-                               *,
-                               min_floor: int = 30,
-                               global_default: int = 300) -> int:
+                              *,
+                              min_floor: int = 30,
+                              global_default: int = 300) -> int:
     """Canonical "sampler tick cadence" resolver shared across per-provider
     samplers (http_probe / service_probe / future siblings).
 
@@ -1275,6 +1297,41 @@ _UNUSED_KEY_CACHE: Optional[frozenset[str]] = None
 # compiled objects directly and the catalogue stays single-sourced.
 _BARE_STR_RE = re.compile(r"\b_?tuning_int\s*\(\s*[\"'](?P<key>tuning_[a-z0-9_]+)[\"']")
 _ENUM_REF_RE = re.compile(r"\b_?tuning_int\s*\(\s*(?:_Tunable|Tunable)\.(?P<name>[A-Z][A-Z0-9_]+)\b")
+
+# Indirect-consumer helpers — functions that accept a ``Tunable`` member
+# (or its bare-string value) and forward it to ``tuning_int`` internally.
+# Without this list, the keys consumed via these helpers (e.g.
+# ``resolve_provider_interval(Tunable.HTTP_PROBE_SAMPLE_INTERVAL_SECONDS)``
+# at logic/host_http_sampler.py) would falsely report as "no live consumer"
+# in the Admin → Config audit. New helpers that take a ``Tunable``
+# parameter and forward to ``tuning_int`` MUST be appended here so the
+# audit stays honest. The regex matches the helper-name + first arg.
+_INDIRECT_CONSUMER_HELPERS: tuple[str, ...] = (
+    "resolve_provider_interval",
+)
+# Build the helper-name alternation fragment. When the list has ONE
+# entry the fragment is the bare name (no group); when it has 2+ entries
+# the fragment is `(?:a|b|c)`. Conditional construction avoids emitting
+# `(?:single_name)` which the IDE rightly flags as an unnecessary non-
+# capturing group — and removes the inspection trigger entirely rather
+# than relying on a per-line `# noinspection` comment that the regex
+# inspector wasn't honouring for these multi-line compile statements.
+if len(_INDIRECT_CONSUMER_HELPERS) == 1:
+    _HELPER_ALT = _INDIRECT_CONSUMER_HELPERS[0]
+else:
+    _HELPER_ALT = "(?:" + "|".join(_INDIRECT_CONSUMER_HELPERS) + ")"
+
+# The inner `(?:_Tunable|Tunable)` group IS a genuine multi-alternation
+# (typed-enum reference may be aliased to `_Tunable` at the import
+# site) — kept non-capturing because we don't need the match value.
+_INDIRECT_REF_RE = re.compile(
+    r"\b" + _HELPER_ALT
+    + r"\s*\(\s*(?:_Tunable|Tunable)\.(?P<name>[A-Z][A-Z0-9_]+)\b"
+)
+_INDIRECT_BARE_STR_RE = re.compile(
+    r"\b" + _HELPER_ALT
+    + r"\s*\(\s*[\"'](?P<key>tuning_[a-z0-9_]+)[\"']"
+)
 
 # Dynamic-key f-string patterns — keys consumed via f-string
 # interpolation that static grep can't see. Treated as consumed so
@@ -1341,6 +1398,16 @@ def audit_consumed_keys() -> set[str]:
             name = m["name"]
             if name in enum_members:
                 consumed.add(enum_members[name])
+        # Indirect-consumer helpers (see `_INDIRECT_CONSUMER_HELPERS`).
+        # Mirrors the direct `tuning_int` regexes — typed-enum AND
+        # bare-string forms both count as "consumed" so the audit
+        # doesn't flag the keys as decorative.
+        for m in _INDIRECT_REF_RE.finditer(txt):
+            name = m["name"]
+            if name in enum_members:
+                consumed.add(enum_members[name])
+        for m in _INDIRECT_BARE_STR_RE.finditer(txt):
+            consumed.add(m["key"])
     return consumed
 
 

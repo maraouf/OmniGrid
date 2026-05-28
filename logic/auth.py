@@ -127,6 +127,16 @@ def auto_secret_warning() -> Optional[str]:
     return None
 
 
+def is_session_secret_auto_generated() -> bool:
+    """Boolean accessor for the auto-generated state — surfaced on the
+    `/api/me` client_config block so the SPA can render a dismissable
+    banner in Admin → Authentication for admins. Beats the print-only
+    warning (operators routinely don't read container logs) and the
+    consequence is severe (every session + every TOTP enrolment dies
+    on the next restart)."""
+    return _AUTO_SECRET
+
+
 # ----------------------------------------------------------------------------
 # Auth settings (DB-backed, env-seeded)
 # ----------------------------------------------------------------------------

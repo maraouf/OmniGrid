@@ -388,6 +388,11 @@ NODE_EXPORTER_PROBE_TIMEOUT_SECONDS=10
 # Outer host-provider cache TTL + sampler concurrency +
 # auth-failure cool-down shared by Webmin + SSH.
 HOST_PROVIDER_CACHE_TTL_SECONDS=10
+# Cache TTL for the per-host configured-providers map consulted by
+# `record_provider_outcome`'s defensive guard (refuses + cleans orphan
+# rows when a probe fires for an unconfigured provider). Canonical
+# hosts_config saves invalidate immediately; this is the backstop.
+HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS=60
 HOST_METRICS_PROBE_CONCURRENCY=8
 AUTH_FAILURE_COOLDOWN_SECONDS=300
 
@@ -505,6 +510,13 @@ AI_EXTENDED_HTTP_TIMEOUT_SECONDS=30
 TELEGRAM_LONG_POLL_TIMEOUT_SECONDS=25
 TELEGRAM_HTTP_TIMEOUT_SECONDS=35
 
+# Telegram destructive-command cooldown (seconds). After a destructive
+# verb (`/restart`, `/cleanup`, `/update` confirm flow) lands, the same
+# (sender_id, command) pair is rate-limited for this many seconds so a
+# duplicate / fat-fingered re-send doesn't double-execute. 30s fits solo
+# admin; multi-admin chats may want 60-120s. Range 1..600.
+TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS=30
+
 # Per-Telegram-user AI rate limit (calls per minute). Every non-`/command`
 # Telegram message routes through the AI palette, which costs real money
 # on every paid provider. A rolling 60s bucket counts calls per Telegram
@@ -601,19 +613,19 @@ PORTAINER_OP_TIMEOUT_SHORT_SECONDS=120
 PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS=300
 PORTAINER_OP_TIMEOUT_LONG_SECONDS=600
 
-# Per-field stale grace cap (hours). When `apply_host_snapshot_fallback`
-# restores a missing live field from the snapshot, it stamps the field
-# as stale. Once the field has been stale for longer than this many
-# hours, it's dropped from BOTH the merged dict AND the next saved
-# snapshot so orphans decay naturally. Default 24 covers transient
-# outages without keeping orphans forever. Range 1..720.
-HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS=24
-
 # Backup retention count — how many backup zips under /app/data/backups/
 # the `backup` schedule kind keeps after a successful create. 0 (default)
 # = keep ALL backups (back-compat). Typical setting is 7-30 to bound
 # disk growth on a daily schedule. Range 0..1000.
 BACKUP_RETENTION_COUNT=0
+
+# SPA top-of-page "Backend unreachable" banner threshold (seconds). The
+# offline banner flips visible once the SPA hasn't received a successful
+# backend signal (any SSE event OR any /api/* 2xx) for this many seconds —
+# guards against transient blips (server restart, network glitch). Auto-
+# hides on the next recovered signal. Set 0 to disable the banner entirely.
+# Range 0..600 (10 min). Default 30.
+BACKEND_UNREACHABLE_THRESHOLD_SECONDS=30
 
 # Config-backup retention count — analogous knob for the new
 # `config_backup` schedule kind (Settings-as-Code snapshots under
@@ -868,6 +880,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS` | Runtime  | `5`                  | Per-host Webmin failure cache TTL.                                               |
 | `NODE_EXPORTER_PROBE_TIMEOUT_SECONDS` | Runtime | `10`                 | Per-host NE scrape timeout.                                                      |
 | `HOST_PROVIDER_CACHE_TTL_SECONDS` | Runtime     | `10`                 | Outer host-provider memo TTL.                                                    |
+| `HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS` | Runtime | `60`                 | Per-host configured-providers map cache TTL (record_provider_outcome guard).     |
 | `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out.                                  |
 | `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down.                                      |
 | `RATE_LIMIT_MAX_FAILURES`         | Runtime     | `5`                  | Login rate-limit max fails.                                                      |
@@ -900,9 +913,11 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_HTTP_TIMEOUT_SECONDS`         | Runtime     | `15`                 | AI provider HTTP timeout — standard tier (palette / host-filter / dashboard fetches). Range 2..120. |
 | `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`| Runtime     | `30`                 | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300. |
 | `BACKUP_RETENTION_COUNT`          | Runtime     | `0`                  | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000. |
+| `BACKEND_UNREACHABLE_THRESHOLD_SECONDS` | Runtime | `30`               | Seconds of silence before the SPA's "Backend unreachable" top banner appears (0 disables). Range 0..600. |
 | `CONFIG_BACKUP_RETENTION_COUNT`   | Runtime     | `30`                 | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000. |
 | `TELEGRAM_LONG_POLL_TIMEOUT_SECONDS` | Runtime  | `25`                 | Telegram `getUpdates` long-poll timeout. Range 1..50 (Telegram server cap). |
 | `TELEGRAM_HTTP_TIMEOUT_SECONDS`   | Runtime     | `35`                 | Outer HTTP timeout for the Telegram listener; should sit slightly above the long-poll value. Range 5..120. |
+| `TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS` | Runtime | `30`                 | Per-(sender, command) cooldown after a Telegram destructive verb fires. Range 1..600. |
 | `TELEGRAM_AI_CALLS_PER_MINUTE`    | Runtime     | `6`                  | Per-Telegram-user rate limit for AI palette calls (rolling 60s bucket per user_id). Range 1..120. |
 | `TELEGRAM_BULK_UPDATE_CONCURRENCY`| Runtime     | `4`                  | `/update all` fan-out concurrency cap. Default 4 — sequential is 1, fast multi-node Swarms can raise to 16. Range 1..16. |
 | `HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS` | Runtime | `3600`        | Cadence for the host-baseline drift sampler. Range 60..86400. |

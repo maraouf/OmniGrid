@@ -21,13 +21,18 @@ from typing import Any, Optional, cast
 
 import httpx
 
+_TL_CACHE: Any = None
+
 
 def _listener() -> Any:
     """Return the loaded logic.telegram_listener module.
 
-    Resolved lazily so cross-module imports don't deadlock at startup.
-    Use as ``_listener()._helper_name(...)`` from every handler that
-    needs a listener helper. Return annotation is ``Any`` deliberately
+    Resolved lazily on the FIRST call (so cross-module imports don't
+    deadlock at startup), then cached in a module-level slot so the
+    ~140 per-dispatched-command lookups under steady-state Telegram
+    traffic don't each run through Python's import + sys.modules dict
+    lookup. Use as ``_listener()._helper_name(...)`` from every handler
+    that needs a listener helper. Return annotation is ``Any`` deliberately
     so PyCharm/Pyright don't try to statically resolve attribute access
     through the shim — the names are stable per the cross-module
     contract but the IDE can't trace them (every `_listener()._foo` is
@@ -35,14 +40,73 @@ def _listener() -> Any:
     file would flood with ~140 false-positive "Access to a protected
     member" warnings.
     """
-    from logic import telegram_listener as _tl
-    return _tl
+    global _TL_CACHE
+    if _TL_CACHE is None:
+        from logic import telegram_listener as _tl
+        _TL_CACHE = _tl
+    return _TL_CACHE
 
 
 # ----------------------------------------------------------------------------
 # Shared handler primitives — extracted to dedupe boilerplate that
 # multiple `_cmd_*` handlers would otherwise repeat verbatim.
 # ----------------------------------------------------------------------------
+# noinspection PyProtectedMember
+async def _gate_destructive(
+    client: httpx.AsyncClient,
+    msg: dict,
+    *,
+    command: str,
+    confirm_command: str,
+    confirm_action_html: str,
+    is_confirm: bool,
+) -> bool:
+    """Shared destructive-command gate: confirm-required check + per-
+    (sender, command) cooldown. Returns True when the caller should
+    ABORT (helper already sent the appropriate reply); False when the
+    caller should PROCEED with the destructive op.
+
+    Captures the 2-stage pattern repeated across `_cmd_restart` /
+    `_cmd_cleanup` / `_cmd_update`:
+
+      1. If not is_confirm AND not _allow_destructive(): reply with
+         the typed-confirm prompt ("reply with `<confirm_command>` to
+         proceed"); return True.
+      2. Else: check the per-(sender, command) cooldown; reply with
+         the wait-time message if blocked; return True.
+      3. Otherwise return False — caller proceeds with the actual
+         destructive operation.
+
+    `command` is the verb name without the leading slash (used as the
+    cooldown key + as the user-facing label in the cooldown reply).
+    `confirm_command` is the full "/restart confirm <target>" string
+    the operator should reply with. `confirm_action_html` is the
+    description that goes inside the typed-confirm prompt ("reboot
+    <b>{label}</b>"). `is_confirm` is the caller's parsed
+    "this IS the confirm reply" boolean.
+
+    The 3 destructive handlers each had their own copy of this
+    sequence — extracting kept them aligned + halved the regression
+    risk class (a bug in the cooldown wording lands once, not three
+    times)."""
+    if not is_confirm and not _listener()._allow_destructive():
+        await _listener()._send_reply(client, _listener()._destructive_confirm_text(
+            confirm_command,
+            confirm_action_html,
+        ))
+        return True
+    sender_id_cd = (msg.get("from") or {}).get("id")
+    allowed, wait_s = _listener()._destructive_cooldown_check(sender_id_cd, "/" + command)
+    if not allowed:
+        await _listener()._send_reply(
+            client,
+            f"⏳ <code>/{command}</code> is on cooldown — wait "
+            f"{int(wait_s) + 1}s before re-running."
+        )
+        return True
+    return False
+
+
 # noinspection PyProtectedMember
 async def _resolve_telegram_sender_id_int(client: httpx.AsyncClient, msg: dict) -> Optional[int]:
     """Pull `msg.from.id` out of an incoming Telegram update + coerce
@@ -891,25 +955,18 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         return
     assert matched is not None  # narrowed by the helper's False branch
 
-    # Destructive gate
-    if not is_confirm and not _listener()._allow_destructive():
-        host_id = matched.get("id") or ""
-        await _listener()._send_reply(client, _listener()._destructive_confirm_text(
-            f"/restart confirm {_listener()._escape(host_id)}",
-            f"reboot <b>{_listener()._escape(matched.get('label') or host_id)}</b>",
-        ))
-        return
-
-    # Per-(sender, command) cooldown so a confirmed restart can't be
-    # replayed indefinitely. 30s default — see `_listener()._destructive_cooldown_check`.
-    sender_id_cd = (msg.get("from") or {}).get("id")
-    allowed, wait_s = _listener()._destructive_cooldown_check(sender_id_cd, "/restart")
-    if not allowed:
-        await _listener()._send_reply(
-            client,
-            f"⏳ <code>/restart</code> is on cooldown — wait "
-            f"{int(wait_s) + 1}s before re-running."
-        )
+    # Destructive gate + per-(sender, command) cooldown — both routed
+    # through the shared `_gate_destructive` helper so the typed-
+    # confirm prompt + cooldown wait-time message stay aligned with
+    # `_cmd_cleanup` and `_cmd_update`.
+    host_id = matched.get("id") or ""
+    if await _gate_destructive(
+        client, msg,
+        command="restart",
+        confirm_command=f"/restart confirm {_listener()._escape(host_id)}",
+        confirm_action_html=f"reboot <b>{_listener()._escape(matched.get('label') or host_id)}</b>",
+        is_confirm=is_confirm,
+    ):
         return
     # Execute via the standard SSH runner
     host_id = matched.get("id") or ""
@@ -939,100 +996,6 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             f"❌ Restart failed for <b>{_listener()._escape(label)}</b>: "
             f"<code>{_listener()._escape(result.get('error') or 'unknown error')}</code>"
         )
-
-
-"""Telegram inbound command listener (Phase 2: send + receive).
-
-Architecture
-------------
-Lifespan-managed background task that long-polls the Telegram Bot API's
-``getUpdates`` endpoint. Incoming text messages are parsed for slash
-commands and dispatched to handler functions; results are sent back to
-the same chat via the Phase 1 ``send()`` plumbing.
-
-Long-poll vs webhook
---------------------
-Telegram offers two delivery models: outbound webhooks (Telegram POSTs
-updates to a public HTTPS endpoint operators expose) and long-poll
-(OmniGrid calls ``getUpdates`` with ``timeout=N`` and Telegram holds
-the connection open until a new update arrives OR the timeout
-expires). Long-poll wins for self-hosted homelab deploys:
-
-  - No need to expose a public HTTPS endpoint through the reverse
-    proxy — OmniGrid stays behind NPM / Tailscale / VPN.
-  - No webhook URL to register / rotate.
-  - State is OmniGrid-owned (the ``offset`` we send is the next
-    update_id to fetch). Restart-safe — we persist the last seen
-    update_id in ``settings`` and resume on next boot.
-
-Tradeoff: one open HTTP connection at all times when the listener is
-on. The default ``timeout=25`` parameter (Telegram caps at 50) keeps
-the connection efficient.
-
-Authorization model
--------------------
-The destination ``telegram_chat_id`` setting (where Phase 1
-notifications go) is also the SOLE chat allowed to issue commands.
-Two layers of defence:
-
-  1. **Chat-id gate**: ``update.message.chat.id`` must equal
-     ``telegram_chat_id`` (configured destination). Commands sent
-     in any other chat are silently ignored (the bot might be in
-     multiple chats; only ONE is authorized).
-  2. **User-id allow-list** (optional): when
-     ``telegram_authorized_user_ids`` (CSV of int IDs) is non-empty,
-     the message sender's id must be in the list. Empty list means
-     "any sender in the authorized chat is allowed" (use this for
-     personal DMs or single-operator supergroups where chat
-     membership IS the authorization).
-
-For supergroups with multiple members, populate the user-id list
-explicitly. For DMs, leave it empty — the chat-id gate is sufficient.
-
-Destructive-command gate
-------------------------
-``/restart`` and any other destructive verb requires either:
-
-  - ``telegram_allow_destructive=true`` (operator pre-approves
-    destructive commands without per-command confirm), OR
-  - A typed-confirm two-step: ``/restart <target>`` returns a
-    "Reply with `/restart confirm <target>` to proceed" prompt and
-    arms a single-use confirmation token (persisted in ``settings``
-    under ``telegram_pending_confirm_<token>`` with a TTL).
-
-Mirrors the SSH terminal's typed-hostname confirm pattern used
-elsewhere in the app.
-
-Host resolver
--------------
-Commands accept a target that's matched against (in priority order):
-
-  1. IP address (exact match against curated host's ``address`` field
-     OR per-provider names like ``snmp_name`` / ``beszel_name``)
-  2. ``host_id`` (curated row primary key)
-  3. ``label`` (operator-friendly display name)
-  4. Asset ``short_name`` (from asset inventory by ``custom_number``)
-  5. Asset ``serial`` / ``model`` substring
-
-Multiple matches → reply with the list and abort.
-
-Audit trail
------------
-Every command write goes through ``logic.ssh.run_command`` which
-ALREADY persists to the ``history`` table via the standard SSH
-audit path. Read-only commands (``/status``, ``/hosts``) write their
-own audit row via ``write_admin_audit`` so the trail stays complete.
-
-Phase 2 scope (this module)
----------------------------
-Three commands ship in Phase 2.1:
-  - ``/help`` — list available commands
-  - ``/hosts`` — list curated hosts (sanitised: id + label + status)
-  - ``/restart <target>`` — SSH-execute ``sudo reboot`` on the host
-
-Phase 2.2 (deferred): ``/status``, ``/exec <target> <command>`` (gated
-behind an even stricter allow-list), per-event ack from Telegram.
-"""
 
 
 # (Imports for the handlers below live in the top-of-file block —
@@ -1416,22 +1379,22 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
         return
 
     # Execute path — same in-process Operations pipeline the SPA uses.
+    # Per-(sender, command) cooldown via the shared `_gate_destructive`
+    # helper — passes is_confirm=True since the multi-line preview-list
+    # branch above already handled the typed-confirm prompt path.
+    # Returns True when the caller should ABORT (helper sent the wait-
+    # time reply).
+    sender_id = (msg.get("from") or {}).get("id")
+    if await _gate_destructive(
+        client, msg,
+        command="cleanup",
+        confirm_command="/cleanup confirm",
+        confirm_action_html=f"remove all {len(removables)} container(s)",
+        is_confirm=True,
+    ):
+        return
     # Resolve the actor (linked OmniGrid username) so the history rows
     # the Ops persist carry the right attribution.
-    sender_id = (msg.get("from") or {}).get("id")
-    # Per-(sender, command) cooldown so a confirmed destructive
-    # command can't be replayed indefinitely. 30s default — long
-    # enough to stop accidental rapid-fire, short enough that an
-    # operator intentionally re-running after a real interval isn't
-    # blocked.
-    allowed, wait_s = _listener()._destructive_cooldown_check(sender_id, "/cleanup")
-    if not allowed:
-        await _listener()._send_reply(
-            client,
-            f"⏳ <code>/cleanup</code> is on cooldown — wait "
-            f"{int(wait_s) + 1}s before re-running."
-        )
-        return
     actor = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
     actor = actor or "telegram"
 
@@ -1645,9 +1608,12 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 return
             targets = partial
 
-    # Destructive gate.
+    # Destructive gate. `n` is hoisted out of the `if not is_confirm`
+    # branch because the post-confirm cooldown call below references
+    # it too — otherwise `n` would be referenced before assignment on
+    # the is_confirm=True path.
+    n = len(targets)
     if not is_confirm and not _listener()._allow_destructive():
-        n = len(targets)
         lines = [
             f"⚠️ <b>{n} item(s) will be updated</b> — pull-and-recreate, "
             "brief downtime for each.",
@@ -1670,16 +1636,20 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         await _listener()._send_reply(client, "\n".join(lines))
         return
 
-    # Per-(sender, command) cooldown so a confirmed update can't be
-    # replayed indefinitely. 30s default — see `_listener()._destructive_cooldown_check`.
+    # Per-(sender, command) cooldown via the shared `_gate_destructive`
+    # helper — passes is_confirm=True since the multi-line preview-list
+    # branch above already handled the typed-confirm prompt path.
     sender_id = (msg.get("from") or {}).get("id")
-    allowed_cd, wait_cd = _listener()._destructive_cooldown_check(sender_id, "/update")
-    if not allowed_cd:
-        await _listener()._send_reply(
-            client,
-            f"⏳ <code>/update</code> is on cooldown — wait "
-            f"{int(wait_cd) + 1}s before re-running."
-        )
+    if await _gate_destructive(
+        client, msg,
+        command="update",
+        confirm_command=(
+            "/update all confirm" if target == "all"
+            else f"/update {_listener()._escape(target)} confirm"
+        ),
+        confirm_action_html=f"update {n} item(s)",
+        is_confirm=True,
+    ):
         return
     # Fire the updates. Each item gets its own Operation. Mirrors
     # the SPA's per-row "Update" button.

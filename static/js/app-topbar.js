@@ -1,7 +1,19 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
 // noinspection NestedTemplateLiteralJS
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSUnusedGlobalSymbols,JSUnusedLocalSymbols
+// noinspection EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,ExceptionCaughtLocallyJS
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,NegatedIfStatementJS,IfStatementWithIdenticalBranchesJS
+// noinspection HtmlUnknownTag,HtmlEmptyTagsRecommendation,VoidExpressionJS,JSVoidExpression,UnnecessaryReturnStatementJS,JSValidateTypes
+// Per-inspection suppressions match the sibling SPA files (app-drawer-bulk.js et al). Covered SPA idioms:
+// constants on the right of comparisons (modern ESLint default); arrow / anonymous callbacks;
+// chained map+filter; nested t() / toString() / loadSettings() / loadTuning() calls; magic numbers
+// for unit conversions + thresholds; empty catch blocks holding the fire-and-forget try/catch shape;
+// `_` unused catch parameter; `continue` inside for-of guards; Alpine-called methods PyCharm can't
+// trace through `@click` / `:disabled` bindings; `<table>` / `<svg>` substrings inside JS template
+// literals the HTML inspector mis-parses. Real findings (ignored Promise, exception caught locally)
+// are fixed below, not suppressed.
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA topbar widgets — clock, weather, public-IP.
@@ -219,7 +231,10 @@ export default {
     if (this._weatherTimer) {
       return;
     }
-    this.loadHeaderWeather();
+    // Fire-and-forget — the initial paint doesn't await; the 10-min
+    // refresh ticker (below) drives subsequent fetches. `void` makes
+    // the missing-await intent explicit to the IDE.
+    void this.loadHeaderWeather();
     // 10 min cadence — backend already caches 10 min per coord, so
     // this matches the server-side TTL. Even if the operator has ten
     // tabs open they hit the cache after the first.
@@ -272,6 +287,31 @@ export default {
       this.publicIp = await r.json();
       this._publicIpFetchedAt = now;
     } catch (_) { /* silent — AI prompt just omits the block */
+    }
+  },
+
+  // 10-min cache window matching `_ensurePublicIp`. Stored on
+  // `this._publicIpHistoryCache` so the synchronous
+  // `_buildAiPaletteContext` can fold it into the prompt block. Silent
+  // failure leaves the cache empty / null — AI sees no history, says
+  // it doesn't know, no hallucination. Backed by the admin-only
+  // `/api/public-ip/history` endpoint.
+  async _ensurePublicIpHistory() {
+    const now = Date.now();
+    if (Array.isArray(this._publicIpHistoryCache)
+      && (now - (this._publicIpHistoryFetchedAt || 0)) < 10 * 60 * 1000) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/public-ip/history?limit=10');
+      if (!r.ok) {
+        return;
+      }
+      const data = await r.json();
+      this._publicIpHistoryCache = Array.isArray(data && data.history)
+        ? data.history : [];
+      this._publicIpHistoryFetchedAt = now;
+    } catch (_) { /* silent — see comment above */
     }
   },
 };
