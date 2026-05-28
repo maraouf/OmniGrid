@@ -4695,14 +4695,15 @@
                      live telemetry sections. Visible only when
                      `assetForHost(h)` returns a populated shape;
                      hosts without a match show nothing here. -->
-            <!-- PERF (F3): `x-for over [assetForHost(h)].filter(Boolean)` replaces
-                 the old `x-if="assetForHost(h)"` gate so the heavy descriptor
-                 is computed ONCE per render and rebound as `asset` for every
+            <!-- `x-for over [assetForHost(h)].filter(Boolean)` replaces the
+                 old `x-if="assetForHost(h)"` gate so the heavy descriptor is
+                 computed ONCE per render and rebound as `asset` for every
                  inner reference. Same render-or-skip semantic as x-if (empty
-                 array = zero copies) but collapses ~30 per-binding calls into
-                 one. :key keeps the DOM stable across reactive flushes; the
-                 descriptor is memoized backend-side so the array literal here
-                 returns the same object identity within one cache version. -->
+                 array = zero copies) but collapses ~30 per-binding calls
+                 into one. :key keeps the DOM stable across reactive flushes;
+                 the descriptor is memoized backend-side so the array literal
+                 here returns the same object identity within one cache
+                 version. -->
             <template x-for="asset in [assetForHost(h)].filter(Boolean)" :key="(h && h.id) || 'asset'">
               <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-12">
                 <div class="flex items-center justify-between mb-3">
@@ -11406,6 +11407,15 @@
        role="dialog" aria-modal="true" :aria-label="t('command_palette.dialog_label')"
        @keydown="_focusTrapKeydown($event, $el)">
     <div @click="closeCommandPalette()" class="absolute inset-0 backdrop-strong"></div>
+    <!-- x-if gates the heavy card body — its x-for results list,
+         bulk-chip strip, AI thinking pane, and ~100 t() bindings only
+         mount when the palette is actually open. The outer
+         `:style="display:flex/none"` wrapper above keeps the dialog
+         role + focus-trap intact for ARIA semantics; this inner x-if
+         removes the subtree from Alpine's reactive graph when closed
+         so a host-refresh / SSE event won't re-walk every closed-
+         palette binding. -->
+    <template x-if="commandPaletteOpen">
     <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
       <!-- Inner card uses inline style for max-height instead of
            Tailwind v4's `max-h-[80vh]` arbitrary class — the in-
@@ -11517,6 +11527,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 
   <!-- ================== HOTKEYS HELP MODAL ================== -->
