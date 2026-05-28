@@ -78,7 +78,18 @@ async def _baseline_tick(tick: int) -> None:
     start = time.time()
     for hid in hosts:
         try:
-            _baseline.compute_baselines(hid, target=host_targets.get(hid, ""))
+            # Offload per-host compute to a worker thread — each
+            # call opens two `db_conn`s and computes median/IQR
+            # over up to 30 days of samples; on 100+ hosts the
+            # serial loop can stall the event loop for seconds
+            # once an hour. Same pattern as host_metrics_sampler's
+            # prune offload. The per-host serial dispatch is
+            # intentional (avoid SQLite write-lock contention from
+            # parallel UPSERTs); the `to_thread` just keeps the
+            # event loop hot for /api/* requests.
+            await asyncio.to_thread(
+                _baseline.compute_baselines, hid, host_targets.get(hid, ""),
+            )
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         except Exception as exc:  # noqa: BLE001
