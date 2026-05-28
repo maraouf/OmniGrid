@@ -94,6 +94,13 @@ STATS_CACHE_TTL_SECONDS=30
 # Parallel remote-digest fetches.
 REGISTRY_CONCURRENCY=8
 
+# How long a resolved remote manifest digest is reused before OmniGrid
+# re-HEADs the registry for it. A full gather fires one HEAD per image; digests
+# only change on an upstream push, so caching the result skips most of those
+# requests (especially when auto-refresh runs more often than this TTL). Set 0
+# to disable. Default 600 (10 min). Only successful digests are cached.
+REGISTRY_DIGEST_CACHE_TTL_SECONDS=600
+
 # Parallel /stats calls.
 STATS_CONCURRENCY=16
 
@@ -784,6 +791,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `CACHE_TTL_SECONDS`               | Runtime     | `900`                | Items cache TTL.                                                                |
 | `STATS_CACHE_TTL_SECONDS`         | Runtime     | `30`                 | Stats cache TTL.                                                                |
 | `REGISTRY_CONCURRENCY`            | Runtime     | `8`                  | Parallel remote-digest fetches.                                                 |
+| `REGISTRY_DIGEST_CACHE_TTL_SECONDS` | Runtime   | `600`                | Reuse a resolved manifest digest for N s before re-HEADing (`0` disables).      |
 | `STATS_CONCURRENCY`               | Runtime     | `16`                 | Parallel `/stats` calls.                                                        |
 | `STATS_HISTORY_DAYS`              | Runtime     | `7`                  | Retention window for `stats_samples`.                                           |
 | `STATS_SAMPLE_INTERVAL_SECONDS`   | Runtime     | `300`                | Sampler cadence.                                                                |

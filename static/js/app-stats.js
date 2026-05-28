@@ -32,6 +32,21 @@ function _clearNodeStatsFlushCache() {
   _nodeStatsFlushScheduled = false;
 }
 
+// PERF-15: per-flush memo for nodeSparkPoints(host, key) — same contract as
+// _nodeStatsFlushCache. The Nodes view binds nodeSparkPoints for cpu/mem/disk
+// per node card (disk twice + via x-show AND :points), ~8 calls/card/flush,
+// each O(items x history) (it bins EVERY item's spark series). One build per
+// (host,key) per flush; cleared on the next microtask. Nested Map keyed on the
+// host (same key space as _nodeStatsFlushCache — object/string safe) then the
+// metric. Safe (no freeze) because the Nodes cards live in an x-for that
+// re-renders on the stats/sparks poll, re-evaluating these bindings fresh.
+let _nodeSparkFlushCache = null;
+let _nodeSparkFlushScheduled = false;
+function _clearNodeSparkFlushCache() {
+  _nodeSparkFlushCache = null;
+  _nodeSparkFlushScheduled = false;
+}
+
 export default {
   stats: {}, _statsTimer: null, _maxSize: 1,
   // Flips to true on the first successful `/api/stats` response so
@@ -740,9 +755,31 @@ export default {
   // rounded timestamp (matching the sampler's cadence) so items with
   // near-identical-but-not-exact timestamps still stack correctly.
   nodeSparkPoints(host, key) {
+    // PERF-15: per-flush memo — see _nodeSparkFlushCache. `undefined` = not
+    // cached (the builder returns '' or a points string, never undefined).
+    if (_nodeSparkFlushCache === null) {
+      _nodeSparkFlushCache = new Map();
+      if (!_nodeSparkFlushScheduled) {
+        _nodeSparkFlushScheduled = true;
+        queueMicrotask(_clearNodeSparkFlushCache);
+      }
+    }
+    let _perHost = _nodeSparkFlushCache.get(host);
+    if (!_perHost) {
+      _perHost = new Map();
+      _nodeSparkFlushCache.set(host, _perHost);
+    }
+    const _hit = _perHost.get(key);
+    if (_hit !== undefined) {
+      return _hit;
+    }
+    const _memo = (v) => {
+      _perHost.set(key, v);
+      return v;
+    };
     const items = this.itemsForNode(host);
     if (!items.length) {
-      return '';
+      return _memo('');
     }
     const BIN = 300; // seconds — matches STATS_SAMPLE_INTERVAL default
     const byBin = new Map();
@@ -763,7 +800,7 @@ export default {
     }
     const sorted = Array.from(byBin.values()).sort((a, b) => a.ts - b.ts);
     if (sorted.length < 2) {
-      return '';
+      return _memo('');
     }
     const W = 60, H = 10;
     const vals = sorted.map(r => {
@@ -792,7 +829,7 @@ export default {
     // render a misleading flat line at H/2. Returning '' hides
     // the SVG via x-show, keeping the cell clean.
     if (key === 'disk' && vals.every(v => !v)) {
-      return '';
+      return _memo('');
     }
     let lo = Infinity, hi = -Infinity;
     for (const v of vals) {
@@ -823,11 +860,11 @@ export default {
     const PAD = 1;
     const drawH = H - 2 * PAD;
     const step = W / (vals.length - 1);
-    return vals.map((v, i) => {
+    return _memo(vals.map((v, i) => {
       const x = (i * step).toFixed(1);
       const y = (PAD + (1 - (v - lo) / (hi - lo)) * drawH).toFixed(1);
       return `${x},${y}`;
-    }).join(' ');
+    }).join(' '));
   },
 
   nodeSparkClass(host, key) {

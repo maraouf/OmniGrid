@@ -23,6 +23,22 @@
 const _hostSparkMemo = new WeakMap();
 const _EMPTY_HOST_SPARK = {line: '', area: '', has: false};
 
+// PERF-14: drawer-chart memos — same WeakMap-on-series-identity contract as
+// _hostSparkMemo. hostChart's built object {points, pathGapped, area, ...} and
+// hostChartMax's numeric peak are cached per series ARRAY REFERENCE, sub-keyed
+// by the variable inputs (metric key + series.length + geometry for hostChart;
+// the key set + series.length for hostChartMax). loadHostHistory replaces
+// entry.series with a fresh array on every fetch / range-switch (busts the
+// WeakMap entry) and an in-place append bumps .length (busts the sub-key), so
+// the memo never serves stale data; the 1-second `hostHistoryNow` ticker then
+// re-reads the bindings but gets the SAME object/number back, so Alpine skips
+// the :d / axis-label DOM writes. The absolute-now drift in _drawerTimeDomain()
+// (sub-pixel/second on every window) is intentionally NOT in the key — keying
+// on it would defeat the memo for an invisible shift, and the per-fetch series
+// replacement refreshes the domain anyway.
+const _hostChartMemo = new WeakMap();
+const _hostChartMaxMemo = new WeakMap();
+
 // Closes one gap-free area run into an SVG subpath (the run's line, then down
 // to the baseline and back), or null when the run is too short to fill.
 // Extracted from _buildHostSpark to keep that builder's statement count down.
@@ -1576,6 +1592,23 @@ export default {
     if (!entry || !entry.series || entry.series.length < 2) {
       return null;
     }
+    // PERF-14: serve the built chart object from the per-series memo when the
+    // inputs are unchanged (see _hostChartMemo). The template reads
+    // hostChart(...).gridPath AND .pathGapped for ONE chart, so this also
+    // collapses those two calls in a single render to one build.
+    const _series = entry.series;
+    let _perArr = _hostChartMemo.get(_series);
+    if (!_perArr) {
+      _perArr = new Map();
+      _hostChartMemo.set(_series, _perArr);
+    }
+    const _mkey = key + '|' + _series.length + '|' + (opts.width || 420) + '|'
+      + (opts.height || 100) + '|' + (opts.min === undefined ? '' : opts.min)
+      + '|' + (opts.max === undefined ? '' : opts.max);
+    const _cached = _perArr.get(_mkey);
+    if (_cached) {
+      return _cached;
+    }
     const W = opts.width || 420;
     const H = opts.height || 100;
     const PAD_X = 4;
@@ -1721,7 +1754,7 @@ export default {
       .map(t => `M0,${(parseFloat(t.y) * 1.2).toFixed(1)} H${W}`)
       .join(' ');
     const cur = Number(pts[pts.length - 1]) || 0;
-    return {
+    const _result = {
       points,
       pathGapped,
       area,
@@ -1733,6 +1766,8 @@ export default {
       max: hi,
       current: cur,
     };
+    _perArr.set(_mkey, _result);
+    return _result;
   },
   // Min/Max label helper — returns both pre-formatted strings
   // (used directly in the chart header) and raw numeric values
@@ -1746,6 +1781,21 @@ export default {
     if (!entry || !entry.series) {
       return 0;
     }
+    // PERF-14: memoize the O(points) peak reduction per series identity + the
+    // key set + length. Called 2-3x per chart (y-axis labels + each hostChart
+    // opts.max); a cached number short-circuits the repeat scans. `0` is a
+    // valid cached value, so the hit check is `!== undefined`.
+    const _series = entry.series;
+    let _perArr = _hostChartMaxMemo.get(_series);
+    if (!_perArr) {
+      _perArr = new Map();
+      _hostChartMaxMemo.set(_series, _perArr);
+    }
+    const _mkey = (Array.isArray(keys) ? keys.join(',') : String(keys)) + '|' + _series.length;
+    const _cached = _perArr.get(_mkey);
+    if (_cached !== undefined) {
+      return _cached;
+    }
     let m = 0;
     for (const k of keys) {
       for (const r of entry.series) {
@@ -1755,6 +1805,7 @@ export default {
         }
       }
     }
+    _perArr.set(_mkey, m);
     return m;
   },
   // "permanently flat" detector. Returns true when the chart

@@ -402,6 +402,43 @@ def active_host_stats_providers() -> set[str]:
 from typing import Iterator
 
 
+# PERF-19: cache the PARSED hosts_config alongside PERF-07's cached string.
+# get_setting(HOSTS_CONFIG) is now a cheap dict lookup (PERF-07), but every
+# curated-host helper still ran json.loads() on the full (tens-of-KB on a large
+# fleet) blob, and the gather + 6 samplers call one or more of them ~a dozen
+# times per tick cycle. This memoizes the json.loads result keyed on the raw
+# string: get_setting returns the SAME cached string object within its TTL (and
+# a settings write changes the string + bumps the version), so the `==` check
+# short-circuits on identity in the common case and the parse only re-runs when
+# the blob actually changes. Single-process single-replica -> a plain module
+# cache is correct (same justification as the settings cache). The cached list
+# (and its row dicts) is SHARED across callers and READ-ONLY by contract —
+# iter_curated_hosts yields rows for reading/filtering, never mutation (every
+# curated_*_hosts helper builds fresh output dicts; never assigns into a row).
+_hosts_config_parsed_raw: Optional[str] = None
+_hosts_config_parsed_value: list = []
+
+
+def _parse_hosts_config(raw: str) -> list:
+    """Return the cached parse of the hosts_config JSON list for `raw`.
+
+    Returns ``[]`` for malformed / non-list input. See the module-cache comment
+    above; callers MUST treat the result (and its row dicts) as read-only.
+    """
+    global _hosts_config_parsed_raw, _hosts_config_parsed_value
+    if raw == _hosts_config_parsed_raw:
+        return _hosts_config_parsed_value
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        parsed = []
+    if not isinstance(parsed, list):
+        parsed = []
+    _hosts_config_parsed_raw = raw
+    _hosts_config_parsed_value = parsed
+    return parsed
+
+
 def iter_curated_hosts(*, require_enabled: bool = True) -> Iterator[dict]:
     """Yield validated ``hosts_config`` rows.
 
@@ -431,17 +468,10 @@ def iter_curated_hosts(*, require_enabled: bool = True) -> Iterator[dict]:
     contract matches the previous per-helper behaviour so a stale
     settings blob can't crash a lifespan task.
     """
-    import json as _json
-
     raw = (get_setting(Settings.HOSTS_CONFIG) or "").strip()
     if not raw:
         return
-    try:
-        parsed = _json.loads(raw)
-    except (ValueError, TypeError):
-        return
-    if not isinstance(parsed, list):
-        return
+    parsed = _parse_hosts_config(raw)
     for row in parsed:
         if not isinstance(row, dict):
             continue

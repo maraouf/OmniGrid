@@ -34,6 +34,17 @@
 // SPLIT FROM `app.js`. Cross-method `this.X` references keep working
 // through the `_mergeKeepDescriptors` chain in app.js.
 
+// PERF-15: memo the Stacks/Services per-item sparkline `points` string per
+// sparks-row ARRAY REFERENCE. this.sparks is replaced wholesale on every
+// pollSparks (app-stats.js) so each item's rows array is a fresh reference per
+// poll -> the WeakMap entry busts; between polls it's stable -> hits. Sub-keyed
+// by metric + rows.length. An expanded Stacks view binds sparkPoints for
+// cpu/mem/disk per visible item, so this collapses N*3 fresh string builds per
+// flush to one-per-(item,metric) until the next poll. Same WeakMap-on-series
+// contract as the shipped host-row _hostSparkData; safe because these bindings
+// live inside the Stacks/Services x-for, which re-renders on the sparks poll.
+const _sparkPointsMemo = new WeakMap();
+
 export default {
 
   // -----------------------------------------------------------------
@@ -1660,6 +1671,22 @@ export default {
     if (!rows || rows.length < 2) {
       return '';
     }
+    // PERF-15 memo — see _sparkPointsMemo. `undefined` = not cached (the
+    // builder returns '' or a points string, never undefined).
+    let _perArr = _sparkPointsMemo.get(rows);
+    if (!_perArr) {
+      _perArr = new Map();
+      _sparkPointsMemo.set(rows, _perArr);
+    }
+    const _mk = key + '|' + rows.length;
+    const _hit = _perArr.get(_mk);
+    if (_hit !== undefined) {
+      return _hit;
+    }
+    const _memo = (v) => {
+      _perArr.set(_mk, v);
+      return v;
+    };
     const W = 60, H = 10;
     const vals = rows.map(r => {
       if (key === 'cpu') {
@@ -1700,10 +1727,10 @@ export default {
     // to the "Collecting data" hint (the data IS being collected,
     // it's just all zeros).
     if (!Number.isFinite(lo)) {
-      return '';
+      return _memo('');
     }
     if (key === 'disk' && hi <= 0) {
-      return '';
+      return _memo('');
     }
     // Keep the sparkline visually centred when the signal is flat —
     // map the flat value to the MIDPOINT of the box (not the
@@ -1716,11 +1743,11 @@ export default {
       hi = mid + 1;
     }
     const step = W / (vals.length - 1);
-    return vals.map((v, i) => {
+    return _memo(vals.map((v, i) => {
       const x = (i * step).toFixed(1);
       const y = (H - ((v - lo) / (hi - lo)) * H).toFixed(1);
       return `${x},${y}`;
-    }).join(' ');
+    }).join(' '));
   },
   sparkClass(item, key) {
     // Colour follows the CURRENT reading (not the sparkline max) so the
