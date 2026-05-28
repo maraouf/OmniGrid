@@ -638,18 +638,54 @@ async def _record_failure(
                 # the notification is best-effort cake on top).
                 try:
                     from logic.ops import notify_with_retry as _notify_with_retry
+                    # Resolve the host's operator-facing target (FQDN /
+                    # IP) so the notification surfaces what was actually
+                    # being probed. The curated `id` is often a short
+                    # alias (e.g. `wdmycloud`) while the resolved
+                    # target is the real reachable address (e.g.
+                    # `wdmycloud.home.lan`) — operators need both at
+                    # a glance in the email title + body. Resolution
+                    # chain mirrors `_resolve_ping_target` /
+                    # ping_sampler / SNMP / SSH per the canonical
+                    # contract: address → ssh.fqdn → ssh.host → id.
+                    target_fqdn = ""
+                    try:
+                        for _h in iter_curated_hosts():
+                            if (_h.get("id") or "").strip() != bare_host:
+                                continue
+                            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+                            target_fqdn = (
+                                (_h.get("address") or "").strip()
+                                or (_ssh.get("fqdn") or "").strip()
+                                or (_ssh.get("host") or "").strip()
+                                or ""
+                            )
+                            break
+                    except Exception:  # noqa: BLE001
+                        # Curated-host lookup failure is non-fatal — we
+                        # fall back to the bare id only in the title.
+                        target_fqdn = ""
+                    # Title surfaces the bare id (operator-recognisable
+                    # short name) PLUS the resolved target in parens
+                    # when distinct — gives both the alias and the
+                    # actual probed address at a glance.
+                    title_target = (
+                        f"{bare_host} ({target_fqdn})"
+                        if target_fqdn and target_fqdn != bare_host
+                        else bare_host
+                    )
                     if provider:
-                        title = f"⚠️ Provider paused: {bare_host} ({provider})"
+                        title = f"⚠️ Provider paused: {title_target} ({provider})"
                         body = (
-                            f"{provider} probes for {bare_host} have failed "
+                            f"{provider} probes for {title_target} have failed "
                             f"{new_fails} consecutive rounds (~{paused_minutes} min). "
                             f"Last error: {err_short or '—'}. "
                             f"Resume manually from the {provider} chip in the host drawer."
                         )
                     else:
-                        title = f"⚠️ Host sampling paused: {bare_host}"
+                        title = f"⚠️ Host sampling paused: {title_target}"
                         body = (
-                            f"{bare_host} has been unreachable for {paused_minutes} min "
+                            f"{title_target} has been unreachable for {paused_minutes} min "
                             f"after {new_fails} consecutive probe failures. "
                             f"Last error: {err_short or '—'}. "
                             f"Resume manually from the host drawer's banner."
