@@ -295,6 +295,12 @@ _SETTINGS_VERSION_EXCLUDED = frozenset({
     "swarm_autoheal_last_notify_ts",
     "swarm_autoheal_last_notify_set",
     "swarm_autoheal_bootstrap_done",
+    # First-boot-only seed flag — written ONCE by the schedule
+    # seeder on a fresh DB, never read by any SPA surface. No tab
+    # cares when it flips so the version bump + SSE fan-out is wasted
+    # work. Same housekeeping category as the swarm_autoheal flags
+    # above.
+    "default_schedules_seeded",
 })
 # Single-element lists used as nullable-int / nullable-bool boxes so the
 # context manager + nested-defer support work without globals + lock
@@ -655,7 +661,21 @@ def curated_ping_hosts() -> list[dict]:
             continue
         _ssh_raw = row.get("ssh")
         ssh_cfg: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
-        host_target = (ssh_cfg.get("fqdn") or ssh_cfg.get("host") or hid).strip() or hid
+        # Resolution chain MUST consult the canonical `address` field
+        # FIRST per the address-fallback contract documented in CLAUDE.md:
+        # `address → ssh.fqdn → ssh.host → SKIP`. Pre-fix this skipped
+        # `address` entirely, so a host that had `address: web01.example.com`
+        # but no ssh sub-dict fell through to the bare `id` (`web01`), which
+        # DNS can't resolve on most fleets — the ping sampler then probed
+        # the wrong target (typically the local hostname inside the
+        # container's own network). Operator-flagged via the boot DNS
+        # check warning "N of M curated host targets are unresolved".
+        host_target = (
+            (row.get("address") or "").strip()
+            or (ssh_cfg.get("fqdn") or "").strip()
+            or (ssh_cfg.get("host") or "").strip()
+            or hid
+        )
         port_override = ping_cfg.get("port")
         if port_override in (None, "", 0):
             port = 0

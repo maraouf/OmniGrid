@@ -623,7 +623,24 @@ async def _lifespan(_app: FastAPI):
         except (sqlite3.Error, OSError, ImportError, RuntimeError) as boot_err:
             print(f"[boot] swarm_agent_health bootstrap failed: {boot_err}")
 
-    seed_task = asyncio.create_task(_seed_caches_bg(), name="boot-seed-caches")
+    # Seed caches BEFORE lifespan yields so the FIRST /api/items call
+    # after boot hits the snapshot-populated cache instead of the
+    # cold-cache branch. Pre-fix this was fire-and-forget via
+    # asyncio.create_task — the race window (typical seed 0.5-3s vs
+    # SPA fires within 100-500ms of healthcheck pass) made the first
+    # /api/items request fall through to the slow gather path.
+    # 10s outer cap so a corrupt snapshot table can't permanently
+    # delay boot. The seeder reads SQLite only — no remote calls —
+    # bounded by snapshot-table size. Accepting a connection 2s later
+    # that returns instantly beats accepting one immediately that
+    # 504s 25s later.
+    try:
+        await asyncio.wait_for(_seed_caches_bg(), timeout=10.0)
+    except asyncio.TimeoutError:
+        print("[boot] cache seed exceeded 10s budget; continuing boot — "
+              "first /api/items / /api/stats may hit cold-cache once")
+    except Exception as seed_err:  # noqa: BLE001
+        print(f"[boot] cache seed failed (non-fatal): {seed_err}")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
     # Net-I/O fallback sampler — scrapes node-exporter directly for any
@@ -749,7 +766,11 @@ async def _lifespan(_app: FastAPI):
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        # `seed_task` removed from this tuple — `_seed_caches_bg`
+        # now awaits inline at boot (above the create_task chain)
+        # so it's already completed by the time we reach this finally
+        # block; nothing to cancel.
+        for task in (weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
@@ -2306,7 +2327,25 @@ async def api_items(force: bool = False):
         gather_task = _apps_routes._kick_background_gather()
         if gather_task is not None:
             try:
-                await gather_task
+                # Outer wall-clock budget — gather has its own per-
+                # call timeouts (Portainer client, registry probes,
+                # per-node sweeps) but the SUM can exceed NPM's
+                # `proxy_read_timeout` (default 60s) when ANY ONE
+                # Swarm worker is network-unreachable. Each
+                # unreachable worker's /containers/json wait pays the
+                # full client timeout even though the calls fan out
+                # via asyncio.gather. Without this outer cap a single
+                # cold-cache call on a partially-unreachable cluster
+                # would 502/504 from NPM before gather returns. 25s
+                # mirrors the /api/stats envelope already in place
+                # AND sits comfortably under NPM's typical 60s.
+                # TimeoutError falls through to serve cache (possibly
+                # empty); the next poll picks up fresh data.
+                await asyncio.wait_for(gather_task, timeout=25.0)
+            except asyncio.TimeoutError:
+                print("[items] cold-cache gather exceeded 25s budget; "
+                      "serving from cache and letting gather continue "
+                      "in background")
             except Exception as e:  # noqa: BLE001
                 # Don't let a transient gather error break the
                 # response — the SPA will retry on the next poll, and

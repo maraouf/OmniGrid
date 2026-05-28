@@ -47,6 +47,18 @@ _stats_cache: dict = {"stats": {}, "ts": 0.0}
 #              hint for "N containers worth of metrics are missing")
 _agent_health: dict[str, dict[str, Any]] = {}
 
+# Per-Swarm-node fail cache for the per-node /containers/json sweep.
+# When ANY Swarm worker is network-unreachable, its
+# /containers/json call eats the full client timeout — and EVERY
+# /api/stats call after the stats cache goes stale re-pays it. The
+# fail cache short-circuits those callers for `tuning_stats_per_node_
+# unreachable_ttl_seconds` (default 60s) after a ConnectTimeout /
+# OSError, so the SPA's 15s poll cadence isn't paying 12s per
+# unreachable worker on every other poll. Latches off on the next
+# successful probe. Cache key is the hostname (`agent_target` header
+# value); value is the epoch ts of the most-recent failure.
+_per_node_unreachable: dict[str, float] = {}
+
 
 def get_stats_cache() -> dict:
     """Return the shared module-level `_stats_cache` dict (per-item resource samples)."""
@@ -437,17 +449,50 @@ async def gather_stats() -> None:
         sweep_node_by_cid: dict[str, str] = {}
         try:
             if len(hostnames) >= 2:
+                # Short-circuit any node that recently failed —
+                # skipping its probe entirely instead of paying
+                # the full client timeout AGAIN. Operators with
+                # 1+ unreachable workers were seeing every /api/stats
+                # call queue 12s behind the dead worker; this latches
+                # the failure for `tuning_stats_per_node_unreachable_
+                # ttl_seconds` (default 60s) and frees the executor
+                # for /api/healthz + /api/me + drawer fetches.
+                try:
+                    _unreach_ttl = float(tuning.tuning_int(
+                        Tunable.STATS_PER_NODE_UNREACHABLE_TTL_SECONDS,
+                    ))
+                except (KeyError, ValueError, TypeError):
+                    _unreach_ttl = 60.0
+                _now_ts = time.time()
+
                 async def _per_node(h: str):
-                    """Per-host /containers/json fan-out; swallows per-node errors to keep the sweep alive."""
+                    """Per-host /containers/json fan-out; swallows per-node errors to keep the sweep alive.
+                    Skips known-unreachable workers within the TTL window."""
+                    last_fail = _per_node_unreachable.get(h)
+                    if last_fail is not None and (_now_ts - last_fail) < _unreach_ttl:
+                        # Quiet skip — first failure log fired up to
+                        # `_unreach_ttl` seconds ago; spamming the
+                        # same line on every poll would drown out
+                        # real errors. Operators see the empty list
+                        # via the gather_stats merged-size summary
+                        # below.
+                        return h, []
                     try:
-                        return h, await portainer.pg(
+                        result = await portainer.pg(
                             client,
                             f"{ep}/containers/json?all=1&size=1",
                             agent_target=h,
                         )
+                        # Successful probe — latch off any prior
+                        # unreachable mark so subsequent polls run
+                        # the real probe again.
+                        _per_node_unreachable.pop(h, None)
+                        return h, result
                     except (httpx.HTTPError, OSError, ValueError) as node_err:
+                        _per_node_unreachable[h] = _now_ts
                         print(f"[stats] gather_stats: per-node list for {h} FAILED: "
-                              f"{type(node_err).__name__}: {node_err}")
+                              f"{type(node_err).__name__}: {node_err} "
+                              f"(suppressing repeat logs for {int(_unreach_ttl)}s)")
                         return h, []
 
                 per_node = await asyncio.gather(*(_per_node(h) for h in hostnames))

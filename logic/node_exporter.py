@@ -754,24 +754,43 @@ async def probe_node(
             # packets. Distinct from "Connection refused" (host
             # reachable, port closed).
             if klass == "ConnectTimeout" or "connecttimeout" in lower:
+                # Pull concrete host:port from the URL + container
+                # short-hostname so the operator's troubleshooting
+                # command is copy-paste-ready instead of placeholder-
+                # bearing. `socket.gethostname()` inside the container
+                # returns the container ID prefix (also valid as a
+                # `docker exec` target); `urlparse` handles missing
+                # port (falls back to the URL's scheme default 80/443).
+                from urllib.parse import urlparse as _urlparse
+                import socket as _socket
+                _u = _urlparse(u)
+                _host = _u.hostname or "<host>"
+                _port = _u.port or ({"http": 80, "https": 443}.get(_u.scheme, ""))
+                try:
+                    _container = _socket.gethostname() or "<omnigrid-container>"
+                except OSError:
+                    _container = "<omnigrid-container>"
                 return None, (
                     f"{raw or klass} — TCP connect timeout to {u}; "
                     "the kernel got no SYN-ACK back. Check: (a) is the "
                     "host actually on the network? (b) is the port "
                     "correct? (c) is a firewall dropping packets from "
                     "the OmniGrid container's network to this host? "
-                    "Run `docker exec <omnigrid-container> nc -vz "
-                    "<host> <port>` to confirm."
+                    f"Run `docker exec {_container} nc -vz {_host} {_port}` "
+                    "to confirm."
                 )
             # TCP-connect refused — kernel returned RST.  Host is
             # reachable but nothing is listening on the port.
             if "connection refused" in lower or "econnrefused" in lower:
+                from urllib.parse import urlparse as _urlparse
+                _u_cr = _urlparse(u)
+                _port_cr = _u_cr.port or ({"http": 80, "https": 443}.get(_u_cr.scheme, ""))
                 return None, (
                     f"{raw} — the host is reachable on the network "
                     "but NOTHING is listening on this port. The service "
                     "(node_exporter) is probably stopped or running on "
-                    "a different port. SSH to the host and run "
-                    "`ss -tlnp | grep <port>` to confirm."
+                    f"a different port. SSH to the host and run "
+                    f"`ss -tlnp | grep {_port_cr}` to confirm."
                 )
             # Read timeout — TCP connect succeeded but the server
             # didn't send the full response within `timeout`.

@@ -393,6 +393,13 @@ HOST_PROVIDER_CACHE_TTL_SECONDS=10
 # operators chasing cache regressions can lower to 25 for verbose
 # debugging, or raise to 1000 to cut noise on busy multi-tab sessions.
 HOST_PROVIDER_CACHE_DIAG_INTERVAL=100
+# gather_stats per-node fail-cache TTL — skip known-unreachable
+# Swarm workers for this window after a /containers/json
+# ConnectTimeout. Latches off on the next successful probe.
+# Eliminates the per-poll executor-saturation cliff caused by
+# repeatedly re-paying the full Portainer client timeout for a
+# dead worker. Default 60s; range 5-600.
+STATS_PER_NODE_UNREACHABLE_TTL_SECONDS=60
 # Cache TTL for the per-host configured-providers map consulted by
 # `record_provider_outcome`'s defensive guard (refuses + cleans orphan
 # rows when a probe fires for an unconfigured provider). Canonical
@@ -924,6 +931,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `NODE_EXPORTER_PROBE_TIMEOUT_SECONDS` | Runtime | `10`                 | Per-host NE scrape timeout.                                                      |
 | `HOST_PROVIDER_CACHE_TTL_SECONDS` | Runtime     | `10`                 | Outer host-provider memo TTL.                                                    |
 | `HOST_PROVIDER_CACHE_DIAG_INTERVAL` | Runtime   | `100`                | Cache hit/miss diagnostic-log cadence (calls). Lower = more verbose.            |
+| `STATS_PER_NODE_UNREACHABLE_TTL_SECONDS` | Runtime | `60`             | gather_stats skip-window for failed Swarm workers (seconds).                    |
 | `HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS` | Runtime | `60`                 | Per-host configured-providers map cache TTL (record_provider_outcome guard).     |
 | `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out.                                  |
 | `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down.                                      |
