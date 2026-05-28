@@ -20,6 +20,16 @@ export default {
   // has had a chance to stamp `window.__ogLastBackendOkTs`.
   backendUnreachable: false,
 
+  // Per-tab dismissal flag for the Admin → Authentication
+  // "SESSION_SECRET auto-generated" banner. Hydrated from sessionStorage
+  // in init() so a single tab session keeps the dismissal but a fresh
+  // browser session (or different tab) re-shows the warning since the
+  // underlying threat is still active. The banner is gated on BOTH
+  // `me.client_config.session_secret_auto_generated` AND
+  // `!sessionSecretBannerDismissed` so dismissing it in the SPA hides
+  // it without touching server state.
+  sessionSecretBannerDismissed: false,
+
   _initSSE() {
     // Defence-in-depth: never start two streams. ``init()`` runs once
     // per Alpine component instance but a future hot-reload path

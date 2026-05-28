@@ -1026,12 +1026,13 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
     # NOTE: legacy `port_scan_default_timeout_seconds` /
     # `port_scan_default_concurrency` plain-key write paths were
     # removed. They were dead code — every consumer reads via
-    # `tuning_int("tuning_port_scan_default_timeout_seconds")` /
-    # `tuning_int("tuning_port_scan_default_concurrency")` and the
-    # SPA's port_scan partial binds to the TUNABLES form. The legacy
-    # keys remain on `SettingsIn` only to gracefully ignore old POST
-    # bodies; no `set_setting` writes here means the values silently
-    # land nowhere, matching what the consumers were already seeing.
+    # `tuning_int(Tunable.PORT_SCAN_DEFAULT_TIMEOUT_SECONDS)` /
+    # `tuning_int(Tunable.PORT_SCAN_DEFAULT_CONCURRENCY)` (typed-enum
+    # form per the STRICT key-enum rule) and the SPA's port_scan partial
+    # binds to the TUNABLES form. The legacy keys remain on
+    # `SettingsIn` only to gracefully ignore old POST bodies; no
+    # `set_setting` writes here means the values silently land
+    # nowhere, matching what the consumers were already seeing.
     # Per CLAUDE.md "Plain-settings escape hatch is a drift class".
     # SNMP. Mirror the webmin / beszel / pulse persistence
     # contract: community / version / port / aliases round-trip in the
@@ -1593,11 +1594,12 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         set_setting(Settings.AI_ACTIVE_PROVIDER, active)
     # NOTE: legacy `ai_max_tokens` / `ai_fallback_max_depth` plain-key
     # write paths were removed. They were dead code — every consumer
-    # reads via `tuning_int("tuning_ai_max_tokens")` /
-    # `tuning_int("tuning_ai_fallback_max_depth")` and the SPA's AI
-    # Integration partial binds to the TUNABLES form. Per CLAUDE.md
-    # "Plain-settings escape hatch is a drift class" — numeric
-    # operator-tunable values must flow through TUNABLES, not via
+    # reads via `tuning_int(Tunable.AI_MAX_TOKENS)` /
+    # `tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH)` (typed-enum form per
+    # the STRICT key-enum rule) and the SPA's AI Integration partial
+    # binds to the TUNABLES form. Per CLAUDE.md "Plain-settings escape
+    # hatch is a drift class" — numeric operator-tunable values must
+    # flow through TUNABLES, not via
     # `get_setting` / `set_setting`. Fields remain on `SettingsIn`
     # so old POST bodies don't 422; the values silently land nowhere
     # which matches what the consumers were already seeing.

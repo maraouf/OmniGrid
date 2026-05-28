@@ -394,7 +394,10 @@ _HOST_PROVIDER_CONFIG_CACHE_TS: float = 0.0
 # Cache TTL — even if invalidate isn't called, refresh from disk after
 # this many seconds. Belt-and-braces against any future code path that
 # writes hosts_config without going through the canonical save endpoint.
-_HOST_PROVIDER_CONFIG_CACHE_TTL_SEC = 60.0
+# Read via `tuning_int(Tunable.HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS)`
+# at the per-use site below — per-use respects the No-static-config
+# rule (operator can lower the TTL via Admin → Config to land the
+# next save faster, or raise it on a stable fleet to lighten DB reads).
 
 
 def _invalidate_host_provider_config_cache() -> None:
@@ -419,9 +422,16 @@ def _host_provider_config() -> dict[str, set[str]]:
     """
     global _HOST_PROVIDER_CONFIG_CACHE, _HOST_PROVIDER_CONFIG_CACHE_TS
     now_ts = time.time()
+    # Per-use TTL read — admin can dial via Admin → Config without
+    # restart. Defensive fallback to legacy 60s if `tuning_int` raises
+    # (corrupt DB row).
+    try:
+        _ttl = float(tuning.tuning_int(Tunable.HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS))
+    except (KeyError, ValueError, TypeError):
+        _ttl = 60.0
     if (
         _HOST_PROVIDER_CONFIG_CACHE is not None
-        and (now_ts - _HOST_PROVIDER_CONFIG_CACHE_TS) < _HOST_PROVIDER_CONFIG_CACHE_TTL_SEC
+        and (now_ts - _HOST_PROVIDER_CONFIG_CACHE_TS) < _ttl
     ):
         return _HOST_PROVIDER_CONFIG_CACHE
     out: dict[str, set[str]] = {}
@@ -439,7 +449,18 @@ def _host_provider_config() -> dict[str, set[str]]:
                 configured.add("pulse")
             if (h.get("ne_url") or "").strip():
                 configured.add("node_exporter")
-            if (h.get("webmin_name") or "").strip():
+            # Webmin is configured when EITHER `webmin_name` (alias
+            # lookup against `webmin_aliases`) OR the per-host
+            # `webmin_url` is non-empty. Mirrors the resolver chain in
+            # `_merge_one_host` (`webmin_aliases[id] → h["webmin_url"]`
+            # → SKIP). Pre-fix this only checked `webmin_name`, so a
+            # host that resolved through `webmin_url` was treated as
+            # "Webmin not configured" — `record_provider_outcome`'s
+            # defensive guard then DELETED the per-(webmin, host) last
+            # OK + failure-state rows on the next failure, hiding the
+            # chip subtitle forever AND preventing auto-pause from
+            # tripping. Same drift class as the SNMP fix below.
+            if (h.get("webmin_name") or "").strip() or (h.get("webmin_url") or "").strip():
                 configured.add("webmin")
             if bool((h.get("ping") or {}).get("enabled", False)):
                 configured.add("ping")
@@ -694,11 +715,27 @@ async def record_provider_outcome(
     host_id: str, provider: str, ok: bool,
     *, error: str = "", round_threshold: int = 0,
 ) -> None:
-    """Generic per-(provider, host) outcome recorder.
+    """Unified outcome recorder — accepts BOTH per-(provider, host) AND
+    whole-host shapes.
 
-    Wraps `_record_failure` / `_clear_failure` so probe sites for ANY
-    provider become a one-liner. Use this at every per-host probe
-    boundary that wants the auto-pause + manual-resume contract:
+    * ``provider`` non-empty → per-(provider, host) write keyed
+      ``<provider>:<host_id>``; on success ALSO upserts
+      ``host_provider_last_ok`` (chip "Updated Xm ago" subtitle).
+    * ``provider == ""`` → whole-host write keyed by bare ``host_id``
+      (legacy whole-host sampler path); SKIPS the last_ok upsert (no
+      per-provider chip subtitle to drive) and SKIPS the defensive
+      guard (the guard only applies to per-(provider, host) rows).
+
+    The unified entry point replaces the pre-fix split where the
+    whole-host path called bare ``_record_failure`` / ``_clear_failure``
+    and the per-(provider, host) path went through this wrapper. Now
+    BOTH share ONE state-machine implementation; the legacy bare
+    helpers stay as the internal implementation detail this wrapper
+    delegates to (still marked ``# audit: bare-failure-ok`` since
+    `scripts/audit_record_outcome.py` checks for external bypass).
+
+    Use at every probe boundary that wants the auto-pause + manual-
+    resume contract:
 
         ok = bool(stats and not stats.get("exporter_error"))
         await record_provider_outcome(
@@ -707,38 +744,44 @@ async def record_provider_outcome(
             round_threshold=tuning.tuning_int(Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS),
         )
 
-    On success: clears the failure-state row keyed `<provider>:<host_id>`
-    AND upserts `host_provider_last_ok` with the current timestamp so
-    the SPA can render "Updated Xm ago" on the chip.
+    On success: clears the failure-state row (keyed by provider when
+    non-empty, by bare host_id otherwise) AND — only for the per-
+    provider shape — upserts ``host_provider_last_ok`` so the SPA can
+    render "Updated Xm ago" on the chip.
     On failure: increments the consecutive-failure counter; flips the
-    `paused` flag when ``round_threshold > 0`` and the count reaches
+    ``paused`` flag when ``round_threshold > 0`` and the count reaches
     threshold. ``round_threshold == 0`` disables auto-pause (only
     records the failure for diagnostic surface). Failure does NOT
     touch last_ok_ts — the operator wants to see when the LAST good
     probe was, not when the most recent attempt happened.
 
-    Empty / falsy `host_id` or `provider` is a no-op so callers don't
-    need defensive guards.
+    Empty / falsy ``host_id`` is a no-op so callers don't need
+    defensive guards.
 
-    Defence-in-depth: when ``ok=False``, refuse to record the failure
-    if the host's curated row doesn't have ``provider`` configured (the
-    six-bool detection in `_host_provider_config`). Catches the
-    operator-reported pattern where a stale `beszel_name` / `pulse_name`
-    or a probe-side gate regression would otherwise accumulate failures
-    + fire a pause notification for a provider the operator says they
-    "don't have set up". On first refusal we ALSO delete any pre-existing
-    failure-state row for the (host, provider) pair so the orphan
-    self-heals without waiting for the next save / redeploy.
+    Defence-in-depth (per-provider shape only): when ``ok=False``,
+    refuse to record the failure if the host's curated row doesn't
+    have ``provider`` configured (the detection in
+    ``_host_provider_config``). Catches the operator-reported pattern
+    where a stale per-provider field OR a probe-side gate regression
+    would otherwise accumulate failures + fire a pause notification
+    for a provider the operator says they "don't have set up". On
+    first refusal we ALSO delete any pre-existing failure-state row
+    for the (host, provider) pair so the orphan self-heals without
+    waiting for the next save / redeploy. The whole-host shape
+    (provider="") skips this guard because the bare-key row IS the
+    whole-host marker — there's no curated-config concept of
+    "configured for whole-host probing".
     """
-    if not host_id or not provider:
+    if not host_id:
         return
-    log_label = f"{provider}:{host_id}"
-    if not ok:
+    log_label = f"{provider}:{host_id}" if provider else host_id
+    if not ok and provider:
         # Defensive guard — see docstring. Skip recording AND wipe any
         # leftover paused row from a pre-fix accumulation. Only known
         # provider names get the check; unknown provider passes through
         # so a future provider added without TUNABLE wiring can still
-        # record failures during initial bring-up.
+        # record failures during initial bring-up. Whole-host shape
+        # (provider="") never reaches here.
         if provider in _PROVIDER_PREFIXES:
             cfg = _host_provider_config()
             # Empty cfg dict means hosts_config read failed — fall back
@@ -775,22 +818,25 @@ async def record_provider_outcome(
                     )
                 return
     if ok:
-        _clear_failure(host_id, provider=provider)
+        _clear_failure(host_id, provider=provider)  # audit: bare-failure-ok
         # Stamp the last-ok timestamp. Best-effort — a DB blip here
-        # doesn't break the probe flow.
-        try:
-            now_ts = int(time.time())
-            with db_conn() as c:
-                c.execute(
-                    "INSERT OR REPLACE INTO host_provider_last_ok "
-                    "(host_id, provider, last_ok_ts) VALUES (?, ?, ?)",
-                    (host_id, provider, now_ts),
-                )
-        # noinspection PyBroadException
-        except Exception as e:
-            print(f"[host_metrics_sampler] {log_label} last_ok upsert failed: {e}")
+        # doesn't break the probe flow. Whole-host shape (provider="")
+        # has no per-(provider, host) chip subtitle to drive — skip
+        # the upsert so the whole-host write stays one-table.
+        if provider:
+            try:
+                now_ts = int(time.time())
+                with db_conn() as c:
+                    c.execute(
+                        "INSERT OR REPLACE INTO host_provider_last_ok "
+                        "(host_id, provider, last_ok_ts) VALUES (?, ?, ?)",
+                        (host_id, provider, now_ts),
+                    )
+            # noinspection PyBroadException
+            except Exception as e:
+                print(f"[host_metrics_sampler] {log_label} last_ok upsert failed: {e}")
     else:
-        await _record_failure(
+        await _record_failure(  # audit: bare-failure-ok
             host_id, time.time(), error,
             round_threshold=round_threshold,
             provider=provider,
@@ -900,12 +946,38 @@ async def _probe_one(
         # noinspection PyBroadException
         except Exception as e:
             print(f"[host_metrics_sampler] {hid!r} probe error: {e}")
-            await _record_failure(hid, now, str(e))
+            # Unified outcome — TWO writes via ONE state machine: the
+            # whole-host bare-key row (provider="") + the per-(provider,
+            # host) prefixed row. Pre-fix this was a bare `_record_failure`
+            # for the whole-host path PLUS a separate `record_provider_outcome`
+            # for the per-provider path. Now both shapes route through
+            # `record_provider_outcome` so any future state-machine fix
+            # (auto-pause threshold change, SSE event emission, etc.)
+            # lands once instead of risking divergence.
+            await record_provider_outcome(hid, "", False, error=str(e))
+            try:
+                await record_provider_outcome(
+                    hid, "node_exporter", False,
+                    error=str(e),
+                    round_threshold=tuning.tuning_int(
+                        Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS),
+                )
+            except (KeyError, ValueError, TypeError):
+                pass
             return
         if stats.get("exporter_error"):
             err = stats["exporter_error"]
             print(f"[host_metrics_sampler] {hid!r} exporter_error: {err}")
-            await _record_failure(hid, now, str(err))
+            await record_provider_outcome(hid, "", False, error=str(err))
+            try:
+                await record_provider_outcome(
+                    hid, "node_exporter", False,
+                    error=str(err),
+                    round_threshold=tuning.tuning_int(
+                        Tunable.NODE_EXPORTER_FAILURE_PAUSE_ROUNDS),
+                )
+            except (KeyError, ValueError, TypeError):
+                pass
             return
 
         prev = _last_counters.get(hid)
@@ -942,8 +1014,18 @@ async def _probe_one(
             print(f"[host_metrics_sampler] {hid!r} DB insert failed: {e}")
             return
         # Successful probe + write — clear any in-flight failure tracking
-        # so a previously-pausing host can recover quietly.
-        _clear_failure(hid)
+        # so a previously-pausing host can recover quietly. Whole-host
+        # (provider="") clears the bare-key row; per-(provider, host)
+        # call ALSO fires so the `host_provider_last_ok[node_exporter:<hid>]`
+        # row UPSERTs on every tick (drives the NE chip's "Updated Xm
+        # ago" subtitle). Pre-fix the whole-host clear was a bare
+        # `_clear_failure(hid)`; now unified through
+        # `record_provider_outcome` so both shapes share ONE entry point.
+        await record_provider_outcome(hid, "", True)
+        try:
+            await record_provider_outcome(hid, "node_exporter", True)
+        except (KeyError, ValueError, TypeError):
+            pass
         # SSE push — broadcast a `host:history_appended` event so
         # any SPA tab with this host's drawer open in Live mode
         # repaints its chart immediately. Payload carries host_id +

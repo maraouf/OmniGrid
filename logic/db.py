@@ -469,16 +469,20 @@ def active_host_stats_providers() -> set[str]:
     """Parse the ``host_stats_source`` setting → set of active providers.
 
     Single source of truth for "which host-stats providers should
-    OmniGrid probe right now". Returns a set drawn from
-    ``{"beszel", "node_exporter", "pulse", "webmin"}``; empty set means
-    "host-stats globally off". Legacy installs that only ever set the
-    ``node_exporter_enabled`` flag (pre-CSV settings) auto-fall-back to
-    ``{"node_exporter"}``.
+    OmniGrid probe right now". Returns a set drawn from the same
+    ``valid`` allow-list enforced server-side by ``api_set_settings``'s
+    ``host_stats_source`` validator — currently the 6 telemetry providers
+    (``beszel``, ``node_exporter``, ``pulse``, ``webmin``, ``ping``,
+    ``snmp``) plus 2 probe-result providers (``http_probe``,
+    ``service_probe``). Empty set means "host-stats globally off".
+    Legacy installs that only ever set the ``node_exporter_enabled``
+    flag (pre-CSV settings) auto-fall-back to ``{"node_exporter"}``.
 
     Replaces 6 duplicate copies of the same parse block scattered
     across main.py + the gather/host_*_sampler modules. New providers
     only need to update this helper plus the validation list in
-    ``api_set_settings``.
+    ``api_set_settings`` — see ``main_pkg/settings_routes.py``'s
+    ``host_stats_source`` block for the canonical allow-list.
     """
     raw = (get_setting(Settings.HOST_STATS_SOURCE) or "").strip()
     if not raw:

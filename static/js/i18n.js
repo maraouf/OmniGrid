@@ -1,7 +1,17 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedGlobalSymbols
+// noinspection EmptyCatchBlockJS,UnusedCatchParameterJS,StatementWithEmptyBodyJS
+// noinspection JSUnfilteredForInLoop,IfStatementWithIdenticalBranchesJS,SingleStatementBlockJS,UnnecessaryLocalVariableJS,UnnecessaryContinueJS
+// Per-inspection suppressions match the sibling SPA files. Covered idioms:
+// constants on the right of comparisons (modern ESLint default); `for-in` over
+// flat dicts where we control the source (no inherited members possible — every
+// loop here iterates JSON-parse output OR our own `this.dict`); nested t() /
+// flatten() / String() calls inside `||` chains; empty-catch fire-and-forget
+// pattern; `_` unused catch parameter; non-block if-bodies (`if (r.ok) ...`
+// one-liners). Real findings (function-parameter reassignment) are FIXED below,
+// not suppressed.
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // ------------------------------------------------------------------
 // i18n helper — vanilla JS, no external library. Pulls language files
@@ -15,8 +25,10 @@ const I18N = {
   dir: 'ltr',
   languages: [],            // populated from /i18n/index.json
   _warned: new Set(),       // de-dupe console.warn for missing keys
-  flatten(obj, prefix) {
-    prefix = prefix || '';
+  // `prefix` defaults via `= ''` parameter default instead of an
+  // in-body reassignment — the IDE flagged the reassignment as a
+  // function-parameter mutation. Same effect, cleaner shape.
+  flatten(obj, prefix = '') {
     const out = {};
     for (const k in obj) {
       const v = obj[k];
@@ -32,7 +44,9 @@ const I18N = {
   async loadIndex() {
     try {
       const r = await fetch('/i18n/index.json', {cache: 'no-cache'});
-      if (r.ok) this.languages = await r.json();
+      if (r.ok) {
+        this.languages = await r.json();
+      }
     } catch (_) {
       // Fallback: at least offer English if the index is missing.
       this.languages = [{code: 'en', name: 'English', dir: 'ltr'}];
@@ -40,7 +54,9 @@ const I18N = {
   },
   async load(code) {
     const r = await fetch('/i18n/' + code + '.json', {cache: 'no-cache'});
-    if (!r.ok) throw new Error('language ' + code + ' not found');
+    if (!r.ok) {
+      throw new Error('language ' + code + ' not found');
+    }
     const doc = await r.json();
     this.dict = this.flatten(doc);
     this.code = code;
@@ -53,16 +69,26 @@ const I18N = {
     this._warned = new Set();
   },
   t(key, vars) {
-    let s = this.dict[key];
-    if (s === undefined || s === '') {
-      s = (window.__i18nEn && window.__i18nEn[key]);
-      if ((s === undefined || s === '') && !this._warned.has(key)) {
+    // Honour intentionally-empty values. The key being present in the
+    // dict (even with `""`) signals "the operator wants to render
+    // nothing here", which differs from a MISSING key (typo, not yet
+    // translated). Only `undefined` cascades through the fallback chain
+    // + warn-log; explicit `""` returns immediately as the truthful
+    // render. Same semantic on the English fallback dict.
+    const hasKey = Object.prototype.hasOwnProperty.call(this.dict, key);
+    let s = hasKey ? this.dict[key] : undefined;
+    if (s === undefined) {
+      const enHas = !!(window.__i18nEn && Object.prototype.hasOwnProperty.call(window.__i18nEn, key));
+      s = enHas ? window.__i18nEn[key] : undefined;
+      if (s === undefined && !this._warned.has(key)) {
         this._warned.add(key);
         if (typeof console !== 'undefined' && console.warn) {
           console.warn('[i18n] Missing key:', key);
         }
       }
-      if (s === undefined || s === '') s = key;
+      if (s === undefined) {
+        s = key;
+      }
     }
     if (vars) {
       for (const k in vars) {

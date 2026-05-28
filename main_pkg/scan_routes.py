@@ -1827,6 +1827,43 @@ async def api_public_ip(_admin: AdminUser):
     return {"enabled": True, **data}
 
 
+@app.get("/api/public-ip/history")
+async def api_public_ip_history(_admin: AdminUser, limit: int = 100):
+    """Admin-only public-IP change history. Returns the most-recent
+    ``limit`` rows (default 100; 1..1000) from ``public_ip_history``,
+    newest first. Each row carries the ts + ip + isp + asn + country +
+    city snapshot taken at the moment the IP changed.
+
+    Drives the AI palette's "when did my IP / ISP last change?"
+    questions + the Admin → Public IP history table. Always allowed
+    (no `tuning_public_ip_enabled` gate) so the operator can review
+    history even after disabling the active fetch.
+    """
+    try:
+        n = max(1, min(int(limit), 1000))
+    except (TypeError, ValueError):
+        n = 100
+    rows = []
+    try:
+        with db_conn() as c:
+            for r in c.execute(
+                "SELECT ts, ip, isp, asn, country, city "
+                "FROM public_ip_history ORDER BY ts DESC LIMIT ?",
+                (n,),
+            ).fetchall():
+                rows.append({
+                    "ts": int(r[0]),
+                    "ip": r[1] or "",
+                    "isp": r[2] or "",
+                    "asn": r[3] or "",
+                    "country": r[4] or "",
+                    "city": r[5] or "",
+                })
+    except Exception as e:  # noqa: BLE001
+        return {"history": [], "error": str(e)}
+    return {"history": rows, "count": len(rows)}
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 @app.get("/api/weather")
 async def api_weather(

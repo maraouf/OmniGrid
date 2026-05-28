@@ -147,21 +147,32 @@ def _telegram_http_timeout() -> int:
     return tuning_int(Tunable.TELEGRAM_HTTP_TIMEOUT_SECONDS)
 
 
-def _resolved_token_and_chat() -> tuple[str, str]:
-    """Pull bot-token + PRIMARY destination chat-id from the settings
-    store. The "primary" chat is the FIRST entry in the CSV (`telegram_chat_id`
-    accepts a comma-separated list — see :func:`_authorized_chat_ids`
-    for the full set). Outbound notification fan-out should use
-    :func:`_outbound_chat_ids`; this helper is kept for back-compat with
-    legacy single-chat callers that always wrote to the configured
-    destination."""
+def _resolved_bot_token() -> str:
+    """Pull the bot-token from settings (Telegram bots are 1:1 with tokens
+    — chats are per-message, never per-token). Single-purpose helper for
+    callers that only need the token; legacy aliases keep the previous
+    tuple shape working without forcing a fleet-wide rewrite."""
     from logic.db import get_setting
-    token = (get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()
+    return (get_setting(Settings.TELEGRAM_BOT_TOKEN) or "").strip()
+
+
+def _resolved_primary_chat() -> str:
+    """First CSV entry of ``telegram_chat_id`` (the "primary" destination).
+    Empty when no chat is configured. Outbound fan-out should use
+    :func:`_outbound_chat_ids`; this returns ONE chat for legacy single-
+    chat callers + the listener-loop bootstrap gate."""
+    from logic.db import get_setting
     chats = _parse_chat_id_csv(get_setting(Settings.TELEGRAM_CHAT_ID) or "")
-    # Primary = first entry; empty list → empty string (matches legacy
-    # "no chat configured" sentinel that every caller already handles).
-    chat = chats[0] if chats else ""
-    return token, chat
+    return chats[0] if chats else ""
+
+
+def _resolved_token_and_chat() -> tuple[str, str]:
+    """Back-compat alias — returns ``(token, primary_chat)`` for callers
+    that still want the tuple shape. New call sites should prefer
+    :func:`_resolved_bot_token` (token-only) or :func:`_resolved_primary_chat`
+    (chat-only) directly. The "primary" semantic is documented on
+    :func:`_resolved_primary_chat`."""
+    return _resolved_bot_token(), _resolved_primary_chat()
 
 
 def _csv_pieces(raw: str):
@@ -225,12 +236,11 @@ def _reply_destination() -> str:
     """Resolve the chat ID a reply should target. Inbound context (set
     by `_process_update` when handling a command) wins; outbound paths
     (scheduler, lifespan startup notifications) fall through to the
-    primary CSV entry from :func:`_resolved_token_and_chat`."""
+    primary CSV entry from :func:`_resolved_primary_chat`."""
     inbound = _inbound_chat_id.get()
     if inbound:
         return inbound
-    _, primary = _resolved_token_and_chat()
-    return primary
+    return _resolved_primary_chat()
 
 
 def _listener_enabled() -> bool:
@@ -348,7 +358,7 @@ async def _telegram_post(
     ``silent_failure=True`` suppresses the non-200 log line (used by
     decorative calls like the typing indicator where the operator
     doesn't care about a hiccup)."""
-    token, _ = _resolved_token_and_chat()
+    token = _resolved_bot_token()
     if not token:
         return False, {}
     try:
@@ -1317,19 +1327,43 @@ _OPEN_COMMANDS: set[str] = _open_command_names()
 # ----------------------------------------------------------------------------
 _AI_CALL_BUCKETS: dict[int, list[float]] = {}
 
+
 # Per-(telegram_user_id, command_head) cooldown for destructive verbs
 # (`/cleanup confirm`, `/restart <target> confirm`, `/update <target>
 # confirm`). Operator-flagged: a confirmed-destructive command can be
 # replayed by simply re-sending the same line — bot has no memory of
 # "you just ran this 5 seconds ago". The cooldown stops accidental /
 # malicious rapid-fire reuse while still letting an operator typing
-# fast intentionally re-send after a real wait. Default 30s; tunable
-# is hardcoded for now (the SSH-side cooldown class uses the same
-# default; revisit if operators want per-command tuning). Shares the
-# `logic.cooldown.Cooldown` class (imported at the top of the file)
-# so the arming / remaining-time protocol matches Webmin's auth-
-# failure cooldown.
-_DESTRUCTIVE_COOLDOWN = _Cooldown(seconds=30)
+# fast intentionally re-send after a real wait. Operator-tunable via
+# `tuning_telegram_destructive_cooldown_seconds` (default 30s; multi-
+# admin chats may want higher to prevent two admins firing the same
+# destructive verb back-to-back). Shares the `logic.cooldown.Cooldown`
+# class (imported at the top of the file) so the arming / remaining-
+# time protocol matches Webmin's auth-failure cooldown. Passes the
+# resolver callable so `.seconds` re-reads the TUNABLE on every
+# `arm()` / `remaining()` call — same per-use contract as other
+# Cooldown consumers that want runtime tunable hot-reload.
+
+
+def _destructive_cooldown_seconds() -> float:
+    """Operator-tunable destructive-command cooldown window (seconds).
+    Per-use read so an Admin → Config edit lands on the next command
+    without restart. Defensive fallback to the 30s default if the
+    `tuning_int` call raises (corrupt DB row). Returns float so the
+    Cooldown resolver-callable contract is satisfied."""
+    from logic.tuning import Tunable, tuning_int
+    try:
+        return float(tuning_int(Tunable.TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS))
+    except (KeyError, ValueError, TypeError):
+        return 30.0
+
+
+# Resolver-callable form: Cooldown's `.seconds` @property invokes the
+# resolver on every call, so runtime TUNABLE edits land on the next
+# destructive command without restart. Forward-ref-safe because the
+# lambda only evaluates at call time, after the module has fully
+# loaded.
+_DESTRUCTIVE_COOLDOWN = _Cooldown(seconds=_destructive_cooldown_seconds)
 
 
 def _destructive_cooldown_check(
@@ -1348,10 +1382,11 @@ def _destructive_cooldown_check(
     """
     if not isinstance(sender_id, int):
         return True, 0.0
-    # `Cooldown.remaining` returns Optional[float] — None when the key
-    # has never been armed OR has expired. Narrow to a concrete float
-    # before the comparison so the `> 0` check (and the tuple-return
-    # type) stay type-clean.
+    # Cooldown's resolver-callable (set in the constructor above) re-
+    # reads the TUNABLE on every `.arm()` / `.remaining()` call —
+    # runtime tunable hot-reload comes for free. No manual override
+    # needed; pre-fix tried to assign `.seconds` directly but
+    # `.seconds` is a @property without a setter.
     remaining = _DESTRUCTIVE_COOLDOWN.remaining(sender_id, head)
     if remaining is not None and remaining > 0:
         return False, float(remaining)
@@ -1667,7 +1702,7 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
         responds to commands without the menu.
     """
     import hashlib as _hashlib
-    token, _ = _resolved_token_and_chat()
+    token = _resolved_bot_token()
     if not token:
         return
     token_hash = _hashlib.sha256(token.encode()).hexdigest()[:16]
@@ -1785,6 +1820,12 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
 
     default_ok = await _push(default_payload, None, "default")
     chat_results = []
+    # Telegram's bot API enforces a soft 30 calls/sec rate limit on
+    # setMyCommands. With 1 default scope + N chat scopes, a fleet of
+    # 30+ authorised chats could theoretically 429 if pushed back-to-
+    # back. Tiny per-call sleep keeps the per-deploy registration
+    # comfortably under the cap. Sleep is OUTSIDE _push so the helper
+    # stays single-purpose; chats < 30 effectively pay 0ms.
     for chat_id in authorized_chats:
         try:
             chat_scope = {"type": "chat", "chat_id": int(chat_id)}
@@ -1794,6 +1835,7 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
             # skip rather than 400.
             continue
         chat_results.append(await _push(full_payload, chat_scope, f"chat={chat_id}"))
+        await asyncio.sleep(0.05)
 
     # Token-hash gate only re-fires when EITHER push fails — so a
     # transient Telegram error doesn't lock the registration out for
@@ -1851,12 +1893,25 @@ async def listener_loop() -> None:
                         },
                     )
                     if r.status_code != 200:
-                        print(f"[telegram_listener] getUpdates HTTP {r.status_code}: {r.text[:200]}")
+                        # Transient 5xx — common signature of Cloudflare /
+                        # Authentik / Telegram-side blip. Logged at the
+                        # "skipped" severity (the persistent-log classifier
+                        # paints "fail" / "error" red; "skipped" stays
+                        # info-coloured) so a brief upstream hiccup doesn't
+                        # bury actionable signal under repeated ERROR rows.
+                        # Permanent failures (4xx) keep the louder wording.
+                        verb = "skipped (transient)" if 500 <= r.status_code < 600 else "non-ok"
+                        print(f"[telegram_listener] getUpdates {verb}: HTTP {r.status_code}: {r.text[:200]}")
                         await asyncio.sleep(5)
                         continue
                     body = r.json() or {}
                     if not body.get("ok"):
-                        print(f"[telegram_listener] getUpdates not ok: {body.get('description')!r}")
+                        # Same noise-down treatment as the HTTP-5xx branch.
+                        # body.get('description') without `ok=true` is
+                        # typically a transient hiccup ("Bad Gateway" /
+                        # "Retry after N seconds") that resolves on the
+                        # next iteration without operator action.
+                        print(f"[telegram_listener] getUpdates skipped (not ok): {body.get('description')!r}")
                         await asyncio.sleep(5)
                         continue
                     updates = body.get("result") or []

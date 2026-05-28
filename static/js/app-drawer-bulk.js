@@ -45,6 +45,21 @@
 // ONE WeakMap through the this._snmpMemo method after _mergeKeepDescriptors.
 const _snmpPathMemo = new WeakMap();
 
+// Per-flush memo for `hostEnabledAgents(h)` — the host-row chip strip
+// + drawer's Enabled-Providers card each read this several times per
+// host per flush (count badge text + per-chip render loop source +
+// title hint). Cached on a Map keyed by the host object ref (NOT id,
+// to avoid string-hashing per call); cleared on the next microtask so
+// every reactive flush starts fresh. Same pattern as the
+// `_hostAppsHealthCompute` flush-memo in app-apps.js.
+let _hostEnabledAgentsFlushCache = null;
+let _hostEnabledAgentsFlushScheduled = false;
+
+function _clearHostEnabledAgentsFlushCache() {
+  _hostEnabledAgentsFlushCache = null;
+  _hostEnabledAgentsFlushScheduled = false;
+}
+
 export default {
   // ----- Stacks / Services / Nodes drawer debug panel ----------
   // Shared helpers keyed by `kind:id`. `kind` is 'item' (covers
@@ -547,15 +562,20 @@ export default {
     },
     {
       name: 'webmin', label: 'Webmin',
-      // Admin row sees curated `webmin_url` (operator-typed Miniserv
-      // URL); API row sees `webmin_name` (resolved alias after
-      // webmin_aliases lookup). Both gates target the same logical
-      // question — the SHAPES differ because the curated config and
-      // the post-shape API output flatten the field differently.
+      // Admin row sees curated `webmin_url` (operator-typed Miniserv URL).
+      // API row reads the backend-computed `webmin_has_target` boolean
+      // (mirrors the canonical pattern used by http_probe_has_targets +
+      // service_probe_has_targets) — a single source of truth for "this
+      // host has a resolvable Webmin target" that captures EITHER
+      // `webmin_url` OR `webmin_name`. Pre-fix the apiGate read only
+      // `webmin_name`, so a `webmin_url`-configured host silently lost
+      // its chip on the Hosts page while curatedGate (admin editor)
+      // still rendered it — same drift class as the SNMP `address`
+      // resolution gap.
       curatedGate: r => !!(r.webmin_url && String(r.webmin_url).trim()),
-      apiGate: h => !!(h.webmin_name && String(h.webmin_name).trim()),
+      apiGate: h => !!h.webmin_has_target,
       apiStatus: () => null,
-      fpFields: h => (h.webmin_name || ''),
+      fpFields: h => (h.webmin_has_target ? '1' : '0'),
     },
     {
       name: 'ping', label: 'Ping',
@@ -682,12 +702,32 @@ export default {
     if (!h) {
       return [];
     }
+    // Per-flush memo — the host-row chip-strip + drawer's Enabled-
+    // Providers card each read this helper several times per host
+    // per flush (count badge, per-chip render loop, title hint). The
+    // `_PROVIDER_DEFS` walk is O(8) per call; cached, it's O(1) for
+    // every read after the first per host per flush. Cache cleared on
+    // queueMicrotask (zero staleness — hosts reconcile IN PLACE so the
+    // stable `h` ref is the cache key). Same pattern as
+    // `_hostAppsHealthCompute` + `_filteredHostsFlushCache`.
+    if (_hostEnabledAgentsFlushCache === null) {
+      _hostEnabledAgentsFlushCache = new Map();
+      if (!_hostEnabledAgentsFlushScheduled) {
+        _hostEnabledAgentsFlushScheduled = true;
+        queueMicrotask(_clearHostEnabledAgentsFlushCache);
+      }
+    }
+    const hit = _hostEnabledAgentsFlushCache.get(h);
+    if (hit !== undefined) {
+      return hit;
+    }
     const out = [];
     for (const def of this._PROVIDER_DEFS) {
       if (def.apiGate(h) && this.hasHostStatsSource(def.name)) {
         out.push({name: def.name, label: this._providerLabel(def)});
       }
     }
+    _hostEnabledAgentsFlushCache.set(h, out);
     return out;
   },
   // List of paused provider names for one host.
@@ -987,6 +1027,56 @@ export default {
     }
     const v = map[name];
     return Number.isFinite(+v) ? +v : 0;
+  },
+  // Per-provider newest sample TS (epoch seconds) from the host's
+  // local samples table. Reads `h.provider_sample_newest_ts[<name>]`
+  // populated by the backend's `_merge_one_host`. 0 when the probe
+  // hasn't run yet OR the provider's sample table is empty.
+  providerSampleNewestTs(h, name) {
+    if (!h || !name) {
+      return 0;
+    }
+    const map = h.provider_sample_newest_ts;
+    if (!map || typeof map !== 'object') {
+      return 0;
+    }
+    const v = map[name];
+    return Number.isFinite(+v) ? +v : 0;
+  },
+  // Returns true when the chip's per-(provider, host) `last_ok_ts`
+  // significantly LAGS the matching sample-table newest_ts — proves the
+  // sampler IS writing but the per-provider stamp is going stale
+  // separately. Operator-debug overlay: helps spot future plumbing
+  // drift in the `host_provider_last_ok` write path. Threshold is
+  // 3x the provider's sample interval (allows for one tick + a partial
+  // skew); minimum 90s so a fast cadence doesn't trip false-positives
+  // on race-y tick timing. Returns false when either ts is missing
+  // (no overlay rendered).
+  providerFreshnessLag(h, name) {
+    const last_ok = this.providerLastOkSeconds(h, name);
+    const newest = this.providerSampleNewestTs(h, name);
+    if (!last_ok || !newest) {
+      return false;
+    }
+    const interval = this.providerSampleInterval(h, name) || 30;
+    const slack = Math.max(90, interval * 3);
+    return (newest - last_ok) > slack;
+  },
+  // Tooltip for the freshness-lag ⚠ overlay — surfaces the gap so
+  // operators can paste it into a bug report. Returns empty when no
+  // lag (caller's gate hides the element).
+  providerFreshnessLagTitle(h, name) {
+    if (!this.providerFreshnessLag(h, name)) {
+      return '';
+    }
+    const last_ok = this.providerLastOkSeconds(h, name);
+    const newest = this.providerSampleNewestTs(h, name);
+    const gap_s = newest - last_ok;
+    const tpl = this.t('hosts_extra.provider_freshness_lag_title', {gap: this.fmtAgo(gap_s * 1000)});
+    if (tpl && tpl !== 'hosts_extra.provider_freshness_lag_title') {
+      return tpl;
+    }
+    return 'Sampler newer than last_ok stamp by ' + this.fmtAgo(gap_s * 1000) + ' — plumbing drift';
   },
   // Per-provider effective sampler interval in seconds. Backend
   // (`_provider_sample_intervals`) has already resolved the

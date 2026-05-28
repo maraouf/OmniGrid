@@ -22,22 +22,103 @@
     </button>
   </div>
   <div class="apps-widget-tile-body">
+
+    <!-- Clock widget — HH:MM hero + date subtitle. Uses the operator's
+         time format pref from Settings → Formats via
+         `_userTimeOnlyFormat`. -->
     <template x-if="item.widget === 'clock'">
-      <span class="apps-widget-clock" x-text="appsWidgetClock()"></span>
+      <div>
+        <div class="apps-widget-clock" x-text="appsWidgetClock()"></div>
+        <div class="apps-widget-subtitle" x-text="appsWidgetClockDate()"></div>
+      </div>
     </template>
+
+    <!-- Weather widget — temperature hero + location subtitle +
+         humidity / wind detail row. Renders an empty-state line when
+         `this.weather` is null (operator hasn't enabled the topbar
+         weather widget OR location lookup failed). -->
     <template x-if="item.widget === 'weather'">
-      <span x-text="(weather && weather.temp_c != null)
-        ? (Math.round(weather.temp_c) + '° ' + (weather.condition || ''))
-        : (t('apps.custom.widget_no_data') || 'No data')"></span>
+      <template x-if="weather && weather.temp_c != null">
+        <div>
+          <div class="apps-widget-hero">
+            <span x-text="Math.round(weather.temp_c) + '°C'"></span>
+          </div>
+          <div class="apps-widget-subtitle">
+            <span x-text="(headerWeatherLabel || weather.label || '') + (weather.condition ? ((headerWeatherLabel || weather.label) ? ' · ' : '') + weather.condition : '')"></span>
+          </div>
+          <div class="apps-widget-detail">
+            <span x-show="weather.humidity != null" class="apps-widget-detail-item">
+              <span x-text="t('apps.custom.widget_weather_humidity', { value: Math.round(weather.humidity) }) || ('Humidity ' + Math.round(weather.humidity) + '%')"></span>
+            </span>
+            <span x-show="weather.wind_kmh != null" class="apps-widget-detail-item">
+              <span x-text="t('apps.custom.widget_weather_wind', { value: Math.round(weather.wind_kmh) }) || ('Wind ' + Math.round(weather.wind_kmh) + ' km/h')"></span>
+            </span>
+            <template x-if="Array.isArray(weather.forecast) && weather.forecast.length">
+              <span class="apps-widget-detail-item">
+                <span x-text="t('apps.custom.widget_weather_tomorrow', {
+                  hi: Math.round(weather.forecast[1] ? weather.forecast[1].temp_max_c : weather.forecast[0].temp_max_c),
+                  lo: Math.round(weather.forecast[1] ? weather.forecast[1].temp_min_c : weather.forecast[0].temp_min_c)
+                }) || ('Tomorrow ' + Math.round((weather.forecast[1] || weather.forecast[0]).temp_max_c) + '/' + Math.round((weather.forecast[1] || weather.forecast[0]).temp_min_c) + '°')"></span>
+              </span>
+            </template>
+          </div>
+        </div>
+      </template>
+      <template x-if="!weather || weather.temp_c == null">
+        <div class="apps-widget-empty" x-text="t('apps.custom.widget_weather_no_data') || 'Weather not configured — enable in topbar settings'"></div>
+      </template>
     </template>
+
+    <!-- Public-IP widget — IP hero (mono) + ISP subtitle + country/city
+         detail. Self-fetches via `_ensurePublicIp` on first mount so
+         the tile populates without waiting for the AI palette to open.
+         Renders an empty-state line when the public-IP feature is
+         disabled (default OFF for privacy). -->
     <template x-if="item.widget === 'public_ip'">
-      <span class="mono" x-text="(publicIp && publicIp.enabled && publicIp.ip)
-        ? publicIp.ip
-        : (t('apps.custom.widget_no_data') || 'No data')"></span>
+      <div x-init="_ensurePublicIp()">
+        <template x-if="publicIp && publicIp.enabled && publicIp.ip">
+          <div>
+            <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
+            <div class="apps-widget-subtitle" x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></div>
+            <div class="apps-widget-detail">
+              <span x-show="publicIp.country" class="apps-widget-detail-item" x-text="publicIp.country + (publicIp.city ? ' · ' + publicIp.city : '')"></span>
+              <span x-show="publicIp.asn" class="apps-widget-detail-item mono" x-text="publicIp.asn"></span>
+            </div>
+          </div>
+        </template>
+        <template x-if="!publicIp || !publicIp.enabled || !publicIp.ip">
+          <div class="apps-widget-empty" x-text="(publicIp && !publicIp.enabled)
+            ? (t('apps.custom.widget_ip_disabled') || 'Public-IP lookup disabled in Admin → Public IP')
+            : (t('apps.custom.widget_no_data') || 'No data')"></div>
+        </template>
+      </div>
     </template>
+
+    <!-- System-stats widget — fleet rollup hero (up/total) + down chip
+         in the detail row + paused count. Reuses the existing
+         `appsWidgetSystemStats` helper. -->
     <template x-if="item.widget === 'system_stats'">
-      <span x-text="t('apps.custom.widget_system_summary', { up: appsWidgetSystemStats().up, total: appsWidgetSystemStats().total })
-        || (appsWidgetSystemStats().up + ' / ' + appsWidgetSystemStats().total + ' hosts up')"></span>
+      <div>
+        <div class="apps-widget-hero">
+          <span x-text="appsWidgetSystemStats().up + ' / ' + appsWidgetSystemStats().total"></span>
+        </div>
+        <div class="apps-widget-subtitle"
+             x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
+               || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
+        <div class="apps-widget-detail">
+          <span x-show="appsWidgetSystemStats().down" class="apps-widget-detail-item" style="color: var(--danger);">
+            <span x-text="appsWidgetSystemStats().down + ' '"></span>
+            <span x-text="t('apps.custom.widget_system_down') || 'down'"></span>
+          </span>
+          <span x-show="appsWidgetSystemStats().paused" class="apps-widget-detail-item" style="color: var(--warning);">
+            <span x-text="appsWidgetSystemStats().paused + ' '"></span>
+            <span x-text="t('apps.custom.widget_system_paused') || 'paused'"></span>
+          </span>
+          <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused && appsWidgetSystemStats().total"
+                class="apps-widget-detail-item" style="color: var(--success);"
+                x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
+        </div>
+      </div>
     </template>
   </div>
 </div>

@@ -64,7 +64,10 @@
     "signed_in_as": "Signed in as",
     "signed_in_as_user": "Signed in as {username}",
     "version": "Version:",
-    "skip_to_main": "Skip to main content"
+    "skip_to_main": "Skip to main content",
+    "backend_offline_banner": {
+      "message": "Backend unreachable — retrying connection…"
+    }
   },
   "nav": {
     "stacks": "Stacks",
@@ -111,40 +114,35 @@
     },
     "events": {
       "stack_update_success": {
-        "title": "✅ Stack updated: {name}",
-        "body": ""
+        "title": "✅ Stack updated: {name}"
       },
       "stack_update_failure": {
         "title": "❌ Stack update failed: {name}",
         "body": "{error}"
       },
       "container_update_success": {
-        "title": "✅ Container updated: {name}",
-        "body": ""
+        "title": "✅ Container updated: {name}"
       },
       "container_update_failure": {
         "title": "❌ Container update failed: {name}",
         "body": "{error}"
       },
       "container_restart_success": {
-        "title": "🔄 Container restarted: {name}",
-        "body": ""
+        "title": "🔄 Container restarted: {name}"
       },
       "container_restart_failure": {
         "title": "❌ Container restart failed: {name}",
         "body": "{error}"
       },
       "container_remove_success": {
-        "title": "🗑 Container removed: {name}",
-        "body": ""
+        "title": "🗑 Container removed: {name}"
       },
       "container_remove_failure": {
         "title": "❌ Container remove failed: {name}",
         "body": "{error}"
       },
       "service_restart_success": {
-        "title": "🔄 Service restarted: {name}",
-        "body": ""
+        "title": "🔄 Service restarted: {name}"
       },
       "service_restart_failure": {
         "title": "❌ Service restart failed: {name}",
@@ -167,16 +165,14 @@
         "body": "{message}"
       },
       "prune_success": {
-        "title": "🧹 Prune complete on {name}",
-        "body": ""
+        "title": "🧹 Prune complete on {name}"
       },
       "prune_failure": {
         "title": "❌ Prune failed on {name}",
         "body": "{error}"
       },
       "user_login": {
-        "title": "🔓 {actor} signed in",
-        "body": ""
+        "title": "🔓 {actor} signed in"
       },
       "host_paused": {
         "title": "⚠️ Host sampling paused: {name}",
@@ -774,6 +770,7 @@
     "failed": "Re-authentication failed."
   },
   "actions": {
+    "dismiss": "Dismiss",
     "update_stack": "Update Stack",
     "retag_latest": "Switch to :latest",
     "updating": "Updating…",
@@ -1947,6 +1944,10 @@
           "label": "Host-provider cache TTL (seconds)",
           "help": "How long the batch-provider state (Beszel hub map + Pulse hub map + Webmin creds + active-sources tuple) is cached before the next call re-probes. Settings saves explicitly invalidate this cache so the matter only when an UPSTREAM change happens silently (e.g. a new host appears in Beszel without a settings save). Default 10 seconds. Lower for live-feeling drawer reopens after upstream changes; raise to cut hub probe load on small fleets where the data is mostly static."
         },
+        "tuning_host_provider_config_cache_ttl_seconds": {
+          "label": "Host-provider-config cache TTL (seconds)",
+          "help": "How long the in-process `_host_provider_config()` map (per-host set of configured providers) is cached before a fresh disk read. Consumed by `record_provider_outcome`'s defensive guard — it refuses to record a failure (and cleans orphan state) when a probe fires against a provider the host's curated config doesn't have. The canonical hosts_config save endpoint invalidates this cache immediately; the TTL is a belt-and-braces backstop for any future code path that writes hosts_config without going through the invalidator. Default 60 seconds. Lower if you make config changes outside the canonical save endpoint and want the orphan cleanup to land faster; raise on a stable fleet to lighten DB reads during probe bursts. Range 1s-3600s. Resolved per `record_provider_outcome` call."
+        },
         "tuning_webmin_host_cache_ttl_seconds": {
           "label": "Webmin per-host success cache TTL (seconds)",
           "help": "How long a SUCCESSFUL Webmin probe result is cached per host before the next call re-probes. Burst refreshes (SPA fan-out, drawer reopens) within the window skip the probe entirely and reuse the last known-good stats. Default 30 seconds. Lower for live-feeling drawer reopens; raise to cut Miniserv load on a fleet where most data is stable. Pairs with the failure-cache TTL — a fresh failure on a previously-cached success drops the success entry immediately, so this knob doesn't affect failure-detection latency."
@@ -2202,6 +2203,10 @@
         "tuning_telegram_http_timeout_seconds": {
           "label": "Telegram HTTP timeout (seconds)",
           "help": "Outer HTTP wall-clock for the listener's `getUpdates` call. MUST be larger than the long-poll timeout so Telegram has time to flush the response after a long-poll wake-up. Default 35 (= 25 + 10). Operators behind a tight reverse-proxy `proxy_read_timeout` should lower both this and the long-poll timeout in lock-step. Range 5..120. Takes effect on the next listener iteration."
+        },
+        "tuning_telegram_destructive_cooldown_seconds": {
+          "label": "Telegram destructive-command cooldown (seconds)",
+          "help": "After a destructive verb (`/restart`, `/cleanup`, `/update` confirm flow) lands from a Telegram chat, the same (sender_id, command) pair is rate-limited for this many seconds so a duplicate / fat-fingered re-send doesn't double-execute the operation. Default 30 — fits a solo-admin chat. Multi-admin chats may want higher (60-120s) to prevent admin-vs-admin race when two admins fire the same verb back-to-back. Lower (5-15s) for solo operators who occasionally re-fire after a real wait. Range 1..600. Takes effect on the next destructive command."
         },
         "tuning_telegram_ai_calls_per_minute": {
           "label": "Telegram AI calls per minute (per user)",
@@ -3234,6 +3239,7 @@
     "services_catalog_create": "Create app catalog template",
     "services_catalog_update": "Update app catalog template",
     "services_catalog_delete": "Delete app catalog template",
+    "services_catalog_seed": "Re-seed app catalog built-ins",
     "services_catalog_seeded": "Re-seed app catalog built-ins",
     "services_pin": "Pin app to host",
     "services_discover_apply": "Bulk-pin discovered apps",
@@ -3257,6 +3263,11 @@
     "app_chips_label": "Apps on this host",
     "apps_count": "{n} apps",
     "apps_count_title": "{up}/{total} apps reporting up",
+    "provider_freshness_lag_title": "Sampler newer than last_ok stamp by {gap} — plumbing drift",
+    "apps_degraded": "{n} degraded",
+    "apps_degraded_title": "{n} apps degraded on this host",
+    "apps_down": "{n} down",
+    "apps_down_title": "{n} apps down on this host",
     "probe_title": "Probe took {elapsed} (status: {status})",
     "subline_host_os": "{host} · {os}",
     "subline_axis": "{label} · {detail}",
@@ -3946,6 +3957,7 @@
       "probe_all_done": "Probed {total} apps — {up} up",
       "last_seen": "seen {ago} ago",
       "down_suffix": "down",
+      "degraded_suffix": "degraded",
       "up_count": "{up} / {total} up",
       "chip_strip_label": "Apps on this host",
       "probe_success": "Probe OK",
@@ -4087,9 +4099,16 @@
     "toggle_enabled_toast": "{name} enabled",
     "toggle_disabled_toast": "{name} disabled (settings preserved)"
   },
+  "admin_authentication": {
+    "session_secret_banner": {
+      "title": "SESSION_SECRET not set — sessions + TOTP will die on restart",
+      "body": "OmniGrid generated an ephemeral SESSION_SECRET because the env var is empty. On the next container restart the secret rotates and every session cookie + every TOTP secret stored in the DB becomes invalid — 2FA-enrolled users will need an admin reset. Set SESSION_SECRET=<a long random value> in /app/.env on the Swarm manager and redeploy."
+    }
+  },
   "admin_hosts": {
     "heading": "Hosts",
     "intro": "Define the machines you want to monitor and map each to the names used by every enabled provider. OmniGrid fetches all providers on every refresh and merges the best values per host — missing fields degrade to what the other providers returned.",
+    "no_providers_placeholder": "(no providers configured)",
     "snmp_walk_concurrency_label": "Walk concurrency",
     "snmp_walk_concurrency_hint": "How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency.",
     "snmp_walk_concurrency_placeholder": "Inherited: {value}",
@@ -4810,6 +4829,16 @@
       "widget_system_stats": "Host status",
       "widget_no_data": "No data",
       "widget_system_summary": "{up} / {total} hosts up",
+      "widget_weather_humidity": "Humidity {value}%",
+      "widget_weather_wind": "Wind {value} km/h",
+      "widget_weather_tomorrow": "Tomorrow {hi}/{lo}°",
+      "widget_weather_no_data": "Weather not configured — enable in topbar settings",
+      "widget_ip_unknown_isp": "Unknown ISP",
+      "widget_ip_disabled": "Public-IP lookup disabled in Admin → Public IP",
+      "widget_system_subtitle": "{total} hosts monitored",
+      "widget_system_down": "down",
+      "widget_system_paused": "paused",
+      "widget_system_all_up": "All up",
       "bookmark_name_placeholder": "Name",
       "bookmark_url_placeholder": "https://…",
       "new_section_name": "New section",

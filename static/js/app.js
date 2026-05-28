@@ -840,6 +840,27 @@ function app() {
         window.omnigrid = this;
       } catch (_) {
       }
+      // Start the backend-unreachable banner watcher. Cheap 5s ticker that
+      // reads `window.__ogLastBackendOkTs` (stamped by the fetch wrapper +
+      // SSE onAny) and flips `backendUnreachable` once the gap exceeds the
+      // operator-tunable threshold. See _startBackendReachabilityWatcher
+      // in app-sse.js.
+      try {
+        this._startBackendReachabilityWatcher();
+      } catch (_) {
+      }
+      // Hydrate the per-tab SESSION_SECRET banner-dismissal flag from
+      // sessionStorage so a single tab session keeps the dismissal but a
+      // fresh tab re-shows the warning (the underlying SESSION_SECRET
+      // threat persists across deploys until the operator sets the env
+      // var explicitly). Defence-in-depth — try/catch for environments
+      // where sessionStorage is unavailable / blocked.
+      try {
+        if (sessionStorage.getItem('og_session_secret_banner_dismissed') === '1') {
+          this.sessionSecretBannerDismissed = true;
+        }
+      } catch (_) {
+      }
       // Wrap any orphan `<input type="password">` in a hidden
       // `<form>` so Chrome / Edge stop logging "Password field is
       // not contained in a form" warnings (~17 instances across

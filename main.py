@@ -1207,6 +1207,14 @@ def init_db():
         -- idx_host_provider_last_ok_provider — same story as above;
         -- migration owns the index creation so legacy DBs don't
         -- fail the executescript before migrations get to run.
+        -- Composite (provider, last_ok_ts DESC) speeds up the
+        -- "every host's freshness for ONE provider, newest first" read
+        -- pattern (chip-strip render across a 200-host fleet after
+        -- BUG-001 lands and the NE sampler also UPSERTs here every
+        -- tick). Additive — safe to run on existing deployments;
+        -- SQLite no-ops if the index already exists.
+        CREATE INDEX IF NOT EXISTS idx_host_provider_last_ok_provider_ts
+        ON host_provider_last_ok (provider, last_ok_ts DESC);
 
         -- Ping reachability time-series. Populated by
         -- logic/ping_sampler.py at tuning_ping_interval_seconds
@@ -1226,6 +1234,26 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ping_samples_host_ts
             ON ping_samples(host_id, ts DESC);
+
+        -- Public-IP change history. Records every CHANGED outcome from
+        -- logic.public_ip.fetch() (operator-opt-in, gated by
+        -- tuning_public_ip_enabled). ONE row per change — duplicate IPs
+        -- from the cache hit OR consecutive fetches returning the same
+        -- value DON'T write a row. Drives the AI palette's ability to
+        -- answer "when did my IP / ISP last change?" + the Admin →
+        -- Public IP history table. Never pruned by the standard
+        -- tuning_stats_history_days retention — IP-change events are
+        -- low-volume + high-value (operators want a year+ of history).
+        CREATE TABLE IF NOT EXISTS public_ip_history (
+            ts      INTEGER PRIMARY KEY,
+            ip      TEXT NOT NULL,
+            isp     TEXT,
+            asn     TEXT,
+            country TEXT,
+            city    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_public_ip_history_ip
+            ON public_ip_history(ip);
 
         -- HTTP / TLS-cert / DNS health probe (seventh host-stats provider).
         -- ONE row per (host_id, url, ts). Written by
