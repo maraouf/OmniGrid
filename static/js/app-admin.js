@@ -2024,8 +2024,29 @@ export default {
         provider_color_service_probe: d.provider_color_service_probe || '',
         // Scheduler — IANA zone. Blank = container-local (legacy).
         scheduler_timezone: d.scheduler_timezone || '',
-        // Open-Meteo upstream (weather widget). Blank = default.
+        // Open-Meteo upstream (weather widget). DEPRECATED — kept
+        // for legacy round-trip only; UI consumer is the WeatherAPI
+        // block below.
         open_meteo_url: d.open_meteo_url || '',
+        // Weather — dual-provider dispatch (Open-Meteo OR
+        // WeatherAPI.com). Master toggle gates the topbar widget +
+        // lifespan sampler + AI palette context. The `weather_provider`
+        // selector picks between providers; moon-widget gate +
+        // moon-AI handling auto-disable when "open-meteo" is active
+        // (no moon data on that provider). API key is write-only:
+        // SPA sees only the `api_key_set` boolean via `settings.weather`.
+        weather_enabled: !!(d.weather && d.weather.enabled),
+        weather_provider: ((d.weather && d.weather.provider) === 'weatherapi')
+          ? 'weatherapi' : 'open-meteo',
+        weather_api_base_url: (d.weather && d.weather.api_base_url) || '',
+        weather_default_label: (d.weather && d.weather.default_label) || '',
+        weather_default_lat: (d.weather && d.weather.default_lat) || '',
+        weather_default_lon: (d.weather && d.weather.default_lon) || '',
+        weather: d.weather || {
+          enabled: false, provider: 'open-meteo', supports_moon: false,
+          api_base_url: '', api_key_set: false,
+          default_label: '', default_lat: '', default_lon: '',
+        },
         // Per-service master switches. Default true so legacy
         // deploys keep working before the operator interacts with
         // the toggles.
@@ -2176,6 +2197,24 @@ export default {
       } catch (_) {
       }
       this._openMeteoBaseline = this._openMeteoSnapshot();
+      // Weather — capture baseline snapshot AND seed `_weatherLastPassedTest`
+      // with the same baseline so an already-saved-and-tested configuration
+      // re-hydrates without forcing the operator to re-Test on every page
+      // load. Section-owned save in app-topbar.js refreshes both on commit.
+      try {
+        if (typeof this._weatherSnapshot === 'function') {
+          this._weatherBaselineSnapshot = this._weatherSnapshot();
+          // Only seed last-passed-test if the master toggle is ON AND
+          // an API key is set — otherwise the gate stays unlocked
+          // (toggle-off path) until a fresh Test runs.
+          if (this.settings && this.settings.weather_enabled
+            && this.settings.weather
+            && this.settings.weather.api_key_set) {
+            this._weatherLastPassedTest = this._weatherBaselineSnapshot;
+          }
+        }
+      } catch (_) {
+      }
       this._portainerBaseline = this._portainerSnapshot();
       this._oidcBaseline = this._oidcSnapshot();
       this._debugBaseline = this._debugSnapshot();

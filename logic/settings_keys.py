@@ -153,6 +153,12 @@ class Settings(str, Enum):
     OPEN_METEO_ENABLED = "open_meteo_enabled"
     OPEN_METEO_URL = "open_meteo_url"
     PASSKEYS_ALLOWED = "passkeys_allowed"
+    # WeatherAPI.com replacement provider (supersedes Open-Meteo —
+    # natively exposes moon phases via the astronomy block which
+    # Open-Meteo doesn't ship). Operator opt-in via the master switch;
+    # API key is a write-only secret with the `_set` flag pattern.
+    # Default location keeps the topbar weather widget + AI palette
+    # context fed without per-call lat/lon params.
     PING_DEFAULT_PORT = "ping_default_port"
     PING_ENABLED = "ping_enabled"
     PING_USE_ICMP = "ping_use_icmp"
@@ -218,6 +224,19 @@ class Settings(str, Enum):
     TOTP_LOCKOUT_MINUTES = "totp_lockout_minutes"
     TOTP_REQUIRED_FOR_ADMINS = "totp_required_for_admins"
     TOTP_REQUIRED_FOR_USERS = "totp_required_for_users"
+    # Weather provider selector — values: "open-meteo" (default, no
+    # API key required, NO moon data) or "weatherapi" (free key from
+    # weatherapi.com, full moon-phase / illumination / moonrise /
+    # moonset astronomy). Moon widget + moon AI questions
+    # auto-disable when the selector is "open-meteo" (the provider
+    # simply doesn't return that data).
+    WEATHER_API_BASE_URL = "weather_api_base_url"
+    WEATHER_API_KEY = "weather_api_key"
+    WEATHER_DEFAULT_LABEL = "weather_default_label"
+    WEATHER_DEFAULT_LAT = "weather_default_lat"
+    WEATHER_DEFAULT_LON = "weather_default_lon"
+    WEATHER_ENABLED = "weather_enabled"
+    WEATHER_PROVIDER = "weather_provider"
     WEBMIN_ALIASES = "webmin_aliases"
     WEBMIN_PASSWORD = "webmin_password"
     WEBMIN_URL = "webmin_url"

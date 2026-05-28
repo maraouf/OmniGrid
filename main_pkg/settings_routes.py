@@ -258,10 +258,33 @@ async def api_get_settings(request: Request):
         "passkeys_allowed": get_setting_bool(
             Settings.PASSKEYS_ALLOWED, bool(_TOTP_POLICY_DEFAULTS.get("passkeys_allowed", True)),
         ),
-        # Open-Meteo upstream (Admin → General). Returned in the
-        # clear so the input round-trips and reloads persisted. Blank
-        # disables the topbar weather widget (see _open_meteo_url).
+        # Open-Meteo upstream (Admin → General). DEPRECATED — kept
+        # for legacy seed round-trip; the topbar widget + sampler
+        # now consume the WeatherAPI.com block below.
         "open_meteo_url": get_setting(Settings.OPEN_METEO_URL) or "",
+        # Weather (Admin → Weather). Dual-provider — `provider`
+        # selects between "open-meteo" (default, no key, no moon)
+        # and "weatherapi" (free key, full moon astronomy).
+        # `supports_moon` is a synthesised boolean computed from
+        # the active provider — the SPA's moon-widget gate +
+        # AI palette moon-question handling read this directly.
+        # API key follows the write-only `_set` flag pattern; the
+        # SPA only ever sees `api_key_set: bool`.
+        "weather": {
+            "enabled": get_setting_bool(Settings.WEATHER_ENABLED, default=False),
+            "provider": (lambda v: ("weatherapi" if v == "weatherapi" else "open-meteo"))(
+                (get_setting(Settings.WEATHER_PROVIDER) or "").strip().lower()
+            ),
+            "supports_moon": (
+                (get_setting(Settings.WEATHER_PROVIDER) or "").strip().lower()
+                == "weatherapi"
+            ),
+            "api_base_url": get_setting(Settings.WEATHER_API_BASE_URL) or "",
+            "api_key_set": bool((get_setting(Settings.WEATHER_API_KEY) or "").strip()),
+            "default_label": get_setting(Settings.WEATHER_DEFAULT_LABEL) or "",
+            "default_lat": get_setting(Settings.WEATHER_DEFAULT_LAT) or "",
+            "default_lon": get_setting(Settings.WEATHER_DEFAULT_LON) or "",
+        },
         # Host groups — returned as a parsed list of dicts. Per-group
         # SSH password is masked at the boundary: we replace it with
         # a `password_set: bool` flag so the browser learns whether a
@@ -817,9 +840,77 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         _invalidate_totp_policy_cache()
     # Open-Meteo upstream — strips trailing slashes so `<base>/v1/...`
     # composition in api_weather stays stable whether the operator
-    # typed a trailing slash or not.
+    # typed a trailing slash or not. DEPRECATED — see weather_* block.
     if s.open_meteo_url is not None:
         set_setting(Settings.OPEN_METEO_URL, (s.open_meteo_url or "").strip().rstrip("/"))
+    # WeatherAPI.com — every field is independently nullable on
+    # SettingsIn so a partial save (e.g. just flipping the master
+    # toggle) leaves the other fields untouched. API key follows the
+    # keep-current-if-blank contract: non-empty string overwrites,
+    # empty / whitespace / None = no-op; explicit clear via
+    # `clear_weather_api_key=true`. Trailing slash on base URL is
+    # stripped so the per-endpoint formatter can append cleanly.
+    weather_changed = False
+    if s.weather_enabled is not None:
+        set_setting(Settings.WEATHER_ENABLED, "true" if s.weather_enabled else "false")
+        weather_changed = True
+    if s.weather_provider is not None:
+        v = (s.weather_provider or "").strip().lower()
+        if v not in ("open-meteo", "weatherapi", ""):
+            raise HTTPException(
+                status_code=400,
+                detail=f"weather_provider must be 'open-meteo' or 'weatherapi' (got {v!r})",
+            )
+        set_setting(Settings.WEATHER_PROVIDER, v or "open-meteo")
+        weather_changed = True
+    if s.weather_api_base_url is not None:
+        set_setting(Settings.WEATHER_API_BASE_URL,
+                    (s.weather_api_base_url or "").strip().rstrip("/"))
+        weather_changed = True
+    if s.clear_weather_api_key:
+        set_setting(Settings.WEATHER_API_KEY, "")
+        weather_changed = True
+    elif s.weather_api_key is not None and (s.weather_api_key or "").strip():
+        set_setting(Settings.WEATHER_API_KEY, s.weather_api_key.strip())
+        weather_changed = True
+    if s.weather_default_label is not None:
+        set_setting(Settings.WEATHER_DEFAULT_LABEL, (s.weather_default_label or "").strip())
+        weather_changed = True
+    if s.weather_default_lat is not None:
+        # Validate as a float when non-empty so a typo'd "abc" lands
+        # as a clear 400 instead of a silent NaN on every probe.
+        raw_lat = (s.weather_default_lat or "").strip()
+        if raw_lat:
+            try:
+                float(raw_lat)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"weather_default_lat {raw_lat!r} is not a number",
+                )
+        set_setting(Settings.WEATHER_DEFAULT_LAT, raw_lat)
+        weather_changed = True
+    if s.weather_default_lon is not None:
+        raw_lon = (s.weather_default_lon or "").strip()
+        if raw_lon:
+            try:
+                float(raw_lon)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"weather_default_lon {raw_lon!r} is not a number",
+                )
+        set_setting(Settings.WEATHER_DEFAULT_LON, raw_lon)
+        weather_changed = True
+    if weather_changed:
+        # Drop the in-process per-coord TTL cache so a re-configured
+        # provider takes effect on the very next call instead of
+        # waiting up to tuning_weather_cache_ttl_seconds.
+        try:
+            from logic.weather import invalidate_cache as _weather_invalidate
+            _weather_invalidate()
+        except Exception:  # noqa: BLE001 — module is optional on the import path
+            pass
     if s.portainer_public_url is not None:
         set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
     if s.backup_retention_count is not None:

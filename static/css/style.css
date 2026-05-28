@@ -9251,16 +9251,33 @@ select.field-invalid {
    --apps-card-border-w is the operator-visible accent thickness; declare
    on :root for the no-fallback-literals rule.
    ========================================================================== */
+/* Per-status accent — drives the left border, the logo backdrop tint,
+   the hover glow, and the status-dot colour. Each `.apps-card--<status>`
+   modifier overrides `--apps-card-accent` for the card's three usage
+   sites: border-inline-start (already wired), backdrop gradient on
+   the logo container, and accent-tinted hover shadow. Default keeps
+   the previous neutral feel when no status is set. */
 .apps-card {
+  --apps-card-accent: var(--text-faint);
+  --apps-card-accent-soft: color-mix(in srgb, var(--text-faint) 8%, transparent);
+  --apps-card-accent-glow: color-mix(in srgb, var(--text-faint) 18%, transparent);
   position: relative;
-  transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
+  overflow: hidden;
+  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
   border-inline-start-width: var(--apps-card-border-w);
+  border-inline-start-color: var(--apps-card-accent);
+  background:
+    radial-gradient(ellipse 80% 60% at top right,
+      var(--apps-card-accent-soft) 0%,
+      transparent 70%),
+    var(--surface);
 }
 
 .apps-card:hover {
-  box-shadow: 0 4px 12px var(--row-hover);
-  transform: translateY(-1px);
-  border-color: var(--border-bright);
+  box-shadow: 0 6px 18px var(--apps-card-accent-glow),
+              0 1px 3px var(--row-hover);
+  transform: translateY(-2px);
+  border-color: var(--apps-card-accent);
 }
 
 .apps-card:focus-visible {
@@ -9269,24 +9286,189 @@ select.field-invalid {
 }
 
 .apps-card--up {
-  border-inline-start-color: var(--success);
+  --apps-card-accent: var(--success);
+  --apps-card-accent-soft: color-mix(in srgb, var(--success) 8%, transparent);
+  --apps-card-accent-glow: color-mix(in srgb, var(--success) 20%, transparent);
 }
 
 .apps-card--down {
-  border-inline-start-color: var(--danger);
+  --apps-card-accent: var(--danger);
+  --apps-card-accent-soft: color-mix(in srgb, var(--danger) 8%, transparent);
+  --apps-card-accent-glow: color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 .apps-card--degraded {
-  border-inline-start-color: var(--warning);
+  --apps-card-accent: var(--warning);
+  --apps-card-accent-soft: color-mix(in srgb, var(--warning) 8%, transparent);
+  --apps-card-accent-glow: color-mix(in srgb, var(--warning) 22%, transparent);
 }
 
 .apps-card--unknown {
-  border-inline-start-color: var(--text-faint);
+  --apps-card-accent: var(--text-faint);
+  --apps-card-accent-soft: color-mix(in srgb, var(--text-faint) 8%, transparent);
+  --apps-card-accent-glow: color-mix(in srgb, var(--text-faint) 16%, transparent);
+}
+
+/* Logo container — gives the brand image a soft tinted backdrop so it
+   reads as a deliberate composition element rather than a floating
+   sticker. The accent variable picks up the card's status colour so
+   the chrome ties together. Rounded square with a subtle gradient
+   that intensifies on card hover. */
+.apps-card-logo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(135deg,
+      var(--apps-card-accent-soft) 0%,
+      color-mix(in srgb, var(--apps-card-accent) 4%, var(--surface-2)) 100%);
+  border: 1px solid color-mix(in srgb, var(--apps-card-accent) 12%, var(--border));
+  flex-shrink: 0;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+
+.apps-card:hover .apps-card-logo {
+  border-color: color-mix(in srgb, var(--apps-card-accent) 22%, var(--border-bright));
+}
+
+.apps-card-logo img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: var(--r-sm);
+}
+
+/* App name — display-tier weight + slight letter-spacing for the
+   header to read as primary visual hierarchy. */
+.apps-card-name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* Meta row under the name — "N / M up · K hosts" style breakdown
+   with the up-count picking up the status accent colour. */
+.apps-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+}
+
+.apps-card-meta-value {
+  color: var(--apps-card-accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status pill upgraded — bigger dot with a soft accent glow + slight
+   uppercase letter-spacing for a polished label. */
+.apps-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--apps-card-accent) 12%, transparent);
+  color: var(--apps-card-accent);
+  border: 1px solid color-mix(in srgb, var(--apps-card-accent) 22%, transparent);
+}
+
+.apps-card-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--apps-card-accent);
+  box-shadow: 0 0 6px var(--apps-card-accent-glow);
+  flex-shrink: 0;
+}
+
+/* Per-host instance row — subtle row card on a hairline-divided list,
+   so a card with multiple hosts reads as a clean stack rather than a
+   wall of text. Hover gives operators a precise hit-target signal. */
+.apps-card-instance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  transition: background 140ms ease;
+}
+
+.apps-card-instance:hover {
+  background: var(--apps-card-accent-soft);
+}
+
+.apps-card-instance-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.apps-card-instance-host {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Latency badge — polished mini-chip instead of bare grey number;
+   tabular-nums keeps two-digit / three-digit / four-digit values
+   from jumping width on subsequent probes. */
+.apps-card-latency {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-3xs);
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-3);
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* External-link affordance for the per-instance URL — small icon
+   button with a subtle hover background so operators get a precise
+   hit target instead of a bare blue-tinted icon. */
+.apps-card-instance-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  transition: background 140ms ease, color 140ms ease;
+  flex-shrink: 0;
+}
+
+.apps-card-instance-link:hover {
+  background: color-mix(in srgb, var(--apps-card-accent) 14%, transparent);
+  color: var(--apps-card-accent);
 }
 
 .apps-card-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
   display: inline-block;
@@ -9294,10 +9476,12 @@ select.field-invalid {
 
 .apps-card-dot--up {
   background: var(--success);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--success) 30%, transparent);
 }
 
 .apps-card-dot--down {
   background: var(--danger);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 .apps-card-dot--unknown {
@@ -9306,6 +9490,21 @@ select.field-invalid {
 
 .apps-card-dot--degraded {
   background: var(--warning);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+/* Reduced-motion override — kill the hover lift + transition so users
+   who opt out of motion don't see the card-shift. */
+@media (prefers-reduced-motion: reduce) {
+  .apps-card,
+  .apps-card-logo,
+  .apps-card-instance,
+  .apps-card-instance-link {
+    transition: none !important;
+  }
+  .apps-card:hover {
+    transform: none;
+  }
 }
 
 /* ==========================================================================
@@ -9550,6 +9749,39 @@ select.field-invalid {
   gap: var(--s-1);
   position: relative;
   z-index: 1;
+}
+
+/* Action-button cluster (refresh / remove). Right-aligned in the
+   tile head so the title gets the lion's share of the row. */
+.apps-widget-tile-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Freshness footer — small + muted "Updated Ns ago" stamp pinned
+   to the bottom of every refreshable widget. Subtly accent-tinted
+   icon so it reads as a "data freshness" cue without competing
+   with the hero. Self-tick courtesy of the existing hostHistoryNow
+   1s ticker. */
+.apps-widget-tile-freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: var(--s-1);
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+
+.apps-widget-tile-freshness svg {
+  color: var(--widget-accent);
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 /* Brand-coloured eyebrow above the hero — replaces the muted-grey
@@ -9803,6 +10035,23 @@ select.field-invalid {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1.0;
+}
+
+/* Clock-tile centering wrapper — fills the tile-body's flex-1 height
+   and centers the HH:MM + date pair on BOTH axes. Per-kind override
+   so the other widgets keep their hero-at-top layout (their value is
+   the visual anchor with detail rows below). The clock has no detail
+   row to anchor against, so vertical centering reads as intentional
+   composition rather than top-aligned-with-blank-space. */
+.apps-widget-clock-center {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  min-width: 0;
 }
 
 /* The colon between HH and MM gets a subtle pulse that's gentle on

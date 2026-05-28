@@ -28,6 +28,11 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Added
 
+- **Weather: dual-provider support with moon-phase data.** Admin → Weather is now a full provider tab (alongside Portainer / OIDC / Asset Inventory) letting you pick between Open-Meteo (free, no key, no moon data) and WeatherAPI.com (free key from weatherapi.com, full moon astronomy — phase / illumination / moonrise / moonset). The moon-phase Apps widget + moon-related AI palette / Telegram answers auto-disable when Open-Meteo is selected (cleanly — the AI honestly says "I don't have moon data" instead of hallucinating phases). Test-before-Save gate validates the WeatherAPI key against the live endpoint before allowing a save; Open-Meteo Save is unconditional (no key to validate). A "Use my profile location" button stamps lat/lon/label from your saved profile weather location.
+- **Weather: historical sampling for AI / Telegram retrospective questions.** A lifespan-managed sampler writes one row per hour (default — tunable) to a new `weather_samples` table covering temperature / humidity / wind / condition / moon phase / illumination. The AI palette and Telegram bot now answer "what was the weather yesterday afternoon" / "when was the last full moon" / "rainiest day this week" from cached historical samples instead of refusing or re-querying. Retention defaults to 90 days; set to 0 to keep every sample forever for long-term climate trends.
+- **Apps Custom — Moon-phase widget.** New `moon` widget kind for the Custom layout — illumination ring (SVG donut, lit-fraction drives the fill), full phase name hero ("Waxing Gibbous" / "Waning Crescent" / "Full Moon" / "New Moon" etc.), illumination percentage subtitle, and moonrise/moonset detail row. Hides automatically with a "Switch to WeatherAPI.com" hint when the active weather provider can't supply moon data.
+- **Apps Custom — Per-widget refresh button + freshness label.** Every refreshable widget tile (weather / moon / public_ip) now has a refresh-cw icon button that force-bypasses the cache to re-query the backend, and a subtle "Updated Ns/Nm/Nh ago" footer chip that self-ticks every second so you can see how fresh the data is at a glance. Client-side widgets (clock / system stats) skip the refresh button cleanly — refreshing them would be a no-op.
+- **Apps Custom — Bookmark optional icon URL or slug.** Add-bookmark form now has a third input for an optional icon — paste a full URL (svg / png / favicon / data: URI all work) OR a brand slug like `plex` / `github` / `adguard` to reuse the existing brand-icon resolver. Blank falls back to brand-resolution on the bookmark's name (existing behaviour). Persists in your `ui_prefs` like the rest of the Custom layout, so your bookmark icon survives across machines and browsers.
 - Apps view now explains why an instance is degraded or down: each non-healthy instance shows the probe failure reason (timeout, connection refused, unexpected status, …) inline, and multi-port services render a per-port status pill so you can see exactly which port is failing without leaving the view.
 - App detail drawer: clicking an app card opens a slide-out panel showing its catalog binding and every host instance, with a per-instance debug panel that reveals the exact probe target(s), per-port outcomes, and — when an app can't be probed — a plain-language reason (e.g. "chip has no URL and the host has no Address set", "probe is disabled"). Includes a per-instance "Probe now" action.
 - Built-in Apps catalog templates added in a release now appear automatically on the next deploy (a seeded-slug ledger picks up new built-ins while leaving ones you deleted on purpose gone) — AdGuard Home is included.
@@ -440,7 +445,8 @@ Fourth MINOR cut on top of `1.3.0` — rolls up **264 closed issues** under the 
 - Provider-name set canonicalised — `logic/host_metrics_sampler.py:_PROVIDER_PREFIXES` is the single source of truth; `main.py` imports as `_PROVIDER_AUTO_PAUSE_NAMES`. SNMP vendor MIB key set similarly canonicalised at `logic/snmp.py:_VALID_VENDOR_KEYS`. Notification mediums at `logic/ops.py:NOTIFY_MEDIUMS`.
 - `op_type` canonical-name registry — `logic/ops.py:OP_TYPES` is the single source of truth; `assert_op_type(op_type)` gates every raw `INSERT INTO history` site so typos can't silently land bad rows. Eight schedule-runner sites in `logic/schedules.py` (gather_refresh / backup / asset_inventory_refresh / prune_logs / prune_notifications / swarm_agent_health / port_scan_refresh / config_backup) and five `main.py` sites (ssh_run / ssh_terminal / port_scan UDP-error / port_scan main / the dynamic-op_type `_bulk_write_history_rows` helper) now stamp `assert_op_type(...)` immediately before the INSERT — previously bypassed the registry so a typo would silently land in the audit table. `config_backup` added to `OP_TYPES` (was the one literal that didn't have a peer in the registry).
 - `logic/db.py` + `logic/backups.py` lint sweep — extracted `_walk_hosts_config()` shared helper across the four `curated_*_hosts` functions; narrowed broad `except Exception` clauses to specific exception tuples per failure mode; explicit DB_PATH None guards inside `db_conn()` + `_snapshot_db_to` for type narrowing; tightened settings-version bump exception handling; dropped redundant default-equals-argument noise.
-- `logic/ops.py` + `logic/schedules.py` + `logic/telegram_listener.py` lint sweep — moved `_sqlite3` alias to module-top of `ops.py` (was lazy-imported inside 4 try-blocks → PyCharm flagged reference-before-assignment); narrowed broad excepts per failure mode (`(httpx.HTTPError, OSError, ValueError)` for Apprise HTTP, `(sqlite3.Error, OSError, RuntimeError, ValueError)` for sampler IO blocks, `(ZoneInfoNotFoundError, ValueError, OSError)` for timezone resolution, `(asyncio.CancelledError, …)` with re-raise for cancellation-sensitive sleeps); renamed shadowed `e` variables in nested try-blocks; uppercase scope-shadowed `GRACE` locals in `schedules.py` renamed to lowercase `grace` per PEP 8; unused `params` in three runners (gather_refresh / backup / config_backup) renamed to `_params`; redundant `return (duration, status)` parens stripped across 8 sites; redundant `target_stack=None` kwarg-equals-default dropped from `_ops.new_op(...)` call sites; missing docstrings added to `Operation` + `Operation.log` + `Operation.done` + `Operation.to_dict` + `new_op` + `persist_history` + every `do_*` handler + `list_schedules`; bare `match.group()` in place of `match.group(0)` in three Telegram regex-sub helpers; the `_MD_ITALIC_STAR` regex's redundant `\*` inside the character class corrected to bare `*`.
+- `logic/ops.py` + `logic/schedules.py` + `logic/telegram_listener.py` lint sweep — moved `_sqlite3` alias to module-top of `ops.py` (was lazy-imported inside 4 try-blocks → PyCharm flagged reference-before-assignment); narrowed broad excepts per failure mode (`(httpx.HTTPError, OSError, ValueError)` for Apprise HTTP, `(sqlite3.Error, OSError, RuntimeError, ValueError)` for sampler IO blocks, `(ZoneInfoNotFoundError, ValueError, OSError)` for timezone resolution, `(asyncio.CancelledError, …)` with re-raise for cancellation-sensitive sleeps); renamed shadowed `e` variables in nested try-blocks; uppercase scope-shadowed `GRACE` locals in `schedules.py` renamed to lowercase `grace` per PEP 8; unused `params` in three runners (gather_refresh / backup / config_backup) renamed to `_params`; redundant `return (duration, status)` parens stripped across 8 sites; redundant `target_stack=None` kwarg-equals-default dropped from `_ops.new_op(...)` call sites; missing docstrings added to
+  `Operation` + `Operation.log` + `Operation.done` + `Operation.to_dict` + `new_op` + `persist_history` + every `do_*` handler + `list_schedules`; bare `match.group()` in place of `match.group(0)` in three Telegram regex-sub helpers; the `_MD_ITALIC_STAR` regex's redundant `\*` inside the character class corrected to bare `*`.
 - `record_provider_outcome(host_id, provider, ok, ...)` is now the canonical helper at every per-(provider, host) probe boundary — both success AND failure branches stamp `host_provider_last_ok` so the chip's "Updated Xm ago" subtitle populates.
 - Section-owned save pattern — every admin tab declares `_<name>SectionTuningKeys()` + `_<name>SectionPlainKeys()` + `<name>SectionDirty()` + `save<Name>Section()` so a Pulse Save no longer re-POSTs every Webmin / Beszel / NE field.
 - Auto-pause sweep on lifespan startup — orphan `<provider>:<host_id>` rows in `host_failure_state` + `host_provider_last_ok` are deleted when the host has been removed from `hosts_config` OR no longer has the provider configured.
@@ -891,6 +897,7 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - `passkeys_allowed` now returned by `api_get_settings` next to the TOTP-policy fields (#196) [Enhancement]
 - 17-enhancement sweep across OIDC / events / metrics / TOTP / Webmin / WebAuthn (#199) [Enhancement]
 - Passkey transports rendered as inline chips (#213) [Enhancement]
+
 ### OIDC / SSO
 
 - Style mono icons for Admin → Portainer + Admin → OIDC (Authentik) (#150) [Enhancement]
@@ -900,10 +907,12 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - `_validate_id_token._find_key` now rejects `kid is None` instead of silently picking `keys[0]` (#200) [Bug]
 - OIDC flow cookie now deleted on every callback failure path via `HTTPException(headers=...)` (#201) [Bug]
 - `verify_authentication` now actually performs the sign-counter regression guard the docstring promised (#202) [Bug]
+
 ### Real-time / event stream
 
 - SSE pill gains a third "reconnecting" state with amber pulse (#211) [Enhancement]
 - Time event stream replacing the SPA's polling loops (#214) [Enhancement]
+
 ### Logs view & retention
 
 - Logs view gained a severity multi-select filter (Error / Warning / Success / Info) (#146) [Enhancement]
@@ -913,12 +922,14 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - `_run_prune_logs` schedule kind in `logic/schedules.py` accepted an admin-supplied `params.days` without a... (#179) [Enhancement]
 - `_run_prune_logs` schedule history rows now record the resolved `days` value in `target_name` (`"42 log fil... (#188) [Enhancement]
 - `prune_old_logs` cutoff math + filename-date parse now route through a shared `_resolved_tz()` helper s (#195) [Bug]
+
 ### Schedules & automation
 
 - `/api/ops` poll cadence is now a tunable (Admin → Config → "Ops poll cadence (ms)"). Backed by `tuning_ops_... (#145) [Enhancement]
 - Schedules ("Prune <docker-host>", "Refresh fleet cache") were re-seeding on every container boot even afte... (#159) [Enhancement]
 - Rows could get stuck "running" forever after a lifespan cancel mid-run. `fire_schedule()` records `(last_op... (#175) [Bug]
 - **Unified topbar refresh cadence** (#206). Replaced the separate SYNC + STATS pickers with ONE control offe... (#206) [Enhancement]
+
 ### Notifications
 
 - Notifications admin tab into Notifications + General; per-event notification toggles. `logic/ops.py:notify(... (#107) [Enhancement]
@@ -927,11 +938,13 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Host_paused" notification event fires when `host_metrics_sampler` auto-pauses a host after the configured f... (#142) [Enhancement]
 - Success notification title now includes the new version number (#143) [Enhancement]
 - `notify(event=...)` was hardcoding the per-event admin-gate default to `True`, but `_NOTIFY_EVENT_DEFAULTS`... (#169) [Enhancement]
+
 ### Hosts editor & Host groups
 
 - Subgroup in Admin → Host Groups now scrolls the new row into view + focuses the name input (#113) [Enhancement]
 - View: parent group labels now render in `--text-dim` (slightly faded) so sub-group labels stand out as the... (#197) [Enhancement]
 - Stale-data badges in the Hosts UI (#216) [Enhancement]
+
 ### Drawer, charts & Node Exporter
 
 - `loadHostHistory` now stamps `loadedAt = Date.now()` on every successful HTTP 2xx, regardless of whethe (#100) [Enhancement]
@@ -946,6 +959,7 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Card legend chips overflowed the chart's right edge on hosts with many thermal sensors (8 cores) (#182) [Enhancement]
 - Host cards reported memory as 1024× the real value on Webmin module variants whose `mem_total` / `memory_to... (#190) [Bug]
 - Host drawer "Updated Xs ago" label gains absolute-ISO tooltip for Grafana correlation (#212) [Enhancement]
+
 ### Stats sampler & metrics infra
 
 - `host_net_sampler` was ignoring the permanent-fail auto-pause. The metrics sampler already skipped paused h... (#151) [Bug]
@@ -959,10 +973,12 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - `_get_failure_state` in `logic/host_metrics_sampler.py` lagged the schema after #189 added `host_failure_st... (#193) [Enhancement]
 - _warned_no_mounts` set replaced with a 1024-entry FIFO-evicting `OrderedDict` (#205) [Enhancement]
 - StaleAge guard for missing `_stale_ts` (#207) [Enhancement]
+
 ### Beszel / Pulse / Webmin / Portainer
 
 - `_flatten_temperatures` was being called THREE times per point in `logic/beszel.py:fetch_system_history` (o... (#184) [Enhancement]
 - Fetch_system_history` in `logic/beszel.py` was building the PocketBase filter via f-string interpolation (#191) [Bug]
+
 ### Admin & Settings pages
 
 - Admin env-vars-still-set warning banner (#104) [Enhancement]
@@ -977,6 +993,7 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Users / Sessions / Tokens intro paragraph moved from above the section boxes to below them, so the start of... (#147) [Enhancement]
 - Log (Admin → History) now uses server-side paging instead of fetching the whole filtered set up to a 500-ro... (#173) [Enhancement]
 - Admin → Config tuning fields client-side integer + bounds validation (#210) [Enhancement]
+
 ### Topbar, login & branding
 
 - Topbar widgets card always showed "Unsaved" indicator on page open. `_headerPrefsBaseline` was initialised... (#112) [Bug]
@@ -985,9 +1002,11 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Reload" banner was appending `_v=` to the URL on every click instead of replacing it (URL grew as `?_v=1.1.... (#149) [Enhancement]
 - Assertion verifier rejected with "Unexpected client data origin" when NPM rewrites the `Host` header to its... (#163) [Enhancement]
 - Every hardcoded English string flagged on the SPA + login page now flows through `t('key.path')` (#174) [Enhancement]
+
 ### Vendor icons
 
 - Three returns in `iconUrlFor` plus `hostIconUrl`'s explicit-override path AND keyword-scan path (stack/item... (#215) [Bug]
+
 ### Filters, badges & status pills
 
 - Symbol>` dedup on `static/index.html`. 15 unique icons (copy / chevron-right / chevron-down / chevron-up /... (#111) [Enhancement]
@@ -996,9 +1015,11 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Fail marker for chronically-down hosts (#135) [Enhancement]
 - `is_meaningful(False)` returned False because Python's `bool ⊂ int` made `isinstance(False, int)` true and... (#194) [Bug]
 - Updates badge on the Stacks nav button (#217) [Enhancement]
+
 ### Mobile / responsive UX
 
 - Pinch-zoom is now actually disabled on iOS Safari, not just on Android. iOS Safari deliberately ignores the... (#132) [Enhancement]
+
 ### API endpoints & backend helpers
 
 - `/api/hosts/one/{host_id}` now accepts `?force=true` to bypass the 10s provider-state cache, mirroring the... (#101) [Enhancement]
@@ -1006,9 +1027,11 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - Version page now edits every component (MAJOR / MINOR / PATCH) and writes the values straight to `VERSION.txt` (#106) [Enhancement]
 - Timezone fallback now surfaces in `/api/me`'s `client_config.scheduler_tz` (`{configured, resolved, fallbac... (#186) [Enhancement]
 - Passkeys_allowed in api_get_settings (#198) [Enhancement]
+
 ### Documentation
 
 - Documentation refresh pass — 5 docs files modified to match the recently-shipped feature waves: PII leak in... (#126) [Bug]
+
 ### Internal cleanup, refactor & bug sweeps
 
 - Field error on a filtered-out row no longer silently no-ops. `focusFirstFieldError` in `static/js/app.js` e... (#102) [Bug]
@@ -1018,6 +1041,7 @@ Second MINOR cut on top of `1.1.0` — rolls up **118 closed issues** under the 
 - `_HOST_SNAPSHOT_KEYS` is no longer a hand-maintained tuple drift class. Replaced with an `_is_snapshot_key(... (#187) [Enhancement]
 - 10-bug sweep shipped in one batch (#203) [Enhancement]
 - Five UX-bugs and five UX-enhancements shipped together (#207–#215). was already fixed via #198 (passkeys_al... (#208) [Enhancement]
+
 ### Other improvements & fixes
 
 - Editor: typing `custom_number` into a row + tabbing out no longer reorders the row mid-edit. cn `@input` no... (#109) [Enhancement]
@@ -1183,17 +1207,26 @@ Baseline release — first version under the SemVer + `CHANGELOG.md`
 cadence (see `docs/RELEASE_PROCESS.md`). The changelog story starts
 here.
 
-<!-- Version link references — root-relative paths (start with `/`).
+<!-- Version link references — point to in-tree release-notes files.
+     Each `docs/releases/_v<MAJORMINORPATCH>_release_notes.md` is the
+     frozen per-MINOR release notes companion (operator-facing,
+     vendor-neutral). Pointing the markdown link references at these
+     in-tree paths means BOTH the IDE's static link checker AND the
+     git-host's markdown renderer resolve the targets correctly, with
+     no operator-private hostname / URL leaked. `[Unreleased]` points
+     at `docs/RELEASE_PROCESS.md` — the operator runbook for cutting
+     the next release. `[1.0.0]` has no entry because v1.0.0 is the
+     baseline release with no companion notes file. -->
 
- Both git-host markdown renderers rewrite links starting with `/` as paths relative to the REPO root, not the host root. So `/releases/tag/v1.2.0` resolves to `https://<host>/<owner>/<repo>/releases/tag/v1.2.0` on either platform — same source line works on both hosts. No operator-specific domain or username baked in (privacy rule satisfied), no `..`-count to tune per renderer (the previous fix attempts in #507/#512/#513 chased this for several rounds).
+[Unreleased]: docs/RELEASE_PROCESS.md
 
- Why not relative paths: one git host uses `<host>/<owner>/<repo>/blob/<branch>/` (4 segments before the file) so 2 `..` resolves correctly; another uses `.../src/branch/<branch>/` (5 segments) AND its renderer can drop `..` traversal that would escape the file's directory. No `..`-count satisfies both. Root-relative sidesteps this entirely.
+[1.1.0]: docs/releases/_v110_release_notes.md
 
- We don't have a v1.0.0 release tag (no `[1.0.0]` link target on purpose); the heading above renders as `## [1.0.0]` text, which is fine. The `[Unreleased]` link points at the milestones view since no release page exists yet.
--->
-[Unreleased]: /milestones
-[1.1.0]:../../releases/tag/v1.1.0
-[1.2.0]:../../releases/tag/v1.2.0
-[1.3.0]:../../releases/tag/v1.3.0
-[1.4.0]:../../releases/tag/v1.4.0
-[1.5.0]:../../releases/tag/v1.5.0
+[1.2.0]: docs/releases/_v120_release_notes.md
+
+[1.3.0]: docs/releases/_v130_release_notes.md
+
+[1.4.0]: docs/releases/_v140_release_notes.md
+
+[1.5.0]: docs/releases/_v150_release_notes.md
+

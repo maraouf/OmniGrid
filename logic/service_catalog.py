@@ -209,6 +209,18 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "APC", "slug": "apc", "icon": "apc",
+        "description": "APC management interface (UPS / PDU / NMC) — SSH + Web UI + SNMP polling",
+        "default_ports": [
+            {"port": 22, "protocol": "tcp", "label": "SSH",
+             "probe_path": "", "probe_status": 0},
+            {"port": 80, "protocol": "http", "label": "Web UI",
+             "probe_path": "/", "probe_status": 0, "open_url": True},
+            {"port": 161, "protocol": "udp", "label": "SNMP",
+             "probe_path": "", "probe_status": 0},
+        ],
+    },
+    {
         "name": "ddns-updater", "slug": "ddns-updater", "icon": "ddns-updater",
         "description": "Dynamic-DNS record updater",
         "default_ports": [

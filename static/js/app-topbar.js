@@ -56,6 +56,36 @@ export default {
   publicIpTestOk: false,
   publicIpTestResult: '',
 
+  // Admin → Weather (WeatherAPI.com). `weatherForm` holds the
+  // transient secret-input + clear-flag so the persisted SettingsIn
+  // round-trip doesn't echo the API key. `_weatherLastPassedTest`
+  // is the snapshot stamped when Test connection succeeded — the
+  // Test-before-Save gate compares the live snapshot against it.
+  // `_weatherBaselineSnapshot` is the post-Save baseline so the
+  // dirty-cue clears on a clean save.
+  weatherForm: {api_key: '', clear_api_key: false},
+  weatherSaving: false,
+  weatherTesting: false,
+  weatherTestResult: {ok: false, detail: ''},
+  _weatherLastPassedTest: '',
+  _weatherBaselineSnapshot: '',
+  // Weather-history cache for the AI palette context-builder.
+  // Mirrors `_publicIpHistoryCache` — populated by
+  // `_ensureWeatherHistory()` on AI palette open. 10-min refresh TTL.
+  _weatherHistoryCache: null,
+  _weatherHistoryFetchedAt: 0,
+  // Per-widget refresh-in-flight gate. `appsWidgetRefreshing[kind] =
+  // true` while a manual refresh is mid-fetch — drives the spinner
+  // on the per-widget refresh button + disables the button to prevent
+  // double-clicks. Keyed by widget kind so multiple widgets refreshing
+  // in parallel don't block each other.
+  appsWidgetRefreshing: {},
+  // Stamp the local last-fetch ts on the weather block so the Apps
+  // widget freshness label has a clock to count from. Updated by
+  // `loadHeaderWeather` on every successful poll AND on the manual
+  // refresh button.
+  _weatherFetchedAt: 0,
+
   // Admin → Public IP — section-owned save for the three
   // public-IP tunables. Master toggle is the
   // `tuning_public_ip_enabled` int (1/0); cache TTL + fetch
@@ -223,9 +253,87 @@ export default {
         return;
       }
       this.weather = await r.json();
+      // Stamp the local "fetched at" so the Apps widget tile can
+      // render a freshness label ("Updated 2m ago"). The backend
+      // already sets `weather.fetched_at` from its own clock, but
+      // the SPA stamps its own value too so the rendered relative
+      // label always uses the SPA's clock (avoids tz / drift surprises
+      // when the upstream returned a value from N minutes ago via
+      // its cache).
+      this._weatherFetchedAt = Date.now();
     } catch (_) {
       this.weather = null;
     }
+  },
+  // Manual refresh — same code path as the periodic ticker but
+  // gated by `appsWidgetRefreshing.weather` so the spinner shows
+  // while in-flight. Called from the Apps widget tile's refresh
+  // button + the Public IP widget's matching button.
+  async refreshWidget(kind) {
+    if (!this.appsWidgetRefreshing) {
+      this.appsWidgetRefreshing = {};
+    }
+    if (this.appsWidgetRefreshing[kind]) {
+      return;
+    }
+    this.appsWidgetRefreshing[kind] = true;
+    try {
+      if (kind === 'weather' || kind === 'moon') {
+        // Moon data comes from the same /api/weather response, so
+        // refreshing weather refreshes the moon widget too.
+        await this.loadHeaderWeather();
+      } else if (kind === 'public_ip') {
+        // Force-bypass the in-process cache by zeroing the stamp
+        // BEFORE the call, so the helper's TTL gate doesn't
+        // short-circuit on a still-warm cache.
+        this._publicIpFetchedAt = 0;
+        await this._ensurePublicIp();
+      }
+    } catch (_) {
+    } finally {
+      // Brief 250ms hold so the spinner animation reads as a real
+      // event rather than a flash — feel-good UX, no functional
+      // impact.
+      setTimeout(() => {
+        if (this.appsWidgetRefreshing) {
+          this.appsWidgetRefreshing[kind] = false;
+        }
+      }, 250);
+    }
+  },
+  // "Updated Ns/Nm/Nh ago" relative-time label for the per-widget
+  // freshness chip. Reads from per-kind fetched-at stamps; returns
+  // an empty string when no fetch has happened yet (the widget's
+  // empty state covers that case).
+  widgetFreshnessLabel(kind) {
+    const now = this.hostHistoryNow || Date.now();
+    let ts = 0;
+    if (kind === 'weather' || kind === 'moon') {
+      ts = this._weatherFetchedAt || 0;
+    } else if (kind === 'public_ip') {
+      ts = this._publicIpFetchedAt || 0;
+    }
+    if (!ts) {
+      return '';
+    }
+    const delta = Math.max(0, Math.floor((now - ts) / 1000));
+    if (delta < 60) {
+      return (this.t('apps.custom.widget_freshness_seconds', {n: delta})
+        || ('Updated ' + delta + 's ago'));
+    }
+    const m = Math.floor(delta / 60);
+    if (m < 60) {
+      return (this.t('apps.custom.widget_freshness_minutes', {n: m})
+        || ('Updated ' + m + 'm ago'));
+    }
+    const h = Math.floor(m / 60);
+    return (this.t('apps.custom.widget_freshness_hours', {n: h})
+      || ('Updated ' + h + 'h ago'));
+  },
+  // Whether a given widget kind has a refresh button. Clock + system_stats
+  // are client-side derivations; refresh wouldn't change anything.
+  widgetSupportsRefresh(kind) {
+    return kind === 'weather' || kind === 'moon' || kind === 'public_ip';
   },
   startHeaderWeather() {
     if (this._weatherTimer) {
@@ -312,6 +420,254 @@ export default {
         ? data.history : [];
       this._publicIpHistoryFetchedAt = now;
     } catch (_) { /* silent — see comment above */
+    }
+  },
+
+  // ============================================================
+  // Weather — WeatherAPI.com section helpers + history cache for
+  // the AI palette context-builder. The Admin → Weather tab follows
+  // the canonical Test-before-Save gate pattern (see CLAUDE.md
+  // "Test-before-Save gate"); the section-owned save bundles the
+  // per-section tunables + plain settings into ONE POST.
+  // ============================================================
+  _weatherSectionTuningKeys() {
+    return [
+      'tuning_weather_cache_ttl_seconds',
+      'tuning_weather_fetch_timeout_seconds',
+      'tuning_weather_history_retention_days',
+      'tuning_weather_sampler_interval_seconds',
+    ];
+  },
+  _weatherSectionPlainKeys() {
+    return [
+      'weather_enabled',
+      'weather_provider',
+      'weather_api_base_url',
+      'weather_default_label',
+      'weather_default_lat',
+      'weather_default_lon',
+    ];
+  },
+  // Snapshot for dirty tracking AND for the Test-stamp comparison.
+  // API key is intentionally INCLUDED — entering a new key OR clearing
+  // an existing one MUST re-trigger a Test pass before Save unlocks.
+  _weatherSnapshot() {
+    const tuning = {};
+    for (const k of this._weatherSectionTuningKeys()) {
+      const v = (this.tuningForm || {})[k];
+      tuning[k] = (v == null ? '' : String(v).trim());
+    }
+    const plain = {};
+    for (const k of this._weatherSectionPlainKeys()) {
+      plain[k] = (this.settings || {})[k];
+    }
+    return JSON.stringify({
+      tuning,
+      plain,
+      api_key_dirty: !!((this.weatherForm || {}).api_key || ''),
+      clear_api_key: !!((this.weatherForm || {}).clear_api_key),
+    });
+  },
+  weatherTuningKeys() {
+    return this._weatherSectionTuningKeys();
+  },
+  weatherSectionDirty() {
+    try {
+      const baseline = this._weatherBaselineSnapshot || '';
+      return this._weatherSnapshot() !== baseline;
+    } catch (_) {
+      return false;
+    }
+  },
+  canSaveWeather() {
+    // Master toggle OFF — Save unconditional (operator may want to
+    // commit the toggle change without re-typing the API key).
+    if (!(this.settings && this.settings.weather_enabled)) {
+      return true;
+    }
+    // Open-Meteo path — no API key, no Test gate. Save unconditional
+    // when this provider is selected (it just hits the public endpoint
+    // which is always reachable from the operator's network or not).
+    if ((this.settings && this.settings.weather_provider) !== 'weatherapi') {
+      return true;
+    }
+    // WeatherAPI path — Test-before-Save gate. Last passing-Test
+    // snapshot MUST match the live snapshot.
+    return !!(this._weatherLastPassedTest
+      && this._weatherLastPassedTest === this._weatherSnapshot());
+  },
+  markWeatherDirty() {
+    // Stub — the snapshot diff drives dirtiness; this method exists
+    // for symmetry with the other section helpers and so future
+    // hooks (debounced auto-validate, live preview) have a single
+    // attach point.
+  },
+  weatherProfileLocationAvailable() {
+    const p = (this.me && this.me.ui_prefs) || {};
+    const lat = Number(p.weather_lat);
+    const lon = Number(p.weather_lon);
+    return Number.isFinite(lat) && Number.isFinite(lon);
+  },
+  weatherUseProfileLocation() {
+    const p = (this.me && this.me.ui_prefs) || {};
+    if (!this.weatherProfileLocationAvailable()) {
+      return;
+    }
+    this.settings.weather_default_lat = String(p.weather_lat || '');
+    this.settings.weather_default_lon = String(p.weather_lon || '');
+    if (p.weather_label) {
+      this.settings.weather_default_label = String(p.weather_label || '');
+    }
+    this.markWeatherDirty();
+  },
+  async testWeather() {
+    if (this.weatherTesting) {
+      return;
+    }
+    this.weatherTesting = true;
+    this.weatherTestResult = {ok: false, detail: ''};
+    try {
+      const body = {
+        provider: (this.settings && this.settings.weather_provider) || 'open-meteo',
+        api_key: (this.weatherForm && this.weatherForm.api_key) || '',
+        base_url: this.settings.weather_api_base_url || '',
+        lat: this.settings.weather_default_lat || '',
+        lon: this.settings.weather_default_lon || '',
+      };
+      const r = await fetch('/api/weather/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        this.weatherTestResult = {
+          ok: false,
+          detail: (j && j.detail) || ('HTTP ' + r.status),
+        };
+      } else {
+        this.weatherTestResult = {
+          ok: !!(j && j.ok),
+          detail: (j && j.detail) || '',
+        };
+        if (j && j.ok) {
+          // Stamp the passing snapshot so canSaveWeather() unlocks.
+          // Only meaningful for WeatherAPI — Open-Meteo path bypasses
+          // the gate via canSaveWeather()'s provider check.
+          this._weatherLastPassedTest = this._weatherSnapshot();
+        }
+      }
+    } catch (e) {
+      this.weatherTestResult = {ok: false, detail: String(e.message || e)};
+    } finally {
+      this.weatherTesting = false;
+    }
+  },
+  async saveWeatherSection() {
+    if (this.weatherSaving) {
+      return;
+    }
+    // Validate each tunable against its declared bounds before POST.
+    for (const k of this._weatherSectionTuningKeys()) {
+      const raw = (this.tuningForm || {})[k];
+      if (raw === '' || raw == null) {
+        continue;
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        this.showToast(this.t('admin.config.errors.must_be_int', {
+          field: this.t('admin.config.fields.' + k + '.label'),
+        }), 'error');
+        return;
+      }
+      const eff = this.tuningEffective[k] || {};
+      if (Number.isFinite(eff.min) && n < eff.min) {
+        this.showToast(this.t('admin.config.errors.below_min', {
+          field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+        }), 'error');
+        return;
+      }
+      if (Number.isFinite(eff.max) && n > eff.max) {
+        this.showToast(this.t('admin.config.errors.above_max', {
+          field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+        }), 'error');
+        return;
+      }
+    }
+    this.weatherSaving = true;
+    try {
+      const body = {};
+      // Per-section tunables + plain settings + secret bits all
+      // ride one POST so a single Save commits the whole weather
+      // configuration (CLAUDE.md "Section-owned save pattern").
+      for (const k of this._weatherSectionTuningKeys()) {
+        const v = (this.tuningForm || {})[k];
+        body[k] = (v == null ? '' : String(v).trim());
+      }
+      for (const k of this._weatherSectionPlainKeys()) {
+        body[k] = (this.settings || {})[k];
+      }
+      // API key — keep-current-if-blank contract. Clearing the key
+      // requires the explicit clear flag set from the UI Clear button.
+      const wf = this.weatherForm || {};
+      if (wf.clear_api_key) {
+        body.clear_weather_api_key = true;
+      } else if ((wf.api_key || '').trim()) {
+        body.weather_api_key = wf.api_key.trim();
+      }
+      const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.detail || `HTTP ${r.status}`);
+      }
+      await Promise.all([this.loadSettings(), this.loadTuning()]);
+      // Reset the form's secret-input box + clear flag so the next
+      // edit starts clean. Persisted `api_key_set` flag drives the
+      // input placeholder going forward.
+      this.weatherForm = {api_key: '', clear_api_key: false};
+      // Drop the SPA topbar widget's local cache so the next
+      // fetch lands the fresh provider output.
+      this.weather = null;
+      this._weatherFetchedAt = 0;
+      this._weatherBaselineSnapshot = this._weatherSnapshot();
+      this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+    } catch (e) {
+      this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed')
+        + ': ' + (e.message || e), 'error');
+    } finally {
+      this.weatherSaving = false;
+    }
+  },
+
+  // 10-min cache window matching `_ensurePublicIpHistory`. Stored on
+  // `this._weatherHistoryCache` so the synchronous
+  // `_buildAiPaletteContext` can fold it into the prompt block. The
+  // AI consumer reads "what was the weather yesterday" / "moon phase
+  // last night" against this cache — silent failure leaves it empty,
+  // AI says it doesn't know, no hallucination.
+  async _ensureWeatherHistory() {
+    const now = Date.now();
+    if (Array.isArray(this._weatherHistoryCache)
+      && (now - (this._weatherHistoryFetchedAt || 0)) < 10 * 60 * 1000) {
+      return;
+    }
+    try {
+      // 168 = one full week of hourly samples; gives the AI enough
+      // resolution to answer "highest temp this week", "rainiest day",
+      // and "when was the last full moon" without re-fetching.
+      const r = await fetch('/api/weather/history?limit=168');
+      if (!r.ok) {
+        return;
+      }
+      const data = await r.json();
+      this._weatherHistoryCache = Array.isArray(data && data.history)
+        ? data.history : [];
+      this._weatherHistoryFetchedAt = now;
+    } catch (_) { /* silent — see _ensurePublicIpHistory */
     }
   },
 };

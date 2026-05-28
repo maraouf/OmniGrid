@@ -289,7 +289,7 @@ export default {
     }
     if (h.duration) {
       metaChips.push('<span class="ai-resp-meta-chip">'
-        + this.t('common.unit_ms_inline', { n: fmtNum(Math.round((h.duration || 0) * 1000)) })
+        + this.t('common.unit_ms_inline', {n: fmtNum(Math.round((h.duration || 0) * 1000))})
         + '</span>');
     }
     if (totalTokens) {
@@ -887,6 +887,16 @@ export default {
       await this._ensurePublicIpHistory();
     } catch (_) {
     }
+    // Pre-fetch weather history (current + past 7 days of hourly
+    // samples + moon phases) so the AI palette can answer "what was
+    // the weather yesterday afternoon" / "when was the last full
+    // moon" questions in the same turn. Same fire-and-forget
+    // contract; empty cache → AI sees no historical block + says it
+    // doesn't know rather than hallucinating phases.
+    try {
+      await this._ensureWeatherHistory();
+    } catch (_) {
+    }
     // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
     // only fired in the `finally` block after the AI response landed,
     // so a refresh / redeploy that hit during a slow LLM round-trip
@@ -1152,10 +1162,10 @@ export default {
           kind: 'memory_forget',
           label: memoriesToForget.length === 1
             ? (this.t('ai_memory.forget_confirm_title') || 'Forget memory?')
-            : (this.t('ai_memory.forget_confirm_title_n', { n: memoriesToForget.length })
-                || ('Forget ' + memoriesToForget.length + ' memories?')),
+            : (this.t('ai_memory.forget_confirm_title_n', {n: memoriesToForget.length})
+              || ('Forget ' + memoriesToForget.length + ' memories?')),
           confirm_text: (this.t('ai_memory.forget_confirm_body')
-            || 'The AI flagged this memory as wrong. Delete it?')
+              || 'The AI flagged this memory as wrong. Delete it?')
             + '\n\n"' + previewHead + '"',
           forget_texts: memoriesToForget,
         };
@@ -2239,6 +2249,13 @@ export default {
         wind_kmh: Number.isFinite(+w.wind_kmh) ? Math.round(+w.wind_kmh) : null,
         weather_code: Number.isFinite(+w.code) ? +w.code : null,
         fetched_at: Number.isFinite(+w.fetched_at) ? +w.fetched_at : null,
+        // Provider identity — operators ask the AI questions like
+        // "which weather provider are you using?" and "why don't
+        // you have moon data?". The AI needs the name + the
+        // supports_moon boolean to answer honestly instead of
+        // hallucinating moon-phase values.
+        provider: w.provider || '',
+        supports_moon: !!w.supports_moon,
       };
       // Daily forecast — pass through up to 7 days so the AI can
       // answer "what's the forecast for the next 5 days?" with real
@@ -2247,14 +2264,85 @@ export default {
       // two if needed; the values themselves are pre-converted to
       // the operator's preferred unit. Same convention used elsewhere
       // (the `unit` field carries the suffix).
+      // Moon-phase fields (moon_phase / moon_illumination / moonrise
+      // / moonset) ride per-day on the forecast records — only
+      // populated when supports_moon is true (WeatherAPI.com). The
+      // AI can answer "what's the moon phase tonight?" / "when's
+      // moonrise?" / "what's the illumination %?" from this data,
+      // OR cleanly refuse with "I don't have moon data — switch to
+      // WeatherAPI.com in Admin → Weather" when supports_moon is
+      // false.
       if (Array.isArray(w.forecast) && w.forecast.length > 0) {
-        weatherCtx.forecast = w.forecast.slice(0, 7).map(d => ({
-          date: d.date || '',
-          temp_max_c: this.convertTempPref(d.temp_max_c),
-          temp_min_c: this.convertTempPref(d.temp_min_c),
-          condition: d.condition || '',
-          precip_mm: Number.isFinite(+d.precip_mm) ? Math.round(+d.precip_mm * 10) / 10 : null,
-        }));
+        weatherCtx.forecast = w.forecast.slice(0, 7).map(d => {
+          const day = {
+            date: d.date || '',
+            temp_max_c: this.convertTempPref(d.temp_max_c),
+            temp_min_c: this.convertTempPref(d.temp_min_c),
+            condition: d.condition || '',
+            precip_mm: Number.isFinite(+d.precip_mm) ? Math.round(+d.precip_mm * 10) / 10 : null,
+          };
+          if (d.sunrise) {
+            day.sunrise = String(d.sunrise);
+          }
+          if (d.sunset) {
+            day.sunset = String(d.sunset);
+          }
+          // Moon astronomy — WeatherAPI ONLY. Fields are null on
+          // Open-Meteo so the AI can see the provider gap honestly.
+          if (d.moon_phase) {
+            day.moon_phase = String(d.moon_phase);
+          }
+          if (d.moon_illumination != null) {
+            day.moon_illumination_pct = Math.round(+d.moon_illumination);
+          }
+          if (d.moonrise) {
+            day.moonrise = String(d.moonrise);
+          }
+          if (d.moonset) {
+            day.moonset = String(d.moonset);
+          }
+          return day;
+        });
+      }
+      // Today's moon snapshot — convenience shorthand so the AI
+      // doesn't have to dig into forecast[0] for the common
+      // "what's the moon phase right now" question. Only populated
+      // when supports_moon is true AND forecast[0] has moon data.
+      if (w.supports_moon && Array.isArray(w.forecast) && w.forecast[0]) {
+        const today = w.forecast[0];
+        if (today.moon_phase || today.moon_illumination != null) {
+          weatherCtx.moon_today = {
+            phase: today.moon_phase || '',
+            illumination_pct: today.moon_illumination != null
+              ? Math.round(+today.moon_illumination) : null,
+            moonrise: today.moonrise || '',
+            moonset: today.moonset || '',
+          };
+        }
+      }
+      // Weather + moon HISTORY — populated by `_ensureWeatherHistory()`
+      // pre-fetched in the AI-sidebar send path. Lets the AI answer
+      // "what was the temperature yesterday afternoon?" / "when was
+      // the last full moon?" / "what was the rainiest day this week?".
+      // Empty cache → AI sees no history block, says it doesn't know,
+      // no hallucination. Capped at 168 hourly samples (1 week).
+      if (Array.isArray(this._weatherHistoryCache) && this._weatherHistoryCache.length > 0) {
+        weatherCtx.history = this._weatherHistoryCache.slice(0, 168).map(s => {
+          const row = {
+            ts: s.ts,
+            temp_c: s.temp_c,
+            humidity: s.humidity,
+            wind_kmh: s.wind_kmh,
+            condition: s.condition || '',
+          };
+          if (s.moon_phase) {
+            row.moon_phase = s.moon_phase;
+          }
+          if (s.moon_illumination != null) {
+            row.moon_illumination_pct = Math.round(+s.moon_illumination);
+          }
+          return row;
+        });
       }
     }
     // Problem-hosts block — full list of hosts whose status is in

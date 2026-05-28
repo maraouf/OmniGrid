@@ -1409,6 +1409,40 @@
       "title": "General",
       "subtitle": "UI-side service settings that don't fit auth, hosts, scheduling, or notifications. Today: Open-Meteo (topbar weather widget). Future home for any other ambient/UI integrations."
     },
+    "weather": {
+      "title": "Weather",
+      "subtitle": "Weather provider — drives the topbar weather widget, the Apps custom widgets (clock / weather / moon), the lifespan historical-sample writer, the AI palette context block, and the Telegram /weather + /moon commands. Two providers: Open-Meteo (no key, no moon data) and WeatherAPI.com (free key, full moon astronomy). The historical sampler writes one row per hour to the weather_samples DB table so the AI can answer 'when was the last full moon' / 'was yesterday rainy' questions without re-querying the live endpoint.",
+      "enabled_label": "Weather enabled",
+      "enabled_hint": "Master gate. When off the topbar widget, the moon-phase widget, the lifespan historical-sample writer, the AI palette context block, and the Telegram /weather + /moon commands all skip. The API key (if any) is preserved — flipping the toggle back on resumes without re-entry.",
+      "provider_label": "Provider",
+      "provider_hint": "Choose between a key-free baseline (Open-Meteo) and the richer key-required provider (WeatherAPI.com). The moon-phase widget + moon-related AI / Telegram features automatically hide when Open-Meteo is selected because that provider doesn't return moon data.",
+      "provider_open_meteo_label": "Open-Meteo (no key, no moon)",
+      "provider_open_meteo_hint": "Free public endpoint. No registration. Returns current weather + 7-day forecast + sunrise/sunset, but NO moon-phase data. Recommended for operators who don't want to register for a third-party API key.",
+      "provider_weatherapi_label": "WeatherAPI.com (free key, full moon)",
+      "provider_weatherapi_hint": "Requires free signup at weatherapi.com (1M calls/month). Returns everything Open-Meteo does PLUS moon-phase / moon-illumination / moonrise / moonset for every forecast day. Enables the moon-phase widget + moon-related AI palette / Telegram answers.",
+      "api_key_label": "API key (WeatherAPI.com only)",
+      "api_key_placeholder": "Paste your WeatherAPI.com API key",
+      "api_key_set_placeholder": "•••••••••• (configured — leave blank to keep current)",
+      "api_key_hint": "Sign up free at weatherapi.com to receive a key. Stored encrypted-at-rest with the write-only `_set` flag contract (the value is never returned to the browser in the clear, only a boolean indicating that a key exists).",
+      "api_key_clear_title": "Clear the saved key. Save commits the deletion — the master toggle stays on, but every WeatherAPI call will fail until a new key is entered.",
+      "api_base_url_label": "API base URL",
+      "api_base_url_hint_open_meteo": "Override the default Open-Meteo endpoint. Useful for self-hosted mirrors. Leave blank for the public endpoint (https://api.open-meteo.com/v1/forecast).",
+      "api_base_url_hint_weatherapi": "Override the default WeatherAPI.com endpoint. Useful for regional proxies or self-hosted compatible mirrors. Leave blank for the public endpoint (https://api.weatherapi.com/v1).",
+      "default_location_label": "Default location",
+      "default_location_hint": "Used by the lifespan sampler (it has to poll SOMETHING per tick), the AI palette context-builder when no per-user coordinates are pinned, and the Telegram /weather no-arg form. Latitude / longitude in decimal degrees (e.g. 51.5074 / -0.1278 for London). Label is the operator-friendly display string (e.g. \"London\").",
+      "default_label_placeholder": "Location label (e.g. London)",
+      "default_lat_placeholder": "Latitude (e.g. 51.5074)",
+      "default_lon_placeholder": "Longitude (e.g. -0.1278)",
+      "use_profile_button": "Use my profile location",
+      "use_profile_title": "Stamp the latitude / longitude / label from your profile's saved weather location.",
+      "use_profile_unavailable": "Set a weather location in Settings → Profile first.",
+      "moon_supported_title": "Moon-phase data available",
+      "moon_supported_hint": "WeatherAPI.com returns moon_phase / moon_illumination / moonrise / moonset for every forecast day. The Apps moon widget, the AI palette's moon-question handling, and the Telegram /moon command are all active.",
+      "moon_unsupported_title": "Moon-phase data not available",
+      "moon_unsupported_hint": "Open-Meteo does not return moon data. The Apps moon widget hides automatically, the AI palette declines moon-related questions, and the Telegram /moon command reports the feature is unavailable. Switch to WeatherAPI.com above to enable moon features.",
+      "advanced_label": "Advanced — cache TTL, fetch timeout, sampler interval, retention",
+      "save_requires_test": "Run a successful Test connection before saving"
+    },
     "ai": {
       "heading": "AI Integration",
       "intro": "Connect OmniGrid to a large-language-model provider for future AI-assisted features. Stage 1: foundation only — provider configuration plus a dashboard for usage / cost / accuracy. Wiring the actual AI calls comes in a later stage.",
@@ -1766,6 +1800,22 @@
         "tuning_public_ip_fetch_timeout_seconds": {
           "label": "Public-IP fetch timeout (seconds)",
           "help": "Outbound HTTP wall-clock for the ifconfig.co request. Default 8s. Raise on slow links / proxy paths. Range 2..60. Takes effect on the next lookup."
+        },
+        "tuning_weather_cache_ttl_seconds": {
+          "label": "Weather cache TTL (seconds)",
+          "help": "How long the in-process per-coordinate cache holds the last successful WeatherAPI.com response before re-fetching. Default 600 (10 minutes) keeps the public 1M-calls-month free tier comfortably under cap. Lower for fresher readings during active monitoring; raise to reduce outbound traffic on a large multi-user deployment. Range 60..86400. Takes effect on the next lookup."
+        },
+        "tuning_weather_fetch_timeout_seconds": {
+          "label": "Weather fetch timeout (seconds)",
+          "help": "Outbound HTTP wall-clock for each WeatherAPI.com `/v1/forecast.json` call. Default 8s. Raise on slow links / outbound-proxy paths. Range 1..60. Takes effect on the next lookup."
+        },
+        "tuning_weather_history_retention_days": {
+          "label": "Weather history retention (days)",
+          "help": "How many days of per-tick weather + moon-phase samples to keep in the `weather_samples` table. Default 90. 0 disables pruning entirely (every sample kept forever — useful for long-term climate trend analysis but grows the DB unbounded). Pruned hourly by the sampler loop. Range 0..3650."
+        },
+        "tuning_weather_sampler_interval_seconds": {
+          "label": "Weather sampler interval (seconds)",
+          "help": "Cadence of the lifespan-managed weather sampler. Default 3600 (hourly) — matches WeatherAPI.com's free-tier-friendly load profile while giving the AI palette + Telegram `/weather` enough historical resolution for \"was it raining yesterday afternoon?\". Lower for tighter resolution at higher API cost; 0 disables the historical-data sampler entirely (only the on-demand cache stays active). Range 0..86400. Takes effect at the next tick."
         },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
@@ -4839,6 +4889,7 @@
       "remove_tile": "Remove tile",
       "widget_clock": "Clock",
       "widget_weather": "Weather",
+      "widget_moon": "Moon phase",
       "widget_public_ip": "Public IP",
       "widget_system_stats": "Host status",
       "widget_no_data": "No data",
@@ -4856,8 +4907,20 @@
       "widget_system_paused": "paused",
       "widget_system_all_up": "All up",
       "widget_system_no_hosts": "No hosts curated yet — add one in Admin → Hosts",
+      "widget_moon_rise_label": "Rise",
+      "widget_moon_set_label": "Set",
+      "widget_moon_illumination_label": "{pct}% illuminated",
+      "widget_moon_provider_hint": "Switch to WeatherAPI.com in Admin → Weather to enable moon data",
+      "widget_moon_no_data": "No moon data — configure Weather in admin",
+      "widget_refresh_title": "Refresh now",
+      "widget_refresh_aria": "Refresh {kind} data",
+      "widget_freshness_seconds": "Updated {n}s ago",
+      "widget_freshness_minutes": "Updated {n}m ago",
+      "widget_freshness_hours": "Updated {n}h ago",
       "bookmark_name_placeholder": "Name",
       "bookmark_url_placeholder": "https://…",
+      "bookmark_icon_placeholder": "Icon URL or slug (e.g. plex, https://…)",
+      "bookmark_icon_aria": "Optional icon — paste a URL or type a brand slug",
       "new_section_name": "New section",
       "section_name_placeholder": "Section name",
       "section_name_aria": "Section name",
@@ -4930,6 +4993,7 @@
     "error_loading": "Failed to load apps: ",
     "counts": {
       "up": "{n} up",
+      "up_suffix": "up",
       "down": "{n} down",
       "degraded": "{n} degraded",
       "unknown": "{n} unknown",
