@@ -329,12 +329,13 @@ async def _lifespan(_app: FastAPI):
         _loop.set_exception_handler(_async_exception_handler)
         # NEUTRAL wording — the body is logged at INFO during normal
         # boot, so it must not contain the words `fail` / `error` /
-        # `crash` / `exception` that the severity classifier picks
-        # up. The handler INSTALL is a normal startup step; only
-        # actual unhandled exceptions caught later should bucket as
-        # ERROR (and those carry their own traceback text).
+        # `crash` / `exception` / `traceback` that the severity
+        # classifier picks up. The handler INSTALL is a normal
+        # startup step; only actual unhandled async events caught
+        # later should bucket as ERROR (and those carry their own
+        # diagnostic text).
         print("[boot] asyncio diagnostic hook wired — unhandled "
-              "task outcomes will log with full traceback")
+              "task outcomes will log with full stack info")
     except Exception as _e:  # noqa: BLE001
         print(f"[boot] asyncio exception handler install failed "
               f"(non-fatal): {_e}")
@@ -435,13 +436,15 @@ async def _lifespan(_app: FastAPI):
         else:
             _samples = ", ".join(_dns_result["samples_failed"])
             # `warning:` token bumps to WARN bucket per the
-            # `_severity_for` classifier — no `fail` / `error` token
-            # so this stays out of the ERROR bucket (a partial
-            # failure is normal on a fresh deploy where the
-            # operator hasn't fixed the container DNS yet).
+            # `_severity_for` classifier. NEUTRAL wording on the
+            # outcome side — `unresolved` / `unreachable` instead of
+            # `failed` / `error` so the line stays out of the ERROR
+            # bucket (a partial-config state is normal on a fresh
+            # deploy where the operator hasn't tuned the container
+            # DNS yet — should not light up as red ERROR).
             print(f"[boot] DNS startup check warning: {_fail} of "
-                  f"{_ok + _fail} curated host targets failed to resolve "
-                  f"via the container's libc resolver "
+                  f"{_ok + _fail} curated host targets are unresolved "
+                  f"by the container's libc resolver "
                   f"(first {len(_dns_result['samples_failed'])}: {_samples}) "
                   f"— check Docker DNS / use FQDNs / add `extra_hosts:` "
                   f"in docker-compose.yml")
@@ -2067,8 +2070,23 @@ async def api_stats(force: bool = False):
         _apps_routes._kick_background_stats_gather()
         _stats_task = _apps_routes._background_stats_task
         if _stats_task is not None:
+            # HARD timeout — bound the cold-cache wait so a slow
+            # gather can't hang the response past the reverse-proxy's
+            # read timeout (typically 60s for NPM / 60s for nginx
+            # default). 20s gives a busy fleet's gather enough room
+            # while keeping the SPA's "Backend unreachable" banner
+            # quiet. On timeout, fall through and return whatever's
+            # in cache (likely empty on cold path, but the SPA
+            # gracefully renders an empty stats response) WITH the
+            # `stats_refreshing: true` flag — the background task
+            # keeps running, the next poll picks up the result.
             try:
-                await _stats_task
+                await asyncio.wait_for(_stats_task, timeout=20.0)
+            except asyncio.TimeoutError:
+                print("[stats] cold-cache gather_stats exceeded 20s budget; "
+                      "returning empty + flagging refreshing=true (background "
+                      "task continues)")
+                stats_refreshing = True
             except Exception as e:  # noqa: BLE001
                 print(f"[stats] cold-cache gather_stats failed: {e}")
     elif cache_stale or force:

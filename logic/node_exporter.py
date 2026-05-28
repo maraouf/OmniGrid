@@ -710,36 +710,78 @@ async def probe_node(
     async def _fetch(u: str) -> tuple[Optional[str], Optional[str]]:
         """(body_text, error_str). One of the pair is always None.
 
-        Error messages are operator-readable: when the raw exception
-        has an empty `str()` (some httpx ConnectErrors do), fall back
-        to the class name + a hint that names the most common root
-        cause (DNS — the container's libc resolver couldn't find the
-        host, typically because the operator's `ne_url` uses a
-        short hostname instead of an FQDN the Docker DNS can resolve).
+        Error messages are operator-readable: classify the exception
+        into one of {DNS failure / TCP-connect timeout / TCP-connect
+        refused / generic} so the operator gets a hint targeted at
+        the actual failure mode, not a blanket "could be anything"
+        line. Empty `str(e)` falls back to the class name + the
+        class-name-derived hint (httpx's ConnectTimeout / ReadTimeout
+        / ConnectError carry semantically-useful class names even
+        when the message body is empty).
         """
         try:
             r = await client.get(u, timeout=timeout)
         except (httpx.HTTPError, OSError) as fetch_err:
             raw = str(fetch_err).strip()
             klass = type(fetch_err).__name__
-            # Common DNS-not-resolved patterns from httpx / aiohttp /
-            # libc — fold all of them under a single readable hint
-            # so the operator knows to switch to an FQDN or set a
-            # `--dns` host on the container.
             lower = raw.lower()
-            if (not raw) or ("name or service not known" in lower
-                              or "nodename nor servname" in lower
-                              or "getaddrinfo failed" in lower
-                              or "temporary failure in name resolution" in lower
-                              or "could not resolve" in lower
-                              or "no address associated" in lower):
-                hint = (raw or klass) + (
-                    " — DNS resolution failed; the container's resolver "
-                    "couldn't find this hostname. Use the FQDN (e.g. "
-                    "`host.home.lan`) instead of a short name, OR add a "
-                    "Docker `--dns` / compose `extra_hosts:` entry that "
-                    "covers this name.")
-                return None, hint
+            # DNS-resolution failure — libc / aiohttp / httpx all
+            # surface these with one of these substrings. Match
+            # ONLY the explicit DNS markers; do NOT treat empty
+            # exception strings as DNS (httpx ConnectTimeout often
+            # has `str(e) == ''`, but the class name correctly says
+            # "ConnectTimeout" — that's a network/firewall issue,
+            # NOT DNS).
+            is_dns = (
+                "name or service not known" in lower
+                or "nodename nor servname" in lower
+                or "getaddrinfo failed" in lower
+                or "temporary failure in name resolution" in lower
+                or "could not resolve" in lower
+                or "no address associated" in lower
+            )
+            if is_dns:
+                return None, (
+                    f"{raw} — DNS resolution failed; the container's "
+                    "resolver couldn't find this hostname. Use the FQDN "
+                    "(e.g. `host.home.lan`) instead of a short name, OR "
+                    "add a Docker `--dns` / compose `extra_hosts:` entry "
+                    "that covers this name."
+                )
+            # TCP-connect timeout — the kernel sent SYN and never got
+            # SYN-ACK. Either the host isn't on the network, the IP
+            # is wrong, or a firewall is silently dropping the
+            # packets. Distinct from "Connection refused" (host
+            # reachable, port closed).
+            if klass == "ConnectTimeout" or "connecttimeout" in lower:
+                return None, (
+                    f"{raw or klass} — TCP connect timeout to {u}; "
+                    "the kernel got no SYN-ACK back. Check: (a) is the "
+                    "host actually on the network? (b) is the port "
+                    "correct? (c) is a firewall dropping packets from "
+                    "the OmniGrid container's network to this host? "
+                    "Run `docker exec <omnigrid-container> nc -vz "
+                    "<host> <port>` to confirm."
+                )
+            # TCP-connect refused — kernel returned RST.  Host is
+            # reachable but nothing is listening on the port.
+            if "connection refused" in lower or "econnrefused" in lower:
+                return None, (
+                    f"{raw} — the host is reachable on the network "
+                    "but NOTHING is listening on this port. The service "
+                    "(node_exporter) is probably stopped or running on "
+                    "a different port. SSH to the host and run "
+                    "`ss -tlnp | grep <port>` to confirm."
+                )
+            # Read timeout — TCP connect succeeded but the server
+            # didn't send the full response within `timeout`.
+            if klass == "ReadTimeout" or "readtimeout" in lower:
+                return None, (
+                    f"{raw or klass} — TCP connect succeeded but the "
+                    "server didn't respond within the probe timeout. "
+                    "node_exporter is slow / overloaded, OR the URL "
+                    "points at a different service that doesn't reply."
+                )
             return None, raw or klass
         if r.status_code >= 400:
             return None, f"HTTP {r.status_code}"

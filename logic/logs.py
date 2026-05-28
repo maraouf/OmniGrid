@@ -197,10 +197,22 @@ def _severity_for(text: str, _stream: str) -> str:
     """
     if not text:
         return "INFO"
-    # Early-position success-marker scan (first 80 chars).
-    head = text[:80]
+    # Early-position scan (first 120 chars) — explicit-marker tokens
+    # near the start of the line take precedence over body-keyword
+    # matches. Without this, a WARN-intent line whose BODY mentions
+    # a word like "failed"/"error"/"traceback" (e.g. "[boot] DNS
+    # startup check warning: 58 of 172 targets failed to resolve")
+    # would be misclassified as ERROR by the broad body-keyword
+    # scan below. The "explicit" marker is `warning:` / `warn:` /
+    # `success:` / `ok:` in the line's first ~120 chars (typically
+    # right after the `[tag]` prefix). Operators control this by
+    # word choice; the body-keyword fallback still wins when no
+    # explicit marker is present.
+    head = text[:120]
     if _RE_OK.search(head):
         return "SUCCESS"
+    if _RE_WARN.search(head):
+        return "WARN"
     if _RE_ERROR.search(text):
         return "ERROR"
     if _RE_WARN.search(text):
