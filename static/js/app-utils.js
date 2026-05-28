@@ -1,7 +1,23 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSUnusedGlobalSymbols,JSUnusedLocalSymbols
+// noinspection EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS,PointlessBitwiseExpressionJS
+// noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,NegatedIfStatementJS,IfStatementWithIdenticalBranchesJS,StatementWithEmptyBodyJS,SingleStatementBlockJS,UnnecessaryLocalVariableJS,UnnecessaryContinueJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,RegExpRedundantEscape,AnonymousCapturingGroupJS,RegExpAnonymousGroup
+// Per-inspection suppressions match the sibling SPA files (app-drawer-bulk.js / app-topbar.js / i18n.js).
+// Covered SPA idioms (CLAUDE.md-sanctioned):
+// - constants on the right of comparisons (modern ESLint default the SPA pre-dates)
+// - arrow / anonymous callbacks; nested t() / toString() / Math.floor() / Date.now() calls
+// - empty catch blocks holding the fire-and-forget pattern with `_` unused parameter
+// - single-statement if-branches (one-line guards without braces)
+// - short uppercase locals (Y / M / D / H) for date-token destructuring readability
+// - underscore-prefixed local names (_en_months_long) for "this is a fallback / internal" intent
+// - `>>> 0` u32-cast on hash accumulator (the avatarHue stable-hash needs unsigned wrap)
+// - `replace(/\]/g, ...)` redundant escape — kept for grep readability
+// - JSHint E016 invalid-regex on `\bX\b` was the prior lookbehind form; rewritten + suppression updated
+// Alpine-called helpers (fmtDurationShort / normalizeHexColor / _fmtAxisPct) read as "unused" to the
+// IDE because PyCharm can't trace through `x-text="fmtDurationShort(...)"` bindings.
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA pure-utility helpers — formatters, escapers, classifiers, small DOM
@@ -13,6 +29,16 @@
 // the same component proxy regardless of which module the method literally
 // lives in. The split is purely for readability + IDE navigation — runtime
 // behaviour is identical to the pre-split monolith.
+
+// Module-scope caches for `_applyDateTimeFormat`'s locale-aware month +
+// AM/PM lookups. Browser locale doesn't change at runtime within a
+// session, so a one-shot fill via Intl.DateTimeFormat populates these
+// arrays once and every subsequent date-format call reuses them. Falls
+// back to the English literal arrays only on Intl failure.
+let _intlMonthsLong = null;
+let _intlMonthsShort = null;
+let _intlAmTok;
+let _intlPmTok;
 
 export default {
   avatarHue() {
@@ -193,11 +219,12 @@ export default {
     }
     const u = ['B', 'KB', 'MB', 'GB', 'TB'];
     let i = 0;
-    while (n >= 1024 && i < u.length - 1) {
-      n /= 1024;
+    let v = n;
+    while (v >= 1024 && i < u.length - 1) {
+      v /= 1024;
       i++;
     }
-    return (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+    return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
   },
   // Like fmtBytes but the unit is FIXED based on `refMax` (the upper
   // bound of the chart / legend group). Use this for any chart where
@@ -293,11 +320,19 @@ export default {
    * 1000+ get a fractional `s` suffix so a 1234ms label reads
    * "1.2s" not "1234ms". */
   _fmtAxisMs(v) {
-    if (!Number.isFinite(+v)) return '';
+    if (!Number.isFinite(+v)) {
+      return '';
+    }
     const n = +v;
-    if (n <= 0) return '0ms';
-    if (n < 1) return '<1ms';
-    if (n < 1000) return Math.round(n) + 'ms';
+    if (n <= 0) {
+      return '0ms';
+    }
+    if (n < 1) {
+      return '<1ms';
+    }
+    if (n < 1000) {
+      return Math.round(n) + 'ms';
+    }
     return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 's';
   },
   // --- Axis-label helpers used by the metric-card template ---
@@ -471,15 +506,56 @@ export default {
       return '—';
     }
     const pad = (n, w) => String(n).padStart(w, '0');
-    const monthsLong = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Locale-aware month + AM/PM names via Intl — browser uses the
+    // active page locale automatically so non-en operators see localized
+    // month abbreviations. Defensive fallback to the English arrays if
+    // Intl is unavailable (extremely old browser) or returns blank.
+    // Cached on the function for cheap reuse across many date renders.
+    const _en_months_long = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']; // audit: i18n-fallback
+    const _en_months_short = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; // audit: i18n-fallback
+    if (!_intlMonthsLong || !_intlMonthsShort) {
+      try {
+        const fmtL = new Intl.DateTimeFormat(undefined, {month: 'long'});
+        const fmtS = new Intl.DateTimeFormat(undefined, {month: 'short'});
+        const ml = [];
+        const ms_ = [];
+        for (let i = 0; i < 12; i++) {
+          const ref = new Date(Date.UTC(2000, i, 15));
+          ml.push(fmtL.format(ref) || _en_months_long[i]);
+          ms_.push(fmtS.format(ref) || _en_months_short[i]);
+        }
+        _intlMonthsLong = ml;
+        _intlMonthsShort = ms_;
+      } catch (_) {
+        _intlMonthsLong = _en_months_long;
+        _intlMonthsShort = _en_months_short;
+      }
+    }
+    const monthsLong = _intlMonthsLong;
+    const monthsShort = _intlMonthsShort;
     const Y = d.getFullYear();
     const M = d.getMonth() + 1;
     const D = d.getDate();
     const H = d.getHours();
     const m = d.getMinutes();
     const s = d.getSeconds();
-    const ampm = H >= 12 ? 'PM' : 'AM';
+    // Locale-aware AM/PM via Intl.formatToParts dayPeriod — same Intl
+    // fallback path, cached at module scope (AM/PM doesn't change at
+    // runtime within a session).
+    if (_intlAmTok === undefined || _intlPmTok === undefined) {
+      try {
+        const fmtAP = new Intl.DateTimeFormat(undefined, {hour: 'numeric', hour12: true});
+        const parts1 = fmtAP.formatToParts(new Date(2000, 0, 1, 9));   // AM ref
+        const parts2 = fmtAP.formatToParts(new Date(2000, 0, 1, 15));  // PM ref
+        const pickPart = (parts) => (parts.find(p => p.type === 'dayPeriod') || {}).value;
+        _intlAmTok = pickPart(parts1) || 'AM';
+        _intlPmTok = pickPart(parts2) || 'PM';
+      } catch (_) {
+        _intlAmTok = 'AM';
+        _intlPmTok = 'PM';
+      }
+    }
+    const ampm = H >= 12 ? _intlPmTok : _intlAmTok;
     const h12 = ((H + 11) % 12) + 1;
     // Token order matters — longer tokens BEFORE shorter so `MM`
     // doesn't get matched as two separate `M` tokens. Single-quote
@@ -568,13 +644,19 @@ export default {
   // governs how dates surface across the app.
   _userDateOnlyFormat() {
     const full = this._userDateTimeFormat();
+    // `\bX\b` is equivalent to the prior `(?<![A-Za-z])X(?![A-Za-z])`
+    // lookbehind form for OmniGrid's date-format string surface — every
+    // token is flanked by non-word chars (`/` `:` `,` ` ` `.`), so a
+    // word-boundary anchor produces the same matches without the
+    // ES2018-lookbehind syntax JSHint flags as invalid on its esversion
+    // check. Refactored from lookbehind/lookahead pairs.
     let datePart = full
       .replace(/HH|H|hh|h/g, '')
       .replace(/mm/g, '')
-      .replace(/(?<![A-Za-z])m(?![A-Za-z])/g, '')
+      .replace(/\bm\b/g, '')
       .replace(/ss/g, '')
-      .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '')
-      .replace(/(?<![A-Za-z])a(?![A-Za-z])/g, '');
+      .replace(/\bs\b/g, '')
+      .replace(/\ba\b/g, '');
     datePart = datePart
       .replace(/[,;:\s]+$/g, '')
       .replace(/^[,;:\s]+/g, '')
@@ -591,12 +673,16 @@ export default {
   // 24-h vs 12-h convention.
   _userTimeOnlyFormat() {
     const full = this._userDateTimeFormat();
+    // Same word-boundary rewrite as `_userDateOnlyFormat` above —
+    // refactored from `(?<![A-Za-z])X(?![A-Za-z])` lookbehind/lookahead
+    // pairs JSHint flagged invalid. Semantics equivalent for the
+    // SPA's date-format strings.
     let timePart = full
       .replace(/yyyy/g, '').replace(/yy/g, '')
       .replace(/MMMM/g, '').replace(/MMM/g, '').replace(/MM/g, '')
-      .replace(/(?<![A-Za-z])M(?![A-Za-z])/g, '')
+      .replace(/\bM\b/g, '')
       .replace(/dd/g, '')
-      .replace(/(?<![A-Za-z])d(?![A-Za-z])/g, '');
+      .replace(/\bd\b/g, '');
     timePart = timePart
       .replace(/[,;:\s/-]+$/g, '')
       .replace(/^[,;:\s/-]+/g, '')
@@ -631,11 +717,15 @@ export default {
     }
     const d = new Date(ts * 1000);
     const full = this._userDateTimeFormat();
+    // Same word-boundary rewrite as the date/time-only siblings above.
+    // `\bss\b` and `\bs\b` are equivalent to the prior lookbehind form
+    // for the SPA's date-format strings, without the ES2018 lookbehind
+    // syntax JSHint flags invalid.
     const noSec = full
       .replace(/:ss/g, '')
       .replace(/\.ss/g, '')
-      .replace(/(?<![A-Za-z])ss(?![A-Za-z])/g, '')
-      .replace(/(?<![A-Za-z])s(?![A-Za-z])/g, '');
+      .replace(/\bss\b/g, '')
+      .replace(/\bs\b/g, '');
     return this._applyDateTimeFormat(d, noSec);
   },
   // HTML escape — XSS-safe for untrusted markdown body. Centralised

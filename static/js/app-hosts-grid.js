@@ -1834,7 +1834,7 @@ export default {
         return '—';
       }
       if (metric === 'ping_rtt_ms') {
-        return (+v).toFixed(1) + ' ms';
+        return this.t('common.unit_ms_inline', { n: (+v).toFixed(1) });
       }
       return (+v).toFixed(1) + '%';
     };

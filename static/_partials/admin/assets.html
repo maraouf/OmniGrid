@@ -41,8 +41,14 @@
     <div class="mb-3">
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('admin_assets.auth_mode_label')"></label>
-      <div class="inline-flex border border-[var(--border)] rounded overflow-hidden">
+      <div class="inline-flex border border-[var(--border)] rounded overflow-hidden"
+           role="radiogroup"
+           :aria-label="t('admin_assets.auth_mode_label')"
+           @keydown="_radiogroupArrowKey($event)">
         <button type="button"
+                role="radio"
+                :aria-checked="assetForm.auth_mode !== 'lifetime_token' ? 'true' : 'false'"
+                :tabindex="assetForm.auth_mode !== 'lifetime_token' ? 0 : -1"
                 class="fs-sm px-3 py-1.5 transition-colors"
                 :class="assetForm.auth_mode !== 'lifetime_token'
                       ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'
@@ -51,6 +57,9 @@
                 @click="assetForm.auth_mode = 'oauth2'"
                 x-text="t('admin_assets.auth_mode_oauth2')"></button>
         <button type="button"
+                role="radio"
+                :aria-checked="assetForm.auth_mode === 'lifetime_token' ? 'true' : 'false'"
+                :tabindex="assetForm.auth_mode === 'lifetime_token' ? 0 : -1"
                 class="fs-sm px-3 py-1.5 transition-colors"
                 :class="assetForm.auth_mode === 'lifetime_token'
                       ? 'bg-[var(--primary)] text-[var(--text-on-primary)]'

@@ -10455,7 +10455,7 @@
                   <button type="button"
                           @click="insertNotifyTemplatePlaceholder('title', ph)"
                           class="chip pill-info fs-xs mono cursor-pointer"
-                          :title="t('admin.notify_templates.placeholder_help.' + ph) + ' → ' + (notifyTemplateEditor.samples[ph] || '')"
+                          :title="t('admin.notify_templates.placeholder_help_with_sample', { help: t('admin.notify_templates.placeholder_help.' + ph), sample: notifyTemplateEditor.samples[ph] || '' })"
                           x-text="'{' + ph + '}'"></button>
                 </template>
               </div>
@@ -10485,7 +10485,7 @@
                   <button type="button"
                           @click="insertNotifyTemplatePlaceholder('body', ph)"
                           class="chip pill-info fs-xs mono cursor-pointer"
-                          :title="t('admin.notify_templates.placeholder_help.' + ph) + ' → ' + (notifyTemplateEditor.samples[ph] || '')"
+                          :title="t('admin.notify_templates.placeholder_help_with_sample', { help: t('admin.notify_templates.placeholder_help.' + ph), sample: notifyTemplateEditor.samples[ph] || '' })"
                           x-text="'{' + ph + '}'"></button>
                 </template>
               </div>
@@ -11567,7 +11567,8 @@
     <div @click="closeHostTerminal()" class="absolute inset-0 backdrop-strong"></div>
     <div class="relative flex items-center justify-center p-4 h-full overflow-auto scrollbar">
       <div class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-5xl w-full flex flex-col modal-panel--default-height"
-           role="dialog" aria-modal="true" :aria-label="t('hosts_extra_ssh.terminal.modal_title', { host: terminalHost && (terminalHost.label || terminalHost.id) || '' })">
+           role="dialog" aria-modal="true" :aria-label="t('hosts_extra_ssh.terminal.modal_title', { host: terminalHost && (terminalHost.label || terminalHost.id) || '' })"
+           @keydown="_focusTrapKeydown($event, $el)">
         <header class="p-3 border-b border-[var(--border)] flex justify-between items-center bg-[var(--surface)] z-10 flex-shrink-0">
           <div class="flex items-center gap-3 min-w-0">
             <h2 class="fs-lg font-semibold truncate"
@@ -11581,9 +11582,13 @@
               <span x-show="terminalState === 'connecting'" x-text="t('hosts_extra_ssh.terminal.connecting')"></span>
               <span x-show="terminalState === 'connected'" x-text="t('hosts_extra_ssh.terminal.connected')"></span>
               <span x-show="terminalState === 'disconnected'"
-                    x-text="t('hosts_extra_ssh.terminal.disconnected') + (terminalCloseReason ? ' · ' + terminalCloseReason : '')"></span>
+                    x-text="terminalCloseReason
+                      ? t('hosts_extra_ssh.terminal.disconnected_with_reason', { reason: terminalCloseReason })
+                      : t('hosts_extra_ssh.terminal.disconnected')"></span>
               <span x-show="terminalState === 'error'"
-                    x-text="t('hosts_extra_ssh.terminal.connection_failed') + (terminalCloseReason ? ' · ' + terminalCloseReason : '')"></span>
+                    x-text="terminalCloseReason
+                      ? t('hosts_extra_ssh.terminal.connection_failed_with_reason', { reason: terminalCloseReason })
+                      : t('hosts_extra_ssh.terminal.connection_failed')"></span>
             </span>
             <span x-show="terminalResolved && terminalResolved.user"
                   class="host-debug-tag mono fs-2xs"
@@ -11594,9 +11599,12 @@
                     x-show="terminalState === 'disconnected' || terminalState === 'error'"
                     @click="reconnectHostTerminal()"
                     x-text="t('hosts_extra_ssh.terminal.reconnect')"></button>
-            <button type="button" @click="closeHostTerminal()" class="btn btn-ghost"
+            <button type="button" @click="closeHostTerminal()" class="user-action-btn"
                     :title="t('hosts_extra_ssh.terminal.close_hint')"
-                    :aria-label="t('hosts_extra_ssh.terminal.close_hint')">✕
+                    :aria-label="t('hosts_extra_ssh.terminal.close_hint')">
+              <svg width="14" height="14" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+              </svg>
             </button>
           </div>
         </header>

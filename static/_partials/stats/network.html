@@ -149,7 +149,7 @@
                   <span x-show="(row.aliases || []).length"
                         class="ms-2 fs-3xs text-[var(--text-faint)] italic"
                         :title="(row.aliases || []).join(', ')"
-                        x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
+                        x-text="t('stats.network.alias_count', { n: (row.aliases || []).length })"></span>
                 </td>
                 <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_rx_bps)"></td>
                 <td class="px-4 py-2 mono text-end" x-text="fmtBps(row.max_tx_bps)"></td>
@@ -187,7 +187,7 @@
                   <span x-show="(row.aliases || []).length"
                         class="ms-2 fs-3xs text-[var(--text-faint)] italic"
                         :title="(row.aliases || []).join(', ')"
-                        x-text="'(+' + (row.aliases || []).length + ' alias)'"></span>
+                        x-text="t('stats.network.alias_count', { n: (row.aliases || []).length })"></span>
                 </td>
                 <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_rx)"></td>
                 <td class="px-4 py-2 mono text-end" x-text="fmtBytes(row.bytes_tx)"></td>

@@ -28,7 +28,8 @@
     <div class="fs-xl font-semibold" x-text="(me && me.display_name) || (me && me.username) || ''"></div>
     <div class="fs-xs text-[var(--text-dim)] mt-0.5" x-text="me && me.username"></div>
     <div class="mt-3 flex items-center gap-2">
-      <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'" x-text="me && me.role"></span>
+      <span class="pill" :class="me && me.role === 'admin' ? 'pill-primary' : 'pill-muted'"
+            x-text="me ? (t('settings.profile.role_' + me.role) || me.role) : ''"></span>
       <!-- Auth-source chip — `.chip` declares `display: inline-block`
            (deliberate, so multi-word chips wrap as one unit), so the
            sibling `inline-flex` Tailwind utility loses on cascade
@@ -37,7 +38,7 @@
            share one row. -->
       <span class="chip items-center gap-1.5" style="display: inline-flex;">
               <img x-show="me && me.source === 'authentik'" src="/img/icons/authentik.svg" alt="" class="w-3 h-3" aria-hidden="true">
-              <span x-text="me && me.source"></span>
+              <span x-text="me ? (t('settings.profile.source_' + me.source) || me.source) : ''"></span>
             </span>
     </div>
     <button type="button" x-show="me && me.avatar_url" @click="clearAvatar()"

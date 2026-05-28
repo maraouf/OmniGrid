@@ -64,7 +64,7 @@
     <button type="button"
             role="radio"
             :aria-checked="rpCurrent === opt.value ? 'true' : 'false'"
-            :aria-label="opt.label + ', ' + rpAriaLabel"
+            :aria-label="t('common.range_option_aria', { label: opt.label, group: rpAriaLabel })"
             :tabindex="rpCurrent === opt.value ? 0 : -1"
             :title="opt.title || ''"
             :class="rpCurrent === opt.value

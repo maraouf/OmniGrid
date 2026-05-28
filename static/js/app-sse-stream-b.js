@@ -633,6 +633,28 @@ export default {
     this.persistAiConversation();
     this._scrollAiSidebarToBottom();
     try {
+      // Special-case: `memory_forget` doesn't have an `action.run`
+      // descriptor — it carries `forget_texts: [...]` straight from
+      // the AI's MEMORY-FORGET directives, which the SPA persists
+      // verbatim across reloads (action.run would have been a
+      // function reference, lost on JSON-stringify). Walk each text
+      // and DELETE via /api/ai/memory/forget; toast each outcome.
+      if (action.kind === 'memory_forget' && Array.isArray(action.forget_texts)) {
+        for (const txt of action.forget_texts) {
+          try {
+            const r = await fetch('/api/ai/memory/forget', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({text: txt}),
+            });
+            if (r.ok && typeof this.showToast === 'function') {
+              this.showToast(this.t('ai_memory.toast_forgotten') || 'Memory forgotten', 'success');
+            }
+          } catch (_) { /* swallow — operator can retry from the AI's next reply */
+          }
+        }
+        return;
+      }
       // `skipConfirm: true` propagates to the action's inner
       // implementation (bulkRemoveAll / bulkUpdateAll / etc.) so
       // the rich-data SweetAlert it would otherwise raise is

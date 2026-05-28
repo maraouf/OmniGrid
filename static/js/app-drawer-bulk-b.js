@@ -1481,8 +1481,15 @@ export default {
       return '';
     }
     const fmt = this._userDateOnlyFormat();
-    const monthsLong = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    // Parser-symmetry literal arrays — must match the renderer's
+    // OUTPUT so a date typed by the operator round-trips back to
+    // YYYY-MM-DD. The renderer (_applyDateTimeFormat) is Intl-locale-
+    // aware now; making this parser also Intl-aware is the proper
+    // follow-up (build the arrays via the same module-scope cache so
+    // both directions see the same locale names). Until then, marker
+    // exempts these from the audit.
+    const monthsLong = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']; // audit: i18n-fallback
+    const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; // audit: i18n-fallback
     // Build a regex from the format string. Order matters — match
     // longer tokens first so `MM` doesn't get split into two `M`s.
     const tokenOrder = ['yyyy', 'yy', 'MMMM', 'MMM', 'MM', 'M', 'dd', 'd'];

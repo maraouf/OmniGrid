@@ -678,7 +678,7 @@ export default {
       const bh = (PAD_T + plotH - Y(total)).toFixed(2);
       svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
         + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
-        + '<title>' + esc(fmtTooltipDate(p.date)) + ': ' + total.toLocaleString() + ' rows</title>'
+        + '<title>' + esc(this.t('stats.samples.daily_chart.bar_tooltip', { date: fmtTooltipDate(p.date), count: total.toLocaleString() })) + '</title>'
         + '</rect>';
     }
     // X-axis tick labels — rotated -45° at 90d so the ~14 weekly
@@ -958,7 +958,7 @@ export default {
       try {
         return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
       } catch (_) {
-        const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+        const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]; // audit: i18n-fallback
         return m + ' ' + d.getDate();
       }
     };

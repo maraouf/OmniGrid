@@ -31,6 +31,7 @@ const _appsSparkCache = new WeakMap();
 // is what keeps it correct when h.apps updates on the next poll.
 let _hostAppsHealthFlushCache = null;
 let _hostAppsHealthFlushScheduled = false;
+
 function _clearHostAppsHealthFlushCache() {
   _hostAppsHealthFlushCache = null;
   _hostAppsHealthFlushScheduled = false;
@@ -678,10 +679,19 @@ export default {
     return this.t('apps.custom.widget_' + kind) || kind;
   },
   // Live HH:MM for the clock widget — reads the 1s-ticked `hostHistoryNow`
-  // so it updates reactively; locale-formatted time-of-day.
+  // so it updates reactively. Routes through `_applyDateTimeFormat` +
+  // `_userTimeOnlyFormat` so the operator's Settings → Profile → Formats
+  // preference applies (single source of truth for time rendering across
+  // the SPA); falls back to the browser's locale `toLocaleTimeString`
+  // when either helper is unavailable (e.g. early-paint before the
+  // user's prefs have loaded).
   appsWidgetClock() {
     const ms = this.hostHistoryNow || Date.now();
     try {
+      if (typeof this._applyDateTimeFormat === 'function'
+        && typeof this._userTimeOnlyFormat === 'function') {
+        return this._applyDateTimeFormat(new Date(ms), this._userTimeOnlyFormat());
+      }
       return new Date(ms).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
     } catch (_) {
       return '';
@@ -699,6 +709,137 @@ export default {
     } catch (_) {
       return '';
     }
+  },
+  // HH part of the clock for the redesigned tile — the markup
+  // splits HH and MM around an animated colon so the colon
+  // can pulse independently. Returns just the hour digits in
+  // 2-digit zero-padded form (matches HH token of the user's
+  // pref).
+  appsWidgetClockHH() {
+    const ms = this.hostHistoryNow || Date.now();
+    try {
+      const t = this._applyDateTimeFormat(new Date(ms), 'HH:mm');
+      const idx = t.indexOf(':');
+      return idx > 0 ? t.slice(0, idx) : t;
+    } catch (_) {
+      return '';
+    }
+  },
+  appsWidgetClockMM() {
+    const ms = this.hostHistoryNow || Date.now();
+    try {
+      const t = this._applyDateTimeFormat(new Date(ms), 'HH:mm');
+      const idx = t.indexOf(':');
+      return idx > 0 ? t.slice(idx + 1) : '';
+    } catch (_) {
+      return '';
+    }
+  },
+  // Weather-condition → sprite icon-id mapper. Matches the backend's
+  // `weather.condition` string against common WMO-mapped phrases the
+  // /api/weather endpoint emits. Falls back to the generic cloud icon
+  // so an unrecognised condition still renders SOMETHING brand-
+  // appropriate. Used by the apps-widget-tile.html weather branch.
+  appsWeatherIconId(condition) {
+    const c = String(condition || '').toLowerCase();
+    if (!c) {
+      return 'icon-weather-cloud';
+    }
+    if (c.includes('thunder')) {
+      return 'icon-weather-thunder';
+    }
+    if (c.includes('snow') || c.includes('flurr') || c.includes('blizzard') || c.includes('ice')) {
+      return 'icon-weather-snow';
+    }
+    if (c.includes('rain') || c.includes('drizzle') || c.includes('shower')) {
+      return 'icon-weather-rain';
+    }
+    if (c.includes('fog') || c.includes('mist') || c.includes('haze')) {
+      return 'icon-weather-fog';
+    }
+    if (c.includes('partly') || c.includes('partial')) {
+      return 'icon-weather-partly-cloudy';
+    }
+    if (c.includes('clear') || c.includes('sunny') || c.includes('sun')) {
+      return 'icon-theme-sun';
+    }
+    if (c.includes('cloud')) {
+      return 'icon-weather-cloud';
+    }
+    return 'icon-weather-cloud';
+  },
+  // Three-day rollup for the weather widget's forecast strip. Picks
+  // forecast[1..3] (skip today since today's high is the hero), or
+  // falls back to [0..2] when only today's bucket is populated. Each
+  // entry is normalised to {name, hi, lo, icon} so the markup binds
+  // ONE shape regardless of upstream variance. `name` is a short
+  // weekday label (browser locale via `toLocaleDateString`).
+  appsWidgetWeatherForecast() {
+    const w = this.weather || {};
+    const f = Array.isArray(w.forecast) ? w.forecast : [];
+    if (!f.length) {
+      return [];
+    }
+    const start = f.length > 3 ? 1 : 0;
+    const out = [];
+    for (let i = start; i < start + 3 && i < f.length; i++) {
+      const day = f[i] || {};
+      let name = '';
+      try {
+        if (day.date) {
+          name = new Date(day.date).toLocaleDateString([], {weekday: 'short'});
+        }
+      } catch (_) {
+        name = '';
+      }
+      out.push({
+        name: name || ('+' + (i - start + 1) + 'd'),
+        hi: day.temp_max_c != null ? Math.round(day.temp_max_c) : null,
+        lo: day.temp_min_c != null ? Math.round(day.temp_min_c) : null,
+        icon: this.appsWeatherIconId(day.condition || w.condition || ''),
+      });
+    }
+    return out;
+  },
+  // SVG path for the system-stats progress ring — stroke-dasharray /
+  // stroke-dashoffset values for a circular fill showing up/total
+  // ratio. Circle perimeter = 2*pi*r with r=22 (matches the ring's
+  // viewBox + stroke-width). Returns `{circumference, offset}`; the
+  // markup binds `stroke-dasharray` / `stroke-dashoffset` to these so
+  // the transition animates smoothly as the rollup changes.
+  appsWidgetSystemRing() {
+    const s = this.appsWidgetSystemStats();
+    const r = 22;
+    const circumference = 2 * Math.PI * r;
+    if (!s.total) {
+      return {circumference, offset: circumference, percent: 0};
+    }
+    const pct = Math.max(0, Math.min(1, s.up / s.total));
+    return {
+      circumference,
+      offset: circumference * (1 - pct),
+      percent: Math.round(pct * 100),
+    };
+  },
+  // Public-IP detail value formatter — strips the "AS" prefix from
+  // the ASN field so the chip reads cleanly. Backend returns "AS15169"
+  // (Google), "AS13335" (Cloudflare), etc.; the visual chip looks
+  // better without the redundant `AS` since it's also pill-shaped.
+  // Caller passes the raw asn; this returns the number portion.
+  appsWidgetIpAsnNumber(asn) {
+    if (!asn) {
+      return '';
+    }
+    const s = String(asn).trim();
+    // Test-then-slice instead of capture-group. Two birds: the IDE's
+    // "Anonymous capturing group" inspection has nothing to flag (no
+    // group at all), AND JSHint stops choking on named-capture syntax
+    // (E016 invalid-regex on `(?<num>\d+)` — JSHint hasn't shipped
+    // ES2018 named-group support). Same return semantics.
+    if (/^AS\d+$/i.test(s)) {
+      return s.slice(2);
+    }
+    return s;
   },
   // Fleet rollup for the system-stats widget — {up, total, down, paused}
   // across the curated hosts the SPA already has loaded. Reuses this.hosts;
@@ -737,7 +878,8 @@ export default {
       if (window.crypto && window.crypto.randomUUID) {
         return (prefix || '') + window.crypto.randomUUID();
       }
-    } catch (_) { /* fall through */ }
+    } catch (_) { /* fall through */
+    }
     return (prefix || '') + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   },
   _newSectionId() {
@@ -1062,7 +1204,8 @@ export default {
     try {
       ev.dataTransfer.effectAllowed = 'move';
       ev.dataTransfer.setData('text/plain', 'item:' + uid);
-    } catch (_) { /* restricted */ }
+    } catch (_) { /* restricted */
+    }
   },
   appsUnsectionedDragStart(ev, groupId) {
     this._appsDragAppRef = String(groupId);
@@ -1071,7 +1214,8 @@ export default {
     try {
       ev.dataTransfer.effectAllowed = 'move';
       ev.dataTransfer.setData('text/plain', 'app:' + groupId);
-    } catch (_) { /* restricted */ }
+    } catch (_) { /* restricted */
+    }
   },
 
   // Drop the dragged tile into `sectionId` ('__unsectioned' un-assigns an
@@ -1140,7 +1284,8 @@ export default {
     try {
       ev.dataTransfer.effectAllowed = 'move';
       ev.dataTransfer.setData('text/plain', 'section:' + sectionId);
-    } catch (_) { /* ignore */ }
+    } catch (_) { /* ignore */
+    }
   },
 
   // Reorder sections — drop the dragged section BEFORE `targetSectionId`.
@@ -1183,8 +1328,10 @@ export default {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({prefs: {apps_custom_layout: payload}}),
-      }).catch(() => { /* silent — me.ui_prefs already updated in-memory */ });
-    } catch (_) { /* ignore */ }
+      }).catch(() => { /* silent — me.ui_prefs already updated in-memory */
+      });
+    } catch (_) { /* ignore */
+    }
   },
 
   // Host-grouped view of the filtered apps. Walks every app's per-host

@@ -3,15 +3,40 @@
      `sec` are in scope, as is `appsCustomEditMode`. Pure-frontend — each
      widget reads existing SPA state (clock tick, this.weather, this.publicIp,
      this.hosts rollup); no backend. Drag handle + remove button only appear
-     in edit mode. -->
-<!--suppress HtmlUnknownAttribute -->
+     in edit mode. Per-kind brand accent + decoration icon drive the
+     polished visual identity; see the `.apps-widget-tile--<kind>` rules in
+     style.css for accent token wiring. -->
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
 <div class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
      :draggable="appsCustomEditMode ? 'true' : 'false'"
      @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
      @dragover.prevent
      @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
+
+  <!-- Background-icon decoration — large faded brand icon in the
+       top-right corner. Pure visual; pointer-events disabled so it
+       doesn't interfere with the remove-tile button below. Each kind
+       gets a distinct icon matching its identity. -->
+  <svg class="apps-widget-tile-decoration" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <template x-if="item.widget === 'clock'">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+    </template>
+    <template x-if="item.widget === 'weather'">
+      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((weather && weather.condition) || '')"/>
+    </template>
+    <template x-if="item.widget === 'public_ip'">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+    </template>
+    <template x-if="item.widget === 'system_stats'">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+    </template>
+  </svg>
+
   <div class="apps-widget-tile-head">
-    <span class="apps-widget-tile-title truncate" x-text="appsWidgetLabel(item.widget)"></span>
+    <span class="apps-widget-tile-title">
+      <span class="apps-widget-tile-title-dot" aria-hidden="true"></span>
+      <span x-text="appsWidgetLabel(item.widget)"></span>
+    </span>
     <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
             @click.stop="removeAppsItem(sec.id, item.uid)"
             :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
@@ -21,104 +46,177 @@
       </svg>
     </button>
   </div>
+
   <div class="apps-widget-tile-body">
 
-    <!-- Clock widget — HH:MM hero + date subtitle. Uses the operator's
-         time format pref from Settings → Formats via
-         `_userTimeOnlyFormat`. -->
+    <!-- Clock widget — HH + pulsing colon + MM hero, weekday/month/day
+         subtitle. The colon between HH/MM blinks every 2s as a "live
+         data" cue. Reduced-motion media query suppresses the pulse. -->
     <template x-if="item.widget === 'clock'">
       <div>
-        <div class="apps-widget-clock" x-text="appsWidgetClock()"></div>
-        <div class="apps-widget-subtitle" x-text="appsWidgetClockDate()"></div>
+        <div class="apps-widget-clock">
+          <span x-text="appsWidgetClockHH()"></span><!--
+       --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
+       --><span x-text="appsWidgetClockMM()"></span>
+        </div>
+        <div class="apps-widget-subtitle">
+          <span x-text="appsWidgetClockDate()"></span>
+        </div>
       </div>
     </template>
 
-    <!-- Weather widget — temperature hero + location subtitle +
-         humidity / wind detail row. Renders an empty-state line when
-         `this.weather` is null (operator hasn't enabled the topbar
-         weather widget OR location lookup failed). -->
+    <!-- Weather widget — composite hero (condition icon + temperature)
+         + location-with-pin subtitle + key-value humidity/wind detail
+         + three-day forecast strip. Renders a polished empty state
+         (icon + helpful copy) when `this.weather` is null. -->
     <template x-if="item.widget === 'weather'">
       <template x-if="weather && weather.temp_c != null">
         <div>
-          <div class="apps-widget-hero">
-            <span x-text="Math.round(weather.temp_c) + '°C'"></span>
+          <div class="apps-widget-hero-row">
+            <svg class="apps-widget-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId(weather.condition || '')"/>
+            </svg>
+            <div class="apps-widget-hero"
+                 x-text="Math.round(weather.temp_c)"></div>
+            <div class="apps-widget-hero-unit">°C</div>
           </div>
           <div class="apps-widget-subtitle">
+            <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+            </svg>
             <span x-text="(headerWeatherLabel || weather.label || '') + (weather.condition ? ((headerWeatherLabel || weather.label) ? ' · ' : '') + weather.condition : '')"></span>
           </div>
           <div class="apps-widget-detail">
-            <span x-show="weather.humidity != null" class="apps-widget-detail-item">
-              <span x-text="t('apps.custom.widget_weather_humidity', { value: Math.round(weather.humidity) }) || ('Humidity ' + Math.round(weather.humidity) + '%')"></span>
+            <span x-show="weather.humidity != null" class="apps-widget-kv">
+              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_humidity_label') || 'Humidity'"></span>
+              <span class="apps-widget-kv-value" x-text="Math.round(weather.humidity) + '%'"></span>
             </span>
-            <span x-show="weather.wind_kmh != null" class="apps-widget-detail-item">
-              <span x-text="t('apps.custom.widget_weather_wind', { value: Math.round(weather.wind_kmh) }) || ('Wind ' + Math.round(weather.wind_kmh) + ' km/h')"></span>
+            <span x-show="weather.wind_kmh != null" class="apps-widget-kv">
+              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_wind_label') || 'Wind'"></span>
+              <span class="apps-widget-kv-value" x-text="Math.round(weather.wind_kmh) + ' km/h'"></span>
             </span>
-            <template x-if="Array.isArray(weather.forecast) && weather.forecast.length">
-              <span class="apps-widget-detail-item">
-                <span x-text="t('apps.custom.widget_weather_tomorrow', {
-                  hi: Math.round(weather.forecast[1] ? weather.forecast[1].temp_max_c : weather.forecast[0].temp_max_c),
-                  lo: Math.round(weather.forecast[1] ? weather.forecast[1].temp_min_c : weather.forecast[0].temp_min_c)
-                }) || ('Tomorrow ' + Math.round((weather.forecast[1] || weather.forecast[0]).temp_max_c) + '/' + Math.round((weather.forecast[1] || weather.forecast[0]).temp_min_c) + '°')"></span>
-              </span>
-            </template>
           </div>
+          <template x-if="appsWidgetWeatherForecast().length">
+            <div class="apps-widget-forecast">
+              <template x-for="day in appsWidgetWeatherForecast()" :key="day.name">
+                <div class="apps-widget-forecast-day">
+                  <span class="apps-widget-forecast-name" x-text="day.name"></span>
+                  <svg width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--widget-accent); opacity: 0.85;">
+                    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + day.icon"/>
+                  </svg>
+                  <span class="apps-widget-forecast-temp"
+                        x-text="(day.hi != null ? day.hi + '°' : '—') + ' / ' + (day.lo != null ? day.lo + '°' : '—')"></span>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </template>
       <template x-if="!weather || weather.temp_c == null">
-        <div class="apps-widget-empty" x-text="t('apps.custom.widget_weather_no_data') || 'Weather not configured — enable in topbar settings'"></div>
+        <div class="apps-widget-empty">
+          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
+          </svg>
+          <span class="apps-widget-empty-text"
+                x-text="t('apps.custom.widget_weather_no_data') || 'Weather not configured — enable in topbar settings'"></span>
+        </div>
       </template>
     </template>
 
-    <!-- Public-IP widget — IP hero (mono) + ISP subtitle + country/city
-         detail. Self-fetches via `_ensurePublicIp` on first mount so
-         the tile populates without waiting for the AI palette to open.
-         Renders an empty-state line when the public-IP feature is
-         disabled (default OFF for privacy). -->
+    <!-- Public-IP widget — IP hero (mono) + ISP subtitle with globe
+         icon + country/city + ASN-chip detail. Self-fetches via
+         `_ensurePublicIp` on first mount so the tile populates without
+         waiting for the AI palette to open. Polished empty state when
+         the feature is disabled (default OFF for privacy). -->
     <template x-if="item.widget === 'public_ip'">
       <div x-init="_ensurePublicIp()">
         <template x-if="publicIp && publicIp.enabled && publicIp.ip">
           <div>
             <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
-            <div class="apps-widget-subtitle" x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></div>
+            <div class="apps-widget-subtitle">
+              <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+              </svg>
+              <span x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></span>
+            </div>
             <div class="apps-widget-detail">
-              <span x-show="publicIp.country" class="apps-widget-detail-item" x-text="publicIp.country + (publicIp.city ? ' · ' + publicIp.city : '')"></span>
-              <span x-show="publicIp.asn" class="apps-widget-detail-item mono" x-text="publicIp.asn"></span>
+              <span x-show="publicIp.country" class="apps-widget-kv">
+                <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+                </svg>
+                <span class="apps-widget-kv-value" x-text="publicIp.country + (publicIp.city ? ' · ' + publicIp.city : '')"></span>
+              </span>
+              <span x-show="publicIp.asn" class="apps-widget-chip apps-widget-chip--ok mono"
+                    :style="'background: color-mix(in srgb, var(--widget-accent) 16%, transparent); color: var(--widget-accent);'"
+                    x-text="'AS' + appsWidgetIpAsnNumber(publicIp.asn)"></span>
             </div>
           </div>
         </template>
         <template x-if="!publicIp || !publicIp.enabled || !publicIp.ip">
-          <div class="apps-widget-empty" x-text="(publicIp && !publicIp.enabled)
-            ? (t('apps.custom.widget_ip_disabled') || 'Public-IP lookup disabled in Admin → Public IP')
-            : (t('apps.custom.widget_no_data') || 'No data')"></div>
+          <div class="apps-widget-empty">
+            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+            </svg>
+            <span class="apps-widget-empty-text"
+                  x-text="(publicIp && !publicIp.enabled)
+                    ? (t('apps.custom.widget_ip_disabled') || 'Public-IP lookup disabled in Admin → Public IP')
+                    : (t('apps.custom.widget_no_data') || 'No data')"></span>
+          </div>
         </template>
       </div>
     </template>
 
-    <!-- System-stats widget — fleet rollup hero (up/total) + down chip
-         in the detail row + paused count. Reuses the existing
-         `appsWidgetSystemStats` helper. -->
+    <!-- System-stats widget — circular progress ring showing up/total
+         ratio + numeric centre label + colour-coded down/paused/all-up
+         chips. The ring animates smoothly when the rollup changes
+         (stroke-dashoffset transition). Empty state when no hosts
+         monitored yet. -->
     <template x-if="item.widget === 'system_stats'">
-      <div>
-        <div class="apps-widget-hero">
-          <span x-text="appsWidgetSystemStats().up + ' / ' + appsWidgetSystemStats().total"></span>
+      <template x-if="appsWidgetSystemStats().total > 0">
+        <div>
+          <div class="apps-widget-hero-row">
+            <svg class="apps-widget-ring" viewBox="0 0 56 56" aria-hidden="true">
+              <circle class="apps-widget-ring-track" cx="28" cy="28" r="22"/>
+              <circle class="apps-widget-ring-fill" cx="28" cy="28" r="22"
+                      :stroke-dasharray="appsWidgetSystemRing().circumference"
+                      :stroke-dashoffset="appsWidgetSystemRing().offset"/>
+              <text class="apps-widget-ring-label" x="28" y="28"
+                    x-text="appsWidgetSystemRing().percent + '%'"></text>
+            </svg>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <div class="apps-widget-hero" style="font-size: var(--fs-display-md);">
+                <span x-text="appsWidgetSystemStats().up"></span><!--
+             --><span style="color: var(--text-faint); font-weight: 500;" x-text="' / ' + appsWidgetSystemStats().total"></span>
+              </div>
+              <div class="apps-widget-subtitle"
+                   x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
+                     || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
+            </div>
+          </div>
+          <div class="apps-widget-detail">
+            <span x-show="appsWidgetSystemStats().down" class="apps-widget-chip apps-widget-chip--down">
+              <span x-text="appsWidgetSystemStats().down"></span>
+              <span x-text="t('apps.custom.widget_system_down') || 'down'"></span>
+            </span>
+            <span x-show="appsWidgetSystemStats().paused" class="apps-widget-chip apps-widget-chip--paused">
+              <span x-text="appsWidgetSystemStats().paused"></span>
+              <span x-text="t('apps.custom.widget_system_paused') || 'paused'"></span>
+            </span>
+            <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused"
+                  class="apps-widget-chip apps-widget-chip--ok"
+                  x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
+          </div>
         </div>
-        <div class="apps-widget-subtitle"
-             x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
-               || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
-        <div class="apps-widget-detail">
-          <span x-show="appsWidgetSystemStats().down" class="apps-widget-detail-item" style="color: var(--danger);">
-            <span x-text="appsWidgetSystemStats().down + ' '"></span>
-            <span x-text="t('apps.custom.widget_system_down') || 'down'"></span>
-          </span>
-          <span x-show="appsWidgetSystemStats().paused" class="apps-widget-detail-item" style="color: var(--warning);">
-            <span x-text="appsWidgetSystemStats().paused + ' '"></span>
-            <span x-text="t('apps.custom.widget_system_paused') || 'paused'"></span>
-          </span>
-          <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused && appsWidgetSystemStats().total"
-                class="apps-widget-detail-item" style="color: var(--success);"
-                x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
+      </template>
+      <template x-if="!appsWidgetSystemStats().total">
+        <div class="apps-widget-empty">
+          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+          </svg>
+          <span class="apps-widget-empty-text"
+                x-text="t('apps.custom.widget_system_no_hosts') || 'No hosts curated yet — add one in Admin → Hosts'"></span>
         </div>
-      </div>
+      </template>
     </template>
   </div>
 </div>

@@ -289,7 +289,8 @@ export default {
     }
     if (h.duration) {
       metaChips.push('<span class="ai-resp-meta-chip">'
-        + fmtNum(Math.round((h.duration || 0) * 1000)) + ' ms</span>');
+        + this.t('common.unit_ms_inline', { n: fmtNum(Math.round((h.duration || 0) * 1000)) })
+        + '</span>');
     }
     if (totalTokens) {
       metaChips.push('<span class="ai-resp-meta-chip">' + fmtNum(totalTokens) + ' tokens</span>');
@@ -1085,35 +1086,14 @@ export default {
           }
         }
       }
-      if (memoriesToForget.length > 0) {
-        // Confirm with the operator before deleting. Each line in
-        // memoriesToForget is the EXACT memory text the AI flagged.
-        this.$nextTick(async () => {
-          for (const txt of memoriesToForget) {
-            const head = txt.length > 80 ? txt.slice(0, 80) + '…' : txt;
-            const ok = await this.confirmDialog({
-              title: this.t('ai_memory.forget_confirm_title') || 'Forget memory?',
-              text: (this.t('ai_memory.forget_confirm_body') || 'The AI flagged this memory as wrong. Delete it?') + '\n\n"' + head + '"',
-              confirmButtonText: this.t('actions.delete') || 'Delete',
-              cancelButtonText: this.t('actions.cancel') || 'Cancel',
-            });
-            if (!ok) {
-              continue;
-            }
-            try {
-              await fetch('/api/ai/memory/forget', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({text: txt}),
-              });
-              if (typeof this.showToast === 'function') {
-                this.showToast(this.t('ai_memory.toast_forgotten') || 'Memory forgotten', 'success');
-              }
-            } catch (_) { /* swallow — operator can retry */
-            }
-          }
-        });
-      }
+      // memoriesToForget is handled below — attached to the assistant
+      // turn as a `pending_action` so the inline-confirm chip in the
+      // chat bubble renders the operator confirm. The pre-fix path
+      // here fired a SweetAlert popup INSIDE the AI sidebar, which
+      // violated the "NO popups in the sidebar surface" canonical
+      // contract. confirmInlineAction recognises
+      // `action.kind === 'memory_forget'` and walks `action.forget_texts`
+      // calling /api/ai/memory/forget for each on operator approval.
       const turn = {
         role: 'assistant',
         text: answer,
@@ -1156,6 +1136,30 @@ export default {
         pending_query: (j.pending_tool_confirms && j.pending_tool_confirms.length) ? q : null,
         ts: Date.now(),
       };
+      // memoriesToForget → inline-confirm-chip pattern (no SweetAlert
+      // popups in sidebar surface). `confirmInlineAction` recognises
+      // `action.kind === 'memory_forget'` and walks `forget_texts`
+      // calling /api/ai/memory/forget for each entry on Yes; Cancel
+      // discards the queue. Operator-flagged anti-pattern: pre-fix
+      // fired `confirmDialog` inside `sendAiSidebarMessage`'s reply
+      // path, breaking the canonical "no popups in sidebar" contract.
+      if (memoriesToForget.length > 0) {
+        const previewHead = memoriesToForget[0].length > 80
+          ? memoriesToForget[0].slice(0, 80) + '…'
+          : memoriesToForget[0];
+        turn.pending_confirm = true;
+        turn.pending_action = {
+          kind: 'memory_forget',
+          label: memoriesToForget.length === 1
+            ? (this.t('ai_memory.forget_confirm_title') || 'Forget memory?')
+            : (this.t('ai_memory.forget_confirm_title_n', { n: memoriesToForget.length })
+                || ('Forget ' + memoriesToForget.length + ' memories?')),
+          confirm_text: (this.t('ai_memory.forget_confirm_body')
+            || 'The AI flagged this memory as wrong. Delete it?')
+            + '\n\n"' + previewHead + '"',
+          forget_texts: memoriesToForget,
+        };
+      }
       this.aiConversation.push(turn);
       // Fire chart population AFTER the bubble renders. Each shell
       // is scoped by `data-turn-ts` so multi-turn chats don't fight

@@ -261,7 +261,7 @@ export default {
     const X = (i) => PAD_L + i * barW;
     const yTicks = [0, 1, 2, 3, 4].map(i => {
       const v = (yMax / 4) * i;
-      return {v, y: Y(v).toFixed(1), label: Math.round(v).toLocaleString() + ' ms'};
+      return {v, y: Y(v).toFixed(1), label: this.t('common.unit_ms_inline', { n: Math.round(v).toLocaleString() })};
     });
     const tickCount = Math.min(6, n);
     const xIdxs = [];
@@ -444,7 +444,8 @@ export default {
       }
       if (j.response_time_ms) {
         metaChips.push('<span class="ai-resp-meta-chip">'
-          + fmtNum(j.response_time_ms) + ' ms</span>');
+          + this.t('common.unit_ms_inline', { n: fmtNum(j.response_time_ms) })
+          + '</span>');
       }
       if (tokens) {
         metaChips.push('<span class="ai-resp-meta-chip">'

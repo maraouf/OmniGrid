@@ -213,6 +213,14 @@ export default {
       };
       if (j && j.ok) {
         this.recordTestSuccess('telegram');
+        // Stamp the snapshot of form values that passed the test —
+        // `canSaveTelegram()` requires this to match the CURRENT form
+        // values for Save to unlock. Pre-fix the stamp was only set
+        // on settings hydration; a Test against new credentials passed
+        // but the Save gate still required a separate `recordTestSuccess`
+        // path (broken). Matches the canonical test-before-Save shape
+        // shipped for Portainer / OIDC / Asset Inventory.
+        this._telegramLastPassedTest = this._telegramTestSnapshot();
       }
     } catch {
       this.telegramTestResult = {pending: false, ok: false, detail: this.t('toasts.network_error')};

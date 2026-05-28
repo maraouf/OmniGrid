@@ -208,5 +208,22 @@
     <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="icon-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
 
+    <!-- Weather condition icons — used by the Apps Custom weather widget
+         (apps-widget-tile.html `weather` branch). Matched against the
+         backend's `weather.condition` string via the `_weatherIconId()`
+         helper in `static/js/app-apps.js`. Outline-stroke style matches
+         the rest of the Lucide-derived sprite. -->
+    <symbol id="icon-weather-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0 -1.41 -8.78A6 6 0 0 0 4.5 12.27 4 4 0 0 0 6 20h11.5z"/></symbol>
+    <symbol id="icon-weather-rain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 13a4 4 0 0 0 -1.41 -7.78A6 6 0 0 0 3 8.27 4 4 0 0 0 4.5 16H16z"/><line x1="8" y1="19" x2="8" y2="22"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="16" y1="19" x2="16" y2="22"/></symbol>
+    <symbol id="icon-weather-snow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 13a4 4 0 0 0 -1.41 -7.78A6 6 0 0 0 3 8.27 4 4 0 0 0 4.5 16H16z"/><circle cx="8" cy="20" r="0.5"/><circle cx="12" cy="20" r="0.5"/><circle cx="16" cy="20" r="0.5"/><circle cx="10" cy="18" r="0.5"/><circle cx="14" cy="18" r="0.5"/></symbol>
+    <symbol id="icon-weather-partly-cloudy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="3"/><path d="M8 2v1M8 15v1M2 9h1M15 9h-1M3.7 4.7l.7.7M12.3 13.3l-.7-.7M12.3 4.7l-.7.7M3.7 13.3l.7-.7"/><path d="M19 21a3 3 0 0 0 -1.06 -5.83A4.5 4.5 0 0 0 14 13 4.5 4.5 0 0 0 9.74 17 3 3 0 0 0 11 21z"/></symbol>
+    <symbol id="icon-weather-fog" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="7" x2="21" y2="7"/><line x1="3" y1="11" x2="21" y2="11"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="3" y1="19" x2="21" y2="19"/></symbol>
+    <symbol id="icon-weather-thunder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 13a4 4 0 0 0 -1.41 -7.78A6 6 0 0 0 3 8.27 4 4 0 0 0 4.5 16H7"/><polyline points="13 11 9 17 14 17 10 23"/></symbol>
+    <!-- Pin icon for the weather location subtitle. -->
+    <symbol id="icon-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></symbol>
+    <!-- Wifi-off icon used by the weather widget's empty state to signal
+         "no data available; configure a location". -->
+    <symbol id="icon-cloud-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0 -7.05 -6M5 5a8 8 0 0 0 4 15h9a5 5 0 0 0 1.7 -.3"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
+
   </defs>
 </svg>
