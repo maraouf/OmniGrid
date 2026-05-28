@@ -66,22 +66,28 @@ def _quantise(v: float) -> float:
     return round(float(v), 2)
 
 
-def write_sample(body: dict) -> bool:
-    """Persist ONE successful WeatherAPI.com fetch into
-    ``weather_samples``. Returns True on a real INSERT, False when
-    the body is missing required fields (gate-off / fetch error /
-    unknown coords). Idempotent on the composite primary key — a
-    tick that fires twice in the same second collapses to one row.
+def write_sample(body: dict, *, loc: Optional[dict] = None) -> bool:
+    """Persist ONE successful weather fetch into ``weather_samples``.
+
+    Returns True on a real INSERT, False when the body is missing
+    required fields (gate-off / fetch error / unknown coords).
+    Idempotent on the composite primary key — a tick that fires
+    twice in the same second collapses to one row. The ``loc``
+    kwarg carries the (lat, lon, label) used for THIS fetch — the
+    sampler iterates over multiple user-locations per tick, so the
+    canonical "where did this sample come from" can't be derived
+    from a single global default.
     """
     if not body or not isinstance(body, dict):
         return False
     if body.get("error") or not body.get("configured"):
         return False
     upstream_label = body.get("label") or ""
-    # The coords aren't in the response body — they're keyed by the
-    # caller's quantise step. We re-quantise from the operator's
-    # default location for symmetry with the cache key.
-    loc = _weather.default_location()
+    if loc is None:
+        # Back-compat: caller didn't pass a loc. Fall through to the
+        # operator-configured default so single-call writers from
+        # pre-multi-user paths still work.
+        loc = _weather.default_location()
     if not loc:
         return False
     lat = _quantise(loc["lat"])
@@ -183,29 +189,42 @@ async def sampler_loop() -> None:
         if not _weather.is_enabled():
             await asyncio.sleep(interval)
             continue
-        loc = _weather.default_location()
-        if not loc:
-            # No default location configured — log once per tick AT
-            # WARN-equivalent (no "fail" keyword so the severity
-            # classifier doesn't mis-mark this as ERROR).
-            print("[weather_sampler] skipped — no default location configured "
-                  "in Admin → Weather")
+        # Iterate every distinct user-configured location across all
+        # active users. Falls back to the legacy operator-set default
+        # ONLY when no user has configured a weather location yet
+        # (first-deploy / pre-bootstrap state).
+        locations = _weather.user_locations()
+        if not locations:
+            legacy_default = _weather.default_location()
+            if legacy_default:
+                locations = [legacy_default]
+        if not locations:
+            print("[weather_sampler] skipped — no user-configured weather "
+                  "locations (Settings → Profile → Weather) and no legacy "
+                  "operator default")
             await asyncio.sleep(interval)
             continue
-        try:
-            body = await _weather.fetch(loc["lat"], loc["lon"],
-                                         label=loc.get("label") or "")
-            if body and not body.get("error") and body.get("configured"):
-                write_sample(body)
-            elif body and body.get("error"):
-                print(f"[weather_sampler] skipped — upstream "
-                      f"error: {body.get('error')}")
-        except Exception as e:  # noqa: BLE001
-            # Broad-catch the asyncio cancellation EXCEPT path is
-            # honoured: re-raise CancelledError + KeyboardInterrupt.
-            if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
-                raise
-            print(f"[weather_sampler] tick failed: {e}")
+        wrote = 0
+        for loc in locations:
+            try:
+                body = await _weather.fetch(loc["lat"], loc["lon"],
+                                             label=loc.get("label") or "")
+                if body and not body.get("error") and body.get("configured"):
+                    if write_sample(body, loc=loc):
+                        wrote += 1
+                elif body and body.get("error"):
+                    print(f"[weather_sampler] skipped {loc.get('label') or ''} "
+                          f"({loc['lat']},{loc['lon']}) — upstream "
+                          f"error: {body.get('error')}")
+            except Exception as e:  # noqa: BLE001
+                if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
+                    raise
+                print(f"[weather_sampler] tick failed for "
+                      f"{loc.get('label') or ''} "
+                      f"({loc['lat']},{loc['lon']}): {e}")
+        if wrote:
+            print(f"[weather_sampler] wrote {wrote} sample(s) across "
+                  f"{len(locations)} location(s)")
         # Hourly prune sweep — gated independently from the tick so
         # a sub-hourly tunable doesn't multiply prune cost.
         now = time.time()

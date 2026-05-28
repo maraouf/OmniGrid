@@ -1218,6 +1218,16 @@ here.
      the next release. `[1.0.0]` has no entry because v1.0.0 is the
      baseline release with no companion notes file. -->
 
+<!-- The link-ref block below uses blank-line separators between each
+     definition (one definition per visual paragraph) as a deliberate
+     stylistic choice — it reads more cleanly in a long file. The
+     JetBrains markdown formatter would consolidate them into one
+     contiguous block (no blank lines between), triggering the
+     `IncorrectFormatting` weak-warning on every flagged line. The
+     suppress pragma below scopes the noinspection to just this
+     block — not a blanket file-wide suppression. -->
+<!--suppress IncorrectFormatting -->
+
 [Unreleased]: docs/RELEASE_PROCESS.md
 
 [1.1.0]: docs/releases/_v110_release_notes.md

@@ -439,13 +439,15 @@ export default {
     ];
   },
   _weatherSectionPlainKeys() {
+    // `weather_default_*` (label / lat / lon) intentionally OMITTED —
+    // location is now per-user (Settings → Profile → Weather) and
+    // the admin Weather tab no longer surfaces those fields. The
+    // legacy SettingsIn fields stay on the wire for back-compat
+    // seed round-trip but no SPA save writes to them.
     return [
       'weather_enabled',
       'weather_provider',
       'weather_api_base_url',
-      'weather_default_label',
-      'weather_default_lat',
-      'weather_default_lon',
     ];
   },
   // Snapshot for dirty tracking AND for the Test-stamp comparison.

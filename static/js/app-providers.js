@@ -1630,42 +1630,12 @@ export default {
     }
   },
 
-  async saveOpenMeteoUrl() {
-    if (this.openMeteoSaving) {
-      return;
-    }
-    this.openMeteoSaving = true;
-    try {
-      const url = (this.settings.open_meteo_url || '').trim().replace(/\/+$/, '');
-      // Save the enabled flag together with the URL so the operator's
-      // toggle-change persists on Save (no per-checkbox auto-save).
-      const enabled = !!this.settings.open_meteo_enabled;
-      const r = await fetch('/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          open_meteo_url: url,
-          open_meteo_enabled: enabled,
-        }),
-      });
-      if (r.ok) {
-        this.settings.open_meteo_url = url;
-        this._openMeteoBaseline = this._openMeteoSnapshot();
-        this.showToast(this.t('admin_integrations.open_meteo_saved'), 'success');
-        // Re-fetch weather now so the topbar reflects the new upstream.
-        if (this.loadHeaderWeather) {
-          this.loadHeaderWeather();
-        }
-      } else {
-        const j = await r.json().catch(() => ({}));
-        this.showToast(j.detail || this.t('toasts_extra.save_failed_generic'), 'error');
-      }
-    } catch (_) {
-      this.showToast(this.t('toasts_extra.network_error_generic'), 'error');
-    } finally {
-      this.openMeteoSaving = false;
-    }
-  },
+  // `saveOpenMeteoUrl` was the legacy Admin > General save handler.
+  // Removed in the General > Weather consolidation — the new Weather
+  // tab's `saveWeatherSection` is the single source of truth for both
+  // providers (Open-Meteo + WeatherAPI.com). The legacy
+  // `open_meteo_url` SettingsIn field stays on the wire for back-compat
+  // seed round-trip but no SPA surface writes to it.
   async testBeszelConnection() {
     // Mirrors testPortainerConnection — probes the hub with the
     // current form values (or saved password if the field is blank)
