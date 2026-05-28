@@ -587,8 +587,16 @@ async def probe_http_health(
                 "unrecognized_name" in _raw or "unrecognized name" in _raw):
             _ip = await _first_ip(hostname, dns_timeout)
             if not _ip:
-                print(f"[http_probe] no-SNI retry SKIPPED for {url_clean}: "
-                      f"could not resolve {hostname!r} to an IP")
+                # WARN, not INFO — a no-SNI retry SKIP means the
+                # container's libc resolver couldn't reach the
+                # hostname (typically a `.home.lan` zone the Docker
+                # DNS doesn't know about). The "warning:" token in
+                # the message is what `logic.logs._severity_for`
+                # matches to bucket this as WARN (uvicorn-style
+                # `WARN:` prefix appears on stdout via the tee).
+                print(f"[http_probe] warning: no-SNI retry SKIPPED for {url_clean}: "
+                      f"could not resolve {hostname!r} to an IP (container's libc resolver "
+                      f"can't reach the name; check `/etc/resolv.conf` + Docker DNS config)")
             else:
                 try:
                     async with httpx.AsyncClient(

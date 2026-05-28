@@ -1498,12 +1498,33 @@ async def host_metrics_sampler_loop() -> None:
                 if snmp_due:
                     snmp_hosts = _load_curated_snmp_hosts()
                     if snmp_hosts:
-                        snmp_sem = asyncio.Semaphore(
-                            tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
-                        await asyncio.gather(
-                            *(_probe_one_snmp(h, snmp_sem) for h in snmp_hosts),
-                            return_exceptions=True,
-                        )
+                        snmp_conc = max(1, tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
+                        snmp_sem = asyncio.Semaphore(snmp_conc)
+                        # Thundering-herd guard — process hosts in
+                        # batches of `snmp_conc` with a brief asyncio
+                        # yield between batches so the event loop
+                        # stays responsive for /api/* requests +
+                        # /api/healthz + the SSE heartbeat even when
+                        # a fleet of unreachable SNMP hosts each hold
+                        # the wall-clock budget (60s default). Without
+                        # this, the SPA hits 504 Gateway Time-out and
+                        # the Docker swarm healthcheck flaps — the
+                        # Semaphore alone doesn't help because all
+                        # tasks get CREATED at once and the first N
+                        # all wake simultaneously when their UDP
+                        # timeouts fire together.
+                        for i in range(0, len(snmp_hosts), snmp_conc):
+                            batch = snmp_hosts[i:i + snmp_conc]
+                            await asyncio.gather(
+                                *(_probe_one_snmp(h, snmp_sem) for h in batch),
+                                return_exceptions=True,
+                            )
+                            # Brief yield between batches — lets the
+                            # event loop dispatch a backlog of pending
+                            # HTTP requests + SSE events before the
+                            # next SNMP wave fires.
+                            if i + snmp_conc < len(snmp_hosts):
+                                await asyncio.sleep(0.05)
                     last_snmp_ts = now_ts
             interval = _resolve_outer_interval()
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
