@@ -2646,8 +2646,20 @@ export default {
       const s = this.settings || {};
       const settingsPicked = {};
       const secretSuffixes = /(_token|_password|_secret|_api_key|_private_key|_passphrase)$/;
+      // Nested rollup-objects that DUPLICATE flat keys already in
+      // settings — shipping both confuses the AI when the flat
+      // and nested versions desync (e.g. operator toggled
+      // `weather_enabled` without saving, so `weather.enabled` is
+      // stale). The flat keys are the source of truth for AI
+      // grounding; the nested rollups exist only for admin-form
+      // hydration shape. Skip them here to avoid the AI seeing
+      // contradictory state.
+      const nestedRollupKeys = new Set(['weather', 'asset_inventory']);
       for (const k of Object.keys(s)) {
         if (secretSuffixes.test(k)) {
+          continue;
+        }
+        if (nestedRollupKeys.has(k)) {
           continue;
         }
         const v = s[k];

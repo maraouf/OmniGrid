@@ -1919,19 +1919,35 @@ async def api_weather_test(
     requested_provider = (body.get("provider") or "").strip().lower()
     if requested_provider not in ("open-meteo", "weatherapi"):
         requested_provider = _weather_mod.provider()
-    # Default lat/lon fall through to the operator-configured location.
+    # Resolve test coords in priority order:
+    #   1. Explicit lat/lon in the request body (operator typing them
+    #      into the Test form — power-user override).
+    #   2. First available user-profile location (Settings → Profile
+    #      → Weather across any active user) — matches the runtime
+    #      sampler's source-of-truth.
+    #   3. Legacy operator-set default (pre-consolidation back-compat).
+    # When all three are empty, return a clear "configure a user
+    # location" error pointing operators at the right surface.
     try:
         lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
         lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
     except (TypeError, ValueError):
         return {"ok": False, "detail": "lat/lon must be numbers"}
     if lat is None or lon is None:
-        loc = _weather_mod.default_location()
-        if not loc:
-            return {"ok": False,
-                    "detail": "no lat/lon supplied AND no default location configured"}
-        lat = loc["lat"]
-        lon = loc["lon"]
+        user_locs = _weather_mod.user_locations()
+        if user_locs:
+            lat = user_locs[0]["lat"]
+            lon = user_locs[0]["lon"]
+        else:
+            legacy = _weather_mod.default_location()
+            if legacy:
+                lat = legacy["lat"]
+                lon = legacy["lon"]
+            else:
+                return {"ok": False,
+                        "detail": "no user has configured a weather location yet — "
+                                  "set one in Settings → Profile → Weather, then "
+                                  "re-run Test"}
     base = (body.get("base_url") or "").strip().rstrip("/")
     try:
         timeout = float(tuning.tuning_int(Tunable.WEATHER_FETCH_TIMEOUT_SECONDS))
@@ -1973,11 +1989,30 @@ async def api_weather_test(
             return {"ok": False, "detail": str(e), "upstream": upstream}
         cur = j.get("current") or {}
         loc_obj = j.get("location") or {}
+        # Stamp a successful Test sample directly into `weather_samples`
+        # so operators see historical data immediately after the first
+        # successful Test, instead of waiting up to an hour for the
+        # next sampler tick. This is also why the sampler interval
+        # default of 3600s is acceptable — the Test path covers the
+        # cold-start case + first-time-configured-by-operator UX gap.
+        try:
+            from logic import weather as _w
+            from logic import weather_sampler as _ws
+            # Re-fetch through the dispatcher so we get the FULL
+            # normalised shape (forecast + moon data) for the sample
+            # write, not just the trimmed test-response.
+            full_body = await _w.fetch(lat, lon, label=loc_obj.get("name") or "")
+            if full_body and not full_body.get("error") and full_body.get("configured"):
+                _ws.write_sample(full_body,
+                                  loc={"lat": lat, "lon": lon,
+                                       "label": loc_obj.get("name") or ""})
+        except Exception:  # noqa: BLE001 — sample-write failure must not break Test
+            pass
         return {
             "ok": True,
             "detail": f"Live: {cur.get('temp_c')}°C at "
                       f"{loc_obj.get('name', '')}, {loc_obj.get('country', '')} "
-                      f"(WeatherAPI.com — moon-phase data available)",
+                      f"(WeatherAPI.com — moon-phase data available, sample saved)",
             "temp_c": cur.get("temp_c"),
             "location": loc_obj.get("name") or "",
             "provider": "weatherapi",
@@ -2011,10 +2046,22 @@ async def api_weather_test(
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "detail": str(e), "upstream": upstream}
     cur = j.get("current") or {}
+    # Stamp a successful Open-Meteo test sample directly into
+    # `weather_samples` so the historical data starts populating
+    # immediately rather than waiting for the next sampler tick.
+    try:
+        from logic import weather as _w
+        from logic import weather_sampler as _ws
+        full_body = await _w.fetch(lat, lon)
+        if full_body and not full_body.get("error") and full_body.get("configured"):
+            _ws.write_sample(full_body,
+                              loc={"lat": lat, "lon": lon, "label": ""})
+    except Exception:  # noqa: BLE001 — sample-write failure must not break Test
+        pass
     return {
         "ok": True,
         "detail": f"Live: {cur.get('temperature_2m')}°C "
-                  f"(Open-Meteo — no API key required, NO moon data)",
+                  f"(Open-Meteo — no API key required, NO moon data, sample saved)",
         "temp_c": cur.get("temperature_2m"),
         "provider": "open-meteo",
         "supports_moon": False,

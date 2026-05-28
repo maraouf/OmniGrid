@@ -271,6 +271,67 @@ async def _lifespan(_app: FastAPI):
     one-per-process. The `_app` parameter is FastAPI's required
     handler signature; the lifespan body uses module-level `app`
     directly, so the parameter is unused-by-design."""
+    # ──────────────────────────────────────────────────────────────
+    # Crash-visibility setup — installs BEFORE any other init step
+    # so a fatal during boot still surfaces with a full traceback.
+    # (1) `tracemalloc.start()` — Python's RuntimeWarning for
+    #     "coroutine was never awaited" / "ResourceWarning" otherwise
+    #     emits "Enable tracemalloc to get the object allocation
+    #     traceback" with NO useful pointer. Starting it here makes
+    #     every such warning carry the actual allocation site.
+    # (2) Async exception handler on the running event loop — any
+    #     un-awaited task exception (sampler tick crash, scheduler
+    #     kind crash, lifespan-spawned background work) lands here
+    #     and gets logged with `traceback.format_exception` instead
+    #     of silently disappearing into asyncio's default handler.
+    # (3) `loop.set_debug(False)` — kept disabled in prod to avoid
+    #     the slow-path overhead; tracemalloc covers the typical
+    #     "what code allocated this" question.
+    try:
+        import tracemalloc as _tracemalloc
+        if not _tracemalloc.is_tracing():
+            # 25 frames is enough for sampler / scheduler call
+            # chains; deeper frames are usually framework noise.
+            _tracemalloc.start(25)
+            print("[boot] tracemalloc started (25 frames) — "
+                  "warnings will carry allocation tracebacks")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[boot] tracemalloc start failed (non-fatal): {_e}")
+    try:
+        import asyncio as _asyncio
+        import traceback as _traceback
+        _loop = _asyncio.get_running_loop()
+
+        def _async_exception_handler(loop, context):
+            """Log every un-awaited task exception with a full
+            traceback to the persistent log. asyncio's default
+            handler prints to stderr but doesn't include the
+            stack frame that spawned the failing task — `context`
+            carries the exception + the task ref so we can extract
+            both."""
+            exc = context.get("exception")
+            msg = context.get("message") or "unhandled asyncio exception"
+            task = context.get("task")
+            task_name = ""
+            try:
+                if task is not None and hasattr(task, "get_name"):
+                    task_name = f" task={task.get_name()}"
+            except Exception:  # noqa: BLE001
+                task_name = ""
+            if exc is not None:
+                tb = "".join(_traceback.format_exception(
+                    type(exc), exc, exc.__traceback__))
+                print(f"[asyncio] UNHANDLED EXCEPTION{task_name}: {msg}\n{tb}")
+            else:
+                print(f"[asyncio] UNHANDLED EXCEPTION{task_name}: {msg} "
+                      f"(no exception object — full context: {context!r})")
+
+        _loop.set_exception_handler(_async_exception_handler)
+        print("[boot] asyncio exception handler installed — "
+              "unhandled task crashes will log with full traceback")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[boot] asyncio exception handler install failed "
+              f"(non-fatal): {_e}")
     from logic import db as _db_mod
     if _db_mod.DB_PATH_ERROR:
         # Keep the app alive so the config-error middleware can serve a

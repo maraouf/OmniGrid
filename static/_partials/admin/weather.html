@@ -29,12 +29,16 @@
 
   <!-- Master toggle — disabling stops the topbar widget + sampler
        + AI palette context block from fetching, regardless of which
-       provider is selected. -->
+       provider is selected. The @change handler ALSO mirrors the
+       flat `weather_enabled` flip onto the nested `settings.weather`
+       rollup so the two stay in sync until the next save (otherwise
+       the AI context would see a contradictory pair: `weather_enabled:
+       true` flat + `weather: {enabled: false}` nested). -->
   <div class="mb-4">
     <p class="fs-xs text-[var(--text-faint)] mb-1" x-text="t('admin.weather.enabled_hint')"></p>
     <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
       <input type="checkbox" x-model="settings.weather_enabled"
-             @change="markWeatherDirty()"
+             @change="markWeatherDirty(); if (settings.weather) { settings.weather.enabled = !!settings.weather_enabled; }"
              :disabled="isReadonly()">
       <span class="font-medium" x-text="t('admin.weather.enabled_label')"></span>
     </label>
@@ -133,13 +137,17 @@
   <!-- Test connection button + Portainer-style result box. Probes
        the SELECTED provider — WeatherAPI validates the API key,
        Open-Meteo just confirms the endpoint is reachable. Box
-       background flips ok/error tones via pill-token classes. -->
+       background flips ok/error tones via pill-token classes.
+       Button uses `btn-soft` — same canonical class the other admin
+       tabs' Test buttons use (visible on both themes; `btn-secondary`
+       was a removed legacy class that left the button unstyled
+       on light theme). -->
   <div class="mb-4">
     <div class="flex items-center gap-2 flex-wrap mb-2">
       <button type="button"
               @click="testWeather()"
               :disabled="isReadonly() || !settings.weather_enabled || weatherTesting"
-              class="btn btn-secondary fs-sm flex items-center gap-1.5">
+              class="btn btn-soft fs-sm flex items-center gap-1.5">
         <svg width="13" height="13" :class="weatherTesting ? 'spin-md' : ''" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plug-zap"/>
         </svg>
@@ -182,7 +190,11 @@
        UX without expandable content is a known frustration the
        operator flagged). The section-owned save bundles them into
        the same POST as the weather settings above so a single Save
-       commits the whole configuration. -->
+       commits the whole configuration. Uses the canonical helpers
+       (`t('admin.config.fields.<key>.label/.help')` + `tuningPlaceholder`
+       + `tuningEffective[key].{min,max,default}` + `tuningEffectiveLabel`)
+       that every other admin tab's tunable block uses — matches
+       Assets / Notifications / AI / Port-scan tabs visually. -->
   <details x-show="weatherTuningKeys().length > 0"
            class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mb-4">
     <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
@@ -191,22 +203,102 @@
       </svg>
       <span x-text="t('admin.weather.advanced_label')"></span>
     </summary>
-    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="mt-3 space-y-3">
       <template x-for="key in weatherTuningKeys()" :key="key">
         <div>
-          <label class="block fs-xs font-medium mb-1" x-text="tuningFieldLabel(key)"></label>
-          <input x-model="tuningForm[key]"
-                 @input="markWeatherDirty()"
-                 :disabled="isReadonly()"
-                 :placeholder="tuningFieldPlaceholder(key)"
-                 type="text"
-                 inputmode="numeric"
-                 class="w-full mono fs-sm">
-          <p class="fs-2xs text-[var(--text-faint)] mt-0.5" x-text="tuningFieldHelp(key)"></p>
-          <p class="fs-2xs text-[var(--text-faint)] mt-0.5"
-             x-text="tuningFieldBoundsLine(key)"></p>
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="number"
+                   x-model="tuningForm[key]"
+                   @input="markWeatherDirty()"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="!isAdmin() || weatherSaving || !settings.weather_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+                </svg>
+                <span x-text="(tuningEffective[key] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+                </svg>
+                <span x-text="(tuningEffective[key] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+                </svg>
+                <span x-text="(tuningEffective[key] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
+          </div>
         </div>
       </template>
+    </div>
+  </details>
+
+  <!-- Recent samples panel — admin-only confirmation that the
+       lifespan sampler is actually writing rows to `weather_samples`.
+       Loaded lazily via `loadWeatherHistory()` on first expand; shows
+       the most recent 25 rows with timestamp + temp + condition +
+       moon-phase (when present). Timestamps format through the user's
+       Settings > Profile > Formats datetime_format pref (the
+       canonical SPA date formatter — single source of truth across
+       every history-rendering surface). -->
+  <details class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mb-4"
+           @toggle="if ($event.target.open) { loadWeatherHistory(); }">
+    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <span x-text="t('admin.weather.history_label')"></span>
+      <span class="fs-2xs text-[var(--text-faint)]"
+            x-show="weatherHistory && weatherHistory.length"
+            x-text="'(' + weatherHistory.length + ')'"></span>
+    </summary>
+    <div class="mt-3">
+      <div x-show="weatherHistoryLoading" class="fs-xs text-[var(--text-faint)] flex items-center gap-1.5">
+        <span class="spin"></span>
+        <span x-text="t('actions.loading')"></span>
+      </div>
+      <div x-show="!weatherHistoryLoading && (!weatherHistory || !weatherHistory.length)"
+           class="fs-xs text-[var(--text-faint)] italic"
+           x-text="t('admin.weather.history_empty')"></div>
+      <table x-show="!weatherHistoryLoading && weatherHistory && weatherHistory.length"
+             class="w-full fs-xs">
+        <thead>
+          <tr class="text-[var(--text-faint)] text-start">
+            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_ts')"></th>
+            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_location')"></th>
+            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_temp')"></th>
+            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_condition')"></th>
+            <th class="text-start py-1" x-text="t('admin.weather.history_col_moon')"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in weatherHistory" :key="row.ts + '-' + row.lat + '-' + row.lon">
+            <tr class="border-t border-[var(--border)]">
+              <td class="py-1 pe-2 mono" x-text="fmtDate(row.ts)"></td>
+              <td class="py-1 pe-2" x-text="row.label || (row.lat + ',' + row.lon)"></td>
+              <td class="py-1 pe-2 mono" x-text="row.temp_c != null ? (Math.round(row.temp_c * 10) / 10) + '°C' : '—'"></td>
+              <td class="py-1 pe-2" x-text="row.condition || '—'"></td>
+              <td class="py-1"
+                  x-text="row.moon_phase ? row.moon_phase + (row.moon_illumination != null ? ' · ' + Math.round(row.moon_illumination) + '%' : '') : '—'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
   </details>
 

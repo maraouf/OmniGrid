@@ -41,12 +41,25 @@ _cache: dict = {"ts": 0.0, "data": None, "neg_until": 0.0}
 # success window even when an operator dials the success TTL down.
 _NEG_TTL_CAP_SECONDS = 60.0
 
-# ifconfig.co accepts an Accept: application/json header. Other free
-# alternatives if this ever needs replacing: ipinfo.io/json (rate-
-# limited without an API key), api.ipify.org (no ASN), ip-api.com (no
-# HTTPS without paid tier). ifconfig.co is the simplest no-key option
-# with ASN + ISP + country in one call.
-_LOOKUP_URL = "https://ifconfig.co/json"
+# Lookup endpoint URL — resolved from ops config (env var) at call
+# time rather than baked here as a Python constant, matching the
+# weather provider's "no static URLs in the code" discipline.
+# Operator sets ``PUBLIC_IP_LOOKUP_URL`` in `.env` to override the
+# default. ifconfig.co accepts an Accept: application/json header.
+# Other free alternatives if this ever needs replacing: ipinfo.io/json
+# (rate-limited without an API key), api.ipify.org (no ASN),
+# ip-api.com (no HTTPS without paid tier). ifconfig.co is the
+# simplest no-key option with ASN + ISP + country in one call.
+_DEFAULT_LOOKUP_URL = "https://ifconfig.co/json"
+
+
+def _lookup_url() -> str:
+    """Resolve the lookup URL — operator env-var override first, then
+    the well-known ifconfig.co fallback. Trailing whitespace stripped
+    so a typo'd `.env` line with extra space doesn't break HTTP."""
+    from logic.env_keys import EnvKey, env_get
+    raw = env_get(EnvKey.PUBLIC_IP_LOOKUP_URL).strip()
+    return raw or _DEFAULT_LOOKUP_URL
 
 
 def is_enabled() -> bool:
@@ -90,7 +103,7 @@ async def fetch() -> Optional[dict]:
     neg_ttl = min(_NEG_TTL_CAP_SECONDS, ttl)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.get(_LOOKUP_URL, headers={"Accept": "application/json"})
+            r = await client.get(_lookup_url(), headers={"Accept": "application/json"})
             if r.status_code != 200:
                 print(f"[public_ip] ifconfig.co HTTP {r.status_code} — negative-cached for {neg_ttl:.0f}s")
                 _cache["neg_until"] = now + neg_ttl
@@ -103,12 +116,16 @@ async def fetch() -> Optional[dict]:
     # ifconfig.co schema: ip, country, country_iso, city, asn, asn_org.
     # `asn` is the AS number string ("AS15169"); `asn_org` is the
     # operator-readable ISP name ("Google LLC"). Normalise into the
-    # `isp` alias most operators expect.
+    # `isp` alias most operators expect. `country_iso` is the 2-letter
+    # ISO 3166-1 alpha-2 country code ("EG", "US", "DE") — the SPA
+    # uses it to render a 🇪🇬 flag emoji via Unicode regional-indicator
+    # mapping (no flag-image asset bundle needed).
     out: dict = {
         "ip": str(j.get("ip") or "").strip(),
         "isp": str(j.get("asn_org") or j.get("hostname") or "").strip(),
         "asn": str(j.get("asn") or "").strip(),
         "country": str(j.get("country") or "").strip(),
+        "country_code": str(j.get("country_iso") or "").strip().upper(),
         "city": str(j.get("city") or "").strip(),
     }
     # Cache even when the upstream returned partial data — the AI

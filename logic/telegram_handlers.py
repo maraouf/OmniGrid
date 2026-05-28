@@ -1929,11 +1929,29 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     except Exception as e:
         await _listener()._send_reply(client, f"❌ Weather lookup failed: <code>{_listener()._escape(str(e))}</code>")
         return
-    if not isinstance(data, dict) or data.get("error"):
-        err = (data or {}).get("error") if isinstance(data, dict) else "no response"
+    if not isinstance(data, dict):
+        await _listener()._send_reply(
+            client, "❌ Weather lookup failed: no response from upstream"
+        )
+        return
+    if data.get("error"):
+        err = data.get("error")
         await _listener()._send_reply(
             client,
             f"❌ Weather upstream error: <code>{_listener()._escape(str(err))}</code>"
+        )
+        return
+    # Master toggle off / no API key / no URL configured — the
+    # `/api/weather` route returns `{configured: False}` in those
+    # cases. Surface a clear, actionable message pointing operators
+    # at the right admin surface instead of letting downstream
+    # rendering produce "(no current data)".
+    if data.get("configured") is False:
+        await _listener()._send_reply(
+            client,
+            "⚙️ Weather provider not configured or disabled.\n"
+            "<i>An admin needs to enable the feature in <b>Admin → Weather</b>, "
+            "pick a provider, and (for WeatherAPI.com) paste an API key.</i>"
         )
         return
 
@@ -2134,4 +2152,137 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     text = head + "\n" + line1 + daylight_line
     if forecast_lines:
         text += "\n\n<b>Next 3 days:</b>\n" + "\n".join(forecast_lines)
+    await _listener()._send_reply(client, text)
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
+async def _cmd_moon(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/moon`` — moon-phase summary for the linked user's saved
+    location. Requires the WeatherAPI.com provider (Open-Meteo does
+    not return moon data); declines with a clear "switch provider"
+    message when Open-Meteo is active. Shows today's phase name +
+    illumination % + moonrise / moonset, plus a 3-day outlook.
+    """
+    result = await _require_user_weather_pref(client, msg)
+    if result is None:
+        return
+    username, loc = result
+    label = (loc.get("label") or "").strip() or "your location"
+    from main import api_weather as _api_weather
+    try:
+        data = await _api_weather(
+            lat=loc["lat"], lon=loc["lon"], label=label,
+        )
+    except Exception as e:
+        await _listener()._send_reply(
+            client, f"❌ Moon lookup failed: <code>{_listener()._escape(str(e))}</code>"
+        )
+        return
+    if not isinstance(data, dict):
+        await _listener()._send_reply(
+            client, "❌ Moon lookup failed: no response from upstream"
+        )
+        return
+    if data.get("error"):
+        err = str(data.get("error") or "")
+        await _listener()._send_reply(
+            client,
+            f"❌ Moon upstream error: <code>{_listener()._escape(err)}</code>"
+        )
+        return
+    if data.get("configured") is False:
+        await _listener()._send_reply(
+            client,
+            "⚙️ Weather provider not configured or disabled.\n"
+            "<i>An admin needs to enable the feature in <b>Admin → Weather</b>, "
+            "pick a provider, and (for WeatherAPI.com) paste an API key.</i>"
+        )
+        return
+    if not data.get("supports_moon"):
+        await _listener()._send_reply(
+            client,
+            "🌙 Moon-phase data is not available with the active weather provider.\n"
+            "<i>Switch to <b>WeatherAPI.com</b> in Admin → Weather (free key from "
+            "weatherapi.com, 1M calls/month) to enable moon phases, illumination, "
+            "moonrise, and moonset.</i>"
+        )
+        return
+    forecast = data.get("forecast") or []
+    if not isinstance(forecast, list) or not forecast:
+        await _listener()._send_reply(
+            client,
+            "❌ Moon data missing from upstream response — try again in a few minutes."
+        )
+        return
+    today = forecast[0] or {}
+    phase = str(today.get("moon_phase") or "").strip()
+    illum_raw = today.get("moon_illumination")
+    moonrise = str(today.get("moonrise") or "").strip()
+    moonset = str(today.get("moonset") or "").strip()
+    try:
+        # str() coerces `Any | None` from .get() to a definite str
+        # so float() type-checks cleanly; non-numeric / empty falls
+        # through to the except branch.
+        illum_pct = int(round(float(str(illum_raw)))) if illum_raw is not None else None
+    except (TypeError, ValueError):
+        illum_pct = None
+    # Phase-to-emoji map for visual polish at the head.
+    phase_lower = phase.lower()
+    if "new" in phase_lower:
+        emoji = "🌑"
+    elif "waxing crescent" in phase_lower:
+        emoji = "🌒"
+    elif "first quarter" in phase_lower:
+        emoji = "🌓"
+    elif "waxing gibbous" in phase_lower:
+        emoji = "🌔"
+    elif "full" in phase_lower:
+        emoji = "🌕"
+    elif "waning gibbous" in phase_lower:
+        emoji = "🌖"
+    elif "last quarter" in phase_lower or "third quarter" in phase_lower:
+        emoji = "🌗"
+    elif "waning crescent" in phase_lower:
+        emoji = "🌘"
+    else:
+        emoji = "🌙"
+    safe_phase = _listener()._escape(phase or "Unknown")
+    head = f"{emoji} <b>{_listener()._escape(label)}</b>"
+    illum_line = ""
+    if illum_pct is not None:
+        illum_line = f" — <b>{illum_pct}%</b> illuminated"
+    body = f"{emoji} <b>{safe_phase}</b>{illum_line}"
+    rise_set_parts = []
+    if moonrise:
+        rise_set_parts.append(f"🌅 Rise <b>{_listener()._escape(moonrise)}</b>")
+    if moonset:
+        rise_set_parts.append(f"🌌 Set <b>{_listener()._escape(moonset)}</b>")
+    rise_set_line = "\n" + " · ".join(rise_set_parts) if rise_set_parts else ""
+    # Next-2-days outlook (forecast[1] / forecast[2]).
+    outlook_lines = []
+    for fc in forecast[1:3]:
+        if not isinstance(fc, dict):
+            continue
+        date_s = str(fc.get("date") or "").strip()
+        ph = str(fc.get("moon_phase") or "").strip()
+        il_raw = fc.get("moon_illumination")
+        try:
+            # `fc.get(...)` widens to `Any | None`. Coerce through
+            # `str(...)` so float() gets a definite str input (Pyright
+            # narrowing); empty string / non-numeric land in the
+            # except branch.
+            il_pct = int(round(float(str(il_raw)))) if il_raw is not None else None
+        except (TypeError, ValueError):
+            il_pct = None
+        if not ph and il_pct is None:
+            continue
+        bits = [_listener()._escape(date_s)] if date_s else []
+        if ph:
+            bits.append(_listener()._escape(ph))
+        if il_pct is not None:
+            bits.append(f"{il_pct}%")
+        outlook_lines.append(" · ".join(bits))
+    text = head + "\n" + body + rise_set_line
+    if outlook_lines:
+        text += "\n\n<b>Next 2 days:</b>\n" + "\n".join(outlook_lines)
     await _listener()._send_reply(client, text)

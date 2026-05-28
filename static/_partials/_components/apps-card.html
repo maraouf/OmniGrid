@@ -53,34 +53,41 @@
         <!-- Polished status pill + admin-only bulk-action mini-toolbar
              stacked below. Pill upgraded from the generic chip to a
              status-coloured dot+label combo with subtle ring. -->
-        <div class="flex flex-col items-end gap-1.5 flex-shrink-0">
+        <!-- Status pill + action pills stacked vertically. The action
+             buttons now render as `apps-card-action-pill` — same dot+
+             label combo + ring + padding as the status pill, but in
+             a neutral grey accent. Result: each card has TWO (or
+             three) consistent pills stacked below each other, reading
+             as a tight visual cluster rather than a status pill + a
+             mismatched icon-only button row. Operator-flagged UI
+             consistency request. -->
+        <div class="flex flex-col items-end gap-1 flex-shrink-0">
           <span class="apps-card-status whitespace-nowrap"
                 :aria-label="appsChipAriaLabel(app)">
             <span class="apps-card-status-dot" aria-hidden="true"></span>
             <span x-text="(t('apps.status_' + app.status) || app.status)"></span>
           </span>
-          <div class="flex items-center gap-0.5"
-               x-show="appsProbeTargetCount(app) || appsOpenableCount(app)">
-            <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
-                    class="apps-card-instance-link"
-                    :disabled="appsProbingAll(app)"
-                    @click.stop="probeAllInstances(app)"
-                    :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
-                    :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
-              <svg width="14" height="14" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-              </svg>
-            </button>
-            <button type="button" x-show="appsOpenableCount(app)"
-                    class="apps-card-instance-link"
-                    @click.stop="openAllInstances(app)"
-                    :title="t('apps.open_all_title') || 'Open every instance URL in a new tab'"
-                    :aria-label="t('apps.open_all_aria', {name: app.name}) || ('Open all URLs for ' + app.name)">
-              <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-              </svg>
-            </button>
-          </div>
+          <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
+                  class="apps-card-action-pill whitespace-nowrap"
+                  :disabled="appsProbingAll(app)"
+                  @click.stop="probeAllInstances(app)"
+                  :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
+                  :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
+            <svg width="11" height="11" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+            </svg>
+            <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
+          </button>
+          <button type="button" x-show="appsOpenableCount(app)"
+                  class="apps-card-action-pill whitespace-nowrap"
+                  @click.stop="openAllInstances(app)"
+                  :title="t('apps.open_all_title') || 'Open every instance URL in a new tab'"
+                  :aria-label="t('apps.open_all_aria', {name: app.name}) || ('Open all URLs for ' + app.name)">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+            </svg>
+            <span x-text="t('apps.open_all_label') || 'Open'"></span>
+          </button>
         </div>
       </div>
       <span x-show="appsProbeAllSummary(app)" class="fs-3xs text-[var(--text-faint)] mt-1 block"
