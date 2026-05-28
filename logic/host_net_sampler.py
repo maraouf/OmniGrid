@@ -176,7 +176,13 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
     _last_counters[hid] = (now, rx, tx)
 
     if prev is None:
-        print(f"[host_net_sampler] {hid!r} first sample (rx={rx} tx={tx}); "
+        # Include resolved ne_url so the operator can verify WHICH
+        # exporter URL the sampler is establishing a baseline against
+        # — the curated `id` is often a short alias and a wrong
+        # `ne_url` will silently produce wrong counters from a
+        # completely different host.
+        print(f"[host_net_sampler] {hid!r} target={ne_url} "
+              f"first sample (rx={rx} tx={tx}); "
               f"skipping INSERT — delta needs a predecessor")
         return
     prev_ts, prev_rx, prev_tx = prev
@@ -189,7 +195,8 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
         # long outage into the series as a flat zero (which is exactly
         # what the fallback is supposed to fix); storing a negative
         # would break every downstream chart assumption.
-        print(f"[host_net_sampler] {hid!r} out-of-bounds delta "
+        print(f"[host_net_sampler] {hid!r} target={ne_url} "
+              f"out-of-bounds delta "
               f"(Δs={delta_s:.1f} Δrx={delta_rx} Δtx={delta_tx}); skipping INSERT")
         return
     rx_rate = delta_rx / delta_s
@@ -203,9 +210,10 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
                 (int(now), hid, float(rx_rate), float(tx_rate)),
             )
     except Exception as e:
-        print(f"[host_net_sampler] {hid!r} DB insert failed: {e}")
+        print(f"[host_net_sampler] {hid!r} target={ne_url} DB insert failed: {e}")
         return
-    print(f"[host_net_sampler] {hid!r} wrote rx={rx_rate:.0f} tx={tx_rate:.0f} bytes/s")
+    print(f"[host_net_sampler] {hid!r} target={ne_url} "
+          f"wrote rx={rx_rate:.0f} tx={tx_rate:.0f} bytes/s")
 
 
 def _prune_old_samples() -> int:

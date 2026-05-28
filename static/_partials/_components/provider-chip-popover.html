@@ -21,12 +21,20 @@
   positioning. Width capped at 320px so error messages wrap rather
   than pushing the popover off the right edge.
 -->
+<!--
+  x-if (not x-show) on the outer gate — every host × every chip mounts
+  this popover, so on a 200-host fleet × 6 providers that's ~1200
+  reactive subtrees. x-show keeps them all live in the DOM with their
+  `providerChipPopoverRow()` + `providerChipPopoverLabel()` bindings
+  re-evaluating on every flush. x-if tears the subtree out entirely
+  when its gate is false — only the ONE clicked chip's popover mounts
+  at a time.
+-->
 <!--suppress HtmlUnknownAttribute -->
-<div x-show="chipPopoverOpen
+<template x-if="chipPopoverOpen
               && chipPopoverOpen.host_id === h.id
-              && chipPopoverOpen.provider_name === p.name"
-     x-cloak
-     @click.stop
+              && chipPopoverOpen.provider_name === p.name">
+<div @click.stop
      @click.outside="closeProviderChipPopover()"
      role="dialog"
      aria-modal="false"
@@ -133,3 +141,4 @@
             x-text="t('hosts_extra.provider_popover.open_drawer')"></button>
   </div>
 </div>
+</template>
