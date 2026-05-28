@@ -708,11 +708,39 @@ async def probe_node(
     """
 
     async def _fetch(u: str) -> tuple[Optional[str], Optional[str]]:
-        """(body_text, error_str). One of the pair is always None."""
+        """(body_text, error_str). One of the pair is always None.
+
+        Error messages are operator-readable: when the raw exception
+        has an empty `str()` (some httpx ConnectErrors do), fall back
+        to the class name + a hint that names the most common root
+        cause (DNS — the container's libc resolver couldn't find the
+        host, typically because the operator's `ne_url` uses a
+        short hostname instead of an FQDN the Docker DNS can resolve).
+        """
         try:
             r = await client.get(u, timeout=timeout)
         except (httpx.HTTPError, OSError) as fetch_err:
-            return None, str(fetch_err)
+            raw = str(fetch_err).strip()
+            klass = type(fetch_err).__name__
+            # Common DNS-not-resolved patterns from httpx / aiohttp /
+            # libc — fold all of them under a single readable hint
+            # so the operator knows to switch to an FQDN or set a
+            # `--dns` host on the container.
+            lower = raw.lower()
+            if (not raw) or ("name or service not known" in lower
+                              or "nodename nor servname" in lower
+                              or "getaddrinfo failed" in lower
+                              or "temporary failure in name resolution" in lower
+                              or "could not resolve" in lower
+                              or "no address associated" in lower):
+                hint = (raw or klass) + (
+                    " — DNS resolution failed; the container's resolver "
+                    "couldn't find this hostname. Use the FQDN (e.g. "
+                    "`host.home.lan`) instead of a short name, OR add a "
+                    "Docker `--dns` / compose `extra_hosts:` entry that "
+                    "covers this name.")
+                return None, hint
+            return None, raw or klass
         if r.status_code >= 400:
             return None, f"HTTP {r.status_code}"
         return r.text, None

@@ -633,12 +633,17 @@ async def probe_http_health(
                         tls_refused_reachable = True
                         http_error = None
                         latency_ms = int((time.monotonic() - t0) * 1000)
-                        # NEUTRAL wording on purpose — this is an EXPECTED
-                        # fallback recovery (the host is reachable, just
-                        # SNI-strict), NOT a failure, so it must not contain
-                        # "fail"/"error" or the persistent-log severity
-                        # classifier paints it red ERROR on every sampler tick.
-                        print(f"[http_probe] no-SNI retry refused for {url_clean} "
+                        # WARN (not INFO, not ERROR) — TLS is broken
+                        # for this hostname (SNI refused, no-SNI also
+                        # refused) but TCP IS reachable so the host is
+                        # alive. Operator-visible degraded state worth
+                        # surfacing in the WARN bucket — the chip
+                        # shows the host up but a real TLS user-agent
+                        # would still fail. NEUTRAL wording on the
+                        # ERROR side (no `fail`/`error` token) keeps
+                        # the classifier off the ERROR bucket; the
+                        # `warning:` token bumps it to WARN.
+                        print(f"[http_probe] warning: no-SNI retry refused for {url_clean} "
                               f"(via {_ip}); verify-off TCP fallback OK "
                               f"(port {port} reachable; TLS handshake refused by name)")
                     else:

@@ -1498,7 +1498,15 @@ async def host_metrics_sampler_loop() -> None:
                 if snmp_due:
                     snmp_hosts = _load_curated_snmp_hosts()
                     if snmp_hosts:
-                        snmp_conc = max(1, tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
+                        # Defence-in-depth hard cap — even if the
+                        # operator's DB has a stale tunable override
+                        # of 16+, we cap at 4 because that's the
+                        # event-loop-safe value. Operators on small
+                        # reliable fleets can still raise via the
+                        # tunable but the floor is the structural
+                        # batching below, which always yields
+                        # between batches regardless of cap.
+                        snmp_conc = max(1, min(4, tuning.tuning_int(Tunable.SNMP_CONCURRENCY)))
                         snmp_sem = asyncio.Semaphore(snmp_conc)
                         # Thundering-herd guard — process hosts in
                         # batches of `snmp_conc` with a brief asyncio
