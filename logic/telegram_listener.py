@@ -1960,8 +1960,14 @@ async def listener_loop() -> None:
                 # so include the exception class name as a fallback
                 # so the operator's log doesn't show `[telegram_listener]
                 # network:` with nothing after the colon.
+                # `warning:` token forces the WARN bucket in
+                # logic/logs.py:_severity_for so transient network
+                # blips surface in Admin → Logs as amber instead of
+                # disappearing into the INFO stream. They're not
+                # ERROR (the loop retries cleanly on the next tick)
+                # but they're not just informational either.
                 detail = str(e).strip() or e.__class__.__name__
-                print(f"[telegram_listener] network: {detail}")
+                print(f"[telegram_listener] network warning: {detail}")
                 await asyncio.sleep(5)
             # noinspection PyBroadException
             except Exception as e:  # noqa: BLE001

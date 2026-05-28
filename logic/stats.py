@@ -490,8 +490,23 @@ async def gather_stats() -> None:
                         return h, result
                     except (httpx.HTTPError, OSError, ValueError) as node_err:
                         _per_node_unreachable[h] = _now_ts
-                        print(f"[stats] gather_stats: per-node list for {h} FAILED: "
-                              f"{type(node_err).__name__}: {node_err} "
+                        # Resolve the hostname to its actual IP for
+                        # the log so operators can verify WHICH
+                        # address the Portainer agent attempted —
+                        # a wrong DNS entry would silently route to
+                        # a different host. Best-effort; fall back
+                        # to "unresolved" on lookup failure.
+                        import socket as _socket
+                        try:
+                            _addr = _socket.gethostbyname(h)
+                            _addr_str = f"{h}({_addr})" if _addr != h else h
+                        except (OSError, _socket.gaierror):
+                            _addr_str = f"{h}(unresolved)"
+                        # Defence-in-depth on empty exception body —
+                        # ConnectTimeout sometimes stringifies blank.
+                        _err_str = str(node_err).strip() or node_err.__class__.__name__
+                        print(f"[stats] gather_stats: per-node list for {_addr_str} FAILED: "
+                              f"{type(node_err).__name__}: {_err_str} "
                               f"(suppressing repeat logs for {int(_unreach_ttl)}s)")
                         return h, []
 
@@ -505,7 +520,25 @@ async def gather_stats() -> None:
                         seen[cid] = c
                         sweep_node_by_cid[cid] = h
                 containers: list[dict[str, Any]] = list(seen.values())
-                print(f"[stats] gather_stats: per-node sweep hosts={hostnames} "
+                # Resolve each hostname to its actual IP for the log
+                # so operators can verify WHICH address the Portainer
+                # agent routed to per node (the bare Swarm hostname
+                # is often just a short alias — a wrong DNS entry
+                # would silently route to a different host). Best-
+                # effort: skip resolution that fails (the DNS-skip
+                # cache absorbs the cost) and fall back to the bare
+                # hostname when the lookup raises.
+                import socket as _socket
+                hosts_with_addr = []
+                for _hn in hostnames:
+                    try:
+                        _ip = _socket.gethostbyname(_hn)
+                        hosts_with_addr.append(
+                            f"{_hn}({_ip})" if _ip != _hn else _hn,
+                        )
+                    except (OSError, _socket.gaierror):
+                        hosts_with_addr.append(f"{_hn}(unresolved)")
+                print(f"[stats] gather_stats: per-node sweep hosts={hosts_with_addr} "
                       f"sizes={[len(lst) for _, lst in per_node]} "
                       f"merged={len(containers)}")
             else:

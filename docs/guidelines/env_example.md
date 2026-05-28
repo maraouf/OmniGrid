@@ -400,6 +400,21 @@ HOST_PROVIDER_CACHE_DIAG_INTERVAL=100
 # repeatedly re-paying the full Portainer client timeout for a
 # dead worker. Default 60s; range 5-600.
 STATS_PER_NODE_UNREACHABLE_TTL_SECONDS=60
+# Shared DNS-failure skip cache TTL — every sampler that resolves
+# hostnames consults `logic/dns_skip.should_skip_dns` and skips
+# probes for unresolvable hosts within this window. Eliminates
+# the per-tick executor-thrash on a fleet with N unresolvable
+# hostnames. Latches off on next successful resolution. Ping
+# is exempt (its purpose IS to test reachability). Default 300
+# (5 min); range 60-3600.
+DNS_FAILED_SKIP_SECONDS=300
+# Short probe timeout when Beszel / Pulse hub latched as
+# unreachable on the previous probe — cold-cache callers
+# fail fast instead of paying the full 15s budget. Latches
+# back to the normal probe timeout on next successful probe.
+# Default 3s; range 1-30 for both.
+BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS=3
+PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS=3
 # Cache TTL for the per-host configured-providers map consulted by
 # `record_provider_outcome`'s defensive guard (refuses + cleans orphan
 # rows when a probe fires for an unconfigured provider). Canonical
@@ -932,6 +947,9 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOST_PROVIDER_CACHE_TTL_SECONDS` | Runtime     | `10`                 | Outer host-provider memo TTL.                                                    |
 | `HOST_PROVIDER_CACHE_DIAG_INTERVAL` | Runtime   | `100`                | Cache hit/miss diagnostic-log cadence (calls). Lower = more verbose.            |
 | `STATS_PER_NODE_UNREACHABLE_TTL_SECONDS` | Runtime | `60`             | gather_stats skip-window for failed Swarm workers (seconds).                    |
+| `DNS_FAILED_SKIP_SECONDS`            | Runtime   | `300`                | Shared sampler skip-window for hosts with failing DNS resolution.               |
+| `BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS` | Runtime | `3`              | Short Beszel probe timeout when previous probe latched as unreachable.          |
+| `PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS`  | Runtime | `3`              | Short Pulse probe timeout when previous probe latched as unreachable.           |
 | `HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS` | Runtime | `60`                 | Per-host configured-providers map cache TTL (record_provider_outcome guard).     |
 | `HOST_METRICS_PROBE_CONCURRENCY`  | Runtime     | `8`                  | host_metrics_sampler per-tick NE probe fan-out.                                  |
 | `AUTH_FAILURE_COOLDOWN_SECONDS`   | Runtime     | `300`                | Shared Webmin + SSH auth-failure cool-down.                                      |

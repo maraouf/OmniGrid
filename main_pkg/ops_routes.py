@@ -1628,6 +1628,10 @@ class SettingsIn(BaseModel):
     # / outer host-provider cache + per-host Webmin caches.
     tuning_host_provider_cache_ttl_seconds: Optional[str] = None
     tuning_host_provider_cache_diag_interval: Optional[str] = None
+    tuning_stats_per_node_unreachable_ttl_seconds: Optional[str] = None
+    tuning_dns_failed_skip_seconds: Optional[str] = None
+    tuning_beszel_probe_timeout_unreachable_seconds: Optional[str] = None
+    tuning_pulse_probe_timeout_unreachable_seconds: Optional[str] = None
     tuning_host_provider_config_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_cache_ttl_seconds: Optional[str] = None
     tuning_webmin_host_fail_cache_ttl_seconds: Optional[str] = None

@@ -593,6 +593,24 @@ def _register_pulse_host_keys(
     return keys_added
 
 
+# Latches True when the most recent probe attempt raised a
+# ConnectError / Timeout (hub unreachable) — the next call uses the
+# SHORT timeout (`tuning_pulse_probe_timeout_unreachable_seconds`)
+# to fail fast instead of blocking the cold-cache caller for the
+# full 15s. Latches back to False on next success so a recovered
+# hub immediately gets its normal timeout. Single-process single-
+# replica → plain module flag is correct. Mirrors the Beszel shape.
+_last_probe_unreachable: list[bool] = [False]
+
+
+def _mark_unreachable() -> None:
+    _last_probe_unreachable[0] = True
+
+
+def _mark_reachable() -> None:
+    _last_probe_unreachable[0] = False
+
+
 async def probe_pulse(
     base_url: str,
     token: str,
@@ -604,9 +622,22 @@ async def probe_pulse(
     Returns ``{"hosts": {name: stats, ...}, "error": None}`` on success,
     ``{"hosts": {}, "error": "..."}`` on failure. Never raises — lets
     :mod:`logic.gather` keep going on any Pulse hiccup.
+
+    When the most recent probe was unreachable, the caller-supplied
+    timeout is overridden with the short
+    `tuning_pulse_probe_timeout_unreachable_seconds` (default 3s) so
+    cold-cache callers fail fast instead of all paying the full
+    15s during an outage. Latches back to the caller's timeout on
+    the next successful probe.
     """
     if not base_url or not token:
         return {"hosts": {}, "error": "pulse: missing url or token"}
+    if _last_probe_unreachable[0]:
+        try:
+            from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
+            timeout = float(_tuning_int(_Tunable.PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS))
+        except (KeyError, ValueError, TypeError, ImportError):
+            timeout = 3.0
     # Defence-in-depth on the admin-only Pulse URL setting. CodeQL
     # py/full-ssrf flags `client.get(url, ...)` inside `_fetch_state` —
     # see ``logic/url_safety.py`` for the threat-model rationale and
@@ -637,6 +668,19 @@ async def probe_pulse(
         # capture even when callers don't surface the response field.
         print(f"[pulse] probe failed: {type(e).__name__}: {e} "
               f"url={base_url!r} verify_tls={verify_tls}")
+        # Latch unreachable on ConnectError / Timeout so the next
+        # cold-cache caller uses the SHORT timeout. Same shape as
+        # the Beszel unreachable-latch pattern.
+        try:
+            import httpx as _httpx
+            if isinstance(e, (
+                _httpx.ConnectError, _httpx.ConnectTimeout,
+                _httpx.ReadTimeout, _httpx.RemoteProtocolError,
+                OSError,
+            )):
+                _mark_unreachable()
+        except Exception:  # noqa: BLE001
+            pass
         return {"hosts": {}, "error": str(e)}
     # Nodes live at ``state.nodes`` in every Pulse version we've seen.
     nodes = state.get("nodes") or []
@@ -887,6 +931,9 @@ async def probe_pulse(
     print(f"[pulse] probe: pulse_docker_hosts_added={pulse_docker_hosts_added} "
           f"(of {len(pulse_docker_hosts_arr) if isinstance(pulse_docker_hosts_arr, list) else 0} entries in state.dockerHosts)")
     print(f"[pulse] probe: indexed keys={sorted(out.keys())}")
+    # Latch reachable on success so the next probe gets its full
+    # timeout back. Mirrors the Beszel reachable-latch pattern.
+    _mark_reachable()
     return {"hosts": out, "error": None}
 
 

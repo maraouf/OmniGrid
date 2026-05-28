@@ -182,7 +182,17 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
             _token_cache[key] = (tok, time.time() + int(j.get("expires_in", 300)) - 30)
         return tok
     except Exception as e:
-        print(f"[auth] {e}")
+        # Some httpx/SSL/auth exceptions stringify to empty — fall
+        # back to the class name so the log line carries SOMETHING
+        # actionable. Same pattern as the telegram_listener fix for
+        # empty network: log bodies.
+        body = str(e).strip() or e.__class__.__name__
+        # Include the auth realm so operators can tell WHICH registry
+        # rejected the token request at a glance — the bare class name
+        # carries no context. `realm` is the variable bound to the
+        # token-fetch URL above (e.g. `https://auth.docker.io/token`);
+        # don't confuse with an undefined `url`.
+        print(f"[auth] registry-token fetch failed for realm={realm!r}: {body}")
         return None
 
 

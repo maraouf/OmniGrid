@@ -2020,6 +2020,22 @@
           "label": "Host-provider cache diagnostic interval (calls)",
           "help": "How often the host-provider cache logs its hit/miss summary line to Admin → Logs. Every Nth combined hit-or-miss call writes `[provider_state] cache window: H hits / M misses (X% hit rate)` so operators can verify the cache is working without setting up Grafana. Default 100. Lower (e.g. 25) for verbose debugging when chasing a cache regression; raise (e.g. 1000) to cut log noise on busy multi-tab sessions. Range 1-10000. Counters reset every window so each log entry reflects the recent ratio, not the lifetime average."
         },
+        "tuning_stats_per_node_unreachable_ttl_seconds": {
+          "label": "Stats per-node unreachable TTL (seconds)",
+          "help": "How long the gather_stats per-node sweep skips a Swarm worker after it fails its /containers/json probe. Without this, every /api/stats call after the cache goes stale (every 30-45s on default tunables) re-pays the full Portainer client timeout per unreachable worker — saturating the to_thread executor and queuing /api/healthz behind the dead workers. Latches off the first successful probe so a recovered worker rejoins immediately. Default 60 seconds. Lower (e.g. 15) if you want recovered workers to rejoin faster at the cost of repeated 12s timeout waits on persistently-dead nodes; raise (e.g. 300) on flaky networks where temporary blips would otherwise cause repeat-pay cycles. Range 5-600."
+        },
+        "tuning_dns_failed_skip_seconds": {
+          "label": "DNS-failure skip cache TTL (seconds)",
+          "help": "How long every sampler that resolves hostnames (node_exporter, Webmin, HTTP probe) skips a host after its DNS resolution fails. Without this, on a fleet with N unresolvable hostnames every sampler tick pays the full per-host probe timeout × N — hundreds of seconds of wasted executor capacity per minute that queues /api/healthz behind the dead-host probes. Latches off on the next successful resolution so a recovered DNS server brings hosts back automatically. Default 300 seconds (5 min) — short enough that a recovered DNS server brings hosts back within a chart's refresh window, long enough to fully suppress the executor-thrash. Range 60-3600. IP literals and the Ping sampler are exempt (Ping's purpose is to test reachability; it synthesizes an alive=False row on DNS failure)."
+        },
+        "tuning_beszel_probe_timeout_unreachable_seconds": {
+          "label": "Beszel probe timeout when unreachable (seconds)",
+          "help": "Short timeout used by the next Beszel probe after the previous one latched as unreachable (ConnectError / Timeout). Eliminates the cold-cache 15s wait that every /api/hosts/list and /api/hosts/one call pays during a hub outage — a multi-tab refresh storm during an outage no longer blocks the SPA for full 15-second windows. Latches back to the normal `Beszel probe timeout` after the next successful probe so a recovered hub gets its full budget back. Default 3 seconds; range 1-30."
+        },
+        "tuning_pulse_probe_timeout_unreachable_seconds": {
+          "label": "Pulse probe timeout when unreachable (seconds)",
+          "help": "Short timeout used by the next Pulse probe after the previous one latched as unreachable (ConnectError / Timeout). Same shape as the Beszel unreachable-timeout above. Eliminates the cold-cache wait during a Pulse hub outage. Latches back to the caller's timeout on the next successful probe. Default 3 seconds; range 1-30."
+        },
         "tuning_host_provider_config_cache_ttl_seconds": {
           "label": "Host-provider-config cache TTL (seconds)",
           "help": "How long the in-process `_host_provider_config()` map (per-host set of configured providers) is cached before a fresh disk read. Consumed by `record_provider_outcome`'s defensive guard — it refuses to record a failure (and cleans orphan state) when a probe fires against a provider the host's curated config doesn't have. The canonical hosts_config save endpoint invalidates this cache immediately; the TTL is a belt-and-braces backstop for any future code path that writes hosts_config without going through the invalidator. Default 60 seconds. Lower if you make config changes outside the canonical save endpoint and want the orphan cleanup to land faster; raise on a stable fleet to lighten DB reads during probe bursts. Range 1s-3600s. Resolved per `record_provider_outcome` call."
