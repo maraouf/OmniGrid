@@ -675,47 +675,61 @@ class _TeeStream:
         log file separately. The ring buffer + persistent log get
         the ORIGINAL (un-prefixed) text because they have their own
         per-record `level` field — no need to embed it in the body.
+
+        Buffering contract: ONLY complete (newline-terminated) lines
+        get forwarded to the wrapped stream. A partial tail (no
+        newline yet) is stored in `self._partial` and held back
+        until the next call brings the terminating newline — at
+        which point it's assembled, prefixed, and written ONCE as
+        a complete line. This prevents the "partial-then-prefixed"
+        double-write bug where a partial would appear in the stream
+        first as raw text, then the next call would re-write the
+        same content as `INFO:    <body>`, producing
+        `<body>INFO:    <body>` on a single visible line.
         """
         try:
             if not data:
-                return self._stream.write(data) if data else 0
+                return 0
             buf = self._partial + data
             lines = buf.split("\n")
             # All but the last are complete lines; the last is carry-over
             # (either the next partial or the empty string after a
-            # trailing newline).
+            # trailing newline). Store the partial for the next call
+            # to assemble; only forward complete lines.
             self._partial = lines[-1]
-            # Forward each complete line WITH a level prefix; the
-            # partial tail (no newline yet) gets forwarded raw — the
-            # next write that brings a newline will re-prefix it as
-            # one complete line. This avoids splitting a level prefix
-            # across two writes.
-            prefixed_lines = [self._prefixed(line) for line in lines[:-1]]
-            forwarded = "\n".join(prefixed_lines)
-            if prefixed_lines:
-                forwarded += "\n"
-            forwarded += lines[-1]  # partial tail (no prefix yet)
-            n = self._stream.write(forwarded) if forwarded else 0
+            complete_lines = lines[:-1]
+            if not complete_lines:
+                # Data didn't bring any newline — nothing complete to
+                # forward yet. Return the input length so the caller's
+                # write-count accounting stays correct.
+                return len(data)
+            prefixed_lines = [self._prefixed(line) for line in complete_lines]
+            forwarded = "\n".join(prefixed_lines) + "\n"
+            n = self._stream.write(forwarded)
             # Per-line timestamp (not batch-shared) so the SPA's Logs
             # tab renders each line with its own arrival time even
             # when uvicorn / sampler batches several writes in one
-            # `write()` call. The `time.time()` here is monotonic
-            # within the same call so the timestamps still preserve
-            # arrival order — important for the renderer's ts-sort.
-            for line in lines[:-1]:
+            # `write()` call. `time.time()` is monotonic within the
+            # same call so the timestamps still preserve arrival
+            # order — important for the renderer's ts-sort.
+            for line in complete_lines:
                 rec = {"ts": time.time(), "stream": self._label, "text": line}
                 _buf.append(rec)
                 # Persist to today's daily file. Best-effort — see
                 # _persist_line() for the failure-mode contract.
                 _persist_line(rec)
+            # Return the original input length per the file-object
+            # contract; the actual bytes written to the stream differ
+            # because of the prefix, but callers measure success
+            # against what they asked us to write.
+            return len(data)
         except (OSError, ValueError, TypeError):
             # Never let the tee break real logging. Forward the raw
             # data + swallow + move on.
             try:
-                n = self._stream.write(data) if data else 0
+                return self._stream.write(data)
             except OSError:
-                n = 0
-        return n
+                return 0
 
     def flush(self) -> None:
         """Flush the wrapped stream; swallow OS-level flush failures."""
