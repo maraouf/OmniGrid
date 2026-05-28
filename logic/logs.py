@@ -67,7 +67,13 @@ _LOG_FAILED_ONCE = False  # latch so a sustained write failure doesn't spam stde
 # rolls over (next-day's filename). Pair of (path, handle) so we
 # can detect a date-rollover by comparing paths cheaply.
 _LOG_FH_PATH: Optional[str] = None
-_LOG_FH = None  # actual file handle
+# Explicit Optional[IO] annotation — without it Pyright infers the
+# literal `None` type from the initial assignment and flags every
+# subsequent `.write(...)` / `.close()` call as "Unresolved attribute
+# reference on class 'None'". `_persist_line` reassigns this to a
+# real TextIO via `open(...)`; the narrowing pattern there relies on
+# the Optional being the declared type.
+_LOG_FH: Optional[TextIO] = None  # actual file handle
 
 
 def _resolved_tz():
@@ -159,6 +165,17 @@ _RE_ERROR = re.compile(
 )
 _RE_WARN = re.compile(r"\bwarn(?:ing)?\b|deprecat", re.IGNORECASE)
 _RE_OK = re.compile(r"\bsuccess\b|\bok —|→ ok\b", re.IGNORECASE)
+
+# Uvicorn access-log status-code extractor — matches the canonical
+# `<host:port> - "<method> <path> <proto>" <code> <reason>` shape
+# emitted by uvicorn's default access logger. The capture group pulls
+# the 3-digit status code so _severity_for can promote 5xx → ERROR
+# and 4xx → WARN. Without this, every 504 / 502 / 500 was bucketed
+# INFO purely because uvicorn doesn't distinguish access-log status
+# in its own log-level choice.
+_RE_HTTP_ACCESS = re.compile(
+    r'"\s*[A-Z]+\s+[^"]+\s+HTTP/[0-9.]+"\s+(?P<status>\d{3})\b',
+)
 # Lines that ALREADY carry a level prefix — uvicorn's
 # `INFO:     <body>` / `WARNING:    <body>` / `ERROR:     <body>` /
 # `DEBUG:    <body>` / `CRITICAL:    <body>` shape, OR an ISO 8601
@@ -213,6 +230,25 @@ def _severity_for(text: str, _stream: str) -> str:
         return "SUCCESS"
     if _RE_WARN.search(head):
         return "WARN"
+    # HTTP access-log lines from uvicorn carry a status code that's
+    # the AUTHORITATIVE outcome signal. Default uvicorn classifies
+    # every access log as INFO regardless of status — a 504/502/500
+    # buried in INFO is invisible to operators scanning Admin → Logs
+    # for failures. Detect the canonical uvicorn access format
+    # `<host:port> - "<method> <path> <proto>" <code> <reason>` AND
+    # promote 4xx/5xx into the appropriate severity bucket. 5xx → ERROR
+    # (the backend itself failed / timed out), 4xx → WARN (client /
+    # auth / not-found — informational but worth attention).
+    _http_match = _RE_HTTP_ACCESS.search(text)
+    if _http_match is not None:
+        try:
+            _code = int(_http_match.group("status"))
+        except (TypeError, ValueError):
+            _code = 0
+        if 500 <= _code < 600:
+            return "ERROR"
+        if 400 <= _code < 500:
+            return "WARN"
     if _RE_ERROR.search(text):
         return "ERROR"
     if _RE_WARN.search(text):
@@ -257,11 +293,19 @@ def _persist_line(record: dict[str, Any]) -> None:
         target = _today_log_path()
         if _LOG_FH is None or _LOG_FH_PATH != target:
             # First write OR the date rolled over → close the old
-            # handle (if any) and open the new one.
-            if _LOG_FH is not None:
+            # handle (if any) and open the new one. Local-bind so
+            # the type checker narrows from `TextIOWrapper | None`
+            # to `TextIOWrapper` for the .close() call. Narrow except
+            # to the file-IO failure shapes that can realistically
+            # surface here.
+            _to_close = _LOG_FH
+            if _to_close is not None:
                 try:
-                    _LOG_FH.close()
-                except Exception:  # noqa: BLE001
+                    _to_close.close()
+                except (OSError, ValueError):
+                    # OSError: filesystem-level close failure (EBADF,
+                    # EIO). ValueError: handle already closed by a
+                    # racy GC. Either way we move on + reopen below.
                     pass
                 _LOG_FH = None
             os.makedirs(LOG_DIR, exist_ok=True)
@@ -271,11 +315,14 @@ def _persist_line(record: dict[str, Any]) -> None:
     except Exception as e:
         # Close the kept-open handle on ANY error so the next call
         # retries opening fresh (e.g. transient EBADF / EIO survives
-        # one bad write instead of forever-failing).
-        if _LOG_FH is not None:
+        # one bad write instead of forever-failing). Same local-bind
+        # narrowing as the rollover path above; same narrow-except
+        # rationale.
+        _to_close = _LOG_FH
+        if _to_close is not None:
             try:
-                _LOG_FH.close()
-            except Exception:  # noqa: BLE001
+                _to_close.close()
+            except (OSError, ValueError):
                 pass
             _LOG_FH = None
             _LOG_FH_PATH = None
@@ -755,7 +802,14 @@ class _TeeStream:
                 return len(data)
             prefixed_lines = [self._prefixed(line) for line in complete_lines]
             forwarded = "\n".join(prefixed_lines) + "\n"
-            n = self._stream.write(forwarded)
+            # Discard the wrapped-stream's return value — we report
+            # `len(data)` to the caller (per the file-object contract;
+            # see the return statement below). The actual bytes
+            # written to the stream differ because of the prefix
+            # bytes; honouring the bytes-written contract here would
+            # break callers that compare `write()` return == input
+            # length.
+            self._stream.write(forwarded)
             # Per-line timestamp (not batch-shared) so the SPA's Logs
             # tab renders each line with its own arrival time even
             # when uvicorn / sampler batches several writes in one
