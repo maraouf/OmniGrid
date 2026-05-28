@@ -772,6 +772,20 @@ def get_setting_bool(key: str, default: bool = False) -> bool:
     return default
 
 
+# Memoize the json.loads result keyed on (key, raw-string-identity).
+# get_setting() returns the SAME cached string object within its
+# 3s read-through TTL, so the `==` check short-circuits on identity
+# in the common case and the parse only re-runs when the blob
+# actually changes. Mirrors the _parse_hosts_config cache shape one
+# level higher — every load_settings_json caller benefits without
+# touching their call sites. Single-process single-replica → plain
+# module dict is correct (same justification as the settings cache
+# itself). The cached value (and its row dicts) is SHARED across
+# callers and READ-ONLY by contract — callers MUST NOT mutate the
+# returned list / dict; build fresh output instead.
+_settings_json_cache: dict[str, tuple[str, Any]] = {}
+
+
 def load_settings_json(
     key: str,
     default: Any = None,
@@ -808,10 +822,21 @@ def load_settings_json(
     raw = (get_setting(key) or "").strip()
     if not raw:
         return default
+    # Short-circuit on cached raw-string identity. get_setting returns
+    # the SAME string object within its TTL window, so on a hot path
+    # (samplers / gather reading aliases per-host) the cache hit skips
+    # json.loads entirely.
+    cached = _settings_json_cache.get(key)
+    if cached is not None and cached[0] is raw:
+        candidate = cached[1]
+        if isinstance(candidate, expected_type):
+            return candidate
+        return default
     try:
         value = json.loads(raw)
     except (ValueError, TypeError):
         return default
+    _settings_json_cache[key] = (raw, value)
     if not isinstance(value, expected_type):
         return default
     return value
