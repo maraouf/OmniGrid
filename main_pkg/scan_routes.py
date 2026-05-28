@@ -1871,119 +1871,167 @@ async def api_weather(
     lon: Optional[float] = None,
     label: str = "",
 ):
-    """Fetch current conditions from Open-Meteo for one lat/lon.
+    """Fetch current conditions + 7-day forecast + astronomy from
+    WeatherAPI.com for one lat/lon.
 
-    Caller persists label + coords in localStorage; this endpoint is
-    stateless apart from an in-memory 10-min cache keyed by (lat, lon).
-    Network errors degrade to ``{configured, error}`` so the topbar
-    never breaks when the upstream is unreachable.
+    Delegates to ``logic.weather.fetch`` which owns the per-coord
+    in-process TTL cache and the master-toggle gate. When no
+    coordinates are passed, falls back to the operator-configured
+    default location (Admin → Weather). Result includes moon-phase
+    + moon-illumination fields on every forecast day so the AI
+    palette + Telegram bot can answer moon-related questions.
     """
+    # No coords from the caller — try the operator's default location
+    # so the topbar widget / AI palette context get SOMETHING when the
+    # user hasn't pinned coordinates yet.
     if lat is None or lon is None:
-        return {"configured": False}
-    upstream = _open_meteo_url()
-    if not upstream:
-        # Admin → General stores `open_meteo_url` (post-fix split out
-        # of the legacy Notifications panel); blank disables the
-        # widget entirely rather than forwarding to a hardcoded public
-        # endpoint the operator didn't opt into.
-        return {
-            "configured": False,
-            "error": "open_meteo_url not configured",
-            "label": label,
-        }
-    # Quantise to 2 decimals so minor coord differences for the same
-    # city hit one cache entry.
-    key = (round(float(lat), 2), round(float(lon), 2))
-    now = time.time()
-    cached = _weather_cache.get(key)
-    if cached and (now - cached[0]) < _WEATHER_CACHE_TTL:
-        body = dict(cached[1])
-        body["label"] = label or body.get("label") or ""
-        body["cached"] = True
-        return body
+        from logic import weather as _weather_mod
+        loc = _weather_mod.default_location()
+        if not loc:
+            return {"configured": False}
+        lat = loc["lat"]
+        lon = loc["lon"]
+        if not label:
+            label = loc.get("label") or ""
+    from logic import weather as _weather_mod
+    return await _weather_mod.fetch(float(lat), float(lon), label=label)
 
+
+# noinspection PyTypeChecker,PyUnresolvedReferences
+@app.post("/api/weather/test")
+async def api_weather_test(
+    body: dict,
+    _admin: auth.User = Depends(auth.require_admin),  # noqa: B008
+):
+    """Test-connection probe — dispatches to Open-Meteo or
+    WeatherAPI.com based on the requested ``provider`` (default
+    falls through to the persisted ``weather_provider`` setting).
+    Admin-only.
+
+    Accepts ``{provider, api_key, base_url, lat, lon}`` (every field
+    optional; falls through to the persisted values when blank —
+    so an admin can re-test after first save without re-typing
+    the secret). Returns ``{ok: bool, detail: str, ...}``.
+    """
+    from logic import weather as _weather_mod
+    from logic.db import get_setting
+    from logic.settings_keys import Settings as _S
+    requested_provider = (body.get("provider") or "").strip().lower()
+    if requested_provider not in ("open-meteo", "weatherapi"):
+        requested_provider = _weather_mod.provider()
+    # Default lat/lon fall through to the operator-configured location.
+    try:
+        lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
+        lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
+    except (TypeError, ValueError):
+        return {"ok": False, "detail": "lat/lon must be numbers"}
+    if lat is None or lon is None:
+        loc = _weather_mod.default_location()
+        if not loc:
+            return {"ok": False,
+                    "detail": "no lat/lon supplied AND no default location configured"}
+        lat = loc["lat"]
+        lon = loc["lon"]
+    base = (body.get("base_url") or "").strip().rstrip("/")
+    try:
+        timeout = float(tuning.tuning_int(Tunable.WEATHER_FETCH_TIMEOUT_SECONDS))
+    except (KeyError, ValueError, TypeError):
+        timeout = 8.0
+    if requested_provider == "weatherapi":
+        raw_key = (body.get("api_key") or "").strip()
+        if not raw_key:
+            raw_key = (get_setting(_S.WEATHER_API_KEY) or "").strip()
+        if not raw_key:
+            return {"ok": False, "detail": "no API key configured or supplied"}
+        if not base:
+            base = _weather_mod.DEFAULT_WEATHERAPI_URL
+        upstream = base + "/forecast.json"
+        params = {
+            "key": raw_key,
+            "q": f"{round(lat, 2)},{round(lon, 2)}",
+            "days": "1",
+            "aqi": "no",
+            "alerts": "no",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.get(upstream, params=params)
+                if r.status_code == 401 or r.status_code == 403:
+                    return {"ok": False, "detail": f"HTTP {r.status_code} — API key rejected",
+                            "status_code": r.status_code, "upstream": upstream}
+                r.raise_for_status()
+                j = r.json() or {}
+        except httpx.HTTPStatusError as e:
+            return {"ok": False, "detail": f"HTTP {e.response.status_code}",
+                    "status_code": e.response.status_code, "upstream": upstream}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "detail": str(e), "upstream": upstream}
+        cur = j.get("current") or {}
+        loc_obj = j.get("location") or {}
+        return {
+            "ok": True,
+            "detail": f"Live: {cur.get('temp_c')}°C at "
+                      f"{loc_obj.get('name', '')}, {loc_obj.get('country', '')} "
+                      f"(WeatherAPI.com — moon-phase data available)",
+            "temp_c": cur.get("temp_c"),
+            "location": loc_obj.get("name") or "",
+            "provider": "weatherapi",
+            "supports_moon": True,
+            "upstream": upstream,
+        }
+    # Open-Meteo — no API key, plain GET against the public endpoint.
+    if not base:
+        base = _weather_mod.DEFAULT_OPEN_METEO_URL
+    upstream = base
     params = {
-        "latitude": str(key[0]),
-        "longitude": str(key[1]),
-        "current": "temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m",
-        # Daily forecast — covers the next 7 days. AI sidebar consumers
-        # use this for "weather forecast next 5 days" questions; the
-        # topbar widget keeps showing current-only and ignores the
-        # forecast payload (small enough to ride the same response).
-        "daily": (
-            "temperature_2m_max,temperature_2m_min,weather_code,"
-            "precipitation_sum,sunrise,sunset"
-        ),
-        "forecast_days": "7",
+        "latitude": str(round(lat, 2)),
+        "longitude": str(round(lon, 2)),
+        "current": "temperature_2m",
+        "forecast_days": "1",
         "timezone": "auto",
     }
     try:
-        async with httpx.AsyncClient(timeout=8.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(upstream, params=params)
             r.raise_for_status()
             j = r.json() or {}
-    except Exception as e:
-        return {"configured": True, "error": str(e), "label": label}
-
+    except httpx.HTTPStatusError as e:
+        return {"ok": False, "detail": f"HTTP {e.response.status_code}",
+                "status_code": e.response.status_code, "upstream": upstream}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "detail": str(e), "upstream": upstream}
     cur = j.get("current") or {}
-    code = int(cur.get("weather_code") or 0)
-    desc, icon = _WMO_CODES.get(code, ("Unknown", "cloud"))
-    # Build the daily forecast list — one entry per day with min/max
-    # temp + weather code + precipitation sum. Empty list when the
-    # upstream didn't return a `daily` block (degrades cleanly).
-    forecast: list[dict] = []
-    _raw_daily = j.get("daily")
-    daily: dict = _raw_daily if isinstance(_raw_daily, dict) else {}
-    times = daily.get("time") or []
-    tmaxes = daily.get("temperature_2m_max") or []
-    tmines = daily.get("temperature_2m_min") or []
-    dcodes = daily.get("weather_code") or []
-    precips = daily.get("precipitation_sum") or []
-    # Sunrise / sunset surface the day's daylight window — Open-Meteo
-    # returns ISO timestamps in the resolved IANA timezone (we pass
-    # `timezone=auto`). Consumed by `/weather` for "should I go for a
-    # run" / "is it light out" practical questions.
-    sunrises = daily.get("sunrise") or []
-    sunsets = daily.get("sunset") or []
-    for i in range(min(len(times), 7)):
-        try:
-            d_code = int(dcodes[i]) if i < len(dcodes) else 0
-        except (TypeError, ValueError):
-            d_code = 0
-        d_desc, _d_icon = _WMO_CODES.get(d_code, ("Unknown", "cloud"))
-        forecast.append({
-            "date": times[i],
-            "temp_max_c": tmaxes[i] if i < len(tmaxes) else None,
-            "temp_min_c": tmines[i] if i < len(tmines) else None,
-            "code": d_code,
-            "condition": d_desc,
-            "precip_mm": precips[i] if i < len(precips) else None,
-            "sunrise": sunrises[i] if i < len(sunrises) else None,
-            "sunset": sunsets[i] if i < len(sunsets) else None,
-        })
-    body = {
-        "configured": True,
-        "label": label,
+    return {
+        "ok": True,
+        "detail": f"Live: {cur.get('temperature_2m')}°C "
+                  f"(Open-Meteo — no API key required, NO moon data)",
         "temp_c": cur.get("temperature_2m"),
-        "humidity": cur.get("relative_humidity_2m"),
-        "wind_kmh": cur.get("wind_speed_10m"),
-        "code": code,
-        "condition": desc,
-        "icon": icon,
-        "forecast": forecast,
         "provider": "open-meteo",
+        "supports_moon": False,
         "upstream": upstream,
-        "fetched_at": int(now),
-        # Open-Meteo returns the resolved IANA timezone when called
-        # with `timezone=auto` — surface it so per-user `/time` in
-        # the Telegram bot (and any future UI clock) can render local
-        # time at the user's saved weather location.
-        "timezone": j.get("timezone") or "",
-        "timezone_abbrev": j.get("timezone_abbreviation") or "",
-        "utc_offset_seconds": j.get("utc_offset_seconds") or 0,
     }
-    _weather_cache[key] = (now, body)
-    return body
+
+
+# noinspection PyTypeChecker,PyUnresolvedReferences
+@app.get("/api/weather/history")
+async def api_weather_history(
+    limit: int = 100,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    _admin: auth.User = Depends(auth.require_admin),  # noqa: B008
+):
+    """Historical weather + moon samples from the `weather_samples`
+    table. Admin-only.
+
+    Optional ``lat`` / ``lon`` narrow to one coordinate; omitted =
+    every coordinate. Used by the AI palette context-builder + Admin
+    → Weather history table + Telegram historical-comparison
+    feature.
+    """
+    from logic import weather_sampler as _sampler
+    rows = _sampler.recent_samples(limit=int(max(1, min(limit, 5000))),
+                                    lat=lat, lon=lon)
+    return {"history": rows, "count": len(rows)}
 
 
 # ============================================================================

@@ -5,87 +5,105 @@
      appsChipAriaLabel / probeAllInstances / appsVisibleInstances / …) lives
      on the single app() component and resolves in either context. Keep this
      the SINGLE source of the big card — the Custom locked view and the
-     by-app grid must not drift. -->
+     by-app grid must not drift. Per-status accent (`apps-card--<status>`)
+     drives the polished chrome — left border, logo backdrop tint, hover
+     glow, status pill — via the `--apps-card-accent` CSS variable family
+     wired in style.css. -->
 <!--suppress HtmlUnknownAttribute -->
 <!-- Clickable card: `<article>` (a card is an article) made keyboard-
      focusable + activatable via tabindex + Enter/Space, with an aria-label
      describing the action. We do NOT set role="button" — `button` isn't a
      valid ARIA role for <article>, and the card holds its own interactive
      descendants (URL links, probe/open buttons) which a button role forbids. -->
-<article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3 cursor-pointer flex items-start gap-3"
+<article class="apps-card border border-[var(--border)] rounded-md p-3 cursor-pointer flex items-start gap-3"
          :class="'apps-card--' + app.status"
          tabindex="0"
          :aria-label="t('apps.drawer.open_aria', {name: app.name})"
          @click="openAppDrawer(app)"
          @keydown.enter="openAppDrawer(app)"
          @keydown.space.prevent="openAppDrawer(app)">
-  <!-- App logo on the LEFT; everything else — name / status / description /
-       Probe-all + Open-all actions / per-host services — stacks in the flex-1
-       column to its right. w-16 h-16 + object-contain forces a uniform 64px
-       square slot (was 96px — lowered so a card with few instances isn't
-       floored tall) that defeats Tailwind's img{height:auto} preflight for
-       the non-square brand marks (so a portrait logo can't stretch tall). -->
-  <img :src="iconUrlFor(app.icon || app.name)" alt=""
-       width="64" height="64" class="w-16 h-16 object-contain rounded flex-shrink-0"
-       @error="$event.target.style.visibility='hidden'">
+  <!-- App logo with tinted backdrop. The accent-tinted container reads
+       as deliberate composition rather than a floating sticker; tint
+       intensifies on card hover via the parent's `--apps-card-accent`
+       variable. 72px outer slot / 56px logo gives generous breathing
+       room without inflating tile height. -->
+  <div class="apps-card-logo">
+    <img :src="iconUrlFor(app.icon || app.name)" alt=""
+         @error="$event.target.style.visibility='hidden'">
+  </div>
   <div class="flex-1 min-w-0">
     <header class="mb-3">
       <div class="flex items-start justify-between gap-2">
-        <h3 class="font-semibold fs-sm truncate" x-text="app.name"></h3>
-        <!-- Status pill, with the bulk actions as SUBTLE icon-only
-             buttons stacked below it (was a prominent labelled
-             "Probe all (N)" / "Open all (N)" row that crowded the
-             card). Probe-all = small refresh icon (admin-only);
-             Open-all = external-link icon. @click.stop so neither
-             opens the app drawer. -->
-        <div class="flex flex-col items-end gap-1 flex-shrink-0">
-          <span class="chip fs-3xs whitespace-nowrap"
-                :aria-label="appsChipAriaLabel(app)"
-                :class="appStatusPillClass(app.status)"
-                x-text="(t('apps.status_' + app.status) || app.status)"></span>
+        <div class="flex-1 min-w-0">
+          <h3 class="apps-card-name truncate" x-text="app.name"></h3>
+          <!-- Meta row — instances-up count picks up the status accent
+               so the "5 / 6 up" reads as a status-aware breakdown
+               rather than just dim text. Plain description sentence
+               wins when the catalog template carries one. -->
+          <div class="apps-card-meta">
+            <span x-show="!(app.catalog && app.catalog.description)" class="flex items-center gap-1">
+              <span class="apps-card-meta-value"
+                    x-text="(app.up_count || 0) + ' / ' + (app.instance_count || 0)"></span>
+              <span x-text="t('apps.counts.up_suffix') || 'up'"></span>
+            </span>
+            <span x-show="app.catalog && app.catalog.description" class="truncate"
+                  x-text="app.catalog && app.catalog.description"></span>
+          </div>
+        </div>
+        <!-- Polished status pill + admin-only bulk-action mini-toolbar
+             stacked below. Pill upgraded from the generic chip to a
+             status-coloured dot+label combo with subtle ring. -->
+        <div class="flex flex-col items-end gap-1.5 flex-shrink-0">
+          <span class="apps-card-status whitespace-nowrap"
+                :aria-label="appsChipAriaLabel(app)">
+            <span class="apps-card-status-dot" aria-hidden="true"></span>
+            <span x-text="(t('apps.status_' + app.status) || app.status)"></span>
+          </span>
           <div class="flex items-center gap-0.5"
                x-show="appsProbeTargetCount(app) || appsOpenableCount(app)">
             <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
-                    class="btn btn-ghost p-1 fs-3xs inline-flex items-center"
+                    class="apps-card-instance-link"
                     :disabled="appsProbingAll(app)"
                     @click.stop="probeAllInstances(app)"
                     :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
                     :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
-              <svg width="12" height="12" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
+              <svg width="14" height="14" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
             </button>
             <button type="button" x-show="appsOpenableCount(app)"
-                    class="btn btn-ghost p-1 fs-3xs inline-flex items-center"
+                    class="apps-card-instance-link"
                     @click.stop="openAllInstances(app)"
                     :title="t('apps.open_all_title') || 'Open every instance URL in a new tab'"
                     :aria-label="t('apps.open_all_aria', {name: app.name}) || ('Open all URLs for ' + app.name)">
-              <svg width="12" height="12" aria-hidden="true">
+              <svg width="14" height="14" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
               </svg>
             </button>
           </div>
         </div>
       </div>
-      <p class="fs-3xs text-[var(--text-faint)] truncate"
-         x-text="(app.catalog && app.catalog.description) || t('apps.counts.instances_up', { up: app.up_count, total: app.instance_count })"></p>
-      <span x-show="appsProbeAllSummary(app)" class="fs-3xs text-[var(--text-faint)]"
+      <span x-show="appsProbeAllSummary(app)" class="fs-3xs text-[var(--text-faint)] mt-1 block"
             aria-live="polite"
             x-text="appsProbeAllSummary(app)"></span>
     </header>
-    <!-- Per-host instance list -->
-    <ul class="space-y-1 fs-xs">
+    <!-- Per-host instance list — each row in a subtle row-card with
+         hover background so operators get a precise hit-target signal
+         (clicking the host name / sparkline opens the parent app
+         drawer via the article's @click; only the per-port pills +
+         external link short-circuit propagation). -->
+    <ul class="space-y-0.5 fs-xs">
       <template x-for="inst in appsVisibleInstances(app)" :key="inst.host_id + ':' + inst.service_idx">
-        <li class="flex flex-col gap-0.5">
-          <div class="flex items-center gap-2">
-          <span class="apps-card-dot"
-                :class="'apps-card-dot--' + inst.status"
-                :title="t('apps.status_' + inst.status) || inst.status"
-                aria-hidden="true"></span>
-            <span class="truncate flex-1"
+        <li class="apps-card-instance">
+          <div class="apps-card-instance-row">
+            <span class="apps-card-dot"
+                  :class="'apps-card-dot--' + inst.status"
+                  :title="t('apps.status_' + inst.status) || inst.status"
+                  aria-hidden="true"></span>
+            <span class="apps-card-instance-host"
                   :title="appsInstanceHostTitle(inst)"
                   x-text="inst.host_address || inst.host_id"></span>
-            <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="fs-3xs text-[var(--text-faint)]"
+            <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="apps-card-latency"
                   x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
             <!-- Per-instance uptime sparkline (last N rollup probes from
                  service_samples): a flat top line reads as healthy, a dip to
@@ -108,9 +126,9 @@
               </span>
             </template>
             <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
-               class="text-[var(--primary)] hover:underline" :aria-label="t('apps.open_link') || 'Open service URL'"
+               class="apps-card-instance-link" :aria-label="t('apps.open_link') || 'Open service URL'"
                @click.stop>
-              <svg width="11" height="11" aria-hidden="true">
+              <svg width="12" height="12" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
               </svg>
             </a>

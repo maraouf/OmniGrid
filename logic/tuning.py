@@ -196,6 +196,10 @@ class Tunable(str, Enum):
     TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS = "tuning_telegram_destructive_cooldown_seconds"
     TELEGRAM_HTTP_TIMEOUT_SECONDS = "tuning_telegram_http_timeout_seconds"
     TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = "tuning_telegram_long_poll_timeout_seconds"
+    WEATHER_CACHE_TTL_SECONDS = "tuning_weather_cache_ttl_seconds"
+    WEATHER_FETCH_TIMEOUT_SECONDS = "tuning_weather_fetch_timeout_seconds"
+    WEATHER_HISTORY_RETENTION_DAYS = "tuning_weather_history_retention_days"
+    WEATHER_SAMPLER_INTERVAL_SECONDS = "tuning_weather_sampler_interval_seconds"
     WEBMIN_FAILURE_PAUSE_ROUNDS = "tuning_webmin_failure_pause_rounds"
     WEBMIN_HOST_CACHE_TTL_SECONDS = "tuning_webmin_host_cache_ttl_seconds"
     WEBMIN_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_webmin_host_fail_cache_ttl_seconds"
@@ -786,6 +790,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # 5-min auth-failure cool-down which throttles credential lockout —
     # auto-pause is the operator-visible "this Miniserv is broken, fix
     # it manually" state. 0 = disabled. Range 0..50.
+    # WeatherAPI.com provider knobs — supersedes Open-Meteo. Cache TTL
+    # is per-coord; fetch timeout is the outer wall-clock; sampler
+    # interval drives the lifespan-managed `weather_sampler` which
+    # writes per-tick rows into `weather_samples` for AI history;
+    # retention bounds how far back the samples table grows.
+    "tuning_weather_cache_ttl_seconds": ("WEATHER_CACHE_TTL_SECONDS", 600, 60, 86400),
+    "tuning_weather_fetch_timeout_seconds": ("WEATHER_FETCH_TIMEOUT_SECONDS", 8, 1, 60),
+    "tuning_weather_history_retention_days": ("WEATHER_HISTORY_RETENTION_DAYS", 90, 0, 3650),
+    "tuning_weather_sampler_interval_seconds": ("WEATHER_SAMPLER_INTERVAL_SECONDS", 3600, 0, 86400),
     "tuning_webmin_failure_pause_rounds": ("WEBMIN_FAILURE_PAUSE_ROUNDS", 5, 0, 50),
     # Beszel per-host auto-pause threshold. Beszel is hub-based — the
     # hub fetch runs once per gather and produces a per-host map. A

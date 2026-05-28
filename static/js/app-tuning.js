@@ -220,6 +220,16 @@ export default {
     'tuning_public_ip_enabled',
     'tuning_public_ip_cache_ttl_seconds',
     'tuning_public_ip_fetch_timeout_seconds',
+    // WeatherAPI.com — standalone subsystem with its own Admin →
+    // Weather section. Cache TTL (default 600s), outbound HTTP
+    // wall-clock (default 8s), persisted-sample retention (default
+    // 90d, 0 disables pruning), and lifespan-managed sampler cadence
+    // (default 3600s, 0 disables the historical sampler).
+    // Section-owned save via weatherSectionDirty() / saveWeatherSection().
+    'tuning_weather_cache_ttl_seconds',
+    'tuning_weather_fetch_timeout_seconds',
+    'tuning_weather_history_retention_days',
+    'tuning_weather_sampler_interval_seconds',
     // Telegram listener long-poll + outer-HTTP timeouts — rendered
     // inside Admin → Notifications → Telegram tab next to the bot-
     // token / chat-id / api-base inputs. Section save piggy-backs on

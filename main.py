@@ -574,12 +574,25 @@ async def _lifespan(_app: FastAPI):
         _telegram_listener.listener_loop(),
         name="telegram-listener",
     )
+    # WeatherAPI.com historical-sample writer — runs at
+    # tuning_weather_sampler_interval_seconds cadence (default 3600s
+    # = hourly), writes one row per tick into weather_samples for the
+    # operator-configured default location. Master-gated on
+    # weather_enabled + non-empty API key — sampler sleeps cheaply
+    # when either is missing, so the operator can configure later
+    # without restart. 0 cadence disables the sampler entirely (the
+    # on-demand cache for SPA / Telegram / AI still works).
+    from logic import weather_sampler as _weather_sampler
+    weather_sampler = asyncio.create_task(
+        _weather_sampler.sampler_loop(),
+        name="weather-sampler",
+    )
     try:
         yield
     finally:
         # Cancel in reverse-start order. Each cancel + await is wrapped so
         # one failing shutdown step can't starve the next one.
-        for task in (telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
+        for task in (weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler, seed_task):
             task.cancel()
             try:
                 await task
@@ -1254,6 +1267,41 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_public_ip_history_ip
             ON public_ip_history(ip);
+
+        -- WeatherAPI.com per-tick samples. ONE row per (ts, lat, lon).
+        -- Lat / lon are quantised to 2 decimals (matches logic.weather
+        -- ._quantise_key) so the AI palette + Telegram /weather + UI
+        -- charts can answer "what was the temperature here yesterday
+        -- afternoon", "when was the last full moon" etc. Written by
+        -- logic.weather_sampler at tuning_weather_sampler_interval_seconds
+        -- cadence (default 3600s = hourly; 0 disables the sampler entirely).
+        -- Pruned hourly to tuning_weather_history_retention_days (default
+        -- 90; 0 disables pruning — keep every sample forever).
+        -- `condition` carries the human-readable phrase (e.g. "Partly
+        -- cloudy"), `code` the WeatherAPI numeric. `moon_phase` /
+        -- `moon_illumination` are the astronomy fields the AI uses to
+        -- answer moon-related questions. `raw_json` stores the full
+        -- forecast block (sunrise/sunset/per-day rollups) so historical
+        -- queries can drill into days that aren't the current hour.
+        CREATE TABLE IF NOT EXISTS weather_samples (
+            ts                INTEGER NOT NULL,
+            lat               REAL    NOT NULL,
+            lon               REAL    NOT NULL,
+            label             TEXT,
+            temp_c            REAL,
+            humidity          REAL,
+            wind_kmh          REAL,
+            condition         TEXT,
+            code              INTEGER,
+            moon_phase        TEXT,
+            moon_illumination REAL,
+            raw_json          TEXT,
+            PRIMARY KEY (ts, lat, lon)
+        );
+        CREATE INDEX IF NOT EXISTS idx_weather_samples_ts
+            ON weather_samples(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_weather_samples_coord_ts
+            ON weather_samples(lat, lon, ts DESC);
 
         -- HTTP / TLS-cert / DNS health probe (seventh host-stats provider).
         -- ONE row per (host_id, url, ts). Written by

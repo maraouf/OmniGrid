@@ -672,7 +672,11 @@ export default {
   // tiles, all pure-frontend / reuse existing endpoints). Adding a kind
   // here + a render branch in the markup + an i18n label is the whole
   // contract — no backend.
-  appsWidgetKinds: ['clock', 'weather', 'public_ip', 'system_stats'],
+  // `moon` is provider-dependent: only meaningful when WeatherAPI.com
+  // is the active weather provider (Open-Meteo doesn't return moon
+  // data). The tile's empty state surfaces a "switch provider" hint
+  // when the provider can't supply this data.
+  appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats'],
 
   // i18n label for a widget kind (picker + tile heading).
   appsWidgetLabel(kind) {
@@ -841,6 +845,49 @@ export default {
     }
     return s;
   },
+  // Moon-phase data for the moon widget — pulls from the active
+  // weather provider's `forecast[0].moon_*` block. Returns null
+  // when the provider doesn't support moon data (Open-Meteo) or
+  // when there's no weather payload yet. Caller in the widget
+  // template gates on null so the empty state renders cleanly.
+  // SVG ring: circle perimeter at r=24 ≈ 150.8 (2 * pi * 24).
+  // Offset = circumference * (1 - illumination/100) so a New Moon
+  // (0%) shows the full dim track and a Full Moon (100%) shows
+  // the full bright arc.
+  appsWidgetMoonPhase() {
+    const w = this.weather;
+    if (!w || !w.supports_moon) {
+      return null;
+    }
+    const fc = (w.forecast || [])[0];
+    if (!fc) {
+      return null;
+    }
+    const illum = (fc.moon_illumination != null) ? Number(fc.moon_illumination) : null;
+    if (!Number.isFinite(illum)) {
+      return null;
+    }
+    const r = 24;
+    const circumference = 2 * Math.PI * r;
+    const pct = Math.max(0, Math.min(100, illum));
+    const phaseFull = (fc.moon_phase || '').trim();
+    // Phase short label — first word of the WeatherAPI phase name
+    // (e.g. "Waxing Crescent" → "Waxing", "Full Moon" → "Full")
+    // so the hero stays compact. Falls back to the full label
+    // when no space (e.g. "Full").
+    const phaseShort = phaseFull
+      ? (phaseFull.split(/\s+/)[0] || phaseFull)
+      : '';
+    return {
+      circumference,
+      offset: circumference * (1 - pct / 100),
+      illumination_pct: Math.round(pct),
+      phase_full: phaseFull,
+      phase_short: phaseShort,
+      moonrise: fc.moonrise || '',
+      moonset: fc.moonset || '',
+    };
+  },
   // Fleet rollup for the system-stats widget — {up, total, down, paused}
   // across the curated hosts the SPA already has loaded. Reuses this.hosts;
   // no fetch. `paused` covers hosts whose probing is suspended (auto-paused
@@ -870,6 +917,40 @@ export default {
       return new URL(url).host || url;
     } catch (_) {
       return String(url).replace(/^[a-z]+:\/\//i, '').split('/')[0];
+    }
+  },
+  // Icon resolver for a bookmark — accepts EITHER a slug (e.g.
+  // "github" / "plex" / "adguard") OR a full URL (http / https /
+  // data: / absolute path). Slugs route through the existing
+  // iconUrlFor resolver (same path the stack / host icons take).
+  // URLs render verbatim. Empty `item.icon` falls back to
+  // iconUrlFor on the bookmark NAME so a brand-named bookmark
+  // ("Plex") still gets the brand icon without explicit config.
+  appsBookmarkIconUrl(item) {
+    if (!item) {
+      return '';
+    }
+    const raw = (item.icon || '').trim();
+    if (raw) {
+      // Full URL OR data-URI OR absolute path — render verbatim.
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+        || raw.startsWith('data:')
+        || raw.startsWith('/')) {
+        return raw;
+      }
+      // Bare slug — route through the brand-icon resolver.
+      try {
+        return this.iconUrlFor(raw);
+      } catch (_) {
+        return raw;
+      }
+    }
+    // No explicit icon — fall back to the brand resolver on the
+    // bookmark's display name (matches the prior behaviour).
+    try {
+      return this.iconUrlFor(item.name || '');
+    } catch (_) {
+      return '';
     }
   },
 
@@ -1147,14 +1228,21 @@ export default {
   },
 
   // Inline add-bookmark form (edit mode) — open / submit / cancel.
+  // `appsBookmarkIcon` is the OPTIONAL icon-URL field; empty leaves
+  // the tile rendering with the default initial-letter / favicon
+  // fallback. When populated, the bookmark tile's `<img>` renders
+  // the user-supplied URL directly (svg / png / favicon all work
+  // — the browser does the format detection).
   openAppsBookmarkForm(sectionId) {
     this.appsBookmarkOpenFor = (this.appsBookmarkOpenFor === sectionId) ? '' : sectionId;
     this.appsBookmarkName = '';
     this.appsBookmarkUrl = '';
+    this.appsBookmarkIcon = '';
   },
   submitAppsBookmark(sectionId) {
     const name = (this.appsBookmarkName || '').trim();
     let url = (this.appsBookmarkUrl || '').trim();
+    let icon = (this.appsBookmarkIcon || '').trim();
     if (!url && !name) {
       return;
     }
@@ -1162,15 +1250,24 @@ export default {
     if (url && !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
       url = 'https://' + url;
     }
-    this.addAppsBookmark(sectionId, name || this.appsBookmarkHost(url), url, '');
+    // Same scheme-tolerance for the icon URL. Keep absolute URLs
+    // and `data:` URIs intact; default to https:// otherwise so a
+    // bare `cdn.simpleicons.org/github` works as expected.
+    if (icon && !/^[a-z][a-z0-9+.-]*:\/\//i.test(icon)
+      && !icon.startsWith('data:') && !icon.startsWith('/')) {
+      icon = 'https://' + icon;
+    }
+    this.addAppsBookmark(sectionId, name || this.appsBookmarkHost(url), url, icon);
     this.appsBookmarkOpenFor = '';
     this.appsBookmarkName = '';
     this.appsBookmarkUrl = '';
+    this.appsBookmarkIcon = '';
   },
   cancelAppsBookmarkForm() {
     this.appsBookmarkOpenFor = '';
     this.appsBookmarkName = '';
     this.appsBookmarkUrl = '';
+    this.appsBookmarkIcon = '';
   },
 
   // Remove ONE item (widget / bookmark / app) from its section by uid.

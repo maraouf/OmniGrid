@@ -1344,9 +1344,31 @@ class SettingsIn(BaseModel):
     weather_label: Optional[str] = None
     weather_lat: Optional[float] = None
     weather_lon: Optional[float] = None
-    # Open-Meteo upstream — blank uses the public endpoint; admins
-    # can point at a self-hosted instance without touching .env.
+    # Open-Meteo upstream — DEPRECATED in favour of WeatherAPI.com (see
+    # `weather_*` fields below). Kept on the model so legacy seed values
+    # round-trip cleanly; readers should consult the new keys.
     open_meteo_url: Optional[str] = None
+    # ------------------------------------------------------------------
+    # Weather — dual-provider dispatch (Open-Meteo or WeatherAPI.com).
+    # `weather_provider` selects between "open-meteo" (default — no key,
+    # no moon data) and "weatherapi" (requires free key, full moon
+    # astronomy). `weather_enabled` is the master toggle. The other
+    # `weather_*` fields are SHARED across providers — meaning depends
+    # on the active selector. `weather_api_key` follows the
+    # secret-suffix + `_set` flag + `clear_weather_api_key` contract;
+    # the SPA never receives the raw key, only the `_set` boolean.
+    # `weather_default_*` carries the operator-configured fallback
+    # coordinates the lifespan sampler + Telegram `/weather` no-arg
+    # form + AI palette context use when a per-user location isn't
+    # available.
+    weather_enabled: Optional[bool] = None
+    weather_provider: Optional[str] = None
+    weather_api_base_url: Optional[str] = None
+    weather_api_key: Optional[str] = None
+    clear_weather_api_key: Optional[bool] = None
+    weather_default_label: Optional[str] = None
+    weather_default_lat: Optional[str] = None
+    weather_default_lon: Optional[str] = None
     # Host grouping — JSON array of {name, range_start, range_end, order}
     # that buckets curated hosts into collapsible sections in the Hosts
     # view by their custom_number. Operator-managed under Admin → Hosts.
@@ -1705,6 +1727,16 @@ class SettingsIn(BaseModel):
     tuning_public_ip_cache_ttl_seconds: Optional[str] = None
     # Outbound HTTP wall-clock to ifconfig.co (seconds, default 8).
     tuning_public_ip_fetch_timeout_seconds: Optional[str] = None
+    # WeatherAPI.com tunables — in-process cache TTL (default 600s so
+    # the public 1M-calls-month free tier stays comfortably under cap),
+    # outbound HTTP wall-clock (default 8s), persisted-sample retention
+    # (default 90d; 0 disables pruning for "keep every sample forever"
+    # deployments), and lifespan-managed sampler cadence (default
+    # 3600s; 0 disables the historical-data sampler entirely).
+    tuning_weather_cache_ttl_seconds: Optional[str] = None
+    tuning_weather_fetch_timeout_seconds: Optional[str] = None
+    tuning_weather_history_retention_days: Optional[str] = None
+    tuning_weather_sampler_interval_seconds: Optional[str] = None
     # AI log context — how many hours back to read persistent logs
     # for the palette's user-prompt context, capped at N lines.
     tuning_ai_log_context_hours: Optional[str] = None

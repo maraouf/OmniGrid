@@ -562,6 +562,20 @@ PUBLIC_IP_ENABLED=0
 PUBLIC_IP_CACHE_TTL_SECONDS=600
 PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
 
+# WeatherAPI.com — supersedes the legacy Open-Meteo client. Provides
+# CURRENT conditions + 7-day forecast + ASTRONOMY (sunrise / sunset /
+# moonrise / moonset / moon phase / moon illumination) in one endpoint.
+# Free tier: 1M calls/month. API key is set via the Admin → Weather UI
+# (write-only / `_set` flag contract); no env var carries the key.
+# Cache TTL bounds upstream load (default 600s = max ~144 calls/day
+# per coordinate). Sampler interval drives the historical-data writer
+# the AI palette + Telegram /weather command consume. Retention
+# bounds DB growth (0 = keep every sample forever).
+WEATHER_CACHE_TTL_SECONDS=600
+WEATHER_FETCH_TIMEOUT_SECONDS=8
+WEATHER_HISTORY_RETENTION_DAYS=90
+WEATHER_SAMPLER_INTERVAL_SECONDS=3600
+
 # Asset-inventory outbound HTTP wall-clocks. Two tiers — token probe
 # (OAuth2 client_credentials handshake, default 10 s) and asset fetch
 # (paginated `/assets` pull, default 15 s). Bump on slow corporate
@@ -927,6 +941,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PUBLIC_IP_ENABLED`               | Runtime     | `0`                  | Master gate for the Public-IP lookup module (Admin → Public IP). Default OFF — enabling authorises outbound calls to ifconfig.co. |
 | `PUBLIC_IP_CACHE_TTL_SECONDS`     | Runtime     | `600`                | In-process cache TTL for Public-IP lookups. Range 60..3600. |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS` | Runtime     | `8`                  | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60. |
+| `WEATHER_CACHE_TTL_SECONDS`            | Runtime | `600`  | WeatherAPI.com in-process per-coordinate cache TTL. Range 60..86400. |
+| `WEATHER_FETCH_TIMEOUT_SECONDS`        | Runtime | `8`    | WeatherAPI.com outbound HTTP wall-clock. Range 1..60. |
+| `WEATHER_HISTORY_RETENTION_DAYS`       | Runtime | `90`   | Days of weather + moon-phase samples kept in `weather_samples`. 0 disables pruning. Range 0..3650. |
+| `WEATHER_SAMPLER_INTERVAL_SECONDS`     | Runtime | `3600` | Lifespan-managed weather sampler cadence. 0 disables the historical-data sampler. Range 0..86400. |
 | `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS` | Runtime | `10`              | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120. |
 | `ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS` | Runtime | `15`              | Asset-list fetch timeout for the asset-inventory client. Range 2..300. |
 | `KICK_GATHER_TIMEOUT_SECONDS`     | Runtime     | `30`                 | Wall-clock cap for the cold-cache `_gather()` kick on drill-down endpoints. Range 5..300. |

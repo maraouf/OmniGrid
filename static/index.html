@@ -3523,15 +3523,24 @@
               </template>
             </header>
             <div x-show="appsCustomEditMode && appsBookmarkOpenFor === sec.id"
-                 class="flex items-center gap-2 px-2 py-1.5 border-t border-[var(--border)]">
-              <input type="text" class="fs-xs" style="flex:1;min-width:0;"
+                 class="flex items-center gap-2 px-2 py-1.5 border-t border-[var(--border)] flex-wrap">
+              <input type="text" class="fs-xs" style="flex:1;min-width:120px;"
                      x-model="appsBookmarkName"
                      :placeholder="t('apps.custom.bookmark_name_placeholder') || 'Name'"
                      :aria-label="t('apps.custom.bookmark_name_placeholder') || 'Name'">
-              <input type="url" class="fs-xs" style="flex:1.4;min-width:0;"
+              <input type="url" class="fs-xs" style="flex:1.4;min-width:160px;"
                      x-model="appsBookmarkUrl"
                      :placeholder="t('apps.custom.bookmark_url_placeholder') || 'https://…'"
                      :aria-label="t('apps.custom.bookmark_url_placeholder') || 'URL'"
+                     @keydown.enter.prevent="submitAppsBookmark(sec.id)">
+              <!-- Optional icon URL — paste an SVG / PNG / favicon URL
+                   here and the bookmark tile renders it instead of the
+                   default initial-letter fallback. Leave blank for the
+                   initial-letter behaviour. -->
+              <input type="url" class="fs-xs" style="flex:1.2;min-width:160px;"
+                     x-model="appsBookmarkIcon"
+                     :placeholder="t('apps.custom.bookmark_icon_placeholder') || 'Icon URL (optional)'"
+                     :aria-label="t('apps.custom.bookmark_icon_aria') || 'Icon URL (optional)'"
                      @keydown.enter.prevent="submitAppsBookmark(sec.id)">
               <button type="button" class="btn btn-primary fs-2xs" @click="submitAppsBookmark(sec.id)"
                       x-text="t('actions.add') || 'Add'"></button>
@@ -3969,6 +3978,7 @@
         <!-- INCLUDE: admin/tokens.html -->
         <!-- INCLUDE: admin/notifications.html -->
         <!-- INCLUDE: admin/general.html -->
+        <!-- INCLUDE: admin/weather.html -->
         <!-- INCLUDE: admin/portainer.html -->
         <!-- INCLUDE: admin/oidc.html -->
         <!-- INCLUDE: admin/providers.html -->

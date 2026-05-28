@@ -267,6 +267,13 @@ function app() {
     appsBookmarkOpenFor: '',
     appsBookmarkName: '',
     appsBookmarkUrl: '',
+    // Optional icon hint — accepts EITHER a full URL (rendered
+    // verbatim) OR a slug from the existing iconUrlFor / KNOWN_ICONS
+    // resolver chain (e.g. "github" / "plex" / "adguard"). When blank,
+    // the bookmark tile falls back to the default initial-letter
+    // render. Tile decides which path to take via
+    // `appsBookmarkIconResolved(icon)`.
+    appsBookmarkIcon: '',
     appsAdminTab: 'templates',   // 'templates' | 'instances'
     appsCatalogEditOpen: false,
     appsCatalogEdit: {},
@@ -678,6 +685,7 @@ function app() {
       {id: 'ssh', label: 'SSH', icon: 'terminal'},
       {id: 'port_scan', label: 'Port Scan', icon: 'search'},
       {id: 'public_ip', label: 'Public IP', icon: 'globe'},
+      {id: 'weather', label: 'Weather', icon: 'cloud'},
       {id: 'host_groups', label: 'Host Groups', icon: 'layers'},
       {id: 'hosts', label: 'Hosts', icon: 'server'},
       {id: 'apps', label: 'Apps', icon: 'grid'},

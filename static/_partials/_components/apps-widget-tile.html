@@ -30,6 +30,9 @@
     <template x-if="item.widget === 'system_stats'">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
     </template>
+    <template x-if="item.widget === 'moon'">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
+    </template>
   </svg>
 
   <div class="apps-widget-tile-head">
@@ -37,23 +40,49 @@
       <span class="apps-widget-tile-title-dot" aria-hidden="true"></span>
       <span x-text="appsWidgetLabel(item.widget)"></span>
     </span>
-    <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
-            @click.stop="removeAppsItem(sec.id, item.uid)"
-            :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
-            :title="t('apps.custom.remove_tile') || 'Remove tile'">
-      <svg width="12" height="12" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
-      </svg>
-    </button>
+    <div class="apps-widget-tile-actions">
+      <!-- Manual refresh button — only for widgets whose data
+           comes from a backend fetch (weather / moon / public_ip).
+           Clock + system_stats are client-side derivations so
+           refreshing them would be a no-op (hidden via
+           widgetSupportsRefresh gate). Spinner gates on the
+           per-kind in-flight flag so the icon rotates while
+           the fetch is mid-flight. Hidden in edit mode — the
+           trash button takes priority then. -->
+      <button type="button"
+              x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget)"
+              class="user-action-btn"
+              :disabled="appsWidgetRefreshing && appsWidgetRefreshing[item.widget]"
+              @click.stop="refreshWidget(item.widget)"
+              :aria-label="t('apps.custom.widget_refresh_aria', {kind: appsWidgetLabel(item.widget)}) || ('Refresh ' + appsWidgetLabel(item.widget) + ' data')"
+              :title="t('apps.custom.widget_refresh_title') || 'Refresh now'">
+        <svg width="12" height="12"
+             :class="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) ? 'spin-md' : ''"
+             aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+        </svg>
+      </button>
+      <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+              @click.stop="removeAppsItem(sec.id, item.uid)"
+              :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+              :title="t('apps.custom.remove_tile') || 'Remove tile'">
+        <svg width="12" height="12" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+        </svg>
+      </button>
+    </div>
   </div>
 
   <div class="apps-widget-tile-body">
 
     <!-- Clock widget — HH + pulsing colon + MM hero, weekday/month/day
          subtitle. The colon between HH/MM blinks every 2s as a "live
-         data" cue. Reduced-motion media query suppresses the pulse. -->
+         data" cue. Reduced-motion media query suppresses the pulse.
+         The `apps-widget-tile--clock-center` modifier on the inner div
+         centers both axes inside the tile body (flex-1 fills the body
+         height; nested flex centers the HH:MM + date pair). -->
     <template x-if="item.widget === 'clock'">
-      <div>
+      <div class="apps-widget-clock-center">
         <div class="apps-widget-clock">
           <span x-text="appsWidgetClockHH()"></span><!--
        --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
@@ -218,5 +247,93 @@
         </div>
       </template>
     </template>
+
+    <!-- Moon-phase widget — illumination ring (SVG donut) + phase
+         name hero + illumination %% + moonrise / moonset detail
+         row. Only meaningful when the WeatherAPI.com provider is
+         active (Open-Meteo doesn't return moon data) — the tile's
+         empty state surfaces a "switch provider" hint when the
+         active provider can't supply this data. Reads from
+         `this.weather.forecast[0]` populated by the existing
+         topbar widget's fetch, OR `this.weather.supports_moon ==
+         false` for the provider-mismatch empty state. -->
+    <template x-if="item.widget === 'moon'">
+      <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
+        <div>
+          <div class="apps-widget-hero-row">
+            <svg class="apps-widget-moon-ring" viewBox="0 0 56 56" aria-hidden="true">
+              <!-- Background dim disc (the un-illuminated portion). -->
+              <circle cx="28" cy="28" r="24"
+                      fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
+                      stroke="color-mix(in srgb, var(--widget-accent) 22%, transparent)"
+                      stroke-width="1"/>
+              <!-- Bright illumination arc — drawn as a clipped circle
+                   using stroke-dasharray to represent the lit
+                   fraction. circumference = 2 * pi * r ≈ 150.8 at r=24. -->
+              <circle cx="28" cy="28" r="24"
+                      fill="none"
+                      stroke="var(--widget-accent)"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      :stroke-dasharray="appsWidgetMoonPhase().circumference"
+                      :stroke-dashoffset="appsWidgetMoonPhase().offset"
+                      transform="rotate(-90 28 28)"/>
+              <text x="28" y="32" text-anchor="middle"
+                    style="font-size: 13px; font-weight: 600; fill: var(--text);"
+                    x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
+            </svg>
+            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+              <!-- FULL phase name as the hero — operators want to
+                   see "Waxing Gibbous" / "Waning Crescent" / "First
+                   Quarter" / "New Moon" verbatim, not abbreviated.
+                   Slightly smaller display size than the temperature
+                   hero so two-word phase names fit comfortably. -->
+              <div class="apps-widget-hero" style="font-size: var(--fs-display-sm); line-height: 1.1; font-weight: 600;"
+                   x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
+              <div class="apps-widget-subtitle"
+                   x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })
+                     || (appsWidgetMoonPhase().illumination_pct + '% illuminated')"></div>
+            </div>
+          </div>
+          <div class="apps-widget-detail">
+            <span x-show="appsWidgetMoonPhase().moonrise" class="apps-widget-kv">
+              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_rise_label') || 'Rise'"></span>
+              <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonrise"></span>
+            </span>
+            <span x-show="appsWidgetMoonPhase().moonset" class="apps-widget-kv">
+              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_set_label') || 'Set'"></span>
+              <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonset"></span>
+            </span>
+          </div>
+        </div>
+      </template>
+      <template x-if="!weather || !weather.supports_moon || !appsWidgetMoonPhase()">
+        <div class="apps-widget-empty">
+          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
+          </svg>
+          <span class="apps-widget-empty-text"
+                x-text="(weather && !weather.supports_moon)
+                  ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
+                  : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
+        </div>
+      </template>
+    </template>
+  </div>
+
+  <!-- Freshness footer — operator-visible "last refreshed" stamp so
+       users can tell how fresh the data is at a glance. Only rendered
+       for widget kinds whose data comes from a backend fetch; client-
+       side widgets (clock / system_stats) skip cleanly via the same
+       widgetSupportsRefresh gate. Small + muted so it doesn't compete
+       with the hero content but stays discoverable. Self-tick via
+       the existing hostHistoryNow 1s ticker so the "Updated 2s ago"
+       label counts up live. -->
+  <div class="apps-widget-tile-freshness"
+       x-show="widgetSupportsRefresh(item.widget) && widgetFreshnessLabel(item.widget)">
+    <svg width="9" height="9" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+    </svg>
+    <span x-text="widgetFreshnessLabel(item.widget)"></span>
   </div>
 </div>
