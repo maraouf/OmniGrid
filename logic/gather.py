@@ -2191,9 +2191,13 @@ async def _gather_impl() -> None:
         # restart) has a fresh fallback target. We snapshot the full
         # merged blob, including any field that was itself a fallback —
         # successive provider failures shouldn't cause the snapshot to
-        # decay.
+        # decay. Offloaded to a worker thread because the body
+        # JSON-encodes ~10-30 KB per host (1.5 MB on a 50-host fleet)
+        # + runs an `executemany` UPSERT — both are sync SQLite + CPU
+        # work that would stall the event loop in the gather context.
+        # Same pattern as host_metrics_sampler's prune offload.
         try:
-            n_snap = save_host_snapshots(nodes_info)
+            n_snap = await asyncio.to_thread(save_host_snapshots, nodes_info)
             if n_snap:
                 print(f"[gather] snapshot wrote {n_snap} host rows")
         except Exception as e:
