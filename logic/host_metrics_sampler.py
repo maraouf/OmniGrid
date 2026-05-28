@@ -967,7 +967,12 @@ async def _probe_one(
             return
         if stats.get("exporter_error"):
             err = stats["exporter_error"]
-            print(f"[host_metrics_sampler] {hid!r} exporter_error: {err}")
+            # Include the resolved ne_url in the log so the operator
+            # can verify the sampler is probing the RIGHT address
+            # (the curated `id` is often a short alias; the URL is
+            # what actually gets hit).
+            print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
+                  f"exporter_error: {err}")
             await record_provider_outcome(hid, "", False, error=str(err))
             try:
                 await record_provider_outcome(
@@ -1492,7 +1497,20 @@ async def host_metrics_sampler_loop() -> None:
             # `tuning_snmp_sample_interval_seconds > 0`. Falls back to
             # the global stats interval when 0 so legacy deployments
             # keep their existing behaviour.
-            if "snmp" in active:
+            # EMERGENCY KILL SWITCH — set `OMNIGRID_DISABLE_SNMP=1`
+            # in `.env` to completely short-circuit the SNMP sampler
+            # tick (no probes fire, no provider state changes). Use
+            # this when SNMP is causing event-loop starvation /
+            # healthcheck flap and you need to bring the container
+            # back up before fixing the root cause via the SPA.
+            # Reads via `os.environ` directly (NOT through TUNABLES
+            # / settings) so it works even if the DB is unreachable.
+            import os as _os
+            if _os.environ.get("OMNIGRID_DISABLE_SNMP", "").strip() in ("1", "true", "yes"):
+                # Skip the entire SNMP block this tick. Quiet — no
+                # per-tick log spam; the operator knows they set it.
+                pass
+            elif "snmp" in active:
                 snmp_interval = tuning.tuning_int(Tunable.SNMP_SAMPLE_INTERVAL_SECONDS)
                 snmp_due = (snmp_interval <= 0) or (now_ts - last_snmp_ts >= snmp_interval)
                 if snmp_due:
