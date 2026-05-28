@@ -380,6 +380,7 @@
   --fs-display-base: 18px;
   --fs-display-md: 20px;
   --fs-display-lg: 48px;
+  --fs-display-2xl: 56px;
 
   /* Modal sizing tokens. Default upper bound for full-height modals
      * (SSH terminal, future log viewer, debug-blob inspector): caps at
@@ -9446,23 +9447,100 @@ select.field-invalid {
   display: contents;
 }
 
+/* ============================================================
+   Apps Custom — widget tiles (UX-artist tier)
+   ----------------------------------------------------------------
+   Each tile has a per-kind brand accent. The accent drives:
+     - the 2px bottom border colour
+     - the brand-icon tint at the top-right
+     - the soft tint behind the hero zone
+   Hover lifts the tile + intensifies the accent glow. Empty states
+   render a large outlined icon + helpful copy instead of italic text.
+   Per-kind tokens defined below so a future widget (calendar / log
+   tail / metric chart) only adds one accent variable + one tile
+   variant class.
+   ============================================================ */
+
+/* Per-kind accent — fallback to --primary so a new widget without an
+   explicit accent still renders. Each kind below overrides via the
+   `.apps-widget-tile--<kind>` modifier on the wrapper. */
 .apps-widget-tile {
+  --widget-accent: var(--primary);
+  --widget-accent-soft: color-mix(in srgb, var(--primary) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  padding: var(--s-3);
+  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-3);
   border: 1px solid var(--border);
+  border-bottom: 2px solid var(--widget-accent);
   border-radius: var(--r-md);
-  background: var(--surface-2);
+  background: linear-gradient(180deg,
+  color-mix(in srgb, var(--widget-accent) 6%, var(--surface-2)) 0%,
+  var(--surface-2) 100%);
   min-width: 0;
-  min-height: 110px;
+  min-height: 148px;
   position: relative;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  overflow: hidden;
+  transition: transform 180ms ease,
+  border-color 180ms ease,
+  box-shadow 220ms ease,
+  background 220ms ease;
 }
 
 .apps-widget-tile:hover {
-  border-color: var(--border-bright);
-  box-shadow: 0 1px 3px var(--row-hover);
+  transform: translateY(-2px);
+  border-color: var(--widget-accent);
+  box-shadow: 0 6px 16px var(--widget-accent-glow),
+  0 1px 3px var(--row-hover);
+  background: linear-gradient(180deg,
+  color-mix(in srgb, var(--widget-accent) 10%, var(--surface-2)) 0%,
+  var(--surface-2) 100%);
+}
+
+/* Per-kind accent colours — each kind's brand identity. */
+.apps-widget-tile--clock {
+  --widget-accent: #818cf8; /* indigo-400 */
+  --widget-accent-soft: color-mix(in srgb, #818cf8 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, #818cf8 25%, transparent);
+}
+
+.apps-widget-tile--weather {
+  --widget-accent: #38bdf8; /* sky-400 */
+  --widget-accent-soft: color-mix(in srgb, #38bdf8 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, #38bdf8 25%, transparent);
+}
+
+.apps-widget-tile--public_ip {
+  --widget-accent: #2dd4bf; /* teal-400 */
+  --widget-accent-soft: color-mix(in srgb, #2dd4bf 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, #2dd4bf 25%, transparent);
+}
+
+.apps-widget-tile--system_stats {
+  --widget-accent: #34d399; /* emerald-400 */
+  --widget-accent-soft: color-mix(in srgb, #34d399 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, #34d399 25%, transparent);
+}
+
+/* Background-icon decoration — a large faded brand icon in the
+   top-right corner of the tile. Pure decoration; absolutely positioned
+   so it doesn't push content. Uses the accent colour at low opacity
+   for unobtrusive brand presence. */
+.apps-widget-tile-decoration {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 64px;
+  height: 64px;
+  color: var(--widget-accent);
+  opacity: 0.08;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.apps-widget-tile:hover .apps-widget-tile-decoration {
+  opacity: 0.14;
 }
 
 .apps-widget-tile-head {
@@ -9470,14 +9548,32 @@ select.field-invalid {
   align-items: center;
   justify-content: space-between;
   gap: var(--s-1);
+  position: relative;
+  z-index: 1;
 }
 
+/* Brand-coloured eyebrow above the hero — replaces the muted-grey
+   uppercase label with a subtler accent-tinted version that ties the
+   tile back to its kind. */
 .apps-widget-tile-title {
-  font-size: var(--fs-2xs);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-3xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-faint);
-  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--widget-accent);
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.apps-widget-tile-title-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--widget-accent);
+  box-shadow: 0 0 6px var(--widget-accent-glow);
+  flex-shrink: 0;
 }
 
 .apps-widget-tile-body {
@@ -9487,14 +9583,20 @@ select.field-invalid {
   gap: var(--s-1);
   color: var(--text);
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 /* Hero row — the big primary value (time / temperature / IP / fleet
-   count). Tabular-nums keeps mono-width digits aligned across ticks. */
+   count). Tabular-nums keeps mono-width digits aligned across ticks.
+   Heavier weight + tighter line-height + slightly negative letter-
+   spacing reads as a true display number rather than just enlarged
+   body text. */
 .apps-widget-hero {
-  font-size: var(--fs-display-md);
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: var(--fs-display-lg);
+  font-weight: 700;
+  line-height: 1.0;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--text);
   white-space: nowrap;
@@ -9503,16 +9605,54 @@ select.field-invalid {
 }
 
 .apps-widget-hero--xl {
-  font-size: var(--fs-display-lg);
+  font-size: var(--fs-display-2xl);
+}
+
+/* Composite hero — for tiles where the primary visual is icon + value
+   side-by-side (weather: condition icon + temperature). Flexes the
+   pair onto one row at full hero size. */
+.apps-widget-hero-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.apps-widget-hero-icon {
+  width: 44px;
+  height: 44px;
+  color: var(--widget-accent);
+  flex-shrink: 0;
+}
+
+/* Hero unit — small accent-coloured suffix attached to the hero value
+   (the "°C" after the temperature, "MB/s" etc.). Sits at hero
+   baseline but at fs-md weight so it doesn't compete. */
+.apps-widget-hero-unit {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-inline-start: 2px;
+  letter-spacing: 0;
 }
 
 /* Secondary label — location / condition / ISP / "of N hosts". */
 .apps-widget-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
   font-size: var(--fs-sm);
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.apps-widget-subtitle-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
 /* Bottom detail row — humidity + wind / country + city / degraded
@@ -9534,19 +9674,206 @@ select.field-invalid {
   white-space: nowrap;
 }
 
-.apps-widget-clock {
-  font-size: var(--fs-display-md);
+/* Key-value detail pair — for widgets where the detail row reads
+   better as labelled values (Humidity 65% / Wind 12 km/h) rather than
+   flat space-separated text. Label is the dim faint; value picks up
+   the regular text colour for emphasis. */
+.apps-widget-kv {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.apps-widget-kv-label {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.apps-widget-kv-value {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-/* Empty-state line for widgets whose data source hasn't loaded yet
-   (or whose underlying tunable is disabled). Subdued grey so the
-   tile still reads as intentional rather than broken. */
-.apps-widget-empty {
-  font-size: var(--fs-sm);
+/* Compact severity chip — for "{n} down" / "{n} paused" / "All up"
+   detail signals in the system-stats widget. Borrow the existing
+   `.chip` shape but at micro-size with the kind's brand tint. */
+.apps-widget-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.02em;
+}
+
+.apps-widget-chip--ok {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.apps-widget-chip--down {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.apps-widget-chip--paused {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+/* Mini progress ring — drawn in SVG by the system-stats widget. The
+   ring uses the accent colour with a soft track behind it. CSS keeps
+   transforms / centre alignment / sizes consistent across host
+   counts. */
+.apps-widget-ring {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.apps-widget-ring-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-faint) 20%, transparent);
+  stroke-width: 6;
+}
+
+.apps-widget-ring-fill {
+  fill: none;
+  stroke: var(--widget-accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transform-origin: 50% 50%;
+  transform: rotate(-90deg);
+  transition: stroke-dashoffset 360ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.apps-widget-ring-label {
+  fill: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Forecast mini-strip for the weather widget — three day-cards
+   showing day-of-week, hi/lo, and a tiny condition icon. Pinned to
+   the bottom of the tile via the detail-row's margin-top:auto. */
+.apps-widget-forecast {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin-top: var(--s-2);
+}
+
+.apps-widget-forecast-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--widget-accent) 6%, transparent);
+}
+
+.apps-widget-forecast-name {
+  font-size: var(--fs-3xs);
   color: var(--text-faint);
-  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.apps-widget-forecast-temp {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.apps-widget-clock {
+  font-size: var(--fs-display-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.0;
+}
+
+/* The colon between HH and MM gets a subtle pulse that's gentle on
+   the eyes — chat-app convention that signals "this updates live"
+   without being distracting. Reduced-motion disables the pulse. */
+.apps-widget-clock-colon {
+  display: inline-block;
+  margin: 0 0.05em;
+  color: var(--widget-accent);
+  animation: apps-widget-clock-blink 2s ease-in-out infinite;
+}
+
+@keyframes apps-widget-clock-blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0.35;
+  }
+  75% {
+    opacity: 1;
+  }
+}
+
+/* Empty-state — large outlined icon + helpful hint. Replaces the
+   plain italic line. Centered + spacious so the tile reads as
+   "intentionally empty / needs config" rather than "broken". */
+.apps-widget-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--s-1);
+  min-height: 84px;
+  padding: var(--s-2);
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  font-style: normal;
+}
+
+.apps-widget-empty-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--widget-accent);
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+
+.apps-widget-empty-text {
+  line-height: 1.3;
+  max-width: 220px;
+}
+
+/* Reduced motion — kill the hover lift + clock-colon pulse so users
+   who opt out of animation don't get the tile-shift / colon-blink. */
+@media (prefers-reduced-motion: reduce) {
+  .apps-widget-tile,
+  .apps-widget-tile-decoration,
+  .apps-widget-ring-fill {
+    transition: none !important;
+  }
+
+  .apps-widget-tile:hover {
+    transform: none;
+  }
+
+  .apps-widget-clock-colon {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 .apps-bookmark-tile {

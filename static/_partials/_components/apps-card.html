@@ -80,7 +80,7 @@
           <div class="flex items-center gap-2">
           <span class="apps-card-dot"
                 :class="'apps-card-dot--' + inst.status"
-                :title="inst.status"
+                :title="t('apps.status_' + inst.status) || inst.status"
                 aria-hidden="true"></span>
             <span class="truncate flex-1"
                   :title="appsInstanceHostTitle(inst)"

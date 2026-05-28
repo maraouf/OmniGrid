@@ -131,7 +131,7 @@
                 <td class="px-4 py-2 fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
-                                x-text="row.provider"></span>
+                                x-text="t('settings.host_stats.source_' + row.provider) || row.provider"></span>
                 </td>
                 <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.failures || 0).toLocaleString()"></td>
                 <td class="px-4 py-2 mono text-end" x-text="Number(row.recoveries || 0).toLocaleString()"></td>

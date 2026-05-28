@@ -480,7 +480,7 @@
               <td class="px-2 py-1.5">
                         <span class="chip"
                               :class="row.role === 'admin' ? 'pill-warning' : 'pill-muted'"
-                              x-text="row.role"></span>
+                              x-text="t('settings.profile.role_' + row.role) || row.role"></span>
               </td>
               <td class="px-2 py-1.5 mono" x-text="row.telegram_user_id"></td>
               <!-- Linked-at column — fmtDate takes epoch

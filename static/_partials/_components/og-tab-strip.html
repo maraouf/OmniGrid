@@ -64,9 +64,9 @@
             :aria-selected="tsCurrent === opt.value ? 'true' : 'false'"
             :aria-label="(opt.dotActive === undefined || !$data['tsActiveDotLabel'])
                           ? opt.label
-                          : (opt.label + ' — ' + (opt.dotActive
+                          : t('common.tab_option_aria', { label: opt.label, dot: (opt.dotActive
                               ? $data['tsActiveDotLabel']
-                              : ($data['tsInactiveDotLabel'] || '')))"
+                              : ($data['tsInactiveDotLabel'] || '')) })"
             :tabindex="tsCurrent === opt.value ? 0 : -1"
             @click="tsOnChange(opt.value)"
             @keydown.right.prevent="tsCycle(1)"
