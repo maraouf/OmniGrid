@@ -687,7 +687,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # surface for SNMP — the cool-down purely throttles probes against
     # an unreachable host, same purpose as the auth one).
     "tuning_snmp_probe_timeout_seconds": ("SNMP_PROBE_TIMEOUT_SECONDS", 5, 1, 60),
-    "tuning_snmp_concurrency": ("SNMP_CONCURRENCY", 16, 1, 128),
+    # Cross-host SNMP fan-out cap — how many DIFFERENT hosts probe in
+    # parallel per sampler tick. Lowered from 16 → 4 default because
+    # each probe holds the event loop for up to
+    # `tuning_snmp_wall_clock_budget_seconds` (60s default) when a
+    # host is unreachable; 16 simultaneous unreachable hosts starves
+    # the event loop for a full minute, breaking the Docker swarm
+    # healthcheck + the SPA's /api/* requests. 4 is conservative
+    # enough that a partial-outage fleet still gets responsive
+    # healthchecks; operators on small (<10) reliable fleets can
+    # safely raise it back to 8-16.
+    "tuning_snmp_concurrency": ("SNMP_CONCURRENCY", 4, 1, 128),
     # Wall-clock budget for ONE probe against ONE host. The probe fans
     # out ~60 SNMP GET / WALK operations (sys / HR / IF / ENTITY +
     # vendor-private MIBs for Dell / Cisco / APC / UCD / Synology /

@@ -1954,8 +1954,14 @@ async def listener_loop() -> None:
                 raise
             except httpx.HTTPError as e:
                 # Network blip — back off briefly + retry. Don't spam
-                # logs with the same error every iteration.
-                print(f"[telegram_listener] network: {e}")
+                # logs with the same error every iteration. httpx
+                # exceptions sometimes carry an empty `str(e)` (e.g.
+                # bare ConnectError before any details are populated),
+                # so include the exception class name as a fallback
+                # so the operator's log doesn't show `[telegram_listener]
+                # network:` with nothing after the colon.
+                detail = str(e).strip() or e.__class__.__name__
+                print(f"[telegram_listener] network: {detail}")
                 await asyncio.sleep(5)
             # noinspection PyBroadException
             except Exception as e:  # noqa: BLE001
