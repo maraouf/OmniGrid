@@ -57,6 +57,18 @@ services:
       # see the right zone by reading /etc/localtime directly.
       - /etc/localtime:/etc/localtime:ro
 
+      # Bypass Docker's embedded DNS resolver (127.0.0.11) and use the
+      # host's DNS configuration directly. The user runs the same
+      # bind-mount on other stacks in this fleet; without it, Docker's
+      # embedded resolver was producing intermittent `ConnectTimeout`
+      # against internal hostnames the host's resolver finds fine.
+      # CAVEAT: if the host runs systemd-resolved (resolv.conf points
+      # at 127.0.0.53 stub), DNS inside the container would route to
+      # the container's own loopback and fail — verified non-issue on
+      # this fleet. Same caveat applies to any future deployment that
+      # adopts this stack file.
+      - /etc/resolv.conf:/etc/resolv.conf:ro
+
     networks:
       - omnigrid
 

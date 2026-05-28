@@ -6717,9 +6717,14 @@
 
             <!-- UPDATES — only rendered when Webmin reported
                      pending packages. Informational in Phase 1; a
-                     later phase may link to a full package list. -->
-            <section x-show="(h.updates_pending || 0) > 0"
-                     class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                     later phase may link to a full package list.
+                     Wrapped in x-if (not x-show) so the body
+                     bindings (`x-text="h.updates_pending"` etc.)
+                     don't re-evaluate on every reactive flush for
+                     the ~majority of hosts that have no Webmin probe
+                     and therefore no pending-updates field. -->
+            <template x-if="(h.updates_pending || 0) > 0">
+            <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
               <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
               <dl class="drawer-dl fs-sm">
                 <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
@@ -6737,6 +6742,7 @@
                 <dd class="mono text-end text-[var(--text-faint)]" x-text="t('settings.host_stats.source_webmin')"></dd>
               </dl>
             </section>
+            </template>
           </div>
 
           <!-- Time-range picker — segmented buttons. Range applies
