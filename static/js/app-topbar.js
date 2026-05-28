@@ -74,6 +74,12 @@ export default {
   // `_ensureWeatherHistory()` on AI palette open. 10-min refresh TTL.
   _weatherHistoryCache: null,
   _weatherHistoryFetchedAt: 0,
+  // Admin > Weather "Recent samples" panel state — separate from
+  // the AI-context cache above because it's admin-only + uses a
+  // smaller row cap + fetches on operator click rather than on
+  // every AI palette open.
+  weatherHistory: [],
+  weatherHistoryLoading: false,
   // Per-widget refresh-in-flight gate. `appsWidgetRefreshing[kind] =
   // true` while a manual refresh is mid-fetch — drives the spinner
   // on the per-widget refresh button + disables the button to prevent
@@ -334,6 +340,29 @@ export default {
   // are client-side derivations; refresh wouldn't change anything.
   widgetSupportsRefresh(kind) {
     return kind === 'weather' || kind === 'moon' || kind === 'public_ip';
+  },
+  // Whether the widget actually has data to refresh / timestamp.
+  // When the master feature is disabled, the upstream is unreachable,
+  // or no data has loaded yet, showing the refresh button + "Updated
+  // Xm ago" chip is meaningless and confusing — gate them on this.
+  // Operator-flagged UX issue: "if the weather is disabled and no
+  // data is displayed, meaningless to show refresh and updated when".
+  widgetHasData(kind) {
+    if (kind === 'weather' || kind === 'moon') {
+      // configured === false means admin-disabled OR no API key OR
+      // no URL — no point offering refresh. Otherwise need real temp.
+      if (this.weather && this.weather.configured === false) {
+        return false;
+      }
+      return !!(this.weather && this.weather.temp_c != null);
+    }
+    if (kind === 'public_ip') {
+      if (this.publicIp && this.publicIp.enabled === false) {
+        return false;
+      }
+      return !!(this.publicIp && this.publicIp.ip);
+    }
+    return true;
   },
   startHeaderWeather() {
     if (this._weatherTimer) {
@@ -642,6 +671,32 @@ export default {
         + ': ' + (e.message || e), 'error');
     } finally {
       this.weatherSaving = false;
+    }
+  },
+
+  // Admin > Weather "Recent samples" panel — admin-only display
+  // of the last N rows from `weather_samples`. Triggered by the
+  // `<details>` toggle on first expand; no auto-poll (operator
+  // clicks expand → fetch fires once). 25-row cap so the panel
+  // stays compact even on a long-running deploy.
+  async loadWeatherHistory() {
+    if (this.weatherHistoryLoading) {
+      return;
+    }
+    this.weatherHistoryLoading = true;
+    try {
+      const r = await fetch('/api/weather/history?limit=25');
+      if (!r.ok) {
+        this.weatherHistory = [];
+        return;
+      }
+      const data = await r.json();
+      this.weatherHistory = Array.isArray(data && data.history)
+        ? data.history : [];
+    } catch (_) {
+      this.weatherHistory = [];
+    } finally {
+      this.weatherHistoryLoading = false;
     }
   },
 

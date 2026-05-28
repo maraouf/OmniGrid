@@ -7,7 +7,51 @@
      polished visual identity; see the `.apps-widget-tile--<kind>` rules in
      style.css for accent token wiring. -->
 <!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
-<div class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
+<!-- EDIT-MODE compact tile — small, static, drag-handle shape
+     matching the app-tile pattern in index.html so the operator's
+     drag-and-drop UI reads as a consistent grid of tiles regardless
+     of kind. NO live data render in this mode (would distract from
+     the drag/drop affordance + waste re-render cycles). Remove
+     button is the only action; the trash svg matches the app-tile
+     edit-mode chrome. -->
+<template x-if="appsCustomEditMode">
+  <!-- `<article>` (a tile is article-like) — keyboard-focusable via
+       tabindex with an aria-label describing the drag affordance.
+       We do NOT set `role="button"` — `button` isn't a valid ARIA
+       role for `<article>` and the tile contains its own interactive
+       descendant (the remove button) which a button role forbids.
+       Same canonical pattern as `apps-card.html` for clickable
+       cards. -->
+  <article class="apps-tile apps-tile--widget"
+           draggable="true"
+           @dragstart.stop="appsItemDragStart($event, item.uid)"
+           @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
+           tabindex="0"
+           :aria-label="t('apps.custom.widget_drag_aria', {kind: appsWidgetLabel(item.widget)}) || ('Drag ' + appsWidgetLabel(item.widget) + ' widget')">
+    <svg width="32" height="32" aria-hidden="true" fill="none" stroke="currentColor"
+         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+         class="apps-tile-icon">
+      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWidgetDecorationIcon(item)"/>
+    </svg>
+    <span class="apps-tile-name truncate" x-text="appsWidgetLabel(item.widget)"></span>
+    <button type="button" class="user-action-btn user-action-btn--danger"
+            @click.stop="removeAppsItem(sec.id, item.uid)"
+            :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+            :title="t('apps.custom.remove_tile') || 'Remove tile'">
+      <svg width="11" height="11" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+      </svg>
+    </button>
+  </article>
+</template>
+
+<!-- LOCKED-MODE rich tile — live data render. The full widget body
+     below was historically the only render mode; gating it on
+     `!appsCustomEditMode` keeps every existing helper / binding
+     intact for the locked view while edit mode uses the compact
+     shape above. -->
+<div x-show="!appsCustomEditMode"
+     class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
      :draggable="appsCustomEditMode ? 'true' : 'false'"
      @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
      @dragover.prevent
@@ -16,23 +60,16 @@
   <!-- Background-icon decoration — large faded brand icon in the
        top-right corner. Pure visual; pointer-events disabled so it
        doesn't interfere with the remove-tile button below. Each kind
-       gets a distinct icon matching its identity. -->
+       gets a distinct icon resolved via `appsWidgetDecorationIcon(item)`.
+       NOTE: previously used `<template x-if="...">` per-kind inside
+       this `<svg>`, which broke at runtime because the HTML parser
+       puts `<template>` inside `<svg>` in the SVG namespace where
+       the cloneable `.content` property doesn't exist — Alpine threw
+       "Cannot read properties of undefined (reading 'cloneNode')"
+       on every render. Driving a single `<use>` from a helper avoids
+       the SVG-namespace pitfall entirely. -->
   <svg class="apps-widget-tile-decoration" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <template x-if="item.widget === 'clock'">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
-    </template>
-    <template x-if="item.widget === 'weather'">
-      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((weather && weather.condition) || '')"/>
-    </template>
-    <template x-if="item.widget === 'public_ip'">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
-    </template>
-    <template x-if="item.widget === 'system_stats'">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
-    </template>
-    <template x-if="item.widget === 'moon'">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
-    </template>
+    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWidgetDecorationIcon(item)"/>
   </svg>
 
   <div class="apps-widget-tile-head">
@@ -50,7 +87,7 @@
            the fetch is mid-flight. Hidden in edit mode — the
            trash button takes priority then. -->
       <button type="button"
-              x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget)"
+              x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget) && widgetHasData(item.widget)"
               class="user-action-btn"
               :disabled="appsWidgetRefreshing && appsWidgetRefreshing[item.widget]"
               @click.stop="refreshWidget(item.widget)"
@@ -146,8 +183,18 @@
           <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
           </svg>
+          <!-- Three differentiated empty states so users understand
+               WHY the widget is empty:
+                 (a) feature globally disabled by an admin
+                 (b) user hasn't set a location yet in Profile
+                 (c) configured but the upstream returned no data
+                     (transient — refresh button retries) -->
           <span class="apps-widget-empty-text"
-                x-text="t('apps.custom.widget_weather_no_data') || 'Weather not configured — enable in topbar settings'"></span>
+                x-text="(weather && weather.configured === false)
+                  ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
+                  : (!headerWeatherLat || !headerWeatherLon)
+                    ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see live conditions here.')
+                    : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
         </div>
       </template>
     </template>
@@ -162,17 +209,52 @@
         <template x-if="publicIp && publicIp.enabled && publicIp.ip">
           <div>
             <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
+            <!-- ISP subtitle with dynamic brand icon when recognised
+                 (Cloudflare / Google / AWS / Comcast / etc.); falls
+                 back to the generic globe icon for unknown ISPs.
+                 Matches whti.in-style ISP branding so operators get
+                 immediate visual confirmation of who's carrying their
+                 traffic. -->
             <div class="apps-widget-subtitle">
-              <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
-              </svg>
+              <template x-if="appsWidgetIspIconUrl(publicIp.isp)">
+                <!-- Static `alt=""` satisfies the IDE's HTML-parser
+                     accessibility check (which doesn't recognise
+                     Alpine `:alt` bindings); Alpine overrides at
+                     runtime with the ISP name from `:alt`. The ISP
+                     name also appears as plain text in the adjacent
+                     <span>, so even if both fail the user still
+                     gets the brand identity. -->
+                <img :src="appsWidgetIspIconUrl(publicIp.isp)"
+                     :alt="publicIp.isp || ''"
+                     alt=""
+                     width="16" height="16"
+                     class="apps-widget-isp-icon"
+                     @error="$event.target.style.display='none'">
+              </template>
+              <template x-if="!appsWidgetIspIconUrl(publicIp.isp)">
+                <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+                </svg>
+              </template>
               <span x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></span>
             </div>
             <div class="apps-widget-detail">
+              <!-- Country + city detail row — leads with the flag
+                   emoji rendered from the ISO 3166-1 alpha-2 country
+                   code (no flag-image asset bundle needed; every
+                   modern OS renders the regional-indicator pair).
+                   When the upstream didn't return a country code,
+                   falls back to the map-pin icon. -->
               <span x-show="publicIp.country" class="apps-widget-kv">
-                <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
-                </svg>
+                <template x-if="appsWidgetCountryFlag(publicIp.country_code)">
+                  <span class="apps-widget-country-flag" aria-hidden="true"
+                        x-text="appsWidgetCountryFlag(publicIp.country_code)"></span>
+                </template>
+                <template x-if="!appsWidgetCountryFlag(publicIp.country_code)">
+                  <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+                  </svg>
+                </template>
                 <span class="apps-widget-kv-value" x-text="publicIp.country + (publicIp.city ? ' · ' + publicIp.city : '')"></span>
               </span>
               <span x-show="publicIp.asn" class="apps-widget-chip apps-widget-chip--ok mono"
@@ -312,10 +394,20 @@
           <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
           </svg>
+          <!-- Four differentiated empty states so users understand
+               WHY moon data isn't showing:
+                 (a) feature globally disabled by an admin
+                 (b) provider can't supply moon data (Open-Meteo)
+                 (c) user hasn't set a location yet
+                 (d) configured but no moon data yet (transient) -->
           <span class="apps-widget-empty-text"
-                x-text="(weather && !weather.supports_moon)
-                  ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
-                  : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
+                x-text="(weather && weather.configured === false)
+                  ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
+                  : (weather && !weather.supports_moon)
+                    ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
+                    : (!headerWeatherLat || !headerWeatherLon)
+                      ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see moon phases here.')
+                      : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
         </div>
       </template>
     </template>
@@ -323,14 +415,17 @@
 
   <!-- Freshness footer — operator-visible "last refreshed" stamp so
        users can tell how fresh the data is at a glance. Only rendered
-       for widget kinds whose data comes from a backend fetch; client-
-       side widgets (clock / system_stats) skip cleanly via the same
-       widgetSupportsRefresh gate. Small + muted so it doesn't compete
-       with the hero content but stays discoverable. Self-tick via
-       the existing hostHistoryNow 1s ticker so the "Updated 2s ago"
-       label counts up live. -->
+       for widget kinds whose data comes from a backend fetch AND
+       actually have data to timestamp; client-side widgets (clock /
+       system_stats) skip cleanly via widgetSupportsRefresh, while
+       admin-disabled / empty-data widgets skip via widgetHasData
+       (showing "Updated Xm ago" when the empty-state message says
+       "Weather service is disabled" reads as contradictory chrome).
+       Small + muted so it doesn't compete with the hero content but
+       stays discoverable. Self-tick via the existing hostHistoryNow
+       1s ticker so the "Updated 2s ago" label counts up live. -->
   <div class="apps-widget-tile-freshness"
-       x-show="widgetSupportsRefresh(item.widget) && widgetFreshnessLabel(item.widget)">
+       x-show="widgetSupportsRefresh(item.widget) && widgetHasData(item.widget) && widgetFreshnessLabel(item.widget)">
     <svg width="9" height="9" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
     </svg>

@@ -561,6 +561,11 @@ HOST_BASELINE_WINDOW_DAYS=30
 PUBLIC_IP_ENABLED=0
 PUBLIC_IP_CACHE_TTL_SECONDS=600
 PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
+# Public-IP lookup endpoint URL — operator override. Leave blank
+# to use the well-known ifconfig.co default. Uncomment + paste an
+# alternative if you prefer a different no-key endpoint:
+# PUBLIC_IP_LOOKUP_URL=https://ifconfig.co/json
+PUBLIC_IP_LOOKUP_URL=
 
 # WeatherAPI.com — supersedes the legacy Open-Meteo client. Provides
 # CURRENT conditions + 7-day forecast + ASTRONOMY (sunrise / sunset /

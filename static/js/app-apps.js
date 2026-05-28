@@ -682,6 +682,39 @@ export default {
   appsWidgetLabel(kind) {
     return this.t('apps.custom.widget_' + kind) || kind;
   },
+  // Sprite-id resolver for the widget tile's background-icon
+  // decoration. Drives the single `<use>` inside the decoration
+  // `<svg>` (we used to have one `<template x-if>` per kind but
+  // that triggers Alpine cloneNode errors because <template>
+  // inside <svg> lives in the SVG namespace and has no .content
+  // property — driving via this helper avoids the issue).
+  appsWidgetDecorationIcon(item) {
+    const kind = (item && item.widget) || '';
+    if (kind === 'clock') {
+      return 'icon-clock';
+    }
+    if (kind === 'weather') {
+      const condition = (this.weather && this.weather.condition) || '';
+      const slug = (typeof this.appsWeatherIconId === 'function')
+        ? this.appsWeatherIconId(condition)
+        : 'icon-weather-cloud';
+      // appsWeatherIconId returns the bare slug (e.g. `weather-cloud`);
+      // prepend `icon-` so it composes with the sprite `<use>` URL.
+      return slug.startsWith('icon-') ? slug : ('icon-' + slug);
+    }
+    if (kind === 'public_ip') {
+      return 'icon-globe';
+    }
+    if (kind === 'system_stats') {
+      return 'icon-server';
+    }
+    if (kind === 'moon') {
+      return 'icon-moon';
+    }
+    // Unknown kind — fall back to a neutral icon rather than an
+    // empty fragment (which would produce a broken sprite ref).
+    return 'icon-clock';
+  },
   // Live HH:MM for the clock widget — reads the 1s-ticked `hostHistoryNow`
   // so it updates reactively. Routes through `_applyDateTimeFormat` +
   // `_userTimeOnlyFormat` so the operator's Settings → Profile → Formats
@@ -824,6 +857,74 @@ export default {
       offset: circumference * (1 - pct),
       percent: Math.round(pct * 100),
     };
+  },
+  // Country flag emoji for the Public-IP widget. Maps an ISO 3166-1
+  // alpha-2 country code (e.g. "EG", "US", "DE") to the Unicode
+  // regional-indicator pair that renders as a flag (🇪🇬 / 🇺🇸 / 🇩🇪).
+  // No flag-image bundle needed — every modern OS / browser renders
+  // these pairs natively. Returns empty string for non-2-letter
+  // input so the SPA can gate display on truthy.
+  appsWidgetCountryFlag(code) {
+    const c = String(code || '').trim().toUpperCase();
+    if (c.length !== 2 || !/^[A-Z]{2}$/.test(c)) {
+      return '';
+    }
+    // Regional-indicator base: 0x1F1E6 ('🇦'). Code-point offset
+    // = char-code - 'A'.
+    const base = 0x1F1E6;
+    return String.fromCodePoint(
+      base + (c.charCodeAt(0) - 65),
+      base + (c.charCodeAt(1) - 65),
+    );
+  },
+  // ISP brand-icon resolver for the Public-IP widget. Maps a raw
+  // ISP / ASN-org string (e.g. "Cloudflare, Inc.", "Google LLC",
+  // "Comcast Cable Communications") to a brand-icon slug the
+  // existing `iconUrlFor` resolver handles. Returns empty string
+  // for unknown ISPs so the SPA falls back to the generic globe
+  // icon. Match table is intentionally small + well-known brands
+  // only — operators add custom mappings via the SPA's iconUrlFor
+  // alias map (`static/img/icons/<slug>.svg`).
+  appsWidgetIspIconUrl(isp) {
+    const raw = String(isp || '').trim().toLowerCase();
+    if (!raw) {
+      return '';
+    }
+    // Token-based lookup — match the FIRST recognisable brand in
+    // the ISP string (the raw values are often "Cloudflare, Inc." /
+    // "Amazon.com, Inc." / "Google LLC" / etc.).
+    const tokens = [
+      ['cloudflare', 'cloudflare'],
+      ['google', 'google'],
+      ['amazon', 'amazon'],
+      ['microsoft', 'microsoft'],
+      ['apple', 'apple'],
+      ['comcast', 'comcast'],
+      ['verizon', 'verizon'],
+      ['at&t', 'att'],
+      ['att ', 'att'],
+      ['t-mobile', 't-mobile'],
+      ['vodafone', 'vodafone'],
+      ['orange', 'orange'],
+      ['telefonica', 'telefonica'],
+      ['deutsche telekom', 'deutsche-telekom'],
+      ['british telecom', 'bt'],
+      ['ovh', 'ovh'],
+      ['hetzner', 'hetzner'],
+      ['digitalocean', 'digitalocean'],
+      ['linode', 'linode'],
+      ['vultr', 'vultr'],
+    ];
+    for (const [needle, slug] of tokens) {
+      if (raw.indexOf(needle) !== -1) {
+        try {
+          return this.iconUrlFor(slug);
+        } catch (_) {
+          return '';
+        }
+      }
+    }
+    return '';
   },
   // Public-IP detail value formatter — strips the "AS" prefix from
   // the ASN field so the chip reads cleanly. Backend returns "AS15169"

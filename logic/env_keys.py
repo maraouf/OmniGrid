@@ -63,6 +63,10 @@ class EnvKey(str, Enum):
     PORTAINER_API_KEY = "PORTAINER_API_KEY"
     PORTAINER_ENDPOINT_ID = "PORTAINER_ENDPOINT_ID"
     PORTAINER_URL = "PORTAINER_URL"
+    # Public-IP lookup endpoint URL — operator-set so we don't bake
+    # a third-party URL into Python source. Empty falls through to
+    # the documented default in logic/public_ip.py.
+    PUBLIC_IP_LOOKUP_URL = "PUBLIC_IP_LOOKUP_URL"
     SESSION_LAST_SEEN_THROTTLE_SECONDS = "SESSION_LAST_SEEN_THROTTLE_SECONDS"
     SESSION_SECRET = "SESSION_SECRET"
     VERIFY_TLS = "VERIFY_TLS"

@@ -9396,6 +9396,49 @@ select.field-invalid {
   flex-shrink: 0;
 }
 
+/* Action pill — same shape + chrome as `.apps-card-status` but with
+   a neutral grey-tint accent (text-dim / surface-3 / border) instead
+   of the per-status accent. Stacks visually below the status pill so
+   each card has a coherent vertical pill cluster (status + refresh +
+   open). Hover state intensifies the grey to signal interactivity
+   without competing visually with the status colour. */
+.apps-card-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, var(--text-dim) 10%, transparent);
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--text-dim) 22%, transparent);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.apps-card-action-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-dim) 18%, transparent);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text-dim) 35%, transparent);
+}
+
+.apps-card-action-pill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.apps-card-action-pill:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.apps-card-action-pill svg {
+  flex-shrink: 0;
+}
+
 /* Per-host instance row — subtle row card on a hairline-divided list,
    so a card with multiple hosts reads as a clean stack rather than a
    wall of text. Hover gives operators a precise hit-target signal. */
@@ -9589,6 +9632,18 @@ select.field-invalid {
   cursor: grabbing;
 }
 
+/* Widget variant — same compact drag-handle shape as `.apps-tile`
+   for app entries, with a subtle accent-tinted left border to
+   distinguish widgets from apps at a glance even in edit mode. */
+.apps-tile--widget {
+  border-inline-start-color: var(--primary);
+}
+
+.apps-tile--widget .apps-tile-icon {
+  color: var(--primary);
+  opacity: 0.85;
+}
+
 .apps-tile-icon {
   width: 32px;
   height: 32px;
@@ -9757,6 +9812,27 @@ select.field-invalid {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+}
+
+/* Country-flag emoji in the Public-IP widget detail row. Emoji
+   fonts render at slightly different baselines across platforms;
+   `vertical-align: -2px` keeps the flag visually centered against
+   the country-name text. */
+.apps-widget-country-flag {
+  font-size: var(--fs-md);
+  line-height: 1;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+
+/* ISP brand icon — sits where the generic globe SVG would. Matches
+   the brand-icon-resolver pattern: 16px square so the icon reads as
+   "subtitle decoration" without overpowering the ISP-name text. */
+.apps-widget-isp-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 /* Freshness footer — small + muted "Updated Ns ago" stamp pinned
