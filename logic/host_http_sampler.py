@@ -408,7 +408,10 @@ async def host_http_sampler_loop() -> None:
             interval = _resolve_http_probe_interval()
             days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
             if tick % max(1, 3600 // interval) == 0:
-                n = _prune_old_samples()
+                # Offload prune to worker thread (same pattern as
+                # host_metrics_sampler) — keeps the event loop
+                # responsive during the hourly DELETE.
+                n = await asyncio.to_thread(_prune_old_samples)
                 if n:
                     print(f"[http_probe_sampler] pruned {n} rows older than {days}d")
         except asyncio.CancelledError:
