@@ -94,6 +94,7 @@ class Tunable(str, Enum):
     HOST_PERMANENT_FAIL_WINDOW_SECONDS = "tuning_host_permanent_fail_window_seconds"
     HOST_PROVIDER_CACHE_TTL_SECONDS = "tuning_host_provider_cache_ttl_seconds"
     HOST_PROVIDER_CACHE_DIAG_INTERVAL = "tuning_host_provider_cache_diag_interval"
+    STATS_PER_NODE_UNREACHABLE_TTL_SECONDS = "tuning_stats_per_node_unreachable_ttl_seconds"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
     HOST_SNAPSHOTS_CACHE_TTL_SECONDS = "tuning_host_snapshots_cache_ttl_seconds"
@@ -632,6 +633,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # surface a finer-grain hit ratio for debugging. Strict-rule
     # category — diagnostic verbosity knob.
     "tuning_host_provider_cache_diag_interval": ("HOST_PROVIDER_CACHE_DIAG_INTERVAL", 100, 1, 10000),
+    # gather_stats per-node fail-cache TTL. Skips known-unreachable
+    # Swarm workers for this window after the first ConnectTimeout
+    # / OSError so /api/stats stops paying the full client timeout
+    # per dead worker on every other poll. Latches off on success.
+    # Default 60s — short enough for the operator to see a recovered
+    # worker within a minute, long enough to fully suppress the
+    # repeat-log noise across multiple SPA poll ticks.
+    "tuning_stats_per_node_unreachable_ttl_seconds": (
+        "STATS_PER_NODE_UNREACHABLE_TTL_SECONDS", 60, 5, 600,
+    ),
     # In-process cache TTL (seconds) for `_host_provider_config()`
     # in logic/host_metrics_sampler.py — the per-(host_id, providers)
     # map that `record_provider_outcome`'s defensive guard consults to

@@ -615,6 +615,38 @@ async def api_hosts_list(force: bool = False):
         # stale-rendering pipeline cues off `_stale_fields` not the
         # providers list. The next `/api/hosts/one/{id}` refresh
         # populates `providers` with the live hits.
+        #
+        # Trim the snapshot blob to fields the SKELETON row actually
+        # renders. Per-mount arrays, per-NIC arrays, Dell server-health
+        # probe arrays, printer supplies, package-update lists, and the
+        # temperature / GPU JSON blobs are drawer-only data — the list
+        # endpoint never displays them, and the SPA's subsequent
+        # `/api/hosts/one/{id}` fan-out populates them fresh anyway.
+        # Dropping them here saves substantial bytes per row on a
+        # rich-snapshot fleet (per-host snapshots can be tens of KB
+        # each on a Dell server with 12+ temperature probes). The
+        # `_stale_fields` marker for these keys is also pruned so the
+        # SPA doesn't render a stale-banner for fields we never sent.
+        _DRAWER_ONLY_KEYS = frozenset({
+            "mounts", "interfaces",
+            "host_dell_fans", "host_dell_temps", "host_dell_psus",
+            "host_dell_phys_disks", "host_dell_virt_disks",
+            "host_dell_voltages",
+            "printer_supplies", "package_updates",
+            "host_temperatures_json", "host_gpus_json",
+        })
+        for _k in _DRAWER_ONLY_KEYS:
+            merged.pop(_k, None)
+        _stale_list = merged.get("_stale_fields")
+        if isinstance(_stale_list, list) and _stale_list:
+            merged["_stale_fields"] = [
+                k for k in _stale_list if k not in _DRAWER_ONLY_KEYS
+            ]
+            # Drop the marker entirely if every remaining stale field
+            # was a drawer-only key we just dropped.
+            if not merged["_stale_fields"]:
+                merged.pop("_stale_fields", None)
+                merged.pop("_stale_ts", None)
         hosts.append(_shape_host_api_row(
             h, merged, [],
             any_provider_enabled=any_enabled,
