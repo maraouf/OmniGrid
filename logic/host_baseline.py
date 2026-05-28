@@ -220,9 +220,14 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     return out
 
 
-def compute_baselines(host_id: str) -> dict[str, dict]:
+def compute_baselines(host_id: str, target: str = "") -> dict[str, dict]:
     """Recompute baselines for ONE host. UPSERTs into `host_baselines`
     AND returns the in-memory map for the caller (sampler logs it).
+
+    ``target`` (optional) — operator-facing FQDN / IP for the host;
+    folded into the per-host diagnostic log line so the operator can
+    spot a wrong-address bug (e.g. samples never accumulate for a
+    host whose probe target points at the wrong IP).
     """
     if not host_id:
         return {}
@@ -239,9 +244,10 @@ def compute_baselines(host_id: str) -> dict[str, dict]:
             counts = " ".join(
                 f"{m}={len(samples.get(m, []))}" for m in METRICS
             )
+            target_blurb = f" target={target}" if target else ""
             print(
-                f"[host_baseline] {host_id} sample counts: {counts} "
-                f"(need >= {_min_samples()} per metric)"
+                f"[host_baseline] {host_id}{target_blurb} sample counts: "
+                f"{counts} (need >= {_min_samples()} per metric)"
             )
             for metric, vals in samples.items():
                 bl = _baseline_for(vals)
