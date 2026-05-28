@@ -1047,12 +1047,49 @@ export default {
     if (!window.__ogLastBackendOkTs) {
       window.__ogLastBackendOkTs = Date.now();
     }
+    // Hysteresis counter — N consecutive stale evaluations required
+    // before flipping the banner ON. Prevents single-tick flaps when
+    // a browser tab gets briefly throttled OR the event loop has a
+    // 1-2s GC pause (false positives that hide the banner's real
+    // signal value). Recovery flips OFF immediately on first success.
+    // Wrapped in an object so the reset / increment sites mutate a
+    // property instead of re-binding a `let` (avoids the
+    // "Reuse of local variable" lint warning the bare-counter shape
+    // triggered — same in-memory cost, no behavioural change).
+    const _hyst = {streak: 0};
+    const _STALE_STREAK_NEEDED = 2;
+    // Visibility-change reset — browser tabs in the background get
+    // their setInterval throttled (Chrome: ≥1s min cadence) AND can
+    // be fully paused after ~5min. When the tab comes back, the
+    // watcher's `Date.now() - lastOk` shows a huge gap from the
+    // pause itself, NOT from a real backend outage. Reset the
+    // stamp + clear the stale-streak on every visibility-to-visible
+    // transition so the watcher gets a grace window to re-evaluate
+    // freshly against live signals (SSE keepalive every 25s).
+    if (!this._backendReachVisibilityHookAttached) {
+      this._backendReachVisibilityHookAttached = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') {
+          return;
+        }
+        // Reset the clock + give one heartbeat-window of grace
+        // before the watcher can re-flip. Without this, refocusing
+        // a backgrounded tab guarantees the banner flashes for
+        // 5-30s while SSE / fetches re-establish.
+        window.__ogLastBackendOkTs = Date.now();
+        _hyst.streak = 0;
+        if (this.backendUnreachable) {
+          this.backendUnreachable = false;
+        }
+      });
+    }
     const evaluate = () => {
       const cfg = (this.me && this.me.client_config) || {};
       const thresholdS = +cfg.backend_unreachable_threshold_seconds;
       // 0 / NaN / negative -> banner disabled. Honors the operator-facing
       // "set 0 to silence" contract documented on the TUNABLE.
       if (!thresholdS || thresholdS < 0) {
+        _hyst.streak = 0;
         if (this.backendUnreachable) {
           this.backendUnreachable = false;
         }
@@ -1060,8 +1097,22 @@ export default {
       }
       const lastOk = window.__ogLastBackendOkTs || Date.now();
       const stale = (Date.now() - lastOk) > thresholdS * 1000;
-      if (stale !== this.backendUnreachable) {
-        this.backendUnreachable = stale;
+      if (!stale) {
+        // Fresh signal — clear streak AND drop the banner instantly
+        // (no hysteresis on recovery; operators want the banner gone
+        // the moment connectivity returns).
+        _hyst.streak = 0;
+        if (this.backendUnreachable) {
+          this.backendUnreachable = false;
+        }
+        return;
+      }
+      // Stale — increment streak. Only flip the banner ON after
+      // N consecutive stale ticks at the 5s evaluate cadence
+      // (default 2 = ~10s of confirmed silence past the threshold).
+      _hyst.streak += 1;
+      if (_hyst.streak >= _STALE_STREAK_NEEDED && !this.backendUnreachable) {
+        this.backendUnreachable = true;
       }
     };
     evaluate();
