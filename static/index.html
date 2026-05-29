@@ -3576,6 +3576,20 @@
                      @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
                   <div class="apps-card-flip-inner">
                     <div class="apps-card-face-front">
+                      <!-- Edit-mode RIGHT-EDGE resize handle. Drag it
+                           left / right to snap the card between the three
+                           size presets (half / normal / double). This is
+                           the "drag the edge to resize" affordance — the
+                           tiny corner N/H/D button is a secondary
+                           tap-to-cycle. @pointerdown.stop.prevent so the
+                           cell's reorder-drag doesn't fire (appsSizeControl
+                           also sets `_appsResizing`, which the cell's
+                           @dragstart reads to preventDefault the move). -->
+                      <div class="apps-card-resize-handle" x-show="appsCustomEditMode"
+                           @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
+                           :title="t('apps.custom.size_drag_title') || 'Drag to resize (half / normal / double)'"
+                           :aria-label="t('apps.custom.size_drag_title') || 'Drag to resize'"
+                           aria-hidden="false"></div>
                       <!-- Floating gear + edit-mode size-cycle button.
                            Absolutely positioned over the top-right of
                            the card; @click.stop so the card's own

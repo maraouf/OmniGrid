@@ -9479,6 +9479,41 @@ select.field-invalid {
   border-radius: var(--r-md);
 }
 
+/* Right-edge resize handle (edit mode). A draggable grip pinned to the
+   card's trailing edge — drag it to snap the card between half / normal
+   / double. `ew-resize` cursor signals the affordance; the accent grip
+   bar makes it discoverable. z-index above the card body so it always
+   catches the pointer; wider hit-area than its visible bar for easy
+   grabbing. Only rendered in edit mode (x-show). */
+.apps-card-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-end: 0;
+  width: 14px;
+  cursor: ew-resize;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.apps-card-resize-handle::after {
+  content: "";
+  width: 4px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--primary);
+  opacity: 0.45;
+  transition: opacity 120ms ease, height 120ms ease;
+}
+
+.apps-card-resize-handle:hover::after {
+  opacity: 0.9;
+  height: 40px;
+}
+
 /* EDIT-MODE DATA STRIP — hide every data region so only icon + title +
    control pills remain. Control pills (gear → settings, refresh,
    remove-X) and the corner size button stay so the operator can still
@@ -9507,6 +9542,23 @@ select.field-invalid {
 .apps-card-face-back {
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* The whole flip card (custom-dashboard tile) is a dashboard surface,
+   never selectable prose — disable text selection across BOTH faces in
+   ALL modes so the cursor never flips to the text I-beam, and force a
+   stable pointer on every button inside. Operator-flagged: the
+   card-settings CLOSE button (and the clock analog/digital radios)
+   flickered between pointer and the text-edit cursor when the pointer
+   grazed adjacent label text. This is the definitive kill — no element
+   in the card can show the I-beam, buttons always read pointer. */
+.apps-card-flip {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.apps-card-flip button {
+  cursor: pointer;
 }
 
 /* Settings pane visual rhythm. Each labelled group reads as a

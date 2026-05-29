@@ -1598,7 +1598,14 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    return true;
+    // Default OFF — extras are OPT-IN. Operator-flagged: "Show extras"
+    // was unchecked on both the APC template AND its instance, yet the
+    // heavy UPS extras panel still rendered (the old default was `true`),
+    // which matches the APC-card UI freeze. Defaulting to false makes the
+    // unchecked state mean what it says (no panel) and the operator ticks
+    // the box only when they want it. The card still shows icon + title +
+    // per-host instance list; only the per-app extras panel is gated.
+    return false;
   },
   // Per-app expanded-card data — generic dispatcher backed by
   // GET /api/services/{host_id}/{service_idx}/app-data. The

@@ -560,7 +560,10 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    return true;
+    // Default OFF — extras are OPT-IN (see the matching helper in
+    // app-apps.js for the full rationale). Unchecked "Show extras" now
+    // means no panel; the operator ticks the box to enable it.
+    return false;
   },
   // Per-app expanded-card data — generic dispatcher backed by
   // GET /api/services/{host_id}/{service_idx}/app-data. The
