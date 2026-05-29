@@ -214,10 +214,38 @@ export default {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
     const src = this.appsList || [];
+    // DIAGNOSTIC SAFETY CAP — the apps page intermittently freezes the
+    // browser; while the root cause is under analysis we render at most
+    // `ogLimit` apps (default 1) so the UI stays responsive. Tunable two
+    // ways from the console:
+    //   localStorage.setItem('ogAppsLimit','3'); location.reload();
+    //       -> persists across reloads (preferred for step-by-step debug)
+    //   window.ogAppsLimit = 3;   (then trigger any re-render, e.g. type
+    //       in the search box) -> immediate, no reload, doesn't persist
+    // Set either to 0 (or any value <= 0) to render every app.
+    // localStorage wins when both are set. REMOVE this whole block once
+    // the hang is root-caused.
+    let ogLimit = 1;
+    try {
+      const _ls = (typeof localStorage !== 'undefined')
+        ? localStorage.getItem('ogAppsLimit') : null;
+      const _lsN = (_ls !== null && _ls !== '') ? parseInt(_ls, 10) : NaN;
+      if (Number.isFinite(_lsN)) {
+        ogLimit = _lsN;
+      } else if (typeof window !== 'undefined'
+        && typeof window.ogAppsLimit === 'number'
+        && Number.isFinite(window.ogAppsLimit)) {
+        ogLimit = window.ogAppsLimit;
+      }
+    } catch (_) {
+      // localStorage can throw in private-mode / sandboxed iframes —
+      // fall through to the default cap of 1.
+    }
     // Per-flush memo — see _filteredAppsCache comment block at top.
-    // Cache key triples (search, statusFilter, source-array ref) so
-    // any filter change OR appsList reconcile invalidates cleanly.
-    const cacheKey = q + '|' + sf + '|' + src.length;
+    // Cache key folds (search, statusFilter, source-array ref, cap) so
+    // any filter change OR appsList reconcile OR a console cap bump
+    // invalidates cleanly.
+    const cacheKey = q + '|' + sf + '|' + src.length + '|' + ogLimit;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
       && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
@@ -260,6 +288,12 @@ export default {
         }
         return false;
       });
+    }
+    // DIAGNOSTIC SAFETY CAP — keep only the first `ogLimit` apps so the
+    // page stays responsive while the intermittent freeze is analyzed.
+    // REMOVE alongside the `ogLimit` computation above once root-caused.
+    if (ogLimit > 0 && out.length > ogLimit) {
+      out = out.slice(0, ogLimit);
     }
     // Stamp the source reference on the result so the cache key
     // check (above) can verify the result was built from the
