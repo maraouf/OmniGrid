@@ -1895,6 +1895,7 @@ async def api_weather(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     label: str = "",
+    force: bool = False,
 ):
     """Fetch current conditions + 7-day forecast + astronomy from
     WeatherAPI.com for one lat/lon.
@@ -1919,7 +1920,7 @@ async def api_weather(
         if not label:
             label = loc.get("label") or ""
     from logic import weather as _weather_mod
-    return await _weather_mod.fetch(float(lat), float(lon), label=label)
+    return await _weather_mod.fetch(float(lat), float(lon), label=label, force=force)
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences

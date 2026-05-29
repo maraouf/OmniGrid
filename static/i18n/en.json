@@ -5010,6 +5010,7 @@
       "all_sorted": "All apps are sorted into sections.",
       "gear_title": "Card settings",
       "gear_aria": "Open card settings",
+      "size_drag_title": "Tap to cycle size, or drag to resize (half / normal / double)",
       "settings": {
         "title": "Card settings",
         "size_label": "Size",

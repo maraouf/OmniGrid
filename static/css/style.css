@@ -9328,24 +9328,33 @@ select.field-invalid {
      per-app `cardSpan(app)` extender). When BOTH classes are
      set the effect is identical (idempotent); the size class
      takes precedence semantically. */
-.apps-card--size-half {
-  /* No grid-column override — a half card stays in its track but
-     the reduced body weight means it pairs visually with another
-     half card OR collapses to a row on narrow viewports. */
+/* In the EDIT-mode grid (`.apps-section-grid` — a fine 90px-track
+   auto-fill grid) the three sizes map to DISTINCT column spans so
+   half / normal / double render as visibly different widths
+   (operator-flagged: setting a card to half produced no size change).
+   Scoped to the edit grid via the child combinator so the LOCKED-mode
+   Tailwind grid — which relies on the `.apps-card--size-double
+   { grid-column: span 2 }` rule below — is unaffected. */
+.apps-section-grid > .apps-card--size-half {
+  grid-column: span 2;
 }
 
+.apps-section-grid > .apps-card--size-normal {
+  grid-column: span 3;
+}
+
+.apps-section-grid > .apps-card--size-double {
+  grid-column: span 5;
+}
+
+/* Half cards stay compact (body + meta hidden) but KEEP the title and
+   the settings / refresh action pills visible — operator-flagged: the
+   pills disappeared on half cards. Pills were previously hidden here. */
 .apps-card--size-half .apps-card-body {
   display: none;
 }
 
 .apps-card--size-half .apps-card-meta {
-  display: none;
-}
-
-.apps-card--size-half .apps-card-action-pill {
-  /* Hide the probe / open pills on half cards — too dense for the
-     reduced footprint. Operator clicks into the card (drawer) for
-     actions. */
   display: none;
 }
 
@@ -9401,10 +9410,97 @@ select.field-invalid {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: var(--s-3);
+  /* `scrollbar` chrome can't be applied via a utility class here (the
+     element is template-inlined and shared), so the slim themed
+     scrollbar rules are attached directly below — the card-settings
+     back face scrolls when the form is taller than the card and was
+     showing the chunky default browser chrome (operator-flagged). */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
+}
+
+.apps-card-face-back::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.apps-card-face-back::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.apps-card-face-back::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: var(--r-sm);
+}
+
+.apps-card-face-back:hover::-webkit-scrollbar-thumb {
+  background: var(--text-faint);
+}
+
+.apps-card-face-back {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) transparent;
+}
+
+/* Edit-mode treatment — see index.html's app-card branch comment. The
+   FULL card renders (title + pills + structure); this layers a grab
+   cursor, a dashed accent outline, and a subtle shimmer sweep so the
+   card reads as draggable / editable without collapsing to a
+   placeholder. Content stays interactive — the `::after` is
+   pointer-events:none and sits visually behind the readable title. */
+.apps-card--editing {
+  cursor: grab;
+  /* Suppress text selection in edit mode so the cursor never flips to
+     the text I-beam over the title — operator-flagged: moving toward
+     the X / action buttons flickered between pointer and the text-edit
+     cursor, making the buttons hard to click. With selection off the
+     card surface reads `grab`, buttons read `pointer` (rule below),
+     and no element shows the I-beam. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.apps-card--editing:active {
+  cursor: grabbing;
+}
+
+/* Action buttons (settings / refresh / remove-X) keep a stable pointer
+   cursor inside an editing card — without this they'd inherit the
+   card's `grab` and the cursor would flicker as the pointer crossed
+   between the draggable surface and the button hit-areas. */
+.apps-card--editing button {
+  cursor: pointer;
+}
+
+.apps-card--editing .apps-card-face-front {
+  position: relative;
+  outline: 1px dashed var(--primary);
+  outline-offset: -2px;
+  border-radius: var(--r-md);
+}
+
+.apps-card--editing .apps-card-face-front::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 35%, var(--row-hover) 50%, transparent 65%);
+  background-size: 200% 100%;
+  animation: apps-edit-shimmer 2.4s ease-in-out infinite;
+}
+
+@keyframes apps-edit-shimmer {
+  0% { background-position: 150% 0; }
+  100% { background-position: -150% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apps-card--editing .apps-card-face-front::after {
+    animation: none;
+  }
 }
 
 /* Settings pane visual rhythm. Each labelled group reads as a
@@ -9914,7 +10010,11 @@ select.field-invalid {
 
 .apps-section-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  /* Fine base track so the three size presets (half=span 2, normal=span
+     3, double=span 5 — see the `.apps-section-grid > .apps-card--size-*`
+     rules) render as visibly distinct widths. A coarse 180px track only
+     allowed whole-card spans, so half couldn't be narrower than normal. */
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
   gap: var(--s-2);
   padding: var(--s-2);
   min-height: 56px;
