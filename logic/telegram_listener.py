@@ -1211,6 +1211,20 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "category": "ops",
         "access": "admin",
     },
+    "/reboot": {
+        # Alias for /restart — same handler, same usage shape, same
+        # destructive-confirm gate. Operators type "reboot" reflexively
+        # when they want the OS-level restart (vs Docker service
+        # restart); accept both verbs so the muscle-memory works
+        # either way. The canonical command stays /restart (matches
+        # the SPA + docs surface); /reboot is an alias only — same
+        # `_cmd_restart` handler so any fix to one applies to both.
+        "handler": _cmd_restart,
+        "usage": "/reboot <target>",
+        "description": "Alias of /restart — reboot a host via SSH (destructive — requires confirm)",
+        "category": "ops",
+        "access": "admin",
+    },
     "/cleanup": {
         "handler": _cmd_cleanup,
         "usage": "/cleanup [confirm]",

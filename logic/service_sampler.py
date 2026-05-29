@@ -353,6 +353,26 @@ async def service_sampler_loop() -> None:
     #     worry about; clarifying the distinction here so the
     #     reader doesn't conclude the loop reads it twice per tick.
     interval = _resolve_service_probe_interval()
+    # Operator-visible startup line — surfaces the EFFECTIVE
+    # interval the sampler will sleep for. Operators who set the
+    # per-provider tunable to a non-default value want to confirm
+    # the sampler actually picked it up; pre-fix the only place
+    # the effective value showed was the host-drawer chip subtitle
+    # via `_provider_sample_intervals`, which is a separate
+    # resolver call that could mask drift from the actual sampler
+    # cadence. This line proves the sampler's own loop sees the
+    # value the operator saved. The raw tunable + the resolved
+    # value are both included so an "inherit" (raw=0 → resolved =
+    # global) is visually distinct from an explicit override.
+    try:
+        _raw = int(tuning.tuning_int(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS) or 0)
+    except (ValueError, TypeError, KeyError):
+        _raw = 0
+    print(
+        f"[service_sampler] effective interval={interval}s "
+        f"(tunable raw={_raw}s — "
+        f"{'inherited from STATS_SAMPLE_INTERVAL_SECONDS' if _raw <= 0 else 'explicit override'})"
+    )
     # First-tick delay — let DB migrations land + give the rest of
     # the lifespan a chance to come up.
     await asyncio.sleep(min(45, interval))

@@ -457,9 +457,16 @@ export default {
   // tall and break the grid's uniform rows. Cap the rendered instance
   // list at APPS_INSTANCES_COLLAPSED_LIMIT until the operator expands it.
   _appsInstancesLimit() {
-    // Show fewer per-host instances before the "Show all (N)" toggle so a
-    // card for an app on many hosts stays short (was 6).
-    return 4;
+    // Cap visible per-host instances at 3 before the "Show all (N)"
+    // toggle. A card pinned to many hosts (e.g. node_exporter on 50+
+    // boxes) would otherwise grow tall + break the Apps grid's
+    // uniform row heights. Was 6, then 4, now 3 per operator-flagged
+    // "decrease the height of app cards with a lot of hosts, display
+    // only 3 then show more". Operator clicks "Show all (N)" to
+    // expand; per-app expanded state is persisted in
+    // `appsInstancesExpanded[group_id]` so a poll-refresh doesn't
+    // collapse what the operator just opened.
+    return 3;
   },
   appsVisibleInstances(app) {
     const all = (app && Array.isArray(app.instances)) ? app.instances : [];
