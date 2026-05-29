@@ -75,7 +75,12 @@
              as a tight visual cluster rather than a status pill + a
              mismatched icon-only button row. Operator-flagged UI
              consistency request. -->
-        <div class="flex flex-col items-end gap-1 flex-shrink-0">
+        <!-- items-stretch so every pill (gear / status / refresh / open)
+             takes the SAME width as the widest — the status pill — per
+             the requested equal-width cluster. Action pills are
+             icon-only; the status pill carries the dot + label that
+             sets the shared width. -->
+        <div class="flex flex-col items-stretch gap-1 flex-shrink-0">
           <!-- Settings (gear) pill — FIRST in the stack, above the
                status pill, per the operator's requested order
                (settings → status → refresh → open). Only renders in the
@@ -96,7 +101,6 @@
               <svg width="11" height="11" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
               </svg>
-              <span x-text="t('apps.custom.settings.title') || 'Settings'"></span>
             </button>
           </template>
           <span class="apps-card-status whitespace-nowrap"
@@ -113,7 +117,6 @@
             <svg width="11" height="11" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
             </svg>
-            <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
           </button>
           <button type="button" x-show="appsOpenableCount(app)"
                   class="apps-card-action-pill whitespace-nowrap"
@@ -123,7 +126,6 @@
             <svg width="11" height="11" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
             </svg>
-            <span x-text="t('apps.open_all_label') || 'Open'"></span>
           </button>
         </div>
       </div>

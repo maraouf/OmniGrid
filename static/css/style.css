@@ -10384,11 +10384,17 @@ select.field-invalid {
    showing day-of-week, hi/lo, and a tiny condition icon. Pinned to
    the bottom of the tile via the detail-row's margin-top:auto. */
 .apps-widget-forecast {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* Single horizontal scrolling row (was a 3-col grid that wrapped to a
+     2nd row — and grew the widget taller — once the operator picked >3
+     forecast days). Nowrap + overflow-x keeps the widget height fixed
+     regardless of day count; the themed `.scrollbar` class on the
+     element supplies the dark slim chrome. */
+  display: flex;
+  flex-wrap: nowrap;
   gap: 6px;
   width: 100%;
   margin-top: var(--s-2);
+  overflow-x: auto;
 }
 
 .apps-widget-forecast-day {
@@ -10399,6 +10405,8 @@ select.field-invalid {
   padding: 6px 4px;
   border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--widget-accent) 6%, transparent);
+  flex: 0 0 auto;
+  min-width: 50px;
 }
 
 .apps-widget-forecast-name {
