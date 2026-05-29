@@ -248,6 +248,7 @@ async def host_pulse_sampler_loop() -> None:
     print("[host_pulse_sampler] lifespan started")
     last_prune = 0.0
     iter_count = 0
+    from logic.sampler_metrics import record_tick as _record_tick
     try:
         while True:
             # Pulse-specific interval > 0 overrides the global stats
@@ -269,6 +270,9 @@ async def host_pulse_sampler_loop() -> None:
                 f"[host_pulse_sampler] iter {iter_count}: "
                 f"active={sorted(active_set)} interval={interval}s"
             )
+            _tick_t0 = time.perf_counter()
+            _tick_ok = True
+            _tick_err = ""
             try:
                 if "pulse" not in active_set:
                     print(f"[host_pulse_sampler] iter {iter_count} skip: pulse not in active")
@@ -316,7 +320,16 @@ async def host_pulse_sampler_loop() -> None:
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except Exception as e:  # noqa: BLE001
+                _tick_ok = False
+                _tick_err = type(e).__name__
                 print(f"[host_pulse_sampler] tick error: {e}")
+            finally:
+                _record_tick(
+                    "host_pulse_sampler",
+                    (time.perf_counter() - _tick_t0) * 1000.0,
+                    ok=_tick_ok,
+                    error=_tick_err,
+                )
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         print("[host_pulse_sampler] lifespan cancelled")

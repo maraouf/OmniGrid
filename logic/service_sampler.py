@@ -377,7 +377,11 @@ async def service_sampler_loop() -> None:
     # the lifespan a chance to come up.
     await asyncio.sleep(min(45, interval))
     tick = 0
+    from logic.sampler_metrics import record_tick as _record_tick
     while True:
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         try:
             master_enabled = get_setting_bool(Settings.SERVICE_PROBE_ENABLED)
             if not master_enabled:
@@ -663,7 +667,16 @@ async def service_sampler_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
+            _tick_ok = False
+            _tick_err = type(e).__name__
             print(f"[service_sampler] tick error: {e}")
+        finally:
+            _record_tick(
+                "service_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         tick += 1
         try:
             await asyncio.sleep(interval)

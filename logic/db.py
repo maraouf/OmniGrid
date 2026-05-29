@@ -25,7 +25,7 @@ import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
@@ -52,7 +52,6 @@ else:
     # exist_ok. "" dirname falls back to "." so relative paths work in dev.
     _db_path_dir = os.path.dirname(DB_PATH) or "."
     os.makedirs(_db_path_dir, exist_ok=True)
-
 
 # Per-connection SQLite tuning, applied on every db_conn() open.
 #
@@ -177,11 +176,11 @@ def db_conn():
 # operator-meaningful caller in `_resolve_caller_site`. Match by
 # substring against the resolved file path (cross-platform tolerant).
 _SLOW_QUERY_SKIP_PATH_SUBSTRINGS: tuple[str, ...] = (
-    "/logic/db.py",          # this module's _TimedConnection wrappers
+    "/logic/db.py",  # this module's _TimedConnection wrappers
     "\\logic\\db.py",
-    "/sqlite3/",             # CPython sqlite3 wrapper internals
+    "/sqlite3/",  # CPython sqlite3 wrapper internals
     "\\sqlite3\\",
-    "/contextlib.py",        # db_conn() context manager bookkeeping
+    "/contextlib.py",  # db_conn() context manager bookkeeping
     "\\contextlib.py",
 )
 
@@ -246,7 +245,16 @@ def _resolve_caller_site() -> str:
                 path = path.replace("\\", "/")
                 return f"{path}:{fn}:{lineno}"
             depth += 1
-    except Exception:  # noqa: BLE001
+    except (AttributeError, TypeError, ValueError, IndexError, OSError):
+        # AttributeError: frame.f_code missing in some embedded
+        # Python builds. TypeError / ValueError: string ops on a
+        # path that decoded to a non-str (extremely unlikely on
+        # CPython but harmless to guard). IndexError: the path
+        # split chain on a malformed import path. OSError: env_get
+        # / sys-module access in a sandboxed runtime. Cancellation
+        # exceptions (asyncio.CancelledError / KeyboardInterrupt)
+        # deliberately NOT caught so they propagate to the asyncio
+        # runtime.
         return "<unknown>"
 
 
@@ -298,18 +306,99 @@ def _check_slow_query(sql: str, t0: float) -> None:
         # straight to the culprit. Frame walk runs ONLY on queries
         # that already crossed the threshold — zero steady-state cost.
         site = _resolve_caller_site()
-        # `warning:` keyword routes the line into the WARN bucket per
-        # `_severity_for`'s body-keyword classifier (not ERROR — a
-        # slow query is a diagnostic-level signal, not a failure).
-        print(
-            f"[slow_query] warning: {elapsed_ms:.1f}ms "
-            f"(threshold {threshold}ms) site={site} sql={sql_short}"
-        )
-    except Exception:  # noqa: BLE001
-        # Diagnostic MUST NEVER break the query path. Any failure
-        # (circular import edge case, tunable resolver crash, etc.)
-        # is silently dropped.
+        # Per-(site, sql) dedup so a burst of identical slow-query
+        # warnings collapses to ONE verbose line + one streak-counted
+        # WARN summary every ``_SLOW_QUERY_DEDUP_SUMMARY_EVERY`` hits.
+        # Pre-fix: a Beszel/Pulse sampler tick holding the writer lock
+        # for ~500ms could queue 100+ readers, each spamming the log
+        # with the SAME `(site, PRAGMA busy_timeout=2000)` pair — the
+        # actual signal (which site is queuing) was buried in N-deep
+        # noise. The pattern mirrors `host_net_sampler._failure_streak`.
+        sig = f"{site}|{sql_short}"
+        prev = _slow_query_streak.get(sig)
+        now_mono = time.monotonic()
+        if prev is None:
+            # First occurrence of this (site, sql) pair: log verbosely
+            # so the operator sees full diagnostic context once.
+            # Opportunistic cap-eviction — drop the OLDEST tracked
+            # signature when at the cap so the dict stays bounded
+            # under a long-running process with many distinct sites.
+            if len(_slow_query_streak) >= _SLOW_QUERY_STREAK_CAP:
+                oldest_sig = min(
+                    _slow_query_streak,
+                    key=lambda k: _slow_query_streak[k]["first_ts"],
+                )
+                _slow_query_streak.pop(oldest_sig, None)
+            _slow_query_streak[sig] = {"streak": 1, "first_ts": now_mono}
+            print(
+                f"[slow_query] warning: {elapsed_ms:.1f}ms "
+                f"(threshold {threshold}ms) site={site} sql={sql_short}"
+            )
+        else:
+            prev["streak"] += 1
+            streak = prev["streak"]
+            # Emit a streak-counted summary line every Nth repeat so the
+            # operator sees the storm is ongoing AND its severity without
+            # being flooded. First summary at streak==2 (so the second
+            # hit is visible immediately) then every Nth after that.
+            if streak == 2 or (streak % _SLOW_QUERY_DEDUP_SUMMARY_EVERY) == 0:
+                age_s = int(now_mono - prev["first_ts"])
+                print(
+                    f"[slow_query] warning: streak={streak} "
+                    f"first_hit {age_s}s ago, latest {elapsed_ms:.1f}ms "
+                    f"(threshold {threshold}ms) site={site} sql={sql_short}"
+                )
+    except (ImportError, KeyError, RuntimeError, TypeError,
+            AttributeError, sqlite3.Error, OSError, ValueError):
+        # Diagnostic MUST NEVER break the query path. Concrete
+        # exception classes cover the realistic failure modes:
+        # ImportError    — late `from logic.tuning import` cycle.
+        # KeyError       — Tunable enum missing in TUNABLES.
+        # RuntimeError   — `db_conn()` raises when DB_PATH unset.
+        # TypeError      — sql not a str (caller bug).
+        # AttributeError — prev["streak"] += 1 against a non-dict
+        #                  if a future contributor swaps the value
+        #                  shape without updating the TypedDict.
+        # sqlite3.Error  — tunable resolver hit a corrupt DB.
+        # OSError        — print to a broken stream / EBADF.
+        # ValueError     — int(now_mono - ...) on a NaN delta.
+        # Cancellation exceptions (asyncio.CancelledError /
+        # KeyboardInterrupt) deliberately NOT caught so they
+        # propagate to the asyncio runtime.
         return
+
+
+# Typed shape for the streak-tracker values — without it PyCharm
+# (correctly) can't narrow `prev["streak"]` past `Any`, which makes
+# the `streak % N` modulo comparison and the `int(now_mono -
+# prev["first_ts"])` arithmetic both raise type warnings.
+class _SlowQueryStreakEntry(TypedDict):
+    streak: int
+    first_ts: float
+
+
+# Per-(site, sql) streak tracker for `_check_slow_query` dedup. Keys
+# are `f"{site}|{sql_short}"`; values are `{"streak": int, "first_ts":
+# monotonic}`. Pruned opportunistically on each insert via the cap
+# below — operator-visible storms typically have <50 distinct signatures
+# so the dict stays small. Single-process single-replica makes the
+# plain dict + GIL-atomic ops correct.
+_slow_query_streak: dict[str, _SlowQueryStreakEntry] = {}
+# Hard cap on streak-tracker entries. Beyond this the OLDEST entry
+# (first_ts) is evicted so a long-running process with thousands of
+# distinct (site, sql) pairs doesn't grow unbounded. Operator-visible
+# storms are bounded (~50 sites × ~10 sql shapes); 256 leaves plenty
+# of headroom.
+_SLOW_QUERY_STREAK_CAP = 256
+# Emit a streak-counted summary every Nth repeat after the first
+# verbose log. Tuned so a 100-hit burst produces ~10 summary lines
+# (visible signal without flooding) instead of 100 identical ones.
+_SLOW_QUERY_DEDUP_SUMMARY_EVERY = 25
+
+
+def _slow_query_reset_streak(sig: str) -> None:
+    """Drop a (site, sql) streak — exposed for tests + manual clears."""
+    _slow_query_streak.pop(sig, None)
 
 
 class _TimedConnection(sqlite3.Connection):
@@ -342,6 +431,10 @@ class _TimedConnection(sqlite3.Connection):
     """
 
     def execute(self, sql, *args, **kwargs):  # type: ignore[override]
+        """Timed override of ``sqlite3.Connection.execute``. Forwards
+        every arg to the C-implemented base method; the wrapping cost
+        is one ``perf_counter`` pair + the slow-query check (early-
+        return when the threshold is 0 = disabled)."""
         t0 = time.perf_counter()
         try:
             return super().execute(sql, *args, **kwargs)
@@ -349,6 +442,9 @@ class _TimedConnection(sqlite3.Connection):
             _check_slow_query(sql, t0)
 
     def executemany(self, sql, *args, **kwargs):  # type: ignore[override]
+        """Timed override of ``sqlite3.Connection.executemany``. Same
+        wrapping shape as :meth:`execute` — the bulk-INSERT path used
+        by every sampler's `_persist_tick` flows through here."""
         t0 = time.perf_counter()
         try:
             return super().executemany(sql, *args, **kwargs)
@@ -375,6 +471,25 @@ class _TimedConnection(sqlite3.Connection):
 _SETTINGS_KV_CACHE: dict = {}
 _SETTINGS_KV_CACHE_TS = 0.0
 _SETTINGS_KV_CACHE_TTL = 3.0
+# Refill mutex — single-flight guard around the cache reload so that
+# N concurrent cache-miss callers don't all open N parallel SQLite
+# connections that then queue on the file lock. Pre-fix: when the
+# TTL expired during a hot moment (sampler tick + gather + several
+# admin polls), every reader would hit `get_setting`, find the cache
+# expired, and call `db_conn()`. With SQLite's single-writer model
+# and a sampler holding the write lock, each connection-open's first
+# `PRAGMA busy_timeout=2000` waited 100ms+ for the lock — surfacing
+# as the linear-growth "slow_query" storm operators saw in Admin →
+# Logs (101.1ms, 104.3ms, 107.3ms, ... each ~3ms longer because each
+# caller waited one slot longer in the queue). Now: only the first
+# caller refills the cache; subsequent callers wait briefly on this
+# `threading.Lock` (held microseconds for the dict swap; milliseconds
+# at worst for the SELECT) AND read the now-warm cache when they
+# acquire. ONE connection opened per refill instead of N. Idiomatic
+# single-flight pattern for read-through caches.
+import threading as _threading  # noqa: E402,PLC0415
+
+_SETTINGS_KV_CACHE_LOCK = _threading.Lock()
 
 
 def _invalidate_settings_cache() -> None:
@@ -388,7 +503,11 @@ def get_setting(key: str, default: str = "") -> str:
 
     Served from the process-level read-through cache (see
     ``_SETTINGS_KV_CACHE``); reloads the whole (small) settings table when the
-    cache is empty or older than the TTL.
+    cache is empty or older than the TTL. The reload is wrapped in
+    ``_SETTINGS_KV_CACHE_LOCK`` so concurrent cache-miss callers share ONE
+    refill instead of opening N parallel connections (which would queue on
+    SQLite's writer lock during a sampler tick and surface as the
+    slow-query storm operators saw pre-fix).
     """
     global _SETTINGS_KV_CACHE, _SETTINGS_KV_CACHE_TS
     # Multi-field-Save batch buffer wins for read-after-write inside the
@@ -399,10 +518,18 @@ def get_setting(key: str, default: str = "") -> str:
         return _settings_write_buffer[0][key]
     now = time.monotonic()
     if not _SETTINGS_KV_CACHE_TS or (now - _SETTINGS_KV_CACHE_TS) >= _SETTINGS_KV_CACHE_TTL:
-        with db_conn() as c:
-            rows = c.execute("SELECT key, value FROM settings").fetchall()
-        _SETTINGS_KV_CACHE = {r["key"]: r["value"] for r in rows}
-        _SETTINGS_KV_CACHE_TS = now
+        # Single-flight refill — N concurrent cache-miss callers share ONE
+        # connection-open + SELECT instead of opening N parallel connections
+        # that all queue on SQLite's writer lock. Inside the lock, re-check
+        # the TS so callers that lost the lock race read the now-warm cache
+        # (someone else just refilled it) instead of refilling again.
+        with _SETTINGS_KV_CACHE_LOCK:
+            now2 = time.monotonic()
+            if not _SETTINGS_KV_CACHE_TS or (now2 - _SETTINGS_KV_CACHE_TS) >= _SETTINGS_KV_CACHE_TTL:
+                with db_conn() as c:
+                    rows = c.execute("SELECT key, value FROM settings").fetchall()
+                _SETTINGS_KV_CACHE = {r["key"]: r["value"] for r in rows}
+                _SETTINGS_KV_CACHE_TS = now2
     return _SETTINGS_KV_CACHE.get(key, default)
 
 
@@ -429,8 +556,8 @@ def set_setting(key: str, value: str) -> None:
     # swarm autoheal cooldown anchors) unaffected even if they race the
     # admin-save handler's `await`s. See `_settings_write_buffer`.
     if (_settings_write_buffer[0] is not None
-            and key != _SETTINGS_VERSION_KEY
-            and key not in _SETTINGS_VERSION_EXCLUDED):
+        and key != _SETTINGS_VERSION_KEY
+        and key not in _SETTINGS_VERSION_EXCLUDED):
         _settings_write_buffer[0][key] = value
         # Keep the read-through cache coherent so a same-request get_setting
         # returns the buffered value through the cache path too (the buffer
@@ -689,7 +816,6 @@ def active_host_stats_providers() -> set[str]:
 
 from typing import Iterator
 
-
 # cache the PARSED hosts_config alongside the cached settings string.
 # get_setting(HOSTS_CONFIG) is now a cheap dict lookup, but every
 # curated-host helper still ran json.loads() on the full (tens-of-KB on a large
@@ -846,7 +972,7 @@ def curated_ping_hosts() -> list[dict]:
         _ssh_raw = row.get("ssh")
         ssh_cfg: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
         # Resolution chain MUST consult the canonical `address` field
-        # FIRST per the address-fallback contract documented in CLAUDE.md:
+        # FIRST per the address-fallback contract:
         # `address → ssh.fqdn → ssh.host → SKIP`. Pre-fix this skipped
         # `address` entirely, so a host that had `address: web01.example.com`
         # but no ssh sub-dict fell through to the bare `id` (`web01`), which
