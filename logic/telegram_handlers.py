@@ -230,6 +230,41 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         )
         _tl._WARNED_MISSING_CATS.update(new_warns)
 
+    # Resolve the sender's identity so we can curate the menu:
+    #   - is_linked: True when the sender's telegram_user_id maps to
+    #     an OmniGrid user (via `ui_prefs.telegram_link_*`).
+    #   - is_admin: True when that user's role is "admin".
+    # Locked-command markers (🔓) are HIDDEN for linked users —
+    # those operators already have access to everything they're
+    # allowed to run, so the "open vs gated" distinction adds noise
+    # rather than clarity. The trailing 🔓-legend paragraph is
+    # likewise omitted when the sender is linked.
+    sender_id = (msg.get("from") or {}).get("id") if isinstance(msg, dict) else None
+    linked_user = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    user_role = _tl._lookup_user_role(linked_user) if linked_user else None
+    is_linked = bool(linked_user)
+    is_admin = (user_role == "admin")
+
+    # Weather-provider gate: when the weather feature is disabled
+    # OR not configured (no key for WeatherAPI / master toggle off
+    # for Open-Meteo) the /weather and /moon commands have nothing
+    # to show and just produce "configure it" error messages on
+    # invocation. Skip them entirely from /help in that case so
+    # the menu stays accurate to what the operator can actually
+    # use. When WeatherAPI is the active provider the "(requires
+    # WeatherAPI.com provider)" qualifier on /moon's description
+    # is also redundant — the requirement is met — so strip it.
+    try:
+        from logic import weather as _weather
+        weather_enabled = bool(_weather.is_enabled())
+        weather_has_moon = bool(_weather.supports_moon())
+    except (ImportError, AttributeError):
+        # `logic.weather` missing / API renamed: treat as unconfigured
+        # so weather commands hide rather than render a misleading entry.
+        weather_enabled = False
+        weather_has_moon = False
+    _WEATHER_GATED = {"/weather", "/moon"}
+
     # First pass: group commands by handler (dedup aliases). Records
     # the FIRST occurrence as the primary for that handler — subsequent
     # entries become aliases regardless of `hidden`.
@@ -238,6 +273,17 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     for name, meta in _tl._COMMANDS.items():
         handler = meta.get("handler")
         if handler is None:
+            continue
+        # Weather-provider curation: drop /weather + /moon when the
+        # feature is fully disabled / unconfigured; drop /moon
+        # specifically when the active provider doesn't supply
+        # moon data (Open-Meteo). Aliases for the same handler
+        # follow the primary command's verdict via the
+        # handler-grouping below, so this gate only needs to
+        # match the primary name.
+        if not weather_enabled and name in _WEATHER_GATED:
+            continue
+        if name == "/moon" and not weather_has_moon:
             continue
         existing = handler_to_group.get(handler)
         if existing is None:
@@ -306,15 +352,23 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         # need a link, so an unmapped first-timer can skip gated
         # categories at a glance.
         cat_groups = by_cat[cat]
-        open_count = sum(
-            1 for g in cat_groups if g.get("primary_name") in _tl._OPEN_COMMANDS
-        )
-        if open_count == len(cat_groups):
-            heading_suffix = " <i>(no link required)</i>"
-        elif open_count == 0:
-            heading_suffix = " <i>(/link required)</i>"
+        # Linked users have access to everything they're allowed to
+        # run, so the per-category "X of Y open" suffix is noise.
+        # Only render the suffix for unmapped senders, where the
+        # open / gated distinction actually drives "which commands
+        # can I try right now".
+        if is_linked:
+            heading_suffix = ""
         else:
-            heading_suffix = f" <i>({open_count} of {len(cat_groups)} open)</i>"
+            open_count = sum(
+                1 for g in cat_groups if g.get("primary_name") in _tl._OPEN_COMMANDS
+            )
+            if open_count == len(cat_groups):
+                heading_suffix = " <i>(no link required)</i>"
+            elif open_count == 0:
+                heading_suffix = " <i>(/link required)</i>"
+            else:
+                heading_suffix = f" <i>({open_count} of {len(cat_groups)} open)</i>"
         lines.append(f"<b>{_listener()._escape(heading)}</b>{heading_suffix}")
         for g in cat_groups:
             primary_meta = g["primary"]
@@ -327,7 +381,16 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             # same set `_process_update` consults at dispatch time), so
             # adding / removing an open command is a one-line edit
             # that propagates to both the gate AND the help menu.
-            open_marker = "🔓 " if primary_name in _tl._OPEN_COMMANDS else ""
+            #
+            # HIDDEN for linked users — once the sender is mapped to an
+            # OmniGrid account, the "open vs gated" distinction is
+            # meaningless (they have access to everything they're
+            # allowed to run). Suppressing the marker removes visual
+            # noise for the most common operator case.
+            if is_linked:
+                open_marker = ""
+            else:
+                open_marker = "🔓 " if primary_name in _tl._OPEN_COMMANDS else ""
             if aliases:
                 alias_text = ", ".join(_listener()._escape(a) for a in aliases)
                 head = f"  {open_marker}<b>{usage}</b> <i>(aliases: {alias_text})</i>"
@@ -340,6 +403,14 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             # chat. Un-escape FIRST, then re-escape so the round-trip
             # collapses to a single `&amp;` regardless of source state.
             _raw_desc = (primary_meta.get("description") or "").replace("&amp;", "&")
+            # Strip the "(requires WeatherAPI.com provider)" qualifier
+            # from /moon's description when WeatherAPI IS the active
+            # provider — the requirement is already met, so showing
+            # it is redundant noise.
+            if primary_name == "/moon" and weather_has_moon:
+                _raw_desc = _raw_desc.replace(
+                    " (requires WeatherAPI.com provider)", ""
+                )
             description = _listener()._escape(_raw_desc)
             if description:
                 lines.append(f"{head} — {description}")
@@ -347,16 +418,36 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 lines.append(head)
         lines.append("")  # blank line between categories
 
-    lines.append(
-        "<i>🔓 = available without /link (everything else needs your "
-        "Telegram account mapped to an OmniGrid user). 🎯 Targets "
-        "resolve by IP, host id, label, or asset short-name. "
-        "⚠️ Destructive commands (e.g. /restart) require a typed "
-        "confirm step unless 'Allow destructive Telegram commands' "
-        "is enabled in Admin. 💬 Any non-slash text is routed through "
-        "the AI palette for a conversational reply — also gated on "
-        "/link.</i>"
-    )
+    # Trailing legend — the 🔓 paragraph is for unmapped senders
+    # ONLY (linked users already know they have access). Linked
+    # users see a shorter footer covering the rest of the
+    # operationally-relevant context (targets, destructive-gate,
+    # AI fallback).
+    if is_linked:
+        admin_note = (
+            " You're signed in as <b>admin</b>." if is_admin
+            else " You're signed in with <b>read-only</b> access "
+                 "(write operations will decline)."
+        )
+        lines.append(
+            "<i>🎯 Targets resolve by IP, host id, label, or asset "
+            "short-name. ⚠️ Destructive commands (e.g. /restart) "
+            "require a typed confirm step unless 'Allow destructive "
+            "Telegram commands' is enabled in Admin. 💬 Any non-slash "
+            "text is routed through the AI palette for a "
+            f"conversational reply.{admin_note}</i>"
+        )
+    else:
+        lines.append(
+            "<i>🔓 = available without /link (everything else needs your "
+            "Telegram account mapped to an OmniGrid user). 🎯 Targets "
+            "resolve by IP, host id, label, or asset short-name. "
+            "⚠️ Destructive commands (e.g. /restart) require a typed "
+            "confirm step unless 'Allow destructive Telegram commands' "
+            "is enabled in Admin. 💬 Any non-slash text is routed through "
+            "the AI palette for a conversational reply — also gated on "
+            "/link.</i>"
+        )
     await _listener()._send_reply(client, "\n".join(lines))
 
 

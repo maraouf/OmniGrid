@@ -109,22 +109,44 @@
             x-text="appsProbeAllSummary(app)"></span>
     </header>
     <!-- ============================================================
-         Lazy-render gate — the heavy body (per-host instance list +
-         per-app extras) is gated on `appsCardVisible(group_id)` so
-         only tiles scrolled into view actually mount their chip rows
-         + port pills + sparkline SVGs + per-app extras (Speedtest
-         data fetches, APC SNMP card). The gate is flipped by
-         `_observeAppCard` (IntersectionObserver) on first intersect.
-         Off-screen tiles render the small "..." skeleton below at
-         essentially zero cost so the operator sees the tile header
-         + status pill immediately and the grid scrolls smoothly
-         even with 100+ tiles. Per-tile timing in devtools via
-         `[apps-tile]` console.debug lines. ============================ -->
+         Two-stage lazy-render gate:
+           1. `appsCardVisible(group_id)` flips when the tile enters
+              the viewport (IntersectionObserver via _observeAppCard).
+              Below the gate the off-screen STUB renders — the small
+              instance-count line below.
+           2. `appsCardReady(group_id)` flips one step LATER, when the
+              RAF-paced render queue (`_processAppsTileQueue`) picks
+              the tile. Between visible-and-not-ready, the SKELETON
+              block below renders (shimmer placeholders matching the
+              real body's shape so the layout doesn't shift). Once
+              ready, the real chip / port / sparkline body mounts.
+         The two-stage split is what keeps N simultaneously-becoming-
+         visible tiles from all building their heavy subtrees in the
+         same Alpine flush — the symptom that caused the page hang
+         after every tile's header had painted but BEFORE any stats
+         appeared. One tile per animation frame so the browser gets
+         to paint between mounts. Per-tile timing in devtools via
+         `[apps-tile]` console.debug lines AND container stdout via
+         the matching POST /api/apps/tile-trace diagnostic sink. -->
     <template x-if="!appsCardVisible(app.group_id)">
       <div class="fs-2xs text-[var(--text-faint)] italic mt-1"
            x-text="(app.instance_count || 0) + ' ' + (t('apps.counts.up_suffix') || 'instance(s)')"></div>
     </template>
-    <template x-if="appsCardVisible(app.group_id)">
+    <template x-if="appsCardVisible(app.group_id) && !appsCardReady(app.group_id)">
+      <!-- Body-shape skeleton — mirrors the real chip-list height so
+           swapping in the body once ready doesn't visibly shift the
+           grid row. Three pseudo-rows + a port-pill row, all using
+           the same shimmer animation as the Stacks / Services
+           initial-paint skeletons (see `.skeleton-cell` in
+           static/css/style.css). aria-hidden — the loading state is
+           announced by the parent card's status pill. -->
+      <div class="space-y-1 mt-1" aria-hidden="true">
+        <div class="skeleton-cell short" style="width: 70%"></div>
+        <div class="skeleton-cell short" style="width: 55%"></div>
+        <div class="skeleton-cell bar" style="width: 80%"></div>
+      </div>
+    </template>
+    <template x-if="appsCardReady(app.group_id)">
       <div>
         <!-- Per-host instance list — each row in a subtle row-card with
              hover background so operators get a precise hit-target signal

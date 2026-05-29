@@ -37,7 +37,7 @@ import json
 import re
 import sqlite3
 import time
-from typing import Any, Iterable, Optional, cast
+from typing import Any, Iterable, Optional
 from urllib.parse import urlparse
 
 from logic.db import db_conn, iter_curated_hosts
@@ -1223,31 +1223,30 @@ def seed_builtins(force: bool = False) -> int:
             # update_catalog_entry), so customisations are never clobbered.
             updated = 0
             for tpl in _BUILTIN:
-                row = existing_rows.get(tpl["slug"])
-                # row tuple: (slug, default_ports_json, name, icon, description, source)
-                # Early-return on missing row OR non-builtin row. PyCharm's
-                # type narrower doesn't propagate the `is None or ...`
-                # short-circuit through `continue` into subsequent
-                # statements, so bind the post-narrow row to its own name
-                # explicitly so the inline index reads (`row_ok[1]`...)
-                # type-check cleanly.
-                if row is None:
+                row_raw = existing_rows.get(tpl["slug"])
+                # row tuple: (slug, default_ports_json, name, icon,
+                # description, source). `existing_rows.get(...)` is
+                # typed `Any | None`; rebind to a tuple-typed local
+                # after the None-check so the inline `[1]` / `[2]`
+                # / etc. accesses below type-check cleanly without
+                # `cast` (which PyCharm sometimes flags as an
+                # unused import even when the call site uses it).
+                if row_raw is None:
                     continue
-                # `existing_rows.get(...)` returns `Any | None`; the
-                # None-check above guarantees `tuple` here so cast
-                # explicitly. Using `cast` (not a bare annotation)
-                # avoids the "Expected type 'tuple', got 'Any | None'
-                # instead" warning since PyCharm respects `cast` as
-                # an explicit type override.
-                row_ok = cast(tuple, row)
-                if (row_ok[5] or "") != "builtin":
+                # `tuple(...)` needs an Iterable — PyCharm still sees
+                # `row_raw` as `Any | None` post-narrow. Bind through
+                # an `Any`-typed shim so the constructor call type-
+                # checks; sqlite3.Row tuples ARE iterable at runtime.
+                _src: Any = row_raw
+                row: tuple = tuple(_src)
+                if (row[5] or "") != "builtin":
                     continue
                 want_ports = json.dumps(_coerce_ports(tpl.get("default_ports") or []))
                 want_name = tpl["name"]
                 want_icon = tpl.get("icon") or tpl["slug"]
                 want_desc = tpl.get("description") or ""
-                if (row_ok[1] == want_ports and row_ok[2] == want_name
-                    and row_ok[3] == want_icon and row_ok[4] == want_desc):
+                if (row[1] == want_ports and row[2] == want_name
+                    and row[3] == want_icon and row[4] == want_desc):
                     continue  # already canonical — nothing to do
                 try:
                     c.execute(
