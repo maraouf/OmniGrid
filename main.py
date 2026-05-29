@@ -2694,7 +2694,14 @@ def _wire_cross_module_underscore_globals() -> None:
         ],
         "main_pkg.settings_routes": [
             ("main_pkg.admin_stats_routes", ["_settings_version_for_payload", "_ai_supported_providers"]),
-            ("main_pkg.apps_routes", ["_sync_host_stats_source"]),
+            # `invalidate_host_provider_cache` has no underscore prefix
+            # so the `from main import *` pattern AT LEAST exposes it
+            # (star-import drops underscored names, keeps the rest) —
+            # but settings_routes loads BEFORE apps_routes via the
+            # split chain so the star-import sees nothing at module
+            # import time. Wire it explicitly so api_set_settings can
+            # call it without per-site late-imports.
+            ("main_pkg.apps_routes", ["_sync_host_stats_source", "invalidate_host_provider_cache"]),
             ("main_pkg.hosts_routes", ["_slugify_action"]),
         ],
         "main_pkg.users_routes": [

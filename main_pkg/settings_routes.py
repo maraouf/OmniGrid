@@ -1878,7 +1878,17 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         "service_probe_enabled",
     }
     if _host_provider_fields & set(s.model_dump(exclude_unset=True).keys()):
-        invalidate_host_provider_cache()
+        # Late import — the TYPE_CHECKING block above only exposes
+        # `invalidate_host_provider_cache` to static type checkers;
+        # at runtime it's NOT in this module's namespace, so a bare
+        # reference here raises NameError on every settings save that
+        # touches a provider field (operator-flagged: "Save failed:
+        # NameError: name 'invalidate_host_provider_cache' is not
+        # defined"). Per CLAUDE.md "STRICT — Cross-module underscore-
+        # name LOAD_GLOBAL leaks" — late-import is the safe pattern
+        # for non-underscore cross-module names too.
+        from main_pkg.apps_routes import invalidate_host_provider_cache as _invalidate
+        _invalidate()
     # Broadcast a settings-changed signal so other tabs can refresh
     # without polling. Self-filter via the originating tab's
     # X-OmniGrid-Client-Id header so this tab doesn't loop the event

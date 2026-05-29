@@ -1861,7 +1861,18 @@ async def api_oidc_callback(request: Request):
     return await oidc.callback(request)
 
 
-def _stamp_test_success(provider: str, result: dict) -> dict:
+def _log_provider_test_start(provider: str, target: str = "") -> None:
+    """Emit a `[provider_test] START provider=X target=Y` line so
+    operators can correlate a Test-button click with subsequent log
+    activity. Pair with `_stamp_test_success` which logs the OK /
+    FAILED outcome line. `target` is the human-recognisable
+    destination (url / hostname / IP / chat_id) — pass empty when
+    the endpoint hasn't validated input yet."""
+    _t = f" target={target!r}" if target else ""
+    print(f"[provider_test] START provider={provider!r}{_t}")
+
+
+def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
     """Stamp `last_test_success_<provider>` in the settings KV when the
     test result reports ok=True. Returns the result dict unchanged so
     handlers can use it as `return _stamp_test_success("portainer",
@@ -1872,7 +1883,30 @@ def _stamp_test_success(provider: str, result: dict) -> dict:
     Surfaced back to the SPA via `/api/me`'s `client_config.last_test_success`
     block. The stamped timestamp is epoch seconds at the moment the
     success was recorded.
+
+    ALSO logs the test outcome via the `[provider_test]` family so
+    operators can pinpoint which provider's Test-button click failed
+    + what the failure detail was. `warning:` token on failure routes
+    the line into the WARN bucket (per logic/logs.py:_severity_for);
+    success goes to INFO. `target` is an optional context string
+    (url / hostname / chat_id) — empty falls through cleanly.
     """
+    # Outcome log line — fires for BOTH success and failure shapes
+    # so operators see every Test-button outcome in Admin → Logs.
+    if isinstance(result, dict):
+        ok = bool(result.get("ok"))
+        detail = str(result.get("detail") or "")
+        status = result.get("status")
+        _t = f" target={target!r}" if target else ""
+        _s = f" status={status}" if status not in (None, "", 0) else ""
+        # Truncate detail in the log — full string still flows in
+        # the JSON response back to the operator's UI.
+        _d = detail[:200] + ("…" if len(detail) > 200 else "")
+        if ok:
+            print(f"[provider_test] OK provider={provider!r}{_t}{_s} detail={_d!r}")
+        else:
+            print(f"[provider_test] warning: FAILED provider={provider!r}"
+                  f"{_t}{_s} detail={_d!r}")
     if not isinstance(result, dict) or not result.get("ok"):
         return result
     try:
@@ -1900,7 +1934,11 @@ async def api_oidc_test(
     verify_tls = body.get("verify_tls")
     if verify_tls is not None:
         verify_tls = bool(verify_tls)
-    return _stamp_test_success("oidc", await oidc.test_discovery(issuer, verify_tls=verify_tls))
+    _log_provider_test_start("oidc", target=issuer or "(unset)")
+    return _stamp_test_success(
+        "oidc", await oidc.test_discovery(issuer, verify_tls=verify_tls),
+        target=issuer,
+    )
 
 
 @app.post("/api/portainer/test")
@@ -1916,6 +1954,7 @@ async def api_portainer_test(
     body = await request.json()
     url = (body.get("url") or "").strip().rstrip("/")
     verify_tls = bool(body.get("verify_tls", True))
+    _log_provider_test_start("portainer", target=url or "(unset)")
     # Portainer's API key isn't in the `settings` table — it lives in
     # the Portainer-specific settings dict — so this one keeps a
     # purpose-built fallback. Every other test endpoint below uses
@@ -1924,7 +1963,10 @@ async def api_portainer_test(
     if not api_key:
         api_key = str(_portainer.get_portainer_settings().get("portainer_api_key") or "")
     if not url or not api_key:
-        return {"ok": False, "status": 0, "detail": "URL and API key are both required"}
+        return _stamp_test_success("portainer", {
+            "ok": False, "status": 0,
+            "detail": "URL and API key are both required",
+        }, target=url or "(unset)")
     # Endpoint id: probe `/api/endpoints/{id}` after
     # /api/status to surface a misconfigured endpoint id at Test time
     # rather than have it 404 on the next gather. Falls back to the
@@ -1936,8 +1978,10 @@ async def api_portainer_test(
     try:
         endpoint_id = int(raw_eid)
     except (TypeError, ValueError):
-        return {"ok": False, "status": 0,
-                "detail": f"endpoint_id must be an integer, got {raw_eid!r}"}
+        return _stamp_test_success("portainer", {
+            "ok": False, "status": 0,
+            "detail": f"endpoint_id must be an integer, got {raw_eid!r}",
+        }, target=url)
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient(verify=verify_tls, timeout=10.0) as client:
@@ -1949,8 +1993,10 @@ async def api_portainer_test(
                 # "Portainer rejected the credentials (HTTP 401 — ...)"
                 # instead of a bare body dump.
                 raw = f"HTTP {r.status_code}: {r.text[:200]}"
-                return {"ok": False, "status": r.status_code,
-                        "detail": _humanise_probe_error(raw, "Portainer")}
+                return _stamp_test_success("portainer", {
+                    "ok": False, "status": r.status_code,
+                    "detail": _humanise_probe_error(raw, "Portainer"),
+                }, target=url)
             version = ""
             try:
                 data = r.json()
@@ -1973,25 +2019,31 @@ async def api_portainer_test(
                 "ok": True, "status": 200,
                 "detail": f"{prefix}, endpoint {name} reachable",
                 "endpoint_id": endpoint_id,
-            })
+            }, target=url)
         if ep.status_code == 404:
             # Specific Portainer-shaped message — keep the bespoke copy
             # rather than humanising. Operators recognise this exact
             # phrasing from the related fix.
-            return {"ok": False, "status": 404,
-                    "detail": f"endpoint {endpoint_id} not found on this Portainer",
-                    "endpoint_id": endpoint_id}
+            return _stamp_test_success("portainer", {
+                "ok": False, "status": 404,
+                "detail": f"endpoint {endpoint_id} not found on this Portainer",
+                "endpoint_id": endpoint_id,
+            }, target=url)
         raw = f"endpoint probe HTTP {ep.status_code}: {ep.text[:200]}"
-        return {"ok": False, "status": ep.status_code,
-                "detail": _humanise_probe_error(raw, "Portainer"),
-                "endpoint_id": endpoint_id}
+        return _stamp_test_success("portainer", {
+            "ok": False, "status": ep.status_code,
+            "detail": _humanise_probe_error(raw, "Portainer"),
+            "endpoint_id": endpoint_id,
+        }, target=url)
     except Exception as e:
         # Network-level failures (DNS / refused / TLS / timeout) are
         # the cases the humaniser was designed for — let them flow
         # through it instead of surfacing the raw exception repr.
         raw = f"{type(e).__name__}: {e}"
-        return {"ok": False, "status": 0,
-                "detail": _humanise_probe_error(raw, "Portainer")}
+        return _stamp_test_success("portainer", {
+            "ok": False, "status": 0,
+            "detail": _humanise_probe_error(raw, "Portainer"),
+        }, target=url)
 
 
 @app.post("/api/pulse/test")
@@ -2008,8 +2060,12 @@ async def api_pulse_test(
     url = _resolve_field(body, "url", "pulse_url").rstrip("/")
     token = _resolve_field(body, "token", "pulse_token")
     verify_tls = bool(body.get("verify_tls", True))
+    _log_provider_test_start("pulse", target=url or "(unset)")
     if not url or not token:
-        return {"ok": False, "detail": "URL and API token are both required"}
+        return _stamp_test_success("pulse", {
+            "ok": False,
+            "detail": "URL and API token are both required",
+        }, target=url or "(unset)")
     result = await _pulse.probe_pulse(
         url, token, verify_tls=verify_tls, timeout=10.0,
     )
@@ -2020,7 +2076,7 @@ async def api_pulse_test(
         item_plural="node(s)",
         count_key="node_count",
         items_key="nodes",
-    ))
+    ), target=url)
 
 
 @app.post("/api/webmin/test")
@@ -2040,9 +2096,12 @@ async def api_webmin_test(
     user = _resolve_field(body, "user", "webmin_user")
     password = _resolve_field(body, "password", "webmin_password")
     verify_tls = bool(body.get("verify_tls", False))
+    _log_provider_test_start("webmin", target=url or "(unset)")
     if not url or not user or not password:
-        return {"ok": False,
-                "detail": "URL, user and password are all required"}
+        return _stamp_test_success("webmin", {
+            "ok": False,
+            "detail": "URL, user and password are all required",
+        }, target=url or "(unset)")
     result = await _webmin.probe_webmin(
         url, user, password, verify_tls=verify_tls, timeout=10.0,
     )
@@ -2050,13 +2109,17 @@ async def api_webmin_test(
         # follow-up: route Webmin's verbatim probe error
         # through the humaniser too. Common Webmin failure modes (auth
         # cool-down / module timeout / TLS handshake) all map cleanly.
-        return {"ok": False,
-                "detail": _humanise_probe_error(result["error"], "Webmin")}
+        return _stamp_test_success("webmin", {
+            "ok": False,
+            "detail": _humanise_probe_error(result["error"], "Webmin"),
+        }, target=url)
     hosts = result.get("hosts") or {}
     if not hosts:
-        return {"ok": False,
-                "detail": "No host_key resolved — Webmin responded "
-                          "but couldn't extract a hostname"}
+        return _stamp_test_success("webmin", {
+            "ok": False,
+            "detail": "No host_key resolved — Webmin responded "
+                      "but couldn't extract a hostname",
+        }, target=url)
     host_key = next(iter(hosts))
     stats = hosts[host_key]
     pending = stats.get("host_updates_pending") or 0
@@ -2074,7 +2137,7 @@ async def api_webmin_test(
     return _stamp_test_success("webmin", {
         "ok": True, "detail": detail, "host_key": host_key,
         "partial_errors": partial,
-    })
+    }, target=url)
 
 
 @app.post("/api/beszel/test")
@@ -2094,8 +2157,12 @@ async def api_beszel_test(
     identity = _resolve_field(body, "identity", "beszel_identity")
     password = _resolve_field(body, "password", "beszel_password")
     verify_tls = bool(body.get("verify_tls", True))
+    _log_provider_test_start("beszel", target=hub_url or "(unset)")
     if not hub_url or not identity or not password:
-        return {"ok": False, "detail": "Hub URL, identity and password are all required"}
+        return _stamp_test_success("beszel", {
+            "ok": False,
+            "detail": "Hub URL, identity and password are all required",
+        }, target=hub_url or "(unset)")
     result = await _beszel.probe_hub(
         hub_url, identity, password, verify_tls=verify_tls, timeout=10.0,
     )
@@ -2110,7 +2177,7 @@ async def api_beszel_test(
         item_plural="system(s)",
         count_key="system_count",
         items_key="systems",
-    ))
+    ), target=hub_url)
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
@@ -2189,16 +2256,26 @@ async def api_telegram_test(
         thread_id = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     else:
         thread_id = str(thread_id_raw).strip()
+    # `target` for the log = chat_id (operator-recognisable; the bot
+    # token is a secret + bot identity is constant across all chats).
+    _tg_target = f"chat={chat_id}" if chat_id else "(no chat_id)"
+    if thread_id:
+        _tg_target += f"/thread={thread_id}"
+    _log_provider_test_start("telegram", target=_tg_target)
     if not bot_token:
-        return {"ok": False, "detail": "Bot token is required", "status": 0}
+        return _stamp_test_success("telegram", {
+            "ok": False, "detail": "Bot token is required", "status": 0,
+        }, target=_tg_target)
     if not chat_id:
-        return {"ok": False, "detail": "Chat ID is required", "status": 0}
+        return _stamp_test_success("telegram", {
+            "ok": False, "detail": "Chat ID is required", "status": 0,
+        }, target=_tg_target)
     result = await _tg.probe(
         bot_token=bot_token,
         chat_id=chat_id,
         thread_id=thread_id,
     )
-    return _stamp_test_success("telegram", result)
+    return _stamp_test_success("telegram", result, target=_tg_target)
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
@@ -2228,17 +2305,24 @@ async def api_snmp_test(
     from logic import snmp as _snmp
     body = await request.json()
     host = (body.get("host") or "").strip()
+    _log_provider_test_start("snmp", target=host or "(unset)")
     if not host:
-        return {"ok": False, "detail": "host is required"}
+        return _stamp_test_success("snmp", {
+            "ok": False, "detail": "host is required",
+        }, target="(unset)")
     if not _snmp.has_snmp_support():
-        return {"ok": False,
-                "detail": "pysnmp not installed (pip install pysnmp)"}
+        return _stamp_test_success("snmp", {
+            "ok": False,
+            "detail": "pysnmp not installed (pip install pysnmp)",
+        }, target=host)
     community = _resolve_field(body, "community", "snmp_default_community", "public")
     version = (_resolve_field(body, "version", "snmp_default_version", "v2c")
                .strip().lower() or "v2c")
     if version not in ("v2c", "v3"):
-        return {"ok": False,
-                "detail": f"unsupported version {version!r} — use v2c or v3"}
+        return _stamp_test_success("snmp", {
+            "ok": False,
+            "detail": f"unsupported version {version!r} — use v2c or v3",
+        }, target=host)
     try:
         port = int(_resolve_field(body, "port", "snmp_default_port", "161") or "161")
     except (TypeError, ValueError):
@@ -2326,14 +2410,18 @@ async def api_snmp_test(
     )
     diag = {k: result[k] for k in diag_keys if k in result}
     if result.get("error") and not result.get("hosts"):
-        return {"ok": False,
-                "detail": _humanise_probe_error(result["error"], "SNMP"),
-                **diag}
+        return _stamp_test_success("snmp", {
+            "ok": False,
+            "detail": _humanise_probe_error(result["error"], "SNMP"),
+            **diag,
+        }, target=host)
     hosts = result.get("hosts") or {}
     if not hosts:
-        return {"ok": False,
-                "detail": "no parseable response — check community / version / port",
-                **diag}
+        return _stamp_test_success("snmp", {
+            "ok": False,
+            "detail": "no parseable response — check community / version / port",
+            **diag,
+        }, target=host)
     host_key = next(iter(hosts))
     stats = hosts[host_key]
     cpu = stats.get("host_cpu_percent")
@@ -2355,7 +2443,7 @@ async def api_snmp_test(
     return _stamp_test_success("snmp", {
         "ok": True, "detail": " · ".join(detail_bits),
         "host_key": host_key, **diag,
-    })
+    }, target=host)
 
 
 # ----------------------------------------------------------------------------
@@ -2421,6 +2509,12 @@ async def api_asset_inventory_test(
                 or (get_setting(Settings.ASSET_INVENTORY_AUTH_MODE) or "oauth2")
     if auth_mode not in ("oauth2", "lifetime_token"):
         auth_mode = "oauth2"
+    # The log target is the auth-mode-specific endpoint — for
+    # lifetime_token it's the base_url + the lifetime list path; for
+    # oauth2 it's the token_url. Compute below; default to the mode
+    # name so the START log line always has something useful.
+    _ai_target_for_log = f"mode={auth_mode}"
+    _log_provider_test_start("asset_inventory", target=_ai_target_for_log)
     # honour the `asset_inventory_verify_tls` toggle here too.
     # Body wins (so admins can flip the form's checkbox OFF and Test
     # a self-signed asset API before saving); otherwise the persisted
@@ -2461,8 +2555,10 @@ async def api_asset_inventory_test(
         max_value = _bound(body.get("max_value"), "asset_inventory_max_value")
 
         if not base_url or not lifetime_token:
-            return {"ok": False,
-                    "detail": "base_url and lifetime_token are both required"}
+            return _stamp_test_success("asset_inventory", {
+                "ok": False,
+                "detail": "base_url and lifetime_token are both required",
+            }, target=base_url or "(unset)")
         endpoint = base_url.rstrip("/") + _ai.DEFAULT_LIFETIME_LIST_PATH
         result = await _ai.fetch_assets_lifetime_token(
             endpoint, lifetime_token,
@@ -2475,12 +2571,12 @@ async def api_asset_inventory_test(
             return _stamp_test_success("asset_inventory", {
                 "ok": True,
                 "detail": f"OK — fetched {count} asset(s) from {endpoint}",
-            })
+            }, target=endpoint)
         out = {"ok": False, "detail": result.get("error") or "auth failed"}
         if "error_code" in result:
             out["error_code"] = result["error_code"]
             out["error_params"] = result.get("error_params", {})
-        return out
+        return _stamp_test_success("asset_inventory", out, target=endpoint)
     # Default: OAuth2 client_credentials.
     token_url = (
         (body.get("token_url") or "").strip()
@@ -2496,8 +2592,10 @@ async def api_asset_inventory_test(
     if not client_secret:
         client_secret = get_setting(Settings.ASSET_INVENTORY_CLIENT_SECRET) or ""
     if not token_url or not client_id or not client_secret:
-        return {"ok": False,
-                "detail": "token_url, client_id and client_secret are all required"}
+        return _stamp_test_success("asset_inventory", {
+            "ok": False,
+            "detail": "token_url, client_id and client_secret are all required",
+        }, target=token_url or "(unset)")
     result = await _ai.probe_token(
         token_url, client_id, client_secret, scope=scope, verify_tls=verify_tls,
     )
@@ -2507,8 +2605,10 @@ async def api_asset_inventory_test(
             "ok": True,
             "detail": (f"OK — got {result.get('token_type') or 'Bearer'} token"
                        + (f", expires in {expires_in}s" if expires_in else "")),
-        })
-    return {"ok": False, "detail": result.get("error") or "auth failed"}
+        }, target=token_url)
+    return _stamp_test_success("asset_inventory", {
+        "ok": False, "detail": result.get("error") or "auth failed",
+    }, target=token_url)
 
 
 @app.post("/api/asset-inventory/refresh")

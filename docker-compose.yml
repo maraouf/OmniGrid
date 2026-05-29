@@ -67,7 +67,7 @@ services:
       # the container's own loopback and fail — verified non-issue on
       # this fleet. Same caveat applies to any future deployment that
       # adopts this stack file.
-      - /etc/resolv.conf:/etc/resolv.conf:ro
+      # - /etc/resolv.conf:/etc/resolv.conf:ro
 
     networks:
       - omnigrid
@@ -85,7 +85,7 @@ services:
       # before kill. Pre-fix (8s urllib / 10s docker / 5 retries) flapped on
       # large fleets where the host_baseline tick + gather worker-node
       # ConnectTimeouts coincided with a healthcheck window.
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=20)"]
+      test: [ "CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8088/api/healthz',timeout=20)" ]
       interval: 30s
       timeout: 25s
       retries: 8

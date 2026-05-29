@@ -1430,6 +1430,33 @@ notify_medium_apprise = _notify_medium_apprise
 is_medium_enabled = _is_medium_enabled
 
 
+def _resolve_notify_host_for_log(host_id: str) -> str:
+    """Resolve a host id to its operator-recognisable address via
+    the canonical chain — `address → ssh.fqdn → ssh.host → ""`.
+    Used by the notify-skip log line so operators see WHICH actual
+    host triggered the suppressed notification, not just the bare
+    alias. Best-effort: returns the empty string on any lookup
+    failure (the caller renders just the alias in that case).
+    Lazy import on iter_curated_hosts to dodge the import-time
+    cycle with logic.db. Matches the resolver shape used by
+    host_metrics_sampler._resolve_target_for_log."""
+    try:
+        from logic.db import iter_curated_hosts as _iter
+        for _h in _iter():
+            if (_h.get("id") or "").strip() != host_id:
+                continue
+            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+            return (
+                (_h.get("address") or "").strip()
+                or (_ssh.get("fqdn") or "").strip()
+                or (_ssh.get("host") or "").strip()
+                or ""
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
 async def notify(
     title: str, body: str, status: str = "info", *,
     event: Optional[str] = None,
@@ -1479,13 +1506,23 @@ async def notify(
             # by operator` is ambiguous when 50 hosts are flapping.
             # Resolution order matches the placeholder priority used
             # by the template renderer below: metadata.host →
-            # target_id → (none).
+            # target_id → (none). The host field is then resolved via
+            # the canonical address-fallback chain
+            # (`address → ssh.fqdn → ssh.host → bare id`) so the log
+            # surfaces the OPERATOR-RECOGNISABLE address, not the
+            # short alias. Without this, `host='webserver'` is
+            # ambiguous when the operator has 5 hosts named
+            # `webserver*` with the alias as their bare id.
             _meta = metadata or {}
             _target_bits = []
             if isinstance(_meta, dict):
                 _host = (_meta.get("host") or "").strip()
                 if _host:
-                    _target_bits.append(f"host={_host!r}")
+                    _resolved = _resolve_notify_host_for_log(_host)
+                    if _resolved and _resolved != _host:
+                        _target_bits.append(f"host={_host!r}(target={_resolved!r})")
+                    else:
+                        _target_bits.append(f"host={_host!r}")
                 _provider = (_meta.get("provider") or "").strip()
                 if _provider:
                     _target_bits.append(f"provider={_provider!r}")

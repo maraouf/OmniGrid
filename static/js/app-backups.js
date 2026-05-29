@@ -381,7 +381,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await this.loadTuning();
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');

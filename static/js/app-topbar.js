@@ -167,7 +167,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       // Re-baseline tunables + invalidate the SPA's public-IP
       // cache so the next AI palette call sees the new gate state.
@@ -660,7 +660,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       // Reset the form's secret-input box + clear flag so the next

@@ -507,7 +507,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       this.aiMemoryAddText = '';
       if (typeof this.showToast === 'function') {

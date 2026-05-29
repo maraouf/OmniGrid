@@ -41,6 +41,119 @@ let _intlAmTok;
 let _intlPmTok;
 
 export default {
+  // Extract a human-readable error message from an API response's
+  // `j.detail` field. Handles every shape FastAPI / Pydantic emits:
+  //   string                 → use as-is
+  //   list of {msg, loc, ..} → Pydantic validation errors; join `msg`
+  //                            fields with "; " + prefix loc when present
+  //   plain object           → JSON.stringify (last-resort dump)
+  //   null / undefined       → fall back to `httpStatus` ("HTTP NNN")
+  // Without this, every `throw new Error(j.detail || ...)` site that
+  // received an array/object surfaced as `[object Object]` in the
+  // toast. Operator-visible regression — Pulse Save was the trigger
+  // but every section's save handler had the same shape.
+  // Async sibling of fmtApiError — works directly on a Response
+  // object (not a pre-parsed JSON). Handles three shapes:
+  //   - JSON body with {detail: ...} → routes through fmtApiError
+  //   - HTML body (proxy errors: NPM 504, nginx 502, openresty pages,
+  //     Cloudflare interstitials) → extracts the <title> or first
+  //     meaningful line, prefixes with the HTTP status. The raw HTML
+  //     dump is NEVER surfaced to the operator — it's a multi-screen
+  //     wall of <meta> + <script> + safety-padding comments that
+  //     drowns the actual signal.
+  //   - empty / opaque body → falls back to `HTTP NNN <statusText>`.
+  // Use when the response body may not be JSON (proxy error responses
+  // are the canonical case — NPM returns the openresty 504 HTML even
+  // when the caller asked for JSON). The pre-fix anti-pattern was
+  // `throw new Error(await r.text())` which dumped raw HTML into
+  // every operator-visible toast.
+  async fmtResponseError(r) {
+    if (!r) {
+      return 'Request failed';
+    }
+    const status = r.status;
+    const ct = (r.headers && r.headers.get) ? (r.headers.get('content-type') || '') : '';
+    let bodyText = '';
+    try {
+      bodyText = await r.text();
+    } catch (_) {
+      bodyText = '';
+    }
+    // JSON path — try to parse + route through fmtApiError.
+    if (ct.indexOf('application/json') !== -1 || (bodyText && bodyText.charAt(0) === '{')) {
+      try {
+        const j = JSON.parse(bodyText);
+        return this.fmtApiError(j, status);
+      } catch (_) {
+        // Malformed JSON — fall through to HTML / text path.
+      }
+    }
+    // HTML / proxy-error path. Extract the <title> first (NPM 504,
+    // openresty, nginx 502 / 503 / 504 all set a clear <title>);
+    // fall back to the first <h1> or <center> body; fall back to
+    // a clean "HTTP NNN <statusText>" as a final safety net.
+    if (bodyText) {
+      const looksHtml = ct.indexOf('text/html') !== -1
+        || /^\s*<(?:!doctype\s+html|html|head|body|title|center|h1)\b/i.test(bodyText);
+      if (looksHtml) {
+        const titleMatch = bodyText.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1].trim()) {
+          return `HTTP ${status}: ${titleMatch[1].trim()} (upstream proxy)`;
+        }
+        const h1Match = bodyText.match(/<(?:h1|center)[^>]*>\s*([^<\n]{1,200})/i);
+        if (h1Match && h1Match[1].trim()) {
+          return `HTTP ${status}: ${h1Match[1].trim()}`;
+        }
+        return `HTTP ${status}: ${r.statusText || 'upstream proxy error'}`;
+      }
+      // Plain text — truncate + use as-is.
+      const trimmed = bodyText.trim();
+      if (trimmed) {
+        const short = trimmed.length > 200 ? trimmed.slice(0, 197) + '…' : trimmed;
+        return `HTTP ${status}: ${short}`;
+      }
+    }
+    return `HTTP ${status}${r.statusText ? ': ' + r.statusText : ''}`;
+  },
+  fmtApiError(j, httpStatus) {
+    const detail = (j && typeof j === 'object') ? j.detail : undefined;
+    if (detail == null) {
+      return httpStatus != null ? `HTTP ${httpStatus}` : 'Request failed';
+    }
+    if (typeof detail === 'string') {
+      return detail.trim() || `HTTP ${httpStatus}`;
+    }
+    // Pydantic v2 shape: [{type, loc: [path...], msg, input, ...}, ...]
+    if (Array.isArray(detail)) {
+      const parts = [];
+      for (const e of detail) {
+        if (typeof e === 'string') {
+          parts.push(e);
+          continue;
+        }
+        if (e && typeof e === 'object') {
+          const loc = Array.isArray(e.loc) ? e.loc.filter(x => x !== 'body').join('.') : '';
+          const msg = String(e.msg || e.message || '').trim();
+          if (msg) {
+            parts.push(loc ? `${loc}: ${msg}` : msg);
+          }
+        }
+      }
+      if (parts.length) {
+        return parts.join('; ');
+      }
+    }
+    // Plain object — last-resort serialisation. Bound at 500 chars
+    // so a giant validation payload doesn't blow up the toast.
+    try {
+      const s = JSON.stringify(detail);
+      if (s && s !== '{}') {
+        return s.length > 500 ? s.slice(0, 497) + '…' : s;
+      }
+    } catch (_) {
+    }
+    return httpStatus != null ? `HTTP ${httpStatus}` : 'Request failed';
+  },
   avatarHue() {
     if (!this.me || !this.me.username) {
       return 210;

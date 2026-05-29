@@ -1,7 +1,17 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,JSReusedLocalVariable,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,RedundantLocalVariableJS,JSMissingAwait,JSAsyncFunctionMissingAwait
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSCheckNamingConventionsInspection,UnnecessaryLocalVariableJS
+// Sibling-file canonical noinspection block — same shape as
+// app-admin.js / app-charts.js / app-ai.js / app-stats.js so the
+// suppressed warning classes stay consistent across the SPA. Real
+// bugs (typos / dead assignments / wrong types) are fixed inline,
+// NOT suppressed.
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Portainer connection config (Admin → Portainer).
@@ -51,7 +61,7 @@ export default {
       // Save (no per-checkbox auto-save).
       portainer_enabled: !!this.settings.portainer_enabled,
       portainer_url: (this.portainerForm.url || '').trim(),
-      portainer_endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
+      portainer_endpoint_id: parseInt(String(this.portainerForm.endpoint_id || ''), 10) || 1,
       portainer_verify_tls: !!this.portainerForm.verify_tls,
       // Public URL — folded into this Save button so the operator
       // doesn't have to hit two Save buttons after editing the
@@ -93,8 +103,17 @@ export default {
         continue;
       }
       const n = parseInt(raw, 10);
-      const bounds = (this.tuningBounds || {})[k] || {};
-      if (!Number.isFinite(n) || (bounds.lo != null && n < bounds.lo) || (bounds.hi != null && n > bounds.hi)) {
+      // `tuningEffective` (NOT `tuningBounds`) is the canonical
+      // shape — pre-fix typo'd to `tuningBounds` which doesn't
+      // exist on the component, so the validator silently never
+      // bounds-checked any value (out-of-range tunables would
+      // POST through without front-end rejection; backend's
+      // tuning_int clamp was the only defence). The shape has
+      // `{min, max, default, effective, source}` per tunable.
+      const eff = (this.tuningEffective || {})[k] || {};
+      if (!Number.isFinite(n)
+        || (Number.isFinite(eff.min) && n < eff.min)
+        || (Number.isFinite(eff.max) && n > eff.max)) {
         this.showToast(this.t('toasts.save_failed'), 'error');
         return;
       }
@@ -139,7 +158,7 @@ export default {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           url: (this.portainerForm.url || '').trim(),
-          endpoint_id: parseInt(this.portainerForm.endpoint_id) || 1,
+          endpoint_id: parseInt(String(this.portainerForm.endpoint_id || ''), 10) || 1,
           verify_tls: !!this.portainerForm.verify_tls,
           api_key: this.portainerForm.api_key || '',
         }),
@@ -170,31 +189,26 @@ export default {
   },
   _portainerSnapshot() {
     const f = this.portainerForm || {};
-    const s = this.portainerStatus || {};
-    // Form vs status. api_key is write-only — any typed value (any
-    // non-empty string) is dirty; baseline always has empty api_key.
+    // ONLY the connection-validating fields. The Test endpoint at
+    // /api/portainer/test probes `{url, endpoint_id, verify_tls,
+    // api_key}` against `{base}/api/status` + `{base}/api/endpoints/
+    // {id}`; the `enabled` toggle is the gate that controls whether
+    // we ATTEMPT the probe at all. Anything else (publicUrl,
+    // swarm_autoheal_action, swarm_autoheal_bootstrap_enabled) is
+    // SPA-side UI policy — flipping those between Test + Save
+    // should NOT re-lock Save because the connection itself hasn't
+    // changed. Pre-fix the snapshot folded in autoheal /
+    // autohealBootstrap / publicUrl / portainerStatus fields, which
+    // caused the operator-reported "edit URL → Test → Save still
+    // locked" regression when ANY of those drifted between the two
+    // clicks. api_key is write-only — any typed value (any non-empty
+    // string) is dirty; baseline always has empty api_key.
     return JSON.stringify({
       enabled: !!(this.settings || {}).portainer_enabled,
       url: (f.url || '').trim(),
       endpoint_id: f.endpoint_id || 1,
       verify_tls: !!f.verify_tls,
       api_key: f.api_key ? '<set>' : '',
-      baseEnabled: !!s.enabled,
-      baseUrl: s.url || '',
-      baseEpId: s.endpoint_id || 1,
-      baseVerify: !!s.verify_tls,
-      publicUrl: (this.settings || {}).portainer_public_url || '',
-      basePublic: this._portainerPublicBaseline || '',
-      // Swarm autoheal action lives in the Portainer panel
-      // (the action targets Portainer's agent service, not a
-      // notifications routing concern). Folded into this snapshot
-      // so toggling the dropdown flips the Portainer Save button's
-      // amber ring.
-      autoheal: (this.settings || {}).swarm_autoheal_action || 'notify',
-      // First-boot auto-bootstrap toggle for the default
-      // swarm_agent_health schedule. Folded in alongside the action
-      // selector so toggling either dirties the Portainer panel.
-      autohealBootstrap: !!(this.settings || {}).swarm_autoheal_bootstrap_enabled,
     });
   },
   portainerDirty() {

@@ -615,10 +615,27 @@ async def gather_stats() -> None:
         # list (no per-node ``size=1`` data to read), which is the
         # acceptable trade-off — disk size is secondary; CPU + memory
         # are what the operator reads first.
+        # Track the URL explicitly so the failure log surfaces WHICH
+        # Portainer endpoint timed out — the path + endpoint id alone
+        # are ambiguous when the operator has multiple Portainer
+        # instances in the same fleet OR when DNS is routing to the
+        # wrong manager. Same `target=<url>` convention every other
+        # sampler log line uses for operator-visible probe context.
+        _tasks_path = f"{ep}/tasks"
+        _tasks_target = f"{portainer.PORTAINER_URL.rstrip('/')}{_tasks_path}"
         try:
-            tasks = await portainer.pg(client, f"{ep}/tasks")
+            tasks = await portainer.pg(client, _tasks_path)
         except Exception as e:
-            print(f"[stats] gather_stats: tasks fetch FAILED: {type(e).__name__}: {e}")
+            # Defence-in-depth on empty exception body — ConnectTimeout
+            # often stringifies blank, leaving the log line as
+            # `tasks fetch FAILED: ConnectTimeout:` with nothing
+            # after the colon. Fall back to the class name so the
+            # log carries SOMETHING actionable. Same fix shape as
+            # the host_net_sampler / telegram_listener / registry
+            # auth fetch lines.
+            _err_str = str(e).strip() or e.__class__.__name__
+            print(f"[stats] gather_stats: tasks fetch FAILED — "
+                  f"target={_tasks_target} {type(e).__name__}: {_err_str}")
             tasks = []
         tasks_added = 0
         # Cids known ONLY via the Swarm tasks endpoint (not in the

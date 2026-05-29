@@ -2558,7 +2558,7 @@ export default {
         body: JSON.stringify({[key]: value}),
       });
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       const stateKey = value
         ? 'admin_integrations.toggle_enabled_toast'
@@ -2656,7 +2656,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await this.loadSettings();
       this._perEventBaseline = this._perEventSnapshot();

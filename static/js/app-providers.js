@@ -441,7 +441,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -631,7 +631,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -755,7 +755,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -879,7 +879,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       // Clear the typed-but-not-yet-saved password so the dirty cue
       // resets after a successful save. Matches the global Save's
@@ -1011,7 +1011,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       if (this.settings.pulse_token) {
         this.settings.pulse_token_set = true;
@@ -1162,7 +1162,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -1192,7 +1192,7 @@ export default {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       this.httpProbeTestResult = j;
       if (j && j.ok) {
@@ -1333,7 +1333,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -1462,7 +1462,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
@@ -1617,7 +1617,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       // Refresh settings + tuning baselines so the section's dirty
       // tracker resets cleanly.
@@ -1967,7 +1967,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       // Reload for fresh baselines + tuningForm reset.
       await Promise.all([this.loadSettings(), this.loadTuning()]);
