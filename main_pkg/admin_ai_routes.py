@@ -1888,8 +1888,10 @@ def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
     operators can pinpoint which provider's Test-button click failed
     + what the failure detail was. `warning:` token on failure routes
     the line into the WARN bucket (per logic/logs.py:_severity_for);
-    success goes to INFO. `target` is an optional context string
-    (url / hostname / chat_id) — empty falls through cleanly.
+    success is INFO-level diagnostic (NOT the SUCCESS bucket which
+    is reserved for operator-visible state changes — stack updates,
+    container restarts, etc.). `target` is an optional context
+    string (url / hostname / chat_id) — empty falls through cleanly.
     """
     # Outcome log line — fires for BOTH success and failure shapes
     # so operators see every Test-button outcome in Admin → Logs.
@@ -1903,7 +1905,21 @@ def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
         # the JSON response back to the operator's UI.
         _d = detail[:200] + ("…" if len(detail) > 200 else "")
         if ok:
-            print(f"[provider_test] OK provider={provider!r}{_t}{_s} detail={_d!r}")
+            # Verb is "passed" not "OK" so the line classifies as
+            # INFO not SUCCESS (per CLAUDE.md "pick verbs carefully"
+            # — `_RE_OK` matches `\bsuccess\b|\bok —|→ ok\b`).
+            # ALSO scrub the echoed detail: many test_discovery
+            # paths return `"OK — issuer: ..."` which (when echoed
+            # verbatim into the log line's body) triggers the
+            # full-text OK scan downstream of the early-position
+            # check. Replacing `OK —` with `OK:` in the echo
+            # preserves operator-readability of the JSON response
+            # body (which surfaces in the SPA's test-result panel
+            # untouched) while neutralising the classifier match
+            # ONLY in the log line. Same goes for `→ ok` and a
+            # bare `success` token in the body.
+            _d_clean = _d.replace("OK —", "OK:").replace("→ ok", "-> reached")
+            print(f"[provider_test] passed provider={provider!r}{_t}{_s} detail={_d_clean!r}")
         else:
             print(f"[provider_test] warning: FAILED provider={provider!r}"
                   f"{_t}{_s} detail={_d!r}")

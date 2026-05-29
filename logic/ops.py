@@ -1127,9 +1127,33 @@ class Operation:
 
     def log(self, msg: str, level: str = "info"):
         """Append one event to the live op log + publish an `op:updated`
-        SSE frame so the live panel updates in-place without a poll."""
+        SSE frame so the live panel updates in-place without a poll.
+
+        The printed line's level-prefix is NEUTRALIZED for the
+        persistent-log classifier (per CLAUDE.md "pick verbs
+        carefully" — `_RE_OK` matches `\\bsuccess\\b`). Mapping:
+        info → info, success → step (intra-op step succeeded; the
+        OP'S overall completion still classifies via op.done →
+        history row level), error → error (correctly triggers
+        ERROR), warn → warning (correctly triggers WARN). The SUCCESS
+        bucket is reserved for operator-visible state changes
+        recorded at op-COMPLETION via `persist_history`, not for
+        every internal-step log line within an op.
+        """
         self.events.append({"ts": time.time(), "level": level, "msg": msg})
-        print(f"[op {self.id}] {level}: {msg}")
+        # Map the in-band level token to a non-classifier-triggering
+        # display token so a 'success'-level intra-op event doesn't
+        # pollute the persistent log's SUCCESS bucket. Unknown
+        # levels (caller's free-form string) fall through verbatim.
+        _LEVEL_DISPLAY = {
+            "info": "info",
+            "success": "step",
+            "error": "error",
+            "warn": "warning",
+            "warning": "warning",
+        }
+        _display = _LEVEL_DISPLAY.get(level, level)
+        print(f"[op {self.id}] {_display}: {msg}")
         # SSE — publish a minimal delta. Full op shape is available
         # via /api/ops/{id} if the consumer wants it; the live panel
         # only needs id + status + last-event so it can update the

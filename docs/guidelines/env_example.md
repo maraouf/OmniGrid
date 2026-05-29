@@ -599,6 +599,40 @@ PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
 # PUBLIC_IP_LOOKUP_URL=https://ifconfig.co/json
 PUBLIC_IP_LOOKUP_URL=
 
+# ──────────────────────────────────────────────────────────────────────
+# OG_TRACEMALLOC_FRAMES — diagnostic-ONLY. Default OFF in prod.
+# ──────────────────────────────────────────────────────────────────────
+# When set to 1..100, Python's `tracemalloc.start(N)` runs at lifespan
+# startup so subsequent RuntimeWarnings (e.g. "coroutine was never
+# awaited", "ResourceWarning") carry the actual allocation traceback
+# instead of "Enable tracemalloc to get the object allocation
+# traceback" with no useful pointer.
+#
+# DEFAULT: unset / blank → tracemalloc OFF.
+#
+# WHY DEFAULT-OFF: tracemalloc with any frame depth >=1 adds ~2-3x
+# overhead to every Python allocation (documented Python perf cost;
+# the 25-frame stack walk dominates). On a busy gather + sampler tick
+# + httpx async I/O cycle (millions of allocations/min on a 100+ host
+# fleet) this is enough to wedge the asyncio event loop past the 20s
+# `/api/healthz` Docker healthcheck timeout → Swarm marks unhealthy
+# → SIGKILL → container restart loop. Caught from `docker service ps`
+# showing "task: non-zero exit (137): dockerexec: unhealthy container"
+# with no OOM in dmesg.
+#
+# WHEN TO SET: only during a diagnostic session for a "coroutine was
+# never awaited" / ResourceWarning that you can't trace from the
+# warning text alone. Set to 25 (default frame depth — enough for
+# sampler + scheduler call chains), redeploy, reproduce, capture the
+# warning + allocation traceback, UNSET, redeploy.
+#
+# The async exception handler at `loop.set_exception_handler` stays
+# always-on regardless of this setting — task crashes get a full
+# traceback with zero overhead in the no-exception path.
+#
+# OG_TRACEMALLOC_FRAMES=25
+OG_TRACEMALLOC_FRAMES=
+
 # WeatherAPI.com — supersedes the legacy Open-Meteo client. Provides
 # CURRENT conditions + 7-day forecast + ASTRONOMY (sunrise / sunset /
 # moonrise / moonset / moon phase / moon illumination) in one endpoint.
@@ -1030,6 +1064,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PING_PACKET_INTERVAL_MS`         | Runtime     | `200`                | Inter-probe gap (ms) within one ping RTT measurement. Range 100..2000. |
 | `DOCKERHUB_USER`                  | Optional    | unset                | Docker Hub auth (avoid anonymous rate limits).                                  |
 | `DOCKERHUB_TOKEN`                 | Optional    | unset                | Paired with `DOCKERHUB_USER`.                                                   |
+| `OG_TRACEMALLOC_FRAMES`           | Diagnostic  | unset (OFF)          | `1..100` enables `tracemalloc.start(N)` so RuntimeWarnings carry allocation tracebacks. Default OFF — tracemalloc adds ~2-3x overhead per allocation which wedged the event loop past the 20s healthz timeout on busy fleets, triggering SIGKILL crash-loop. Set ONLY for a debug session, then unset + redeploy. |
 | `SESSION_SECRET`                  | Auth        | auto-generated       | HMAC key for session cookies. Set explicitly in prod.                           |
 | `SESSION_LAST_SEEN_THROTTLE_SECONDS` | Auth     | `60`                 | Min seconds between per-session `last_seen_at` writes (Admin → Sessions). Throttles a per-request DB write that serialized polls against samplers. `0` = every request. Env-only. |
 | `BOOTSTRAP_ADMIN_USER`            | First-boot  | unset                | First-boot-only admin seed.                                                     |

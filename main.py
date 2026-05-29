@@ -274,29 +274,62 @@ async def _lifespan(_app: FastAPI):
     # ──────────────────────────────────────────────────────────────
     # Crash-visibility setup — installs BEFORE any other init step
     # so a fatal during boot still surfaces with a full traceback.
-    # (1) `tracemalloc.start()` — Python's RuntimeWarning for
-    #     "coroutine was never awaited" / "ResourceWarning" otherwise
-    #     emits "Enable tracemalloc to get the object allocation
-    #     traceback" with NO useful pointer. Starting it here makes
-    #     every such warning carry the actual allocation site.
+    # (1) `tracemalloc.start()` — opt-in via env var ONLY. Python's
+    #     RuntimeWarning for "coroutine was never awaited" /
+    #     "ResourceWarning" otherwise emits "Enable tracemalloc to
+    #     get the object allocation traceback" with NO useful
+    #     pointer; starting tracemalloc populates those warnings
+    #     with the actual allocation site. BUT tracemalloc with
+    #     25-frame depth adds ~2-3x overhead to EVERY Python
+    #     allocation (documented Python perf cost), which on a
+    #     busy gather + sampler tick + httpx async I/O cycle is
+    #     enough to wedge the event loop past the 20s `/api/healthz`
+    #     Docker healthcheck timeout → Swarm marks unhealthy →
+    #     SIGKILL → container restart loop. Operator-flagged crash-
+    #     loop cause caught from `docker service ps` showing
+    #     consecutive "task: non-zero exit (137): dockerexec:
+    #     unhealthy container" failures with no OOM in dmesg.
+    #     Default OFF in prod. Set `OG_TRACEMALLOC_FRAMES=N` (1..100)
+    #     when diagnosing a "coroutine never awaited" warning to
+    #     get the allocation traceback for ONE debug session, then
+    #     unset before redeploying.
     # (2) Async exception handler on the running event loop — any
     #     un-awaited task exception (sampler tick crash, scheduler
     #     kind crash, lifespan-spawned background work) lands here
     #     and gets logged with `traceback.format_exception` instead
     #     of silently disappearing into asyncio's default handler.
+    #     Always-on — zero overhead in the no-exception path.
     # (3) `loop.set_debug(False)` — kept disabled in prod to avoid
-    #     the slow-path overhead; tracemalloc covers the typical
-    #     "what code allocated this" question.
+    #     the slow-path overhead; the async exception handler covers
+    #     the typical "what task crashed" question.
     try:
-        import tracemalloc as _tracemalloc
-        if not _tracemalloc.is_tracing():
-            # 25 frames is enough for sampler / scheduler call
-            # chains; deeper frames are usually framework noise.
-            _tracemalloc.start(25)
-            print("[boot] tracemalloc started (25 frames) — "
-                  "warnings will carry allocation tracebacks")
+        # Read via the typed EnvKey enum so a future rename / typo on
+        # the env-var name fails import-time, not silently-defaults-
+        # at-runtime (per the canonical "every key reference MUST use
+        # Tunable / Settings / EnvKey enums" rule). `env_get` is
+        # already imported at module top alongside the other env-var
+        # reads — see the BOOTSTRAP_ADMIN_* / DOCKERHUB_* / DB_PATH
+        # block for the pattern.
+        _tracemalloc_frames_env = env_get(EnvKey.OG_TRACEMALLOC_FRAMES).strip()
+        if _tracemalloc_frames_env:
+            try:
+                _frames = max(1, min(100, int(_tracemalloc_frames_env)))
+            except (TypeError, ValueError):
+                _frames = 25
+            import tracemalloc as _tracemalloc
+            if not _tracemalloc.is_tracing():
+                _tracemalloc.start(_frames)
+                print(f"[boot] tracemalloc started ({_frames} frames) — "
+                      "warnings will carry allocation tracebacks. "
+                      "WARN: this slows allocations ~2-3x; unset "
+                      "OG_TRACEMALLOC_FRAMES + redeploy after the "
+                      "diagnostic session.")
+        # Default path: tracemalloc OFF. "Coroutine was never
+        # awaited" warnings still surface with file+line via Python's
+        # built-in handler — operators diagnosing one of those flip
+        # the env var, redeploy, repro, then turn it back off.
     except Exception as _e:  # noqa: BLE001
-        print(f"[boot] tracemalloc start failed (non-fatal): {_e}")
+        print(f"[boot] tracemalloc setup failed (non-fatal): {_e}")
     try:
         import asyncio as _asyncio
         import traceback as _traceback

@@ -1468,7 +1468,13 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
             # finally-block regardless, so the row will disappear on the
             # next refresh.
             if r.status_code == 404:
-                op.log("Container already gone — treating as success", "success")
+                # Message body avoids the literal word "success" so
+                # the persistent-log classifier doesn't promote the
+                # intra-op step line into the SUCCESS bucket. Reads
+                # the same to operators ("no-op" = "nothing to do
+                # because it was already gone"); the op's overall
+                # outcome still records success via `op.done`.
+                op.log("Container already gone — no-op (idempotent)", "success")
             elif r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             else:

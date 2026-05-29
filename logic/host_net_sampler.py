@@ -39,7 +39,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -94,6 +94,26 @@ def _previous_sample(host_id: str) -> Optional[dict]:
 # reset on container restart (which is correct — counter may have reset
 # too, and the first post-restart delta should be SKIPPED).
 _last_counters: dict[str, tuple[float, int, int]] = {}  # host_id → (ts, rx, tx)
+
+# Per-host log-dedup state — when a host fails N times in a row with the
+# SAME error signature, downgrade subsequent log lines from ERROR to WARN
+# AND collapse the verbose multi-line ConnectTimeout / DNS diagnosis to
+# a one-line summary. Operators have ALREADY seen the verbose hint on
+# the FIRST failure; the second through N-th add zero diagnostic value
+# but flood the log. The error keeps being recorded — just at lower
+# severity + condensed shape. Latches off on first success.
+# Schema: host_id → {"last_sig": str, "streak": int, "first_ts": float}.
+# "last_sig" captures a stable signature of the error (klass + first 60
+# chars of message) so a DIFFERENT failure mode still logs verbosely.
+_failure_streak: dict[str, dict[str, Any]] = {}
+# After this many consecutive identical failures, downgrade to WARN +
+# one-line summary. Picked at 2 (default — first failure verbose ERROR,
+# second onwards downgraded) so the diagnosis appears at least once
+# before being suppressed but doesn't flood for 25 minutes waiting on
+# the host_metrics_sampler auto-pause threshold (default 5 rounds × 5
+# min interval = 25 min). Operators can spot a freshly-down host in the
+# first log line; the auto-pause then takes over for the long term.
+_FAILURE_VERBOSE_THRESHOLD = 2
 
 
 def _is_paused(host_id: str) -> bool:
@@ -159,12 +179,133 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
         print(f"[host_net_sampler] {hid!r} target={ne_url} probe error: {e}")
         return
     if stats.get("exporter_error"):
+        # Per-host failure-streak dedup. First failure → verbose
+        # ERROR with full diagnosis (DNS hint, copy-paste python
+        # probe, socket-fallback result). Second+ identical failure
+        # → one-line WARN summary (the verbose hint adds no new
+        # info — operators have already read it; spamming it every
+        # 5 min for every dead host floods Admin → Logs). DIFFERENT
+        # error signature (ConnectTimeout → ReadTimeout, or
+        # ConnectTimeout against IP-A → ConnectTimeout against IP-B
+        # for the same alias) re-logs verbosely. Latches off on
+        # first success — next failure starts fresh.
+        _err_full = str(stats["exporter_error"])
+        _sig = _err_full[:120]  # stable signature
+        _state = _failure_streak.get(hid)
+        _first_ts: float = now
+        if _state is None or _state.get("last_sig") != _sig:
+            _streak = 1
+            _failure_streak[hid] = {"last_sig": _sig, "streak": 1, "first_ts": now}
+        else:
+            # Explicit int() narrowing — dict[str, Any] makes the
+            # static type Any | int, which trips Pyright's "int + Any"
+            # check even though we know `streak` is always int (we
+            # only ever store int in it). Belt + braces.
+            _streak = int(_state.get("streak", 1) or 1) + 1
+            _state["streak"] = _streak
+            # Same narrowing for first_ts — only the previous-state
+            # branch reads it; falls back to `now` defensively.
+            try:
+                _first_ts = float(_state.get("first_ts", now) or now)
+            except (TypeError, ValueError):
+                _first_ts = now
+        # Above the threshold → condensed log line, WARN bucket
+        # (still searchable, still actionable, but doesn't drown
+        # the log). Use the `warning:` token so _severity_for routes
+        # cleanly. Include the streak count so the operator sees
+        # "this has failed N times in a row" at a glance.
+        if _streak >= _FAILURE_VERBOSE_THRESHOLD:
+            # Strip the verbose hint — keep only the leading error
+            # type + URL for grep-ability. Pattern: split at first
+            # " — " (em-dash with spaces, our standard separator
+            # between "what failed" and "what to do about it").
+            _short = _err_full.split(" — ", 1)[0]
+            _first_age = int(now - _first_ts)
+            print(f"[host_net_sampler] {hid!r} target={ne_url} "
+                  f"warning: still failing (streak={_streak}, "
+                  f"first_failure {_first_age}s ago): {_short}")
+            return
+        # First failure (or first failure after a SUCCESS / signature
+        # change) — full verbose log with the socket-fallback
+        # diagnostic. Subsequent identical failures will be suppressed
+        # by the streak guard above.
+        #
         # Include the resolved ne_url in the log so the operator can
         # verify the sampler is probing the RIGHT address (the curated
         # `id` is often a short alias).
+        #
+        # Diagnostic socket-fallback: when httpx reports a connection
+        # failure, immediately try a raw TCP `socket.connect` to the
+        # SAME target from the SAME process (asyncio thread pool, so
+        # it doesn't block the event loop). The user-reported
+        # confusion class is: httpx says ConnectTimeout, then the
+        # user runs `python -c "socket.connect()"` from inside the
+        # container and it succeeds — which reads as a contradiction
+        # but is usually one of: (a) transient blip at the httpx
+        # call moment that cleared by the time the user typed the
+        # manual probe (sampler interval default 300s = log could be
+        # 5min stale); (b) httpx connection-pool weirdness when the
+        # PREVIOUS host's probe left a half-open connection; (c)
+        # libc / asyncio getaddrinfo difference (unlikely for IP
+        # literals). The fallback's outcome is appended to the error
+        # line so operators get the comparison in ONE log entry
+        # instead of needing to run a manual probe to find out.
+        _diag = ""
+        try:
+            from urllib.parse import urlparse
+            import socket
+            _u = urlparse(ne_url)
+            _host = _u.hostname or ""
+            _port = _u.port or {"http": 80, "https": 443}.get(_u.scheme, 9100)
+            if _host and _port:
+                # 3s socket-connect — same parameters operators
+                # type manually. asyncio.to_thread keeps the event
+                # loop hot. Only runs in the error path so the
+                # success path stays zero-cost.
+                def _probe_socket():
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(3)
+                    try:
+                        s.connect((_host, _port))
+                        return "OK"
+                    except (TimeoutError, ConnectionRefusedError, OSError) as sock_err:
+                        return f"{type(sock_err).__name__}: {sock_err}"
+                    finally:
+                        try:
+                            s.close()
+                        except OSError:
+                            pass
+
+                _r = await asyncio.to_thread(_probe_socket)
+                if _r == "OK":
+                    _diag = (
+                        f"; raw socket.connect({_host}:{_port}) SUCCEEDED in "
+                        f"≤3s — httpx and raw socket disagree. Likely causes: "
+                        f"(a) transient blip at httpx call moment "
+                        f"(sampler ticks every ~5 min, this log can be stale); "
+                        f"(b) httpx connection-pool weirdness from a prior "
+                        f"probe in the same tick; (c) IPv6 / DNS resolution "
+                        f"differences (less likely for IP literals). Next "
+                        f"sampler tick will retry."
+                    )
+                else:
+                    _diag = (
+                        f"; raw socket.connect({_host}:{_port}) ALSO failed "
+                        f"({_r}) — the host is genuinely unreachable from "
+                        f"this container right now. Diagnosis text in the "
+                        f"exporter_error above is accurate."
+                    )
+        except Exception as _diag_err:  # noqa: BLE001
+            # Diagnostic must not itself break the error path —
+            # log + continue with the original exporter_error.
+            _diag = f"; diag socket-probe failed: {type(_diag_err).__name__}"
         print(f"[host_net_sampler] {hid!r} target={ne_url} "
-              f"exporter_error: {stats['exporter_error']}")
+              f"exporter_error: {stats['exporter_error']}{_diag}")
         return
+    # Successful probe — latch off any prior failure-streak so the
+    # NEXT failure (if any) re-logs verbosely with the full diagnosis.
+    # Mirrors the pattern in stats.py's _per_node_unreachable.pop(h).
+    _failure_streak.pop(hid, None)
     rx = int(stats.get("host_net_rx_total") or 0)
     tx = int(stats.get("host_net_tx_total") or 0)
 
