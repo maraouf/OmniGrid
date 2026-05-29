@@ -538,6 +538,78 @@ export default {
   // xterm.js for the viewport (UMD bundles preloaded in <head>).
   // The modal lives at top-level so its WS survives drawer-state
   // transitions; closing drops the socket cleanly.
+  // Lazy-load xterm.js + its addons + stylesheet on first use. xterm
+  // registers wheel + touch handlers without `{passive: true}` because
+  // it needs preventDefault for its custom scrollback behaviour; we
+  // can't change that without forking. The practical mitigation is to
+  // defer the registration until the SSH terminal is actually opened
+  // — so steady-state browsing (Hosts / Apps / Admin) doesn't trip
+  // the Chromium `[Violation] Added non-passive event listener to a
+  // scroll-blocking 'mousewheel' event` warning. Returns a promise
+  // that resolves to `true` once `window.Terminal` is callable; on
+  // failure resolves to `false` (the caller surfaces the same toast
+  // the pre-load path used to surface when CSP blocked the bundle).
+  // Memoized via `window.__ogXtermLoadPromise` so a fast double-click
+  // doesn't fan out two injections.
+  _loadXtermDeps() {
+    if (typeof window.Terminal === 'function'
+      && typeof window.FitAddon === 'object'
+      && typeof window.WebLinksAddon === 'object') {
+      return Promise.resolve(true);
+    }
+    if (window.__ogXtermLoadPromise) {
+      return window.__ogXtermLoadPromise;
+    }
+    const version = (window.__APP_VERSION__ || Date.now());
+    const cssHref = '/node_modules/@xterm/xterm/css/xterm.css?v=' + version;
+    const scripts = [
+      '/node_modules/@xterm/xterm/lib/xterm.js?v=' + version,
+      '/node_modules/@xterm/addon-fit/lib/addon-fit.js?v=' + version,
+      '/node_modules/@xterm/addon-web-links/lib/addon-web-links.js?v=' + version,
+    ];
+    function _loadScript(src) {
+      return new Promise((resolve, reject) => {
+        // Already injected for some reason? Resolve immediately.
+        const found = document.querySelector('script[data-og-xterm-src="' + src + '"]');
+        if (found) {
+          resolve(true);
+          return;
+        }
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = false; // ordering matters — addons depend on xterm.js
+        s.setAttribute('data-og-xterm-src', src);
+        s.onload = () => resolve(true);
+        s.onerror = () => reject(new Error('Failed to load: ' + src));
+        document.head.appendChild(s);
+      });
+    }
+    function _loadCss(href) {
+      if (document.querySelector('link[data-og-xterm-css]')) {
+        return;
+      }
+      const l = document.createElement('link');
+      l.rel = 'stylesheet';
+      l.href = href;
+      l.setAttribute('data-og-xterm-css', '1');
+      document.head.appendChild(l);
+    }
+    _loadCss(cssHref);
+    window.__ogXtermLoadPromise = (async () => {
+      try {
+        // Sequential load: xterm.js MUST finish before its addons
+        // register (they reference window.Terminal at parse time).
+        for (const src of scripts) {
+          await _loadScript(src);
+        }
+        return typeof window.Terminal === 'function';
+      } catch (_e) {
+        return false;
+      }
+    })();
+    return window.__ogXtermLoadPromise;
+  },
+
   openHostTerminal(host) {
     if (!host || !host.id) {
       return;
@@ -548,11 +620,6 @@ export default {
       this.showToast(this.t('hosts_extra_ssh.terminal.not_admin'), 'error');
       return;
     }
-    if (typeof window.Terminal !== 'function') {
-      // xterm.js failed to load (older cached HTML, blocked by CSP, etc.)
-      this.showToast(this.t('hosts_extra_ssh.terminal.xterm_missing'), 'error');
-      return;
-    }
     // Tear down any existing session before opening a new one — prevents
     // resource leaks if the operator switches hosts mid-session.
     this._teardownTerminalSession();
@@ -561,14 +628,27 @@ export default {
     this.terminalCloseReason = '';
     this.terminalState = 'connecting';
     this.terminalModalOpen = true;
-    // $nextTick so x-ref="terminalHost" exists in the DOM.
-    this.$nextTick(() => {
-      try {
-        this._spawnTerminal(host);
-      } catch (e) {
+    // Lazy-load xterm + addons on first use so the steady-state shell
+    // never registers xterm's non-passive wheel handlers. Subsequent
+    // opens resolve immediately via the memoized promise.
+    this._loadXtermDeps().then((ok) => {
+      if (!ok) {
+        // xterm.js failed to load (CSP block, 404, blocked by an
+        // adblocker filter, etc.)
         this.terminalState = 'error';
-        this.terminalCloseReason = (e && e.message) || String(e);
+        this.terminalCloseReason = this.t('hosts_extra_ssh.terminal.xterm_missing') || 'xterm.js failed to load';
+        this.showToast(this.terminalCloseReason, 'error');
+        return;
       }
+      // $nextTick so x-ref="terminalHost" exists in the DOM.
+      this.$nextTick(() => {
+        try {
+          this._spawnTerminal(host);
+        } catch (e) {
+          this.terminalState = 'error';
+          this.terminalCloseReason = (e && e.message) || String(e);
+        }
+      });
     });
   },
   _spawnTerminal(host) {

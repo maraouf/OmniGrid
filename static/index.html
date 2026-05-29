@@ -131,12 +131,24 @@
   <script src="/node_modules/@tailwindcss/browser/dist/index.global.js"></script>
   <script src="/js/alpine-gate.js?v=__APP_VERSION__"></script>
   <script src="/node_modules/sweetalert2/dist/sweetalert2.all.min.js"></script>
-  <!-- xterm.js — interactive SSH terminal modal. UMD bundles
-     expose window.Terminal + window.FitAddon + window.WebLinksAddon. -->
-  <link rel="stylesheet" href="/node_modules/@xterm/xterm/css/xterm.css">
-  <script src="/node_modules/@xterm/xterm/lib/xterm.js"></script>
-  <script src="/node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
-  <script src="/node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <!-- xterm.js — interactive SSH terminal modal. UMD bundles expose
+       window.Terminal + window.FitAddon + window.WebLinksAddon. LAZY-
+       loaded by `openHostTerminal()` in `static/js/app-ssh.js` (which
+       awaits a `_loadXtermDeps()` helper) so the shell load doesn't
+       parse them — eliminates the steady-state Chromium `[Violation]
+       Added non-passive event listener to a scroll-blocking
+       'mousewheel' event` warning (xterm registers wheel + touch
+       handlers without `{passive:true}` because it needs preventDefault
+       to keep its custom scrollback behaviour; we can't change that
+       without forking, so the practical mitigation is to defer the
+       registration until the SSH terminal is actually opened). The CSS
+       file ships in the same lazy chain. -->
+  <!-- xterm script/link tags intentionally absent here. -->
+  <!--suppress JSUnresolvedReference -->
+  <!--suppress HtmlUnknownAttribute -->
+  <!--suppress JSUnresolvedFunction -->
+  <!-- LAZY: xterm + addons loaded on demand by openHostTerminal. -->
+  <!--suppress JSUnusedLocalSymbols -->
   <!-- qrcode-generator — pure-JS QR rendering used by the Profile -> Two-
      factor authentication enrolment flow. UMD bundle exposes
      a global `qrcode(typeNumber, errorCorrectionLevel)` factory. -->
@@ -3551,33 +3563,80 @@
                  :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
                  @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
               <template x-for="item in sec.items" :key="item.uid">
-                <div class="apps-custom-cell min-w-0">
-                  <template x-if="item.kind === 'app' && !appsCustomEditMode">
-                    <template x-for="app in [item.app]" :key="app.group_id">
-                      <!-- INCLUDE: _components/apps-card.html -->
-                    </template>
-                  </template>
-                  <template x-if="item.kind === 'app' && appsCustomEditMode">
-                    <article class="apps-tile" :class="'apps-tile--' + item.app.status" draggable="true"
-                             @dragstart.stop="appsItemDragStart($event, item.uid)"
-                             @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
-                             role="button" tabindex="0"
-                             :aria-label="t('apps.drawer.open_aria', {name: item.app.name})"
-                             @click="openAppDrawer(item.app)"
-                             @keydown.enter="openAppDrawer(item.app)"
-                             @keydown.space.prevent="openAppDrawer(item.app)">
-                      <img :src="iconUrlFor(item.app.icon || item.app.name)" alt="" width="32" height="32"
-                           class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
-                      <span class="apps-tile-name truncate" x-text="item.app.name"></span>
-                      <span class="apps-tile-dot" :title="t('apps.status_' + item.app.status) || item.app.status"></span>
-                    </article>
-                  </template>
-                  <template x-if="item.kind === 'widget'">
-                    <!-- INCLUDE: _components/apps-widget-tile.html -->
-                  </template>
-                  <template x-if="item.kind === 'bookmark'">
-                    <!-- INCLUDE: _components/apps-bookmark-tile.html -->
-                  </template>
+                <!-- apps-custom-cell wraps a flip-capable container.
+                     `apps-card-flip` sets the perspective; the size
+                     class (`apps-card--size-half|normal|double`)
+                     drives grid-span + body-density; the flipped
+                     class toggles via the front-face gear button. -->
+                <div class="apps-custom-cell min-w-0 apps-card-flip"
+                     :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '')">
+                  <div class="apps-card-flip-inner">
+                    <div class="apps-card-face-front">
+                      <!-- Floating gear + edit-mode size-cycle button.
+                           Absolutely positioned over the top-right of
+                           the card; @click.stop so the card's own
+                           click handlers (open drawer / open URL)
+                           don't fire. The size-cycle button only
+                           renders in edit mode — quick toggle for
+                           operators who don't want to flip the card. -->
+                      <div class="apps-card-corner-actions">
+                        <template x-if="appsCustomEditMode">
+                          <button type="button" class="apps-card-size-btn"
+                                  @click.stop="setAppsCardSize(item.uid, null)"
+                                  :title="t('apps.custom.size_cycle_title') || 'Cycle card size (normal → double → half)'"
+                                  :aria-label="t('apps.custom.size_cycle_title') || 'Cycle card size'"
+                                  x-text="appsCardSize(item).slice(0,1).toUpperCase() + appsCardSize(item).slice(1)"></button>
+                        </template>
+                        <button type="button" class="apps-card-gear"
+                                @click.stop="toggleAppsCardFlipped(item.uid)"
+                                :title="t('apps.custom.gear_title') || 'Card settings'"
+                                :aria-label="t('apps.custom.gear_aria') || 'Card settings'"
+                                :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'">
+                          <svg aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+                          </svg>
+                        </button>
+                      </div>
+                      <template x-if="item.kind === 'app' && (!appsCustomEditMode || appsCardSize(item) !== 'half')">
+                        <template x-for="app in [item.app]" :key="app.group_id">
+                          <!-- INCLUDE: _components/apps-card.html -->
+                        </template>
+                      </template>
+                      <template x-if="item.kind === 'app' && appsCustomEditMode && appsCardSize(item) === 'half'">
+                        <!-- Half-size skeleton: title + icon + status
+                             dot only. Drops every body subtree so a
+                             "I want this app in the dashboard but
+                             not the full card" choice renders as a
+                             compact placeholder. Operator can still
+                             click into the app drawer via the @click
+                             handler — the skeleton IS the card. -->
+                        <article class="apps-tile apps-tile--skeleton"
+                                 :class="'apps-tile--' + item.app.status"
+                                 draggable="true"
+                                 @dragstart.stop="appsItemDragStart($event, item.uid)"
+                                 @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
+                                 role="button" tabindex="0"
+                                 :aria-label="t('apps.drawer.open_aria', {name: item.app.name})"
+                                 @click="openAppDrawer(item.app)"
+                                 @keydown.enter="openAppDrawer(item.app)"
+                                 @keydown.space.prevent="openAppDrawer(item.app)">
+                          <img :src="iconUrlFor(item.app.icon || item.app.name)" alt="" width="32" height="32"
+                               class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
+                          <span class="apps-tile-name truncate" x-text="item.app.name"></span>
+                          <span class="apps-tile-dot" :title="t('apps.status_' + item.app.status) || item.app.status"></span>
+                        </article>
+                      </template>
+                      <template x-if="item.kind === 'widget'">
+                        <!-- INCLUDE: _components/apps-widget-tile.html -->
+                      </template>
+                      <template x-if="item.kind === 'bookmark'">
+                        <!-- INCLUDE: _components/apps-bookmark-tile.html -->
+                      </template>
+                    </div>
+                    <div class="apps-card-face-back" x-show="appsCardIsFlipped(item.uid)">
+                      <!-- INCLUDE: _components/apps-card-settings.html -->
+                    </div>
+                  </div>
                 </div>
               </template>
               <div x-show="appsCustomEditMode && !sec.items.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"

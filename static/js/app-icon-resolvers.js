@@ -326,6 +326,17 @@ export default {
         'postfix': 'mail',
         'mailu': 'mail',
         'maddy': 'mail',
+        // Egyptian carriers — e& (formerly Etisalat) + WE (formerly
+        // Telecom Egypt / TE Data) share canonical brand identities
+        // post-rebrand / post-merger. All legacy slugs alias to the
+        // single canonical icon so an operator's stored `icon: "e-and"`
+        // or `icon: "telecom-egypt"` from before the consolidation
+        // still resolves to the live SVG.
+        'e-and': 'etisalat',
+        'eand': 'etisalat',
+        'e&': 'etisalat',
+        'telecom-egypt': 'we',
+        'te-data': 'we',
         'asus-router': 'asus',
         'asus-vpn': 'asus',
         'asuswrt': 'asus',

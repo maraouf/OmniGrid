@@ -1235,7 +1235,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
     "/update": {
         "handler": _cmd_update,
         "usage": "/update [all | <name>] [confirm]",
-        "description": "List items with pending updates (no args), update ONE item by name, or `/update all` to pull-and-recreate every item flagged `update_available`. Same per-row update path the SPA uses; respects the destructive gate (`telegram_allow_destructive` or `confirm` suffix).",
+        "description": "List items with pending updates (no args), update ONE item by name, or `/update all` to pull-and-recreate every item flagged `update_available`.",
         "category": "ops",
         "access": "linked",
     },

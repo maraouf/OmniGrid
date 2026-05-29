@@ -583,10 +583,23 @@ def set_setting(key: str, value: str) -> None:
             "INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
             (key, value),
         )
-        # drop the read-through cache so the next get_setting reloads
-        # (correct read-after-write; the db_conn commits on exit and nothing
-        # runs between here and that commit on the single-threaded event loop).
-        _invalidate_settings_cache()
+        # Update the read-through cache IN PLACE with the new value rather
+        # than invalidating the whole cache. Pre-fix every set_setting call
+        # reset `_SETTINGS_KV_CACHE_TS = 0`, forcing the NEXT get_setting to
+        # re-SELECT every settings row. Background writers (Telegram listener
+        # offset advances on every inbound message, swarm autoheal cooldown
+        # anchors per tick) fire many times per second; each invalidation
+        # cascaded into a fresh DB connection from the first tuning_int caller
+        # afterwards, which queued on SQLite's writer lock and surfaced as the
+        # `_read_raw_tunable:30 sql=PRAGMA busy_timeout=2000` slow-query storm
+        # (operator-reported: streak=3225 in 107s with linear latency growth
+        # from 100ms to 500ms+). In-place update preserves cache freshness AND
+        # avoids the per-write refill, eliminating the storm at its source.
+        # The cache TS is untouched — the existing TTL still refreshes the
+        # cache periodically to catch any drift from out-of-band writes (e.g.
+        # a direct sqlite3 CLI session) without paying the per-write cost.
+        if _SETTINGS_KV_CACHE_TS:
+            _SETTINGS_KV_CACHE[key] = value
         if key == _SETTINGS_VERSION_KEY or key in _SETTINGS_VERSION_EXCLUDED:
             return
         if _settings_version_deferred_count[0] > 0:

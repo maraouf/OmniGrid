@@ -706,7 +706,7 @@ export default {
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          throw new Error(j.detail || ('HTTP ' + r.status));
+          throw new Error(this.fmtApiError(j, r.status));
         }
         this.showToast(this.t('toasts_extra.schedule_created', {name: data.name}), 'success');
       } else if (op === 'update') {
@@ -729,7 +729,7 @@ export default {
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          throw new Error(j.detail || ('HTTP ' + r.status));
+          throw new Error(this.fmtApiError(j, r.status));
         }
         this.showToast(this.t('toasts_extra.schedule_updated', {name: data.name || ('id ' + id)}), 'success');
       } else if (op === 'delete') {
@@ -743,7 +743,7 @@ export default {
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          throw new Error(j.detail || ('HTTP ' + r.status));
+          throw new Error(this.fmtApiError(j, r.status));
         }
         this.showToast(this.t('toasts_extra.schedule_deleted', {name: data.name || ('id ' + id)}), 'success');
       }
@@ -805,7 +805,7 @@ export default {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       if (j.ok) {
         this.showToast(

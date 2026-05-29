@@ -33,7 +33,7 @@
 
 // shared SNMP drawer-chart memo. The :d-binding builders
 // (snmpCpuUsedPctLine / snmpLoadLine / snmpMemArea / snmpThroughputLine +
-// snmpThroughputBpsSeries — some in the sibling app-drawer-bulk-b.js module)
+// snmpThroughputBpsSeries — some in the sibling app-drawer-charts.js module)
 // each walk hostSnmpHistory[hostId].points and route through _snmpPathGapped
 // (which reads _drawerTimeDomain, a Date.now()-drifting window) on EVERY call,
 // and the 1-second hostHistoryNow ticker re-fires them every second the drawer

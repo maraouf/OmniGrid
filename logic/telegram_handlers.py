@@ -265,6 +265,18 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         weather_has_moon = False
     _WEATHER_GATED = {"/weather", "/moon"}
 
+    # Public-IP gate: drop /ip from the help when the operator hasn't
+    # enabled `tuning_public_ip_enabled` (Admin → Public IP). The
+    # command itself stays registered so a /ip dispatch when the
+    # gate is off renders a friendly "configure it first" message —
+    # but listing it under /help is misleading when there's nothing
+    # to show.
+    try:
+        from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
+        public_ip_enabled = bool(_tuning_int(_Tunable.PUBLIC_IP_ENABLED))
+    except (ImportError, AttributeError, KeyError, ValueError, TypeError):
+        public_ip_enabled = False
+
     # First pass: group commands by handler (dedup aliases). Records
     # the FIRST occurrence as the primary for that handler — subsequent
     # entries become aliases regardless of `hidden`.
@@ -284,6 +296,18 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         if not weather_enabled and name in _WEATHER_GATED:
             continue
         if name == "/moon" and not weather_has_moon:
+            continue
+        # Public-IP gate (parallel to the weather curation above).
+        if name == "/ip" and not public_ip_enabled:
+            continue
+        # Linked-user gate: /link is the bootstrap for unmapped
+        # senders ("paste the code from Profile → Telegram to claim
+        # this chat-id"). Once linked, the command is noise — show
+        # nothing to keep the menu accurate to what the operator
+        # would actually run. The handler stays registered so a
+        # /link dispatch from a linked user still responds with the
+        # canonical "already linked" message.
+        if name == "/link" and is_linked:
             continue
         existing = handler_to_group.get(handler)
         if existing is None:

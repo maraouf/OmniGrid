@@ -1425,7 +1425,7 @@ export default {
       });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        throw new Error(d.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(d, r.status));
       }
       this.settings.beszel_aliases = map;
       this.showToast(

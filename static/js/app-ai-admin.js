@@ -410,7 +410,7 @@ export default {
       });
       if (!r.ok) {
         const detail = await r.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(detail, r.status));
       }
       // Reload settings to pick up the freshly-flipped api_key_set
       // booleans + reset the dirty baseline. Also reload the

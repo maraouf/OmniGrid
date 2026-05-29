@@ -136,6 +136,22 @@ async def fetch() -> Optional[dict]:
     _cache["ts"] = now
     _cache["data"] = out
     _cache["neg_until"] = 0.0
+    # Diagnostic: log per-cache-miss what the upstream actually
+    # returned so the user can correlate the SPA widget's render
+    # state against the real backend payload without needing
+    # DevTools. The line is shape-only (which fields are populated)
+    # rather than the raw IP — IP is operator-private and shouldn't
+    # be repeated in stdout on every refresh; the per-field
+    # populated/empty markers are enough to debug "country flag
+    # not rendering" (missing country_code) vs "ISP icon broken"
+    # (unrecognised isp brand). Fires only on cache miss (not on
+    # every consumer call), so retention is bounded by the TTL.
+    print(
+        f"[public_ip] fetched: ip_set={bool(out['ip'])} "
+        f"isp={out['isp']!r} asn={out['asn']!r} "
+        f"country_code={out['country_code']!r} "
+        f"country={out['country']!r} city_set={bool(out['city'])}"
+    )
     # Persist to public_ip_history when the IP changed from the most
     # recently-recorded row. Best-effort — a DB blip doesn't block the
     # fetch flow. Skip when IP is empty (partial-data hit; nothing
