@@ -19,6 +19,7 @@
     "@xterm/addon-web-links": "*",
     "@xterm/xterm": "*",
     "alpinejs": "^3.15.12",
+    "flag-icons": "^7.5.0",
     "qrcode-generator": "*",
     "sweetalert2": "*"
   },

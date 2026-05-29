@@ -76,6 +76,29 @@
              mismatched icon-only button row. Operator-flagged UI
              consistency request. -->
         <div class="flex flex-col items-end gap-1 flex-shrink-0">
+          <!-- Settings (gear) pill — FIRST in the stack, above the
+               status pill, per the operator's requested order
+               (settings → status → refresh → open). Only renders in the
+               Custom-dashboard scope, where the enclosing x-for binds
+               `item` (with a stable `item.uid` to flip). The `typeof`
+               guard keeps it inert in the by-app grid view, where this
+               same partial is included WITHOUT an `item` in scope — a
+               bare `item` reference there would throw "item is not
+               defined" and break the whole card. `x-if` (not x-show) so
+               the gear bindings never evaluate in that scope. -->
+          <template x-if="typeof item !== 'undefined' && item && item.uid">
+            <button type="button"
+                    class="apps-card-action-pill whitespace-nowrap"
+                    @click.stop="toggleAppsCardFlipped(item.uid)"
+                    :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'"
+                    :title="t('apps.custom.gear_title') || 'Card settings'"
+                    :aria-label="t('apps.custom.gear_aria') || 'Card settings'">
+              <svg width="11" height="11" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+              </svg>
+              <span x-text="t('apps.custom.settings.title') || 'Settings'"></span>
+            </button>
+          </template>
           <span class="apps-card-status whitespace-nowrap"
                 :aria-label="appsChipAriaLabel(app)">
             <span class="apps-card-status-dot" aria-hidden="true"></span>
@@ -141,9 +164,9 @@
            static/css/style.css). aria-hidden — the loading state is
            announced by the parent card's status pill. -->
       <div class="space-y-1 mt-1" aria-hidden="true">
-        <div class="skeleton-cell short" style="width: 70%"></div>
-        <div class="skeleton-cell short" style="width: 55%"></div>
-        <div class="skeleton-cell bar" style="width: 80%"></div>
+        <div class="skeleton-cell short" style="width: 70%;"></div>
+        <div class="skeleton-cell short" style="width: 55%;"></div>
+        <div class="skeleton-cell bar" style="width: 80%;"></div>
       </div>
     </template>
     <template x-if="appsCardReady(app.group_id)">

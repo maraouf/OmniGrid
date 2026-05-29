@@ -3587,7 +3587,14 @@
                                   :aria-label="t('apps.custom.size_cycle_title') || 'Cycle card size'"
                                   x-text="appsCardSize(item).slice(0,1).toUpperCase() + appsCardSize(item).slice(1)"></button>
                         </template>
+                        <!-- Floating gear: WIDGET cards only. App cards
+                             render the gear as the first pill in their
+                             status-pill stack (apps-card.html) per the
+                             requested settings → status → refresh order,
+                             so suppress the floating one there to avoid
+                             a duplicate sitting over the status pill. -->
                         <button type="button" class="apps-card-gear"
+                                x-show="item.kind !== 'app'"
                                 @click.stop="toggleAppsCardFlipped(item.uid)"
                                 :title="t('apps.custom.gear_title') || 'Card settings'"
                                 :aria-label="t('apps.custom.gear_aria') || 'Card settings'"

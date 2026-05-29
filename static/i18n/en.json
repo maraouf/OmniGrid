@@ -5007,7 +5007,40 @@
       "delete_section": "Delete section",
       "section_empty": "Drop apps here",
       "unsectioned": "Unsectioned",
-      "all_sorted": "All apps are sorted into sections."
+      "all_sorted": "All apps are sorted into sections.",
+      "gear_title": "Card settings",
+      "gear_aria": "Open card settings",
+      "settings": {
+        "title": "Card settings",
+        "size_label": "Size",
+        "size_half": "Half",
+        "size_normal": "Normal",
+        "size_double": "Double",
+        "size_hint": "Half: title only. Normal: full card. Double: spans two columns.",
+        "clock": {
+          "follow_user": "Follow user profile (timezone + format)",
+          "style_label": "Style",
+          "style_digital": "Digital",
+          "style_analog": "Analog",
+          "tz_label": "Timezone",
+          "tz_placeholder": "e.g. Europe/London (blank = user profile)",
+          "format_label": "Date/time format",
+          "format_placeholder": "e.g. HH:mm:ss (blank = user profile)",
+          "format_hint": "Tokens: yyyy yy MMMM MMM MM M dd d HH H hh h mm m ss s a"
+        },
+        "weather": {
+          "follow_user": "Follow user settings (location + units)",
+          "label_label": "Location label",
+          "label_placeholder": "e.g. Cairo, Egypt",
+          "lat_label": "Latitude",
+          "lng_label": "Longitude",
+          "units_label": "Units",
+          "units_metric": "°C",
+          "units_imperial": "°F",
+          "forecast_label": "Forecast days",
+          "show_conditions": "Display weather conditions"
+        }
+      }
     },
     "status_up": "up",
     "status_down": "down",

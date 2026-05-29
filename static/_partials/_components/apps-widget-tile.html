@@ -27,549 +27,563 @@
   off the editMode flag.
 -->
 <div class="apps-widget-tile-root">
-<!-- EDIT-MODE compact tile — small, static, drag-handle shape
-     matching the app-tile pattern in index.html so the operator's
-     drag-and-drop UI reads as a consistent grid of tiles regardless
-     of kind. NO live data render in this mode (would distract from
-     the drag/drop affordance + waste re-render cycles). Remove
-     button is the only action; the trash svg matches the app-tile
-     edit-mode chrome. -->
-<template x-if="appsCustomEditMode">
-  <!-- `<article>` (a tile is article-like) — keyboard-focusable via
-       tabindex with an aria-label describing the drag affordance.
-       We do NOT set `role="button"` — `button` isn't a valid ARIA
-       role for `<article>` and the tile contains its own interactive
-       descendant (the remove button) which a button role forbids.
-       Same canonical pattern as `apps-card.html` for clickable
-       cards. -->
-  <article class="apps-tile apps-tile--widget"
-           draggable="true"
-           @dragstart.stop="appsItemDragStart($event, item.uid)"
-           @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
-           tabindex="0"
-           :aria-label="t('apps.custom.widget_drag_aria', {kind: appsWidgetLabel(item.widget)}) || ('Drag ' + appsWidgetLabel(item.widget) + ' widget')">
-    <svg width="32" height="32" aria-hidden="true" fill="none" stroke="currentColor"
-         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-         class="apps-tile-icon">
+  <!-- EDIT-MODE compact tile — small, static, drag-handle shape
+       matching the app-tile pattern in index.html so the operator's
+       drag-and-drop UI reads as a consistent grid of tiles regardless
+       of kind. NO live data render in this mode (would distract from
+       the drag/drop affordance + waste re-render cycles). Remove
+       button is the only action; the trash svg matches the app-tile
+       edit-mode chrome. -->
+  <template x-if="appsCustomEditMode">
+    <!-- `<article>` (a tile is article-like) — keyboard-focusable via
+         tabindex with an aria-label describing the drag affordance.
+         We do NOT set `role="button"` — `button` isn't a valid ARIA
+         role for `<article>` and the tile contains its own interactive
+         descendant (the remove button) which a button role forbids.
+         Same canonical pattern as `apps-card.html` for clickable
+         cards. -->
+    <article class="apps-tile apps-tile--widget"
+             draggable="true"
+             @dragstart.stop="appsItemDragStart($event, item.uid)"
+             @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
+             tabindex="0"
+             :aria-label="t('apps.custom.widget_drag_aria', {kind: appsWidgetLabel(item.widget)}) || ('Drag ' + appsWidgetLabel(item.widget) + ' widget')">
+      <svg width="32" height="32" aria-hidden="true" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+           class="apps-tile-icon">
+        <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWidgetDecorationIcon(item)"/>
+      </svg>
+      <span class="apps-tile-name truncate" x-text="appsWidgetLabel(item.widget)"></span>
+      <button type="button" class="user-action-btn user-action-btn--danger"
+              @click.stop="removeAppsItem(sec.id, item.uid)"
+              :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+              :title="t('apps.custom.remove_tile') || 'Remove tile'">
+        <svg width="11" height="11" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+        </svg>
+      </button>
+    </article>
+  </template>
+
+  <!-- LOCKED-MODE rich tile — live data render. The full widget body
+       below was historically the only render mode; gating it on
+       `!appsCustomEditMode` keeps every existing helper / binding
+       intact for the locked view while edit mode uses the compact
+       shape above. -->
+  <div x-show="!appsCustomEditMode"
+       class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
+       :draggable="appsCustomEditMode ? 'true' : 'false'"
+       @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
+       @dragover.prevent
+       @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
+
+    <!-- Background-icon decoration — large faded brand icon in the
+         top-right corner. Pure visual; pointer-events disabled so it
+         doesn't interfere with the remove-tile button below. Each kind
+         gets a distinct icon resolved via `appsWidgetDecorationIcon(item)`.
+         NOTE: previously used `<template x-if="...">` per-kind inside
+         this `<svg>`, which broke at runtime because the HTML parser
+         puts `<template>` inside `<svg>` in the SVG namespace where
+         the cloneable `.content` property doesn't exist — Alpine threw
+         "Cannot read properties of undefined (reading 'cloneNode')"
+         on every render. Driving a single `<use>` from a helper avoids
+         the SVG-namespace pitfall entirely. -->
+    <svg class="apps-widget-tile-decoration" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWidgetDecorationIcon(item)"/>
     </svg>
-    <span class="apps-tile-name truncate" x-text="appsWidgetLabel(item.widget)"></span>
-    <button type="button" class="user-action-btn user-action-btn--danger"
-            @click.stop="removeAppsItem(sec.id, item.uid)"
-            :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
-            :title="t('apps.custom.remove_tile') || 'Remove tile'">
-      <svg width="11" height="11" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
-      </svg>
-    </button>
-  </article>
-</template>
 
-<!-- LOCKED-MODE rich tile — live data render. The full widget body
-     below was historically the only render mode; gating it on
-     `!appsCustomEditMode` keeps every existing helper / binding
-     intact for the locked view while edit mode uses the compact
-     shape above. -->
-<div x-show="!appsCustomEditMode"
-     class="apps-widget-tile" :class="'apps-widget-tile--' + item.widget"
-     :draggable="appsCustomEditMode ? 'true' : 'false'"
-     @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
-     @dragover.prevent
-     @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
-
-  <!-- Background-icon decoration — large faded brand icon in the
-       top-right corner. Pure visual; pointer-events disabled so it
-       doesn't interfere with the remove-tile button below. Each kind
-       gets a distinct icon resolved via `appsWidgetDecorationIcon(item)`.
-       NOTE: previously used `<template x-if="...">` per-kind inside
-       this `<svg>`, which broke at runtime because the HTML parser
-       puts `<template>` inside `<svg>` in the SVG namespace where
-       the cloneable `.content` property doesn't exist — Alpine threw
-       "Cannot read properties of undefined (reading 'cloneNode')"
-       on every render. Driving a single `<use>` from a helper avoids
-       the SVG-namespace pitfall entirely. -->
-  <svg class="apps-widget-tile-decoration" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWidgetDecorationIcon(item)"/>
-  </svg>
-
-  <div class="apps-widget-tile-head">
+    <div class="apps-widget-tile-head">
     <span class="apps-widget-tile-title">
       <span class="apps-widget-tile-title-dot" aria-hidden="true"></span>
       <span x-text="appsWidgetLabel(item.widget)"></span>
     </span>
-    <div class="apps-widget-tile-actions">
-      <!-- Manual refresh button — only for widgets whose data
-           comes from a backend fetch (weather / moon / public_ip).
-           Clock + system_stats are client-side derivations so
-           refreshing them would be a no-op (hidden via
-           widgetSupportsRefresh gate). Spinner gates on the
-           per-kind in-flight flag so the icon rotates while
-           the fetch is mid-flight. Hidden in edit mode — the
-           trash button takes priority then. -->
-      <!-- Refresh button — converted from the icon-only
-           `user-action-btn` chrome to the `apps-card-action-pill`
-           shape (rounded grey pill with icon + REFRESH label) so
-           the widgets visually match the regular app cards
-           (opnsense / etc.) sitting on the same Apps grid row.
-           Operator-flagged: "make these widgets have the same
-           pill for refresh like other apps". Same i18n key the
-           Apps app-card refresh pill uses (`apps.probe_all_label`
-           = "Refresh") so a future locale flip both surfaces
-           consistently. -->
-      <button type="button"
-              x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget) && widgetHasData(item.widget)"
-              class="apps-card-action-pill whitespace-nowrap"
-              :disabled="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) === true"
-              @click.stop="refreshWidget(item.widget)"
-              :aria-label="t('apps.custom.widget_refresh_aria', {kind: appsWidgetLabel(item.widget)}) || ('Refresh ' + appsWidgetLabel(item.widget) + ' data')"
-              :title="t('apps.custom.widget_refresh_title') || 'Refresh now'">
-        <svg width="11" height="11"
-             :class="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) ? 'spin-md' : ''"
-             aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
-      </button>
-      <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
-              @click.stop="removeAppsItem(sec.id, item.uid)"
-              :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
-              :title="t('apps.custom.remove_tile') || 'Remove tile'">
-        <svg width="12" height="12" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
-        </svg>
-      </button>
+      <div class="apps-widget-tile-actions">
+        <!-- Manual refresh button — only for widgets whose data
+             comes from a backend fetch (weather / moon / public_ip).
+             Clock + system_stats are client-side derivations so
+             refreshing them would be a no-op (hidden via
+             widgetSupportsRefresh gate). Spinner gates on the
+             per-kind in-flight flag so the icon rotates while
+             the fetch is mid-flight. Hidden in edit mode — the
+             trash button takes priority then. -->
+        <!-- Refresh button — converted from the icon-only
+             `user-action-btn` chrome to the `apps-card-action-pill`
+             shape (rounded grey pill with icon + REFRESH label) so
+             the widgets visually match the regular app cards
+             (opnsense / etc.) sitting on the same Apps grid row.
+             Operator-flagged: "make these widgets have the same
+             pill for refresh like other apps". Same i18n key the
+             Apps app-card refresh pill uses (`apps.probe_all_label`
+             = "Refresh") so a future locale flip both surfaces
+             consistently. -->
+        <button type="button"
+                x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget) && widgetHasData(item.widget)"
+                class="apps-card-action-pill whitespace-nowrap"
+                :disabled="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) === true"
+                @click.stop="refreshWidget(item.widget)"
+                :aria-label="t('apps.custom.widget_refresh_aria', {kind: appsWidgetLabel(item.widget)}) || ('Refresh ' + appsWidgetLabel(item.widget) + ' data')"
+                :title="t('apps.custom.widget_refresh_title') || 'Refresh now'">
+          <svg width="11" height="11"
+               :class="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) ? 'spin-md' : ''"
+               aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+          </svg>
+          <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
+        </button>
+        <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+                @click.stop="removeAppsItem(sec.id, item.uid)"
+                :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+                :title="t('apps.custom.remove_tile') || 'Remove tile'">
+          <svg width="12" height="12" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+          </svg>
+        </button>
+      </div>
     </div>
-  </div>
 
-  <div class="apps-widget-tile-body">
+    <div class="apps-widget-tile-body">
 
-    <!-- Clock widget — HH + pulsing colon + MM hero, weekday/month/day
-         subtitle. The colon between HH/MM blinks every 2s as a "live
-         data" cue. Reduced-motion media query suppresses the pulse.
-         The `apps-widget-tile--clock-center` modifier on the inner div
-         centers both axes inside the tile body (flex-1 fills the body
-         height; nested flex centers the HH:MM + date pair). -->
-    <template x-if="item.widget === 'clock'">
-      <div class="apps-widget-clock-center">
-        <!-- Digital face (default). Per-card opts.clock_style flips
-             between digital + analog; HH / MM helpers consult the
-             item's TZ + format overrides via `_clockDateForItem`. -->
-        <template x-if="!appsWidgetClockIsAnalog(item)">
-          <div>
-            <div class="apps-widget-clock">
-              <span x-text="appsWidgetClockHH(item)"></span><!--
+      <!-- Clock widget — HH + pulsing colon + MM hero, weekday/month/day
+           subtitle. The colon between HH/MM blinks every 2s as a "live
+           data" cue. Reduced-motion media query suppresses the pulse.
+           The `apps-widget-tile--clock-center` modifier on the inner div
+           centers both axes inside the tile body (flex-1 fills the body
+           height; nested flex centers the HH:MM + date pair). -->
+      <template x-if="item.widget === 'clock'">
+        <div class="apps-widget-clock-center">
+          <!-- Digital face (default). Per-card opts.clock_style flips
+               between digital + analog; HH / MM helpers consult the
+               item's TZ + format overrides via `_clockDateForItem`. -->
+          <template x-if="!appsWidgetClockIsAnalog(item)">
+            <div>
+              <div class="apps-widget-clock">
+                <span x-text="appsWidgetClockHH(item)"></span><!--
            --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
            --><span x-text="appsWidgetClockMM(item)"></span>
+              </div>
+              <div class="apps-widget-subtitle">
+                <span x-text="appsWidgetClockDate(item)"></span>
+              </div>
             </div>
-            <div class="apps-widget-subtitle">
-              <span x-text="appsWidgetClockDate(item)"></span>
+          </template>
+          <!-- Analog face. SVG clock with 12 tick marks + hour / minute /
+               second hands. Hands rotate via `transform: rotate(<deg>)`
+               from `appsWidgetClockHands(item)`. `transform-origin` set
+               at the centre so each hand pivots cleanly. The same date
+               subtitle stays below the face so the operator gets both
+               "time at a glance" + "what day is it". -->
+          <template x-if="appsWidgetClockIsAnalog(item)">
+            <div>
+              <svg class="apps-widget-clock-analog" viewBox="0 0 100 100"
+                   width="120" height="120" aria-hidden="true">
+                <circle cx="50" cy="50" r="48" fill="none"
+                        stroke="var(--text-faint)" stroke-width="1"/>
+                <!-- Hour ticks: 12 short marks around the dial. -->
+                <template x-for="i in 12" :key="i">
+                  <line :x1="50 + 44 * Math.cos((i - 3) * Math.PI / 6)"
+                        :y1="50 + 44 * Math.sin((i - 3) * Math.PI / 6)"
+                        :x2="50 + 48 * Math.cos((i - 3) * Math.PI / 6)"
+                        :y2="50 + 48 * Math.sin((i - 3) * Math.PI / 6)"
+                        stroke="var(--text-dim)" stroke-width="1.5"
+                        stroke-linecap="round"/>
+                </template>
+                <!-- Hour hand (short + thick) -->
+                <line x1="50" y1="50" x2="50" y2="25"
+                      stroke="var(--text)" stroke-width="3"
+                      stroke-linecap="round"
+                      :style="'transform: rotate(' + appsWidgetClockHands(item).hour + 'deg); transform-origin: 50px 50px;'"/>
+                <!-- Minute hand (longer + medium) -->
+                <line x1="50" y1="50" x2="50" y2="14"
+                      stroke="var(--text)" stroke-width="2"
+                      stroke-linecap="round"
+                      :style="'transform: rotate(' + appsWidgetClockHands(item).minute + 'deg); transform-origin: 50px 50px;'"/>
+                <!-- Second hand (thinnest, accent colour) -->
+                <line x1="50" y1="55" x2="50" y2="10"
+                      stroke="var(--primary)" stroke-width="1"
+                      stroke-linecap="round"
+                      :style="'transform: rotate(' + appsWidgetClockHands(item).second + 'deg); transform-origin: 50px 50px;'"/>
+                <circle cx="50" cy="50" r="2.5" fill="var(--primary)"/>
+              </svg>
+              <div class="apps-widget-subtitle">
+                <span x-text="appsWidgetClockDate(item)"></span>
+              </div>
             </div>
-          </div>
-        </template>
-        <!-- Analog face. SVG clock with 12 tick marks + hour / minute /
-             second hands. Hands rotate via `transform: rotate(<deg>)`
-             from `appsWidgetClockHands(item)`. `transform-origin` set
-             at the centre so each hand pivots cleanly. The same date
-             subtitle stays below the face so the operator gets both
-             "time at a glance" + "what day is it". -->
-        <template x-if="appsWidgetClockIsAnalog(item)">
-          <div>
-            <svg class="apps-widget-clock-analog" viewBox="0 0 100 100"
-                 width="120" height="120" aria-hidden="true">
-              <circle cx="50" cy="50" r="48" fill="none"
-                      stroke="var(--text-faint)" stroke-width="1"/>
-              <!-- Hour ticks: 12 short marks around the dial. -->
-              <template x-for="i in 12" :key="i">
-                <line :x1="50 + 44 * Math.cos((i - 3) * Math.PI / 6)"
-                      :y1="50 + 44 * Math.sin((i - 3) * Math.PI / 6)"
-                      :x2="50 + 48 * Math.cos((i - 3) * Math.PI / 6)"
-                      :y2="50 + 48 * Math.sin((i - 3) * Math.PI / 6)"
-                      stroke="var(--text-dim)" stroke-width="1.5"
-                      stroke-linecap="round"/>
-              </template>
-              <!-- Hour hand (short + thick) -->
-              <line x1="50" y1="50" x2="50" y2="25"
-                    stroke="var(--text)" stroke-width="3"
-                    stroke-linecap="round"
-                    :style="'transform: rotate(' + appsWidgetClockHands(item).hour + 'deg); transform-origin: 50px 50px;'"/>
-              <!-- Minute hand (longer + medium) -->
-              <line x1="50" y1="50" x2="50" y2="14"
-                    stroke="var(--text)" stroke-width="2"
-                    stroke-linecap="round"
-                    :style="'transform: rotate(' + appsWidgetClockHands(item).minute + 'deg); transform-origin: 50px 50px;'"/>
-              <!-- Second hand (thinnest, accent colour) -->
-              <line x1="50" y1="55" x2="50" y2="10"
-                    stroke="var(--primary)" stroke-width="1"
-                    stroke-linecap="round"
-                    :style="'transform: rotate(' + appsWidgetClockHands(item).second + 'deg); transform-origin: 50px 50px;'"/>
-              <circle cx="50" cy="50" r="2.5" fill="var(--primary)"/>
-            </svg>
-            <div class="apps-widget-subtitle">
-              <span x-text="appsWidgetClockDate(item)"></span>
-            </div>
-          </div>
-        </template>
-      </div>
-    </template>
+          </template>
+        </div>
+      </template>
 
-    <!-- Weather widget — composite hero (condition icon + temperature)
-         + location-with-pin subtitle + key-value humidity/wind detail
-         + three-day forecast strip. Renders a polished empty state
-         (icon + helpful copy) when `this.weather` is null. -->
-    <template x-if="item.widget === 'weather'">
-      <!-- x-init kicks the per-card weather fetch on first mount when
-           the item carries a follow_user=false override. No-op for
-           follow-user-mode cards (the global topbar fetcher already
-           populated `this.weather`). -->
-      <div x-init="_ensurePerCardWeather(item)">
-      <template x-if="effectiveWeather(item) && effectiveWeather(item).temp_c != null">
-        <div>
-          <div class="apps-widget-hero-row">
-            <svg class="apps-widget-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((effectiveWeather(item) || {}).condition || '')"/>
-            </svg>
-            <!-- Hero temp + unit suffix derived from per-card units
-                 override via `appsWidgetWeatherTemp`. The helper
-                 returns the FULL label ("20°C" / "68°F") so the unit
-                 sub-element receives an empty string and collapses. -->
-            <div class="apps-widget-hero"
-                 x-text="appsWidgetWeatherTemp(item, (effectiveWeather(item) || {}).temp_c).replace(/°[CF]$/, '')"></div>
-            <div class="apps-widget-hero-unit"
-                 x-text="(effectiveWeatherOpts(item).units === 'imperial' && !effectiveWeatherOpts(item).follow) ? '°F' : '°C'"></div>
-          </div>
-          <div class="apps-widget-subtitle">
-            <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
-            </svg>
-            <!-- Override-mode cards use the operator's label override;
-                 follow-user cards fall back to the global header label
-                 or the upstream-returned label. The condition string is
-                 appended only when `show_conditions` opt is on. -->
-            <span x-text="(((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
-          </div>
-          <!-- Detail row: humidity + wind. Gated on
-               `appsWidgetWeatherShowConditions(item)` so an operator
-               who only wants the hero temp + forecast can hide the
-               busy KV row. -->
-          <div class="apps-widget-detail" x-show="appsWidgetWeatherShowConditions(item)">
+      <!-- Weather widget — composite hero (condition icon + temperature)
+           + location-with-pin subtitle + key-value humidity/wind detail
+           + three-day forecast strip. Renders a polished empty state
+           (icon + helpful copy) when `this.weather` is null. -->
+      <template x-if="item.widget === 'weather'">
+        <!-- x-init kicks the per-card weather fetch on first mount when
+             the item carries a follow_user=false override. No-op for
+             follow-user-mode cards (the global topbar fetcher already
+             populated `this.weather`). -->
+        <div x-init="_ensurePerCardWeather(item)">
+          <template x-if="effectiveWeather(item) && effectiveWeather(item).temp_c != null">
+            <div>
+              <div class="apps-widget-hero-row">
+                <svg class="apps-widget-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((effectiveWeather(item) || {}).condition || '')"/>
+                </svg>
+                <!-- Hero temp + unit suffix derived from per-card units
+                     override via `appsWidgetWeatherTemp`. The helper
+                     returns the FULL label ("20°C" / "68°F") so the unit
+                     sub-element receives an empty string and collapses. -->
+                <div class="apps-widget-hero"
+                     x-text="appsWidgetWeatherTemp(item, (effectiveWeather(item) || {}).temp_c).replace(/°[CF]$/, '')"></div>
+                <div class="apps-widget-hero-unit"
+                     x-text="(effectiveWeatherOpts(item).units === 'imperial' && !effectiveWeatherOpts(item).follow) ? '°F' : '°C'"></div>
+              </div>
+              <div class="apps-widget-subtitle">
+                <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+                </svg>
+                <!-- Override-mode cards use the operator's label override;
+                     follow-user cards fall back to the global header label
+                     or the upstream-returned label. The condition string is
+                     appended only when `show_conditions` opt is on. -->
+                <span x-text="(((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
+              </div>
+              <!-- Detail row: humidity + wind. Gated on
+                   `appsWidgetWeatherShowConditions(item)` so an operator
+                   who only wants the hero temp + forecast can hide the
+                   busy KV row. -->
+              <div class="apps-widget-detail" x-show="appsWidgetWeatherShowConditions(item)">
             <span x-show="(effectiveWeather(item) || {}).humidity != null" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_humidity_label') || 'Humidity'"></span>
               <span class="apps-widget-kv-value" x-text="Math.round((effectiveWeather(item) || {}).humidity) + '%'"></span>
             </span>
-            <span x-show="(effectiveWeather(item) || {}).wind_kmh != null" class="apps-widget-kv">
+                <span x-show="(effectiveWeather(item) || {}).wind_kmh != null" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_wind_label') || 'Wind'"></span>
               <span class="apps-widget-kv-value" x-text="Math.round((effectiveWeather(item) || {}).wind_kmh) + ' km/h'"></span>
             </span>
-          </div>
-          <template x-if="appsWidgetWeatherForecast(item).length">
-            <div class="apps-widget-forecast">
-              <template x-for="day in appsWidgetWeatherForecast(item)" :key="day.name">
-                <div class="apps-widget-forecast-day">
-                  <span class="apps-widget-forecast-name" x-text="day.name"></span>
-                  <svg width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--widget-accent); opacity: 0.85;">
-                    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + day.icon"/>
-                  </svg>
-                  <!-- Hi / lo labels are pre-formatted with the per-card
-                       units in `appsWidgetWeatherForecast` so binding
-                       stays simple here regardless of units choice. -->
-                  <span class="apps-widget-forecast-temp"
-                        x-text="(day.hi_label || (day.hi != null ? day.hi + '°' : '—')) + ' / ' + (day.lo_label || (day.lo != null ? day.lo + '°' : '—'))"></span>
+              </div>
+              <template x-if="appsWidgetWeatherForecast(item).length">
+                <div class="apps-widget-forecast">
+                  <template x-for="day in appsWidgetWeatherForecast(item)" :key="day.name">
+                    <div class="apps-widget-forecast-day">
+                      <span class="apps-widget-forecast-name" x-text="day.name"></span>
+                      <svg width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--widget-accent); opacity: 0.85;">
+                        <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + day.icon"/>
+                      </svg>
+                      <!-- Hi / lo labels are pre-formatted with the per-card
+                           units in `appsWidgetWeatherForecast` so binding
+                           stays simple here regardless of units choice. -->
+                      <span class="apps-widget-forecast-temp"
+                            x-text="(day.hi_label || (day.hi != null ? day.hi + '°' : '—')) + ' / ' + (day.lo_label || (day.lo != null ? day.lo + '°' : '—'))"></span>
+                    </div>
+                  </template>
                 </div>
               </template>
             </div>
           </template>
         </div>
-      </template>
-      </div>
-      <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
-        <div class="apps-widget-empty">
-          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
-          </svg>
-          <!-- Three differentiated empty states so users understand
-               WHY the widget is empty:
-                 (a) feature globally disabled by an admin
-                 (b) user hasn't set a location yet in Profile
-                 (c) configured but the upstream returned no data
-                     (transient — refresh button retries) -->
-          <span class="apps-widget-empty-text"
-                x-text="(weather && weather.configured === false)
+        <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
+          <div class="apps-widget-empty">
+            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
+            </svg>
+            <!-- Three differentiated empty states so users understand
+                 WHY the widget is empty:
+                   (a) feature globally disabled by an admin
+                   (b) user hasn't set a location yet in Profile
+                   (c) configured but the upstream returned no data
+                       (transient — refresh button retries) -->
+            <span class="apps-widget-empty-text"
+                  x-text="(weather && weather.configured === false)
                   ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
                   : (!headerWeatherLat || !headerWeatherLon)
                     ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see live conditions here.')
                     : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
-        </div>
+          </div>
+        </template>
       </template>
-    </template>
 
-    <!-- Public-IP widget — IP hero (mono) + ISP subtitle with globe
-         icon + country/city + ASN-chip detail. Self-fetches via
-         `_ensurePublicIp` on first mount so the tile populates without
-         waiting for the AI palette to open. Polished empty state when
-         the feature is disabled (default OFF for privacy). -->
-    <template x-if="item.widget === 'public_ip'">
-      <div x-init="_ensurePublicIp()">
-        <template x-if="publicIp && publicIp.enabled && publicIp.ip">
-          <div>
-            <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
-            <!-- ISP subtitle with dynamic brand icon when recognised
-                 (Cloudflare / Google / AWS / Comcast / etc.); falls
-                 back to the generic globe icon for unknown ISPs.
-                 Matches whti.in-style ISP branding so operators get
-                 immediate visual confirmation of who's carrying their
-                 traffic. -->
-            <div class="apps-widget-subtitle">
-              <!-- ISP brand icon — three-state render: (a) recognised
-                   brand + icon file exists → show the brand img;
-                   (b) recognised brand BUT icon file 404s OR no brand
-                   match → show the globe sprite fallback.
-                   The `_ispIconBroken` flag (set on the publicIp
-                   object by the @error handler) makes the broken-icon
-                   case fall through to the globe fallback instead of
-                   leaving an empty slot (the previous shape had
-                   `display:none` on the broken img which still left
-                   the wrapping div, and the matching `x-if='!url'`
-                   gate didn't fire because the helper STILL returned
-                   a non-empty URL — the file just didn't exist on
-                   disk). Both gates now consult the combined predicate
-                   so the fallback fires for the broken case too. -->
-              <template x-if="appsWidgetIspIconUrl(publicIp.isp) && !(publicIp && publicIp._ispIconBroken)">
-                <!-- Static `alt=""` satisfies the IDE's HTML-parser
-                     accessibility check (which doesn't recognise
-                     Alpine `:alt` bindings); Alpine overrides at
-                     runtime with the ISP name from `:alt`. The ISP
-                     name also appears as plain text in the adjacent
-                     <span>, so even if both fail the user still
-                     gets the brand identity. The @error handler
-                     stamps `publicIp._ispIconBroken=true` so the
-                     SVG fallback below renders cleanly on the next
-                     reactive flush. -->
-                <img :src="appsWidgetIspIconUrl(publicIp.isp)"
-                     :alt="publicIp.isp || ''"
-                     alt=""
-                     width="16" height="16"
-                     class="apps-widget-isp-icon"
-                     @error="if (publicIp) { publicIp._ispIconBroken = true; }">
-              </template>
-              <template x-if="!appsWidgetIspIconUrl(publicIp.isp) || (publicIp && publicIp._ispIconBroken)">
-                <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
-                </svg>
-              </template>
-              <span x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></span>
-            </div>
-            <div class="apps-widget-detail">
-              <!-- Country + city detail row — leads with the flag
-                   emoji rendered from the ISO 3166-1 alpha-2 country
-                   code (no flag-image asset bundle needed; every
-                   modern OS renders the regional-indicator pair).
-                   When the upstream didn't return a country code,
-                   falls back to the map-pin icon. -->
-              <span x-show="publicIp.country" class="apps-widget-kv">
-                <template x-if="appsWidgetCountryFlag(publicIp.country_code)">
-                  <span class="apps-widget-country-flag" aria-hidden="true"
-                        x-text="appsWidgetCountryFlag(publicIp.country_code)"></span>
+      <!-- Public-IP widget — IP hero (mono) + ISP subtitle with globe
+           icon + country/city + ASN-chip detail. Self-fetches via
+           `_ensurePublicIp` on first mount so the tile populates without
+           waiting for the AI palette to open. Polished empty state when
+           the feature is disabled (default OFF for privacy). -->
+      <template x-if="item.widget === 'public_ip'">
+        <div x-init="_ensurePublicIp()">
+          <template x-if="publicIp && publicIp.enabled && publicIp.ip">
+            <div>
+              <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
+              <!-- ISP subtitle with dynamic brand icon when recognised
+                   (Cloudflare / Google / AWS / Comcast / etc.); falls
+                   back to the generic globe icon for unknown ISPs.
+                   Matches whti.in-style ISP branding so operators get
+                   immediate visual confirmation of who's carrying their
+                   traffic. -->
+              <div class="apps-widget-subtitle">
+                <!-- ISP brand icon — three-state render: (a) recognised
+                     brand + icon file exists → show the brand img;
+                     (b) recognised brand BUT icon file 404s OR no brand
+                     match → show the globe sprite fallback.
+                     The `_ispIconBroken` flag (set on the publicIp
+                     object by the @error handler) makes the broken-icon
+                     case fall through to the globe fallback instead of
+                     leaving an empty slot (the previous shape had
+                     `display:none` on the broken img which still left
+                     the wrapping div, and the matching `x-if='!url'`
+                     gate didn't fire because the helper STILL returned
+                     a non-empty URL — the file just didn't exist on
+                     disk). Both gates now consult the combined predicate
+                     so the fallback fires for the broken case too. -->
+                <template x-if="appsWidgetIspIconUrl(publicIp.isp) && !(publicIp && publicIp._ispIconBroken)">
+                  <!-- Static `alt=""` satisfies the IDE's HTML-parser
+                       accessibility check (which doesn't recognise
+                       Alpine `:alt` bindings); Alpine overrides at
+                       runtime with the ISP name from `:alt`. The ISP
+                       name also appears as plain text in the adjacent
+                       <span>, so even if both fail the user still
+                       gets the brand identity. The @error handler
+                       stamps `publicIp._ispIconBroken=true` so the
+                       SVG fallback below renders cleanly on the next
+                       reactive flush. -->
+                  <img :src="appsWidgetIspIconUrl(publicIp.isp)"
+                       :alt="publicIp.isp || ''"
+                       alt=""
+                       width="16" height="16"
+                       class="apps-widget-isp-icon"
+                       @error="if (publicIp) { publicIp._ispIconBroken = true; }">
                 </template>
-                <template x-if="!appsWidgetCountryFlag(publicIp.country_code)">
+                <template x-if="!appsWidgetIspIconUrl(publicIp.isp) || (publicIp && publicIp._ispIconBroken)">
+                  <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+                  </svg>
+                </template>
+                <span x-text="publicIp.isp || (t('apps.custom.widget_ip_unknown_isp') || 'Unknown ISP')"></span>
+              </div>
+              <div class="apps-widget-detail">
+                <!-- Country + city detail row — leads with the flag as an
+                     SVG image from the npm `flag-icons` package
+                     (`/node_modules/flag-icons/flags/4x3/<cc>.svg`, served
+                     like every other node_modules asset), NOT a
+                     regional-indicator emoji: Windows does not render flag
+                     emoji (it shows the bare "EG" letters instead), so the
+                     emoji approach was invisible there. The full ISO set
+                     ships with the package (271 flags) so any geolocated
+                     country resolves. The `_flagBroken` flag (stamped by
+                     the @error handler, mirroring `_ispIconBroken`) falls
+                     through to the map-pin sprite for an unknown code OR
+                     when no code was returned. -->
+                <span x-show="publicIp.country" class="apps-widget-kv">
+                <template x-if="publicIp.country_code && !(publicIp && publicIp._flagBroken)">
+                  <!-- Static alt="" satisfies the IDE accessibility
+                       parser (it doesn't resolve Alpine :alt); Alpine
+                       overrides at runtime. The country name renders as
+                       plain text in the adjacent span regardless. -->
+                  <img :src="'/node_modules/flag-icons/flags/4x3/' + publicIp.country_code.toLowerCase() + '.svg'"
+                       :alt="publicIp.country_code || ''"
+                       alt=""
+                       width="18" height="13"
+                       class="apps-widget-country-flag"
+                       @error="if (publicIp) { publicIp._flagBroken = true; }">
+                </template>
+                <template x-if="!publicIp.country_code || (publicIp && publicIp._flagBroken)">
                   <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
                   </svg>
                 </template>
                 <span class="apps-widget-kv-value" x-text="publicIp.country + (publicIp.city ? ' · ' + publicIp.city : '')"></span>
               </span>
-              <span x-show="publicIp.asn" class="apps-widget-chip apps-widget-chip--ok mono"
-                    :style="'background: color-mix(in srgb, var(--widget-accent) 16%, transparent); color: var(--widget-accent);'"
-                    x-text="'AS' + appsWidgetIpAsnNumber(publicIp.asn)"></span>
+                <span x-show="publicIp.asn" class="apps-widget-chip apps-widget-chip--ok mono"
+                      :style="'background: color-mix(in srgb, var(--widget-accent) 16%, transparent); color: var(--widget-accent);'"
+                      x-text="'AS' + appsWidgetIpAsnNumber(publicIp.asn)"></span>
+              </div>
             </div>
-          </div>
-        </template>
-        <template x-if="!publicIp || !publicIp.enabled || !publicIp.ip">
-          <div class="apps-widget-empty">
-            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
-            </svg>
-            <span class="apps-widget-empty-text"
-                  x-text="(publicIp && !publicIp.enabled)
+          </template>
+          <template x-if="!publicIp || !publicIp.enabled || !publicIp.ip">
+            <div class="apps-widget-empty">
+              <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+              </svg>
+              <span class="apps-widget-empty-text"
+                    x-text="(publicIp && !publicIp.enabled)
                     ? (t('apps.custom.widget_ip_disabled') || 'Public-IP lookup disabled in Admin → Public IP')
                     : (t('apps.custom.widget_no_data') || 'No data')"></span>
-          </div>
-        </template>
-      </div>
-    </template>
-
-    <!-- System-stats widget — circular progress ring showing up/total
-         ratio + numeric centre label + colour-coded down/paused/all-up
-         chips. The ring animates smoothly when the rollup changes
-         (stroke-dashoffset transition). Empty state when no hosts
-         monitored yet. -->
-    <template x-if="item.widget === 'system_stats'">
-      <template x-if="appsWidgetSystemStats().total > 0">
-        <div>
-          <div class="apps-widget-hero-row">
-            <svg class="apps-widget-ring" viewBox="0 0 56 56" aria-hidden="true">
-              <circle class="apps-widget-ring-track" cx="28" cy="28" r="22"/>
-              <circle class="apps-widget-ring-fill" cx="28" cy="28" r="22"
-                      :stroke-dasharray="appsWidgetSystemRing().circumference"
-                      :stroke-dashoffset="appsWidgetSystemRing().offset"/>
-              <text class="apps-widget-ring-label" x="28" y="28"
-                    x-text="appsWidgetSystemRing().percent + '%'"></text>
-            </svg>
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <div class="apps-widget-hero" style="font-size: var(--fs-display-md);">
-                <span x-text="appsWidgetSystemStats().up"></span><!--
-             --><span style="color: var(--text-faint); font-weight: 500;" x-text="' / ' + appsWidgetSystemStats().total"></span>
-              </div>
-              <div class="apps-widget-subtitle"
-                   x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
-                     || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
             </div>
-          </div>
-          <div class="apps-widget-detail">
+          </template>
+        </div>
+      </template>
+
+      <!-- System-stats widget — circular progress ring showing up/total
+           ratio + numeric centre label + colour-coded down/paused/all-up
+           chips. The ring animates smoothly when the rollup changes
+           (stroke-dashoffset transition). Empty state when no hosts
+           monitored yet. -->
+      <template x-if="item.widget === 'system_stats'">
+        <template x-if="appsWidgetSystemStats().total > 0">
+          <div>
+            <div class="apps-widget-hero-row">
+              <svg class="apps-widget-ring" viewBox="0 0 56 56" aria-hidden="true">
+                <circle class="apps-widget-ring-track" cx="28" cy="28" r="22"/>
+                <circle class="apps-widget-ring-fill" cx="28" cy="28" r="22"
+                        :stroke-dasharray="appsWidgetSystemRing().circumference"
+                        :stroke-dashoffset="appsWidgetSystemRing().offset"/>
+                <text class="apps-widget-ring-label" x="28" y="28"
+                      x-text="appsWidgetSystemRing().percent + '%'"></text>
+              </svg>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <div class="apps-widget-hero" style="font-size: var(--fs-display-md);">
+                  <span x-text="appsWidgetSystemStats().up"></span><!--
+             --><span style="color: var(--text-faint); font-weight: 500;" x-text="' / ' + appsWidgetSystemStats().total"></span>
+                </div>
+                <div class="apps-widget-subtitle"
+                     x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
+                     || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
+              </div>
+            </div>
+            <div class="apps-widget-detail">
             <span x-show="appsWidgetSystemStats().down" class="apps-widget-chip apps-widget-chip--down">
               <span x-text="appsWidgetSystemStats().down"></span>
               <span x-text="t('apps.custom.widget_system_down') || 'down'"></span>
             </span>
-            <span x-show="appsWidgetSystemStats().paused" class="apps-widget-chip apps-widget-chip--paused">
+              <span x-show="appsWidgetSystemStats().paused" class="apps-widget-chip apps-widget-chip--paused">
               <span x-text="appsWidgetSystemStats().paused"></span>
               <span x-text="t('apps.custom.widget_system_paused') || 'paused'"></span>
             </span>
-            <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused"
-                  class="apps-widget-chip apps-widget-chip--ok"
-                  x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
-          </div>
-        </div>
-      </template>
-      <template x-if="!appsWidgetSystemStats().total">
-        <div class="apps-widget-empty">
-          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
-          </svg>
-          <span class="apps-widget-empty-text"
-                x-text="t('apps.custom.widget_system_no_hosts') || 'No hosts curated yet — add one in Admin → Hosts'"></span>
-        </div>
-      </template>
-    </template>
-
-    <!-- Moon-phase widget — illumination ring (SVG donut) + phase
-         name hero + illumination %% + moonrise / moonset detail
-         row. Only meaningful when the WeatherAPI.com provider is
-         active (Open-Meteo doesn't return moon data) — the tile's
-         empty state surfaces a "switch provider" hint when the
-         active provider can't supply this data. Reads from
-         `this.weather.forecast[0]` populated by the existing
-         topbar widget's fetch, OR `this.weather.supports_moon ==
-         false` for the provider-mismatch empty state. -->
-    <template x-if="item.widget === 'moon'">
-      <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
-        <div>
-          <!--
-            Compact 40×40 ring (down from 56×56) + smaller phase
-            name so the moon widget renders at the same intrinsic
-            height as clock / weather / public_ip peers. Pre-fix
-            the larger ring + 17px phase name combined with the
-            equal-height stretch (`.apps-widget-tile-root { height:
-            100% }` + `.apps-widget-tile { flex: 1 }`) made EVERY
-            widget on the same row inherit moon's tall height —
-            operator-flagged "moon phase widget is very long in
-            height, decrease to match others". Ring circle r=16
-            (down from r=24) → circumference 2·π·16 ≈ 100.5; the
-            `appsWidgetMoonPhase()` helper continues to use the
-            r=24 / circumference≈150.8 numbers it always has so
-            we pass `:viewBox` scaling instead of recomputing the
-            arc geometry (cheaper diff + the helper stays a single
-            source of truth for the lit-fraction math).
-          -->
-          <div class="apps-widget-hero-row">
-            <svg class="apps-widget-moon-ring" width="40" height="40" viewBox="0 0 56 56" aria-hidden="true">
-              <!-- Background dim disc (the un-illuminated portion). -->
-              <circle cx="28" cy="28" r="24"
-                      fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
-                      stroke="color-mix(in srgb, var(--widget-accent) 22%, transparent)"
-                      stroke-width="1"/>
-              <!-- Bright illumination arc — drawn as a clipped circle
-                   using stroke-dasharray to represent the lit
-                   fraction. circumference = 2 * pi * r ≈ 150.8 at r=24. -->
-              <circle cx="28" cy="28" r="24"
-                      fill="none"
-                      stroke="var(--widget-accent)"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                      :stroke-dasharray="appsWidgetMoonPhase().circumference"
-                      :stroke-dashoffset="appsWidgetMoonPhase().offset"
-                      transform="rotate(-90 28 28)"/>
-              <text x="28" y="34" text-anchor="middle"
-                    style="font-size: 18px; font-weight: 600; fill: var(--text);"
-                    x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
-            </svg>
-            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
-              <!-- FULL phase name — bumped DOWN to `--fs-md` (13px)
-                   from the earlier 17px display-sm. The phase name is
-                   the hero but it's a SECONDARY widget (compared to
-                   weather's primary temperature), and the smaller
-                   size lets two-word phases ("Waxing Gibbous" /
-                   "Waning Crescent") fit cleanly on one line at the
-                   widget's typical narrow width. -->
-              <div class="apps-widget-hero" style="font-size: var(--fs-md); line-height: 1.15; font-weight: 600;"
-                   x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
-              <div class="apps-widget-subtitle"
-                   x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })
-                     || (appsWidgetMoonPhase().illumination_pct + '% illuminated')"></div>
+              <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused"
+                    class="apps-widget-chip apps-widget-chip--ok"
+                    x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
             </div>
           </div>
-          <div class="apps-widget-detail">
+        </template>
+        <template x-if="!appsWidgetSystemStats().total">
+          <div class="apps-widget-empty">
+            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+            </svg>
+            <span class="apps-widget-empty-text"
+                  x-text="t('apps.custom.widget_system_no_hosts') || 'No hosts curated yet — add one in Admin → Hosts'"></span>
+          </div>
+        </template>
+      </template>
+
+      <!-- Moon-phase widget — illumination ring (SVG donut) + phase
+           name hero + illumination %% + moonrise / moonset detail
+           row. Only meaningful when the WeatherAPI.com provider is
+           active (Open-Meteo doesn't return moon data) — the tile's
+           empty state surfaces a "switch provider" hint when the
+           active provider can't supply this data. Reads from
+           `this.weather.forecast[0]` populated by the existing
+           topbar widget's fetch, OR `this.weather.supports_moon ==
+           false` for the provider-mismatch empty state. -->
+      <template x-if="item.widget === 'moon'">
+        <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
+          <div>
+            <!--
+              Compact 40×40 ring (down from 56×56) + smaller phase
+              name so the moon widget renders at the same intrinsic
+              height as clock / weather / public_ip peers. Pre-fix
+              the larger ring + 17px phase name combined with the
+              equal-height stretch (`.apps-widget-tile-root { height:
+              100% }` + `.apps-widget-tile { flex: 1 }`) made EVERY
+              widget on the same row inherit moon's tall height —
+              operator-flagged "moon phase widget is very long in
+              height, decrease to match others". Ring circle r=16
+              (down from r=24) → circumference 2·π·16 ≈ 100.5; the
+              `appsWidgetMoonPhase()` helper continues to use the
+              r=24 / circumference≈150.8 numbers it always has so
+              we pass `:viewBox` scaling instead of recomputing the
+              arc geometry (cheaper diff + the helper stays a single
+              source of truth for the lit-fraction math).
+            -->
+            <div class="apps-widget-hero-row">
+              <svg class="apps-widget-moon-ring" width="40" height="40" viewBox="0 0 56 56" aria-hidden="true">
+                <!-- Background dim disc (the un-illuminated portion). -->
+                <circle cx="28" cy="28" r="24"
+                        fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
+                        stroke="color-mix(in srgb, var(--widget-accent) 22%, transparent)"
+                        stroke-width="1"/>
+                <!-- Bright illumination arc — drawn as a clipped circle
+                     using stroke-dasharray to represent the lit
+                     fraction. circumference = 2 * pi * r ≈ 150.8 at r=24. -->
+                <circle cx="28" cy="28" r="24"
+                        fill="none"
+                        stroke="var(--widget-accent)"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        :stroke-dasharray="appsWidgetMoonPhase().circumference"
+                        :stroke-dashoffset="appsWidgetMoonPhase().offset"
+                        transform="rotate(-90 28 28)"/>
+                <text x="28" y="34" text-anchor="middle"
+                      style="font-size: 18px; font-weight: 600; fill: var(--text);"
+                      x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
+              </svg>
+              <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                <!-- FULL phase name — bumped DOWN to `--fs-md` (13px)
+                     from the earlier 17px display-sm. The phase name is
+                     the hero but it's a SECONDARY widget (compared to
+                     weather's primary temperature), and the smaller
+                     size lets two-word phases ("Waxing Gibbous" /
+                     "Waning Crescent") fit cleanly on one line at the
+                     widget's typical narrow width. -->
+                <div class="apps-widget-hero" style="font-size: var(--fs-md); line-height: 1.15; font-weight: 600;"
+                     x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
+                <div class="apps-widget-subtitle"
+                     x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })
+                     || (appsWidgetMoonPhase().illumination_pct + '% illuminated')"></div>
+              </div>
+            </div>
+            <div class="apps-widget-detail">
             <span x-show="appsWidgetMoonPhase().moonrise" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_rise_label') || 'Rise'"></span>
               <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonrise"></span>
             </span>
-            <span x-show="appsWidgetMoonPhase().moonset" class="apps-widget-kv">
+              <span x-show="appsWidgetMoonPhase().moonset" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_set_label') || 'Set'"></span>
               <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonset"></span>
             </span>
+            </div>
           </div>
-        </div>
-      </template>
-      <template x-if="!weather || !weather.supports_moon || !appsWidgetMoonPhase()">
-        <div class="apps-widget-empty">
-          <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
-          </svg>
-          <!-- Four differentiated empty states so users understand
-               WHY moon data isn't showing:
-                 (a) feature globally disabled by an admin
-                 (b) provider can't supply moon data (Open-Meteo)
-                 (c) user hasn't set a location yet
-                 (d) configured but no moon data yet (transient) -->
-          <span class="apps-widget-empty-text"
-                x-text="(weather && weather.configured === false)
+        </template>
+        <template x-if="!weather || !weather.supports_moon || !appsWidgetMoonPhase()">
+          <div class="apps-widget-empty">
+            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
+            </svg>
+            <!-- Four differentiated empty states so users understand
+                 WHY moon data isn't showing:
+                   (a) feature globally disabled by an admin
+                   (b) provider can't supply moon data (Open-Meteo)
+                   (c) user hasn't set a location yet
+                   (d) configured but no moon data yet (transient) -->
+            <span class="apps-widget-empty-text"
+                  x-text="(weather && weather.configured === false)
                   ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
                   : (weather && !weather.supports_moon)
                     ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
                     : (!headerWeatherLat || !headerWeatherLon)
                       ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see moon phases here.')
                       : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
-        </div>
+          </div>
+        </template>
       </template>
-    </template>
-  </div>
+    </div>
 
-  <!-- Freshness footer — operator-visible "last refreshed" stamp so
-       users can tell how fresh the data is at a glance. Only rendered
-       for widget kinds whose data comes from a backend fetch AND
-       actually have data to timestamp; client-side widgets (clock /
-       system_stats) skip cleanly via widgetSupportsRefresh, while
-       admin-disabled / empty-data widgets skip via widgetHasData
-       (showing "Updated Xm ago" when the empty-state message says
-       "Weather service is disabled" reads as contradictory chrome).
-       Small + muted so it doesn't compete with the hero content but
-       stays discoverable. Self-tick via the existing hostHistoryNow
-       1s ticker so the "Updated 2s ago" label counts up live. -->
-  <div class="apps-widget-tile-freshness"
-       x-show="widgetSupportsRefresh(item.widget) && widgetHasData(item.widget) && widgetFreshnessLabel(item.widget)">
-    <svg width="9" height="9" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
-    </svg>
-    <span x-text="widgetFreshnessLabel(item.widget)"></span>
-  </div>
-</div><!-- /.apps-widget-tile (locked-mode) -->
+    <!-- Freshness footer — operator-visible "last refreshed" stamp so
+         users can tell how fresh the data is at a glance. Only rendered
+         for widget kinds whose data comes from a backend fetch AND
+         actually have data to timestamp; client-side widgets (clock /
+         system_stats) skip cleanly via widgetSupportsRefresh, while
+         admin-disabled / empty-data widgets skip via widgetHasData
+         (showing "Updated Xm ago" when the empty-state message says
+         "Weather service is disabled" reads as contradictory chrome).
+         Small + muted so it doesn't compete with the hero content but
+         stays discoverable. Self-tick via the existing hostHistoryNow
+         1s ticker so the "Updated 2s ago" label counts up live. -->
+    <div class="apps-widget-tile-freshness"
+         x-show="widgetSupportsRefresh(item.widget) && widgetHasData(item.widget) && widgetFreshnessLabel(item.widget)">
+      <svg width="9" height="9" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+      </svg>
+      <span x-text="widgetFreshnessLabel(item.widget)"></span>
+    </div>
+  </div><!-- /.apps-widget-tile (locked-mode) -->
 </div><!-- /.apps-widget-tile-root — single root for the outer x-if -->
 
