@@ -98,6 +98,25 @@
       <span x-text="appsWidgetLabel(item.widget)"></span>
     </span>
       <div class="apps-widget-tile-actions">
+        <!-- Settings (gear) pill — parity with the app cards, which
+             carry the gear as the first pill in their status-pill
+             stack. Widgets get the same icon-only `apps-card-action-pill`
+             gear here (the floating corner gear is suppressed for
+             widgets in index.html) so the card-settings affordance is
+             consistent across apps + widgets. Flips to the shared
+             apps-card-settings back face. Hidden in edit mode — the
+             remove button takes priority then. -->
+        <button type="button"
+                x-show="!appsCustomEditMode"
+                class="apps-card-action-pill whitespace-nowrap"
+                @click.stop="toggleAppsCardFlipped(item.uid)"
+                :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'"
+                :title="t('apps.custom.gear_title') || 'Card settings'"
+                :aria-label="t('apps.custom.gear_aria') || 'Card settings'">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+          </svg>
+        </button>
         <!-- Manual refresh button — only for widgets whose data
              comes from a backend fetch (weather / moon / public_ip).
              Clock + system_stats are client-side derivations so
@@ -128,7 +147,6 @@
                aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
           </svg>
-          <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
         </button>
         <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
                 @click.stop="removeAppsItem(sec.id, item.uid)"
@@ -159,7 +177,10 @@
               <div class="apps-widget-clock">
                 <span x-text="appsWidgetClockHH(item)"></span><!--
            --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
-           --><span x-text="appsWidgetClockMM(item)"></span>
+           --><span x-text="appsWidgetClockMM(item)"></span><!--
+           --><span x-show="appsWidgetClockAMPM(item)"
+                    class="apps-widget-clock-ampm"
+                    x-text="appsWidgetClockAMPM(item)"></span>
               </div>
               <div class="apps-widget-subtitle">
                 <span x-text="appsWidgetClockDate(item)"></span>

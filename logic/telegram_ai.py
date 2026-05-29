@@ -410,9 +410,10 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # AI calls won't multiply upstream traffic.
     if username:
         try:
+            from main_pkg.scan_routes import api_weather
             loc = _listener()._load_user_weather_pref(username)
             if loc and loc.get("lat") is not None and loc.get("lon") is not None:
-                wx = await _listener()._api_weather(
+                wx = await api_weather(
                     lat=float(loc["lat"]),
                     lon=float(loc["lon"]),
                     label=(loc.get("label") or "").strip(),
@@ -438,9 +439,10 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # window. Disabled state -> no `public_ip` key in ctx, prompt-
     # builder skips the block cleanly.
     try:
-        _listener()._pip = await _listener()._public_ip_fetch()
-        if _listener()._pip:
-            ctx["public_ip"] = _listener()._pip
+        from logic.public_ip import fetch as _public_ip_fetch
+        pip = await _public_ip_fetch()
+        if pip:
+            ctx["public_ip"] = pip
     # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         print(f"[telegram_listener] context public_ip build failed: {e}")
@@ -461,8 +463,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # no separate `update_available` field on items — earlier code in
     # this module read that key and silently filtered to an empty list.
     try:
-        # noinspection PyProtectedMember
-        items = list(_listener()._gather._cache.get("items") or [])
+        from logic import gather
+        items = list(gather._cache.get("items") or [])
 
         def _shape(i: dict) -> dict:
             # `update_available` excludes orphans for the same reason
@@ -537,7 +539,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # for the Telegram message. `force=False` reuses the cached
         # provider state so we don't pay a hub re-probe on every AI
         # call.
-        list_resp = await _listener()._api_hosts_list()
+        from main_pkg.hosts_routes import api_hosts_list
+        list_resp = await api_hosts_list()
         if not isinstance(list_resp, dict):
             list_resp = {}
         api_hosts = list_resp.get("hosts") or []
@@ -557,12 +560,13 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # matches the SPA Hosts view's effective rendering after
         # the per-host fan-out lands.
         try:
-            provider_state = _listener()._state_index() or {}
+            from main_pkg.hosts_routes import _get_provider_state_index
+            provider_state = _get_provider_state_index() or {}
         # noinspection PyBroadException
         except Exception as _idx_err:  # noqa: BLE001
             print(f"[telegram_listener] provider state index unavailable: {_idx_err}")
             provider_state = {}
-        _listener()._RECENT_OK_WINDOW_S = 3600  # within last hour = "up"
+        recent_ok_window_s = 3600  # within last hour = "up"
         _now_ts = time.time()
         for row in api_hosts:
             if (row.get("status") or "").lower() != "unknown":
@@ -571,7 +575,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             providers = provider_state.get(hid) or {}
             recent_ok = any(
                 int((info or {}).get("last_ok_ts") or 0) > 0
-                and (_now_ts - int((info or {}).get("last_ok_ts") or 0)) < _listener()._RECENT_OK_WINDOW_S
+                and (_now_ts - int((info or {}).get("last_ok_ts") or 0)) < recent_ok_window_s
                 for info in providers.values()
             )
             if recent_ok:
@@ -786,7 +790,9 @@ async def _ai_reply(
     """
     try:
         from logic.db import get_setting, get_setting_bool
-        from logic.tuning import Tunable
+        from logic.tuning import Tunable, tuning_int
+        from logic import ai
+        from logic.ops import notify_one_medium
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] _ai_reply import failed: {e}")
@@ -807,7 +813,7 @@ async def _ai_reply(
     # bucket key to use for them.
     sender_id_raw = (msg.get("from") or {}).get("id")
     if isinstance(sender_id_raw, int):
-        cap = _listener()._tuning_int(Tunable.TELEGRAM_AI_CALLS_PER_MINUTE)
+        cap = tuning_int(Tunable.TELEGRAM_AI_CALLS_PER_MINUTE)
         allowed, wait_s = _ai_rate_limit_check(sender_id_raw, cap)
         if not allowed:
             await _listener()._send_reply(
@@ -847,7 +853,7 @@ async def _ai_reply(
     # hostnames) via the same GROUNDING-STRICT block both surfaces
     # share.
     ctx = await _build_telegram_ai_context(omnigrid_username)
-    user_prompt = _listener()._ai.build_palette_user_prompt(text, ctx)
+    user_prompt = ai.build_palette_user_prompt(text, ctx)
 
     # Snapshot the REAL Telegram command roster from `_listener()._COMMANDS` so the
     # AI grounds its replies in actual commands instead of hallucinating
@@ -909,7 +915,7 @@ async def _ai_reply(
     # `/status` / `/services` / `/updates` / `/errors` / `/forecast`
     # came from the AI inventing SPA-style commands without grounding).
     system_prompt = (
-        _listener()._ai.PALETTE_SYSTEM_PROMPT
+        ai.PALETTE_SYSTEM_PROMPT
         + "\n\n"
         + "TELEGRAM SURFACE OVERRIDE. You are replying to operator "
           f"'{omnigrid_username}' via Telegram, which is a READ-ONLY "
@@ -991,7 +997,7 @@ async def _ai_reply(
     # limit. Defence in depth: clamp to a reasonable upper bound.
     try:
         from logic.tuning import Tunable
-        max_toks = _listener()._tuning.tuning_int(Tunable.AI_MAX_TOKENS)
+        max_toks = tuning_int(Tunable.AI_MAX_TOKENS)
     except (ImportError, KeyError, ValueError, TypeError):
         max_toks = 1024
     try:
@@ -1024,7 +1030,7 @@ async def _ai_reply(
     def _record_call(ok: bool, raw_result: dict | None, answer_text: str) -> None:
         try:
             from logic.db import db_conn
-            _listener()._ai.record_ai_call(
+            ai.record_ai_call(
                 db_conn_factory=db_conn,
                 provider=provider,
                 model=(raw_result or {}).get("model") or model or "",
@@ -1051,7 +1057,7 @@ async def _ai_reply(
             print(f"[telegram_listener] record_ai_call failed: {_rec_err}")
 
     try:
-        result = await _listener()._ai.ask_provider(
+        result = await ai.ask_provider(
             provider,
             api_key=api_key,
             prompt=user_prompt,
@@ -1094,14 +1100,14 @@ async def _ai_reply(
     # blast radius justifies a UI-side confirm.
     action_outcome_line = ""
     try:
-        actions, _ = _listener()._ai.parse_palette_actions(raw_text)
-        action_data, _ = _listener()._ai.parse_palette_action_data(raw_text)
+        actions, _ = ai.parse_palette_actions(raw_text)
+        action_data, _ = ai.parse_palette_action_data(raw_text)
         if "send_notification" in actions and isinstance(action_data, dict):
             medium = (action_data.get("medium") or "").strip().lower()
             note_body = (action_data.get("body") or "").strip()
             note_title = (action_data.get("title") or "").strip() or "🔔 OmniGrid"
             if medium and note_body and medium in ("app", "apprise", "telegram"):
-                send_result = await _listener()._notify_one_medium(
+                send_result = await notify_one_medium(
                     medium=medium,
                     title=note_title,
                     body=note_body,

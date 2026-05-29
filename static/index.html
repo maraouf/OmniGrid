@@ -3582,19 +3582,21 @@
                       <div class="apps-card-corner-actions">
                         <template x-if="appsCustomEditMode">
                           <button type="button" class="apps-card-size-btn"
-                                  @click.stop="setAppsCardSize(item.uid, null)"
-                                  :title="t('apps.custom.size_cycle_title') || 'Cycle card size (normal → double → half)'"
-                                  :aria-label="t('apps.custom.size_cycle_title') || 'Cycle card size'"
+                                  @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
+                                  :title="t('apps.custom.size_drag_title') || 'Tap to cycle size, or drag to resize (half / normal / double)'"
+                                  :aria-label="t('apps.custom.size_drag_title') || 'Resize card — tap to cycle or drag'"
                                   x-text="appsCardSize(item).slice(0,1).toUpperCase() + appsCardSize(item).slice(1)"></button>
                         </template>
-                        <!-- Floating gear: WIDGET cards only. App cards
+                        <!-- Floating gear: bookmark cards only. App cards
                              render the gear as the first pill in their
-                             status-pill stack (apps-card.html) per the
-                             requested settings → status → refresh order,
-                             so suppress the floating one there to avoid
-                             a duplicate sitting over the status pill. -->
+                             status-pill stack (apps-card.html) and widget
+                             tiles render it as a pill in their actions row
+                             (apps-widget-tile.html) — both per the
+                             requested consistent pill design — so suppress
+                             the floating gear for those to avoid a
+                             duplicate sitting over the card. -->
                         <button type="button" class="apps-card-gear"
-                                x-show="item.kind !== 'app'"
+                                x-show="item.kind !== 'app' && item.kind !== 'widget'"
                                 @click.stop="toggleAppsCardFlipped(item.uid)"
                                 :title="t('apps.custom.gear_title') || 'Card settings'"
                                 :aria-label="t('apps.custom.gear_aria') || 'Card settings'"
@@ -3604,19 +3606,23 @@
                           </svg>
                         </button>
                       </div>
-                      <template x-if="item.kind === 'app' && (!appsCustomEditMode || appsCardSize(item) !== 'half')">
+                      <template x-if="item.kind === 'app' && !appsCustomEditMode">
                         <template x-for="app in [item.app]" :key="app.group_id">
                           <!-- INCLUDE: _components/apps-card.html -->
                         </template>
                       </template>
-                      <template x-if="item.kind === 'app' && appsCustomEditMode && appsCardSize(item) === 'half'">
-                        <!-- Half-size skeleton: title + icon + status
-                             dot only. Drops every body subtree so a
-                             "I want this app in the dashboard but
-                             not the full card" choice renders as a
-                             compact placeholder. Operator can still
-                             click into the app drawer via the @click
-                             handler — the skeleton IS the card. -->
+                      <template x-if="item.kind === 'app' && appsCustomEditMode">
+                        <!-- Edit-mode compact tile (ALL sizes): title +
+                             icon + status dot only — never the full app
+                             card. Edit mode is for arranging + resizing,
+                             so every app renders as the same lightweight
+                             shimmer-style placeholder as the widgets
+                             (operator-flagged: "edit should show the
+                             shimmer + title, not the full app"). The
+                             cell's `appsCardSizeClass` still drives the
+                             grid-column span, so resizing visibly
+                             widens / narrows this tile. Click still
+                             opens the app drawer — the tile IS the card. -->
                         <article class="apps-tile apps-tile--skeleton"
                                  :class="'apps-tile--' + item.app.status"
                                  draggable="true"

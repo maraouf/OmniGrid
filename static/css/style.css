@@ -9373,6 +9373,7 @@ select.field-invalid {
   transition: transform 0.5s ease;
   transform-style: preserve-3d;
   min-height: 100%;
+  height: 100%;
 }
 
 .apps-card-flip.apps-card--flipped .apps-card-flip-inner {
@@ -9383,6 +9384,13 @@ select.field-invalid {
 .apps-card-face-back {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+
+/* Front face fills the flip cell so the app card inside (which is
+   `height: 100%`) stretches to the grid-row height — keeps an app
+   card the SAME height as the widgets sharing its row. */
+.apps-card-face-front {
+  height: 100%;
 }
 
 .apps-card-face-back {
@@ -9416,6 +9424,34 @@ select.field-invalid {
 .apps-card-settings-hint {
   font-size: var(--fs-3xs);
   color: var(--text-faint);
+}
+
+/* Segmented toggle buttons in the card-settings pane (card size /
+   clock style / weather units). The active state keys off the
+   already-bound `aria-checked` so it CAN'T lose the cascade to
+   `.btn-ghost`'s transparent background — the prior `bg-[var(--primary)]`
+   Tailwind utility did exactly that (utilities injected before
+   style.css), leaving no visible selection. */
+.apps-seg-btn {
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.apps-seg-btn:hover:not([aria-checked="true"]) {
+  color: var(--text);
+  border-color: var(--border-bright);
+}
+
+.apps-seg-btn[aria-checked="true"] {
+  background: var(--primary);
+  color: var(--text-on-primary);
+  border-color: var(--primary);
 }
 
 /* Front-face gear button — top-right corner of the card header. */
@@ -9985,6 +10021,18 @@ select.field-invalid {
   display: contents;
 }
 
+/* App (flip) cells need a REAL box — `display: contents` above
+   nullified the `perspective` + `position: relative` on the same
+   `.apps-card-flip` element, so the absolute back face positioned
+   against the wrong ancestor and the flip didn't rotate back cleanly
+   on close (open animated, close snapped). Override for flip cells
+   only; plain widget / bookmark cells keep `display: contents`.
+   `height: 100%` keeps the flip cell filling its grid row. */
+.apps-custom-cell.apps-card-flip {
+  display: block;
+  height: 100%;
+}
+
 /* ============================================================
    Apps Custom — widget tiles (UX-artist tier)
    ----------------------------------------------------------------
@@ -10125,12 +10173,17 @@ select.field-invalid {
    the country-name text. */
 .apps-widget-country-flag {
   /* Now a flag-icons SVG <img> (18x13), not an emoji glyph — small
-     rounded chip with a hairline so light flags read on the surface. */
+     rounded chip with a hairline so light flags read on the surface.
+     `.apps-widget-kv` is `inline-flex; align-items: baseline`, so the
+     img's baseline (its bottom edge) was sitting on the text baseline
+     and lifting the flag ~3px above the label. `align-self: center`
+     overrides the parent baseline so the flag centres vertically
+     against the country text (`vertical-align` is a no-op in flex). */
   width: 18px;
   height: 13px;
   border-radius: 2px;
   object-fit: cover;
-  vertical-align: -2px;
+  align-self: center;
   flex-shrink: 0;
   box-shadow: 0 0 0 1px var(--border);
 }
@@ -10429,6 +10482,17 @@ select.field-invalid {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1.0;
+}
+
+/* AM/PM segment — smaller, dimmed, baseline-aligned next to the big
+   HH:MM digits. Only rendered for a 12-hour clock format. */
+.apps-widget-clock-ampm {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-inline-start: 0.25em;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 /* Clock-tile centering wrapper — fills the tile-body's flex-1 height

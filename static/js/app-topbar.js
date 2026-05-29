@@ -258,7 +258,26 @@ export default {
         this.weather = null;
         return;
       }
-      this.weather = await r.json();
+      const fresh = await r.json();
+      // In-place reconcile instead of `this.weather = fresh`: replacing
+      // the object reference makes Alpine tear down + rebuild the whole
+      // widget subtree (the "updated section" visibly removed + re-added
+      // = flicker on every refresh). Mutating the existing object keeps
+      // its identity so Alpine updates the bound fields in place — the
+      // refresh spinner is the only visible "loading" cue. Falls back to
+      // assignment on first load when there's no object yet.
+      const haveCurrent = this.weather && typeof this.weather === 'object';
+      const haveFresh = fresh && typeof fresh === 'object';
+      if (haveCurrent && haveFresh) {
+        Object.keys(this.weather).forEach((k) => {
+          if (!(k in fresh)) {
+            delete this.weather[k];
+          }
+        });
+        Object.assign(this.weather, fresh);
+      } else {
+        this.weather = fresh;
+      }
       // Stamp the local "fetched at" so the Apps widget tile can
       // render a freshness label ("Updated 2m ago"). The backend
       // already sets `weather.fetched_at` from its own clock, but
@@ -390,15 +409,15 @@ export default {
   // main.py:_WMO_CODES so the mapping has ONE source of truth.
   weatherIconPath(slug) {
     const icons = {
-      'sun': '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-      'cloud-sun': '<circle cx="7" cy="8" r="3"/><path d="M7 2v2M2 8h2M12 8h-.5M4 4l1 1M10 4L9 5"/><path d="M20 17h-10.5a3.5 3.5 0 1 1 .8-6.9"/>',
-      'cloud': '<path d="M17 18H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 18z"/>',
-      'fog': '<path d="M3 9h18M3 13h18M3 17h12M7 5h14"/>',
-      'drizzle': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M9 18v2M13 18v2M17 18v2"/>',
-      'rain': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M8 16v4M12 18v4M16 16v4"/>',
-      'snow': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M8 17v1M12 19v1M16 17v1M8 20v1M12 22v.01M16 20v1"/>',
-      'sleet': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"/><path d="M9 17v2M13 19v2M17 17v2M10 20h.01M14 18h.01"/>',
-      'thunder': '<path d="M19 16a5 5 0 0 0-1-9h-1.3a7 7 0 0 0-13.4 2"/><polyline points="13 11 9 17 14 17 10 22"/>',
+      'sun': '<circle cx="12" cy="12" r="4.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>',
+      'cloud-sun': '<circle cx="7" cy="8" r="3"></circle><path d="M7 2v2M2 8h2M12 8h-.5M4 4l1 1M10 4L9 5"></path><path d="M20 17h-10.5a3.5 3.5 0 1 1 .8-6.9"></path>',
+      'cloud': '<path d="M17 18H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 18z"></path>',
+      'fog': '<path d="M3 9h18M3 13h18M3 17h12M7 5h14"></path>',
+      'drizzle': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"></path><path d="M9 18v2M13 18v2M17 18v2"></path>',
+      'rain': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"></path><path d="M8 16v4M12 18v4M16 16v4"></path>',
+      'snow': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"></path><path d="M8 17v1M12 19v1M16 17v1M8 20v1M12 22v.01M16 20v1"></path>',
+      'sleet': '<path d="M17 14H7a5 5 0 0 1-.6-9.96 7 7 0 0 1 13.5 2.16A4 4 0 0 1 17 14z"></path><path d="M9 17v2M13 19v2M17 17v2M10 20h.01M14 18h.01"></path>',
+      'thunder': '<path d="M19 16a5 5 0 0 0-1-9h-1.3a7 7 0 0 0-13.4 2"></path><polyline points="13 11 9 17 14 17 10 22"></polyline>',
     };
     return icons[slug] || icons['cloud'];
   },
