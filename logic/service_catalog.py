@@ -829,6 +829,11 @@ def _row_to_dict(row: sqlite3.Row | tuple) -> dict[str, Any]:
         ports_raw = json.loads(row[5] or "[]")
     except (TypeError, ValueError):
         ports_raw = []
+    # `show_extras` column was added additively; legacy rows pre-
+    # ALTER read as None — treat None as the back-compat default
+    # (True / 1) so existing APC templates keep rendering their
+    # UPS panel without an explicit DB update.
+    show_extras_raw = row[9] if len(row) > 9 else 1
     return {
         "id": int(row[0]),
         "name": row[1] or "",
@@ -839,12 +844,17 @@ def _row_to_dict(row: sqlite3.Row | tuple) -> dict[str, Any]:
         "source": row[6] or "operator",
         "created_ts": int(row[7] or 0),
         "updated_ts": int(row[8] or 0),
+        "show_extras": bool(show_extras_raw) if show_extras_raw is not None else True,
     }
 
 
 def _select_columns() -> str:
+    # `show_extras` MUST stay at column index 9 — the `_row_to_dict`
+    # positional read relies on it. Adding a new column requires
+    # both the SELECT here AND the row[N] index there to update in
+    # lock-step.
     return ("id, name, slug, icon, description, default_ports_json, source, "
-            "created_ts, updated_ts")
+            "created_ts, updated_ts, show_extras")
 
 
 def list_catalog() -> list[dict[str, Any]]:
@@ -931,9 +941,16 @@ def update_catalog_entry(cid: int, *,
                          slug: Optional[str] = None,
                          icon: Optional[str] = None,
                          description: Optional[str] = None,
-                         default_ports: Optional[list[dict]] = None) -> Optional[dict[str, Any]]:
+                         default_ports: Optional[list[dict]] = None,
+                         show_extras: Optional[bool] = None) -> Optional[dict[str, Any]]:
     """Partial update — only fields with non-None values are written.
     Returns the post-update row or ``None`` if the id didn't exist.
+
+    `show_extras` — per-template default for the extras panel on app
+    cards (currently the APC UPS-stats panel; future templates with
+    rich per-host data follow the same gate). True = show by default,
+    False = hide by default; per-host chip can override via its own
+    `show_extras` field on the curated `services[]` entry.
     """
     existing = get_catalog_by_id(cid)
     if existing is None:
@@ -960,6 +977,9 @@ def update_catalog_entry(cid: int, *,
     if default_ports is not None:
         sets.append("default_ports_json = ?")
         params.append(json.dumps(_coerce_ports(default_ports)))
+    if show_extras is not None:
+        sets.append("show_extras = ?")
+        params.append(1 if show_extras else 0)
     if not sets:
         return existing
     # A BUILT-IN template edited via the UI takes ownership: its source
@@ -1396,17 +1416,46 @@ def list_apps() -> list[dict[str, Any]]:
     """
     catalog_rows = list_catalog()
     catalog_by_id: dict[int, dict[str, Any]] = {int(r["id"]): r for r in catalog_rows}
-    # Cache latest probe per (host, idx) so we hit the DB once not N times.
-    # `latest_per_port_all_for_host` is the batched per-port reader — one
-    # query per host (same profile as latest_for_host) so multi-port chips
-    # can surface which specific port failed in the Apps card's diagnosis
-    # row without an extra DB hit per instance.
-    from logic.service_sampler import latest_for_host, latest_per_port_all_for_host, history_rollup_all_for_host
-    groups: dict[str, dict[str, Any]] = {}
+    # Fleet-wide batched DB reads — three queries TOTAL instead of
+    # `3 × N curated hosts`. Pre-batch (200-host fleet): 600 DB
+    # round-trips per `/api/apps` call, ~3-5s wall-clock just in DB
+    # dispatch on top of the actual scan cost; operator-flagged
+    # "loading apps takes 10-15 seconds". Now: 3 batched queries
+    # against `service_samples` with the new `_for_hosts` companions
+    # that re-use the ROW_NUMBER() window pattern from their per-host
+    # siblings (only difference: partition key gains `host_id`).
+    # Each result dict is `{host_id: {service_idx: ...}}` — the inner
+    # shape matches the per-host helpers' return, so the downstream
+    # `latest.get(idx)` / `per_port.get(idx)` / `hist.get(idx, [])`
+    # call sites read identically after a single dict lookup keyed
+    # on the current host's id.
+    from logic.service_sampler import (
+        latest_for_hosts,
+        latest_per_port_all_for_hosts,
+        history_rollup_all_for_hosts,
+    )
+    # First pass over the curated host list — collect the host_ids
+    # we'll batch-query against. The iter_curated_hosts() walk has
+    # to happen once anyway; we materialise the rows so the second
+    # pass below doesn't pay the JSON-parse + filter cost again.
+    curated_rows: list[dict[str, Any]] = []
+    host_ids_with_services: list[str] = []
     for host_row in iter_curated_hosts():
         hid = (host_row.get("id") or "").strip()
         if not hid:
             continue
+        services = host_row.get("services")
+        if not isinstance(services, list) or not services:
+            continue
+        curated_rows.append(host_row)
+        host_ids_with_services.append(hid)
+    # Three batched queries → entire fleet's sample data in one shot.
+    latest_by_host = latest_for_hosts(host_ids_with_services)
+    per_port_by_host = latest_per_port_all_for_hosts(host_ids_with_services)
+    hist_by_host = history_rollup_all_for_hosts(host_ids_with_services)
+    groups: dict[str, dict[str, Any]] = {}
+    for host_row in curated_rows:
+        hid = (host_row.get("id") or "").strip()
         host_label = (host_row.get("label") or hid).strip()
         # `address` is the curated "Hostname or IP" probe target from
         # Admin → Hosts — surface it on every Apps instance so the
@@ -1416,11 +1465,12 @@ def list_apps() -> list[dict[str, Any]]:
         services = host_row.get("services")
         if not isinstance(services, list) or not services:
             continue
-        latest = latest_for_host(hid)
-        per_port = latest_per_port_all_for_host(hid)
-        # Recent per-chip rollup uptime history (one query per host) — drives
-        # the Apps card's inline per-instance uptime sparkline.
-        hist = history_rollup_all_for_host(hid)
+        # Per-host slices of the three batched results. Missing host
+        # keys (no samples yet) return empty dicts so the downstream
+        # `.get(idx)` calls behave the same as pre-batch.
+        latest = latest_by_host.get(hid, {})
+        per_port = per_port_by_host.get(hid, {})
+        hist = hist_by_host.get(hid, {})
         for idx, svc in enumerate(services):
             if not isinstance(svc, dict):
                 continue
@@ -1462,6 +1512,26 @@ def list_apps() -> list[dict[str, Any]]:
             # added one as PENDING until the sampler probes it), and a
             # sample for a port no longer in config is dropped (stale).
             port_results = merge_port_results(probe_cfg.get("ports"), per_port.get(idx))
+            # Per-instance `show_extras` override — tri-state. The
+            # curated `services[]` entry may carry the key as bool;
+            # missing / null / non-bool surfaces as None (= "inherit
+            # from template default"). SPA's `appsShowExtras(app, inst)`
+            # resolves the per-instance → per-template → default-true
+            # chain at render time.
+            svc_show_extras = svc.get("show_extras")
+            inst_show_extras = (svc_show_extras
+                                if isinstance(svc_show_extras, bool)
+                                else None)
+            # Per-instance api_key — never returned in the clear.
+            # Stamp a `api_key_set` bool flag (matches the
+            # global-secret `_set` flag convention) so the SPA's
+            # Speedtest editor can render a "Saved" indicator
+            # without round-tripping the secret. The actual
+            # value stays in the curated `services[].api_key`
+            # row and is consulted only by the Test-credential
+            # + data-fetch backend routes.
+            svc_api_key = svc.get("api_key")
+            inst_api_key_set = bool(isinstance(svc_api_key, str) and svc_api_key.strip())
             grp["instances"].append({
                 "host_id": hid,
                 "host_label": host_label,
@@ -1472,6 +1542,8 @@ def list_apps() -> list[dict[str, Any]]:
                 "last_probe": sample,
                 "probe_enabled": bool(probe_cfg.get("enabled")),
                 "ports": probe_cfg.get("ports") or [],
+                "show_extras": inst_show_extras,
+                "api_key_set": inst_api_key_set,
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1531,11 +1603,26 @@ def iter_instances() -> Iterable[dict[str, Any]]:
     """
     catalog_rows = list_catalog()
     catalog_by_id: dict[int, dict[str, Any]] = {int(r["id"]): r for r in catalog_rows}
-    from logic.service_sampler import latest_for_host
+    # Fleet-wide batched read — same shape as the `list_apps` batch
+    # above. ONE query for the entire `latest_for_hosts` map instead
+    # of N per-host queries. The generator's lifecycle holds the
+    # batched dict in a closure across yields; per-host slices are
+    # constant-time dict lookups.
+    from logic.service_sampler import latest_for_hosts
+    curated_rows: list[dict[str, Any]] = []
+    host_ids_with_services: list[str] = []
     for host_row in iter_curated_hosts():
         hid = (host_row.get("id") or "").strip()
         if not hid:
             continue
+        services = host_row.get("services")
+        if not isinstance(services, list) or not services:
+            continue
+        curated_rows.append(host_row)
+        host_ids_with_services.append(hid)
+    latest_by_host = latest_for_hosts(host_ids_with_services)
+    for host_row in curated_rows:
+        hid = (host_row.get("id") or "").strip()
         host_label = (host_row.get("label") or hid).strip()
         # `address` (curated "Hostname or IP" from Admin → Hosts) is
         # surfaced so SPA consumers can display the canonical reachable
@@ -1544,7 +1631,7 @@ def iter_instances() -> Iterable[dict[str, Any]]:
         services = host_row.get("services")
         if not isinstance(services, list) or not services:
             continue
-        latest = latest_for_host(hid)
+        latest = latest_by_host.get(hid, {})
         for idx, svc in enumerate(services):
             if not isinstance(svc, dict):
                 continue
@@ -1577,6 +1664,17 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "docker_host": (svc.get("docker_host") or "").strip(),
                 "last_probe": sample,
                 "status": "up" if sample_alive else ("down" if sample else "unknown"),
+                # Per-instance api_key — never returned in the
+                # clear; only the `_set` boolean flag (matches
+                # the global-secret convention).
+                "api_key_set": bool(
+                    isinstance(svc.get("api_key"), str)
+                    and svc.get("api_key", "").strip()
+                ),
+                # Per-instance show_extras tri-state.
+                "show_extras": (svc.get("show_extras")
+                                if isinstance(svc.get("show_extras"), bool)
+                                else None),
             }
 
 

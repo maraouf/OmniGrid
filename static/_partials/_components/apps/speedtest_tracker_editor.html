@@ -1,0 +1,46 @@
+<!-- Per-app editor fields -- Speedtest Tracker.
+
+     Renders inside the Admin -> Apps per-instance editor as a
+     conditional `<template x-if="...">` so it only appears when
+     the chip's catalog template is Speedtest Tracker. Gates on
+     `speedtestIsApp({catalog:{slug: appsInstanceEditForm.catalog_slug}})`
+     so the helper from `static/js/apps/speedtest_tracker.js`
+     is the single source of truth for "is this a Speedtest
+     chip?" -- adding a new app's editor fields is a sibling
+     partial + one INCLUDE marker line for the partial path
+     `_components/apps/[slug]_editor.html` in `_all_editors.html`. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="speedtestIsApp && speedtestIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-speedtest-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.speedtest.api_key_label') || 'Speedtest Tracker API key'"></label>
+      <input id="apps-instance-speedtest-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.speedtest.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.speedtest.api_key_placeholder_unset') || 'Bearer token from Speedtest Tracker')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.speedtest.api_key_hint') || 'Required for the expanded card to fetch latest/average/graph data. Leave blank to keep the stored key.'"></p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="button"
+              class="btn btn-secondary fs-xs"
+              :disabled="appsInstanceTestBusy"
+              @click="testInstanceCredential()">
+        <span x-show="!appsInstanceTestBusy"
+              x-text="t('actions.test_connection') || 'Test connection'"></span>
+        <span x-show="appsInstanceTestBusy"
+              x-text="t('common.testing') || 'Testing...'"></span>
+      </button>
+      <span x-show="appsInstanceTestResult"
+            :class="(appsInstanceTestResult && appsInstanceTestResult.ok)
+              ? 'fs-xs text-[var(--success)]'
+              : 'fs-xs text-[var(--danger)]'"
+            x-text="appsInstanceTestResult ? appsInstanceTestResult.detail : ''"></span>
+    </div>
+  </div>
+</template>

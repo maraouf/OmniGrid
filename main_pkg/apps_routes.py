@@ -505,6 +505,32 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["docker_host"] = v[:256]
         else:
             chip.pop("docker_host", None)
+    # Per-instance show_extras override — tri-state (null /
+    # absent = inherit from the catalog template's default,
+    # true / false = explicit operator override). Only `bool`
+    # values stamp the field; anything else (including the
+    # SPA's `null` sentinel for "inherit") clears the override
+    # so a future template default-flip propagates without
+    # re-saving the chip.
+    if "show_extras" in payload:
+        v = payload.get("show_extras")
+        if isinstance(v, bool):
+            chip["show_extras"] = v
+        else:
+            chip.pop("show_extras", None)
+    # Per-instance api_key — keep-current-if-blank contract
+    # shared with every other secret in OmniGrid. Non-empty
+    # string overwrites; empty / whitespace / missing preserves
+    # the stored value. The field is never returned in the
+    # clear (see `_shape_apps_instances` which stamps
+    # `api_key_set` only). Stored under `services[].api_key`
+    # as a bounded string (max 512 chars).
+    if "api_key" in payload:
+        v = (payload.get("api_key") or "").strip()
+        if v:
+            chip["api_key"] = v[:512]
+        # blank → keep current (no chip.pop — the existing
+        # value carries forward).
     _probe_raw = chip.get("probe")
     probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:
@@ -537,6 +563,115 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
         if 0 <= service_idx < len(svcs) and isinstance(svcs[service_idx], dict):
             out_chip = svcs[service_idx]
     return {"ok": True, "host_id": host_id, "service_idx": service_idx, "chip": out_chip}
+
+
+# --------------------------------------------------------------------------
+# Per-app dispatcher endpoints — slug-keyed, fully generic.
+#
+# Per-app modules live under `logic/apps/<slug>.py`. Each module owns
+# the upstream-API specifics (base URL resolution, credential probe,
+# data fetch + cache). The two endpoints below resolve the chip's
+# catalog template → slug, dispatch via `logic.apps.registry`, and
+# return the module's response unchanged. Adding a new app does NOT
+# touch this file — drop a module under `logic/apps/` + register in
+# `logic/apps/registry.py`.
+# --------------------------------------------------------------------------
+def _resolve_chip_app_module(host_id: str, service_idx: int):
+    """Common prelude — load chip + look up its per-app module.
+
+    Returns ``(host_row, chip, module)`` or raises HTTPException(404)
+    / HTTPException(400) on the usual not-found / no-app-registered
+    failure modes. The slug is derived from the chip's catalog_id;
+    operator-edited chips that DROPPED the catalog link fall through
+    to "no module" so the generic edit path stays the only surface."""
+    hosts = _load_hosts_config()
+    target_idx = _find_host_idx(hosts, host_id)
+    if target_idx < 0:
+        raise HTTPException(404, f"host not found: {host_id}")
+    chips = hosts[target_idx].get("services") or []
+    if not isinstance(chips, list) or service_idx < 0 or service_idx >= len(chips):
+        raise HTTPException(404,
+                            f"service_idx {service_idx} out of range for host {host_id}")
+    chip = chips[service_idx]
+    if not isinstance(chip, dict):
+        raise HTTPException(400, "service entry malformed")
+    from logic.apps import registry as apps_registry
+    from logic.service_catalog import list_catalog, coerce_int as _ci
+    cid = _ci(chip.get("catalog_id"))
+    slug = ""
+    if cid is not None:
+        for tpl in list_catalog():
+            try:
+                if int(tpl.get("id") or 0) == int(cid):
+                    slug = (tpl.get("slug") or "").strip()
+                    break
+            except (TypeError, ValueError):
+                continue
+    mod = apps_registry.module_for_slug(slug) if slug else None
+    return hosts[target_idx], chip, mod
+
+
+@app.post("/api/services/{host_id}/{service_idx}/test-credential")
+async def api_service_test_credential(host_id: str, service_idx: int,
+                                       payload: dict[str, Any],
+                                       request: Request, _admin: AdminUser):
+    """Admin-only: probe the chip's app credentials.
+
+    Generic test-before-Save dispatcher. The chip's catalog slug
+    selects the per-app module from `logic/apps/registry`; the
+    module's ``test_credential(host_row, chip, candidate_key)``
+    coroutine performs the actual upstream probe + returns the
+    SPA-shaped result. Apps without a registered module return
+    400 ("no test path for this app"). Audited via the standard
+    ``services_test`` op_type so the operator can trace probe
+    attempts in History."""
+    host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
+    if mod is None or not hasattr(mod, "test_credential"):
+        raise HTTPException(400, "no test path for this app")
+    candidate_key = (payload.get("api_key") or "").strip()
+    try:
+        result = await mod.test_credential(host_row, chip, candidate_key)
+    except (RuntimeError, ValueError) as e:  # noqa: BLE001
+        result = {"ok": False, "detail": str(e), "status": 0}
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_test",
+            target_kind="host", target_name=host_id, target_id=host_id,
+            actor=_actor_from(request),
+            message=(f"Tested credentials for service_idx={service_idx} on {host_id} "
+                     f"(ok={result.get('ok')})"),
+        )
+    return result
+
+
+@app.get("/api/services/{host_id}/{service_idx}/app-data")
+async def api_service_app_data(host_id: str, service_idx: int,
+                                _admin: AdminUser,
+                                force: bool = False):
+    """Admin-only: fetch the per-app expanded-card data for one chip.
+
+    Generic dispatcher. The chip's catalog slug selects the per-app
+    module; the module's ``fetch_data(host_row, chip, *, host_id,
+    service_idx, force)`` coroutine returns the SPA-shaped data
+    dict (typically ``{latest, averages, series, fetched_at}`` for
+    Speedtest-style apps; future apps may shape it differently —
+    the SPA's app-specific template is the contract).
+
+    Apps without a registered module return 400. The module is
+    free to cache per (host_id, service_idx); ``?force=true`` is
+    forwarded so the operator can force a fresh upstream fetch.
+    """
+    host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
+    if mod is None or not hasattr(mod, "fetch_data"):
+        raise HTTPException(400, "no data path for this app")
+    try:
+        return await mod.fetch_data(host_row, chip,
+                                    host_id=host_id, service_idx=service_idx,
+                                    force=force)
+    except ValueError as e:  # caller-side errors (missing key / URL)
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:  # upstream errors
+        raise HTTPException(502, str(e))
 
 
 @app.delete("/api/services/{host_id}/{service_idx}")

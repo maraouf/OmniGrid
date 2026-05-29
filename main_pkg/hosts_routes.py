@@ -1280,6 +1280,26 @@ def _clean_host_services(raw: Any) -> list[dict]:
         dh = entry.get("docker_host")
         if isinstance(dh, str) and dh.strip():
             cleaned["docker_host"] = dh.strip()[:256]
+        # Per-instance `show_extras` override. Tri-state: bool present
+        # → explicit operator override (true = show, false = hide);
+        # absent → inherit the catalog template's default. We persist
+        # ONLY the explicit-bool case so a future template-default
+        # flip propagates to inherit-mode instances automatically.
+        se = entry.get("show_extras")
+        if isinstance(se, bool):
+            cleaned["show_extras"] = se
+        # Per-instance api_key — secret credential for templates
+        # that need to authenticate against the upstream app's
+        # API (currently Speedtest Tracker; future apps follow
+        # the same pattern). Stored as a bounded string under
+        # the chip's `api_key` field. NEVER returned to the SPA
+        # in the clear — `_shape_apps_instances` stamps an
+        # `api_key_set: bool` flag only. Suffix `_key` matches
+        # the global-secret convention so backup-sanitisation
+        # tooling can redact it automatically.
+        ak = entry.get("api_key")
+        if isinstance(ak, str) and ak.strip():
+            cleaned["api_key"] = ak.strip()[:512]
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

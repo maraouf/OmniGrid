@@ -1,0 +1,114 @@
+<!-- Per-app expanded-card extras -- Speedtest Tracker.
+
+     Renders inside `apps-card.html` as the per-instance host row
+     when the chip is a Speedtest Tracker template AND the
+     operator hasn't explicitly hidden extras via the per-instance
+     `show_extras` toggle. The data shape comes from the generic
+     `appsAppData(inst)` dispatcher, which fetches from
+     `/api/services/{host_id}/{service_idx}/app-data` and lets
+     the per-app backend module
+     (`logic/apps/speedtest_tracker.py:fetch_data`) shape the
+     payload (`{latest, averages, series, fetched_at}`).
+
+     Helpers used (all from `static/js/apps/speedtest_tracker.js`):
+       speedtestIsApp(app)           -- gate "is this a Speedtest chip"
+       speedtestMbpsLabel(v)         -- format download/upload Mbps
+       speedtestPingLabel(v)         -- format ping ms
+       speedtestSparkPath(series, k) -- SVG `d` attr for the chart -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="speedtestIsApp && speedtestIsApp(app) && appsShowExtras(app, inst)">
+  <div class="apps-card-speedtest mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+    <template x-if="appsAppData(inst)">
+      <div class="space-y-2">
+        <div class="grid grid-cols-3 gap-2">
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.latest_download') || 'Latest down'"></div>
+            <div class="fs-md font-semibold"
+                 x-text="appsAppData(inst).latest
+                   ? speedtestMbpsLabel(appsAppData(inst).latest.download) : '--'"></div>
+          </div>
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.latest_upload') || 'Latest up'"></div>
+            <div class="fs-md font-semibold"
+                 x-text="appsAppData(inst).latest
+                   ? speedtestMbpsLabel(appsAppData(inst).latest.upload) : '--'"></div>
+          </div>
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.latest_ping') || 'Latest ping'"></div>
+            <div class="fs-md font-semibold"
+                 x-text="appsAppData(inst).latest
+                   ? speedtestPingLabel(appsAppData(inst).latest.ping) : '--'"></div>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.avg_download') || 'Avg down (10)'"></div>
+            <div class="fs-sm"
+                 x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
+          </div>
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.avg_upload') || 'Avg up (10)'"></div>
+            <div class="fs-sm"
+                 x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
+          </div>
+          <div class="apps-card-stat">
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.avg_ping') || 'Avg ping (10)'"></div>
+            <div class="fs-sm"
+                 x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
+          </div>
+        </div>
+        <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="fs-2xs text-[var(--text-faint)]"
+                    x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
+              <button type="button"
+                      class="btn btn-ghost fs-2xs"
+                      @click="loadAppData(inst, true)"
+                      :title="t('actions.reload') || 'Reload'">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+              </button>
+            </div>
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none"
+                 class="w-full h-8 apps-card-speedtest-chart">
+              <path :d="speedtestSparkPath(appsAppData(inst).series, 'download')"
+                    fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              <path :d="speedtestSparkPath(appsAppData(inst).series, 'upload')"
+                    fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              <path :d="speedtestSparkPath(appsAppData(inst).series, 'ping')"
+                    fill="none" stroke="var(--warning)" stroke-width="1.5"
+                    stroke-dasharray="2 2"/>
+            </svg>
+            <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+              <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                          style="background: var(--success);"></span><span
+                x-text="t('apps.speedtest.legend_download') || 'down'"></span></span>
+              <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                          style="background: var(--info);"></span><span
+                x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>
+              <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                          style="background: var(--warning);"></span><span
+                x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+    <template x-if="!appsAppData(inst) && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.speedtest.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+    </template>
+    <template x-if="!appsAppData(inst) && inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.speedtest.loading') || 'Loading speedtest data...'"></p>
+    </template>
+  </div>
+</template>

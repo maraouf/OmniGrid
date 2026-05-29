@@ -172,6 +172,84 @@ def db_conn():
         conn.close()
 
 
+# Frames in the stack that are infrastructure (sqlite3 internals +
+# this module's own wrappers) — skipped when identifying the actual
+# operator-meaningful caller in `_resolve_caller_site`. Match by
+# substring against the resolved file path (cross-platform tolerant).
+_SLOW_QUERY_SKIP_PATH_SUBSTRINGS: tuple[str, ...] = (
+    "/logic/db.py",          # this module's _TimedConnection wrappers
+    "\\logic\\db.py",
+    "/sqlite3/",             # CPython sqlite3 wrapper internals
+    "\\sqlite3\\",
+    "/contextlib.py",        # db_conn() context manager bookkeeping
+    "\\contextlib.py",
+)
+
+
+def _resolve_caller_site() -> str:
+    """Walk the call stack and return the first frame OUTSIDE this
+    module + the sqlite3 internals + `contextlib` (the `db_conn()`
+    context-manager bookkeeping). That's the operator-meaningful
+    caller — typically a route handler, sampler tick, or schedule
+    runner. Returns a short `module:function:lineno` string suitable
+    for inline log-line interpolation.
+
+    Falls back to ``"<unknown>"`` on any traversal failure so the
+    diagnostic NEVER breaks the actual query path.
+
+    Cost: `sys._getframe` is O(depth) but Python's frame walk is
+    cheap (~microseconds for typical 20-frame stacks) — fired ONLY
+    on queries that already crossed the operator-tunable threshold,
+    so the steady-state cost is zero.
+    """
+    try:
+        import sys as _sys
+        # Start at the immediate caller of `_resolve_caller_site` (depth=1)
+        # and walk outward until we find a frame that isn't in the skip
+        # list. `_getframe` is private but stable across CPython releases
+        # and avoids the much-more-expensive `inspect.stack()` (which
+        # builds a list of FrameInfo objects for the full traversal).
+        depth = 1
+        while True:
+            try:
+                frame = _sys._getframe(depth)
+            except ValueError:
+                # Walked past the top of the stack without finding a
+                # non-infrastructure frame. Should never happen in
+                # practice (the route handler / sampler is always
+                # somewhere up the stack) but defence-in-depth.
+                return "<unknown>"
+            path = frame.f_code.co_filename
+            if not any(needle in path for needle in _SLOW_QUERY_SKIP_PATH_SUBSTRINGS):
+                # Found the operator-meaningful frame. Strip the
+                # repo prefix so the output reads as a relative path
+                # (e.g. `main_pkg/hosts_routes.py:1234` not
+                # `/app/main_pkg/hosts_routes.py:1234`).
+                fn = frame.f_code.co_name
+                lineno = frame.f_lineno
+                # Best-effort relative path — try /app/ (production
+                # container path) first, then the repo root marker.
+                for prefix in ("/app/", "\\app\\"):
+                    if prefix in path:
+                        path = path.split(prefix, 1)[1]
+                        break
+                else:
+                    # Repo-root fallback: take everything after the
+                    # last `OmniGrid/` (works for both Windows dev
+                    # checkouts + the production /app/ path).
+                    for marker in ("OmniGrid/", "OmniGrid\\"):
+                        if marker in path:
+                            path = path.split(marker, 1)[1]
+                            break
+                # Normalise to forward slashes for consistent log
+                # output across Windows dev + Linux prod.
+                path = path.replace("\\", "/")
+                return f"{path}:{fn}:{lineno}"
+            depth += 1
+    except Exception:  # noqa: BLE001
+        return "<unknown>"
+
+
 def _check_slow_query(sql: str, t0: float) -> None:
     """Per-call timing check — emit `[slow_query] warning:` when the
     elapsed wall-clock for a SQLite execute / executemany exceeds the
@@ -183,6 +261,16 @@ def _check_slow_query(sql: str, t0: float) -> None:
     formatting failures, etc.) is swallowed silently — the query's
     result has already been returned to the caller by the time we
     reach here (the timing check runs in a `finally` block).
+
+    Log-line shape:
+        [slow_query] warning: 862.6ms (threshold 100ms)
+            site=main_pkg/hosts_routes.py:api_hosts_list:1234
+            sql=PRAGMA busy_timeout=2000
+
+    The ``site=`` field carries the first operator-meaningful frame
+    (route handler / sampler tick / schedule runner) so operators
+    diagnosing a slow query can jump straight to the caller without
+    reading the SQL and reverse-engineering which surface ran it.
     """
     try:
         # Late-import to avoid a load-time cycle between
@@ -205,12 +293,17 @@ def _check_slow_query(sql: str, t0: float) -> None:
         # whitespace so a multi-line statement renders as one log line.
         sql_short = sql[:200] + "…" if len(sql) > 200 else sql
         sql_short = " ".join(sql_short.split())
+        # Identify the operator-meaningful caller (route handler,
+        # sampler tick, schedule runner) so the operator can jump
+        # straight to the culprit. Frame walk runs ONLY on queries
+        # that already crossed the threshold — zero steady-state cost.
+        site = _resolve_caller_site()
         # `warning:` keyword routes the line into the WARN bucket per
         # `_severity_for`'s body-keyword classifier (not ERROR — a
         # slow query is a diagnostic-level signal, not a failure).
         print(
             f"[slow_query] warning: {elapsed_ms:.1f}ms "
-            f"(threshold {threshold}ms): {sql_short}"
+            f"(threshold {threshold}ms) site={site} sql={sql_short}"
         )
     except Exception:  # noqa: BLE001
         # Diagnostic MUST NEVER break the query path. Any failure

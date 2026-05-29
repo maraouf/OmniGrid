@@ -67,7 +67,7 @@ export default {
     {id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard'},
     {id: 'database', label: 'Database', icon: 'database'},
     {id: 'samples', label: 'Samples', icon: 'layers'},
-    {id: 'samplers', label: 'Samplers', icon: 'activity'},
+    {id: 'samplers', label: 'Samplers', icon: 'loader'},
     {id: 'incidents', label: 'Incidents', icon: 'alert-triangle'},
     {id: 'network', label: 'Network', icon: 'activity'},
     {id: 'ai_cost', label: 'AI Cost', icon: 'zap'},

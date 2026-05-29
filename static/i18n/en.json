@@ -27,6 +27,7 @@
       "http_status": "Request failed (HTTP {status})."
     },
     "loading": "Loading…",
+    "testing": "Testing…",
     "unit_seconds_short": "s",
     "unit_minutes_short": "m"
   },
@@ -5025,6 +5026,24 @@
       "runtime": "Runtime remaining",
       "battery_temp": "Battery temperature",
       "battery_state": "Battery state"
+    },
+    "speedtest": {
+      "api_key_label": "Speedtest Tracker API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "Bearer token from Speedtest Tracker",
+      "api_key_hint": "Required for the expanded card to fetch latest/average/graph data. Leave blank to keep the stored key.",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading speedtest data…",
+      "latest_download": "Latest ↓",
+      "latest_upload": "Latest ↑",
+      "latest_ping": "Latest ping",
+      "avg_download": "Avg ↓ (10)",
+      "avg_upload": "Avg ↑ (10)",
+      "avg_ping": "Avg ping (10)",
+      "trend": "Trend (last tests)",
+      "legend_download": "↓",
+      "legend_upload": "↑",
+      "legend_ping": "ping"
     },
     "open_all_title": "Open every instance URL in a new tab",
     "open_all_aria": "Open all URLs for {name}",
