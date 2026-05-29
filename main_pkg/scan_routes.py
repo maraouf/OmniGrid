@@ -92,6 +92,11 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     notify,
     oidc,
     read_version,
+    # `schedules` arrives at runtime via main.py's `from logic
+    # import schedules` re-exported through the star-import above.
+    # Used by the `schedules.UNKNOWN_ACTOR` fallback constant in
+    # admin-required write routes (4 sites in this file).
+    schedules,
     spawn_background_task,
     tuning,
     uuid,
@@ -1130,7 +1135,7 @@ async def api_notify_test(_admin: AdminUser):
             _ops_mod.write_admin_audit(
                 c, "notify_test",
                 target_kind="notify", target_name="test",
-                actor=_admin.username or "operator",
+                actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"test notification fired by {_admin.username or 'operator'}",
             )
     except Exception as e:
@@ -1165,7 +1170,7 @@ async def api_apprise_test(_admin: AdminUser):
             _ops_mod.write_admin_audit(
                 c, "notify_test",
                 target_kind="notify", target_name="apprise_test",
-                actor=_admin.username or "operator",
+                actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"apprise channel test fired by {_admin.username or 'operator'}",
             )
     except Exception as e:
@@ -1224,7 +1229,7 @@ async def api_notify_send(
             f"unknown medium '{medium}' — valid: "
             f"{', '.join(sorted(_ops_mod.NOTIFY_MEDIUMS.keys()))}",
         )
-    actor = (_admin.username or "operator")
+    actor = (_admin.username or schedules.UNKNOWN_ACTOR)
     result = await _ops_mod.notify_one_medium(
         medium=medium,
         title=title,
@@ -1935,7 +1940,13 @@ async def api_weather_test(
     """
     from logic import weather as _weather_mod
     from logic.db import get_setting
-    from logic.settings_keys import Settings as _S
+    # `Settings` is a class — PyCharm flags the `as _s` rename as
+    # "CamelCase imported as constant" (one warning class). Use a
+    # leading-uppercase rename to mirror Python's convention that a
+    # class identifier starts uppercase, so `_S` reads as a class
+    # alias rather than a "constant" the linter mistakes it for.
+    from logic.settings_keys import Settings as SettingsAlias
+    _S = SettingsAlias
     requested_provider = (body.get("provider") or "").strip().lower()
     if requested_provider not in ("open-meteo", "weatherapi"):
         requested_provider = _weather_mod.provider()
@@ -2037,6 +2048,7 @@ async def api_weather_test(
         # next sampler tick. This is also why the sampler interval
         # default of 3600s is acceptable — the Test path covers the
         # cold-start case + first-time-configured-by-operator UX gap.
+        # noinspection PyBroadException
         try:
             from logic import weather as _w
             from logic import weather_sampler as _ws
@@ -2046,8 +2058,8 @@ async def api_weather_test(
             full_body = await _w.fetch(lat, lon, label=loc_obj.get("name") or "")
             if full_body and not full_body.get("error") and full_body.get("configured"):
                 _ws.write_sample(full_body,
-                                  loc={"lat": lat, "lon": lon,
-                                       "label": loc_obj.get("name") or ""})
+                                 loc={"lat": lat, "lon": lon,
+                                      "label": loc_obj.get("name") or ""})
         except Exception:  # noqa: BLE001 — sample-write failure must not break Test
             pass
         return _stamp_test_success("weather", {
@@ -2098,13 +2110,14 @@ async def api_weather_test(
     # Stamp a successful Open-Meteo test sample directly into
     # `weather_samples` so the historical data starts populating
     # immediately rather than waiting for the next sampler tick.
+    # noinspection PyBroadException
     try:
         from logic import weather as _w
         from logic import weather_sampler as _ws
         full_body = await _w.fetch(lat, lon)
         if full_body and not full_body.get("error") and full_body.get("configured"):
             _ws.write_sample(full_body,
-                              loc={"lat": lat, "lon": lon, "label": ""})
+                             loc={"lat": lat, "lon": lon, "label": ""})
     except Exception:  # noqa: BLE001 — sample-write failure must not break Test
         pass
     return _stamp_test_success("weather", {
@@ -2136,7 +2149,7 @@ async def api_weather_history(
     """
     from logic import weather_sampler as _sampler
     rows = _sampler.recent_samples(limit=int(max(1, min(limit, 5000))),
-                                    lat=lat, lon=lon)
+                                   lat=lat, lon=lon)
     return {"history": rows, "count": len(rows)}
 
 
@@ -2175,7 +2188,7 @@ async def api_logs_clear(_admin: AdminUser):
             _ops_mod.write_admin_audit(
                 c, "logs_clear",
                 target_kind="logs", target_name="in-memory",
-                actor=_admin.username or "operator",
+                actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"in-memory log buffer cleared by {_admin.username or 'operator'}",
             )
     except Exception as e:

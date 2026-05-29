@@ -1611,10 +1611,16 @@ async def host_metrics_sampler_loop() -> None:
             # this when SNMP is causing event-loop starvation /
             # healthcheck flap and you need to bring the container
             # back up before fixing the root cause via the SPA.
-            # Reads via `os.environ` directly (NOT through TUNABLES
-            # / settings) so it works even if the DB is unreachable.
-            import os as _os
-            if _os.environ.get("OMNIGRID_DISABLE_SNMP", "").strip() in ("1", "true", "yes"):
+            # Reads via `env_get(EnvKey.X)` (NOT through TUNABLES /
+            # settings) so it works even if the DB is unreachable.
+            # The typed-enum lookup guarantees a typo'd env var name
+            # fails import-time (the rule "every key reference MUST
+            # use Tunable / Settings / EnvKey enums") — pre-fix a
+            # bare `os.environ.get("OMNIGRID_DISABLE_SMNP")` typo
+            # would silently return empty and the kill-switch
+            # wouldn't fire.
+            from logic.env_keys import EnvKey as _EnvKey, env_get as _env_get
+            if _env_get(_EnvKey.OMNIGRID_DISABLE_SNMP).strip() in ("1", "true", "yes"):
                 # Skip the entire SNMP block this tick. Quiet — no
                 # per-tick log spam; the operator knows they set it.
                 pass

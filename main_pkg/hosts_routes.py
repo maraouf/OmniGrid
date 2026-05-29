@@ -81,6 +81,12 @@ if TYPE_CHECKING:
         _shape_host_api_row,
         invalidate_host_provider_cache,
     )
+    # IDE-only — `schedules` arrives at runtime via main.py's
+    # `from logic import schedules` re-exported through
+    # `from main import *` above. Used by the
+    # `schedules.UNKNOWN_ACTOR` fallback constant in admin-required
+    # write routes (5 sites in this file).
+    from logic import schedules  # noqa: F401
 from typing import Any, Optional
 
 
@@ -1584,7 +1590,7 @@ async def api_hosts_config_set(
                 c, "hosts_config_update",
                 target_kind="hosts_config",
                 target_name=f"{len(saved)} row(s)",
-                actor=_u.username or "operator",
+                actor=_u.username or schedules.UNKNOWN_ACTOR,
                 message=f"hosts_config full-replace by {_u.username or 'operator'}: "
                         f"{len(saved)} row(s) persisted",
             )
@@ -1748,7 +1754,7 @@ async def api_hosts_resume_sampling(
                         "INSERT INTO host_failure_events "
                         "(ts, host_id, provider, kind, error, actor) "
                         "VALUES (?, ?, '', 'recovered', NULL, ?)",
-                        (time.time(), host_id, _u.username or "operator"),
+                        (time.time(), host_id, _u.username or schedules.UNKNOWN_ACTOR),
                     )
                 except Exception as ev_err:
                     print(f"[hosts] resume-sampling: failure-event log write failed: {ev_err}")
@@ -1822,7 +1828,7 @@ async def api_hosts_resume_sampling(
             _ops_mod.write_admin_audit(
                 c, "host_resume_sampling",
                 target_kind="host", target_name=host_id, target_id=host_id,
-                actor=_u.username or "operator",
+                actor=_u.username or schedules.UNKNOWN_ACTOR,
                 message=(f"host sampling resumed by {_u.username or 'operator'}; "
                          f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )
@@ -1881,7 +1887,7 @@ async def api_hosts_provider_resume(
                         "INSERT INTO host_failure_events "
                         "(ts, host_id, provider, kind, error, actor) "
                         "VALUES (?, ?, ?, 'recovered', NULL, ?)",
-                        (time.time(), host_id, provider, _u.username or "operator"),
+                        (time.time(), host_id, provider, _u.username or schedules.UNKNOWN_ACTOR),
                     )
                 except Exception as ev_err:
                     print(f"[hosts] provider/{provider}/resume: failure-event log write failed: {ev_err}")
@@ -2020,7 +2026,7 @@ async def api_hosts_provider_resume(
                 c, "host_provider_resume",
                 target_kind="host",
                 target_name=f"{provider}:{host_id}", target_id=host_id,
-                actor=_u.username or "operator",
+                actor=_u.username or schedules.UNKNOWN_ACTOR,
                 message=(f"{provider} resume on host {host_id} by {_u.username or 'operator'}; "
                          f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )

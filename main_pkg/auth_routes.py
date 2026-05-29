@@ -100,6 +100,24 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
 # in this module's __dict__.
 from main_pkg.admin_stats_routes import _ai_supported_providers  # noqa: E402,F401
 
+
+def _ai_palette_actions() -> "set[str]":
+    """Canonical action whitelist surfaced to the SPA via /api/me's
+    `client_config.ai.palette_actions`. Source of truth is
+    `logic.ai.ALLOWED_PALETTE_ACTIONS` (frozenset). Late-import so
+    the auth_routes module load doesn't take a hard dependency on
+    `logic.ai` (which itself depends on settings + tunables — late
+    binding here keeps boot-order constraints loose). Falls back to
+    an empty set on import failure rather than raising; SPA then
+    behaves as if every AI-emitted action is unknown, which is the
+    safe failure mode (refuse-to-dispatch is better than dispatching
+    a possibly-invalid action)."""
+    try:
+        from logic.ai import ALLOWED_PALETTE_ACTIONS  # noqa: PLC0415
+        return set(ALLOWED_PALETTE_ACTIONS)
+    except Exception:  # noqa: BLE001
+        return set()
+
 # Sibling-module names — defined in other main_pkg/* files
 # that end up in main's namespace via the chain.
 from main_pkg.scan_routes import (  # noqa: E402,F401 — explicit for IDE
@@ -1286,6 +1304,20 @@ async def api_me(request: Request):
                 # active-provider dropdown) picks it up automatically
                 # without a parallel SPA literal to keep in sync.
                 "provider_names": list(_ai_supported_providers()),
+                # Canonical palette-action whitelist — every AI-emitted
+                # `ACTION: <name>` MUST be a member of this set. SPA's
+                # `_actionDescriptorById` validates the resolved
+                # snake_case against this list before dispatching, so
+                # an AI-hallucinated action that's not in the backend
+                # whitelist short-circuits with a clear error instead
+                # of silently no-op'ing. Source of truth is
+                # `logic.ai.ALLOWED_PALETTE_ACTIONS`; adding a new
+                # action requires both the backend whitelist entry
+                # AND a matching SPA descriptor — the SPA's guard
+                # surfaces drift IMMEDIATELY rather than waiting for
+                # the operator to notice "AI claimed to do X but
+                # nothing happened" (the BUG-004 failure mode).
+                "palette_actions": sorted(_ai_palette_actions()),
             },
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every

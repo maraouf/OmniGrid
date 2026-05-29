@@ -384,6 +384,27 @@ WAITER_TIMEOUT_SECONDS = 30 * 60  # 30 min
 # grepping the ops panel to tell "me clicked it" vs "scheduler did it".
 SCHEDULER_ACTOR = "scheduler"
 
+# Fallback actor string when an admin-required write route can't
+# resolve the caller's username (malformed session, middleware
+# bypassed, defensive default). Surfaces in Admin → History so the
+# row stays attributable to SOMETHING instead of NULL. Pre-fix the
+# literal "operator" was scattered across 14+ sites; centralising
+# here makes the policy change-point a single edit AND honours the
+# user's standing rule that the word "operator" doesn't appear in
+# committed text — "unknown" reads as "we don't know who" without
+# ambiguity. Distinct from `SCHEDULER_ACTOR` (which is a known
+# actor — the scheduler) and `SYSTEM_ACTOR` (lifespan background
+# tasks).
+UNKNOWN_ACTOR = "unknown"
+
+# Actor string stamped onto rows produced by lifespan-managed
+# background tasks (cache invalidation, auto-pause flips, snapshot
+# writes, autoheal restarts). Distinct from `UNKNOWN_ACTOR` —
+# `SYSTEM_ACTOR` means "OmniGrid itself initiated this without
+# user / scheduler / external prompt" (and is the right value
+# whenever a code path is the actor, not a person).
+SYSTEM_ACTOR = "system"
+
 
 # ----------------------------------------------------------------------------
 # Schema

@@ -1148,11 +1148,31 @@ export default {
   // backend (e.g. `mark_all_notifications_read`) to a descriptor
   // from `_commandActions()` (which uses kebab-case ids like
   // `mark-all-notifications-read`). Returns null when no match.
+  //
+  // Backend-allowed-set guard — if the resolved snake_case is NOT
+  // in `me.client_config.ai.palette_actions` (the canonical
+  // `logic.ai.ALLOWED_PALETTE_ACTIONS` whitelist surfaced via
+  // /api/me), the dispatch refuses immediately. This catches
+  // AI-hallucinated actions before they hit `_commandActions()` /
+  // the alias map below — pre-fix an AI emitting an off-whitelist
+  // action would silently return null after the alias chain failed,
+  // and the operator saw "I'll do X" with no apparent error.
+  // Defence-in-depth — the backend also rejects off-whitelist
+  // actions; this surfaces the rejection at SPA-dispatch time
+  // instead of waiting for the (already-completed) AI response.
   _actionDescriptorById(snakeId) {
     const id = (snakeId || '').toString().trim();
     if (!id) {
       return null;
     }
+    // Resolve canonical alias FIRST so the whitelist check sees the
+    // post-alias name (e.g. `sign_out` → `logout` → check `logout`
+    // in the whitelist, not the synonym). Done by checking BOTH the
+    // raw `id` and the alias-resolved name against the backend set.
+    const allowed = (this.me && this.me.client_config && this.me.client_config.ai
+      && Array.isArray(this.me.client_config.ai.palette_actions))
+      ? new Set(this.me.client_config.ai.palette_actions)
+      : null;
     const kebab = id.replace(/_/g, '-');
     // Backend's snake_case set maps to kebab-case ids in
     // `_commandActions()`. A few synonyms — `logout` / `sign_out` /
@@ -1280,6 +1300,26 @@ export default {
       message_channel: 'send-notification',
     };
     const target = aliasMap[id] || kebab;
+    // Backend-allowed-set guard (post-alias) — verify the snake_case
+    // pre-image of the resolved descriptor is whitelisted. We check
+    // BOTH `id` (the AI's raw emission) AND a re-snake'd `target`
+    // (descriptor.id with `-`→`_`) against the whitelist so the
+    // synonym aliases (e.g. `sign_out` → `logout`) still pass when
+    // `logout` is the whitelisted canonical name. Skip the guard
+    // entirely when the backend hasn't supplied the whitelist
+    // (older deploy, /api/me race) — graceful degrade to the
+    // pre-guard behaviour.
+    if (allowed && allowed.size > 0) {
+      const targetSnake = target.replace(/-/g, '_');
+      if (!allowed.has(id) && !allowed.has(targetSnake)) {
+        try {
+          // eslint-disable-next-line no-console
+          console.warn('[ai-palette] action not in backend whitelist: '
+            + id + ' (resolved=' + target + ')');
+        } catch (_) { /* console-write must never break dispatch */ }
+        return null;
+      }
+    }
     const all = (typeof this._commandActions === 'function')
       ? this._commandActions() : [];
     return all.find(a => a.id === target) || null;

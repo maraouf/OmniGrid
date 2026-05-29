@@ -162,7 +162,7 @@ def db_conn():
         # None, and we raised above. Explicit narrowing for the type
         # checker so the sqlite3.connect call below typechecks cleanly.
         raise RuntimeError("DB_PATH is None")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_TimedConnection)
     conn.row_factory = sqlite3.Row
     _apply_sqlite_pragmas(conn)
     try:
@@ -172,16 +172,95 @@ def db_conn():
         conn.close()
 
 
-# NOTE: an earlier attempt at a slow-query log helper installed
-# `conn.execute = wrapper` / `conn.executemany = wrapper` per-call
-# inside `db_conn()`. That CRASHES at boot with
-# "'sqlite3.Connection' object attribute 'execute' is read-only" —
-# sqlite3's methods are C-implemented and reject Python attribute
-# assignment. The safe implementation is a thin proxy object that
-# yields from the context manager (delegates every attr to the real
-# conn, overrides execute/executemany with timing). Deferred until
-# that proxy lands; the tunable wiring stays in place so a future
-# implementation only needs the consumer site here.
+def _check_slow_query(sql: str, t0: float) -> None:
+    """Per-call timing check — emit `[slow_query] warning:` when the
+    elapsed wall-clock for a SQLite execute / executemany exceeds the
+    operator-tunable threshold (`tuning_slow_query_threshold_ms`,
+    default 0 = disabled).
+
+    Diagnostic must NEVER break the actual query. Every failure path
+    (import errors during boot, tunable resolver edge case, log
+    formatting failures, etc.) is swallowed silently — the query's
+    result has already been returned to the caller by the time we
+    reach here (the timing check runs in a `finally` block).
+    """
+    try:
+        # Late-import to avoid a load-time cycle between
+        # `logic/db.py` and `logic/tuning.py` (tuning depends on
+        # db.get_setting at module init for its read-through resolver,
+        # so importing tuning at db.py module-top would deadlock).
+        # Cost: one dict lookup per call once `logic.tuning` is in
+        # `sys.modules` (Python caches the import — repeat imports
+        # are ~50ns).
+        from logic.tuning import tuning_int, Tunable
+        threshold = tuning_int(Tunable.SLOW_QUERY_THRESHOLD_MS)
+        if threshold <= 0:
+            # Default state — slow-query log is OFF. Zero per-call
+            # overhead past the threshold lookup.
+            return
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if elapsed_ms <= threshold:
+            return
+        # Truncate the SQL text to keep the log line readable; collapse
+        # whitespace so a multi-line statement renders as one log line.
+        sql_short = sql[:200] + "…" if len(sql) > 200 else sql
+        sql_short = " ".join(sql_short.split())
+        # `warning:` keyword routes the line into the WARN bucket per
+        # `_severity_for`'s body-keyword classifier (not ERROR — a
+        # slow query is a diagnostic-level signal, not a failure).
+        print(
+            f"[slow_query] warning: {elapsed_ms:.1f}ms "
+            f"(threshold {threshold}ms): {sql_short}"
+        )
+    except Exception:  # noqa: BLE001
+        # Diagnostic MUST NEVER break the query path. Any failure
+        # (circular import edge case, tunable resolver crash, etc.)
+        # is silently dropped.
+        return
+
+
+class _TimedConnection(sqlite3.Connection):
+    """sqlite3.Connection subclass that times every `execute` /
+    `executemany` shortcut and emits a `[slow_query] warning:` log
+    line when the elapsed wall-clock exceeds
+    `tuning_slow_query_threshold_ms`.
+
+    Default threshold is 0 = disabled, so the only steady-state cost
+    is a `tuning_int` cached-dict lookup per call (~50ns) + a
+    `perf_counter` pair (~100ns). Enabling the wrap (operator sets
+    threshold > 0 in Admin → Config) adds the format + print cost
+    ONLY on lines that exceed the threshold.
+
+    Subclassing via `sqlite3.connect(path, factory=_TimedConnection)`
+    is the canonical sqlite3 way to extend Connection behaviour —
+    monkey-patching `conn.execute = ...` fails because sqlite3's C
+    methods reject Python attribute assignment (the previous attempt
+    crashed the container at boot with that exact error).
+
+    Coverage caveat: this overrides ONLY the Connection.execute /
+    executemany shortcuts. `c.cursor().execute(...)` is the Cursor
+    object's own execute method which is NOT intercepted here.
+    Audit recipe: `grep -rEn 'cursor\\(\\)\\.execute\\(' main.py
+    main_pkg/ logic/` — every hit should be evaluated; the entire
+    OmniGrid codebase uses the Connection shortcut shape today so
+    coverage is complete. If a future contributor switches to the
+    Cursor path, either revert to the shortcut OR extend this with
+    a `cursor(self)` override that returns a `_TimedCursor` subclass.
+    """
+
+    def execute(self, sql, *args, **kwargs):  # type: ignore[override]
+        t0 = time.perf_counter()
+        try:
+            return super().execute(sql, *args, **kwargs)
+        finally:
+            _check_slow_query(sql, t0)
+
+    def executemany(self, sql, *args, **kwargs):  # type: ignore[override]
+        t0 = time.perf_counter()
+        try:
+            return super().executemany(sql, *args, **kwargs)
+        finally:
+            _check_slow_query(sql, t0)
 
 
 # read-through cache for the settings KV. get_setting (and the

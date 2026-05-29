@@ -1215,14 +1215,52 @@ export default {
     }
   },
 
+  // lgtm[js/insecure-randomness]  — CodeQL: this function is the
+  // canonical id-minter for Alpine `:key` UI identifiers (NOT a
+  // security secret). Primary path is `crypto.randomUUID()`;
+  // secondary is `crypto.getRandomValues`; tertiary is a
+  // deterministic monotonic counter (NO PRNG anywhere in the
+  // chain). The lgtm marker survives stale-cache re-scans where
+  // CodeQL's data-flow tracker carries forward a flag from an
+  // earlier revision that DID use a PRNG. Mirror suppression on
+  // `_mintInstancePortUid` below.
   _newId(prefix) {
+    // Primary path — crypto.randomUUID() (universally supported in
+    // modern browsers). Returns a 36-char UUID string. The id is a
+    // UI-only identifier (Alpine x-for :key), not a security secret;
+    // we still use the crypto-strength source so CodeQL's
+    // `js/insecure-randomness` audit stays clean fleet-wide.
     try {
       if (window.crypto && window.crypto.randomUUID) {
         return (prefix || '') + window.crypto.randomUUID();
       }
-    } catch (_) { /* fall through */
+      // Secondary path — crypto.getRandomValues() (older browsers
+      // that have Web Crypto but not the .randomUUID shortcut). Same
+      // crypto-strength source; assembles 8 random bytes into a
+      // 16-char hex string for the suffix. The fallback chain is
+      // crypto-only by design — NO PRNG anywhere in this function
+      // so CodeQL's data-flow analysis sees the consumer chain as
+      // entropy-clean from source to sink.
+      if (window.crypto && window.crypto.getRandomValues) {
+        const buf = new Uint8Array(8);
+        window.crypto.getRandomValues(buf);
+        let hex = '';
+        for (let i = 0; i < buf.length; i++) {
+          hex += buf[i].toString(16).padStart(2, '0');
+        }
+        return (prefix || '') + Date.now().toString(36) + '-' + hex;
+      }
+    } catch (_) { /* fall through to the deterministic fallback */
     }
-    return (prefix || '') + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    // Tertiary fallback — Web Crypto truly unavailable (extremely
+    // old browser / disabled by enterprise policy). Use a
+    // monotonically-increasing counter combined with a timestamp so
+    // the id is unique within the session without invoking any
+    // PRNG. The id isn't a secret — collision-resistance +
+    // deterministic-not-PRNG is what the Alpine x-for key contract
+    // needs; entropy isn't relevant.
+    this._idCounter = (this._idCounter || 0) + 1;
+    return (prefix || '') + Date.now().toString(36) + '-c' + this._idCounter.toString(36);
   },
   _newSectionId() {
     return this._newId('sec-');
@@ -2868,14 +2906,41 @@ export default {
 
   // Stable id for an instance-editor port row — used as the x-for :key so
   // splicing a row out doesn't make Alpine reuse DOM nodes by index.
+  // lgtm[js/insecure-randomness]  — Same suppression contract as
+  // `_newId` above. This id is a UI-only Alpine `:key` for per-port
+  // row stable identity (NOT a security secret). The fallback
+  // chain is crypto-only by design; the lgtm marker handles
+  // CodeQL stale-cache where a prior revision used a PRNG source.
   _mintInstancePortUid() {
+    // Primary path — crypto.randomUUID() (universally supported in
+    // modern browsers). Returns a 36-char UUID prefixed with `pp_`.
+    // The id is a UI-only Alpine x-for key (per-port row stable
+    // identity); not a security secret. Crypto-strength source
+    // keeps the CodeQL `js/insecure-randomness` audit clean and
+    // matches the same shape used by `_newId` above.
     try {
       if (window.crypto && typeof window.crypto.randomUUID === 'function') {
         return 'pp_' + window.crypto.randomUUID();
       }
-    } catch (_e) { /* fall through */
+      // Secondary path — crypto.getRandomValues() for older
+      // browsers without the .randomUUID shortcut.
+      if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        const buf = new Uint8Array(8);
+        window.crypto.getRandomValues(buf);
+        let hex = '';
+        for (let i = 0; i < buf.length; i++) {
+          hex += buf[i].toString(16).padStart(2, '0');
+        }
+        return 'pp_' + Date.now().toString(36) + '-' + hex;
+      }
+    } catch (_e) { /* fall through to the deterministic counter */
     }
-    return 'pp_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    // Tertiary fallback — Web Crypto truly unavailable. Use a
+    // monotonically-increasing counter scoped to the
+    // component instance, NOT a PRNG. The id needs collision-
+    // resistance + uniqueness within the session, not entropy.
+    this._instancePortUidCounter = (this._instancePortUidCounter || 0) + 1;
+    return 'pp_' + Date.now().toString(36) + '-c' + this._instancePortUidCounter.toString(36);
   },
 
   addInstancePort() {
