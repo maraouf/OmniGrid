@@ -73,7 +73,7 @@ class EnvKey(str, Enum):
     # Default OFF in prod because tracemalloc adds ~2-3x overhead to
     # every Python allocation, which wedged the event loop past the
     # 20s `/api/healthz` Docker healthcheck on busy gather + sampler
-    # cycles → SIGKILL crash-loop (see #0166). Set to 1..100 when
+    # cycles → SIGKILL crash-loop. Set to 1..100 when
     # diagnosing "coroutine was never awaited" / ResourceWarning so
     # those warnings carry the allocation site; unset before next
     # deploy.
