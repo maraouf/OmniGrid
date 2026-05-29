@@ -266,7 +266,26 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
         if r.status_code == 200:
             # Basic sanity check: discovery doc must advertise the three
             # endpoints we rely on, otherwise the flow will 500 later.
-            doc = r.json()
+            # JSONDecodeError gets its own clearer branch — the SPA
+            # showed a bare ✗ with no message on a 200-but-HTML
+            # response (user pointed at the IdP login page instead of
+            # the issuer root); now we tell them why.
+            try:
+                doc = r.json()
+            except (ValueError, json.JSONDecodeError) as je:
+                return {
+                    "ok": False,
+                    "status": 200,
+                    "detail": (
+                        f"Issuer URL returned HTTP 200 but the body is not JSON "
+                        f"({type(je).__name__}). Likely pointing at the IdP "
+                        f"login page or app dashboard instead of the issuer "
+                        f"root. The OmniGrid backend appends "
+                        f"`/.well-known/openid-configuration` automatically — "
+                        f"paste just the issuer (e.g. "
+                        f"`https://auth.example.com/application/o/<slug>/`)."
+                    ),
+                }
             required = ("authorization_endpoint", "token_endpoint", "jwks_uri")
             missing = [k for k in required if not doc.get(k)]
             if missing:
@@ -278,7 +297,48 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
             return {"ok": True, "status": 200, "detail": f"OK — issuer: {doc.get('issuer', 'unknown')}"}
         return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code} from {url}"}
     except Exception as e:
-        return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
+        # httpx ConnectTimeout / ConnectError frequently stringify to an
+        # empty string, leaving the SPA with `detail: "ConnectTimeout: "`
+        # — same anti-pattern that bit telegram_listener / registry.py
+        # before they were patched. Fall back to the class name when
+        # str(e) is empty so the user always sees an exception NAME at
+        # minimum. Also detect the common DNS-failure pattern and
+        # surface a copy-paste-ready remediation hint.
+        msg = str(e).strip()
+        klass = type(e).__name__
+        lower = (msg + " " + klass).lower()
+        # DNS resolution failure — matches the libc / asyncio resolver
+        # error strings seen on Docker bridge networks.
+        if ("name or service not known" in lower
+                or "getaddrinfo failed" in lower
+                or "temporary failure in name resolution" in lower
+                or "nodename nor servname provided" in lower):
+            return {"ok": False, "status": 0, "detail": (
+                f"{klass}: DNS resolution failed for {url}. The container's "
+                "libc resolver couldn't find this hostname. Use the FQDN "
+                "(e.g. `auth.example.com`) instead of a short name, OR add "
+                "a Docker `--dns` / compose `extra_hosts:` entry."
+            )}
+        # TCP connect timeout — host unreachable / firewall dropping
+        # packets. node_exporter.py has the same diagnosis text.
+        if "connecttimeout" in lower:
+            return {"ok": False, "status": 0, "detail": (
+                f"{klass}: TCP connect timeout to {url}. The kernel got no "
+                "SYN-ACK back — host is offline, port is wrong, or a firewall "
+                "is silently dropping packets from the OmniGrid container's "
+                "network to this host."
+            )}
+        # Connection refused — host reachable, port closed.
+        if "connectionrefused" in lower or "connection refused" in lower:
+            return {"ok": False, "status": 0, "detail": (
+                f"{klass}: connection refused at {url}. Host is reachable "
+                "but NOTHING is listening on this port — wrong port number, "
+                "or the IdP is bound to a different address."
+            )}
+        # Catch-all: include both class name AND msg when msg is
+        # populated; fall back to class name alone when msg is empty.
+        return {"ok": False, "status": 0,
+                "detail": f"{klass}: {msg}" if msg else klass}
 
 
 # ----------------------------------------------------------------------------
