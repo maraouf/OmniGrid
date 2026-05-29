@@ -67,8 +67,17 @@ import appAi from './app-ai.js?v=__APP_VERSION__';
 import appAiAdmin from './app-ai-admin.js?v=__APP_VERSION__';
 import appAiDispatch from './app-ai-dispatch.js?v=__APP_VERSION__';
 import appAdmin from './app-admin.js?v=__APP_VERSION__';
-import appSseStreamB from './app-sse-stream-b.js?v=__APP_VERSION__';
-import appDrawerBulkB from './app-drawer-bulk-b.js?v=__APP_VERSION__';
+// Multi-view helpers (Stacks selection + topology, command palette,
+// hosts editor / filters / dirty tracking, drawer scroll-lock,
+// keyboard a11y helpers). Originally overflowed out of app-sse-stream.js
+// as `-b`; renamed for clarity since the contents are NOT SSE-specific.
+import appViewsHelpers from './app-views-helpers.js?v=__APP_VERSION__';
+// Host-drawer chart builders — SNMP load / memory / throughput
+// + Dell hardware (temperature probes) + APC UPS load / battery
+// + battery-temperature SVG line + max + has-history helpers.
+// Originally overflowed out of app-drawer-bulk.js as `-b`; renamed
+// because every method in here builds a chart series.
+import appDrawerCharts from './app-drawer-charts.js?v=__APP_VERSION__';
 import appHostsEditor from './app-hosts-editor.js?v=__APP_VERSION__';
 import appCharts from './app-charts.js?v=__APP_VERSION__';
 import appCommandPalette from './app-command-palette.js?v=__APP_VERSION__';
@@ -82,12 +91,35 @@ import appStats from './app-stats.js?v=__APP_VERSION__';
 import appTuning from './app-tuning.js?v=__APP_VERSION__';
 import appMinorTools from './app-minor-tools.js?v=__APP_VERSION__';
 import appApps from './app-apps.js?v=__APP_VERSION__';
+// Split out from app-apps.js when it crossed the 3000-line split-
+// candidate threshold. Each sibling owns a cohesive domain:
+//   app-apps-card.js      — per-card helpers (status pills + port
+//                           pills + sparklines + card-span + per-card
+//                           probe-all / open-all pills)
+//   app-apps-drawer.js    — app + per-host drawer surfaces, in-drawer
+//                           probe/test/restart/update/logs, per-host
+//                           bulk probe-all fan-out
+//   app-apps-data.js      — per-app per-instance data cache for the
+//                           expanded-card extras + credential test
+//                           dispatcher
+//   app-apps-instances.js — Admin → Apps Templates + Instances tabs:
+//                           catalog CRUD, instance editor, bulk
+//                           select+delete, pin-to-host modal,
+//                           discover wizard
+// Shared module-scope state (per-flush memos + lazy-render queue +
+// per-tile diagnostic dict) lives in `app-apps-state.js` so every
+// sibling observes the same cache identity — declared once, imported
+// by each consumer.
+import appAppsCard from './app-apps-card.js?v=__APP_VERSION__';
+import appAppsDrawer from './app-apps-drawer.js?v=__APP_VERSION__';
+import appAppsData from './app-apps-data.js?v=__APP_VERSION__';
+import appAppsInstances from './app-apps-instances.js?v=__APP_VERSION__';
 // Per-app modules — each one lives under `static/js/apps/<slug>.js`
 // and bundles its own helpers + extender record. The registry
 // merges every per-app module's `helpers` into a flat object that
 // merges into the Alpine component below; the registry's side-
 // effect ALSO stamps `window.OG_APPS_EXTENDERS` so the generic
-// helpers in `app-apps.js` can iterate per-app extender records
+// helpers in `app-apps*.js` can iterate per-app extender records
 // (slugs / requiresApiKey / cardSpan) without an import cycle.
 import {appsHelpers as appsPerApp} from './apps/_registry.js?v=__APP_VERSION__';
 import appSseStream from './app-sse-stream.js?v=__APP_VERSION__';
@@ -121,7 +153,7 @@ function _mergeKeepDescriptors(target, ...sources) {
 }
 
 function app() {
-  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appsPerApp, appSseStream, appSseStreamB, appDrawerBulk, appDrawerBulkB, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appAppsCard, appAppsDrawer, appAppsData, appAppsInstances, appsPerApp, appSseStream, appViewsHelpers, appDrawerBulk, appDrawerCharts, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is

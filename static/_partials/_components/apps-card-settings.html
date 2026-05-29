@@ -1,0 +1,217 @@
+<!-- Shared apps-card back-face settings pane (flip-side of the gear
+     button). Renders inside `.apps-card-face-back` when the card is
+     flipped. Universal controls (card-size radio) at the top; the
+     widget-specific blocks below self-gate via `<template x-if>` so
+     only the matching widget's settings render.
+
+     Expected scope: `item` (the rendered Custom-layout item view-
+     model from `_buildAppsCustom`) — `{uid, kind, opts, ...}`. Calls
+     `setAppsItemOpt(uid, key, value)` for every binding so each edit
+     persists immediately via the existing ui_prefs.apps_custom_layout
+     channel; no explicit Save button needed (the back face IS the
+     control surface). -->
+<!--suppress HtmlUnknownAttribute -->
+<div class="apps-card-settings-pane">
+
+  <!-- Header — title + close button -->
+  <div class="flex items-center justify-between mb-2">
+    <span class="apps-card-settings-label"
+          x-text="t('apps.custom.settings.title') || 'Card settings'"></span>
+    <button type="button" class="apps-card-gear"
+            @click.stop="closeAppsCardFlipped(item.uid)"
+            :title="t('actions.close') || 'Close'"
+            :aria-label="t('actions.close') || 'Close'">
+      <svg width="14" height="14" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- ============================================================
+       Universal: card size (every card type — apps + widgets +
+       bookmarks). Three-radio shape so the operator sees all options
+       at once without having to drag a slider or cycle a button.
+       ============================================================ -->
+  <div class="apps-card-settings-row">
+    <span class="apps-card-settings-label"
+          x-text="t('apps.custom.settings.size_label') || 'Size'"></span>
+    <div class="inline-flex gap-1" role="radiogroup"
+         :aria-label="t('apps.custom.settings.size_label') || 'Size'">
+      <template x-for="opt in ['half', 'normal', 'double']" :key="opt">
+        <button type="button" role="radio"
+                :aria-checked="appsCardSize(item) === opt ? 'true' : 'false'"
+                :tabindex="appsCardSize(item) === opt ? 0 : -1"
+                class="btn btn-ghost fs-2xs"
+                :class="appsCardSize(item) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                @click.stop="setAppsCardSize(item.uid, opt)"
+                x-text="(t('apps.custom.settings.size_' + opt) || opt)"></button>
+      </template>
+    </div>
+    <span class="apps-card-settings-hint"
+          x-text="t('apps.custom.settings.size_hint') || 'Half: title only. Normal: full card. Double: spans two columns.'"></span>
+  </div>
+
+  <!-- ============================================================
+       Clock widget — per-card timezone + format + analog/digital
+       overrides. Gates on item.kind=widget AND item.widget=clock.
+       ============================================================ -->
+  <template x-if="item.kind === 'widget' && item.widget === 'clock'">
+    <div class="space-y-2 mt-1">
+
+      <!-- Follow-user toggle — when checked, ALL clock settings fall
+           back to the user's profile (TZ + datetime format). When
+           unchecked, the override fields below take effect. -->
+      <div class="apps-card-settings-row">
+        <label class="flex items-center gap-2 fs-xs">
+          <input type="checkbox"
+                 :checked="(item.opts && item.opts.follow_user !== false)"
+                 @change.stop="setAppsItemOpt(item.uid, 'follow_user', $event.target.checked)">
+          <span x-text="t('apps.custom.settings.clock.follow_user') || 'Follow user profile (timezone + format)'"></span>
+        </label>
+      </div>
+
+      <!-- Style: analog vs digital. Always visible regardless of
+           follow-user (the style is the clock's look, not its data
+           source). -->
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.clock.style_label') || 'Style'"></span>
+        <div class="inline-flex gap-1" role="radiogroup">
+          <template x-for="opt in ['digital', 'analog']" :key="opt">
+            <button type="button" role="radio"
+                    :aria-checked="effectiveClockOpts(item).style === opt ? 'true' : 'false'"
+                    :tabindex="effectiveClockOpts(item).style === opt ? 0 : -1"
+                    class="btn btn-ghost fs-2xs"
+                    :class="effectiveClockOpts(item).style === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                    @click.stop="setAppsItemOpt(item.uid, 'clock_style', opt)"
+                    x-text="t('apps.custom.settings.clock.style_' + opt) || opt"></button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Override-only block: TZ + format. Disabled when
+           follow_user=true so the user can see what the override
+           values WOULD be without re-typing them. -->
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.clock.tz_label') || 'Timezone'"></span>
+        <input type="text" list="apps-clock-tz-list"
+               class="input fs-xs"
+               :disabled="(item.opts && item.opts.follow_user !== false)"
+               :value="(item.opts && item.opts.clock_tz) || ''"
+               @change.stop="setAppsItemOpt(item.uid, 'clock_tz', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.clock.tz_placeholder') || 'e.g. Europe/London (blank = user profile)'">
+        <datalist id="apps-clock-tz-list">
+          <template x-for="tz in appsClockTimezones()" :key="tz">
+            <option :value="tz"></option>
+          </template>
+        </datalist>
+      </div>
+
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.clock.format_label') || 'Date/time format'"></span>
+        <input type="text" class="input fs-xs"
+               :disabled="(item.opts && item.opts.follow_user !== false)"
+               :value="(item.opts && item.opts.clock_format) || ''"
+               @change.stop="setAppsItemOpt(item.uid, 'clock_format', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.clock.format_placeholder') || 'e.g. HH:mm:ss (blank = user profile)'">
+        <span class="apps-card-settings-hint"
+              x-text="t('apps.custom.settings.clock.format_hint') || 'Tokens: yyyy yy MMMM MMM MM M dd d HH H hh h mm m ss s a'"></span>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Weather widget — per-card location + units + forecast days +
+       show-conditions toggle.
+       ============================================================ -->
+  <template x-if="item.kind === 'widget' && item.widget === 'weather'">
+    <div class="space-y-2 mt-1">
+
+      <div class="apps-card-settings-row">
+        <label class="flex items-center gap-2 fs-xs">
+          <input type="checkbox"
+                 :checked="(item.opts && item.opts.follow_user !== false)"
+                 @change.stop="setAppsItemOpt(item.uid, 'follow_user', $event.target.checked)">
+          <span x-text="t('apps.custom.settings.weather.follow_user') || 'Follow user settings (location + units)'"></span>
+        </label>
+      </div>
+
+      <!-- Override location — label + lat + lng. Label is the human
+           name shown in the card header; lat/lng feed the weather
+           backend. -->
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.weather.label_label') || 'Location label'"></span>
+        <input type="text" class="input fs-xs"
+               :disabled="(item.opts && item.opts.follow_user !== false)"
+               :value="(item.opts && item.opts.weather_label) || ''"
+               @change.stop="setAppsItemOpt(item.uid, 'weather_label', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.weather.label_placeholder') || 'e.g. Cairo, Egypt'">
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div class="apps-card-settings-row">
+          <span class="apps-card-settings-label"
+                x-text="t('apps.custom.settings.weather.lat_label') || 'Latitude'"></span>
+          <input type="number" step="0.0001" min="-90" max="90"
+                 class="input fs-xs"
+                 :disabled="(item.opts && item.opts.follow_user !== false)"
+                 :value="(item.opts && typeof item.opts.weather_lat === 'number') ? item.opts.weather_lat : ''"
+                 @change.stop="setAppsItemOpt(item.uid, 'weather_lat', $event.target.value === '' ? null : parseFloat($event.target.value))">
+        </div>
+        <div class="apps-card-settings-row">
+          <span class="apps-card-settings-label"
+                x-text="t('apps.custom.settings.weather.lng_label') || 'Longitude'"></span>
+          <input type="number" step="0.0001" min="-180" max="180"
+                 class="input fs-xs"
+                 :disabled="(item.opts && item.opts.follow_user !== false)"
+                 :value="(item.opts && typeof item.opts.weather_lng === 'number') ? item.opts.weather_lng : ''"
+                 @change.stop="setAppsItemOpt(item.uid, 'weather_lng', $event.target.value === '' ? null : parseFloat($event.target.value))">
+        </div>
+      </div>
+
+      <!-- Units: Celsius vs Fahrenheit -->
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.weather.units_label') || 'Units'"></span>
+        <div class="inline-flex gap-1" role="radiogroup">
+          <template x-for="opt in ['metric', 'imperial']" :key="opt">
+            <button type="button" role="radio"
+                    :aria-checked="((item.opts && item.opts.weather_units) || 'metric') === opt ? 'true' : 'false'"
+                    :tabindex="((item.opts && item.opts.weather_units) || 'metric') === opt ? 0 : -1"
+                    class="btn btn-ghost fs-2xs"
+                    :class="((item.opts && item.opts.weather_units) || 'metric') === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                    :disabled="(item.opts && item.opts.follow_user !== false)"
+                    @click.stop="setAppsItemOpt(item.uid, 'weather_units', opt)"
+                    x-text="opt === 'metric' ? (t('apps.custom.settings.weather.units_metric') || '°C') : (t('apps.custom.settings.weather.units_imperial') || '°F')"></button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Forecast days: 0..7. 0 hides the forecast strip entirely. -->
+      <div class="apps-card-settings-row">
+        <span class="apps-card-settings-label">
+          <span x-text="t('apps.custom.settings.weather.forecast_label') || 'Forecast days'"></span>
+          <span class="text-[var(--text-faint)]"
+                x-text="' (' + ((item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 3) + ')'"></span>
+        </span>
+        <input type="range" min="0" max="7" step="1"
+               :value="(item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 3"
+               @change.stop="setAppsItemOpt(item.uid, 'weather_forecast_days', parseInt($event.target.value, 10))">
+      </div>
+
+      <!-- Show weather conditions (rain / cloudy / wind chips) -->
+      <div class="apps-card-settings-row">
+        <label class="flex items-center gap-2 fs-xs">
+          <input type="checkbox"
+                 :checked="!(item.opts && item.opts.weather_show_conditions === false)"
+                 @change.stop="setAppsItemOpt(item.uid, 'weather_show_conditions', $event.target.checked)">
+          <span x-text="t('apps.custom.settings.weather.show_conditions') || 'Display weather conditions'"></span>
+        </label>
+      </div>
+    </div>
+  </template>
+
+</div>

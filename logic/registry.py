@@ -338,6 +338,70 @@ _ROLLING_TAG_SENTINELS = frozenset({
 })
 
 
+# ---------------------------------------------------------------------
+# Known-image → GitHub-repo fallback map.
+#
+# Some upstream projects publish to Docker Hub WITHOUT setting the
+# canonical OCI labels (`org.opencontainers.image.source` /
+# `org.opencontainers.image.version`). For those, the registry path of
+# `get_release_notes` returns no source URL and the SPA's release-notes
+# placeholder renders empty. This map provides a manual fallback so the
+# resolver can still find the GitHub repo (and from there the per-tag
+# release notes).
+#
+# Key shape: ``"<image-repo-path>"`` (lowercase, no registry host, no
+# tag — exactly what ``parse_image_ref`` returns as ``repo``). For
+# Docker Hub: ``"owner/name"``; for ghcr.io / quay.io repos: same shape.
+# Value shape: ``("gh_owner", "gh_repo")`` — preserves the casing the
+# user-facing GitHub release pages use (GitHub URLs are
+# case-insensitive at the API layer but the redirect canonicalises to
+# the registered casing, so respect it for the source-link display).
+#
+# Add new entries here when an operator reports "release notes missing
+# for image X". Keep entries alphabetised by image-path key for stable
+# diffs; the dict is small enough that linear scan is cheap.
+_KNOWN_IMAGE_SOURCES: dict[str, tuple[str, str]] = {
+    # Proxmox Pulse — github.com/rcourtman/Pulse, published to Docker
+    # Hub as `rcourtman/pulse` without OCI source/version labels (the
+    # upstream Dockerfile builds before the labels were a convention).
+    # Release tags are `vX.Y.Z` upstream; the resolver already tries
+    # both prefixed + bare-tag variants via `_fetch_github_release_notes`,
+    # so the operator's image pin like `rcourtman/pulse:5.1.33` matches
+    # https://github.com/rcourtman/Pulse/releases/tag/v5.1.33 cleanly.
+    "rcourtman/pulse": ("rcourtman", "Pulse"),
+}
+
+
+def _docker_hub_to_github_guess(repo: str) -> Optional[tuple[str, str]]:
+    """Heuristic: for a Docker Hub `owner/name` image with no OCI labels,
+    GUESS the matching GitHub repo at the same `owner/name` path.
+
+    Returns ``(owner, repo)`` tuple — the caller is responsible for
+    verifying the GitHub repo actually exists before claiming a hit
+    (a name collision between Docker Hub + GitHub is a real possibility,
+    e.g. `library/redis` on Hub vs `redis/redis` on GitHub). Conservative
+    by design: only fires for two-segment Docker Hub paths
+    (`owner/name`) — official library images like `library/nginx`
+    legitimately need a separate path (nginx/nginx, etc.) and aren't
+    covered by the simple same-name guess.
+    """
+    if not repo or "/" not in repo:
+        return None
+    parts = repo.split("/")
+    if len(parts) != 2:
+        return None
+    owner, name = parts
+    if not owner or not name:
+        return None
+    # Skip the synthetic `library/` namespace Docker Hub uses for its
+    # official images — the GitHub repo path almost never matches
+    # `library/<name>`. Use the explicit `_KNOWN_IMAGE_SOURCES` map for
+    # these cases instead.
+    if owner.lower() == "library":
+        return None
+    return owner, name
+
+
 async def _fetch_github_latest_release(
     client: httpx.AsyncClient, owner: str, repo: str,
 ) -> Optional[dict]:
@@ -464,6 +528,29 @@ async def get_release_notes(image: str) -> dict:
             or ""
         ).strip()
         version_label = (labels.get("org.opencontainers.image.version") or "").strip()
+        # When the image's OCI labels DON'T carry a source URL, fall back
+        # to the known-image map FIRST (curated entries for projects
+        # whose published images predate the OCI-labels convention —
+        # e.g. rcourtman/pulse → github.com/rcourtman/Pulse), then to
+        # the Docker-Hub-owner/name heuristic (operator deploys lots of
+        # owner/name images whose GitHub repo lives at the same path).
+        # The heuristic is verified by the GitHub API call downstream —
+        # a 404 from `_fetch_github_release_notes` + `_fetch_github_latest_release`
+        # falls through cleanly without polluting the cache or emitting
+        # a stale source_url to the SPA. `gh_fallback` becomes the
+        # source-of-truth for the `_parse_github_source` skip below
+        # when source_url stays empty.
+        gh_fallback: Optional[tuple[str, str]] = None
+        if not source_url:
+            mapped = _KNOWN_IMAGE_SOURCES.get(repo.lower())
+            if mapped is not None:
+                gh_fallback = mapped
+                source_url = f"https://github.com/{mapped[0]}/{mapped[1]}"
+            else:
+                guess = _docker_hub_to_github_guess(repo)
+                if guess is not None:
+                    gh_fallback = guess
+                    source_url = f"https://github.com/{guess[0]}/{guess[1]}"
 
         # Identify "specific" vs "rolling" tag values. A tag is specific
         # when it points at a real release (e.g. `1.45.6`, `v2.0.0`,
@@ -496,8 +583,11 @@ async def get_release_notes(image: str) -> dict:
         # GitHub path (handles ghcr.io images whose source label points
         # at github.com). Try the specific-tag lookup first when we have
         # a real version; on miss OR for rolling-tag images, fall through
-        # to `/releases/latest` so we still return something useful.
-        gh = _parse_github_source(source_url)
+        # to `/releases/latest` so we still return something useful. The
+        # `gh_fallback` (from `_KNOWN_IMAGE_SOURCES` / Docker Hub
+        # heuristic above) takes precedence when set so we don't double-
+        # parse the synthetic source URL we just constructed.
+        gh = gh_fallback or _parse_github_source(source_url)
         if gh:
             owner, gh_repo = gh
             release: Optional[dict] = None

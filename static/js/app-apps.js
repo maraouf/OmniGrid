@@ -23,112 +23,27 @@
 // getters … MUST be flush-memoized"). Module-scope so Alpine reactivity
 // never wraps it; WeakMap so a cache entry is GC'd with its history array
 // when the app list reloads.
-const _appsSparkCache = new WeakMap();
-
-// per-flush memo for hostAppsHealth — the host row binds it ~3x per
-// apps pill (count badge text + colour class + title). Cleared on the next
-// microtask; hosts reconcile IN PLACE (stable h ref), so the per-flush clear
-// is what keeps it correct when h.apps updates on the next poll.
-let _hostAppsHealthFlushCache = null;
-let _hostAppsHealthFlushScheduled = false;
-
-function _clearHostAppsHealthFlushCache() {
-  _hostAppsHealthFlushCache = null;
-  _hostAppsHealthFlushScheduled = false;
-}
-
-// Per-flush memo for filteredApps — the Apps view's `<template x-for>`
-// binds it AND `appsCounts` reads it; the helper re-allocates a NEW
-// array + inner Object.assign on every read. Without the memo, Alpine
-// re-evaluates it on EVERY reactive flush (host polls, ops polls,
-// SSE events, mouse interactions), allocating GC pressure + re-running
-// the search / filter every time. Module-scope cache cleared via
-// queueMicrotask (= next reactive flush). Same pattern as filteredHosts
-// documented in the project conventions. Cache key includes searchQuery + statusFilter
-// + appsList ref so a filter change OR poll-replace invalidates cleanly.
-let _filteredAppsCache = null;
-let _filteredAppsCacheKey = null;
-let _filteredAppsFlushScheduled = false;
-
-function _clearFilteredAppsFlushCache() {
-  _filteredAppsCache = null;
-  _filteredAppsCacheKey = null;
-  _filteredAppsFlushScheduled = false;
-}
-
-// Per-flush memo for appsVisibleInstances — called TWICE per app card
-// per flush (once for the standard chip list, once for the per-app
-// extras x-for added with the encapsulation architecture). Without
-// memoization, the helper allocates a NEW slice on each read, doubling
-// the per-card work. Module-scope WeakMap keyed on the app reference so
-// a card poll-reconcile invalidates cleanly.
-const _appsVisibleInstancesCache = new WeakMap();
-let _appsVisibleInstancesFlushScheduled = false;
-
-function _clearAppsVisibleInstancesFlushCache() {
-  _appsVisibleInstancesCache.clear?.();
-  // WeakMap has no clear() in older browsers; rebind a fresh one
-  // when clear() isn't available so the next flush starts cold.
-  if (typeof _appsVisibleInstancesCache.clear !== 'function') {
-    // eslint-disable-next-line no-global-assign
-    _appsVisibleInstancesCacheReplace();
-  }
-  _appsVisibleInstancesFlushScheduled = false;
-}
-
-// WeakMap.clear() doesn't exist in the JS spec — clear by replacing
-// the binding. Wrapped so the call site stays readable.
-function _appsVisibleInstancesCacheReplace() {
-  // No-op when clear() worked; fallback rebinds at the top of the
-  // file would require a `let` declaration. Since clear() isn't on
-  // WeakMap and the cache uses WeakRefs internally, entries are
-  // released by the GC as soon as their app object is replaced
-  // (poll-reconcile creates new app objects). Practical effect:
-  // entries die naturally on the next /api/apps round-trip.
-}
-
-// Per-flush memo for the "does ANY per-app extras partial match
-// this app?" gate. Wrapping the per-app extras `<template x-for>`
-// in an outer `<template x-if="anyAppExtrasMatch(app)">` lets every
-// non-matching app card SKIP the iteration entirely instead of
-// rendering N empty wrapper divs. The match-set is small (~2 apps
-// today: APC + Speedtest) so the per-flush cost is trivial; the
-// memo just amortises the registry walk to once per app per flush.
-const _anyAppExtrasMatchCache = new WeakMap();
-
-// Per-tile lazy-render diagnostic — single module-scope dict that
-// tracks the per-tile render durations so the user can see in
-// devtools' console which tile took how long to mount. Cleared on
-// every fresh `loadAppsList(force=true)`. Keys are app.group_id,
-// values are {first_seen_ms, mount_ms}. console.debug emits one
-// line per tile transition; filter the devtools console by
-// `[apps-tile]` to see per-tile timing without other noise.
-const _appsTileRenderLog = {};
-
-// ---- Per-tile stagger queue + dual-log diagnostic -----------------
 //
-// `appsCardVisible(gid)` flips when the IntersectionObserver fires
-// (== "tile is on-screen, show the SKELETON instead of the off-screen
-// header-only stub"). `appsCardReady(gid)` flips one step LATER —
-// when the RAF-paced render queue actually picks the tile and lets
-// its heavy body mount. Two-stage gating keeps N simultaneously-
-// becoming-visible tiles from synchronously building their chip /
-// port / sparkline / per-app-extras subtrees in the same Alpine
-// flush (the symptom: the Apps page hung after the tiles' headers
-// painted but BEFORE any stats appeared, because every body was
-// allocating per-port pills + sparkline SVGs + Speedtest fetches in
-// the same blocking flush).
-//
-// One tile per requestAnimationFrame so the browser can paint
-// between mounts; the queue is FIFO and shared across the lifetime
-// of the Apps view. Per-tile timing is emitted as BOTH a
-// `console.debug('[apps-tile] mount: <gid> took=<ms>ms')` line for
-// devtools AND a fire-and-forget POST to `/api/apps/tile-trace` so
-// the matching `[apps-tile]` line lands in the container's stdout
-// (Admin → Logs). That dual-log discipline is the recipe for "I see
-// the page hang — which tile / app is the culprit?".
-const _appsTileQueue = [];
-let _appsTileQueueProcessing = false;
+// Module-scope state moved to `app-apps-state.js` so every sibling
+// app-apps* file observes the SAME cache identity. Pre-split each file
+// declared its own copy and the per-flush memos diverged silently
+// (orchestration's filteredApps memo ≠ card-file's appsVisibleInstances
+// memo even though both read the same source). The shared module owns
+// the WeakMaps + `let`-bindings + setter helpers; this file imports
+// what it needs.
+import {
+  _filteredAppsCache,
+  _setFilteredAppsCache,
+  _filteredAppsCacheKey,
+  _setFilteredAppsCacheKey,
+  _filteredAppsFlushScheduled,
+  _setFilteredAppsFlushScheduled,
+  _clearFilteredAppsFlushCache,
+  _appsTileRenderLog,
+  _appsTileQueue,
+  _appsTileQueueProcessing,
+  _setAppsTileQueueProcessing,
+} from './app-apps-state.js?v=__APP_VERSION__';
 
 export default {
   // ----------------------------------------------------------------
@@ -154,7 +69,7 @@ export default {
       // post-fetch would either mount on the wrong tile OR fire the
       // diagnostic against a vanished group_id.
       _appsTileQueue.length = 0;
-      _appsTileQueueProcessing = false;
+      _setAppsTileQueueProcessing(false);
       // Also disconnect the old observer -- a new one will be lazy-
       // created on the next `_observeAppCard` call. Otherwise the
       // stale observer keeps observing torn-down DOM nodes.
@@ -351,10 +266,10 @@ export default {
     // current appsList — defensive when the search/filter strings
     // hash-collide across two distinct poll snapshots.
     Object.defineProperty(out, '__src', {value: src, enumerable: false});
-    _filteredAppsCache = out;
-    _filteredAppsCacheKey = cacheKey;
+    _setFilteredAppsCache(out);
+    _setFilteredAppsCacheKey(cacheKey);
     if (!_filteredAppsFlushScheduled) {
-      _filteredAppsFlushScheduled = true;
+      _setFilteredAppsFlushScheduled(true);
       queueMicrotask(_clearFilteredAppsFlushCache);
     }
     return out;
@@ -641,6 +556,21 @@ export default {
     if (this._appsVisibleTiles && this._appsVisibleTiles[groupId]) {
       return;
     }
+    // Diagnostic: every observed tile is logged so the user can see
+    // which tiles the IntersectionObserver is even WATCHING. If a tile
+    // is rendered (x-init ran) but appears here without a matching
+    // `[apps-tile] visible:` line, the observer isn't firing for it
+    // (off-screen + rootMargin not reached, OR the tile's parent has
+    // an opacity:0 / display:none ancestor that's defeating
+    // intersection). Compare the observed count to the total tile
+    // count to spot the gap.
+    try {
+      console.debug('[apps-tile] observe: ' + groupId
+        + ' el-bottom-y=' + Math.round(el.getBoundingClientRect().bottom)
+        + ' viewport-h=' + Math.round(window.innerHeight));
+    } catch (_e) {
+      // ignore — console.debug missing on some headless browsers.
+    }
     if (!this._appsCardObserver) {
       // Defer the actual observe() call ONE microtask so x-init
       // runs across every tile BEFORE the observer starts firing
@@ -704,51 +634,45 @@ export default {
     }
     _appsTileQueue.push(groupId);
     if (!_appsTileQueueProcessing) {
-      _appsTileQueueProcessing = true;
-      // First tick goes via rAF so we don't fire inside the same
-      // Alpine flush that just observed the tile (would re-enter
-      // reactivity mid-evaluation). Subsequent ticks also use rAF
-      // for paint pacing.
+      _setAppsTileQueueProcessing(true);
+      // setTimeout(..., 0) NOT requestAnimationFrame — the first
+      // tile's reactive flush can monopolise the main thread long
+      // enough that the browser DEFERS rAF callbacks (rAF only fires
+      // before a paint, and Alpine's reactive flush blocks paint).
+      // Symptom: first tile renders, rest stuck on skeleton because
+      // the next rAF never fires. setTimeout(0) is task-queue-paced
+      // and fires regardless of paint cadence, so the queue drains
+      // even when the page is actively rendering.
       const self = this;
-      try {
-        requestAnimationFrame(() => self._processAppsTileQueue());
-      } catch (_e) {
-        // Fallback for environments without rAF (very old WebViews,
-        // or unit-test stubs) — use a microtask + tiny setTimeout
-        // so we don't block synchronously.
-        setTimeout(() => self._processAppsTileQueue(), 0);
-      }
+      setTimeout(() => self._processAppsTileQueue(), 0);
     }
   },
-  // Process one tile per animation frame: pop, flip the ready flag
+  // Process one tile per macrotask tick: pop, flip the ready flag
   // (mounts the heavy body via Alpine's per-key reactivity), time the
-  // mount, emit BOTH console.debug + a fire-and-forget POST to
-  // `/api/apps/tile-trace` so the matching `[apps-tile]` line lands
-  // in the container stdout. The RAF-per-tile cadence lets the
-  // browser paint between mounts — the symptom the operator hit
-  // (page hangs after tile headers paint) was caused by every
-  // visible tile's body mounting in ONE Alpine flush.
+  // mount, emit a console.debug line for devtools-side tracing. The
+  // setTimeout-per-tile cadence lets the browser drain its render
+  // queue between mounts — the symptom the operator hit (page hangs
+  // after tile headers paint) was caused by every visible tile's
+  // body mounting in ONE Alpine flush.
   _processAppsTileQueue() {
     if (_appsTileQueue.length === 0) {
-      _appsTileQueueProcessing = false;
+      _setAppsTileQueueProcessing(false);
       return;
     }
     const gid = _appsTileQueue.shift();
     // Skip stale gids (the tile was torn down by a poll-reconcile
     // between enqueue + process). The matching DOM node is gone, so
-    // flipping the ready flag would be a no-op AND the
-    // `[apps-tile]` trace would record a vanished gid.
+    // flipping the ready flag would be a no-op.
     const app = (this.appsList || []).find(a => a && a.group_id === gid);
     if (!app) {
       // Continue processing the next tile without paying for an
-      // extra rAF — keeping the cadence rAF-paced only when actual
-      // work happens. Empty pops chain immediately so a stale-tile
-      // burst doesn't stall the queue.
+      // extra setTimeout — keeping the cadence paced only when
+      // actual work happens. Empty pops chain immediately so a
+      // stale-tile burst doesn't stall the queue.
       this._processAppsTileQueue();
       return;
     }
     const slug = (app.catalog && app.catalog.slug) || '';
-    const name = app.name || '';
     const t0 = performance.now();
     let mountErr = '';
     try {
@@ -767,41 +691,26 @@ export default {
     }
     try {
       console.debug('[apps-tile] mount: ' + gid + ' slug=' + (slug || '?')
-        + ' took=' + took + 'ms' + (mountErr ? ' error=' + mountErr : ''));
+        + ' took=' + took + 'ms queue_remaining=' + _appsTileQueue.length
+        + (mountErr ? ' error=' + mountErr : ''));
     } catch (_e) {
-      // ignore — console.debug missing.
+      // ignore — console.debug missing on some headless browsers.
     }
-    // Fire-and-forget POST so the same line lands in container
-    // stdout via the diagnostic endpoint. Never awaited — a slow
-    // backend cannot stall the next tile's mount.
-    try {
-      fetch('/api/apps/tile-trace', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          group_id: gid,
-          slug: slug,
-          name: name,
-          took_ms: took,
-          phase: mountErr ? 'error' : 'mount',
-          error: mountErr,
-        }),
-      }).catch(() => {
-        // Diagnostic POST failures are intentionally swallowed —
-        // a 401 / network error here must not surface as a toast.
-      });
-    } catch (_e) {
-      // Defensive — fetch / JSON.stringify failure cannot stall
-      // the queue.
+    // Schedule the next tile on the next macrotask tick. setTimeout
+    // (not rAF) so the queue advances independent of paint cadence —
+    // critical when Alpine's reactive flush from this tile's body
+    // mount monopolises the main thread + would otherwise defer rAF.
+    // Includes a queue-empty diagnostic so the user can tell whether
+    // the queue actually drained vs stalled.
+    if (_appsTileQueue.length === 0) {
+      try {
+        console.debug('[apps-tile] queue empty — waiting for more IntersectionObserver hits');
+      } catch (_e) {
+        // ignore.
+      }
     }
-    // Schedule the next tile on the next animation frame so the
-    // browser gets a chance to paint between mounts.
     const self = this;
-    try {
-      requestAnimationFrame(() => self._processAppsTileQueue());
-    } catch (_e) {
-      setTimeout(() => self._processAppsTileQueue(), 0);
-    }
+    setTimeout(() => self._processAppsTileQueue(), 0);
   },
   appsVisibleInstances(app) {
     if (!app) {
@@ -1116,25 +1025,89 @@ export default {
   // the SPA); falls back to the browser's locale `toLocaleTimeString`
   // when either helper is unavailable (e.g. early-paint before the
   // user's prefs have loaded).
-  appsWidgetClock() {
+  // Per-item override gate. Returns the Date adjusted to the item's
+  // override TZ (when item.opts.clock_tz is set and follow_user=false)
+  // OR the raw Date in browser-local TZ (the default — every existing
+  // call site that doesn't pass `item` gets the legacy behaviour).
+  // The TZ adjustment uses `Intl.DateTimeFormat` to compute the
+  // wall-clock parts in the override TZ + reassembles a Date so
+  // downstream `_applyDateTimeFormat(d, fmt)` (which reads
+  // `d.getHours()` etc.) renders in the override TZ without each
+  // formatter having to know about timezones.
+  _clockDateForItem(item) {
     const ms = this.hostHistoryNow || Date.now();
+    const opts = item ? this.effectiveClockOpts(item) : null;
+    const d = new Date(ms);
+    if (!opts || opts.follow || !opts.tz) {
+      return d;
+    }
     try {
-      if (typeof this._applyDateTimeFormat === 'function'
-        && typeof this._userTimeOnlyFormat === 'function') {
-        return this._applyDateTimeFormat(new Date(ms), this._userTimeOnlyFormat());
+      // Build a Date whose UTC fields equal the target TZ's wall-clock
+      // fields — that way getHours() / getMinutes() / etc. (which
+      // _applyDateTimeFormat reads) return the override-TZ values
+      // when the formatter pulls them in browser-local mode.
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: opts.tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      }).formatToParts(d);
+      const get = (k) => {
+        const p = parts.find(pt => pt.type === k);
+        return p ? parseInt(p.value, 10) : 0;
+      };
+      // Build the shifted Date in browser-local TZ so its getX()
+      // accessors mirror the override-TZ wall-clock parts.
+      return new Date(
+        get('year'), get('month') - 1, get('day'),
+        get('hour') % 24, get('minute'), get('second'),
+      );
+    } catch (_) {
+      return d;
+    }
+  },
+
+  // Resolve the format string for one clock item (user override OR
+  // user-profile time-only format). Empty string when neither is
+  // available — caller's `try/_applyDateTimeFormat` chain falls
+  // through to `toLocaleTimeString` in that case.
+  _clockFormatForItem(item) {
+    const opts = item ? this.effectiveClockOpts(item) : null;
+    if (opts && !opts.follow && opts.format) {
+      return opts.format;
+    }
+    if (typeof this._userTimeOnlyFormat === 'function') {
+      try { return this._userTimeOnlyFormat(); } catch (_) {}
+    }
+    return '';
+  },
+
+  // Clock helpers — each now accepts an optional `item` arg. When
+  // omitted (the default for the legacy topbar / non-Custom callers),
+  // every helper reads user-profile TZ + format. When the Custom
+  // layout passes `item`, the helper consults `effectiveClockOpts(item)`
+  // for the override chain.
+  appsWidgetClock(item) {
+    try {
+      const d = this._clockDateForItem(item);
+      const fmt = this._clockFormatForItem(item);
+      if (fmt && typeof this._applyDateTimeFormat === 'function') {
+        return this._applyDateTimeFormat(d, fmt);
       }
-      return new Date(ms).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+      return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
     } catch (_) {
       return '';
     }
   },
   // Date subtitle for the clock widget — weekday + month + day. Format
   // follows the browser locale so an operator in es-MX sees "lun, 28
-  // may" while en-US sees "Mon, May 28".
-  appsWidgetClockDate() {
-    const ms = this.hostHistoryNow || Date.now();
+  // may" while en-US sees "Mon, May 28". When `item` carries a TZ
+  // override, the Date passed to `toLocaleDateString` is shifted so
+  // weekday / month / day reflect the override TZ.
+  appsWidgetClockDate(item) {
     try {
-      return new Date(ms).toLocaleDateString([], {
+      const d = this._clockDateForItem(item);
+      return d.toLocaleDateString([], {
         weekday: 'short', month: 'short', day: 'numeric',
       });
     } catch (_) {
@@ -1145,26 +1118,54 @@ export default {
   // splits HH and MM around an animated colon so the colon
   // can pulse independently. Returns just the hour digits in
   // 2-digit zero-padded form (matches HH token of the user's
-  // pref).
-  appsWidgetClockHH() {
-    const ms = this.hostHistoryNow || Date.now();
+  // pref / the per-card override).
+  appsWidgetClockHH(item) {
     try {
-      const t = this._applyDateTimeFormat(new Date(ms), 'HH:mm');
+      const d = this._clockDateForItem(item);
+      const t = this._applyDateTimeFormat(d, 'HH:mm');
       const idx = t.indexOf(':');
       return idx > 0 ? t.slice(0, idx) : t;
     } catch (_) {
       return '';
     }
   },
-  appsWidgetClockMM() {
-    const ms = this.hostHistoryNow || Date.now();
+  appsWidgetClockMM(item) {
     try {
-      const t = this._applyDateTimeFormat(new Date(ms), 'HH:mm');
+      const d = this._clockDateForItem(item);
+      const t = this._applyDateTimeFormat(d, 'HH:mm');
       const idx = t.indexOf(':');
       return idx > 0 ? t.slice(idx + 1) : '';
     } catch (_) {
       return '';
     }
+  },
+  // True when the clock widget should render as an analog face.
+  // Default 'digital' from `effectiveClockOpts` so existing widget
+  // tiles (and the topbar clock) stay digital unless the per-card
+  // setting flips them.
+  appsWidgetClockIsAnalog(item) {
+    if (!item) {
+      return false;
+    }
+    return this.effectiveClockOpts(item).style === 'analog';
+  },
+  // Hand rotations for the analog clock face. Each angle is in
+  // degrees, measured clockwise from 12-o'clock (`transform:
+  // rotate(<deg>deg)` on each SVG `<line>`). Second hand has a
+  // discrete tick; hour + minute hands move fractionally between
+  // marks so the face reads naturally between minutes.
+  appsWidgetClockHands(item) {
+    const d = this._clockDateForItem(item);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const s = d.getSeconds();
+    // Hour: 360 deg / 12 hours = 30 deg/hr; smooth across minute.
+    const hourDeg = ((h % 12) * 30) + (m * 0.5);
+    // Minute: 360 / 60 = 6 deg/min; smooth across second.
+    const minuteDeg = (m * 6) + (s * 0.1);
+    // Second: discrete tick.
+    const secondDeg = s * 6;
+    return {hour: hourDeg, minute: minuteDeg, second: secondDeg};
   },
   // Weather-condition → sprite icon-id mapper. Matches the backend's
   // `weather.condition` string against common WMO-mapped phrases the
@@ -1199,21 +1200,116 @@ export default {
     }
     return 'icon-weather-cloud';
   },
-  // Three-day rollup for the weather widget's forecast strip. Picks
-  // forecast[1..3] (skip today since today's high is the hero), or
-  // falls back to [0..2] when only today's bucket is populated. Each
-  // entry is normalised to {name, hi, lo, icon} so the markup binds
-  // ONE shape regardless of upstream variance. `name` is a short
-  // weekday label (browser locale via `toLocaleDateString`).
-  appsWidgetWeatherForecast() {
-    const w = this.weather || {};
+  // Per-card weather payload — when the item carries a follow_user=false
+  // override with custom (lat,lng), returns the per-(lat,lng) fetch
+  // from `_perCardWeatherCache`; else returns the global `this.weather`.
+  // The fetch helper `_ensurePerCardWeather(item)` triggers a one-shot
+  // GET on first read; subsequent reads serve from cache until the
+  // TTL expires (matching the existing 10-min topbar cache window).
+  // Module-scope cache keyed on `<lat>:<lng>` so multiple cards at the
+  // SAME location share one fetch.
+  effectiveWeather(item) {
+    const opts = this.effectiveWeatherOpts(item);
+    if (opts.follow || opts.lat === null || opts.lng === null) {
+      return this.weather || null;
+    }
+    if (!this._perCardWeatherCache) {
+      this._perCardWeatherCache = {};
+    }
+    const key = opts.lat.toFixed(4) + ':' + opts.lng.toFixed(4);
+    const entry = this._perCardWeatherCache[key];
+    return (entry && entry.data) || null;
+  },
+
+  // Fire-and-forget per-card weather fetch. Called from the widget
+  // tile's `x-init` (next to the existing `_ensurePublicIp` hook) so
+  // every override-mode card kicks its own fetch on first paint. 10-
+  // minute cache window (same as `_ensurePublicIp`). Silent failure
+  // leaves the cache empty — the card renders the empty state.
+  _ensurePerCardWeather(item) {
+    const opts = this.effectiveWeatherOpts(item);
+    if (opts.follow || opts.lat === null || opts.lng === null) {
+      return;
+    }
+    if (!this._perCardWeatherCache) {
+      this._perCardWeatherCache = {};
+    }
+    const key = opts.lat.toFixed(4) + ':' + opts.lng.toFixed(4);
+    const now = Date.now();
+    const entry = this._perCardWeatherCache[key];
+    if (entry && (now - entry.ts) < 10 * 60 * 1000) {
+      return;
+    }
+    // Mark in-flight so a rapid re-render doesn't fan out N fetches
+    // for the same key during the first paint.
+    if (entry && entry.pending) {
+      return;
+    }
+    this._perCardWeatherCache[key] = {
+      ts: now, data: (entry && entry.data) || null, pending: true,
+    };
+    try {
+      const labelParam = opts.label ? ('&label=' + encodeURIComponent(opts.label)) : '';
+      fetch('/api/weather?lat=' + opts.lat + '&lon=' + opts.lng + labelParam)
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          this._perCardWeatherCache[key] = {
+            ts: Date.now(), data: j || null, pending: false,
+          };
+        })
+        .catch(() => {
+          // Leave the stale data + clear pending so a future re-render
+          // can retry the fetch on the next cache window.
+          this._perCardWeatherCache[key] = {
+            ts: now, data: (entry && entry.data) || null, pending: false,
+          };
+        });
+    } catch (_) {
+      this._perCardWeatherCache[key] = {
+        ts: now, data: null, pending: false,
+      };
+    }
+  },
+
+  // Format a temperature value (the backend stores Celsius) honouring
+  // the per-card units override (Fahrenheit when units=imperial). Used
+  // by the hero temp + the forecast strip so every °-display reflects
+  // the operator's choice.
+  appsWidgetWeatherTemp(item, tempC) {
+    if (tempC === null || tempC === undefined || isNaN(tempC)) {
+      return '';
+    }
+    const opts = this.effectiveWeatherOpts(item);
+    if (!opts.follow && opts.units === 'imperial') {
+      const f = (tempC * 9 / 5) + 32;
+      return Math.round(f) + '°F';
+    }
+    return Math.round(tempC) + '°C';
+  },
+
+  // N-day rollup for the weather widget's forecast strip. Cap N from
+  // the per-card override (`weather_forecast_days`, default 3, range
+  // 0-7). N=0 → empty array → markup hides the forecast strip
+  // entirely. The forecast source is `effectiveWeather(item).forecast`
+  // so override-mode cards see THEIR location's forecast.
+  appsWidgetWeatherForecast(item) {
+    const w = this.effectiveWeather(item) || {};
     const f = Array.isArray(w.forecast) ? w.forecast : [];
     if (!f.length) {
       return [];
     }
-    const start = f.length > 3 ? 1 : 0;
+    const opts = item ? this.effectiveWeatherOpts(item) : null;
+    const cap = opts ? opts.forecast_days : 3;
+    if (cap <= 0) {
+      return [];
+    }
+    // Skip today (forecast[0]) when there are MORE than `cap` future
+    // days available — today's hero already shows today. When the
+    // forecast is short (only today + a few), include today in the
+    // strip so the card isn't empty.
+    const start = f.length > cap ? 1 : 0;
     const out = [];
-    for (let i = start; i < start + 3 && i < f.length; i++) {
+    for (let i = start; i < start + cap && i < f.length; i++) {
       const day = f[i] || {};
       let name = '';
       try {
@@ -1223,14 +1319,29 @@ export default {
       } catch (_) {
         name = '';
       }
+      // Pre-format hi/lo using the per-card units helper so the markup
+      // can bind `x-text="d.hi_label"` regardless of source.
+      const hi = day.temp_max_c != null ? day.temp_max_c : null;
+      const lo = day.temp_min_c != null ? day.temp_min_c : null;
       out.push({
         name: name || ('+' + (i - start + 1) + 'd'),
-        hi: day.temp_max_c != null ? Math.round(day.temp_max_c) : null,
-        lo: day.temp_min_c != null ? Math.round(day.temp_min_c) : null,
+        hi: hi != null ? Math.round(hi) : null,
+        lo: lo != null ? Math.round(lo) : null,
+        hi_label: this.appsWidgetWeatherTemp(item, hi),
+        lo_label: this.appsWidgetWeatherTemp(item, lo),
         icon: this.appsWeatherIconId(day.condition || w.condition || ''),
       });
     }
     return out;
+  },
+
+  // True when the weather widget should render the condition row
+  // (rain / cloudy / wind chips). Per-card opt; default true.
+  appsWidgetWeatherShowConditions(item) {
+    if (!item) {
+      return true;
+    }
+    return this.effectiveWeatherOpts(item).show_conditions;
   },
   // SVG path for the system-stats progress ring — stroke-dasharray /
   // stroke-dashoffset values for a circular fill showing up/total
@@ -1310,26 +1421,28 @@ export default {
       ['vultr', 'vultr'],
       // Egyptian carriers — operator-flagged. Each maps to the
       // canonical brand slug (drop the matching SVG into
-      // `static/img/icons/<slug>.svg` from an official source
-      // per the project conventions "Brand-icon onboarding"). The detection
-      // fires regardless of whether the SVG exists yet — the
-      // `<img @error>` handler on the consumer hides the
-      // placeholder cleanly when the file isn't present, so
-      // shipping the mapping today + the SVG later is safe.
+      // `static/img/icons/<slug>.svg` from an official source per
+      // the project conventions "Brand-icon onboarding").
       //   - e& (formerly Etisalat — UAE parent, present across
-      //     Egypt / Saudi / etc.) — match both names since the
-      //     rebrand is incomplete in many ASN registries.
-      //   - WE (Telecom Egypt, formerly TE Data) — match all
-      //     three names since ASN.org may still surface any of
-      //     them depending on the upstream registry's age.
+      //     Egypt / Saudi / etc.) — e& and Etisalat share the
+      //     SAME canonical brand identity post-rebrand; both
+      //     match the `etisalat` icon (single SVG covers both).
+      //   - WE (Telecom Egypt, formerly TE Data) — all three
+      //     market names point at the SAME operator post-merger;
+      //     they all map to the `we` brand icon (single SVG
+      //     covers the unified brand). ASN.org may still surface
+      //     any of the legacy names depending on the upstream
+      //     registry's age, so the match table carries all of
+      //     them but resolves to one canonical slug.
       //   Vodafone + Orange already covered above and serve
       //   Egypt too; no per-region branch needed for those.
-      ['e&', 'e-and'],  // ampersand is fine in a substring needle
+      ['e&', 'etisalat'],  // ampersand is fine in a substring needle
+      ['eand', 'etisalat'],  // ASN-registry rendering of the rebrand
       ['etisalat', 'etisalat'],
       [' we ', 'we'],  // whitespace-padded — avoid matching "we are" / "swe" / etc.
-      ['telecom egypt', 'telecom-egypt'],
-      ['te data', 'te-data'],
-      ['te-data', 'te-data'],
+      ['telecom egypt', 'we'],
+      ['te data', 'we'],
+      ['te-data', 'we'],
     ];
     for (const [needle, slug] of tokens) {
       if (raw.indexOf(needle) !== -1) {
@@ -1785,20 +1898,83 @@ export default {
   // Normalise one stored item into the canonical {uid, kind, ...} shape.
   // Back-compat: a bare string is a legacy app group_id. Returns null for
   // anything unrecognisable so a tampered blob can't crash the render.
+  // Sanitiser for the per-item `opts` sub-dict (Apps Custom dashboard
+  // per-card settings). Every Custom-layout item carries an optional
+  // opts dict via this shape:
+  //   {size: 'half' | 'normal' | 'double',
+  //    follow_user: bool,            // widget-specific (clock + weather)
+  //    clock_tz: string,             // IANA TZ name (clock widget only)
+  //    clock_format: string,         // datetime token string (clock only)
+  //    clock_style: 'digital' | 'analog',
+  //    weather_lat: number,          // override location (weather only)
+  //    weather_lng: number,
+  //    weather_label: string,
+  //    weather_units: 'metric' | 'imperial',
+  //    weather_forecast_days: 0..7,  // 0 disables forecast strip
+  //    weather_show_conditions: bool}
+  // Unknown keys are dropped on round-trip; numeric clamps enforced to
+  // keep a corrupted ui_prefs blob from breaking the layout.
+  _normAppsItemOpts(raw) {
+    if (!raw || typeof raw !== 'object') {
+      return {};
+    }
+    const out = {};
+    const size = String(raw.size || '').toLowerCase();
+    if (size === 'half' || size === 'normal' || size === 'double') {
+      out.size = size;
+    }
+    if (typeof raw.follow_user === 'boolean') {
+      out.follow_user = raw.follow_user;
+    }
+    if (typeof raw.clock_tz === 'string' && raw.clock_tz.length <= 64) {
+      out.clock_tz = raw.clock_tz;
+    }
+    if (typeof raw.clock_format === 'string' && raw.clock_format.length <= 128) {
+      out.clock_format = raw.clock_format;
+    }
+    const style = String(raw.clock_style || '').toLowerCase();
+    if (style === 'digital' || style === 'analog') {
+      out.clock_style = style;
+    }
+    if (typeof raw.weather_lat === 'number' && isFinite(raw.weather_lat)) {
+      out.weather_lat = Math.max(-90, Math.min(90, raw.weather_lat));
+    }
+    if (typeof raw.weather_lng === 'number' && isFinite(raw.weather_lng)) {
+      out.weather_lng = Math.max(-180, Math.min(180, raw.weather_lng));
+    }
+    if (typeof raw.weather_label === 'string' && raw.weather_label.length <= 80) {
+      out.weather_label = raw.weather_label;
+    }
+    const units = String(raw.weather_units || '').toLowerCase();
+    if (units === 'metric' || units === 'imperial') {
+      out.weather_units = units;
+    }
+    if (typeof raw.weather_forecast_days === 'number'
+      && isFinite(raw.weather_forecast_days)) {
+      out.weather_forecast_days = Math.max(0, Math.min(7,
+        Math.round(raw.weather_forecast_days)));
+    }
+    if (typeof raw.weather_show_conditions === 'boolean') {
+      out.weather_show_conditions = raw.weather_show_conditions;
+    }
+    return out;
+  },
+
   _normAppsItem(raw) {
     if (typeof raw === 'string') {
-      return {uid: this._newId('it-'), kind: 'app', ref: raw};
+      return {uid: this._newId('it-'), kind: 'app', ref: raw, opts: {}};
     }
     if (!raw || typeof raw !== 'object') {
       return null;
     }
     const uid = raw.uid ? String(raw.uid) : this._newId('it-');
     const kind = raw.kind;
+    const opts = this._normAppsItemOpts(raw.opts);
     if (kind === 'app' && raw.ref != null) {
-      return {uid, kind: 'app', ref: String(raw.ref)};
+      return {uid, kind: 'app', ref: String(raw.ref), opts};
     }
     if (kind === 'widget' && this.appsWidgetKinds.includes(raw.widget)) {
-      return {uid, kind: 'widget', widget: String(raw.widget)};
+      return {uid, kind: 'widget', widget: String(raw.widget), opts};
     }
     if (kind === 'bookmark' && (raw.url || raw.name)) {
       return {
@@ -1806,6 +1982,7 @@ export default {
         name: typeof raw.name === 'string' ? raw.name : '',
         url: typeof raw.url === 'string' ? raw.url : '',
         icon: typeof raw.icon === 'string' ? raw.icon : '',
+        opts,
       };
     }
     return null;
@@ -1917,6 +2094,13 @@ export default {
     const sections = (this.appsCustomLayout.sections || []).map(s => {
       const items = [];
       for (const it of (s.items || [])) {
+        // Pass the persisted opts dict through to the rendered item
+        // unchanged — every per-card setting (size, follow-user, custom
+        // TZ / format / location / units / forecast-days) lives here.
+        // The render-side resolver `effectiveClockOpts` /
+        // `effectiveWeatherOpts` reads the dict + falls back to global
+        // user settings when a key is absent.
+        const opts = it.opts || {};
         if (it.kind === 'app') {
           if (assignedRefs.has(it.ref)) {
             continue;  // dedup: a ref may only live in one section (first wins)
@@ -1926,17 +2110,20 @@ export default {
           if (!app) {
             continue;  // filtered out this pass (search / status) — stays assigned
           }
-          items.push({uid: it.uid, kind: 'app', ref: it.ref, app});
+          items.push({uid: it.uid, kind: 'app', ref: it.ref, app, opts});
         } else if (it.kind === 'widget') {
           if (q) {
             continue;  // hide info widgets while searching
           }
-          items.push({uid: it.uid, kind: 'widget', widget: it.widget});
+          items.push({uid: it.uid, kind: 'widget', widget: it.widget, opts});
         } else if (it.kind === 'bookmark') {
           if (q && !((it.name || '').toLowerCase().includes(q) || (it.url || '').toLowerCase().includes(q))) {
             continue;  // bookmark doesn't match the search
           }
-          items.push({uid: it.uid, kind: 'bookmark', name: it.name, url: it.url, icon: it.icon});
+          items.push({
+            uid: it.uid, kind: 'bookmark',
+            name: it.name, url: it.url, icon: it.icon, opts,
+          });
         }
       }
       return {id: s.id, name: s.name, collapsed: !!s.collapsed, items};
@@ -2220,6 +2407,204 @@ export default {
     this._persistAppsCustomLayout();
   },
 
+  // ============================================================
+  // Per-card setting helpers — size, flip-to-settings, per-widget
+  // overrides. Drives the Apps Custom dashboard's three-template
+  // sizing (half / normal / double), the gear-icon flip animation
+  // (card rotates 180° to reveal a back-face settings pane), and the
+  // per-widget configuration (clock TZ + format + analog/digital;
+  // weather location + units + forecast days + show-conditions).
+  // Persisted via the existing ui_prefs.apps_custom_layout channel —
+  // the per-item `opts` sub-dict carries everything.
+  // ============================================================
+
+  // Resolve the card-size CSS class for ONE Custom-layout item.
+  // Default 'normal' when no override is set. Used by the apps-card.html
+  // + apps-widget-tile.html + apps-bookmark-tile.html `:class`
+  // bindings to swap the grid-span + content-density rules.
+  appsCardSizeClass(item) {
+    const size = item && item.opts && item.opts.size;
+    if (size === 'half' || size === 'double') {
+      return 'apps-card--size-' + size;
+    }
+    return 'apps-card--size-normal';
+  },
+  // Just the size value (without the class prefix) — used by the
+  // back-face radio bindings for `:checked` selection state.
+  appsCardSize(item) {
+    const size = item && item.opts && item.opts.size;
+    return (size === 'half' || size === 'double') ? size : 'normal';
+  },
+  // True when the card should render its body skeleton-only (just
+  // title + icon at a small footprint). Same gate the body-render
+  // templates consult — half-size cards hide their heavy body subtree
+  // so they read as a "what's pinned here" placeholder.
+  appsCardIsSkeleton(item) {
+    return this.appsCardSize(item) === 'half';
+  },
+
+  // Mutate the per-card size + persist. Cycles half → normal → double
+  // → half when called without an explicit size. Called from the
+  // size-cycle button on the front face (quick-toggle in edit mode)
+  // AND from the back-face size radio.
+  setAppsCardSize(uid, size) {
+    if (!uid) {
+      return;
+    }
+    const it = this._findAppsItemByUid(uid);
+    if (!it) {
+      return;
+    }
+    if (!it.opts) {
+      it.opts = {};
+    }
+    if (size === 'half' || size === 'normal' || size === 'double') {
+      it.opts.size = size;
+    } else {
+      // Cycle: normal → double → half → normal.
+      const cur = it.opts.size || 'normal';
+      it.opts.size = (cur === 'normal') ? 'double'
+        : (cur === 'double') ? 'half'
+        : 'normal';
+    }
+    this._persistAppsCustomLayout();
+  },
+
+  // Flip-state tracker — module-scope Set so a re-render doesn't
+  // reset the flipped flag (operator pops gear, flips the card, the
+  // 30s poll re-evaluates the template → we want the back face to
+  // stay visible across the poll). Keyed by item.uid.
+  appsCardIsFlipped(uid) {
+    if (!this._appsFlippedCards) {
+      this._appsFlippedCards = {};
+    }
+    return !!this._appsFlippedCards[uid];
+  },
+  toggleAppsCardFlipped(uid) {
+    if (!uid) {
+      return;
+    }
+    if (!this._appsFlippedCards) {
+      this._appsFlippedCards = {};
+    }
+    this._appsFlippedCards[uid] = !this._appsFlippedCards[uid];
+  },
+  closeAppsCardFlipped(uid) {
+    if (uid && this._appsFlippedCards) {
+      this._appsFlippedCards[uid] = false;
+    }
+  },
+
+  // Find ONE persisted item across every section + unsectioned by
+  // uid. Returns the raw layout item (not the rendered view-model)
+  // so mutations persist via _persistAppsCustomLayout.
+  _findAppsItemByUid(uid) {
+    if (!this.appsCustomLayout || !Array.isArray(this.appsCustomLayout.sections)) {
+      return null;
+    }
+    for (const sec of this.appsCustomLayout.sections) {
+      if (!Array.isArray(sec.items)) {
+        continue;
+      }
+      for (const it of sec.items) {
+        if (it.uid === uid) {
+          return it;
+        }
+      }
+    }
+    return null;
+  },
+
+  // Generic per-item-opts setter. Use case: back-face form bindings
+  // call `setAppsItemOpt(uid, 'clock_tz', 'Europe/Cairo')` etc.
+  // Numeric coercion + sanitisation lives in `_normAppsItemOpts`
+  // — this setter only writes through; the next save round-trip
+  // re-runs the sanitiser on hydration.
+  setAppsItemOpt(uid, key, value) {
+    if (!uid || !key) {
+      return;
+    }
+    const it = this._findAppsItemByUid(uid);
+    if (!it) {
+      return;
+    }
+    if (!it.opts) {
+      it.opts = {};
+    }
+    if (value === null || value === undefined || value === '') {
+      delete it.opts[key];
+    } else {
+      it.opts[key] = value;
+    }
+    this._persistAppsCustomLayout();
+  },
+
+  // Effective Clock-widget options — resolves the override-or-fallback
+  // chain so the clock-rendering helpers can read ONE shape regardless
+  // of whether the operator set per-card overrides. follow_user=true
+  // (default when opts.follow_user is undefined) means EVERY field
+  // falls back to the user's profile prefs (TZ via scheduler_tz or the
+  // browser, format via `_userDateTimeFormat`). follow_user=false
+  // lets each override field win when set; absent override fields STILL
+  // fall back to the user's profile (so a partial override is sensible).
+  effectiveClockOpts(item) {
+    const opts = (item && item.opts) || {};
+    const follow = (opts.follow_user !== false);  // default = follow
+    const tz = (!follow && opts.clock_tz) || '';
+    const fmt = (!follow && opts.clock_format) || '';
+    const style = opts.clock_style || 'digital';
+    return {
+      follow,
+      tz,
+      format: fmt,
+      style: (style === 'analog' ? 'analog' : 'digital'),
+    };
+  },
+
+  // Effective Weather-widget options — same shape as clock. Falls back
+  // to the global weather settings (this.weather + scheduler defaults)
+  // when follow_user=true OR the override field is unset.
+  effectiveWeatherOpts(item) {
+    const opts = (item && item.opts) || {};
+    const follow = (opts.follow_user !== false);
+    const units = (!follow && opts.weather_units) || '';  // '' = follow user prefs
+    const lat = (!follow && typeof opts.weather_lat === 'number') ? opts.weather_lat : null;
+    const lng = (!follow && typeof opts.weather_lng === 'number') ? opts.weather_lng : null;
+    const label = (!follow && opts.weather_label) || '';
+    const fcdRaw = (typeof opts.weather_forecast_days === 'number')
+      ? opts.weather_forecast_days : 3;  // default = 3 days
+    const showCond = (opts.weather_show_conditions !== false);  // default = show
+    return {
+      follow,
+      units: (units === 'imperial' ? 'imperial' : (units === 'metric' ? 'metric' : '')),
+      lat,
+      lng,
+      label,
+      forecast_days: Math.max(0, Math.min(7, fcdRaw)),
+      show_conditions: showCond,
+    };
+  },
+
+  // List of common IANA timezones for the clock-widget back-face
+  // dropdown. Operator can also type a free-form value (the input is
+  // a `<datalist>`-backed text input, so the list is suggestions, not
+  // an enum gate). Kept small + alphabetised for stable diffs.
+  appsClockTimezones() {
+    return [
+      'UTC',
+      'Africa/Cairo', 'Africa/Johannesburg', 'Africa/Lagos',
+      'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+      'America/New_York', 'America/Sao_Paulo', 'America/Toronto',
+      'Asia/Dubai', 'Asia/Hong_Kong', 'Asia/Jerusalem', 'Asia/Kolkata',
+      'Asia/Shanghai', 'Asia/Singapore', 'Asia/Tokyo',
+      'Australia/Sydney',
+      'Europe/Amsterdam', 'Europe/Berlin', 'Europe/London',
+      'Europe/Madrid', 'Europe/Moscow', 'Europe/Paris',
+      'Europe/Rome', 'Europe/Stockholm',
+      'Pacific/Auckland', 'Pacific/Honolulu',
+    ];
+  },
+
   // Fire-and-forget PATCH to the existing ui-prefs channel + immediate
   // local me.ui_prefs sync so a re-render (or a same-session view switch)
   // reads the fresh layout without waiting for the round-trip.
@@ -2415,7 +2800,7 @@ export default {
         + '/' + encodeURIComponent(inst.service_idx) + '/debug');
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const data = await r.json();
       this.appDebug = Object.assign({}, this.appDebug, {[key]: {loading: false, error: '', data}});
@@ -2793,7 +3178,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await this.loadAppsCatalog();
       this.closeAppCatalogEditor();
@@ -2828,7 +3213,7 @@ export default {
       const r = await fetch(`/api/services/catalog/${entry.id}`, {method: 'DELETE'});
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await this.loadAppsCatalog();
       if (typeof this.toast === 'function') {
@@ -2971,7 +3356,7 @@ export default {
         const r = await fetch(`/api/services/catalog/${entry.id}`, {method: 'DELETE'});
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          throw new Error(j.detail || ('HTTP ' + r.status));
+          throw new Error(this.fmtApiError(j, r.status));
         }
         ok += 1;
       } catch (_e) {
@@ -3441,7 +3826,7 @@ export default {
       const r = await fetch(base + encodeURIComponent(m.raw_id) + '/logs?' + qs.toString());
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       m.text = j.logs || '';
@@ -3556,7 +3941,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       this.appsInstanceEditOpen = false;
       await this.loadAppsInstances();
@@ -3602,7 +3987,7 @@ export default {
         + '/' + encodeURIComponent(inst.service_idx), {method: 'DELETE'});
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       await this.loadAppsInstances();
       if (typeof this.loadAppsList === 'function') {
@@ -3711,7 +4096,7 @@ export default {
             + '/' + encodeURIComponent(inst.service_idx), {method: 'DELETE'});
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
-            throw new Error(j.detail || ('HTTP ' + r.status));
+            throw new Error(this.fmtApiError(j, r.status));
           }
           ok += 1;
         } catch (_e) {
@@ -3775,7 +4160,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       // Patch the matching app's last_probe + status in place so the
@@ -4404,7 +4789,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       this.appsDiscoverResult = j;
@@ -4498,7 +4883,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       await this.loadAppsInstances();
@@ -4529,7 +4914,7 @@ export default {
       const r = await fetch('/api/services/catalog/seed', {method: 'POST'});
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       await this.loadAppsCatalog();
@@ -4553,7 +4938,7 @@ export default {
       const r = await fetch('/api/services/catalog/export');
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const pack = await r.json();
       const blob = new Blob([JSON.stringify(pack, null, 2)], {type: 'application/json'});
@@ -4604,7 +4989,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const j = await r.json();
       await this.loadAppsCatalog();

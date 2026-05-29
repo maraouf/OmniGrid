@@ -786,6 +786,48 @@ async def api_apps_tile_trace(payload: dict[str, Any], _admin: AdminUser):
     return {"ok": True}
 
 
+@app.post("/api/admin/spa-diagnostic")
+async def api_admin_spa_diagnostic(payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only diagnostic sink for SPA-side performance probes.
+
+    Generic counterpart to ``/api/apps/tile-trace`` — accepts a
+    ``{kind, ...payload}`` body and mirrors to container stdout as a
+    single ``[spa-diagnostic]`` line so the user can correlate
+    browser-side warnings (rAF violations, long-task observations,
+    memory-pressure spikes) against backend logs when devtools isn't
+    accessible (page-unresponsive scenarios).
+
+    Current emitters (extend as new probes ship):
+
+    * ``raf-violation`` — `window.requestAnimationFrame` callback
+      took longer than the user-set threshold (URL `?raf=<ms>` or
+      `window.__ogRafProbeMs`). Body: ``{kind, took_ms, cb, caller, threw}``.
+
+    Returns ``{ok: true}`` regardless — the probe is fire-and-forget
+    by contract; a 500 here would re-amplify the page hang the probe
+    is trying to debug.
+    """
+    try:
+        kind = str(payload.get("kind") or "?").strip() or "?"
+        bits = [f"[spa-diagnostic] kind={kind}"]
+        # Whitelist the keys we surface so the line stays readable +
+        # an SPA-side typo can't blow up the log format.
+        for key in ("took_ms", "cb", "caller", "threw", "url", "detail"):
+            if key in payload:
+                v = payload.get(key)
+                bits.append(f"{key}={v!r}" if isinstance(v, str) else f"{key}={v}")
+        # rAF-violation lines carry a `warning:` token so `_severity_for`
+        # routes them into the WARN bucket (operator-visible in Admin →
+        # Logs without polluting the ERROR bucket reserved for real
+        # failures).
+        if kind == "raf-violation":
+            bits.insert(0, "warning:")
+        print(" ".join(bits), flush=True)
+    except (TypeError, ValueError, AttributeError, KeyError):
+        return {"ok": False}
+    return {"ok": True}
+
+
 @app.get("/api/apps/instances")
 async def api_apps_instances(_admin: AdminUser):
     """Admin-only: flat per-instance iterator — every chip across every

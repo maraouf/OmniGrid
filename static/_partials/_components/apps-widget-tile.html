@@ -151,14 +151,64 @@
          height; nested flex centers the HH:MM + date pair). -->
     <template x-if="item.widget === 'clock'">
       <div class="apps-widget-clock-center">
-        <div class="apps-widget-clock">
-          <span x-text="appsWidgetClockHH()"></span><!--
-       --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
-       --><span x-text="appsWidgetClockMM()"></span>
-        </div>
-        <div class="apps-widget-subtitle">
-          <span x-text="appsWidgetClockDate()"></span>
-        </div>
+        <!-- Digital face (default). Per-card opts.clock_style flips
+             between digital + analog; HH / MM helpers consult the
+             item's TZ + format overrides via `_clockDateForItem`. -->
+        <template x-if="!appsWidgetClockIsAnalog(item)">
+          <div>
+            <div class="apps-widget-clock">
+              <span x-text="appsWidgetClockHH(item)"></span><!--
+           --><span class="apps-widget-clock-colon" aria-hidden="true">:</span><!--
+           --><span x-text="appsWidgetClockMM(item)"></span>
+            </div>
+            <div class="apps-widget-subtitle">
+              <span x-text="appsWidgetClockDate(item)"></span>
+            </div>
+          </div>
+        </template>
+        <!-- Analog face. SVG clock with 12 tick marks + hour / minute /
+             second hands. Hands rotate via `transform: rotate(<deg>)`
+             from `appsWidgetClockHands(item)`. `transform-origin` set
+             at the centre so each hand pivots cleanly. The same date
+             subtitle stays below the face so the operator gets both
+             "time at a glance" + "what day is it". -->
+        <template x-if="appsWidgetClockIsAnalog(item)">
+          <div>
+            <svg class="apps-widget-clock-analog" viewBox="0 0 100 100"
+                 width="120" height="120" aria-hidden="true">
+              <circle cx="50" cy="50" r="48" fill="none"
+                      stroke="var(--text-faint)" stroke-width="1"/>
+              <!-- Hour ticks: 12 short marks around the dial. -->
+              <template x-for="i in 12" :key="i">
+                <line :x1="50 + 44 * Math.cos((i - 3) * Math.PI / 6)"
+                      :y1="50 + 44 * Math.sin((i - 3) * Math.PI / 6)"
+                      :x2="50 + 48 * Math.cos((i - 3) * Math.PI / 6)"
+                      :y2="50 + 48 * Math.sin((i - 3) * Math.PI / 6)"
+                      stroke="var(--text-dim)" stroke-width="1.5"
+                      stroke-linecap="round"/>
+              </template>
+              <!-- Hour hand (short + thick) -->
+              <line x1="50" y1="50" x2="50" y2="25"
+                    stroke="var(--text)" stroke-width="3"
+                    stroke-linecap="round"
+                    :style="'transform: rotate(' + appsWidgetClockHands(item).hour + 'deg); transform-origin: 50px 50px;'"/>
+              <!-- Minute hand (longer + medium) -->
+              <line x1="50" y1="50" x2="50" y2="14"
+                    stroke="var(--text)" stroke-width="2"
+                    stroke-linecap="round"
+                    :style="'transform: rotate(' + appsWidgetClockHands(item).minute + 'deg); transform-origin: 50px 50px;'"/>
+              <!-- Second hand (thinnest, accent colour) -->
+              <line x1="50" y1="55" x2="50" y2="10"
+                    stroke="var(--primary)" stroke-width="1"
+                    stroke-linecap="round"
+                    :style="'transform: rotate(' + appsWidgetClockHands(item).second + 'deg); transform-origin: 50px 50px;'"/>
+              <circle cx="50" cy="50" r="2.5" fill="var(--primary)"/>
+            </svg>
+            <div class="apps-widget-subtitle">
+              <span x-text="appsWidgetClockDate(item)"></span>
+            </div>
+          </div>
+        </template>
       </div>
     </template>
 
@@ -167,49 +217,71 @@
          + three-day forecast strip. Renders a polished empty state
          (icon + helpful copy) when `this.weather` is null. -->
     <template x-if="item.widget === 'weather'">
-      <template x-if="weather && weather.temp_c != null">
+      <!-- x-init kicks the per-card weather fetch on first mount when
+           the item carries a follow_user=false override. No-op for
+           follow-user-mode cards (the global topbar fetcher already
+           populated `this.weather`). -->
+      <div x-init="_ensurePerCardWeather(item)">
+      <template x-if="effectiveWeather(item) && effectiveWeather(item).temp_c != null">
         <div>
           <div class="apps-widget-hero-row">
             <svg class="apps-widget-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId(weather.condition || '')"/>
+              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((effectiveWeather(item) || {}).condition || '')"/>
             </svg>
+            <!-- Hero temp + unit suffix derived from per-card units
+                 override via `appsWidgetWeatherTemp`. The helper
+                 returns the FULL label ("20°C" / "68°F") so the unit
+                 sub-element receives an empty string and collapses. -->
             <div class="apps-widget-hero"
-                 x-text="Math.round(weather.temp_c)"></div>
-            <div class="apps-widget-hero-unit">°C</div>
+                 x-text="appsWidgetWeatherTemp(item, (effectiveWeather(item) || {}).temp_c).replace(/°[CF]$/, '')"></div>
+            <div class="apps-widget-hero-unit"
+                 x-text="(effectiveWeatherOpts(item).units === 'imperial' && !effectiveWeatherOpts(item).follow) ? '°F' : '°C'"></div>
           </div>
           <div class="apps-widget-subtitle">
             <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
             </svg>
-            <span x-text="(headerWeatherLabel || weather.label || '') + (weather.condition ? ((headerWeatherLabel || weather.label) ? ' · ' : '') + weather.condition : '')"></span>
+            <!-- Override-mode cards use the operator's label override;
+                 follow-user cards fall back to the global header label
+                 or the upstream-returned label. The condition string is
+                 appended only when `show_conditions` opt is on. -->
+            <span x-text="(((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
           </div>
-          <div class="apps-widget-detail">
-            <span x-show="weather.humidity != null" class="apps-widget-kv">
+          <!-- Detail row: humidity + wind. Gated on
+               `appsWidgetWeatherShowConditions(item)` so an operator
+               who only wants the hero temp + forecast can hide the
+               busy KV row. -->
+          <div class="apps-widget-detail" x-show="appsWidgetWeatherShowConditions(item)">
+            <span x-show="(effectiveWeather(item) || {}).humidity != null" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_humidity_label') || 'Humidity'"></span>
-              <span class="apps-widget-kv-value" x-text="Math.round(weather.humidity) + '%'"></span>
+              <span class="apps-widget-kv-value" x-text="Math.round((effectiveWeather(item) || {}).humidity) + '%'"></span>
             </span>
-            <span x-show="weather.wind_kmh != null" class="apps-widget-kv">
+            <span x-show="(effectiveWeather(item) || {}).wind_kmh != null" class="apps-widget-kv">
               <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_wind_label') || 'Wind'"></span>
-              <span class="apps-widget-kv-value" x-text="Math.round(weather.wind_kmh) + ' km/h'"></span>
+              <span class="apps-widget-kv-value" x-text="Math.round((effectiveWeather(item) || {}).wind_kmh) + ' km/h'"></span>
             </span>
           </div>
-          <template x-if="appsWidgetWeatherForecast().length">
+          <template x-if="appsWidgetWeatherForecast(item).length">
             <div class="apps-widget-forecast">
-              <template x-for="day in appsWidgetWeatherForecast()" :key="day.name">
+              <template x-for="day in appsWidgetWeatherForecast(item)" :key="day.name">
                 <div class="apps-widget-forecast-day">
                   <span class="apps-widget-forecast-name" x-text="day.name"></span>
                   <svg width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--widget-accent); opacity: 0.85;">
                     <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + day.icon"/>
                   </svg>
+                  <!-- Hi / lo labels are pre-formatted with the per-card
+                       units in `appsWidgetWeatherForecast` so binding
+                       stays simple here regardless of units choice. -->
                   <span class="apps-widget-forecast-temp"
-                        x-text="(day.hi != null ? day.hi + '°' : '—') + ' / ' + (day.lo != null ? day.lo + '°' : '—')"></span>
+                        x-text="(day.hi_label || (day.hi != null ? day.hi + '°' : '—')) + ' / ' + (day.lo_label || (day.lo != null ? day.lo + '°' : '—'))"></span>
                 </div>
               </template>
             </div>
           </template>
         </div>
       </template>
-      <template x-if="!weather || weather.temp_c == null">
+      </div>
+      <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
         <div class="apps-widget-empty">
           <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
@@ -247,22 +319,39 @@
                  immediate visual confirmation of who's carrying their
                  traffic. -->
             <div class="apps-widget-subtitle">
-              <template x-if="appsWidgetIspIconUrl(publicIp.isp)">
+              <!-- ISP brand icon — three-state render: (a) recognised
+                   brand + icon file exists → show the brand img;
+                   (b) recognised brand BUT icon file 404s OR no brand
+                   match → show the globe sprite fallback.
+                   The `_ispIconBroken` flag (set on the publicIp
+                   object by the @error handler) makes the broken-icon
+                   case fall through to the globe fallback instead of
+                   leaving an empty slot (the previous shape had
+                   `display:none` on the broken img which still left
+                   the wrapping div, and the matching `x-if='!url'`
+                   gate didn't fire because the helper STILL returned
+                   a non-empty URL — the file just didn't exist on
+                   disk). Both gates now consult the combined predicate
+                   so the fallback fires for the broken case too. -->
+              <template x-if="appsWidgetIspIconUrl(publicIp.isp) && !(publicIp && publicIp._ispIconBroken)">
                 <!-- Static `alt=""` satisfies the IDE's HTML-parser
                      accessibility check (which doesn't recognise
                      Alpine `:alt` bindings); Alpine overrides at
                      runtime with the ISP name from `:alt`. The ISP
                      name also appears as plain text in the adjacent
                      <span>, so even if both fail the user still
-                     gets the brand identity. -->
+                     gets the brand identity. The @error handler
+                     stamps `publicIp._ispIconBroken=true` so the
+                     SVG fallback below renders cleanly on the next
+                     reactive flush. -->
                 <img :src="appsWidgetIspIconUrl(publicIp.isp)"
                      :alt="publicIp.isp || ''"
                      alt=""
                      width="16" height="16"
                      class="apps-widget-isp-icon"
-                     @error="$event.target.style.display='none'">
+                     @error="if (publicIp) { publicIp._ispIconBroken = true; }">
               </template>
-              <template x-if="!appsWidgetIspIconUrl(publicIp.isp)">
+              <template x-if="!appsWidgetIspIconUrl(publicIp.isp) || (publicIp && publicIp._ispIconBroken)">
                 <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
                 </svg>

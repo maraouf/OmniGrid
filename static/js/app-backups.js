@@ -144,7 +144,7 @@ export default {
       const r = await fetch('/api/admin/config-backup/save', {method: 'POST'});
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const d = await r.json().catch(() => ({}));
       this.showToast(this.t('toasts_extra.config_backup_saved', {name: d.name || ''}), 'success');
@@ -214,7 +214,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const d = await r.json().catch(() => ({}));
       this.showToast(this.t('toasts_extra.config_backup_imported', {
@@ -257,7 +257,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       const d = await r.json().catch(() => ({}));
       this.showToast(this.t('toasts_extra.config_backup_imported', {
@@ -298,7 +298,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || ('HTTP ' + r.status));
+        throw new Error(this.fmtApiError(j, r.status));
       }
       this.showToast(this.t('toasts_extra.config_backup_deleted', {name}), 'success');
       await this.loadConfigBackupSaved();

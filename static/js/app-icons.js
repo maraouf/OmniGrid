@@ -49,7 +49,7 @@ export const KNOWN_ICONS = new Set([
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'cloudflared', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
-  'dockge', 'dozzle', 'esxi', 'fing', 'firetv', 'flaresolverr', 'forgejo',
+  'dockge', 'dozzle', 'esxi', 'etisalat', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gigabyte', 'gitsync', 'glinet', 'glinet-dark', 'google',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
@@ -66,7 +66,7 @@ export const KNOWN_ICONS = new Set([
   'speedtest-tracker', 'splunk', 'squid', 'stalwart', 'syncthing', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
-  'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd',
+  'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd', 'we',
   'webmin', 'whisparr', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
   'zabbix',
 ]);

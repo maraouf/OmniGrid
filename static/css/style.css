@@ -9310,6 +9310,200 @@ select.field-invalid {
   grid-column: span 2;
 }
 
+/* Per-card size classes for the Apps Custom dashboard — three
+   templates (half / normal / double) drive grid-column-span +
+   body-density rules. Operator picks the size via the per-card
+   gear flip OR the quick-toggle button in edit mode. Defaults
+   to `.apps-card--size-normal`.
+
+   - HALF: spans 1 column with reduced minimum-height + the body
+     subtree hidden via `.apps-card__body { display: none }`. The
+     resulting render is a skeleton-style placeholder showing
+     just the logo + name + status pill — operator-visible
+     "what's pinned here" without the chip / port / sparkline
+     weight. Useful for packing many apps into a tight section.
+   - NORMAL: current single-column shape; no override.
+   - DOUBLE: spans 2 columns (same effect as the legacy
+     `.apps-card--span-2`, which the dual-classmode keeps as the
+     extender-driven path for apps that REQUEST wider via the
+     per-app `cardSpan(app)` extender). When BOTH classes are
+     set the effect is identical (idempotent); the size class
+     takes precedence semantically. */
+.apps-card--size-half {
+  /* No grid-column override — a half card stays in its track but
+     the reduced body weight means it pairs visually with another
+     half card OR collapses to a row on narrow viewports. */
+}
+
+.apps-card--size-half .apps-card-body {
+  display: none;
+}
+
+.apps-card--size-half .apps-card-meta {
+  display: none;
+}
+
+.apps-card--size-half .apps-card-action-pill {
+  /* Hide the probe / open pills on half cards — too dense for the
+     reduced footprint. Operator clicks into the card (drawer) for
+     actions. */
+  display: none;
+}
+
+.apps-card--size-double {
+  grid-column: span 2;
+}
+
+/* ----------------------------------------------------------------
+   Apps Custom — per-card flip-to-settings animation. The gear icon
+   in the card header toggles `.apps-card--flipped` on the outer
+   container; the back face rotates into view via a CSS 3D rotation.
+   `transform-style: preserve-3d` keeps the back face culled until
+   the rotation lands. `backface-visibility: hidden` on both faces
+   prevents the FRONT from bleeding through during the rotation.
+   Operators with prefers-reduced-motion get an instant face swap
+   (no rotation) — the @media block at the bottom handles that.
+   ----------------------------------------------------------------*/
+.apps-card-flip {
+  perspective: 1200px;
+  position: relative;
+}
+
+.apps-card-flip-inner {
+  position: relative;
+  transition: transform 0.5s ease;
+  transform-style: preserve-3d;
+  min-height: 100%;
+}
+
+.apps-card-flip.apps-card--flipped .apps-card-flip-inner {
+  transform: rotateY(180deg);
+}
+
+.apps-card-face-front,
+.apps-card-face-back {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.apps-card-face-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--s-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+/* Settings pane visual rhythm. Each labelled group reads as a
+   compact form-row stack — heading + field + optional hint. */
+.apps-card-settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.apps-card-settings-label {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.apps-card-settings-hint {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+}
+
+/* Front-face gear button — top-right corner of the card header. */
+.apps-card-gear {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apps-card-gear:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.apps-card-gear svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Size-cycle button — quick-toggle on the front face in edit mode. */
+.apps-card-size-btn {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.apps-card-size-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apps-card-flip-inner {
+    transition: none;
+  }
+}
+
+/* Corner actions — overlay the gear + (in edit mode) the
+   size-cycle button at the top-right of each Custom-layout card.
+   Absolutely positioned so they sit over the card without disrupting
+   the inner partial's layout. z-index above the card chrome but
+   below modals / drawers. Fades to full opacity on card-hover to
+   stay unobtrusive until the operator looks for them. */
+.apps-card-corner-actions {
+  position: absolute;
+  top: var(--s-2);
+  inset-inline-end: var(--s-2);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+  pointer-events: auto;
+}
+
+.apps-card-flip:hover .apps-card-corner-actions,
+.apps-card-corner-actions:focus-within {
+  opacity: 1;
+}
+
+.apps-card-flip {
+  position: relative;
+}
+
+/* Half-size skeleton tile — same compact `apps-tile` shape but with
+   a subtle border accent so it reads as "intentionally small" rather
+   than a regular edit-mode placeholder. Sits inside the apps-card-flip
+   wrapper so the gear + size-cycle buttons still overlay correctly. */
+.apps-tile--skeleton {
+  border: 1px dashed var(--border-bright);
+  background: var(--surface-2);
+}
+
 /* APC UPS extras panel — inline stats grid rendered below the
    per-instance host list inside the .apps-card body. 5 cells
    (Battery / Output load / Runtime / Battery temperature / Battery
