@@ -2624,8 +2624,19 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                 merged["host_disk_used"] = m_used_b
                 merged["host_disk_free"] = max(0, m_total_b - m_used_b)
                 try:
+                    # Canonical resolved-target pattern — surface the
+                    # `address` field next to the curated id so
+                    # operators tracing "which actual host is this?"
+                    # don't have to cross-reference the host_id →
+                    # alias mapping. Same shape as the sampler log
+                    # lines (host_net_sampler / host_metrics_sampler
+                    # / ping_sampler / host_baseline_sampler) per the
+                    # canonical "Resolved-target hints in every
+                    # sampler log line" convention.
+                    _addr = (h.get("address") or "").strip()
+                    _target = f" target={_addr}" if _addr else ""
                     print(
-                        f"[hosts] mounts-aggregate {h.get('id')!r}: "
+                        f"[hosts] mounts-aggregate {h.get('id')!r}{_target}: "
                         f"replaced host_disk_total={cur_total} "
                         f"with mounts-summed {m_total_b} "
                         f"({m_total:.1f} GiB total / {m_used:.1f} GiB used "
