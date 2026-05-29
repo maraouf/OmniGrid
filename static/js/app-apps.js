@@ -97,13 +97,38 @@ function _appsVisibleInstancesCacheReplace() {
 const _anyAppExtrasMatchCache = new WeakMap();
 
 // Per-tile lazy-render diagnostic — single module-scope dict that
-// tracks the per-tile render durations so the operator can see in
+// tracks the per-tile render durations so the user can see in
 // devtools' console which tile took how long to mount. Cleared on
 // every fresh `loadAppsList(force=true)`. Keys are app.group_id,
 // values are {first_seen_ms, mount_ms}. console.debug emits one
 // line per tile transition; filter the devtools console by
 // `[apps-tile]` to see per-tile timing without other noise.
 const _appsTileRenderLog = {};
+
+// ---- Per-tile stagger queue + dual-log diagnostic -----------------
+//
+// `appsCardVisible(gid)` flips when the IntersectionObserver fires
+// (== "tile is on-screen, show the SKELETON instead of the off-screen
+// header-only stub"). `appsCardReady(gid)` flips one step LATER —
+// when the RAF-paced render queue actually picks the tile and lets
+// its heavy body mount. Two-stage gating keeps N simultaneously-
+// becoming-visible tiles from synchronously building their chip /
+// port / sparkline / per-app-extras subtrees in the same Alpine
+// flush (the symptom: the Apps page hung after the tiles' headers
+// painted but BEFORE any stats appeared, because every body was
+// allocating per-port pills + sparkline SVGs + Speedtest fetches in
+// the same blocking flush).
+//
+// One tile per requestAnimationFrame so the browser can paint
+// between mounts; the queue is FIFO and shared across the lifetime
+// of the Apps view. Per-tile timing is emitted as BOTH a
+// `console.debug('[apps-tile] mount: <gid> took=<ms>ms')` line for
+// devtools AND a fire-and-forget POST to `/api/apps/tile-trace` so
+// the matching `[apps-tile]` line lands in the container's stdout
+// (Admin → Logs). That dual-log discipline is the recipe for "I see
+// the page hang — which tile / app is the culprit?".
+const _appsTileQueue = [];
+let _appsTileQueueProcessing = false;
 
 export default {
   // ----------------------------------------------------------------
@@ -123,6 +148,13 @@ export default {
     // skeleton until the operator scrolls past it).
     if (force) {
       this._appsVisibleTiles = {};
+      this._appsReadyTiles = {};
+      // Drain the staggered-render queue: the tiles it points at are
+      // about to be torn down by the reconcile, so processing them
+      // post-fetch would either mount on the wrong tile OR fire the
+      // diagnostic against a vanished group_id.
+      _appsTileQueue.length = 0;
+      _appsTileQueueProcessing = false;
       // Also disconnect the old observer -- a new one will be lazy-
       // created on the next `_observeAppCard` call. Otherwise the
       // stale observer keeps observing torn-down DOM nodes.
@@ -585,8 +617,21 @@ export default {
   // per-app extras + Speedtest fetches simultaneously at page-
   // load. Per-tile console.debug timing makes WHICH tile blocks
   // visible in devtools (filter by `[apps-tile]`).
+  // First-stage gate: tile is on-screen so the shimmer skeleton +
+  // header should mount. The heavy body still waits for the queue
+  // processor to flip `_appsReadyTiles[gid]` (see `appsCardReady`).
   appsCardVisible(groupId) {
     return !!(groupId && this._appsVisibleTiles && this._appsVisibleTiles[groupId]);
+  },
+  // Second-stage gate: the staggered-render queue picked this tile
+  // and granted it a paint slot. Template uses this to swap the
+  // shimmer skeleton for the real instance list / port pills /
+  // sparklines / per-app extras. See `_processAppsTileQueue` for the
+  // RAF cadence (one tile per animation frame). The dual-log
+  // diagnostic also fires at the moment this flips, so any tile
+  // whose body crashes still has its `[apps-tile]` line on disk.
+  appsCardReady(groupId) {
+    return !!(groupId && this._appsReadyTiles && this._appsReadyTiles[groupId]);
   },
   _observeAppCard(el, groupId) {
     if (!el || !groupId) {
@@ -616,13 +661,10 @@ export default {
           const t0 = performance.now();
           // Reactive write -- triggers exactly one re-render for
           // THIS group_id's gated bindings (per-tile, not fleet-wide).
+          // The flip mounts the SKELETON; the body still waits for
+          // the stagger queue.
           this._appsVisibleTiles[gid] = true;
           _appsTileRenderLog[gid] = {first_seen_ms: t0, mount_ms: 0};
-          // One devtools-console line per tile so the operator can
-          // see render order + which tile is taking the longest.
-          // `console.debug` filters out of the default level so
-          // production users don't see it unless devtools is open
-          // + the "Verbose" filter is enabled.
           try {
             console.debug('[apps-tile] visible: ' + gid
               + ' (' + (performance.now() - t0).toFixed(1) + 'ms to register)');
@@ -630,6 +672,11 @@ export default {
             // ignore — console.debug missing on some headless
             // browsers (e.g. older webview embeds).
           }
+          // Enqueue body-mount on the staggered RAF queue so
+          // N simultaneously-becoming-visible tiles don't all build
+          // their chip / port / sparkline subtrees in the same
+          // Alpine flush (the page-hang regression class).
+          this._enqueueAppsTileMount(gid);
           // Unobserve so the same tile doesn't re-fire on every
           // intersection event (the gate is one-way: once visible,
           // always rendered until the next loadAppsList(force)).
@@ -644,6 +691,117 @@ export default {
       });
     }
     this._appsCardObserver.observe(el);
+  },
+  // Push a tile onto the FIFO render queue and kick off the
+  // processor if it's idle. Idempotent — re-enqueueing a tile
+  // already queued OR already ready is a no-op.
+  _enqueueAppsTileMount(groupId) {
+    if (!groupId || (this._appsReadyTiles && this._appsReadyTiles[groupId])) {
+      return;
+    }
+    if (_appsTileQueue.indexOf(groupId) !== -1) {
+      return;
+    }
+    _appsTileQueue.push(groupId);
+    if (!_appsTileQueueProcessing) {
+      _appsTileQueueProcessing = true;
+      // First tick goes via rAF so we don't fire inside the same
+      // Alpine flush that just observed the tile (would re-enter
+      // reactivity mid-evaluation). Subsequent ticks also use rAF
+      // for paint pacing.
+      const self = this;
+      try {
+        requestAnimationFrame(() => self._processAppsTileQueue());
+      } catch (_e) {
+        // Fallback for environments without rAF (very old WebViews,
+        // or unit-test stubs) — use a microtask + tiny setTimeout
+        // so we don't block synchronously.
+        setTimeout(() => self._processAppsTileQueue(), 0);
+      }
+    }
+  },
+  // Process one tile per animation frame: pop, flip the ready flag
+  // (mounts the heavy body via Alpine's per-key reactivity), time the
+  // mount, emit BOTH console.debug + a fire-and-forget POST to
+  // `/api/apps/tile-trace` so the matching `[apps-tile]` line lands
+  // in the container stdout. The RAF-per-tile cadence lets the
+  // browser paint between mounts — the symptom the operator hit
+  // (page hangs after tile headers paint) was caused by every
+  // visible tile's body mounting in ONE Alpine flush.
+  _processAppsTileQueue() {
+    if (_appsTileQueue.length === 0) {
+      _appsTileQueueProcessing = false;
+      return;
+    }
+    const gid = _appsTileQueue.shift();
+    // Skip stale gids (the tile was torn down by a poll-reconcile
+    // between enqueue + process). The matching DOM node is gone, so
+    // flipping the ready flag would be a no-op AND the
+    // `[apps-tile]` trace would record a vanished gid.
+    const app = (this.appsList || []).find(a => a && a.group_id === gid);
+    if (!app) {
+      // Continue processing the next tile without paying for an
+      // extra rAF — keeping the cadence rAF-paced only when actual
+      // work happens. Empty pops chain immediately so a stale-tile
+      // burst doesn't stall the queue.
+      this._processAppsTileQueue();
+      return;
+    }
+    const slug = (app.catalog && app.catalog.slug) || '';
+    const name = app.name || '';
+    const t0 = performance.now();
+    let mountErr = '';
+    try {
+      if (!this._appsReadyTiles) {
+        this._appsReadyTiles = {};
+      }
+      // Reactive write — flips this tile's body gate (Alpine's
+      // per-key reactivity re-renders ONLY this card's body block).
+      this._appsReadyTiles[gid] = true;
+    } catch (e) {
+      mountErr = (e && e.message) ? String(e.message) : String(e);
+    }
+    const took = Math.round(performance.now() - t0);
+    if (_appsTileRenderLog[gid]) {
+      _appsTileRenderLog[gid].mount_ms = took;
+    }
+    try {
+      console.debug('[apps-tile] mount: ' + gid + ' slug=' + (slug || '?')
+        + ' took=' + took + 'ms' + (mountErr ? ' error=' + mountErr : ''));
+    } catch (_e) {
+      // ignore — console.debug missing.
+    }
+    // Fire-and-forget POST so the same line lands in container
+    // stdout via the diagnostic endpoint. Never awaited — a slow
+    // backend cannot stall the next tile's mount.
+    try {
+      fetch('/api/apps/tile-trace', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          group_id: gid,
+          slug: slug,
+          name: name,
+          took_ms: took,
+          phase: mountErr ? 'error' : 'mount',
+          error: mountErr,
+        }),
+      }).catch(() => {
+        // Diagnostic POST failures are intentionally swallowed —
+        // a 401 / network error here must not surface as a toast.
+      });
+    } catch (_e) {
+      // Defensive — fetch / JSON.stringify failure cannot stall
+      // the queue.
+    }
+    // Schedule the next tile on the next animation frame so the
+    // browser gets a chance to paint between mounts.
+    const self = this;
+    try {
+      requestAnimationFrame(() => self._processAppsTileQueue());
+    } catch (_e) {
+      setTimeout(() => self._processAppsTileQueue(), 0);
+    }
   },
   appsVisibleInstances(app) {
     if (!app) {

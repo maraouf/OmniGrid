@@ -248,6 +248,15 @@ function app() {
     // becomes visible. Cleared on `loadAppsList(force=true)` so a
     // catalog edit re-paints the visible set.
     _appsVisibleTiles: {},
+    // Second-stage gate: a tile flips `_appsReadyTiles[gid] = true`
+    // when the RAF-paced render queue actually picks it. Between
+    // `_appsVisibleTiles[gid]` and `_appsReadyTiles[gid]` flipping,
+    // the card renders the shimmer-skeleton placeholder (see
+    // `_components/apps-card.html` skeleton block). Plain object so
+    // Alpine's per-key reactivity fires exactly one re-render per
+    // tile transition. Reset by `loadAppsList(force=true)` alongside
+    // `_appsVisibleTiles`.
+    _appsReadyTiles: {},
     _appsCardObserver: null,
     appsCatalog: [],
     appsCatalogLoaded: false,

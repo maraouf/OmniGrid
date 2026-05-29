@@ -728,6 +728,64 @@ async def api_apps_list(_admin: AdminUser):
     return {"apps": apps}
 
 
+@app.post("/api/apps/tile-trace")
+async def api_apps_tile_trace(payload: dict[str, Any], _admin: AdminUser):
+    """Admin-only diagnostic sink for the Apps-view per-tile render trace.
+
+    SPA POSTs one row per tile when its body finishes mounting (or when
+    the body throws), carrying group_id + slug + elapsed-ms + an optional
+    phase / error string. We mirror to container stdout as a single
+    ``[apps-tile]`` line so the user can correlate browser-side
+    `console.debug` timing with backend logs when chasing a frozen tile.
+    No persistence, no SSE — purely a "where did the hang go?" probe.
+    Returns ``{ok: true}`` regardless so the SPA's fire-and-forget POST
+    is never the reason a page hangs.
+
+    Body shape (every field optional except ``group_id``)::
+
+        {"group_id": "<gid>", "slug": "<catalog-slug>",
+         "name": "<display name>", "took_ms": <int>,
+         "phase": "mount" | "error" | "first-paint",
+         "error": "<text>"}
+    """
+    try:
+        gid = str(payload.get("group_id") or "").strip()
+        if not gid:
+            return {"ok": False, "error": "missing group_id"}
+        slug = str(payload.get("slug") or "").strip() or "?"
+        name = str(payload.get("name") or "").strip() or "?"
+        phase = str(payload.get("phase") or "mount").strip() or "mount"
+        try:
+            took = int(payload.get("took_ms") or 0)
+        except (TypeError, ValueError):
+            took = 0
+        err = str(payload.get("error") or "").strip()
+        bits = [
+            f"[apps-tile] phase={phase}",
+            f"gid={gid}",
+            f"slug={slug}",
+            f"name={name!r}",
+            f"took_ms={took}",
+        ]
+        if err:
+            # `warning:` so `_severity_for` routes the line into the
+            # WARN bucket without triggering the ERROR classifier
+            # (which would mis-report every slow tile as a real
+            # error). The token order matters here.
+            bits.insert(0, "warning:")
+            bits.append(f"error={err!r}")
+        print(" ".join(bits), flush=True)
+    except (TypeError, ValueError, AttributeError, KeyError):
+        # The trace sink is never load-bearing — eat the parse error so
+        # a malformed SPA payload can't surface as a noisy 500 in the
+        # devtools console (which would in turn re-fire the trace and
+        # storm the backend). The catch is intentionally narrow so a
+        # genuine bug (asyncio cancellation, real I/O fault) still
+        # propagates.
+        return {"ok": False}
+    return {"ok": True}
+
+
 @app.get("/api/apps/instances")
 async def api_apps_instances(_admin: AdminUser):
     """Admin-only: flat per-instance iterator — every chip across every
