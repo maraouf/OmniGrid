@@ -144,7 +144,7 @@ export default [
   // and use ES `import` / `export` syntax. Everything else under
   // `static/` stays a classic script.
   {
-    files: ["static/js/app.js", "static/js/app-*.js"],
+    files: ["static/js/app.js", "static/js/app-*.js", "static/js/apps/**/*.js"],
     languageOptions: {
       sourceType: "module",
     },

@@ -1653,10 +1653,24 @@ def init_db():
             icon            TEXT,
             description     TEXT,
             default_ports_json TEXT NOT NULL DEFAULT '[]',
+            -- Per-template "show extras panel on app cards" default.
+            -- The APC template emits a UPS-stats panel today (Battery /
+            -- Output load / Runtime / Battery temp / Battery state);
+            -- future templates with rich per-host data follow the same
+            -- gate. Per-host chip's `show_extras` overrides this when
+            -- set. Default 1 (= show) keeps the pre-toggle behaviour.
+            show_extras     INTEGER NOT NULL DEFAULT 1,
             source          TEXT    NOT NULL DEFAULT 'operator',
             created_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
             updated_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
         );
+        -- Additive ALTER for pre-existing deploys (the column above is
+        -- only honoured on first CREATE). `IF NOT EXISTS` SQLite hack
+        -- via try/except around the bare ALTER lives in `_safe_alter`;
+        -- here we trigger via a defensive duplicate-column-tolerant
+        -- ALTER that no-ops cleanly when the column is already there.
+        -- Schema drift defence: every ALTER lands without breaking
+        -- a re-run of init_db (per CLAUDE.md additive-schema rule).
         CREATE INDEX IF NOT EXISTS idx_service_catalog_slug
             ON service_catalog(slug);
 
@@ -1887,6 +1901,14 @@ def init_db():
                 "ALTER TABLE host_http_samples ADD COLUMN tls_subject TEXT",
                 "ALTER TABLE host_http_samples ADD COLUMN tls_issuer TEXT",
                 "ALTER TABLE host_http_samples ADD COLUMN tls_error TEXT",
+                # Per-template "show extras panel on app cards" default.
+                # Drives the APC UPS-stats panel today; future
+                # extras-capable templates (Plex now-playing widget,
+                # Sonarr queue summary, etc.) follow the same gate.
+                # Default 1 = show (back-compat with the pre-toggle
+                # behaviour where every APC instance unconditionally
+                # rendered the UPS panel).
+                "ALTER TABLE service_catalog ADD COLUMN show_extras INTEGER NOT NULL DEFAULT 1",
         ):
             try:
                 c.execute(ddl)

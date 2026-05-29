@@ -500,6 +500,22 @@
       </div>
     </div>
 
+    <!-- Template-level "Show extras" — applies to every instance pinned
+         to this template unless a per-instance override is set. Gated
+         on `appsTemplateSupportsExtras(...)` — registry-driven via
+         `window.OG_APPS_EXTENDERS`; any template whose slug matches
+         a registered per-app SPA module (under `static/js/apps/`)
+         qualifies. The checkbox renders only where there's something
+         to opt out of. -->
+    <div x-show="appsTemplateSupportsExtras(appsCatalogEdit.slug || appsCatalogEdit.name)">
+      <label class="inline-flex items-center gap-2 fs-sm">
+        <input type="checkbox" x-model="appsCatalogEdit.show_extras">
+        <span x-text="t('admin_apps.template_show_extras') || 'Show extras (UPS stats etc.) on app cards by default'"></span>
+      </label>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('admin_apps.template_show_extras_hint') || 'Per-instance overrides take precedence. Uncheck here to hide by default but allow individual hosts to opt in.'"></p>
+    </div>
+
     <div>
       <div class="flex items-center justify-between mb-1">
         <label class="block fs-xs font-medium" x-text="t('admin_apps.field_ports') || 'Default ports'"></label>
@@ -942,6 +958,34 @@
           <input type="checkbox" x-model="appsInstanceEditForm.probe_enabled">
           <span x-text="t('admin_apps.instance_edit_probe_enabled') || 'Probe this app for reachability'"></span>
         </label>
+        <!-- Per-instance "Show extras on app card" — surfaces the
+             per-app extras panel (e.g. UPS stats, speedtest
+             latest / average / chart) on the app card when
+             checked. Tri-state model: indeterminate (the
+             operator hasn't decided) inherits the template's
+             `show_extras` default. Checked = always render the
+             extras for THIS instance regardless of template.
+             Unchecked = always hide regardless of template. Gated
+             on `appsTemplateSupportsExtras(...)` which walks the
+             per-app SPA module registry — the checkbox renders
+             only for templates whose slug matches a registered
+             per-app module. -->
+        <label x-show="appsTemplateSupportsExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)"
+               class="inline-flex items-center gap-2 fs-sm">
+          <input type="checkbox"
+                 :indeterminate="appsInstanceEditForm.show_extras === null"
+                 :checked="appsInstanceEditForm.show_extras === true"
+                 @change="appsInstanceEditForm.show_extras = $event.target.checked">
+          <span x-text="t('admin_apps.instance_edit_show_extras') || 'Show extras (UPS stats etc.) on the app card'"></span>
+        </label>
+        <!-- Per-app editor-fields hook — every per-app partial under
+             `_components/apps/` self-gates via its own
+             `<template x-if="...IsApp({catalog:{slug:...}})...">` so
+             only the matching app's fields render. Adding a new
+             per-app editor does NOT touch this file — drop the
+             partial under `_components/apps/` + add one INCLUDE
+             line in `_components/apps/_all_editors.html`. -->
+        <!-- INCLUDE: _components/apps/_all_editors.html -->
         <!-- Per-port editor — seeded from the chip's probe.ports[]
              (inherited from the catalog template at pin time, e.g.
              AdGuard's 3 ports). Each row: port + protocol + optional

@@ -101,6 +101,20 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
 from main_pkg.admin_stats_routes import _ai_supported_providers  # noqa: E402,F401
 
 
+def _apps_module_slugs() -> "tuple[str, ...]":
+    """Per-app catalog slugs with custom backend modules — surfaced
+    to the SPA via `/api/me`'s `client_config.apps_module_slugs`.
+    Source of truth is `logic.apps.registry`. Late-import keeps the
+    auth_routes load-time independent of the apps registry; falls
+    back to an empty tuple on import failure so the SPA quietly
+    behaves as if no per-app modules are registered."""
+    try:
+        from logic.apps.registry import all_slugs  # noqa: PLC0415
+        return all_slugs()
+    except Exception:  # noqa: BLE001
+        return ()
+
+
 def _ai_palette_actions() -> "set[str]":
     """Canonical action whitelist surfaced to the SPA via /api/me's
     `client_config.ai.palette_actions`. Source of truth is
@@ -1319,6 +1333,15 @@ async def api_me(request: Request):
                 # nothing happened" (the BUG-004 failure mode).
                 "palette_actions": sorted(_ai_palette_actions()),
             },
+            # Per-app modules — slug list of catalog templates that
+            # have custom backend logic (api_key field + Test-credential
+            # probe + expanded-card data fetch). Source of truth is
+            # ``logic.apps.registry``. The SPA's
+            # ``appsTemplateRequiresApiKey`` / ``appsTemplateSupportsExtras``
+            # helpers prefer this list when present so adding a new
+            # per-app module is ONE file under ``logic/apps/`` + one
+            # entry in the registry — no SPA edit required.
+            "apps_module_slugs": list(_apps_module_slugs()),
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every
             # successful test endpoint via `_stamp_test_success`. Surfaced

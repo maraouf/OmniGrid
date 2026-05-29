@@ -979,6 +979,175 @@ def history_rollup_all_for_host(host_id: str,
     return out
 
 
+# ---------------------------------------------------------------------------
+# Multi-host batched companions — fleet-wide aggregators for /api/apps
+# ---------------------------------------------------------------------------
+#
+# Pre-batch shape: a cross-host aggregator like `service_catalog.list_apps`
+# walked N curated hosts and called the per-host helpers above for EACH
+# host: 3 queries × N hosts = 3N DB round-trips per `/api/apps` request.
+# On a 200-host fleet that's 600 round-trips (~5ms each in WAL mode =
+# ~3s wall-clock JUST in DB dispatch, before any Python iteration).
+#
+# Batched shape: ONE query each fleet-wide. The aggregator passes the
+# curated host_id list once + slices the result dict by host_id. Result
+# count is the same (one bucket per (host, service_idx) pair); the DB
+# round-trip count drops from 3N → 3.
+#
+# All three helpers reuse the ROW_NUMBER() window from their single-host
+# siblings — the only schema change is adding `host_id` to the
+# PARTITION BY clause so the window splits per-(host, service_idx[, port])
+# instead of per-(service_idx[, port]). The existing
+# `idx_service_samples_host_idx_ts` composite index covers the partition
+# scan, so the multi-host query stays seek-bound.
+
+
+def _hostid_in_clause(host_ids: list[str]) -> tuple[str, list[str]]:
+    """Build a `host_id IN (?, ?, ...)` clause + param list for an
+    arbitrary host-id list. Empty list yields a clause that matches
+    nothing (`host_id IN ('__none__')` rather than the syntax-error
+    bare `IN ()`). Caller passes the param list into `execute(sql, params)`
+    directly. SQLite's limit on `?` placeholders is 999 by default
+    (compile-time `SQLITE_MAX_VARIABLE_NUMBER`); fleets approaching
+    that should chunk the lookup themselves — current OmniGrid fleets
+    cap at ~250 hosts so a single batched query stays comfortable.
+    """
+    if not host_ids:
+        return "host_id IN ('__none__')", []
+    placeholders = ",".join("?" * len(host_ids))
+    return f"host_id IN ({placeholders})", list(host_ids)
+
+
+def latest_for_hosts(host_ids: list[str]) -> dict:
+    """Multi-host batched companion to :func:`latest_for_host`. Returns
+    ``{host_id: {service_idx: {alive, rtt_ms, ts, error}, ...}, ...}``
+    — same nested per-chip shape, one extra outer-key level by host.
+
+    ONE query for the WHOLE fleet instead of N per-host queries. The
+    `idx_service_samples_host_idx_ts` composite covers the partition
+    scan; the ROW_NUMBER() window picks the newest ROLLUP row (port=0)
+    per (host_id, service_idx). Empty dict when no host has any sample
+    OR the input list is empty. Hosts with no rollup history are
+    OMITTED from the result (callers should treat missing keys as
+    "no samples yet").
+    """
+    if not host_ids:
+        return {}
+    in_clause, params = _hostid_in_clause(host_ids)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host_id, service_idx, ts, alive, rtt_ms, error FROM ("
+                "  SELECT host_id, service_idx, ts, alive, rtt_ms, error, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY host_id, service_idx ORDER BY ts DESC"
+                "         ) AS rn "
+                f"  FROM service_samples WHERE {in_clause} AND port = 0"
+                ") WHERE rn = 1",
+                params,
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] latest_for_hosts(n={len(host_ids)}) skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        hid = str(r[0])
+        idx = int(r[1])
+        out.setdefault(hid, {})[idx] = {
+            "alive": bool(r[3]),
+            "rtt_ms": r[4],
+            "ts": int(r[2]),
+            "error": r[5],
+        }
+    return out
+
+
+def latest_per_port_all_for_hosts(host_ids: list[str]) -> dict:
+    """Multi-host batched companion to
+    :func:`latest_per_port_all_for_host`. Returns
+    ``{host_id: {service_idx: [{port, alive, rtt_ms, ts, error}, ...], ...}, ...}``.
+
+    ONE query for the WHOLE fleet. Same ROW_NUMBER() window pattern
+    (partitioned by `host_id, service_idx, port`). Empty list / empty
+    result → empty dict.
+    """
+    if not host_ids:
+        return {}
+    in_clause, params = _hostid_in_clause(host_ids)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host_id, service_idx, port, ts, alive, rtt_ms, error FROM ("
+                "  SELECT host_id, service_idx, port, ts, alive, rtt_ms, error, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY host_id, service_idx, port ORDER BY ts DESC"
+                "         ) AS rn "
+                f"  FROM service_samples WHERE {in_clause} AND port > 0"
+                ") WHERE rn = 1 "
+                "ORDER BY host_id ASC, service_idx ASC, port ASC",
+                params,
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] latest_per_port_all_for_hosts(n={len(host_ids)}) skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        hid = str(r[0])
+        idx = int(r[1])
+        out.setdefault(hid, {}).setdefault(idx, []).append({
+            "port": int(r[2]),
+            "ts": int(r[3]),
+            "alive": bool(r[4]),
+            "rtt_ms": r[5],
+            "error": r[6],
+        })
+    return out
+
+
+def history_rollup_all_for_hosts(host_ids: list[str],
+                                 max_points: int = _APPS_SPARK_MAX_POINTS) -> dict:
+    """Multi-host batched companion to
+    :func:`history_rollup_all_for_host`. Returns
+    ``{host_id: {service_idx: [{ts, up}, ...], ...}, ...}``.
+
+    ONE query for the WHOLE fleet. ROW_NUMBER() window partitioned by
+    (host_id, service_idx) with the per-chip cap applied IN SQL
+    (`WHERE rn <= ?`). Empty list / empty result → empty dict.
+    """
+    if not host_ids:
+        return {}
+    try:
+        n = max(1, int(max_points))
+    except (TypeError, ValueError):
+        n = _APPS_SPARK_MAX_POINTS
+    in_clause, params = _hostid_in_clause(host_ids)
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT host_id, service_idx, ts, alive FROM ("
+                "  SELECT host_id, service_idx, ts, alive, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY host_id, service_idx ORDER BY ts DESC"
+                "         ) AS rn "
+                f"  FROM service_samples WHERE {in_clause} AND port = 0"
+                ") WHERE rn <= ? "
+                "ORDER BY host_id ASC, service_idx ASC, ts ASC",
+                params + [n],
+            ).fetchall()
+    except (sqlite3.Error, OSError) as e:
+        print(f"[service_sampler] history_rollup_all_for_hosts(n={len(host_ids)}) skipped: {e}")
+        return {}
+    out: dict = {}
+    for r in rows:
+        hid = str(r[0])
+        idx = int(r[1])
+        out.setdefault(hid, {}).setdefault(idx, []).append({
+            "ts": int(r[2]),
+            "up": bool(r[3]),
+        })
+    return out
+
+
 # NOTE: a former `populate_host_service_merge(host_id, merged)` helper was
 # removed — it gated on `merged["services"]` being the curated chip array,
 # but the provider-merged dict's service key holds the Beszel systemd

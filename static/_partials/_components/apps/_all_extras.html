@@ -1,0 +1,15 @@
+<!-- Aggregator -- every per-app expanded-card extras partial.
+
+     Included ONCE inside `apps-card.html`'s per-instance host row.
+     Each per-app partial below self-gates via its own
+     `<template x-if="...IsApp(app)...">` so only the chip's
+     matching app renders.
+
+     Adding a new per-app extras partial
+       1. Create `static/_partials/_components/apps/[slug]_extras.html`
+          following the `speedtest_tracker_extras.html` shape.
+       2. Add ONE INCLUDE marker line below pointing at
+          `_components/apps/[slug]_extras.html`.
+     The generic `apps-card.html` does NOT need to change. -->
+<!-- INCLUDE: _components/apps/apc_extras.html -->
+<!-- INCLUDE: _components/apps/speedtest_tracker_extras.html -->

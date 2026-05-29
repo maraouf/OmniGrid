@@ -1,0 +1,60 @@
+<!-- Per-app expanded-card extras -- APC (UPS / NMC / PDU).
+
+     Renders inside `apps-card.html` as the per-instance host row
+     when the chip is the APC catalog template AND the operator
+     hasn't explicitly hidden extras via the per-instance
+     `show_extras` toggle. The data comes from the curated host
+     row's SNMP-populated fields (no upstream fetch needed --
+     standard host-stats pipeline already stamps them on the
+     host object); `apcHostUpsData(inst)` (from
+     `static/js/apps/apc.js`) reads them + returns null when
+     none are present so the panel gates cleanly for non-UPS
+     hosts that happen to be pinned to the APC template.
+
+     Helpers used (all from `static/js/apps/apc.js`):
+       apcIsApp(app)             -- gate "is this an APC chip"
+       apcHostUpsData(inst)      -- per-instance UPS data dict
+       apcUpsRuntimeLabel(s)     -- human runtime formatter -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst) && apcHostUpsData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-ups-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1
+         instance; with 1 instance the card header already shows
+         the host). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Battery % -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
+        <div class="apps-card-ups-value"
+             x-text="(apcHostUpsData(inst).battery_percent != null) ? (apcHostUpsData(inst).battery_percent.toFixed(0) + '%') : '--'"></div>
+      </div>
+      <!-- Output load % -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
+        <div class="apps-card-ups-value"
+             x-text="(apcHostUpsData(inst).load_percent != null) ? (apcHostUpsData(inst).load_percent.toFixed(0) + '%') : '--'"></div>
+      </div>
+      <!-- Runtime remaining (mm:ss / Nh Mm) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.ups.runtime') || 'Runtime remaining'"></div>
+        <div class="apps-card-ups-value"
+             x-text="apcUpsRuntimeLabel(apcHostUpsData(inst).runtime_s)"></div>
+      </div>
+      <!-- Battery temperature degC -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.ups.battery_temp') || 'Battery temperature'"></div>
+        <div class="apps-card-ups-value"
+             x-text="(apcHostUpsData(inst).battery_temp_c != null) ? (apcHostUpsData(inst).battery_temp_c.toFixed(0) + 'C') : '--'"></div>
+      </div>
+      <!-- Battery state (Normal / Low / On Battery / etc.) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.ups.battery_state') || 'Battery state'"></div>
+        <div class="apps-card-ups-value" x-text="apcHostUpsData(inst).status || '--'"></div>
+      </div>
+    </div>
+  </div>
+</template>

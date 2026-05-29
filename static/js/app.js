@@ -82,6 +82,14 @@ import appStats from './app-stats.js?v=__APP_VERSION__';
 import appTuning from './app-tuning.js?v=__APP_VERSION__';
 import appMinorTools from './app-minor-tools.js?v=__APP_VERSION__';
 import appApps from './app-apps.js?v=__APP_VERSION__';
+// Per-app modules — each one lives under `static/js/apps/<slug>.js`
+// and bundles its own helpers + extender record. The registry
+// merges every per-app module's `helpers` into a flat object that
+// merges into the Alpine component below; the registry's side-
+// effect ALSO stamps `window.OG_APPS_EXTENDERS` so the generic
+// helpers in `app-apps.js` can iterate per-app extender records
+// (slugs / requiresApiKey / cardSpan) without an import cycle.
+import {appsHelpers as appsPerApp} from './apps/_registry.js?v=__APP_VERSION__';
 import appSseStream from './app-sse-stream.js?v=__APP_VERSION__';
 import appDrawerBulk from './app-drawer-bulk.js?v=__APP_VERSION__';
 // Side-effect import — installs `window.__ogCopyAiCode` at module-load
@@ -113,7 +121,7 @@ function _mergeKeepDescriptors(target, ...sources) {
 }
 
 function app() {
-  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appSseStream, appSseStreamB, appDrawerBulk, appDrawerBulkB, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appsPerApp, appSseStream, appSseStreamB, appDrawerBulk, appDrawerBulkB, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is

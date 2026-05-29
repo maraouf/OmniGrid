@@ -1,0 +1,14 @@
+<!-- Aggregator -- every per-app editor-fields partial.
+
+     Included ONCE inside `static/_partials/admin/apps.html`'s
+     per-instance editor modal. Each per-app partial below
+     self-gates via its own `<template x-if="...IsApp({catalog:
+     {slug:...}})...">` so only the matching app's fields render.
+
+     Adding a new per-app editor partial
+       1. Create `static/_partials/_components/apps/[slug]_editor.html`
+          following the `speedtest_tracker_editor.html` shape.
+       2. Add ONE INCLUDE marker line below pointing at
+          `_components/apps/[slug]_editor.html`.
+     The generic `admin/apps.html` does NOT need to change. -->
+<!-- INCLUDE: _components/apps/speedtest_tracker_editor.html -->

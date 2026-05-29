@@ -246,6 +246,14 @@ OP_TYPES: frozenset[str] = frozenset({
     "services_edit",
     "services_discover_apply",
     "services_probe_now",
+    # Per-app credential probe (Test connection in the
+    # Apps → Instance editor). Routed via the generic
+    # `/api/services/{host_id}/{service_idx}/test-credential`
+    # dispatcher which forwards to the per-app module's
+    # `test_credential(...)` coroutine. The audit row records
+    # which chip was tested + the result so operators can
+    # trace credential rotations through History.
+    "services_test",
     # Per-(table, host_id) sample-row prune. Drives the
     # Stats → Samples drill-down "Delete orphan rows" button so
     # operators can clean up rows left behind when a curated host

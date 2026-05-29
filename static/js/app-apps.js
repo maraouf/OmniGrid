@@ -955,137 +955,199 @@ export default {
     }
     return '';
   },
-  // ----- APC UPS extra-data card (catalog slug 'apc') -----------
-  // The APC catalog template binds a chip to a host that's also
-  // SNMP-probed; the SNMP extractor (logic/snmp.py) populates
-  // host_ups_status / host_battery_percent / host_battery_runtime_s /
-  // host_battery_temp_c / host_battery_status / host_load_percent on
-  // the host row. The Apps card surfaces those as an inline UPS
-  // stats panel below the standard instance list so operators see
-  // battery / load / runtime / temp / state at a glance without
-  // opening the host drawer. Span-2 grid hook (`appsCardSpan(app)`)
-  // gives the APC card double width so the 5-stat panel doesn't
-  // squeeze the per-instance host list.
+  // ----- Per-app extension hooks -------------------------------
+  // Generic dispatchers that walk `window.OG_APPS_EXTENDERS`
+  // (registered by each per-app SPA module under
+  // `static/js/apps/<slug>.js`) to decide per-app variations
+  // (card span, api_key support, extras-panel visibility).
   //
-  // appsIsUpsApp(app) — true when the app group is the APC catalog
-  // template (or matches the slug fallback). Drives both the span
-  // hook AND the UPS-stats panel render gate.
-  appsIsUpsApp(app) {
-    if (!app) {
+  // Resolve the grid-column span for one app card. Default = 1.
+  // Per-app modules can request a wider span via the registered
+  // ``cardSpan`` extender (see `static/js/apps/*.js`). The first
+  // matching extender that returns >1 wins; absent extenders
+  // fall through to default 1.
+  appsCardSpan(app) {
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && typeof e.cardSpan === 'function') {
+        const span = e.cardSpan(app);
+        if (typeof span === 'number' && span > 1) {
+          return span;
+        }
+      }
+    }
+    return 1;
+  },
+  // Whether a given app TEMPLATE supports an extras panel — drives
+  // the visibility of the per-template + per-instance "Show extras"
+  // checkboxes in the Admin → Apps editors. Registry-driven via
+  // `window.OG_APPS_EXTENDERS` — any per-app module registered in
+  // `static/js/apps/*.js` is treated as extras-capable. The
+  // argument is the editor's current slug (catalog `slug` field)
+  // OR the chip's catalog_name / app name; substring match against
+  // each extender's `slugs` array.
+  appsTemplateSupportsExtras(slugOrName) {
+    const s = String(slugOrName || '').toLowerCase();
+    if (!s) {
       return false;
     }
-    const cat = app.catalog || {};
-    const slug = String(cat.slug || '').trim().toLowerCase();
-    if (slug === 'apc') {
-      return true;
-    }
-    // Fallback: name-based detection for operator-edited chips that
-    // dropped the catalog link but kept the brand. Generous match
-    // (substring) so "APC Smart-UPS" / "APC UPS" / "APC RT 3000XL"
-    // all hit. Case-insensitive.
-    return (String(app.name || '').toLowerCase().indexOf('apc') !== -1);
-  },
-  // Grid-column span hint — APC card takes 2 columns so the inline
-  // UPS-stats panel (Battery / Output load / Runtime / Battery
-  // temp / Battery state) has room without forcing the per-instance
-  // host list narrower than the other app cards on the same row.
-  // Stamped via `:class` on the apps-card `<article>` root.
-  // Future apps with rich extra data follow the same pattern.
-  appsCardSpan(app) {
-    return this.appsIsUpsApp(app) ? 2 : 1;
-  },
-  // Per-instance UPS data lookup — finds the host the chip is
-  // pinned to via `inst.host_id` against this.hosts, pulls the six
-  // SNMP-populated UPS fields, returns null when none of them are
-  // present (so the panel gate can hide cleanly for non-SNMP /
-  // non-APC hosts that happen to be pinned to the APC catalog
-  // template). Cached per-(host_id) via `_appsUpsCache` so the
-  // O(N) host-array walk runs once per render flush instead of N
-  // times per chip instance.
-  _appsUpsCache: null,
-  _appsUpsCachePending: false,
-  appsHostUpsData(inst) {
-    if (!inst || !inst.host_id) {
-      return null;
-    }
-    if (!this._appsUpsCache) {
-      this._appsUpsCache = Object.create(null);
-      // Flush-memo clear — same pattern documented in CLAUDE.md
-      // for template-read getters that iterate a reactive
-      // collection. Next microtask = next reactive flush, so the
-      // cache picks up fresh host UPS data on every poll cycle.
-      if (!this._appsUpsCachePending) {
-        this._appsUpsCachePending = true;
-        queueMicrotask(() => {
-          this._appsUpsCache = null;
-          this._appsUpsCachePending = false;
-        });
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && Array.isArray(e.slugs)) {
+        for (const slug of e.slugs) {
+          if (s.indexOf(String(slug).toLowerCase()) !== -1) {
+            return true;
+          }
+        }
       }
     }
-    if (inst.host_id in this._appsUpsCache) {
-      return this._appsUpsCache[inst.host_id];
+    return false;
+  },
+  // Whether a given app TEMPLATE requires a per-instance api_key.
+  // Slug-keyed lookup against the backend's per-app registry —
+  // delivered via `/api/me`'s `client_config.apps_module_slugs`
+  // list. Per-app modules that DECLARE `requires_api_key()` get
+  // a positive hit; others fall through to false. Centralised
+  // here so the editor's API-key field + Test-credential button
+  // can render uniformly without per-app SPA literals.
+  appsTemplateRequiresApiKey(slugOrName) {
+    const s = String(slugOrName || '').toLowerCase();
+    if (!s) {
+      return false;
     }
-    const hosts = Array.isArray(this.hosts) ? this.hosts : [];
-    let host = null;
-    for (const h of hosts) {
-      if (h && h.id === inst.host_id) {
-        host = h;
-        break;
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && Array.isArray(e.slugs)) {
+        for (const slug of e.slugs) {
+          if (s.indexOf(String(slug).toLowerCase()) !== -1 && e.requiresApiKey) {
+            return true;
+          }
+        }
       }
     }
-    if (!host) {
-      this._appsUpsCache[inst.host_id] = null;
+    return false;
+  },
+  // Resolve the effective "show extras" boolean for one instance,
+  // honouring the tri-state per-instance override + the template
+  // default. Resolution order:
+  //   1. Per-instance `inst.show_extras` (true / false) — explicit
+  //      operator opt-in or opt-out for THIS instance regardless of
+  //      template. null / undefined means "inherit".
+  //   2. App-level `app.catalog.show_extras` (true / false) — the
+  //      template's default that every uninherited instance follows.
+  //   3. Default `true` — when no override + no template setting,
+  //      extras render. Backward-compatible with the pre-toggle
+  //      behaviour where every extras-capable instance
+  //      unconditionally rendered its panel.
+  appsShowExtras(app, inst) {
+    if (inst && typeof inst.show_extras === 'boolean') {
+      return inst.show_extras;
+    }
+    const cat = (app && app.catalog) || null;
+    if (cat && typeof cat.show_extras === 'boolean') {
+      return cat.show_extras;
+    }
+    return true;
+  },
+  // Per-app expanded-card data — generic dispatcher backed by
+  // GET /api/services/{host_id}/{service_idx}/app-data. The
+  // backend selects the per-app module via slug; the SPA caches
+  // the response per (host_id, service_idx) for the render
+  // flush. Per-app modules (static/js/apps/*.js) read this via
+  // `cmp.appsAppData(inst)` + drive their template gates on the
+  // returned shape.
+  _appsDataCache: null,
+  _appsDataPending: null,
+  appsAppDataKey(inst) {
+    if (!inst || !inst.host_id || inst.service_idx == null) {
+      return '';
+    }
+    return inst.host_id + ':' + String(inst.service_idx);
+  },
+  appsAppData(inst) {
+    const key = this.appsAppDataKey(inst);
+    if (!key) {
       return null;
     }
-    // Gate: at least ONE UPS field must be populated. Otherwise
-    // the host is just an SNMP-probed non-UPS device pinned to
-    // the APC template by mistake — render nothing rather than
-    // an empty panel of dashes.
-    const batt = host.host_battery_percent;
-    const load = host.host_load_percent;
-    const rt = host.host_battery_runtime_s;
-    const temp = host.host_battery_temp_c;
-    const status = host.host_ups_status || host.host_battery_status || '';
-    if (batt == null && load == null && rt == null && temp == null && !status) {
-      this._appsUpsCache[inst.host_id] = null;
-      return null;
+    if (!this._appsDataCache) {
+      this._appsDataCache = Object.create(null);
     }
-    const data = {
-      battery_percent: (batt == null) ? null : Number(batt),
-      load_percent: (load == null) ? null : Number(load),
-      runtime_s: (rt == null) ? null : Number(rt),
-      battery_temp_c: (temp == null) ? null : Number(temp),
-      // Prefer output-status (On Line / On Battery) since it
-      // answers the "is the UPS doing its job right now" question
-      // better than the binary battery-status (Normal / Low).
-      // Fall back to battery_status if output is empty.
-      status: (host.host_ups_status || host.host_battery_status || '').trim(),
-    };
-    this._appsUpsCache[inst.host_id] = data;
-    return data;
+    if (key in this._appsDataCache) {
+      return this._appsDataCache[key];
+    }
+    this.loadAppData(inst, false);
+    return null;
   },
-  // Format a runtime in seconds as "Nh Mm" / "Mm Ss" / "Ss" —
-  // operator-readable mins/sec. APC's `upsAdvBatteryRunTimeRemaining`
-  // is TimeTicks (centiseconds), already converted to seconds at
-  // the extractor level. Negative / null → "—" so the panel cell
-  // shows a sensible placeholder.
-  appsUpsRuntimeLabel(s) {
-    if (s == null) {
-      return '—';
+  async loadAppData(inst, force) {
+    const key = this.appsAppDataKey(inst);
+    if (!key) {
+      return;
     }
-    const total = Math.max(0, Math.round(Number(s) || 0));
-    if (total >= 3600) {
-      const h = Math.floor(total / 3600);
-      const m = Math.floor((total % 3600) / 60);
-      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    if (!this._appsDataPending) {
+      this._appsDataPending = Object.create(null);
     }
-    if (total >= 60) {
-      const m = Math.floor(total / 60);
-      const sec = total % 60;
-      return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+    if (this._appsDataPending[key] && !force) {
+      return;
     }
-    return `${total}s`;
+    this._appsDataPending[key] = true;
+    try {
+      const url = '/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx) + '/app-data'
+        + (force ? '?force=true' : '');
+      const r = await fetch(url, {cache: 'no-store'});
+      if (!this._appsDataCache) {
+        this._appsDataCache = Object.create(null);
+      }
+      this._appsDataCache[key] = r.ok ? await r.json() : null;
+    } catch (_e) {
+      if (!this._appsDataCache) {
+        this._appsDataCache = Object.create(null);
+      }
+      this._appsDataCache[key] = null;
+    } finally {
+      this._appsDataPending[key] = false;
+    }
   },
+  // Test the per-app credential for the currently-edited chip.
+  // Routed through the generic `/api/services/{host_id}/
+  // {service_idx}/test-credential` dispatcher, which dispatches
+  // to the chip's per-app module (slug-keyed via
+  // `logic/apps/registry`). The candidate api_key is shipped in
+  // the request body; blank falls back to the stored value on
+  // the backend side. Mirrors the canonical test-before-save
+  // pattern (admin tabs with a probe path gate Save behind a
+  // successful test).
+  async testInstanceCredential() {
+    const f = this.appsInstanceEditForm;
+    if (!f || !f.host_id || f.service_idx < 0) {
+      return;
+    }
+    this.appsInstanceTestBusy = true;
+    this.appsInstanceTestResult = null;
+    try {
+      const r = await fetch('/api/services/'
+        + encodeURIComponent(f.host_id) + '/'
+        + encodeURIComponent(f.service_idx) + '/test-credential', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({api_key: f.api_key || ''}),
+      });
+      const j = await r.json().catch(() => ({}));
+      this.appsInstanceTestResult = {
+        ok: !!(r.ok && j && j.ok),
+        detail: (j && (j.detail || j.error)) || (r.ok ? 'OK' : 'HTTP ' + r.status),
+      };
+    } catch (err) {
+      this.appsInstanceTestResult = {
+        ok: false,
+        detail: (err && err.message) ? err.message : String(err),
+      };
+    } finally {
+      this.appsInstanceTestBusy = false;
+    }
+  },
+  appsInstanceTestBusy: false,
+  appsInstanceTestResult: null,
   // Public-IP detail value formatter — strips the "AS" prefix from
   // the ASN field so the chip reads cleanly. Backend returns "AS15169"
   // (Google), "AS13335" (Cloudflare), etc.; the visual chip looks
@@ -2489,9 +2551,22 @@ export default {
   appsInstanceEditSaving: false,
   appsInstanceEditError: '',
   appsInstanceEditForm: {
-    host_id: '', service_idx: -1, host_label: '', catalog_name: '',
+    host_id: '', service_idx: -1, host_label: '',
+    catalog_name: '', catalog_slug: '',
     name: '', url: '', icon: '', probe_enabled: true, probe_type: 'tcp',
     ports: [], docker_stack: '', docker_container: '', docker_host: '',
+    // Per-instance show_extras tri-state (null = inherit, true /
+    // false = explicit override) — consumed by every per-app
+    // extras partial under `static/_partials/_components/apps/`
+    // via the shared `appsShowExtras(app, inst)` resolver.
+    show_extras: null,
+    // Per-instance api_key — only consumed by templates that
+    // declare it (currently Speedtest Tracker). Empty string =
+    // unset (clears any stored value on save). Backend stamps
+    // `api_key_set` on the instance row so the SPA can render
+    // the "Saved" indicator without round-tripping the secret.
+    api_key: '',
+    api_key_set: false,
   },
 
   openInstanceEdit(inst) {
@@ -2519,6 +2594,7 @@ export default {
       service_idx: inst.service_idx,
       host_label: inst.host_address || inst.host_id,
       catalog_name: inst.catalog_name || '',
+      catalog_slug: inst.catalog_slug || '',
       name: inst.name || '',
       url: inst.url || '',
       icon: inst.icon || '',
@@ -2528,6 +2604,24 @@ export default {
       docker_stack: inst.docker_stack || '',
       docker_container: inst.docker_container || '',
       docker_host: inst.docker_host || '',
+      // Per-instance opt-in to render the per-app extras panel
+      // (each per-app SPA module under `static/js/apps/<slug>.js`
+      // owns its own panel template + helpers). Tri-state:
+      // null = inherit from template's `show_extras` (default
+      // true), true = always show, false = always hide regardless
+      // of template. The SPA's `appsShowExtras(app, inst)` helper
+      // resolves the chain before the per-app `<template x-if>`
+      // gates fire; null / true → render, false → hide.
+      show_extras: (inst.show_extras !== undefined && inst.show_extras !== null)
+        ? !!inst.show_extras
+        : null,
+      // Per-instance api_key — never returned in the clear from
+      // the backend (only `api_key_set: bool` flag). Editor starts
+      // blank; a non-empty value on save overwrites, empty +
+      // unchanged preserves the stored secret (keep-current
+      // pattern from the global-secrets convention).
+      api_key: '',
+      api_key_set: !!inst.api_key_set,
     };
     this.appsInstanceEditError = '';
     // Seed the Link-to-Docker combobox input with the current link's label
@@ -2985,6 +3079,25 @@ export default {
           })) : [],
           docker_stack: f.docker_stack || '', docker_container: f.docker_container || '',
           docker_host: f.docker_host || '',
+          // Per-instance `show_extras` tri-state — true / false /
+          // null (= inherit template default). The backend
+          // `services[].show_extras` field is the source of truth;
+          // the SPA editor's checkbox `:indeterminate` reflects
+          // null on load + becomes true / false on click. Only
+          // sent when the operator made an explicit choice (true
+          // or false); null keeps the field absent so a template
+          // default-flip propagates without a per-instance save.
+          show_extras: (f.show_extras === true || f.show_extras === false)
+            ? f.show_extras
+            : null,
+          // Per-instance api_key — keep-current-if-blank contract
+          // shared with every other secret in OmniGrid (Beszel
+          // password, Portainer token, etc.). Non-empty value
+          // overwrites the stored secret; empty string + an
+          // already-set flag keeps the existing value. Backend
+          // returns `api_key_set: bool` so the SPA can render the
+          // "Saved" indicator without round-tripping the secret.
+          api_key: (typeof f.api_key === 'string') ? f.api_key : '',
         }),
       });
       if (!r.ok) {
