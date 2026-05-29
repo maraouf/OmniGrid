@@ -8,7 +8,7 @@ moving them here as PUBLIC helpers makes that concern moot.
 
 Both consumers (``logic/gather.py`` during the gather fan-out, and
 ``main.py`` when shaping the per-host API responses) import these so
-the merge semantics stay byte-identical across paths. CLAUDE.md's
+the merge semantics stay byte-identical across paths. the project conventions's
 provider-merge-order rule (Pulse → Beszel → node-exporter → Webmin)
 relies on `_meaningful` matching exactly between the two sites; one
 implementation removes that risk.
@@ -152,7 +152,7 @@ def merge_best(dst: dict, src: dict) -> None:
 
     Mutates ``dst`` in place. Returns None.
 
-    Provider merge order matters (CLAUDE.md "Hosts pipeline" rule):
+    Provider merge order matters (the project conventions "Hosts pipeline" rule):
     Pulse → Beszel → node-exporter → Webmin. Each provider calls
     this with ``dst = nodes_info[host]`` and ``src = its_extracted_stats``.
     """

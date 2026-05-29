@@ -2,7 +2,7 @@
 
 Wraps the outer ``while True`` + cancellation-discipline + sleep
 envelope that every lifespan-managed sampler must implement. Per
-CLAUDE.md "Background-task startup rule" + "Background-task
+the project conventions "Background-task startup rule" + "Background-task
 lifecycle" + "Broad except Exception MUST carve out CancelledError"
 rules, the envelope has multiple non-obvious correctness constraints:
 
@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import Awaitable, Callable, Optional
-
 
 TickFn = Callable[[int], Awaitable[None]]
 IntervalFn = Callable[[], int]

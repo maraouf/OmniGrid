@@ -708,7 +708,7 @@ export default {
       // (matching saveSettings's own /api/me refresh path) so the
       // cross-tab case doesn't tear down DOM bindings the way a
       // wholesale ``this.me = d`` would (Alpine Proxy identity
-      // contract — see CLAUDE.md "Frontend reconciles ... in place"
+      // contract — see the project conventions "Frontend reconciles ... in place"
       // rule). `me.notify_mediums` lives on this dict so the
       // per-medium grid reflects an admin's toggle flip on every
       // open tab within one SSE round-trip.
@@ -732,7 +732,7 @@ export default {
     // cookie's expiry past the renewal threshold. SPA refreshes
     // `me.session_expires_at` (if exposed by /api/me) so any UI hint
     // ("session expires in X minutes") stays current. The event was
-    // documented in api.md and CLAUDE.md but had no consumer pre-fix
+    // documented in api.md and the project conventions but had no consumer pre-fix
     // — caught by the SSE-publisher-vs-consumer audit recipe.
     // Multi-tab activity. `tab:activity` updates
     // the local map in place so the topbar widget re-renders without

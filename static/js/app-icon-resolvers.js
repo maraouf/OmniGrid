@@ -119,7 +119,7 @@ export default {
     if (name) {
       const themeKey = (this.themePref === 'auto')
         ? ((typeof window !== 'undefined' && window.matchMedia
-            && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'L' : 'D')
+          && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'L' : 'D')
         : (this.themePref === 'light' ? 'L' : 'D');
       const cacheKey = `${name}|${themeKey}`;
       const cached = _ICON_PRE_THEME_CACHE.get(cacheKey);
@@ -212,7 +212,7 @@ export default {
       'gitsync_connector': 'gitsync',
       // Linux Mint short forms — bare slug AND hyphenated alias both
       // resolve to the canonical linuxmint.svg. Mirrors the
-      // hostIconUrl alias map per CLAUDE.md's "BOTH alias maps" rule
+      // hostIconUrl alias map per the project's "BOTH alias maps" rule
       // so item / stack contexts get the same forgiveness.
       'mint': 'linuxmint',
       'linux-mint': 'linuxmint',

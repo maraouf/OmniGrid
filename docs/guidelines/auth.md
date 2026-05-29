@@ -244,23 +244,23 @@ Every state change (`enable_start` / `enable_confirm` / `disable` / `verify_pass
 
 **Endpoints** (auth runbook scope; full schema in `main.py`):
 
-| Method  | Route                                  | Purpose                                                          |
-| ------- | -------------------------------------- | ---------------------------------------------------------------- |
-| `POST`  | `/api/local-auth/totp`                 | Submit a TOTP code for the active challenge_token.               |
-| `POST`  | `/api/local-auth/totp-setup-confirm`   | First-login forced-enrol path (enrol + verify in one call).      |
+| Method  | Route                                  | Purpose                                                             |
+| ------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `POST`  | `/api/local-auth/totp`                 | Submit a TOTP code for the active challenge_token.                  |
+| `POST`  | `/api/local-auth/totp-setup-confirm`   | First-login forced-enrol path (enrol + verify in one call).         |
 | `GET`   | `/api/me/totp`                         | Current user's TOTP state (enabled / required / backup-code count). |
-| `POST`  | `/api/me/totp/enroll-start`            | Returns secret + QR `otpauth://` URI.                            |
-| `POST`  | `/api/me/totp/enroll-confirm`          | Verifies the first code; mints backup codes.                     |
-| `POST`  | `/api/me/totp/regenerate-codes`        | Rotates backup codes.                                            |
-| `POST`  | `/api/me/totp/disable`                 | User self-disable (requires password).                           |
-| `POST`  | `/api/users/{id}/disable-totp`         | Admin-side disable.                                              |
-| `POST`  | `/api/users/{id}/totp-force`           | Admin-side per-user force flag.                                  |
+| `POST`  | `/api/me/totp/enroll-start`            | Returns secret + QR `otpauth://` URI.                               |
+| `POST`  | `/api/me/totp/enroll-confirm`          | Verifies the first code; mints backup codes.                        |
+| `POST`  | `/api/me/totp/regenerate-codes`        | Rotates backup codes.                                               |
+| `POST`  | `/api/me/totp/disable`                 | User self-disable (requires password).                              |
+| `POST`  | `/api/users/{id}/disable-totp`         | Admin-side disable.                                                 |
+| `POST`  | `/api/users/{id}/totp-force`           | Admin-side per-user force flag.                                     |
 
 ## Password flows
 
-| Flow                | Route                                          | Notes                                                                                                     |
-| ------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Self-service change | `POST /api/local-auth/change-password`         | Validates the current password first; rate-limited. Keeps caller session, invalidates every other one.    |
+| Flow                | Route                                          | Notes                                                                                                                                            |
+| ------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Self-service change | `POST /api/local-auth/change-password`         | Validates the current password first; rate-limited. Keeps caller session, invalidates every other one.                                           |
 | Admin reset         | `POST /api/users/{id}/reset-password`          | No current-password check (admin authority). Local users only — Authentik users are rejected 400. Invalidates every session for the target user. |
 
 ## Session mechanics
@@ -625,13 +625,13 @@ container at `/app/data/omnigrid.db` via the `/opt/omnigrid/data:/app/data` bind
 | Var                           | Purpose                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SESSION_SECRET`              | (required for prod; auto-generated if unset). HMAC key for session cookies. Rotate to kick every logged-in user. Keep stable otherwise.                  |
-| `PORTAINER_URL`               | (optional bootstrap — UI is authoritative). Seeded into the DB on first boot; after that Admin → Portainer wins. Fresh deploys can leave this blank. |
+| `PORTAINER_URL`               | (optional bootstrap — UI is authoritative). Seeded into the DB on first boot; after that Admin → Portainer wins. Fresh deploys can leave this blank.     |
 | `PORTAINER_API_KEY`           | Same bootstrap rules as above.                                                                                                                           |
 | `PORTAINER_ENDPOINT_ID`       | Same bootstrap rules as above.                                                                                                                           |
 | `VERIFY_TLS`                  | Same bootstrap rules as above.                                                                                                                           |
 | `DB_TYPE`                     | (optional). Database backend selector. Default `sqlite`; an unrecognised value surfaces a config-error page rather than crash-looping.                   |
 | `BOOTSTRAP_ADMIN_USER`        | (optional, first-boot only). Only consulted when the `users` table is empty. Creates one admin, then self-disables.                                      |
-| `BOOTSTRAP_ADMIN_PASSWORD`    | Same first-boot rules as above.                                                                                                                           |
+| `BOOTSTRAP_ADMIN_PASSWORD`    | Same first-boot rules as above.                                                                                                                          |
 
 No `OIDC_*` env vars. OIDC is UI-managed only.
 

@@ -145,12 +145,17 @@ with bold section headers + emoji prefixes:
     memory / disk / uptime + extended provider stats). Cached
     readings only — no live probes.
 - **⚙️ Operations**
-  - `/restart <target>` — Restart a host via SSH (destructive —
-    requires confirm)
+  - `/restart <target>` (aliases: `/reboot`) — Restart a host via SSH
+    (destructive — requires confirm)
   - `/cleanup [confirm]` — List (or remove with `confirm`)
     stopped / failed / orphan containers — same surface as the SPA's
     topbar Cleanup button. SPA tabs auto-refresh as each removal
     lands.
+  - `/update [all | <name>] [confirm]` — List items with pending
+    updates (no args), update ONE item by name, or `/update all` to
+    pull-and-recreate every item flagged `update_available`. Same
+    per-row update path the SPA uses; respects the destructive gate
+    (`telegram_allow_destructive` or the `confirm` suffix).
 - **🔗 Account**
   - `/link <code>` — Link your Telegram account to an OmniGrid user
     (code minted in Profile → Telegram)
@@ -159,6 +164,8 @@ with bold section headers + emoji prefixes:
 - **ℹ️ Info & weather**
   - `/weather` — Show the weather for your saved location (set it in
     Profile → Weather)
+  - `/moon` — Show today's moon phase + illumination (requires the
+    WeatherAPI.com provider; Open-Meteo is moon-blind)
   - `/time` — Show the local time at your saved weather location
   - `/version` (aliases: `/ver`) — Show the running OmniGrid version
   - `/ip` — Show the deployment's public IP + ISP / ASN / country
@@ -184,17 +191,19 @@ aborts so the user can narrow the target.
 
 ### Destructive-command gate
 
-`/restart` is the only destructive command in the current roster. The
-gate works as follows:
+Three commands trigger the destructive-command gate: `/restart` (with
+its `/reboot` alias), `/cleanup` (when called with `confirm`), and
+`/update` (any in-band action — `/update <name>` or `/update all`).
+The gate works as follows:
 
-- **`telegram_allow_destructive = true`** — `/restart <target>` fires
+- **`telegram_allow_destructive = true`** — the command fires
   immediately. Use this in personal-DM deploys where the typed-confirm
   step is just friction.
-- **`telegram_allow_destructive = false`** (default) — `/restart
-  <target>` returns a confirm prompt; the user must re-send `/restart
-  confirm <target>` within a short window to actually execute. This
-  matches the SSH terminal's typed-hostname confirm pattern in the
-  SPA.
+- **`telegram_allow_destructive = false`** (default) — the command
+  returns a confirm prompt; the user must re-send the matching
+  `<command> confirm <args>` within a short window to actually
+  execute. This matches the SSH terminal's typed-hostname confirm
+  pattern in the SPA.
 
 ### Restart flow quirk
 
@@ -208,10 +217,10 @@ the runner couldn't observe completion.
 
 One entry in `_COMMANDS` + one handler function:
 
-```python
+```text
 async def _cmd_status(client: httpx.AsyncClient,
                       args: list[str], msg: dict) -> None:
-    """``/status`` — fleet health summary."""
+    """`/status` — fleet health summary."""
     # ... build reply ...
     await _send_reply(client, reply_text)
 
@@ -319,24 +328,24 @@ Operator-tunable knobs for the Telegram surface. All read at point of
 use so an Admin → Config edit takes effect on the next loop iteration
 or send call without restart.
 
-| Tunable | Default | Range | Where |
-| --- | --- | --- | --- |
-| `tuning_telegram_long_poll_timeout_seconds` | 25 | 1..50 | Notifications → Telegram |
-| `tuning_telegram_http_timeout_seconds` | 35 | 5..120 | Notifications → Telegram |
+| Tunable                                     | Default | Range  | Where                    |
+| ------------------------------------------- | ------- | ------ | ------------------------ |
+| `tuning_telegram_long_poll_timeout_seconds` | 25      | 1..50  | Notifications → Telegram |
+| `tuning_telegram_http_timeout_seconds`      | 35      | 5..120 | Notifications → Telegram |
 
 Plain settings (managed via the Telegram tab UI):
 
-| Setting | Default | Notes |
-| --- | --- | --- |
-| `telegram_bot_token` | unset | Write-only secret (`_set` flag in API) |
-| `telegram_chat_id` | unset | Destination chat ID, or CSV of multiple chats (e.g. `-1001234567890, 987654321`). Inbound: every listed chat is authorised. Outbound: notifications fan out to every listed chat. Replies route back to the chat the command came from. |
-| `telegram_thread_id` | unset | Optional supergroup topic id |
-| `telegram_verify_tls` | true | Leave ON in production |
-| `telegram_api_base` | `https://api.telegram.org` | Override for self-hosted Bot API |
-| `telegram_listener_enabled` | false | Master gate for the long-poll loop |
-| `telegram_allow_destructive` | false | Skip typed-confirm on `/restart` |
-| `telegram_authorized_user_ids` | "" | CSV of Telegram user_ids |
-| `notify_medium_telegram` | false | Master gate for outbound notifications |
+| Setting                        | Default                    | Notes                                                                                                                                                                                                                                   |
+| ------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `telegram_bot_token`           | unset                      | Write-only secret (`_set` flag in API)                                                                                                                                                                                                  |
+| `telegram_chat_id`             | unset                      | Destination chat ID, or CSV of multiple chats (e.g. `-1001234567890, 987654321`). Inbound: every listed chat is authorised. Outbound: notifications fan out to every listed chat. Replies route back to the chat the command came from. |
+| `telegram_thread_id`           | unset                      | Optional supergroup topic id                                                                                                                                                                                                            |
+| `telegram_verify_tls`          | true                       | Leave ON in production                                                                                                                                                                                                                  |
+| `telegram_api_base`            | `https://api.telegram.org` | Override for self-hosted Bot API                                                                                                                                                                                                        |
+| `telegram_listener_enabled`    | false                      | Master gate for the long-poll loop                                                                                                                                                                                                      |
+| `telegram_allow_destructive`   | false                      | Skip typed-confirm on `/restart`                                                                                                                                                                                                        |
+| `telegram_authorized_user_ids` | ""                         | CSV of Telegram user_ids                                                                                                                                                                                                                |
+| `notify_medium_telegram`       | false                      | Master gate for outbound notifications                                                                                                                                                                                                  |
 
 ---
 

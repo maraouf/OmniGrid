@@ -12,11 +12,11 @@ endpoint contracts in depth.
 
 Every `/api/*` route requires authentication. Three exceptions, all unauthenticated:
 
-| Path | Purpose |
-| --- | --- |
-| `/api/healthz` | Liveness probe — always `200 {"status":"ok"}` if the process is alive. |
-| `/api/version` | Returns `{version}` (the live `MAJOR.MINOR.PATCH`) for the running deploy. |
-| `/metrics` | Prometheus exposition. (Treat as sensitive — fleet stats; gate at the proxy if needed.) |
+| Path           | Purpose                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `/api/healthz` | Liveness probe — always `200 {"status":"ok"}` if the process is alive.                  |
+| `/api/version` | Returns `{version}` (the live `MAJOR.MINOR.PATCH`) for the running deploy.              |
+| `/metrics`     | Prometheus exposition. (Treat as sensitive — fleet stats; gate at the proxy if needed.) |
 
 For everything else, two auth modes:
 
@@ -97,9 +97,9 @@ callers should stay on bearer tokens — passkeys are a browser flow.
 
 ### Roles
 
-| Role | Reads | Writes |
-| --- | --- | --- |
-| `admin` | ✓ everything | ✓ everything |
+| Role       | Reads        | Writes                                     |
+| ---------- | ------------ | ------------------------------------------ |
+| `admin`    | ✓ everything | ✓ everything                               |
 | `readonly` | ✓ everything | ✗ all `POST/PUT/PATCH/DELETE` return `403` |
 
 The role is enforced server-side via FastAPI `Depends(auth.require_admin)` on
@@ -135,22 +135,38 @@ when wiring a new frontend-controlled tunable.
 
 Most endpoints return JSON. Common shapes:
 
+**List endpoints**
+
 ```json
-// List endpoints
-[{"id":"svc:abc123","name":"...","status":"update", ... }, ... ]
+[{"id": "svc:abc123", "name": "...", "status": "update"}]
+```
 
-// Single-resource
-{"id":"svc:abc123", ...}
+**Single-resource**
 
-// Operation kicked off (async)
-{"op_id":"<uuid>", "status":"running"}
+```json
+{"id": "svc:abc123"}
+```
 
-// Test / probe endpoints
-{"ok":true, "detail":"OK — Portainer 2.27.4, endpoint primary reachable"}
-{"ok":false, "detail":"endpoint 99 not found on this Portainer", "status":404}
+**Operation kicked off (async)**
 
-// Error
-{"detail":"<message>"}  // FastAPI default; HTTP code in the response status
+```json
+{"op_id": "<uuid>", "status": "running"}
+```
+
+**Test / probe endpoints**
+
+```json
+{"ok": true, "detail": "OK — Portainer 2.27.4, endpoint primary reachable"}
+```
+
+```json
+{"ok": false, "detail": "endpoint 99 not found on this Portainer", "status": 404}
+```
+
+**Error** (FastAPI default; HTTP code in the response status)
+
+```json
+{"detail": "<message>"}
 ```
 
 ## Real-time events
@@ -184,35 +200,35 @@ Each frame is `event: <type>\ndata: <json>\n\n` where the JSON body is
 `{"type": "<type>", "ts": <epoch>, "payload": {...}}`. Payload shape per
 type:
 
-| Type | Fired when | Payload (selected fields) |
-|---|---|---|
-| `hello` | First frame after upgrade | `{subscriber_count, heartbeat_seconds}` — confirms the upgrade succeeded. |
-| `op:created` | A new background op (update / restart / remove / prune) starts. | `{id, op_type, status, target_name, target_stack, actor, started}` |
-| `op:updated` | Op progresses (logs an event, transitions a substep). | `{id, op_type, status, target_name, last_event:{ts, level, msg}}` |
-| `op:completed` | Op terminates (success / error). | `{id, op_type, status, target_name, error, duration}` |
-| `cache:invalidated` | Items cache has been marked stale (post-op refresh, settings save). | `{reason}` |
-| `stats:refreshed` | `gather_stats()` finished a cycle. | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`. |
-| `host:failure_state_changed` | Host sampler paused / cleared a host OR per-(provider, host) auto-pause flipped. | `{host_id, paused, consecutive_failures?, last_error?, cleared?, provider?}` — `provider` present for per-provider transitions (`snmp` / `webmin` / etc.). `host_id` is ALWAYS the bare id (the SPA's `/api/hosts/one/{id}` lookup needs the bare value, not the prefixed key the table stores). |
-| `host:history_appended` | A new row was inserted into `host_metrics_samples` for a curated host. | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`. |
-| `host:provider_probing` | A per-host probe slice (SNMP / Webmin / node-exporter / HTTP probe) just entered the wire — fires only on cache MISS so dict-lookup providers (Beszel / Pulse) and sampler-driven ones (Ping / service_probe) don't emit. | `{host_id, provider, started_at}` — SPA tracks `_polling[provider]` per row so the matching chip pulses while ITS specific probe is in flight. |
-| `host:provider_done` | The matching `host:provider_probing` slice has completed (success OR failure). | `{host_id, provider, finished_at, duration_ms, outcome?}` — SPA clears `_polling[provider]`; chip settles into its post-probe state. |
-| `host:ping_sampled` | New ping sample landed in `ping_samples` for a curated host. | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`. |
-| `schedule:fired` | A schedule started or finished (two events per fire). | `{schedule_id, name, kind, op_id, phase: "start"\|"end", duration?, status?}` |
-| `history:appended` | A new row was written to the `history` table. | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}` |
-| `session:renewed` | A cookie session was slid forward (sliding-window refresh near expiry). | `{user_id, expires_at, ts}` |
-| `settings:updated` | An admin Save through `POST /api/settings` committed. | `{version, client_id?}` — version is the new `_settings_version` int; `client_id` is the originating tab's UUID (when present, the originating tab self-filters via `_isSelfEvent`). |
-| `notification:created` | A new in-app notification row was inserted by the `app` notification medium. | `{id, ts, event, severity, title, body, actor, target_kind, target_id, unread_count}` — payload carries a self-contained snapshot so the SPA can prepend without an extra round-trip; `unread_count` is the canonical count post-insert. |
-| `notification:read` | One notification row (or all unread, when `bulk=true`) was marked read. | `{id?, read_at, unread_count, bulk?}` — `id=null + bulk=true` means a `read-all` fired. Originating tab self-filters via `client_id`. |
-| `notification:deleted` | One notification row was deleted (admin scrub or schedule prune). | `{id, unread_count}` — originating tab self-filters via `client_id`. |
-| `port_scan:completed` | A per-host port scan (on-demand `POST /api/hosts/{id}/port-scan` OR a `port_scan_refresh` schedule fire) finished. | `{host_id, scan_id, target, ports_count, new_ports?}` — hint only; consumers refetch via `GET /api/history/port-scan/{scan_id}/ports` for the full per-port detail. The on-demand POST returns `{scan_id, status: "queued"}` immediately and the SPA waits on this event. |
-| `telegram:linked` | The Telegram listener's `/link` command bound a sender's Telegram user_id to an OmniGrid user. | `{username, telegram_user_id, linked_at_ms}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips to its linked-state banner. |
-| `telegram:unlinked` | The Telegram listener's `/unlink` command (or admin-side `DELETE /api/telegram/links/{tg_id}`) dropped a mapping. | `{username, telegram_user_id}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips back to "Generate code". |
-| `host:bulk_action_applied` | A bulk host action (`/api/hosts/bulk/{pause,resume,snmp_vendors,snmp_tunables}`) committed across N hosts. | `{action, host_ids:[...], actor, ...action-specific}` — single frame for the whole batch, not N per-host frames. Tabs reconcile via in-place row updates keyed on `host_ids`; originating tab self-filters via `client_id`. |
-| `apps:bulk_pinned` | A discovery-wizard bulk-apply (`POST /api/services/discover/{host_id}/apply`) committed N pins on one host. | `{host_id, applied:[...], skipped:[...]}` — single frame for the whole batch. SPA's handler iterates the lists and patches `appsInstances` in place. Originating tab self-filters via `client_id`. |
-| `tab:activity` | A tab heartbeated (current view, last interaction) into the `_tab_activity_registry`. | `{client_id, username, view, ts, ...}` — drives the Admin → Sessions "active tabs" panel so admins can see who's looking at what. Originating tab self-filters. |
-| `tab:closed` | A tab fired its `pagehide` cleanup. | `{client_id}` — peer tabs drop the entry from their local view of the registry without waiting for the 90s TTL. Originating tab self-filters. |
-| `:overflow` | Synthetic — the per-subscriber queue dropped events. | `{}` — react with a one-shot REST refresh. |
-| `reconnect` | Synthetic — server hit the SSE max-lifetime cap (default 6 h, tunable via `tuning_sse_max_lifetime_seconds`) and is asking the client to re-upgrade so the auth middleware fires again. | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen. |
+| Type                         | Fired when                                                                                                                                                                                                                | Payload (selected fields)                                                                                                                                                                                                                                                                        |                             |
+| ---                          | ---                                                                                                                                                                                                                       | ---                                                                                                                                                                                                                                                                                              |                             |
+| `hello`                      | First frame after upgrade                                                                                                                                                                                                 | `{subscriber_count, heartbeat_seconds}` — confirms the upgrade succeeded.                                                                                                                                                                                                                        |                             |
+| `op:created`                 | A new background op (update / restart / remove / prune) starts.                                                                                                                                                           | `{id, op_type, status, target_name, target_stack, actor, started}`                                                                                                                                                                                                                               |                             |
+| `op:updated`                 | Op progresses (logs an event, transitions a substep).                                                                                                                                                                     | `{id, op_type, status, target_name, last_event:{ts, level, msg}}`                                                                                                                                                                                                                                |                             |
+| `op:completed`               | Op terminates (success / error).                                                                                                                                                                                          | `{id, op_type, status, target_name, error, duration}`                                                                                                                                                                                                                                            |                             |
+| `cache:invalidated`          | Items cache has been marked stale (post-op refresh, settings save).                                                                                                                                                       | `{reason}`                                                                                                                                                                                                                                                                                       |                             |
+| `stats:refreshed`            | `gather_stats()` finished a cycle.                                                                                                                                                                                        | `{items, with_stats, with_size, ts}` — hint only; consumers refetch via `/api/stats`.                                                                                                                                                                                                            |                             |
+| `host:failure_state_changed` | Host sampler paused / cleared a host OR per-(provider, host) auto-pause flipped.                                                                                                                                          | `{host_id, paused, consecutive_failures?, last_error?, cleared?, provider?}` — `provider` present for per-provider transitions (`snmp` / `webmin` / etc.). `host_id` is ALWAYS the bare id (the SPA's `/api/hosts/one/{id}` lookup needs the bare value, not the prefixed key the table stores). |                             |
+| `host:history_appended`      | A new row was inserted into `host_metrics_samples` for a curated host.                                                                                                                                                    | `{host_id, ts}` — hint only; consumers refetch the full window via `/api/hosts/history`.                                                                                                                                                                                                         |                             |
+| `host:provider_probing`      | A per-host probe slice (SNMP / Webmin / node-exporter / HTTP probe) just entered the wire — fires only on cache MISS so dict-lookup providers (Beszel / Pulse) and sampler-driven ones (Ping / service_probe) don't emit. | `{host_id, provider, started_at}` — SPA tracks `_polling[provider]` per row so the matching chip pulses while ITS specific probe is in flight.                                                                                                                                                   |                             |
+| `host:provider_done`         | The matching `host:provider_probing` slice has completed (success OR failure).                                                                                                                                            | `{host_id, provider, finished_at, duration_ms, outcome?}` — SPA clears `_polling[provider]`; chip settles into its post-probe state.                                                                                                                                                             |                             |
+| `host:ping_sampled`          | New ping sample landed in `ping_samples` for a curated host.                                                                                                                                                              | `{host_id, alive, rtt_ms, loss_pct, ts}` — hint only; consumers refetch via `/api/hosts/{id}/ping/history`.                                                                                                                                                                                      |                             |
+| `schedule:fired`             | A schedule started or finished (two events per fire).                                                                                                                                                                     | `{schedule_id, name, kind, op_id, phase: "start"\                                                                                                                                                                                                                                                | "end", duration?, status?}` |
+| `history:appended`           | A new row was written to the `history` table.                                                                                                                                                                             | `{id, ts, op_type, target_name, target_id, target_stack, status, duration, error, actor}`                                                                                                                                                                                                        |                             |
+| `session:renewed`            | A cookie session was slid forward (sliding-window refresh near expiry).                                                                                                                                                   | `{user_id, expires_at, ts}`                                                                                                                                                                                                                                                                      |                             |
+| `settings:updated`           | An admin Save through `POST /api/settings` committed.                                                                                                                                                                     | `{version, client_id?}` — version is the new `_settings_version` int; `client_id` is the originating tab's UUID (when present, the originating tab self-filters via `_isSelfEvent`).                                                                                                             |                             |
+| `notification:created`       | A new in-app notification row was inserted by the `app` notification medium.                                                                                                                                              | `{id, ts, event, severity, title, body, actor, target_kind, target_id, unread_count}` — payload carries a self-contained snapshot so the SPA can prepend without an extra round-trip; `unread_count` is the canonical count post-insert.                                                         |                             |
+| `notification:read`          | One notification row (or all unread, when `bulk=true`) was marked read.                                                                                                                                                   | `{id?, read_at, unread_count, bulk?}` — `id=null + bulk=true` means a `read-all` fired. Originating tab self-filters via `client_id`.                                                                                                                                                            |                             |
+| `notification:deleted`       | One notification row was deleted (admin scrub or schedule prune).                                                                                                                                                         | `{id, unread_count}` — originating tab self-filters via `client_id`.                                                                                                                                                                                                                             |                             |
+| `port_scan:completed`        | A per-host port scan (on-demand `POST /api/hosts/{id}/port-scan` OR a `port_scan_refresh` schedule fire) finished.                                                                                                        | `{host_id, scan_id, target, ports_count, new_ports?}` — hint only; consumers refetch via `GET /api/history/port-scan/{scan_id}/ports` for the full per-port detail. The on-demand POST returns `{scan_id, status: "queued"}` immediately and the SPA waits on this event.                        |                             |
+| `telegram:linked`            | The Telegram listener's `/link` command bound a sender's Telegram user_id to an OmniGrid user.                                                                                                                            | `{username, telegram_user_id, linked_at_ms}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips to its linked-state banner.                                                                                                                |                             |
+| `telegram:unlinked`          | The Telegram listener's `/unlink` command (or admin-side `DELETE /api/telegram/links/{tg_id}`) dropped a mapping.                                                                                                         | `{username, telegram_user_id}` — SPA scopes by `username === me.username` and re-fetches `/api/me` so the Profile → Telegram card flips back to "Generate code".                                                                                                                                 |                             |
+| `host:bulk_action_applied`   | A bulk host action (`/api/hosts/bulk/{pause,resume,snmp_vendors,snmp_tunables}`) committed across N hosts.                                                                                                                | `{action, host_ids:[...], actor, ...action-specific}` — single frame for the whole batch, not N per-host frames. Tabs reconcile via in-place row updates keyed on `host_ids`; originating tab self-filters via `client_id`.                                                                      |                             |
+| `apps:bulk_pinned`           | A discovery-wizard bulk-apply (`POST /api/services/discover/{host_id}/apply`) committed N pins on one host.                                                                                                               | `{host_id, applied:[...], skipped:[...]}` — single frame for the whole batch. SPA's handler iterates the lists and patches `appsInstances` in place. Originating tab self-filters via `client_id`.                                                                                               |                             |
+| `tab:activity`               | A tab heartbeated (current view, last interaction) into the `_tab_activity_registry`.                                                                                                                                     | `{client_id, username, view, ts, ...}` — drives the Admin → Sessions "active tabs" panel so admins can see who's looking at what. Originating tab self-filters.                                                                                                                                  |                             |
+| `tab:closed`                 | A tab fired its `pagehide` cleanup.                                                                                                                                                                                       | `{client_id}` — peer tabs drop the entry from their local view of the registry without waiting for the 90s TTL. Originating tab self-filters.                                                                                                                                                    |                             |
+| `:overflow`                  | Synthetic — the per-subscriber queue dropped events.                                                                                                                                                                      | `{}` — react with a one-shot REST refresh.                                                                                                                                                                                                                                                       |                             |
+| `reconnect`                  | Synthetic — server hit the SSE max-lifetime cap (default 6 h, tunable via `tuning_sse_max_lifetime_seconds`) and is asking the client to re-upgrade so the auth middleware fires again.                                   | `{}` — `EventSource` reconnects automatically; bespoke clients should drop the connection and reopen.                                                                                                                                                                                            |                             |
 
 Event names use a `<noun>:<verb>` convention; new event types follow the
 same shape. Payloads are intentionally narrow — consumers that need the
@@ -737,19 +753,19 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
 Beyond `/api/hosts/history` (the canonical per-host time-series), several admin-only
 endpoints surface deeper provider-specific detail used by the host drawer:
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/hosts/{id}/beszel/services` | Per-(host, systemd unit) snapshot from `host_beszel_services` (failed units first). |
-| `GET`  | `/api/hosts/{id}/snmp/history?hours=N` | SNMP-derived host samples (CPU / memory / disk / uptime). |
-| `GET`  | `/api/hosts/{id}/snmp/iface_history?hours=N` | Per-interface throughput counters (top-5 by current rate). |
-| `GET`  | `/api/hosts/{id}/snmp/temp_history?hours=N` | Per-temperature-probe sensor readings (ENTITY-SENSOR-MIB). |
-| `GET`  | `/api/hosts/{id}/http-probe/history` | Per-host HTTP probe samples (status code + TLS expiry + DNS resolution + latency per URL). |
-| `POST` | `/api/hosts/{id}/http-probe/test` | Run one HTTP / TLS / DNS probe synchronously against the host's configured URLs. |
-| `GET`  | `/api/hosts/{id}/ping/history?hours=N` | Per-host Ping reachability + RTT samples. |
-| `GET`  | `/api/hosts/{id}/disk-projection?days_ahead=N` | Linear regression on `host_disk_used` across the configured window — projects "days until full" with a confidence band. |
-| `GET`  | `/api/hosts/{id}/triage` | Inline similar-incident grouping for host failures (read from `host_failure_events`). |
-| `GET`  | `/api/hosts/{id}/timeline?hours=N` | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows). |
-| `GET`  | `/api/hosts/debug?id=<host>&since_hours=N` | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the "why is this host's chart cut?" diagnostic. |
+| Method | Route                                          | Purpose                                                                                                                                                                   |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/hosts/{id}/beszel/services`              | Per-(host, systemd unit) snapshot from `host_beszel_services` (failed units first).                                                                                       |
+| `GET`  | `/api/hosts/{id}/snmp/history?hours=N`         | SNMP-derived host samples (CPU / memory / disk / uptime).                                                                                                                 |
+| `GET`  | `/api/hosts/{id}/snmp/iface_history?hours=N`   | Per-interface throughput counters (top-5 by current rate).                                                                                                                |
+| `GET`  | `/api/hosts/{id}/snmp/temp_history?hours=N`    | Per-temperature-probe sensor readings (ENTITY-SENSOR-MIB).                                                                                                                |
+| `GET`  | `/api/hosts/{id}/http-probe/history`           | Per-host HTTP probe samples (status code + TLS expiry + DNS resolution + latency per URL).                                                                                |
+| `POST` | `/api/hosts/{id}/http-probe/test`              | Run one HTTP / TLS / DNS probe synchronously against the host's configured URLs.                                                                                          |
+| `GET`  | `/api/hosts/{id}/ping/history?hours=N`         | Per-host Ping reachability + RTT samples.                                                                                                                                 |
+| `GET`  | `/api/hosts/{id}/disk-projection?days_ahead=N` | Linear regression on `host_disk_used` across the configured window — projects "days until full" with a confidence band.                                                   |
+| `GET`  | `/api/hosts/{id}/triage`                       | Inline similar-incident grouping for host failures (read from `host_failure_events`).                                                                                     |
+| `GET`  | `/api/hosts/{id}/timeline?hours=N`             | Unified per-host event timeline (state changes + sampler errors + bulk-action audit rows).                                                                                |
+| `GET`  | `/api/hosts/debug?id=<host>&since_hours=N`     | Raw provider payloads + counters block (samples-in-window, failure_state, provider_pause_state, full live tunables map) — the "why is this host's chart cut?" diagnostic. |
 
 ### Stats dashboards (admin-only)
 
@@ -757,16 +773,17 @@ Six aggregated endpoints back the **Stats** top-nav (cluster-wide insight on top
 per-host telemetry detail above). Each is GET-only, accepts an optional `window`/`range`
 query param, and returns a single fast JSON payload tuned for one dashboard sub-page.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/admin/stats/overview` | Quick-insight counts — user / session / curated-host / asset / node / stack / container totals + per-provider enabled split. One-shot fetch for the dashboard landing card. |
-| `GET`  | `/api/admin/stats/database?range=24h` | DB-level KPIs — table row counts, daily-INSERT bar-chart series, total bytes on disk, with thousands-separator-friendly shapes. |
-| `GET`  | `/api/admin/stats/network?range=24h` | Fleet-wide network throughput KPIs — per-host top-N + burst-rate table for the selected range. |
-| `GET`  | `/api/admin/stats/incidents?range=24h` | Incident-centric view of `host_failure_events` — top hosts by incident count, per-provider failure breakdown. |
-| `GET`  | `/api/admin/stats/ai-cost?range=24h` | Finance-style view of `ai_jobs` — per-provider token / cost / latency / response-time-trend chart. |
-| `GET`  | `/api/admin/stats/samples?range=24h` | Per-sample-table KPIs (Beszel / Pulse / NE / SNMP / Webmin / HTTP probe / service probe / ping) — row counts, daily-INSERT bar charts. |
-| `GET`  | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>&range=24h` | Per-host drill-down popup for one sample table. Returns the matching row count + recent rows for the chosen host. |
-| `DELETE` | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>` | Admin scrub for one host's rows in one sample table. Used by the per-host drill-down popup's "Delete rows" button. |
+| Method   | Route                                                                  | Purpose                                                                                                                                                                                                                                                                         |
+| -------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/admin/stats/overview`                                            | Quick-insight counts — user / session / curated-host / asset / node / stack / container totals + per-provider enabled split. One-shot fetch for the dashboard landing card.                                                                                                     |
+| `GET`    | `/api/admin/stats/database?range=24h`                                  | DB-level KPIs — table row counts, daily-INSERT bar-chart series, total bytes on disk, with thousands-separator-friendly shapes.                                                                                                                                                 |
+| `GET`    | `/api/admin/stats/network?range=24h`                                   | Fleet-wide network throughput KPIs — per-host top-N + burst-rate table for the selected range.                                                                                                                                                                                  |
+| `GET`    | `/api/admin/stats/incidents?range=24h`                                 | Incident-centric view of `host_failure_events` — top hosts by incident count, per-provider failure breakdown.                                                                                                                                                                   |
+| `GET`    | `/api/admin/stats/ai-cost?range=24h`                                   | Finance-style view of `ai_jobs` — per-provider token / cost / latency / response-time-trend chart.                                                                                                                                                                              |
+| `GET`    | `/api/admin/stats/samples?range=24h`                                   | Per-sample-table KPIs (Beszel / Pulse / NE / SNMP / Webmin / HTTP probe / service probe / ping) — row counts, daily-INSERT bar charts.                                                                                                                                          |
+| `GET`    | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>&range=24h` | Per-host drill-down popup for one sample table. Returns the matching row count + recent rows for the chosen host.                                                                                                                                                               |
+| `DELETE` | `/api/admin/stats/samples/by-host?table=<name>&host_id=<id>`           | Admin scrub for one host's rows in one sample table. Used by the per-host drill-down popup's "Delete rows" button.                                                                                                                                                              |
+| `GET`    | `/api/admin/stats/samplers`                                            | Per-sampler live state — running flag, last-tick timestamp, last-tick row count, last-prune row count, effective interval. Drives the Samplers sub-page (sibling of Database / Network) so operators can verify each sampler is actually writing rows AND pruning to retention. |
 
 ```bash
 # Example: fetch the AI-cost dashboard for the last 24 hours
@@ -785,33 +802,35 @@ matches against open ports. Two view planes — the aggregate `/api/apps` (one r
 app grouped by `catalog_id` or `name`) and the flat `/api/apps/instances` (one entry per
 chip across every host).
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/apps` | Cross-host aggregate — one row per distinct app, with every host that runs an instance + per-instance status. |
-| `GET`  | `/api/apps/instances` | Flat per-instance iterator — every chip across every host. |
-| `GET`  | `/api/services/catalog` | List every catalog template (built-in + operator-added). |
-| `POST` | `/api/services/catalog` | Create a new operator-defined catalog template. |
-| `PATCH` | `/api/services/catalog/{cid}` | Update a template (name / icon / default ports / probe shape / etc.). |
-| `DELETE` | `/api/services/catalog/{cid}` | Remove a template. Built-ins are protected unless the operator explicitly deletes them; a seeded-slug ledger prevents the same built-in from being re-seeded after deletion. |
-| `POST` | `/api/services/catalog/seed` | Re-seed built-in templates. Idempotent — skips slugs that already exist OR have been deleted-on-purpose. |
-| `GET`  | `/api/services/catalog/export` | Export the full catalog as a portable JSON pack (for backup / sharing). |
-| `POST` | `/api/services/catalog/import` | Import a catalog pack — upserts by slug. |
-| `POST` | `/api/services/catalog/{cid}/pin` | Pin a catalog template to a host. Body: `{host_id, port?, url?, name_override?, icon_override?}`. Creates a new entry under `hosts_config[].services[]`. |
-| `POST` | `/api/services/discover/{host_id}` | Run the discovery wizard for one host — matches the host's open-port set against catalog templates and returns a proposal list. |
-| `POST` | `/api/services/discover/{host_id}/apply` | Bulk-apply a discovery proposal. Body: `{picks: [{catalog_id, port, ...}]}`. |
-| `PATCH` | `/api/services/{host_id}/{service_idx}` | Edit a pinned instance (name / URL / icon / ports / probe). |
-| `DELETE` | `/api/services/{host_id}/{service_idx}` | Remove a pinned instance from a host. |
-| `POST` | `/api/services/{host_id}/{service_idx}/probe` | Admin-only synchronous probe of one chip. Routes through the same TCP / HTTP probe helpers as the lifespan sampler; persists to `service_samples` so the SPA picks it up. |
-| `GET`  | `/api/services/{host_id}/{service_idx}/debug` | Per-chip diagnostics — resolved probe target, per-port outcomes, plain-language reason when probing is suppressed. |
-| `GET`  | `/api/services/{host_id}/{service_idx}/history` | Per-chip probe-result time series. |
-| `GET`  | `/api/container/{raw_id}/logs?lines=N` | Stream the last N log lines from a container linked to an app instance via Portainer. Routes through the Portainer agent so worker-node containers are reachable. |
-| `GET`  | `/api/service/{raw_id}/logs?lines=N` | Same shape for a Swarm service. |
+| Method   | Route                                                   | Purpose                                                                                                                                                                                                                              |
+| -------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`    | `/api/apps`                                             | Cross-host aggregate — one row per distinct app, with every host that runs an instance + per-instance status.                                                                                                                        |
+| `GET`    | `/api/apps/instances`                                   | Flat per-instance iterator — every chip across every host.                                                                                                                                                                           |
+| `GET`    | `/api/services/catalog`                                 | List every catalog template (built-in + operator-added).                                                                                                                                                                             |
+| `POST`   | `/api/services/catalog`                                 | Create a new operator-defined catalog template.                                                                                                                                                                                      |
+| `PATCH`  | `/api/services/catalog/{cid}`                           | Update a template (name / icon / default ports / probe shape / etc.).                                                                                                                                                                |
+| `DELETE` | `/api/services/catalog/{cid}`                           | Remove a template. Built-ins are protected unless the operator explicitly deletes them; a seeded-slug ledger prevents the same built-in from being re-seeded after deletion.                                                         |
+| `POST`   | `/api/services/catalog/seed`                            | Re-seed built-in templates. Idempotent — skips slugs that already exist OR have been deleted-on-purpose.                                                                                                                             |
+| `GET`    | `/api/services/catalog/export`                          | Export the full catalog as a portable JSON pack (for backup / sharing).                                                                                                                                                              |
+| `POST`   | `/api/services/catalog/import`                          | Import a catalog pack — upserts by slug.                                                                                                                                                                                             |
+| `POST`   | `/api/services/catalog/{cid}/pin`                       | Pin a catalog template to a host. Body: `{host_id, port?, url?, name_override?, icon_override?}`. Creates a new entry under `hosts_config[].services[]`.                                                                             |
+| `POST`   | `/api/services/discover/{host_id}`                      | Run the discovery wizard for one host — matches the host's open-port set against catalog templates and returns a proposal list.                                                                                                      |
+| `POST`   | `/api/services/discover/{host_id}/apply`                | Bulk-apply a discovery proposal. Body: `{picks: [{catalog_id, port, ...}]}`.                                                                                                                                                         |
+| `PATCH`  | `/api/services/{host_id}/{service_idx}`                 | Edit a pinned instance (name / URL / icon / ports / probe).                                                                                                                                                                          |
+| `DELETE` | `/api/services/{host_id}/{service_idx}`                 | Remove a pinned instance from a host.                                                                                                                                                                                                |
+| `POST`   | `/api/services/{host_id}/{service_idx}/probe`           | Admin-only synchronous probe of one chip. Routes through the same TCP / HTTP probe helpers as the lifespan sampler; persists to `service_samples` so the SPA picks it up.                                                            |
+| `POST`   | `/api/services/{host_id}/{service_idx}/test-credential` | Per-app credential test (e.g. Speedtest Tracker API key, future per-app auth probes). Slug-keyed dispatcher resolves the chip's catalog template and routes to the matching `logic/apps/<slug>.py` module. Returns `{ok, detail}`.   |
+| `GET`    | `/api/services/{host_id}/{service_idx}/app-data`        | Per-app expanded-card data (e.g. Speedtest Tracker latest / average / sparkline points; APC UPS battery / load / runtime). Slug-keyed dispatcher; returns the shape the matching `static/js/apps/<slug>.js` extras renderer expects. |
+| `GET`    | `/api/services/{host_id}/{service_idx}/debug`           | Per-chip diagnostics — resolved probe target, per-port outcomes, plain-language reason when probing is suppressed.                                                                                                                   |
+| `GET`    | `/api/services/{host_id}/{service_idx}/history`         | Per-chip probe-result time series.                                                                                                                                                                                                   |
+| `GET`    | `/api/container/{raw_id}/logs?lines=N`                  | Stream the last N log lines from a container linked to an app instance via Portainer. Routes through the Portainer agent so worker-node containers are reachable.                                                                    |
+| `GET`    | `/api/service/{raw_id}/logs?lines=N`                    | Same shape for a Swarm service.                                                                                                                                                                                                      |
 
 ### HTTP probe one-shot (admin-only)
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `POST` | `/api/http-probe/test` | Probe one HTTP / TLS-cert / DNS target with the form-provided URL + options (no save). |
+| Method | Route                                | Purpose                                                                                                       |
+| ------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/http-probe/test`               | Probe one HTTP / TLS-cert / DNS target with the form-provided URL + options (no save).                        |
 | `POST` | `/api/hosts/{id}/http-probe/refresh` | Re-run the HTTP probe across all configured URLs for the given host and persist to `host_http_probe_samples`. |
 
 ### Stack + container retag-to-latest (admin-only)
@@ -821,10 +840,10 @@ break (because the registry's `:latest` has moved past the pin), the drawer surf
 "Switch to `:latest`" affordance backed by these endpoints. Confirmed via SweetAlert in the SPA
 because of the recreate risk.
 
-| Method | Route | Body | Purpose |
-| ------ | ----- | ---- | ------- |
-| `POST` | `/api/update/stack/{stack_id}/retag-latest` | `{tag: "latest"}` (other tags accepted; the validator clamps to a small allowlist) | Switch a Portainer-managed stack's image refs to a different tag. Routes through Portainer's stack-edit flow. |
-| `POST` | `/api/update/container/{container_id}/retag-latest` | `{tag?: str}` (optional — defaults to `latest`) | Switch a non-Portainer-managed container's image tag. Captures Config + HostConfig + Networks via inspect, pulls the new image, stop + remove + recreate with the same name. Named volumes survive. |
+| Method | Route                                               | Body                                                                               | Purpose                                                                                                                                                                                             |
+| ------ | --------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/update/stack/{stack_id}/retag-latest`         | `{tag: "latest"}` (other tags accepted; the validator clamps to a small allowlist) | Switch a Portainer-managed stack's image refs to a different tag. Routes through Portainer's stack-edit flow.                                                                                       |
+| `POST` | `/api/update/container/{container_id}/retag-latest` | `{tag?: str}` (optional — defaults to `latest`)                                    | Switch a non-Portainer-managed container's image tag. Captures Config + HostConfig + Networks via inspect, pulls the new image, stop + remove + recreate with the same name. Named volumes survive. |
 
 Returns `{op_id, new_tag}`. Drives the same Operation lifecycle as the other write ops — poll
 `/api/ops/{op_id}` for progress.
@@ -844,28 +863,28 @@ are redacted to `__OMITTED__`. Created on demand from Admin → Config backup or
 `config_backup` scheduler kind; the `tuning_config_backup_retention_count` knob bounds the
 saved-snapshots set.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/admin/config-backup/export` | Stream the current config as a JSON download (no on-disk save). |
-| `GET`  | `/api/admin/config-backup/preview` | Same payload as `/export` but returned inline for the SPA to diff against the current state. |
-| `POST` | `/api/admin/config-backup/import` | Body: a JSON snapshot. Applies to the running config (admin step-up required). |
-| `GET`  | `/api/admin/config-backup/list` | List on-disk saved snapshots under `/app/data/config_backups/`. |
-| `POST` | `/api/admin/config-backup/save` | Persist the current config as a saved snapshot (auto-named with a timestamp). |
-| `GET`  | `/api/admin/config-backup/saved/{name}` | Fetch one saved snapshot's body. |
-| `POST` | `/api/admin/config-backup/saved/{name}/restore` | Restore from one saved snapshot. Admin step-up required. |
-| `DELETE` | `/api/admin/config-backup/saved/{name}` | Delete one saved snapshot. |
+| Method   | Route                                           | Purpose                                                                                      |
+| -------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/admin/config-backup/export`               | Stream the current config as a JSON download (no on-disk save).                              |
+| `GET`    | `/api/admin/config-backup/preview`              | Same payload as `/export` but returned inline for the SPA to diff against the current state. |
+| `POST`   | `/api/admin/config-backup/import`               | Body: a JSON snapshot. Applies to the running config (admin step-up required).               |
+| `GET`    | `/api/admin/config-backup/list`                 | List on-disk saved snapshots under `/app/data/config_backups/`.                              |
+| `POST`   | `/api/admin/config-backup/save`                 | Persist the current config as a saved snapshot (auto-named with a timestamp).                |
+| `GET`    | `/api/admin/config-backup/saved/{name}`         | Fetch one saved snapshot's body.                                                             |
+| `POST`   | `/api/admin/config-backup/saved/{name}/restore` | Restore from one saved snapshot. Admin step-up required.                                     |
+| `DELETE` | `/api/admin/config-backup/saved/{name}`         | Delete one saved snapshot.                                                                   |
 
 ### Notification fan-out test surface (admin-only)
 
 Three endpoints fan a test notification through different mediums for debugging the per-event /
 per-medium routing matrix.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `POST` | `/api/notify-test` | Fire a fixed test payload through every enabled medium (app + apprise + telegram). |
-| `POST` | `/api/apprise/test` | Fire ONLY through Apprise. |
-| `POST` | `/api/telegram/test` | Fire ONLY through Telegram. |
-| `POST` | `/api/notify/send` | Send a user-typed notification through ONE chosen medium. Body: `{medium: "app"|"apprise"|"telegram", title, body, severity?, target_kind?, target_id?}`. Routes through `logic.ops.notify` with the same template + per-event toggle pipeline as system-generated events. |
+| Method | Route                | Purpose                                                                            |           |                                                                                                                                                                                  |
+| ------ | -----                | -------                                                                            |           |                                                                                                                                                                                  |
+| `POST` | `/api/notify-test`   | Fire a fixed test payload through every enabled medium (app + apprise + telegram). |           |                                                                                                                                                                                  |
+| `POST` | `/api/apprise/test`  | Fire ONLY through Apprise.                                                         |           |                                                                                                                                                                                  |
+| `POST` | `/api/telegram/test` | Fire ONLY through Telegram.                                                        |           |                                                                                                                                                                                  |
+| `POST` | `/api/notify/send`   | Send a user-typed notification through ONE chosen medium. Body: `{medium: "app"    | "apprise" | "telegram", title, body, severity?, target_kind?, target_id?}`. Routes through `logic.ops.notify` with the same template + per-event toggle pipeline as system-generated events. |
 
 ### Telegram link management (admin-only)
 
@@ -873,34 +892,34 @@ The Telegram bot's `/link` and `/unlink` commands populate `telegram_links(teleg
 username, ...)` to map a Telegram sender to an OmniGrid user. Two admin-side endpoints surface
 the table for the Admin → Notifications → Telegram tab:
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/telegram/links` | List every mapping (`telegram_user_id`, `username`, `linked_at_ms`). |
+| Method   | Route                                    | Purpose                                                                                                                                  |
+| -------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/telegram/links`                    | List every mapping (`telegram_user_id`, `username`, `linked_at_ms`).                                                                     |
 | `DELETE` | `/api/telegram/links/{telegram_user_id}` | Drop one mapping. Emits `telegram:unlinked` SSE — the linked user's Profile → Telegram card flips back to its unlinked state on receipt. |
 
 User-side self-service for the Profile → Telegram card:
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `POST` | `/api/me/telegram-link-code` | Mint a fresh one-shot code (TTL 5 min) the user pastes into the bot's `/link <code>` command. |
-| `DELETE` | `/api/me/telegram-link` | Self-service unlink for the current user. |
+| Method   | Route                        | Purpose                                                                                       |
+| -------- | ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/me/telegram-link-code` | Mint a fresh one-shot code (TTL 5 min) the user pastes into the bot's `/link <code>` command. |
+| `DELETE` | `/api/me/telegram-link`      | Self-service unlink for the current user.                                                     |
 
 ### Profile / WebAuthn self-service
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/me/webauthn` | List the current user's enrolled passkeys (id, friendly_name, transports, last_used, rp_id, registered_at). |
-| `POST` | `/api/me/webauthn/register-start` | Start enrolment — returns the WebAuthn challenge options. |
-| `POST` | `/api/me/webauthn/register-finish` | Complete enrolment — body: the browser's attestation response. |
-| `DELETE` | `/api/me/webauthn/{credential_row_id}` | Revoke one enrolled passkey. |
-| `POST` | `/api/me/webauthn/client-error` | Best-effort log of a client-side WebAuthn error so server-side logs reflect why the browser refused (e.g. RP-ID mismatch detection). |
-| `PATCH` | `/api/me/ui-prefs` | Partial update on the current user's UI prefs blob (sidebar width, datetime format, ai_conversation, theme overrides). |
-| `POST` | `/api/me/ui-prefs/beacon` | Same as PATCH but accepts `navigator.sendBeacon`'s `application/x-www-form-urlencoded`-style body for tab-unload writes. |
-| `PATCH` | `/api/me/notify-prefs` | Partial update on the per-event notify opt-in / opt-out map. |
-| `PATCH` | `/api/me/profile` | Update display name / email / bio / avatar metadata. |
-| `POST` | `/api/me/avatar` | Multipart upload of a new avatar (PNG / JPG / WebP, capped server-side). |
-| `DELETE` | `/api/me/avatar` | Remove the user's avatar (reverts to the deterministic-hue initial). |
-| `GET`  | `/api/avatars/{fname}` | Fetch one avatar file. Public — no auth — same shape as `/img/icons/*`. |
+| Method   | Route                                  | Purpose                                                                                                                              |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`    | `/api/me/webauthn`                     | List the current user's enrolled passkeys (id, friendly_name, transports, last_used, rp_id, registered_at).                          |
+| `POST`   | `/api/me/webauthn/register-start`      | Start enrolment — returns the WebAuthn challenge options.                                                                            |
+| `POST`   | `/api/me/webauthn/register-finish`     | Complete enrolment — body: the browser's attestation response.                                                                       |
+| `DELETE` | `/api/me/webauthn/{credential_row_id}` | Revoke one enrolled passkey.                                                                                                         |
+| `POST`   | `/api/me/webauthn/client-error`        | Best-effort log of a client-side WebAuthn error so server-side logs reflect why the browser refused (e.g. RP-ID mismatch detection). |
+| `PATCH`  | `/api/me/ui-prefs`                     | Partial update on the current user's UI prefs blob (sidebar width, datetime format, ai_conversation, theme overrides).               |
+| `POST`   | `/api/me/ui-prefs/beacon`              | Same as PATCH but accepts `navigator.sendBeacon`'s `application/x-www-form-urlencoded`-style body for tab-unload writes.             |
+| `PATCH`  | `/api/me/notify-prefs`                 | Partial update on the per-event notify opt-in / opt-out map.                                                                         |
+| `PATCH`  | `/api/me/profile`                      | Update display name / email / bio / avatar metadata.                                                                                 |
+| `POST`   | `/api/me/avatar`                       | Multipart upload of a new avatar (PNG / JPG / WebP, capped server-side).                                                             |
+| `DELETE` | `/api/me/avatar`                       | Remove the user's avatar (reverts to the deterministic-hue initial).                                                                 |
+| `GET`    | `/api/avatars/{fname}`                 | Fetch one avatar file. Public — no auth — same shape as `/img/icons/*`.                                                              |
 
 ### Multi-tab activity sync
 
@@ -908,64 +927,76 @@ The Admin → Sessions "active tabs" panel reads a shared in-memory registry of 
 SPA tab. The SPA writes through these endpoints on every navigation / drawer-open / filter
 change so admins can see "who is looking at what" in real time.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `POST` | `/api/tabs/activity` | Heartbeat — body: `{client_id, view, drawer_host?, ...}`. Stamps into the registry. Emits `tab:activity` SSE. |
-| `DELETE` | `/api/tabs/activity` | Best-effort cleanup on tab close (`pagehide`). Emits `tab:closed` SSE. |
-| `GET`  | `/api/tabs/activity` | Read the registry. Admin-only. |
+| Method   | Route                | Purpose                                                                                                       |
+| -------- | -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/api/tabs/activity` | Heartbeat — body: `{client_id, view, drawer_host?, ...}`. Stamps into the registry. Emits `tab:activity` SSE. |
+| `DELETE` | `/api/tabs/activity` | Best-effort cleanup on tab close (`pagehide`). Emits `tab:closed` SSE.                                        |
+| `GET`    | `/api/tabs/activity` | Read the registry. Admin-only.                                                                                |
 
 ### Public IP / weather widget
 
 Both endpoints support topbar widgets + the AI palette context block. Public IP is admin-only
 + default-OFF (opt-in via the master toggle in Admin → Public IP); weather is anonymous and
-opt-in via the topbar widget setting.
+opt-in via the topbar widget setting. Weather has two providers (Open-Meteo, free no-key —
+default; WeatherAPI.com, free with a key for full moon-phase astronomy) selected via Admin →
+Weather; the active provider drives both the live `/api/weather` proxy and the historical
+sampler that writes `weather_samples`.
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/public-ip` | Admin-only. Returns `{enabled, ip?, isp?, asn?, country?, city?}` from `logic.public_ip.fetch()`. `{enabled: false}` when the master toggle is off. |
-| `GET`  | `/api/weather?lat=<f>&lon=<f>&label=<s>` | Public (no auth). Open-Meteo proxy returning the compact widget shape `{temp_c, humidity, wind_kmh, code, condition, icon, forecast: [...]}`. |
+| Method | Route                                          | Purpose                                                                                                                                                                                          |
+| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/api/public-ip`                               | Admin-only. Returns `{enabled, ip?, isp?, asn?, country?, city?}` from `logic.public_ip.fetch()`. `{enabled: false}` when the master toggle is off.                                              |
+| `GET`  | `/api/public-ip/history?limit=N`               | Admin-only. Returns the last N rows (default 100; 1..1000) from `public_ip_history`, most-recent-first.                                                                                          |
+| `GET`  | `/api/weather?lat=<f>&lon=<f>&label=<s>`       | Weather proxy returning the compact widget shape `{temp_c, humidity, wind_kmh, code, condition, icon, forecast: [...]}`. Routes through whichever provider is active (Open-Meteo or WeatherAPI). |
+| `GET`  | `/api/weather/history?limit=N&lat=<f>&lon=<f>` | Cached historical samples for AI / Telegram retrospective questions (e.g. "what was the weather yesterday?"). Source is the lifespan `weather_sampler` writing into `weather_samples`.           |
+| `POST` | `/api/weather/test`                            | Admin-only. Probe the chosen provider with the form-provided credentials. Body shape `{provider, lat?, lon?, api_key?}` — Open-Meteo ignores `api_key`; WeatherAPI requires it.                  |
 
 ### Login providers advertisement
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
+| Method | Route                 | Purpose                                                                                                                                                                                                      |
+| ------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET`  | `/api/auth/providers` | Public. Tells the login page which paths are live — `{local: bool, oidc: bool, ...}`. OIDC is hidden when the request's hostname doesn't match the configured `oidc_redirect_uri` host (multi-FQDN deploys). |
 
 ### Logs (admin-only)
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/logs?limit=N` | Tail of the in-memory ring buffer. Filterable by severity / source-tag. |
-| `DELETE` | `/api/logs` | Clear the in-memory ring buffer. Persistent on-disk daily files under `/app/data/logs/` are unaffected. |
-| `GET`  | `/api/admin/logs/files` | List on-disk daily log files (`omnigrid-YYYY-MM-DD.log`) with size + modified-time. |
-| `GET`  | `/api/admin/logs/files/{name}` | Stream the contents of one file. |
-| `GET`  | `/api/admin/logs/files/{name}/download` | Download one file as an attachment. |
+| Method   | Route                                   | Purpose                                                                                                 |
+| -------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/logs?limit=N`                     | Tail of the in-memory ring buffer. Filterable by severity / source-tag.                                 |
+| `DELETE` | `/api/logs`                             | Clear the in-memory ring buffer. Persistent on-disk daily files under `/app/data/logs/` are unaffected. |
+| `GET`    | `/api/admin/logs/files`                 | List on-disk daily log files (`omnigrid-YYYY-MM-DD.log`) with size + modified-time.                     |
+| `GET`    | `/api/admin/logs/files/{name}`          | Stream the contents of one file.                                                                        |
+| `GET`    | `/api/admin/logs/files/{name}/download` | Download one file as an attachment.                                                                     |
 
 ### TOTP self-service + admin (covered above in the SPA flow, listed here for the API map)
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/me/totp` | Current user's TOTP state (enabled / required / backup-code count). |
-| `POST` | `/api/me/totp/enroll-start` | Returns secret + QR `otpauth://` URI. |
-| `POST` | `/api/me/totp/enroll-confirm` | Verifies the first code; mints backup codes. |
-| `POST` | `/api/me/totp/regenerate-codes` | Rotates backup codes. |
-| `POST` | `/api/me/totp/disable` | User self-disable (requires password). |
-| `POST` | `/api/users/{id}/disable-totp` | Admin-side disable of one user's TOTP enrolment. |
-| `POST` | `/api/users/{id}/totp-force` | Admin-side per-user `totp_force_required` flag. |
+| Method | Route                           | Purpose                                                             |
+| ------ | ------------------------------- | ------------------------------------------------------------------- |
+| `GET`  | `/api/me/totp`                  | Current user's TOTP state (enabled / required / backup-code count). |
+| `POST` | `/api/me/totp/enroll-start`     | Returns secret + QR `otpauth://` URI.                               |
+| `POST` | `/api/me/totp/enroll-confirm`   | Verifies the first code; mints backup codes.                        |
+| `POST` | `/api/me/totp/regenerate-codes` | Rotates backup codes.                                               |
+| `POST` | `/api/me/totp/disable`          | User self-disable (requires password).                              |
+| `POST` | `/api/users/{id}/disable-totp`  | Admin-side disable of one user's TOTP enrolment.                    |
+| `POST` | `/api/users/{id}/totp-force`    | Admin-side per-user `totp_force_required` flag.                     |
 
 ### Ignore list
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
-| `GET`  | `/api/ignores` | Return the operator-curated ignore patterns (kind = `image` substring OR `stack` exact). |
-| `POST` | `/api/ignores` | Admin-only. Body: `{pattern: str, kind: "image"|"stack"}`. |
-| `DELETE` | `/api/ignores/{pattern}` | Admin-only. Delete the matching pattern row. |
+| Method   | Route                    | Purpose                                                                                  |            |
+| ------   | -----                    | -------                                                                                  |            |
+| `GET`    | `/api/ignores`           | Return the operator-curated ignore patterns (kind = `image` substring OR `stack` exact). |            |
+| `POST`   | `/api/ignores`           | Admin-only. Body: `{pattern: str, kind: "image"                                          | "stack"}`. |
+| `DELETE` | `/api/ignores/{pattern}` | Admin-only. Delete the matching pattern row.                                             |            |
 
 ### Settings version probe
 
-| Method | Route | Purpose |
-| ------ | ----- | ------- |
+| Method | Route                   | Purpose                                                                                                                                                                                                                  |
+| ------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET`  | `/api/settings/version` | Admin-only cheap probe for cross-tab settings-change detection. Returns the monotonic `_settings_version` int that's bumped on every successful `POST /api/settings`. Use as a polling fallback when SSE is unavailable. |
+
+### Admin tuning panel
+
+| Method | Route               | Purpose                                                                                                                                                                                                                                                                                                                                                                            |
+| ------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/admin/tuning` | Admin-only. Returns per-tunable effective state: each `tuning_<key>` carries `db` (operator override or null), `env` (env-var value), `default` (code default), `lo` / `hi` (bounds), `resolved` (effective value), plus a `consumed` boolean that flags whether any backend site actually reads the key (catches decorative knobs that drift in the registry without a consumer). |
 
 ### Debug subject (admin-only)
 
@@ -1045,16 +1076,16 @@ Additional probe endpoints follow the same shape:
 
 ## Error handling
 
-| Status | Meaning |
-| --- | --- |
-| `200` | Success. |
-| `400` | Validation error (e.g. `endpoint_id must be an integer`). Body has `{detail}`. |
-| `401` | No auth — bearer token / cookie missing or malformed. |
-| `403` | Auth OK but role insufficient (readonly trying to write) OR CSRF token mismatch on cookie auth. |
-| `404` | Resource gone (e.g. container removed mid-flight). Most write ops treat this as success-shaped (idempotent). |
-| `429` | Rate-limited (`/api/local-auth/login` after 5 fails / 15 min / IP). |
-| `500` | Server bug — the response body usually has the traceback when running with debug; otherwise `{detail: "internal error"}`. |
-| `502 / 503 / 504` | Upstream provider failure (Portainer down, registry timeout). Body's `detail` usually identifies the upstream. |
+| Status            | Meaning                                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `200`             | Success.                                                                                                                  |
+| `400`             | Validation error (e.g. `endpoint_id must be an integer`). Body has `{detail}`.                                            |
+| `401`             | No auth — bearer token / cookie missing or malformed.                                                                     |
+| `403`             | Auth OK but role insufficient (readonly trying to write) OR CSRF token mismatch on cookie auth.                           |
+| `404`             | Resource gone (e.g. container removed mid-flight). Most write ops treat this as success-shaped (idempotent).              |
+| `429`             | Rate-limited (`/api/local-auth/login` after 5 fails / 15 min / IP).                                                       |
+| `500`             | Server bug — the response body usually has the traceback when running with debug; otherwise `{detail: "internal error"}`. |
+| `502 / 503 / 504` | Upstream provider failure (Portainer down, registry timeout). Body's `detail` usually identifies the upstream.            |
 
 ## Stable-vs-volatile API surface
 

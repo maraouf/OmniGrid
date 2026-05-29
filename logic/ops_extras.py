@@ -18,7 +18,7 @@ The ``ops`` dict + ``ops_order`` list hold the last 50 operations in
 memory for the ``/api/ops`` live-status polling loop — they're NOT the
 source of truth for history (the ``history`` SQLite table is). If ops
 ever need to outlive a process restart, wire a persistence hook in
-:func:`new_op`, but the single-replica invariant (CLAUDE.md) makes
+:func:`new_op`, but the single-replica invariant (the project conventions) makes
 in-memory fine for now.
 
 Notification dispatcher
@@ -33,7 +33,7 @@ admin-side enable flag (``notify_medium_<name>``) — the per-event
 toggle gates the WHOLE notification, the per-medium toggle gates ONE
 delivery channel without disabling the event entirely.
 
-Adding a medium: see CLAUDE.md "Canonical extension pattern: add a
+Adding a medium: see the project conventions "Canonical extension pattern: add a
 notification medium" — six steps (module + dispatcher + toggle + UI
 + i18n + CHANGELOG).
 

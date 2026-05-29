@@ -1763,7 +1763,7 @@ export default {
   // list this gather cycle produced). The stale banner can surface
   // these names so operators see "Beszel + Pulse cached, NE live"
   // rather than just a generic "N field(s) restored" count. Order
-  // mirrors the merge order documented in CLAUDE.md (Pulse → SNMP →
+  // mirrors the merge order documented in the project conventions (Pulse → SNMP →
   // Beszel → NE → Webmin → Ping).
   staleProviders(h) {
     if (!h) {
@@ -2056,7 +2056,7 @@ export default {
     return Math.min(100, (s.size_root / this._maxSize) * 100);
   },
   // LOW-VISUAL — stat-bar thresholds are operator-tunable.
-  // Pre-fix the 60 / 85 thresholds were hardcoded; CLAUDE.md's
+  // Pre-fix the 60 / 85 thresholds were hardcoded; the project conventions's
   // no-static-config rule says operator-tunable visual thresholds
   // belong in TUNABLES. Now sourced from `client_config` (per-call
   // read so an Admin → Config save lands on the next render).

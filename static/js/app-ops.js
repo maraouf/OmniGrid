@@ -700,7 +700,7 @@ export default {
       this.selected = [];
     }
     // Optimistically splice the successfully-removed items out of
-    // the local items list IN PLACE (per CLAUDE.md "reactive arrays
+    // the local items list IN PLACE (per the project conventions "reactive arrays
     // mutated in place" rule). This makes the topbar "Cleanup (N)"
     // count drop immediately so the button disappears without
     // waiting for the next gather refresh. The backend op completes

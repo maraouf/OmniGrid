@@ -235,6 +235,20 @@ function app() {
     // an app on many hosts caps its instance list (see appsVisibleInstances)
     // so the card doesn't grow tall and disrupt the grid.
     appsInstancesExpanded: {},
+    // Per-tile lazy-render visibility tracker. Drives the per-card
+    // IntersectionObserver gate -- each `<article class="apps-card">`
+    // renders ONLY its lightweight header (icon + name + status pill +
+    // action pills) immediately; the heavy body (instance list, port
+    // pills, sparklines, per-app extras like Speedtest data fetches)
+    // is gated on `appsCardVisible(app.group_id)` returning true.
+    // Observer (lazy-created in `_observeAppCard`) flips the entry to
+    // true on first intersection so the heavy render happens only for
+    // tiles scrolled into view. Plain object (not Set) so Alpine's
+    // per-key reactivity triggers exactly one re-render when a tile
+    // becomes visible. Cleared on `loadAppsList(force=true)` so a
+    // catalog edit re-paints the visible set.
+    _appsVisibleTiles: {},
+    _appsCardObserver: null,
     appsCatalog: [],
     appsCatalogLoaded: false,
     appsCatalogStatus: '',

@@ -4769,6 +4769,9 @@
   },
   "admin_apps": {
     "title": "Apps",
+    "template_show_extras": "Show extras (UPS stats etc.) on app cards by default",
+    "template_show_extras_hint": "Per-instance overrides take precedence. Uncheck here to hide by default but allow individual hosts to opt in.",
+    "instance_edit_show_extras": "Show extras (UPS stats etc.) on the app card",
     "intro": "Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.",
     "templates_pill": "templates",
     "tab_templates": "Templates",

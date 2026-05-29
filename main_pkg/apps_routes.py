@@ -289,7 +289,7 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
     # SSE: emit a single `apps:bulk_pinned` frame so other tabs refresh
     # their `appsInstances` immediately without waiting on the 30s poll.
     # Same single-frame shape as `host:bulk_action_applied` (per the
-    # CLAUDE.md "Bulk-action endpoints emit ONE SSE event" rule):
+    # the project conventions "Bulk-action endpoints emit ONE SSE event" rule):
     # one wire frame carrying the full applied + skipped lists, the
     # SPA's handler iterates server-side and patches state in place.
     # `client_id` ensures the originating tab self-filters and doesn't
@@ -613,8 +613,8 @@ def _resolve_chip_app_module(host_id: str, service_idx: int):
 
 @app.post("/api/services/{host_id}/{service_idx}/test-credential")
 async def api_service_test_credential(host_id: str, service_idx: int,
-                                       payload: dict[str, Any],
-                                       request: Request, _admin: AdminUser):
+                                      payload: dict[str, Any],
+                                      request: Request, _admin: AdminUser):
     """Admin-only: probe the chip's app credentials.
 
     Generic test-before-Save dispatcher. The chip's catalog slug
@@ -646,8 +646,8 @@ async def api_service_test_credential(host_id: str, service_idx: int,
 
 @app.get("/api/services/{host_id}/{service_idx}/app-data")
 async def api_service_app_data(host_id: str, service_idx: int,
-                                _admin: AdminUser,
-                                force: bool = False):
+                               _admin: AdminUser,
+                               force: bool = False):
     """Admin-only: fetch the per-app expanded-card data for one chip.
 
     Generic dispatcher. The chip's catalog slug selects the per-app
@@ -890,7 +890,7 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
         port=0,
     )
     # Audit row — manual probe-now is a tracked operator action even
-    # though sampler-driven probes write nothing. Per the CLAUDE.md
+    # though sampler-driven probes write nothing. Per the the project conventions
     # audit-trail rule each operator-initiated write needs a history
     # entry; the lifespan sampler's higher-volume background probes
     # remain intentionally unaudited.
@@ -1703,7 +1703,7 @@ def _kick_background_gather() -> "asyncio.Task | None":
         # debugging so the operator can tell it apart from the dozens
         # of other anonymous create_task sites. Strong-ref pattern
         # (module-level `_background_gather_task`) covers the GC-collection
-        # risk per the CLAUDE.md "Background-task lifecycle" rule — the
+        # risk per the project's "Background-task lifecycle" rule — the
         # name kwarg adds diagnostic parity without dragging in the full
         # `spawn_background_task` wrapper.
         _background_gather_task = loop.create_task(_gather(), name="apps-kick-background-gather")

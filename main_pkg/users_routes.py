@@ -86,6 +86,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     BaseModel,
     CurrentUser,
     DB_PATH,
+    FastApiPath,
     FileResponse,
     HTTPException,
     Request,
@@ -1428,7 +1429,7 @@ async def login_page():
 # max-age the browser parks a single sprite copy across navigations
 # (no per-page revalidation round-trip) and the `?v=...` change forces
 # a fresh fetch the next time the SPA shell ships a new version.
-# Registered BEFORE the StaticFiles "/" mount per CLAUDE.md mount-order
+# Registered BEFORE the StaticFiles "/" mount per the project conventions mount-order
 # rule.
 @app.get("/img/ui-sprite.svg")
 async def serve_ui_sprite():

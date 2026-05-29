@@ -93,56 +93,56 @@ export default {
     // re-derivations done by the legend (snmpThroughputLast), the peak
     // (snmpThroughputMaxBps), and snmpThroughputLine while the drawer sits open.
     return this._snmpMemo(series, 'tps|' + dir, () => {
-    const fieldKey = 'net_' + dir + '_total_bytes';
-    // Dt cap scales with the server-side bucket cadence. Pre-fix a
-    // hardcoded 3600s cap rejected every delta on 7d windows where
-    // buckets are 5040s+ wide. Bumped to `bucket × 6` after operators
-    // reported empty 7d charts on hosts where the SNMP sampler
-    // intermittently fails (APC UPS / OPNsense-on-flaky-mgmt-LAN
-    // pattern) — gaps of 3-5 missing buckets are normal and SHOULD
-    // bridge cleanly. The 10 GB delta cap below still catches genuine
-    // counter wraps / reboots. dtCap = max(7200, bucketS × 6) lets
-    // 5-bucket gaps render as a continuous line; longer outages
-    // (≥ 6 missing buckets) still break the polyline as a real gap.
-    const bucketS = Number(entry.bucket_seconds) || 0;
-    const dtCap = Math.max(7200, bucketS * 6);
-    // Byte-delta cap also scales with `dt`. Pre-fix the static 10 GB
-    // ceiling was tuned for 5-min raw cadence (~35 MB/s sustained per
-    // delta) — comfortable for typical home-LAN. At 7d buckets (5040s)
-    // 10 GB allows only ~16 Mbit/s sustained; anything busier got
-    // filtered as if it were a counter wrap, leaving the chart empty
-    // on hosts whose gateway pushes >100 Mbit/s during peak hours.
-    // Cap is now `max(10 GB, dt × 125 MB/s)` — 125 MB/s = 1 Gbit/s
-    // headroom per second of bucket width. Counter wrap (negative
-    // delta or 2^64-scale jumps) is still caught by `db < 0` and the
-    // generous-but-bounded ceiling.
-    const _BYTE_RATE_CEILING = 125 * 1024 * 1024;          // 125 MB/s = 1 Gbit/s
-    const _STATIC_BYTE_FLOOR = 10 * 1024 * 1024 * 1024;    // 10 GB preserves prior behaviour for raw cadence
-    // skip-don't-synthesize: out-of-bounds deltas (counter
-    // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
-    // omits the point from the polyline. Pre-fix this filled with
-    // 0 — visually identical to a real "0 bps idle" segment,
-    // burying the wrap signal. First-sample slot stays null too
-    // (no predecessor to diff against).
-    const out = new Array(series.length).fill(null);
-    for (let i = 1; i < series.length; i++) {
-      const a = series[i - 1], b = series[i];
-      const dt = (b.ts || 0) - (a.ts || 0);
-      const av = a[fieldKey], bv = b[fieldKey];
-      if (av == null || bv == null) {
-        continue;
+      const fieldKey = 'net_' + dir + '_total_bytes';
+      // Dt cap scales with the server-side bucket cadence. Pre-fix a
+      // hardcoded 3600s cap rejected every delta on 7d windows where
+      // buckets are 5040s+ wide. Bumped to `bucket × 6` after operators
+      // reported empty 7d charts on hosts where the SNMP sampler
+      // intermittently fails (APC UPS / OPNsense-on-flaky-mgmt-LAN
+      // pattern) — gaps of 3-5 missing buckets are normal and SHOULD
+      // bridge cleanly. The 10 GB delta cap below still catches genuine
+      // counter wraps / reboots. dtCap = max(7200, bucketS × 6) lets
+      // 5-bucket gaps render as a continuous line; longer outages
+      // (≥ 6 missing buckets) still break the polyline as a real gap.
+      const bucketS = Number(entry.bucket_seconds) || 0;
+      const dtCap = Math.max(7200, bucketS * 6);
+      // Byte-delta cap also scales with `dt`. Pre-fix the static 10 GB
+      // ceiling was tuned for 5-min raw cadence (~35 MB/s sustained per
+      // delta) — comfortable for typical home-LAN. At 7d buckets (5040s)
+      // 10 GB allows only ~16 Mbit/s sustained; anything busier got
+      // filtered as if it were a counter wrap, leaving the chart empty
+      // on hosts whose gateway pushes >100 Mbit/s during peak hours.
+      // Cap is now `max(10 GB, dt × 125 MB/s)` — 125 MB/s = 1 Gbit/s
+      // headroom per second of bucket width. Counter wrap (negative
+      // delta or 2^64-scale jumps) is still caught by `db < 0` and the
+      // generous-but-bounded ceiling.
+      const _BYTE_RATE_CEILING = 125 * 1024 * 1024;          // 125 MB/s = 1 Gbit/s
+      const _STATIC_BYTE_FLOOR = 10 * 1024 * 1024 * 1024;    // 10 GB preserves prior behaviour for raw cadence
+      // skip-don't-synthesize: out-of-bounds deltas (counter
+      // wrap, reboot, gap, null) emit `null` so `_snmpPolyPoints`
+      // omits the point from the polyline. Pre-fix this filled with
+      // 0 — visually identical to a real "0 bps idle" segment,
+      // burying the wrap signal. First-sample slot stays null too
+      // (no predecessor to diff against).
+      const out = new Array(series.length).fill(null);
+      for (let i = 1; i < series.length; i++) {
+        const a = series[i - 1], b = series[i];
+        const dt = (b.ts || 0) - (a.ts || 0);
+        const av = a[fieldKey], bv = b[fieldKey];
+        if (av == null || bv == null) {
+          continue;
+        }
+        if (dt < 1 || dt > dtCap) {
+          continue;
+        }       // gap or doubled tick
+        const db = bv - av;
+        const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
+        if (db < 0 || db > byteCap) {
+          continue;
+        }     // wrap / reboot / scaled cap
+        out[i] = db / dt;
       }
-      if (dt < 1 || dt > dtCap) {
-        continue;
-      }       // gap or doubled tick
-      const db = bv - av;
-      const byteCap = Math.max(_STATIC_BYTE_FLOOR, dt * _BYTE_RATE_CEILING);
-      if (db < 0 || db > byteCap) {
-        continue;
-      }     // wrap / reboot / scaled cap
-      out[i] = db / dt;
-    }
-    return out;
+      return out;
     });
   },
   // APC UPS Output Load % over the picker window.
@@ -1589,7 +1589,7 @@ export default {
     // blocks. If `_cssVar` returns "" something is genuinely broken
     // at the token level and we want it to surface visibly rather
     // than be silently papered over by a literal that diverges from
-    // the rest of the theme. Per CLAUDE.md's "no fallback literals"
+    // the rest of the theme. Per the project conventions's "no fallback literals"
     // rule (extended to JS-side reads).
     //
     // `focusCancel` defaults to true — the safe-by-default behaviour

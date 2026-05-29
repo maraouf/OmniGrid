@@ -159,7 +159,7 @@ def _build_url_row(r: dict) -> dict:
 def _resolve_http_probe_interval() -> int:
     """Sampler tick cadence — thin wrapper for binary-compat. The
     canonical implementation lives at `tuning.resolve_provider_interval`
-    (shared across http_probe / service_probe samplers per CLAUDE.md
+    (shared across http_probe / service_probe samplers per the project conventions
     priority L duplicate-code rule). Floors at 30s; falls back to
     `STATS_SAMPLE_INTERVAL_SECONDS` when the per-provider knob is 0.
     """

@@ -93,7 +93,7 @@ function _hasAnyUpsData(batt, load, rt, temp, status) {
 // walk runs once per render flush instead of N times per chip
 // instance. Memo clears on the next microtask (matches the
 // `filteredHosts` / `providerStates` memo pattern documented in
-// CLAUDE.md).
+// the project conventions).
 //
 // The memo lives on the Alpine component (`this._appsUpsCache`)
 // rather than module scope so a hot-reload / second page-load

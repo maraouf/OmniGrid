@@ -271,7 +271,7 @@ async def api_get_settings(request: Request):
         # API key follows the write-only `_set` flag pattern; the
         # SPA only ever sees `api_key_set: bool`.
         "weather": {
-            "enabled": get_setting_bool(Settings.WEATHER_ENABLED, default=False),
+            "enabled": get_setting_bool(Settings.WEATHER_ENABLED),
             "provider": (lambda v: ("weatherapi" if v == "weatherapi" else "open-meteo"))(
                 (get_setting(Settings.WEATHER_PROVIDER) or "").strip().lower()
             ),
@@ -517,7 +517,7 @@ async def api_get_settings(request: Request):
         "provider_color_http_probe": get_setting(Settings.PROVIDER_COLOR_HTTP_PROBE) or "",
         "provider_color_service_probe": get_setting(Settings.PROVIDER_COLOR_SERVICE_PROBE) or "",
         # SSH console — global defaults (Admin → SSH). Secrets
-        # redacted per CLAUDE.md's ``_set`` flag contract: the browser
+        # redacted per the project's ``_set`` flag contract: the browser
         # learns only whether a private key / passphrase has been set.
         # Known-hosts is non-secret (paste-and-forget public data) so
         # the full blob round-trips. Destructive patterns are operator-
@@ -909,7 +909,11 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         try:
             from logic.weather import invalidate_cache as _weather_invalidate
             _weather_invalidate()
-        except Exception:  # noqa: BLE001 — module is optional on the import path
+        except (ImportError, AttributeError):
+            # ImportError: weather module not on the path in some
+            # minimal builds. AttributeError: invalidate_cache renamed
+            # / removed by a refactor. Either is non-fatal -- the
+            # cache will self-expire on its TTL.
             pass
     if s.portainer_public_url is not None:
         set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
@@ -1020,7 +1024,14 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         # `/` so downstream concatenation stays clean.
         set_setting(
             Settings.WEBMIN_ALIASES,
-            json.dumps(_clean_alias_dict(s.webmin_aliases, value_transform=lambda v: v.rstrip("/"))),
+            json.dumps(_clean_alias_dict(
+                s.webmin_aliases,
+                # Rename the lambda parameter from `v` to `url` so
+                # PyCharm's scope analyzer doesn't flag it as
+                # shadowing the `for k, v in ...` loop variable inside
+                # `_clean_alias_dict`'s body where the lambda fires.
+                value_transform=lambda url: url.rstrip("/"),
+            )),
         )
     # Ping. No secrets — every field round-trips in the clear.
     # Validation: `ping_default_port` clamped to 1..65535. `ping_enabled`
@@ -1124,7 +1135,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
     # `SettingsIn` only to gracefully ignore old POST bodies; no
     # `set_setting` writes here means the values silently land
     # nowhere, matching what the consumers were already seeing.
-    # Per CLAUDE.md "Plain-settings escape hatch is a drift class".
+    # Per the project conventions "Plain-settings escape hatch is a drift class".
     # SNMP. Mirror the webmin / beszel / pulse persistence
     # contract: community / version / port / aliases round-trip in the
     # clear; v3 user is also clear text; the two v3 keys are write-only
@@ -1688,7 +1699,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
     # reads via `tuning_int(Tunable.AI_MAX_TOKENS)` /
     # `tuning_int(Tunable.AI_FALLBACK_MAX_DEPTH)` (typed-enum form per
     # the STRICT key-enum rule) and the SPA's AI Integration partial
-    # binds to the TUNABLES form. Per CLAUDE.md "Plain-settings escape
+    # binds to the TUNABLES form. Per the project conventions "Plain-settings escape
     # hatch is a drift class" — numeric operator-tunable values must
     # flow through TUNABLES, not via
     # `get_setting` / `set_setting`. Fields remain on `SettingsIn`
@@ -1884,7 +1895,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
         # reference here raises NameError on every settings save that
         # touches a provider field (operator-flagged: "Save failed:
         # NameError: name 'invalidate_host_provider_cache' is not
-        # defined"). Per CLAUDE.md "STRICT — Cross-module underscore-
+        # defined"). Per the project conventions "STRICT — Cross-module underscore-
         # name LOAD_GLOBAL leaks" — late-import is the safe pattern
         # for non-underscore cross-module names too.
         from main_pkg.apps_routes import invalidate_host_provider_cache as _invalidate

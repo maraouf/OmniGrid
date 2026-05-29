@@ -1039,7 +1039,7 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     # Render the timestamp in the SENDER's preferred datetime format
     # (Profile → Formats `ui_prefs.datetime_format`) and in the
     # deployment's configured timezone (`scheduler_timezone` setting,
-    # the canonical "what day is it for OmniGrid?" knob per CLAUDE.md).
+    # the canonical "what day is it for OmniGrid?" knob per the project conventions).
     # Falls back to UTC when neither side is available so unmapped
     # senders still see a coherent timestamp. The TZ abbreviation
     # (`CET` / `EEST` / `UTC` / etc.) is appended so operators across
@@ -1434,7 +1434,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             # and invalidates the gather cache on completion, which is
             # exactly what the SPA listens for. Lazy main import +
             # `spawn_background_task` honours the strong-ref + done-
-            # callback contract (see CLAUDE.md "Background-task
+            # callback contract (see the project conventions "Background-task
             # lifecycle") so the spawn survives asyncio GC.
             import main as _main
             _main.spawn_background_task(
@@ -1719,7 +1719,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                     "update_stack", str(sid), name,
                     target_stack=name, actor=f"telegram:{actor_username}",
                 )
-                # Lazy main import + `spawn_background_task` (see CLAUDE.md
+                # Lazy main import + `spawn_background_task` (see the project conventions
                 # "Background-task lifecycle") — strong-ref + done-callback
                 # so the spawn survives asyncio GC mid-execution. The
                 # coro is wrapped in `_bounded_op_coro` so the

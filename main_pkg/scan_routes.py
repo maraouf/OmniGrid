@@ -2255,13 +2255,13 @@ async def api_admin_logs_file_download(
 
 # ============================================================================
 # Auth routes (step 1: local login, logout, one-shot bootstrap, /api/me).
-# Registered here — above the StaticFiles catch-all — per CLAUDE.md.
+# Registered here — above the StaticFiles catch-all — per the project conventions.
 # ============================================================================
 # ----------------------------------------------------------------------------
 # TOTP / 2FA challenge store. In-memory dict mapping
 # challenge_id -> {user_id, kind, secret?, issued_at, expires_at}. Lifespan-
 # scoped because the matching cookie isn't issued until the second step
-# completes. Single-replica pinning (CLAUDE.md) makes this safe.
+# completes. Single-replica pinning (the project conventions) makes this safe.
 # ``kind`` is one of:
 # "totp_required"      — user has TOTP enrolled; verifying a code
 # "totp_setup_required" — policy forces enrolment; user must set up

@@ -1,6 +1,7 @@
-<p align="center">
-  <img src="static/img/logo/omnigrid.svg" alt="OmniGrid logo" width="96" />
-</p>
+<!-- HTML5 deprecated the `align` attribute; the bare image renders
+     fine without centering on every git host. -->
+<!--suppress CheckImageSize -->
+<img src="static/img/logo/omnigrid.svg" alt="OmniGrid logo" width="96" />
 
 # OmniGrid
 
@@ -19,14 +20,14 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 <!-- Screenshots live under `docs/screenshots/` — see the gallery below
      for the full set. The hero shot is the Nodes view (Stacks grouped
-     by host node + live HOST CPU/MEM/DISK bars). -->
-<p align="center">
-  <img src="docs/screenshots/nodes-view.png" alt="OmniGrid Nodes view — stacks grouped by host with live CPU / Memory / Disk bars" width="960" />
-</p>
+     by host node + live HOST CPU/MEM/DISK bars). The bare <img>
+     renders without HTML5-deprecated `align` centering. -->
+<img src="docs/screenshots/nodes-view.png" alt="OmniGrid Nodes view — stacks grouped by host with live CPU / Memory / Disk bars" width="960" />
 
 ## Features
 
 ### Cluster updates & operations
+
 - **Seven views**: Stacks (grouped, default) · Services (flat sortable) · Nodes (per-host swarm grouping with HOST stats) · Hosts (curated inventory + telemetry) · Apps (per-host pinned services + catalog) · History (audit log) · Timeline (cross-host event timeline) — plus the **Stats** top-nav for cluster-wide dashboards (Overview / Database / Samples / Network / Incidents / AI Cost).
 - **Digest-level update detection** — compares your running `image@sha256:...` against the remote manifest. Supports Docker Hub, GHCR, lscr.io, and any v2 registry. Token-cached www-authenticate dance for private registries.
 - **Click-to-act** — Update Stack (prune+repull+redeploy), Recreate container, Restart service (no pull), Remove offline / orphan containers, all via the Portainer REST API.
@@ -36,6 +37,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Schedules** — cron-like recurring jobs (cache refresh / `docker system prune` per-node or fan-out / SQLite+avatars backup / asset-inventory refresh) with skip-if-running guards and audited history.
 
 ### Host telemetry & inventory
+
 - **Curated host list** — admin-defined inventory under Admin → Hosts; each row maps to one or more provider-specific identifiers PLUS a dedicated `address` field that's the canonical provider-independent probe target (port-scan, ping, SNMP, SSH all resolve to it before falling through to provider-specific aliases).
 - **Eight monitoring providers** (any combination): Beszel Hub (Pocketbase), Pulse (Proxmox), Prometheus node-exporter (Linux + FreeBSD), Webmin / Miniserv, Ping (TCP-connect or ICMP echo for reachability + RTT), SNMP (v2c / v3 USM for managed switches / routers / UPSes / printers), HTTP probe (per-URL TCP + TLS-cert-expiry + DNS resolution), and a per-service reachability probe (one chip per curated `services[]` entry with `probe.enabled=true`). Cross-provider fallback merges stats with a "most-specific wins" rule + per-host snapshots so a flaky agent doesn't blank the chart. Per-provider chip colour customisable in Settings → Providers.
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
@@ -44,11 +46,12 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Host groups** — admin-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
 
 ### Operations & access
+
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
 - **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
-- **Apps view + service catalog** — operator-pinned services on each curated host, paired with a built-in catalog of templates (AdGuard Home, Plex, Sonarr, Authentik, …). Discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart/Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
-- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` / `/cleanup` / `/link` / `/whoami` / `/weather` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
+- **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of templates (AdGuard Home, Plex, Sonarr, Authentik, …). Discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart/Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
+- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` (alias `/reboot`) / `/cleanup` / `/update` / `/link` / `/whoami` / `/weather` / `/moon` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
 - **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) palette + multi-turn sidebar with persistent chat history, inline charts (`memory_history` / `cpu_history` / `disk_projection`), per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives), structured `ACTION:` directives the SPA dispatches inline, fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
 - **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
@@ -58,6 +61,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Prometheus `/metrics`** — gather stats, op counts, cache age, host-stats provider health.
 
 ### Auth & UX
+
 - **Local accounts** — username / password with bcrypt hashes, sliding 8h sessions, server-side revocation, rate-limited login (5 fails / 15 min / IP).
 - **TOTP (2FA)** for local accounts — `pyotp` + Fernet-encrypted secrets at rest, QR enrolment, 10 single-use backup codes, admin-side master toggle + per-role required + per-user force flag, configurable failure lockout. Authentik users skip every TOTP path (Authentik handles MFA upstream).
 - **API tokens** — admin-issued opaque tokens (SHA-256 at rest, raw token surfaced once on create) for machine clients. Tokens carry their own role; bearer-auth bypasses CSRF.
@@ -68,6 +72,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Polish**: dark + light theme, English + Arabic with RTL support (more languages: drop a JSON in `static/i18n/`), global search (`/`), keyboard shortcuts (`?` for the cheat sheet), per-user view persistence.
 
 ### Deploy story
+
 - **No Docker socket** — every Docker call goes through Portainer's REST API.
 - **Image-build deploy** — CI pipeline rsyncs the build context (Dockerfile + source + `node_modules/`) to the Swarm manager, builds an `omnigrid:<version>` image there, pushes to a container registry, and force-updates the Swarm service onto the new tag. Each version is pinned in Swarm's task spec so manual rollback has a discrete tag to point at.
 - **Self-healing** — Swarm `update_config: start-first, failure_action: rollback, monitor: 30s` so a failed deploy auto-rolls back (the same template OmniGrid recommends for services it manages).
@@ -141,62 +146,64 @@ The `OMNIGRID_IMAGE` env var in the compose file resolves to the registry path i
 Any HTTPS-terminating proxy works — Nginx Proxy Manager, Traefik, Caddy, plain Nginx, etc. Forward `omnigrid.example.com` (or whatever hostname you publish under) → `http://<manager>:9500`. OmniGrid has its own local login + optional Authentik OIDC SSO, so the proxy doesn't need to do auth — just terminate TLS and forward. See [`docs/guidelines/authentik.md`](docs/guidelines/authentik.md) to wire up OIDC.
 
 **6. Open it up**, hit ⚙️ Settings, configure:
+
 - Apprise URL: e.g. `http://apprise.example.com:8005/notify/OmniGrid` (or with a tag)
 - Portainer public URL: e.g. `https://portainer.example.com` (for the "Open in Portainer" deep links)
 
 ## How updates work
 
-| Item type | What happens on click |
-|---|---|
-| Service in a Portainer stack | `PUT /api/stacks/{id}?endpointId={eid}` with `{Prune:true, PullImage:true}` — identical to Portainer UI's "Update the stack + re-pull + prune" |
-| Standalone compose container | `POST /api/docker/{eid}/containers/{id}/recreate?PullImage=true` |
-| Swarm service without a Portainer-managed stack | Update button disabled. Use Restart (ForceUpdate bump) or redeploy via CLI. |
-| Restart action (drawer) | Bumps `TaskTemplate.ForceUpdate` and calls `POST /services/{id}/update` — same image, fresh tasks |
-| Per-node prune (Hosts / Schedules) | `docker system prune` on the named Swarm node via Portainer's task-routing — cleans dangling images / stopped containers / unused networks |
-| Swarm-agent restart (banner action) | When the unhealthy banner fires (≥ N consecutive cycles of zero stats responses for a node's tasks), one click bumps the Portainer-agent service's `TaskTemplate.ForceUpdate` to roll the failing agent task |
+| Item type                                       | What happens on click                                                                                                                                                                                        |
+|-------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Service in a Portainer stack                    | `PUT /api/stacks/{id}?endpointId={eid}` with `{Prune:true, PullImage:true}` — identical to Portainer UI's "Update the stack + re-pull + prune"                                                               |
+| Standalone compose container                    | `POST /api/docker/{eid}/containers/{id}/recreate?PullImage=true`                                                                                                                                             |
+| Swarm service without a Portainer-managed stack | Update button disabled. Use Restart (ForceUpdate bump) or redeploy via CLI.                                                                                                                                  |
+| Restart action (drawer)                         | Bumps `TaskTemplate.ForceUpdate` and calls `POST /services/{id}/update` — same image, fresh tasks                                                                                                            |
+| Per-node prune (Hosts / Schedules)              | `docker system prune` on the named Swarm node via Portainer's task-routing — cleans dangling images / stopped containers / unused networks                                                                   |
+| Swarm-agent restart (banner action)             | When the unhealthy banner fires (≥ N consecutive cycles of zero stats responses for a node's tasks), one click bumps the Portainer-agent service's `TaskTemplate.ForceUpdate` to roll the failing agent task |
 
 ## Environment variables
 
 | Var | Default | Notes |
-|---|---|---|
+|-----|---------|-------|
+
 **A fresh deploy can boot with NO env vars set** — bootstrap the first admin via `POST /api/local-auth/bootstrap`, then configure Portainer / OIDC / monitoring providers from the Settings UI. Everything below is either a first-boot seed (one-shot, ignored after the DB row exists) or a process-level tunable you can also override from Admin → Config.
 
-| Var | Default | Notes |
-|---|---|---|
-| `PORTAINER_URL` | — | **Optional bootstrap.** Seeded into the DB on first boot; `Admin → Portainer` is authoritative after that. |
-| `PORTAINER_API_KEY` | — | **Optional bootstrap** — same as above. Starts with `ptr_`. |
-| `PORTAINER_ENDPOINT_ID` | `1` | **Optional bootstrap** — the Swarm endpoint id. |
-| `VERIFY_TLS` | `true` | **Optional bootstrap** — stored as `portainer_verify_tls` in the DB after seeding. |
-| `DB_PATH` | `/app/data/omnigrid.db` | SQLite location. |
-| `DB_TYPE` | `sqlite` | DB backend. Currently `sqlite` only — scaffolding for future Postgres / MariaDB / Mongo backends. |
-| `SESSION_SECRET` | auto-generated | HMAC key for session cookies. **Set explicitly in prod** — auto-generated means sessions die on every restart. |
-| `BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD` | — | First-boot-only admin seed. Consulted when the users table is empty; ignored after that. Blank both values in a follow-up commit once you've logged in. |
-| `ENV_FILE_PATH` | `/app/.env` | Where `python-dotenv` looks for env values at startup. |
-| `DOCKERHUB_USER` / `DOCKERHUB_TOKEN` | — | Optional. Bypass anonymous Docker Hub rate limits. |
+| Var                                                 | Default                 | Notes                                                                                                                                                   |
+|-----------------------------------------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PORTAINER_URL`                                     | —                       | **Optional bootstrap.** Seeded into the DB on first boot; `Admin → Portainer` is authoritative after that.                                              |
+| `PORTAINER_API_KEY`                                 | —                       | **Optional bootstrap** — same as above. Starts with `ptr_`.                                                                                             |
+| `PORTAINER_ENDPOINT_ID`                             | `1`                     | **Optional bootstrap** — the Swarm endpoint id.                                                                                                         |
+| `VERIFY_TLS`                                        | `true`                  | **Optional bootstrap** — stored as `portainer_verify_tls` in the DB after seeding.                                                                      |
+| `DB_PATH`                                           | `/app/data/omnigrid.db` | SQLite location.                                                                                                                                        |
+| `DB_TYPE`                                           | `sqlite`                | DB backend. Currently `sqlite` only — scaffolding for future Postgres / MariaDB / Mongo backends.                                                       |
+| `SESSION_SECRET`                                    | auto-generated          | HMAC key for session cookies. **Set explicitly in prod** — auto-generated means sessions die on every restart.                                          |
+| `BOOTSTRAP_ADMIN_USER` / `BOOTSTRAP_ADMIN_PASSWORD` | —                       | First-boot-only admin seed. Consulted when the users table is empty; ignored after that. Blank both values in a follow-up commit once you've logged in. |
+| `ENV_FILE_PATH`                                     | `/app/.env`             | Where `python-dotenv` looks for env values at startup.                                                                                                  |
+| `DOCKERHUB_USER` / `DOCKERHUB_TOKEN`                | —                       | Optional. Bypass anonymous Docker Hub rate limits.                                                                                                      |
 
 **Process-level tunables** (DB > env > default — live UI override at `Admin → Config`):
 
-| Var | Default | Notes |
-|---|---|---|
-| `CACHE_TTL_SECONDS` | `900` | Items cache TTL (full registry-digest refresh interval). |
-| `STATS_CACHE_TTL_SECONDS` | `30` | Per-container stats cache TTL — fresh polling without forcing a full digest re-fetch. |
-| `REGISTRY_CONCURRENCY` | `8` | Parallel remote-digest fetches. |
-| `STATS_CONCURRENCY` | `16` | Parallel `/containers/{id}/stats` calls. |
-| `STATS_HISTORY_DAYS` | `7` | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples` / `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `ping_samples`). |
-| `STATS_SAMPLE_INTERVAL_SECONDS` | `300` | How often the lifespan samplers snapshot into the time-series tables. |
-| `STATS_TARGETED_TIMEOUT_SECONDS` / `STATS_UNTARGETED_TIMEOUT_SECONDS` | `12` / `10` | Per-container `/stats` HTTP timeouts (Portainer-agent-targeted vs untargeted fallback). Bumped from a hardcoded 4 s to fix worker-node stats coming back empty under busy hubs. |
-| `SWARM_AGENT_UNHEALTHY_THRESHOLD` | `3` | Consecutive failed gather cycles before the unhealthy-Swarm-agent banner fires above the Stacks / Services / Nodes views. Range 1–20. |
-| `SNMP_SAMPLE_INTERVAL_SECONDS` | `0` | SNMP-specific sample interval. `0` inherits the global `STATS_SAMPLE_INTERVAL_SECONDS`; any value `30..3600` overrides for SNMP probes only (printers can poll hourly while switches poll every minute). |
-| `SNMP_WALL_CLOCK_BUDGET_SECONDS` / `SNMP_PER_HOST_WALK_CONCURRENCY` | `60` / `1` | SNMP probe wall-clock budget (the ~60-OID fan-out lives under this) and per-host walk concurrency (default 1 = serialised; raise to 8–16 for fast snmpd's). |
-| `SNMP_HOST_CACHE_TTL_SECONDS` / `SNMP_HOST_FAIL_CACHE_TTL_SECONDS` | `30` / `5` | Per-host SNMP success / failure probe cache TTLs. Distinct from the Webmin pair so a Webmin tweak can't silently re-tune SNMP. |
-| `SNMP_UNREACHABLE_COOLDOWN_SECONDS` | `300` | SNMP-specific unreachable cool-down. Distinct from `AUTH_FAILURE_COOLDOWN_SECONDS` (no auth challenge to lock out against). |
-| `STAT_BAR_WARN_PCT` / `STAT_BAR_CRIT_PCT` | `60` / `85` | Hosts-view stat-bar amber / red threshold percentages. Edit live from Admin → Config; the SPA reads via `/api/me`'s `client_config.stat_bar_warn_pct`. |
-| `HOST_PERMANENT_FAIL_WINDOW_SECONDS` | `900` | `host_metrics_sampler` auto-pause window after consecutive probe failures. |
-| `OPS_POLL_INTERVAL_SECONDS` | `2` | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for admin-UI friendliness). |
-| `LOG_RETENTION_DAYS` | `7` | Persistent-log retention for `/app/data/logs/` (pruned hourly). |
-| `NOTIFICATION_RETENTION_DAYS` | `90` | In-app notifications retention in days. Drives the `prune_notifications` schedule kind. |
-| `HOST_SNAPSHOTS_CACHE_TTL_SECONDS` | `5` | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable). |
-| `HOSTS_PARALLEL_FETCH` | `6` | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`). |
+| Var                                                                   | Default     | Notes                                                                                                                                                                                                      |
+|-----------------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `CACHE_TTL_SECONDS`                                                   | `900`       | Items cache TTL (full registry-digest refresh interval).                                                                                                                                                   |
+| `STATS_CACHE_TTL_SECONDS`                                             | `30`        | Per-container stats cache TTL — fresh polling without forcing a full digest re-fetch.                                                                                                                      |
+| `REGISTRY_CONCURRENCY`                                                | `8`         | Parallel remote-digest fetches.                                                                                                                                                                            |
+| `STATS_CONCURRENCY`                                                   | `16`        | Parallel `/containers/{id}/stats` calls.                                                                                                                                                                   |
+| `STATS_HISTORY_DAYS`                                                  | `7`         | Retention window for the time-series tables (`stats_samples` / `host_metrics_samples` / `host_net_samples` / `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `ping_samples`). |
+| `STATS_SAMPLE_INTERVAL_SECONDS`                                       | `300`       | How often the lifespan samplers snapshot into the time-series tables.                                                                                                                                      |
+| `STATS_TARGETED_TIMEOUT_SECONDS` / `STATS_UNTARGETED_TIMEOUT_SECONDS` | `12` / `10` | Per-container `/stats` HTTP timeouts (Portainer-agent-targeted vs untargeted fallback). Bumped from a hardcoded 4 s to fix worker-node stats coming back empty under busy hubs.                            |
+| `SWARM_AGENT_UNHEALTHY_THRESHOLD`                                     | `3`         | Consecutive failed gather cycles before the unhealthy-Swarm-agent banner fires above the Stacks / Services / Nodes views. Range 1–20.                                                                      |
+| `SNMP_SAMPLE_INTERVAL_SECONDS`                                        | `0`         | SNMP-specific sample interval. `0` inherits the global `STATS_SAMPLE_INTERVAL_SECONDS`; any value `30..3600` overrides for SNMP probes only (printers can poll hourly while switches poll every minute).   |
+| `SNMP_WALL_CLOCK_BUDGET_SECONDS` / `SNMP_PER_HOST_WALK_CONCURRENCY`   | `60` / `1`  | SNMP probe wall-clock budget (the ~60-OID fan-out lives under this) and per-host walk concurrency (default 1 = serialised; raise to 8–16 for fast snmpd's).                                                |
+| `SNMP_HOST_CACHE_TTL_SECONDS` / `SNMP_HOST_FAIL_CACHE_TTL_SECONDS`    | `30` / `5`  | Per-host SNMP success / failure probe cache TTLs. Distinct from the Webmin pair so a Webmin tweak can't silently re-tune SNMP.                                                                             |
+| `SNMP_UNREACHABLE_COOLDOWN_SECONDS`                                   | `300`       | SNMP-specific unreachable cool-down. Distinct from `AUTH_FAILURE_COOLDOWN_SECONDS` (no auth challenge to lock out against).                                                                                |
+| `STAT_BAR_WARN_PCT` / `STAT_BAR_CRIT_PCT`                             | `60` / `85` | Hosts-view stat-bar amber / red threshold percentages. Edit live from Admin → Config; the SPA reads via `/api/me`'s `client_config.stat_bar_warn_pct`.                                                     |
+| `HOST_PERMANENT_FAIL_WINDOW_SECONDS`                                  | `900`       | `host_metrics_sampler` auto-pause window after consecutive probe failures.                                                                                                                                 |
+| `OPS_POLL_INTERVAL_SECONDS`                                           | `2`         | SPA `/api/ops` poll cadence in seconds; multiplied × 1000 before delivery via `/api/me`'s `client_config.ops_poll_ms` (renamed from the legacy `OPS_POLL_INTERVAL_MS` for admin-UI friendliness).          |
+| `LOG_RETENTION_DAYS`                                                  | `7`         | Persistent-log retention for `/app/data/logs/` (pruned hourly).                                                                                                                                            |
+| `NOTIFICATION_RETENTION_DAYS`                                         | `90`        | In-app notifications retention in days. Drives the `prune_notifications` schedule kind.                                                                                                                    |
+| `HOST_SNAPSHOTS_CACHE_TTL_SECONDS`                                    | `5`         | Read-side cache TTL on `host_snapshots` to collapse parallel `/api/hosts/one/{id}` reads (set 0 to disable).                                                                                               |
+| `HOSTS_PARALLEL_FETCH`                                                | `6`         | Concurrency cap on the SPA's `/api/hosts/one/{id}` fan-out (read on `/api/me` as `client_config.hosts_parallel_fetch`).                                                                                    |
 
 The authoritative table is [`logic/tuning.py:TUNABLES`](logic/tuning.py); the env-var names above are mirrored from there. Every tunable value lives in `TUNABLES` — no hardcoded magic numbers in Python / JS / HTML. Add new knobs there, never as code constants.
 
@@ -226,7 +233,13 @@ POST   /api/swarm/restart-agent            restart Portainer agent → {op_id}
 GET    /api/ops                            list active+recent ops (in-memory, last 50)
 GET    /api/ops/{op_id}                    single op + event log
 GET    /api/history?limit=100&search=...   persisted completed ops (filterable)
-DELETE /api/history                        clear history (admin)
+GET    /api/history.json                   bulk JSON export of the same filtered query
+GET    /api/history.csv                    bulk CSV export of the same filtered query
+DELETE /api/history                        clear history (admin — self-audited)
+GET    /api/item/{raw_id}                  single item by full Docker/Swarm id (svc:/ctn:/raw)
+
+# Real-time event stream
+GET    /api/events                         SSE stream — see "Real-time events" in docs/guidelines/api.md
 
 # Hosts (curated inventory + telemetry)
 GET    /api/hosts                          legacy — composes /list + per-row /one. Accepts ?force=true
@@ -239,8 +252,13 @@ GET                          /api/hosts/discover                 probe each prov
 POST                         /api/hosts/test                     per-row validation (provider names + URLs)
 POST                         /api/hosts/{host_id}/resume-sampling                clear a host's whole-host auto-pause marker
 POST                         /api/hosts/{host_id}/provider/{provider}/resume     clear ONE per-(provider, host) auto-pause marker
-POST                         /api/hosts/bulk/{pause,resume}      bulk pause / resume sampling across host_ids
-POST                         /api/hosts/bulk/{snmp_vendors,snmp_tunables}  apply per-host SNMP overrides across host_ids
+POST                         /api/hosts/bulk/pause                bulk pause sampling across host_ids
+POST                         /api/hosts/bulk/resume               bulk resume sampling across host_ids
+POST                         /api/hosts/bulk/snmp_vendors         apply per-host SNMP vendor whitelist across host_ids
+POST                         /api/hosts/bulk/snmp_tunables        apply per-host SNMP tunable overrides across host_ids
+GET                          /api/hosts/{host_id}/timeline?hours=N              per-host event timeline (state changes + sampler errors + audit rows)
+GET                          /api/hosts/{host_id}/triage                        similar-incident clustering for the failure-history pane
+GET                          /api/hosts/debug?id=<host>                         raw provider-payload view for one host (admin)
 GET                          /api/hosts/{host_id}/snmp/history?hours=N           per-host SNMP samples (CPU / mem / disk / uptime)
 GET                          /api/hosts/{host_id}/snmp/iface_history?hours=N     per-interface throughput (top-5 by rate)
 GET                          /api/hosts/{host_id}/snmp/temp_history?hours=N      per-temperature-probe sensors
@@ -285,7 +303,7 @@ POST   /api/oidc/test                      probe issuer's discovery endpoint
 POST   /api/telegram/test                  fire a fixed test payload through Telegram ONLY
 POST   /api/apprise/test                   fire a fixed test payload through Apprise ONLY
 POST   /api/notify-test                    fire a test payload through every enabled medium
-POST   /api/notify/send                    operator-typed notification routed to ONE medium (admin)
+POST   /api/notify/send                    admin-typed notification routed to ONE medium
 
 # Schedules / backups / SSH
 GET / POST / PATCH / DELETE  /api/schedules[/{id}]
@@ -333,6 +351,10 @@ GET                           /api/admin/stats/incidents?range=24h   incident vi
 GET                           /api/admin/stats/ai-cost?range=24h     finance-style view of ai_jobs
 GET                           /api/admin/stats/samples?range=24h     per-sample-table KPIs
 GET / DELETE                  /api/admin/stats/samples/by-host       per-host drill-down (per sample table)
+GET                           /api/admin/stats/samplers              per-sampler live state + last-tick rows + last-prune rows
+
+# Admin tuning panel (admin-only)
+GET                           /api/admin/tuning                      per-tunable effective state (DB / env / default / resolved)
 
 # Config backup (admin-only — Settings-as-Code snapshots)
 GET                           /api/admin/config-backup/export        stream current config as JSON download
@@ -372,7 +394,10 @@ GET / POST / DELETE          /api/tabs/activity                       SPA heartb
 
 # Public IP / weather (topbar widgets + AI palette context block)
 GET                           /api/public-ip                          admin-only; default OFF for privacy
-GET                           /api/weather?lat=&lon=&label=           public Open-Meteo proxy
+GET                           /api/public-ip/history?limit=N          admin-only; ordered most-recent-first
+GET                           /api/weather?lat=&lon=&label=           weather proxy (Open-Meteo or WeatherAPI per Admin → Weather)
+GET                           /api/weather/history?limit=N&lat=&lon=  cached historical samples for AI / Telegram retrospective questions
+POST                          /api/weather/test                       probe Open-Meteo or WeatherAPI credentials (admin)
 
 # Login providers advertisement
 GET                           /api/auth/providers                     {local, oidc, ...} for login page rendering
@@ -389,12 +414,15 @@ GET                           /api/apps/instances                    flat per-in
 GET / POST                    /api/services/catalog                  list / create catalog templates
 PATCH / DELETE                /api/services/catalog/{cid}            update / remove one template
 POST                          /api/services/catalog/seed             re-seed built-in templates (idempotent)
-GET / POST                    /api/services/catalog/{export,import}  portable JSON pack export / import
+GET                           /api/services/catalog/export           portable JSON pack export
+POST                          /api/services/catalog/import           portable JSON pack import (upsert by slug)
 POST                          /api/services/catalog/{cid}/pin        pin a template to one host
 POST                          /api/services/discover/{host_id}       run discovery wizard for one host
 POST                          /api/services/discover/{host_id}/apply bulk-apply a discovery proposal
 PATCH / DELETE                /api/services/{host_id}/{service_idx}  edit / remove one pinned instance
 POST                          /api/services/{host_id}/{service_idx}/probe   admin-only one-shot probe
+POST                          /api/services/{host_id}/{service_idx}/test-credential  per-app credential test (e.g. Speedtest Tracker API key)
+GET                           /api/services/{host_id}/{service_idx}/app-data        per-app expanded card data (per-slug dispatcher)
 GET                           /api/services/{host_id}/{service_idx}/debug   per-chip diagnostics
 GET                           /api/services/{host_id}/{service_idx}/history per-chip probe-result series
 GET                           /api/container/{raw_id}/logs?lines=N   Portainer-routed container logs (admin)
@@ -489,37 +517,36 @@ sure your work lands smoothly.
 ## Screenshots
 
 The Nodes view at the top of this README is the dashboard's most-used surface.
-The full gallery lives under [`docs/screenshots/`](docs/screenshots/) — a quick
-tour:
+The full gallery lives under `docs/screenshots/` — a quick tour:
 
 ### Cluster overview
 
-| | |
-| --- | --- |
-| ![Stacks](docs/screenshots/stacks-view-light.png) | **Stacks view** — grouped table, expand-per-stack, the default landing surface. |
-| ![Services](docs/screenshots/services-view-light.png) | **Services view** — flat sortable list of every Swarm service. |
-| ![Service detail](docs/screenshots/service-detail-drawer.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore). |
-| ![Nodes](docs/screenshots/nodes-view.png) | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars. |
-| ![History](docs/screenshots/history-audit-log.png) | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
+|                                                               |                                                                                                 |
+|---------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| ![Stacks](docs/screenshots/stacks-view-light.png)             | **Stacks view** — grouped table, expand-per-stack, the default landing surface.                 |
+| ![Services](docs/screenshots/services-view-light.png)         | **Services view** — flat sortable list of every Swarm service.                                  |
+| ![Service detail](docs/screenshots/service-detail-drawer.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore).             |
+| ![Nodes](docs/screenshots/nodes-view.png)                     | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars.    |
+| ![History](docs/screenshots/history-audit-log.png)            | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
 
 ### Hosts
 
-| | |
-| --- | --- |
-| ![Hosts (light)](docs/screenshots/hosts-view-light.png) | **Hosts view (light)** — curated host inventory grouped by `custom_number` ranges. |
-| ![Hosts (dark)](docs/screenshots/hosts-view-dark.png) | **Hosts view (dark)** — same data, dark theme. |
-| ![Hardware drawer](docs/screenshots/host-drawer-hardware.png) | **Host drawer — hardware** — vendor / model / serial / OS / kernel / network details. |
-| ![Charts drawer](docs/screenshots/host-drawer-charts.png) | **Host drawer — charts** — CPU / Mem / Disk / Net In/Out / Load / Bandwidth time-series. |
-| ![Charts drawer (bottom)](docs/screenshots/host-drawer-charts-bottom.png) | **Host drawer — bandwidth + swap** — scrolled view of the chart grid. |
+|                                                                           |                                                                                          |
+|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| ![Hosts (light)](docs/screenshots/hosts-view-light.png)                   | **Hosts view (light)** — curated host inventory grouped by `custom_number` ranges.       |
+| ![Hosts (dark)](docs/screenshots/hosts-view-dark.png)                     | **Hosts view (dark)** — same data, dark theme.                                           |
+| ![Hardware drawer](docs/screenshots/host-drawer-hardware.png)             | **Host drawer — hardware** — vendor / model / serial / OS / kernel / network details.    |
+| ![Charts drawer](docs/screenshots/host-drawer-charts.png)                 | **Host drawer — charts** — CPU / Mem / Disk / Net In/Out / Load / Bandwidth time-series. |
+| ![Charts drawer (bottom)](docs/screenshots/host-drawer-charts-bottom.png) | **Host drawer — bandwidth + swap** — scrolled view of the chart grid.                    |
 
 ### Admin / operations
 
-| | |
-| --- | --- |
-| ![SSH run](docs/screenshots/host-drawer-ssh-run.png) | **Host drawer — SSH-run** — admin one-shot command runner with dry-run, destructive-pattern guard, full audit. |
-| ![SSH terminal](docs/screenshots/host-drawer-ssh-terminal.png) | **Host drawer — SSH terminal** — interactive xterm.js session via WSS to the backend's asyncssh PTY. |
-| ![Hosts editor](docs/screenshots/admin-hosts-editor.png) | **Admin → Hosts editor** — paginated curated-host CRUD with live discovery from each provider. |
-| ![Schedules](docs/screenshots/admin-schedules.png) | **Admin → Schedules** — cron-like recurring jobs (gather refresh / prune / backup / asset refresh). |
-| ![Backups](docs/screenshots/admin-backups.png) | **Admin → Backups** — DB + avatars snapshot zips with download / restore. |
-| ![Profile](docs/screenshots/settings-profile.png) | **Settings → Profile** — account info, display name / email / avatar, password change. |
-| ![Debug drawer](docs/screenshots/host-drawer-debug.png) | **Host drawer — debug** — raw provider-payload view (Beszel / Pulse / NE / Webmin) for troubleshooting empty rows. |
+|                                                                |                                                                                                                    |
+|----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| ![SSH run](docs/screenshots/host-drawer-ssh-run.png)           | **Host drawer — SSH-run** — admin one-shot command runner with dry-run, destructive-pattern guard, full audit.     |
+| ![SSH terminal](docs/screenshots/host-drawer-ssh-terminal.png) | **Host drawer — SSH terminal** — interactive xterm.js session via WSS to the backend's asyncssh PTY.               |
+| ![Hosts editor](docs/screenshots/admin-hosts-editor.png)       | **Admin → Hosts editor** — paginated curated-host CRUD with live discovery from each provider.                     |
+| ![Schedules](docs/screenshots/admin-schedules.png)             | **Admin → Schedules** — cron-like recurring jobs (gather refresh / prune / backup / asset refresh).                |
+| ![Backups](docs/screenshots/admin-backups.png)                 | **Admin → Backups** — DB + avatars snapshot zips with download / restore.                                          |
+| ![Profile](docs/screenshots/settings-profile.png)              | **Settings → Profile** — account info, display name / email / avatar, password change.                             |
+| ![Debug drawer](docs/screenshots/host-drawer-debug.png)        | **Host drawer — debug** — raw provider-payload view (Beszel / Pulse / NE / Webmin) for troubleshooting empty rows. |

@@ -27,6 +27,7 @@
 // against fresh state (zero staleness, same contract as filteredHosts).
 let _nodeStatsFlushCache = null;
 let _nodeStatsFlushScheduled = false;
+
 function _clearNodeStatsFlushCache() {
   _nodeStatsFlushCache = null;
   _nodeStatsFlushScheduled = false;
@@ -42,6 +43,7 @@ function _clearNodeStatsFlushCache() {
 // re-renders on the stats/sparks poll, re-evaluating these bindings fresh.
 let _nodeSparkFlushCache = null;
 let _nodeSparkFlushScheduled = false;
+
 function _clearNodeSparkFlushCache() {
   _nodeSparkFlushCache = null;
   _nodeSparkFlushScheduled = false;
@@ -317,7 +319,7 @@ export default {
     return (n / 1000).toFixed(1) + 's';
   },
   // Colour the duration cell when it crosses the slow-loop boundary
-  // (100ms — the same boundary CLAUDE.md uses for the `to_thread`
+  // (100ms — the same boundary the project conventions uses for the `to_thread`
   // offload rule). Amber at 100ms-1s; red at >=1s. Operators spot
   // a sampler that started taking 5 seconds when it used to take 50
   // ms at a glance via the colour.

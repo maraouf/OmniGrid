@@ -463,7 +463,7 @@ export default {
   // ============================================================
   // Weather — WeatherAPI.com section helpers + history cache for
   // the AI palette context-builder. The Admin → Weather tab follows
-  // the canonical Test-before-Save gate pattern (see CLAUDE.md
+  // the canonical Test-before-Save gate pattern (see the project conventions
   // "Test-before-Save gate"); the section-owned save bundles the
   // per-section tunables + plain settings into ONE POST.
   // ============================================================
@@ -645,7 +645,7 @@ export default {
       const body = {};
       // Per-section tunables + plain settings + secret bits all
       // ride one POST so a single Save commits the whole weather
-      // configuration (CLAUDE.md "Section-owned save pattern").
+      // configuration (the project conventions "Section-owned save pattern").
       for (const k of this._weatherSectionTuningKeys()) {
         const v = (this.tuningForm || {})[k];
         body[k] = (v == null ? '' : String(v).trim());

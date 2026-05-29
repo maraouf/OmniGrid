@@ -66,7 +66,7 @@ def is_enabled() -> bool:
     """Master gate. Operator flips ``tuning_public_ip_enabled``
     (Admin → Public IP) to authorise outbound calls to ifconfig.co.
     Encoded as an int tunable (1 = on, 0 = off) per the canonical
-    TUNABLES pattern — see CLAUDE.md "Plain-settings escape hatch is
+    TUNABLES pattern — see the project conventions "Plain-settings escape hatch is
     a drift class"."""
     try:
         return bool(tuning_int(Tunable.PUBLIC_IP_ENABLED))

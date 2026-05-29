@@ -235,7 +235,7 @@ async def write_client(timeout: float = 60.0) -> AsyncIterator[httpx.AsyncClient
 
     Centralises the boilerplate every Portainer write op duplicated —
     `async with httpx.AsyncClient(verify=portainer.VERIFY_TLS,
-    timeout=X)` × 9 sites in `logic/ops.py`. Per CLAUDE.md "Vendor /
+    timeout=X)` × 9 sites in `logic/ops.py`. Per the project conventions "Vendor /
     capability key sets need ONE source of truth" — the verify + ssl
     config should be in one place so future TLS-handling changes
     (CA bundle path, retries, etc.) only need one edit.

@@ -1016,7 +1016,7 @@ async def _gather_impl() -> None:
         async def safe(coro, fb):
             """Await `coro` and return its result; on any failure log + return `fb`.
 
-            CancelledError + KeyboardInterrupt propagate per CLAUDE.md's
+            CancelledError + KeyboardInterrupt propagate per the project's
             "broad except MUST carve out cancellation" rule so lifespan
             shutdown of the gather task doesn't get swallowed.
             """
@@ -1028,7 +1028,7 @@ async def _gather_impl() -> None:
                 print(f"[gather] {gather_err}")
                 return fb
 
-        # Parallel fan-out — closes the doc/code drift CLAUDE.md
+        # Parallel fan-out — closes the doc/code drift the project conventions
         # already documents at the "Data gathering flow" section.
         # `safe()` swallows exceptions per call so `asyncio.gather`
         # can run with `return_exceptions=False` (no exception can
@@ -1152,7 +1152,7 @@ async def _gather_impl() -> None:
 
             Returns ``(host, total_bytes)``. Any per-node failure swallows
             to ``(host, 0)`` so one bad daemon doesn't blank the Nodes view.
-            CancelledError + KeyboardInterrupt propagate per CLAUDE.md's
+            CancelledError + KeyboardInterrupt propagate per the project's
             "broad except MUST carve out cancellation" rule.
             """
             try:

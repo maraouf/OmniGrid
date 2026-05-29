@@ -37,7 +37,7 @@ import json
 import re
 import sqlite3
 import time
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, cast
 from urllib.parse import urlparse
 
 from logic.db import db_conn, iter_curated_hosts
@@ -773,7 +773,7 @@ def _coerce_int(v: Any) -> Optional[int]:
     Beyond those two pre-filters, the shared ``int_or_none`` handles
     the int/float/str→int narrowing. Promotion to the shared helper
     eliminates the previously-duplicated narrowing arms documented in
-    CLAUDE.md "Numeric-coercion helpers live in the shared
+    the project conventions "Numeric-coercion helpers live in the shared
     ``logic/coerce.py`` leaf module".
     """
     if v is None or v == "" or isinstance(v, bool):
@@ -1225,14 +1225,29 @@ def seed_builtins(force: bool = False) -> int:
             for tpl in _BUILTIN:
                 row = existing_rows.get(tpl["slug"])
                 # row tuple: (slug, default_ports_json, name, icon, description, source)
-                if row is None or (row[5] or "") != "builtin":
+                # Early-return on missing row OR non-builtin row. PyCharm's
+                # type narrower doesn't propagate the `is None or ...`
+                # short-circuit through `continue` into subsequent
+                # statements, so bind the post-narrow row to its own name
+                # explicitly so the inline index reads (`row_ok[1]`...)
+                # type-check cleanly.
+                if row is None:
+                    continue
+                # `existing_rows.get(...)` returns `Any | None`; the
+                # None-check above guarantees `tuple` here so cast
+                # explicitly. Using `cast` (not a bare annotation)
+                # avoids the "Expected type 'tuple', got 'Any | None'
+                # instead" warning since PyCharm respects `cast` as
+                # an explicit type override.
+                row_ok = cast(tuple, row)
+                if (row_ok[5] or "") != "builtin":
                     continue
                 want_ports = json.dumps(_coerce_ports(tpl.get("default_ports") or []))
                 want_name = tpl["name"]
                 want_icon = tpl.get("icon") or tpl["slug"]
                 want_desc = tpl.get("description") or ""
-                if (row[1] == want_ports and row[2] == want_name
-                        and row[3] == want_icon and row[4] == want_desc):
+                if (row_ok[1] == want_ports and row_ok[2] == want_name
+                    and row_ok[3] == want_icon and row_ok[4] == want_desc):
                     continue  # already canonical — nothing to do
                 try:
                     c.execute(

@@ -5,13 +5,13 @@ deps + source + static assets + `node_modules/` into an `omnigrid:<version>` ima
 pipeline builds on the Swarm manager itself and rolls the new tag in via `docker stack
 deploy` + `docker service update --force`.
 
-| Field           | Value                                                       |
-| --------------- | ----------------------------------------------------------- |
-| Target          | `pi@docker.example.com:/opt/omnigrid/app` (build context)   |
-| Runner          | `home-runner` on `git.example.com` (shared, INSTANCE scope) |
-| Build           | `docker build --build-arg VERSION=<new> -t omnigrid:<new>` (on the manager) |
+| Field           | Value                                                                                   |
+| --------------- | --------------------------------------------------------------------------------------- |
+| Target          | `pi@docker.example.com:/opt/omnigrid/app` (build context)                               |
+| Runner          | `home-runner` on `git.example.com` (shared, INSTANCE scope)                             |
+| Build           | `docker build --build-arg VERSION=<new> -t omnigrid:<new>` (on the manager)             |
 | Stack apply     | `docker stack deploy --resolve-image=always --compose-file docker-compose.yml omnigrid` |
-| Force tag swap  | `docker service update --force --image omnigrid:<new> omnigrid_omnigrid` |
+| Force tag swap  | `docker service update --force --image omnigrid:<new> omnigrid_omnigrid`                |
 
 The deploy target is a Debian 13 VM (amd64, 16 GB / 100 GB) reachable at `pi@docker.example.com`.
 The username `pi` is just a unix account name — it is NOT a Raspberry Pi.
@@ -37,9 +37,9 @@ We deliberately do NOT create a second forgejo-runner. The existing `home-runner
 
 | Scope     | Reach                                                                                        |
 | --------- | -------------------------------------------------------------------------------------------- |
-| Repo      | Usable by ONE repo only (the default in the original TelegramHomeBot setup notes).            |
-| User/Org  | Usable by every repo you own.                                                                 |
-| Instance  | Usable by every repo on the CI host (admin-only). **Chosen.**                                 |
+| Repo      | Usable by ONE repo only (the default in the original TelegramHomeBot setup notes).           |
+| User/Org  | Usable by every repo you own.                                                                |
+| Instance  | Usable by every repo on the CI host (admin-only). **Chosen.**                                |
 
 **Decision**: register at INSTANCE scope. One runner, one registration, every current and future
 repo on this CI instance can use it without any per-repo dance. Requires site-admin access
@@ -136,10 +136,10 @@ Both original deploy keys (for `automation.example.com` and `docker.example.com`
 disk right after being pasted into their CI secrets. We now rebuild with cleaner isolation:
 one key per target, private half living only inside that project's `DEPLOY_SSH_KEY` secret.
 
-| Key                          | Target                     | Project         |
-| ---------------------------- | -------------------------- | --------------- |
-| `forgejo_deploy_docker`      | `pi@docker.example.com`       | OmniGrid        |
-| `forgejo_deploy_automation`  | `pi@automation.example.com`   | TelegramHomeBot |
+| Key                          | Target                      | Project         |
+| ---------------------------- | --------------------------- | --------------- |
+| `forgejo_deploy_docker`      | `pi@docker.example.com`     | OmniGrid        |
+| `forgejo_deploy_automation`  | `pi@automation.example.com` | TelegramHomeBot |
 
 If one project's key leaks, rotating it doesn't touch the other.
 
@@ -323,7 +323,7 @@ Create each variable:
 
 | Name          | Value                  |
 | ------------- | ---------------------- |
-| `DEPLOY_HOST` | `docker.example.com`      |
+| `DEPLOY_HOST` | `docker.example.com`   |
 | `DEPLOY_USER` | `pi`                   |
 | `DEPLOY_PATH` | `/opt/omnigrid/app`    |
 
@@ -358,9 +358,9 @@ your home-lab, so skip unless you want to override):
 
 | Name          | Default                                             |
 | ------------- | --------------------------------------------------- |
-| `APPRISE_URL` | `http://apprise.example.com:8005/notify/apprise`       |
+| `APPRISE_URL` | `http://apprise.example.com:8005/notify/apprise`    |
 | `APPRISE_TAG` | `omnigrid`                                          |
-| `PROBE_URL`   | `http://docker.example.com:9500/api/healthz`           |
+| `PROBE_URL`   | `http://docker.example.com:9500/api/healthz`        |
 
 If any required name is missing or misspelled, fix it before running the workflow — a typo'd
 `DEPLOY_USER` would fall through to the `|| 'pi'` default silently, but a typo'd
@@ -627,11 +627,11 @@ list. The pull-the-newest-minor flow is `:latest`; the "pin to a known good buil
 
 Tag layout summary:
 
-| Tag                              | Floats?  | Use for                                                                |
-| -------------------------------- | -------- | ---------------------------------------------------------------------- |
-| `ghcr.io/maraouf/omnigrid:latest`         | ✅       | "Give me the newest stable build" — moves on every MINOR cut            |
-| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`| ✅       | "Pin me to this major line" — moves to the newest MINOR on that major   |
-| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>.0` | ❌    | Immutable cut-day MINOR tag — use for rollbacks, never overwritten      |
+| Tag                                          | Floats?  | Use for                                                                |
+| -------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `ghcr.io/maraouf/omnigrid:latest`            | ✅        | "Give me the newest stable build" — moves on every MINOR cut           |
+| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`   | ✅        | "Pin me to this major line" — moves to the newest MINOR on that major  |
+| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>.0` | ❌        | Immutable cut-day MINOR tag — use for rollbacks, never overwritten     |
 
 ### Compose / Swarm wiring
 

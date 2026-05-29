@@ -61,7 +61,7 @@ from logic.coerce import (
 def _resolve_service_probe_interval() -> int:
     """Sampler tick cadence — thin wrapper for binary-compat. The
     canonical implementation lives at `tuning.resolve_provider_interval`
-    (shared across http_probe / service_probe samplers per CLAUDE.md
+    (shared across http_probe / service_probe samplers per the project conventions
     priority L duplicate-code rule).
     """
     return tuning.resolve_provider_interval(_Tunable.SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS)
@@ -1166,7 +1166,7 @@ def history_rollup_all_for_hosts(host_ids: list[str],
 # but the provider-merged dict's service key holds the Beszel systemd
 # rollup (never the curated array), so the body never executed. Per-service
 # `last_probe` is delivered by `_shape_host_apps(h)` in apps_routes.py
-# (curated `h["services"]` + service_samples). See CLAUDE.md "Backend
+# (curated `h["services"]` + service_samples). See the project conventions "Backend
 # populate_host_X_merge / shared list+detail helpers keyed on the WRONG
 # merged-dict field silently no-op".
 

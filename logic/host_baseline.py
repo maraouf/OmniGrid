@@ -220,7 +220,55 @@ def _fetch_host_metric_samples(c, host_id: str, since_ts: int) -> dict[str, list
     return out
 
 
-def compute_baselines(host_id: str, target: str = "") -> dict[str, dict]:
+def _compute_baselines_with_conn(c, host_id: str, target: str,
+                                 since_ts: int,
+                                 out: dict[str, dict]) -> dict[str, dict]:
+    """Inner body of :func:`compute_baselines` -- runs the SELECT +
+    UPSERT/DELETE pass against an EXISTING connection passed in by
+    the sampler. Caller (`host_baseline_sampler._baseline_tick`)
+    walks every curated host inside ONE shared `db_conn()` and
+    commits at the END of the tick, so a 200-host fleet collapses
+    200 connection-opens (each waiting on the writer-lock's PRAGMA
+    setup) into ONE.
+
+    Same SQL + same per-host log line as the self-opened path. Does
+    NOT commit -- the caller commits after walking every host."""
+    try:
+        samples = _fetch_host_metric_samples(c, host_id, since_ts)
+        counts = " ".join(
+            f"{m}={len(samples.get(m, []))}" for m in METRICS
+        )
+        target_blurb = f" target={target}" if target else ""
+        print(
+            f"[host_baseline] {host_id}{target_blurb} sample counts: "
+            f"{counts} (need >= {_min_samples()} per metric)"
+        )
+        for metric, vals in samples.items():
+            bl = _baseline_for(vals)
+            if bl is None:
+                c.execute(
+                    "DELETE FROM host_baselines WHERE host_id = ? AND metric = ?",
+                    (host_id, metric),
+                )
+                continue
+            median, iqr, n = bl
+            c.execute(
+                "INSERT OR REPLACE INTO host_baselines "
+                "(host_id, metric, median, iqr, sample_count, computed_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (host_id, metric, median, iqr, n, int(time.time())),
+            )
+            out[metric] = {
+                "median": median, "iqr": iqr, "sample_count": n,
+            }
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except (sqlite3.Error, RuntimeError, OSError) as e:
+        print(f"[host_baseline] {host_id} compute failed: {e}")
+    return out
+
+
+def compute_baselines(host_id: str, target: str = "", conn=None) -> dict[str, dict]:
     """Recompute baselines for ONE host. UPSERTs into `host_baselines`
     AND returns the in-memory map for the caller (sampler logs it).
 
@@ -228,48 +276,31 @@ def compute_baselines(host_id: str, target: str = "") -> dict[str, dict]:
     folded into the per-host diagnostic log line so the operator can
     spot a wrong-address bug (e.g. samples never accumulate for a
     host whose probe target points at the wrong IP).
+
+    ``conn`` (optional) — pre-opened ``sqlite3.Connection`` to use
+    instead of opening a fresh one. The baseline sampler walks the
+    entire curated fleet inside ONE shared connection so a 200-host
+    tick collapses 200 connection-opens (each waiting on the writer
+    lock's PRAGMA setup) into ONE. When ``None``, opens its own
+    connection (back-compat for any other caller). The shared-conn
+    path commits at the END of the tick (caller's responsibility);
+    the per-host self-opened path commits per-host as before.
     """
     if not host_id:
         return {}
     since_ts = int(time.time() - _window_days() * 86400)
     out: dict[str, dict] = {}
+    if conn is not None:
+        # Shared-connection path — caller owns commit lifecycle.
+        return _compute_baselines_with_conn(conn, host_id, target, since_ts, out)
+    # Self-opened path — delegate to the shared helper inside a
+    # fresh `db_conn()`, then commit. Eliminates the body
+    # duplication PyCharm's `DuplicatedCodeFragmentJS` inspection
+    # flagged when this function had its own copy of the
+    # SELECT + UPSERT/DELETE loop.
     try:
         with db_conn() as c:
-            samples = _fetch_host_metric_samples(c, host_id, since_ts)
-            # Per-host sample-count diagnostic — operator chasing
-            # "drift chip not showing" needs to see exactly which
-            # metric is short of the threshold. Single line per tick
-            # per host so Admin -> Logs renders one row per host on
-            # every baseline pass.
-            counts = " ".join(
-                f"{m}={len(samples.get(m, []))}" for m in METRICS
-            )
-            target_blurb = f" target={target}" if target else ""
-            print(
-                f"[host_baseline] {host_id}{target_blurb} sample counts: "
-                f"{counts} (need >= {_min_samples()} per metric)"
-            )
-            for metric, vals in samples.items():
-                bl = _baseline_for(vals)
-                if bl is None:
-                    # Drop the row so a metric that USED to be
-                    # baselined but no longer has enough samples
-                    # doesn't keep returning a stale baseline.
-                    c.execute(
-                        "DELETE FROM host_baselines WHERE host_id = ? AND metric = ?",
-                        (host_id, metric),
-                    )
-                    continue
-                median, iqr, n = bl
-                c.execute(
-                    "INSERT OR REPLACE INTO host_baselines "
-                    "(host_id, metric, median, iqr, sample_count, computed_ts) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (host_id, metric, median, iqr, n, int(time.time())),
-                )
-                out[metric] = {
-                    "median": median, "iqr": iqr, "sample_count": n,
-                }
+            _compute_baselines_with_conn(c, host_id, target, since_ts, out)
             c.commit()
     except (KeyboardInterrupt, SystemExit):
         # NEVER swallow lifecycle exceptions — the asyncio sampler

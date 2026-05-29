@@ -602,7 +602,7 @@ export default {
     // Formats preference (Settings → Profile → Formats) so labels
     // honour the same `dd/MM/yyyy, HH:mm:ss` / `MM/dd/yyyy` / etc.
     // grammar that powers every other date render in the SPA. Per
-    // CLAUDE.md "User-pref token grammar with derived variants —
+    // the project conventions "User-pref token grammar with derived variants —
     // single source of truth, strip-don't-store": hour buckets get a
     // time-only format derived by stripping date tokens from the
     // canonical pref; day + week buckets use `_userDateOnlyFormat()`.
@@ -678,7 +678,7 @@ export default {
       const bh = (PAD_T + plotH - Y(total)).toFixed(2);
       svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
         + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
-        + '<title>' + esc(this.t('stats.samples.daily_chart.bar_tooltip', { date: fmtTooltipDate(p.date), count: total.toLocaleString() })) + '</title>'
+        + '<title>' + esc(this.t('stats.samples.daily_chart.bar_tooltip', {date: fmtTooltipDate(p.date), count: total.toLocaleString()})) + '</title>'
         + '</rect>';
     }
     // X-axis tick labels — rotated -45° at 90d so the ~14 weekly
@@ -1858,7 +1858,7 @@ export default {
   },
   // Deterministic per-sensor colour token. Cycles through the
   // five existing pill / accent tokens so we don't introduce new
-  // colour literals (CLAUDE.md token discipline). Index comes from
+  // colour literals (the project conventions token discipline). Index comes from
   // a sorted-name lookup so each sensor always gets the same colour
   // across renders, regardless of `Object.entries` iteration order.
   hostTempLineColor(name, sortedNames) {
@@ -1878,7 +1878,7 @@ export default {
   // are discovered by walking every point's `temps` dict (the union,
   // since some sensors only appear partway through a session). Each
   // sensor's missing samples are skipped, not zero-padded — that
-  // matches CLAUDE.md's "skip-don't-synthesize" rule for time series.
+  // matches the project conventions's "skip-don't-synthesize" rule for time series.
   // Returns null when there's not enough data to draw two points.
   hostTempChart(systemId, opts = {}) {
     const entry = this.hostHistory[systemId];

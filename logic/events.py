@@ -1,6 +1,6 @@
 """In-process pub/sub event bus for the SSE live-updates channel.
 
-Single-replica deploy invariant (CLAUDE.md) — keeps every subscriber's
+Single-replica deploy invariant (the project conventions) — keeps every subscriber's
 queue in this Python process. No Redis, no broker; a horizontal scale-out
 would replace this module rather than extend it.
 
@@ -249,8 +249,8 @@ def publish(
         # FQDN / IP the probe ran against. Sanitised via the same
         # `_sanitise_ident` guard.
         _target_raw = (payload or {}).get("target") \
-            or (payload or {}).get("host") \
-            or (payload or {}).get("address")
+                      or (payload or {}).get("host") \
+                      or (payload or {}).get("address")
         _target = _sanitise_ident(_target_raw) if _target_raw else ""
         _target_blurb = f" target={_target}" if _target else ""
         if _ident:

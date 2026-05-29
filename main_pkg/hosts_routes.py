@@ -147,7 +147,7 @@ def _failure_state_for_host(host_id: str) -> dict:
     # column even though the sampler writes it on every paused
     # transition. Same drift class as the ``last_failure_ts``
     # add — every additive ALTER TABLE means audit every SELECT
-    # against that table (CLAUDE.md "SQL drift" rule).
+    # against that table (the project conventions "SQL drift" rule).
     paused_at = row[5] if (len(row) > 5 and row[5] is not None) else 0
     return {
         "sampling_paused": bool(row[2]),
@@ -750,7 +750,7 @@ async def api_hosts_one(host_id: str, request: Request, force: bool = False):
     # `host:history_appended`) are still published from
     # `host_metrics_sampler`. Other tabs catch up on the next poll cycle
     # (the SPA gracefully degrades to 30s polling when SSE is connected
-    # — see CLAUDE.md's polling-fallback bullet).
+    # — see the project's polling-fallback bullet).
     return {"host": row}
 
 
@@ -1787,7 +1787,7 @@ async def api_hosts_resume_sampling(
     # cooldown is keyed differently — SSH on (host_id, user); Webmin
     # on (base_url, user). For Webmin we walk the per-host alias map +
     # the global URL since either could be the cooldown target. Both
-    # provider modules expose `_auth_cooldown_timer` per CLAUDE.md's
+    # provider modules expose `_auth_cooldown_timer` per the project's
     # "Add a host-stats provider" canonical checklist.
     cooldown_cleared: list[str] = []
     try:

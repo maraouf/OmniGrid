@@ -32,10 +32,10 @@ as soon as Prometheus starts scraping.
 
 ## Port & URL matrix
 
-| Environment            | Host port | Container port | Path       | Notes                                                        |
-| ---------------------- | --------- | -------------- | ---------- | ------------------------------------------------------------ |
-| Local dev (uvicorn)    | `8088`    | `8088`         | `/metrics` | `uvicorn main:app --port 8088 --reload`                      |
-| Production (Swarm)     | `9500`    | `8088`         | `/metrics` | Port mapping from `docker-compose.yml` (`ports: "9500:8088"`) |
+| Environment         | Host port | Container port | Path       | Notes                                                         |
+|---------------------|-----------|----------------|------------|---------------------------------------------------------------|
+| Local dev (uvicorn) | `8088`    | `8088`         | `/metrics` | `uvicorn main:app --port 8088 --reload`                       |
+| Production (Swarm)  | `9500`    | `8088`         | `/metrics` | Port mapping from `docker-compose.yml` (`ports: "9500:8088"`) |
 
 Full URLs you will actually type:
 
@@ -55,34 +55,34 @@ PromQL expressions are hardcoded to them. All definitions live in `logic/metrics
 
 ### Point-in-time gauges (set from within `_gather()`)
 
-| Metric                          | Labels            | Description                                                                                                                    |
-| ------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `omnigrid_items_total`          | `status`, `type`  | Count of items per status/type. `status ∈ up-to-date|update|error|unknown|ignored`; `type ∈ service|container|orphan`. Pre-seeded to 0 for every known combination so Grafana stat panels render 0 instead of "No data". |
-| `omnigrid_stack_outdated`       | `stack`           | Updates available per stack.                                                                                                   |
-| `omnigrid_stack_offline`        | `stack`           | Offline items per stack.                                                                                                       |
-| `omnigrid_cache_age_seconds`    | (none)            | Seconds since `_cache` was last populated. Should stay below `CACHE_TTL_SECONDS` (900). Computed at scrape time by a custom collector. |
+| Metric | Labels | Description | | | | | | |
+| ------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ | | | | | | |
+| `omnigrid_items_total`          | `status`, `type`  | Count of items per status/type. `status ∈ up-to-date                                                                                   | update | error | unknown | ignored`; `type ∈ service | container | orphan`. Pre-seeded to 0 for every known combination so Grafana stat panels render 0 instead of "No data". |
+| `omnigrid_stack_outdated`       | `stack`           | Updates available per stack. | | | | | | |
+| `omnigrid_stack_offline`        | `stack`           | Offline items per stack. | | | | | | |
+| `omnigrid_cache_age_seconds`    | (none)            | Seconds since `_cache` was last populated. Should stay below `CACHE_TTL_SECONDS` (900). Computed at scrape time by a custom collector. | | | | | | |
 
 ### Counters (monotonically increasing)
 
-| Metric                              | Labels              | Description                                                                                                          |
-| ----------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `omnigrid_ops_total`                | `op_type`, `status` | One-click ops performed (every Operation persisted via `persist_history`). `op_type` covers the full Operation set — `update_stack` / `update_container` / `restart_service` / `restart_container` / `remove_container` / `prune_node` / `prune_all_nodes` / `backup` / `swarm_agent_restart` / `cleanup_overlay_network` / `ssh_run` / `port_scan` and others; the canonical set lives in `logic.ops:OP_TYPES`. `status ∈ success|error`. Direct-INSERT audit rows (admin CRUD, TOTP audit, AI calls) do NOT increment this counter; only Operations do. |
-| `omnigrid_registry_errors_total`    | `registry`          | Registry probe failures per registry host.                                                                           |
+| Metric | Labels | Description | |
+| ----------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------- | |
+| `omnigrid_ops_total`                | `op_type`, `status` | One-click ops performed (every Operation persisted via `persist_history`). `op_type` covers the full Operation set — `update_stack` / `update_container` / `restart_service` / `restart_container` / `remove_container` / `prune_node` / `prune_all_nodes` / `backup` / `swarm_agent_restart` / `cleanup_overlay_network` / `ssh_run` / `port_scan` and others; the canonical set lives in `logic.ops:OP_TYPES`. `status ∈ success | error`. Direct-INSERT audit rows (admin CRUD, TOTP audit, AI calls) do NOT increment this counter; only Operations do. |
+| `omnigrid_registry_errors_total`    | `registry`          | Registry probe failures per registry host. | |
 
 ### Histograms
 
-| Metric                                  | Labels     | Description                                                                             |
-| --------------------------------------- | ---------- | --------------------------------------------------------------------------------------- |
-| `omnigrid_registry_latency_seconds`     | `registry` | Per-request registry HEAD/GET latency. Buckets `0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10`.     |
-| `omnigrid_gather_duration_seconds`      | (none)     | End-to-end `_gather()` runtime. Buckets `0.5, 1, 2, 5, 10, 30, 60, 120`.                |
-| `omnigrid_host_provider_lock_wait_seconds` | (none)  | Time spent waiting on `_host_provider_lock` before `_do_host_provider_probe` runs. Surfaces lock-contention latency on the per-host probe path: parallel `/api/hosts/one/{id}` callers wait here for the first caller's probe to populate the cache. Elevated p95 here (vs flat upstream latency) indicates contention rather than slow upstreams. Buckets `0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30`. |
+| Metric                                     | Labels     | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
+|--------------------------------------------|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `omnigrid_registry_latency_seconds`        | `registry` | Per-request registry HEAD/GET latency. Buckets `0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10`.                                                                                                                                                                                                                                                                                                                                  |
+| `omnigrid_gather_duration_seconds`         | (none)     | End-to-end `_gather()` runtime. Buckets `0.5, 1, 2, 5, 10, 30, 60, 120`.                                                                                                                                                                                                                                                                                                                                             |
+| `omnigrid_host_provider_lock_wait_seconds` | (none)     | Time spent waiting on `_host_provider_lock` before `_do_host_provider_probe` runs. Surfaces lock-contention latency on the per-host probe path: parallel `/api/hosts/one/{id}` callers wait here for the first caller's probe to populate the cache. Elevated p95 here (vs flat upstream latency) indicates contention rather than slow upstreams. Buckets `0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30`. |
 
 ### SSE bus health
 
-| Metric                          | Labels  | Description                                                                                       |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
-| `omnigrid_events_subscribers`   | (none)  | Active SSE subscribers connected to `/api/events`. Read at scrape time via a custom collector.    |
-| `omnigrid_events_dropped`       | (none)  | Cumulative count of events dropped due to slow subscribers (per-subscriber queue overflow).       |
+| Metric                        | Labels | Description                                                                                    |
+|-------------------------------|--------|------------------------------------------------------------------------------------------------|
+| `omnigrid_events_subscribers` | (none) | Active SSE subscribers connected to `/api/events`. Read at scrape time via a custom collector. |
+| `omnigrid_events_dropped`     | (none) | Cumulative count of events dropped due to slow subscribers (per-subscriber queue overflow).    |
 
 ## Backend wiring (for the implementer)
 
@@ -99,37 +99,37 @@ Pure-Python, no compile step.
 
 ### 2. `logic/metrics.py` — registry + metric objects
 
-```python
+```text
 from prometheus_client import (
-    CollectorRegistry, Gauge, Counter, Histogram,
-    generate_latest, CONTENT_TYPE_LATEST,
+  CollectorRegistry, Gauge, Counter, Histogram,
+  generate_latest, CONTENT_TYPE_LATEST,
 )
 
 REGISTRY = CollectorRegistry()
 
-ITEMS_TOTAL          = Gauge('omnigrid_items_total',
-                             'Items by status and type',
-                             ['status', 'type'], registry=REGISTRY)
-STACK_OUTDATED       = Gauge('omnigrid_stack_outdated',
-                             'Outdated items per stack',
-                             ['stack'], registry=REGISTRY)
-STACK_OFFLINE        = Gauge('omnigrid_stack_offline',
-                             'Offline items per stack',
-                             ['stack'], registry=REGISTRY)
-OPS_TOTAL            = Counter('omnigrid_ops_total',
-                               'One-click operations performed',
-                               ['op_type', 'status'], registry=REGISTRY)
-REGISTRY_ERRORS      = Counter('omnigrid_registry_errors_total',
-                               'Remote-registry probe failures (per registry host)',
-                               ['registry'], registry=REGISTRY)
-REGISTRY_LATENCY     = Histogram('omnigrid_registry_latency_seconds',
-                                 'Remote-registry HEAD/GET latency',
-                                 ['registry'], registry=REGISTRY,
-                                 buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
-GATHER_DURATION      = Histogram('omnigrid_gather_duration_seconds',
-                                 'End-to-end _gather() duration',
-                                 registry=REGISTRY,
-                                 buckets=(0.5, 1, 2, 5, 10, 30, 60, 120))
+ITEMS_TOTAL = Gauge('omnigrid_items_total',
+                    'Items by status and type',
+                    ['status', 'type'], registry=REGISTRY)
+STACK_OUTDATED = Gauge('omnigrid_stack_outdated',
+                       'Outdated items per stack',
+                       ['stack'], registry=REGISTRY)
+STACK_OFFLINE = Gauge('omnigrid_stack_offline',
+                      'Offline items per stack',
+                      ['stack'], registry=REGISTRY)
+OPS_TOTAL = Counter('omnigrid_ops_total',
+                    'One-click operations performed',
+                    ['op_type', 'status'], registry=REGISTRY)
+REGISTRY_ERRORS = Counter('omnigrid_registry_errors_total',
+                          'Remote-registry probe failures (per registry host)',
+                          ['registry'], registry=REGISTRY)
+REGISTRY_LATENCY = Histogram('omnigrid_registry_latency_seconds',
+                             'Remote-registry HEAD/GET latency',
+                             ['registry'], registry=REGISTRY,
+                             buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10))
+GATHER_DURATION = Histogram('omnigrid_gather_duration_seconds',
+                            'End-to-end _gather() duration',
+                            registry=REGISTRY,
+                            buckets=(0.5, 1, 2, 5, 10, 30, 60, 120))
 ```
 
 `omnigrid_cache_age_seconds` is NOT a `Gauge` — it's a custom Collector (`_CacheAgeCollector` in
@@ -146,22 +146,22 @@ even when the fleet has nothing in that bucket.
 
 ### 4. Wrap `_get_remote_digest()` with timing + error counting
 
-```python
+```text
 start = time.time()
 try:
-    # ... existing body ...
-    REGISTRY_LATENCY.labels(registry=host).observe(time.time() - start)
-    return digest
+  # ... existing body ...
+  REGISTRY_LATENCY.labels(registry=host).observe(time.time() - start)
+  return digest
 except Exception:
-    REGISTRY_ERRORS.labels(registry=host).inc()
-    raise
+  REGISTRY_ERRORS.labels(registry=host).inc()
+  raise
 ```
 
 ### 5. Wrap `_gather()`
 
-```python
+```text
 with GATHER_DURATION.time():
-    # ... existing body ...
+  # ... existing body ...
 ```
 
 ### 6. Increment `OPS_TOTAL` in each `_do_*` handler
@@ -172,24 +172,25 @@ In the `finally` block, with `status='success'` or `status='error'`.
 
 This was the very first bug in the real wiring:
 
-```python
+```text
 # WRONG — Starlette's Mount requires a trailing slash. Prometheus
 # scrapers hit `/metrics` without one, fall through to the StaticFiles
 # catch-all, and get FastAPI's {"detail":"Not Found"} back.
-app.mount("/metrics", make_asgi_app(registry=REG))   # DON'T
+app.mount("/metrics", make_asgi_app(registry=REG))  # DON'T
 ```
 
-```python
+```text
 # RIGHT — a plain route handler responds to bare /metrics.
 from fastapi.responses import Response
 from logic import metrics
 
+
 @app.get("/metrics")
 async def prometheus_metrics():
-    return Response(
-        content=metrics.generate_latest(metrics.REGISTRY),
-        media_type=metrics.CONTENT_TYPE_LATEST,
-    )
+  return Response(
+    content=metrics.generate_latest(metrics.REGISTRY),
+    media_type=metrics.CONTENT_TYPE_LATEST,
+  )
 ```
 
 It still needs to be registered **before** the `StaticFiles` catch-all at the bottom of `main.py`,
@@ -270,27 +271,30 @@ You should see `HELP` / `TYPE` lines for the metrics listed above.
 2. Grafana → Dashboards → New → Import → Upload JSON file. Use
    `docs/grafana_dashboard_omnigrid.example.json` (public copy) or the maintainer-private
    `notes/grafana_dashboard_omnigrid.json` (live URLs). When prompted:
-   - Name: leave as `OmniGrid — Fleet Status`.
-   - UID: leave as `omnigrid-fleet` (or change to avoid collision).
-   - DS_PROMETHEUS: pick the data source you just created.
+
+- Name: leave as `OmniGrid — Fleet Status`.
+- UID: leave as `omnigrid-fleet` (or change to avoid collision).
+- DS_PROMETHEUS: pick the data source you just created.
+
 3. First panels you should see light up (in order of how fast their metrics appear):
-   - "Up-to-date / Updates / Errors / Unknown" stat panels — as soon as the first `_gather()`
-     completes.
-   - "Cache age" — second tick after that.
-   - Histograms (Gather duration, Registry latency) — after ~5m of scrapes so
-     `histogram_quantile()` has enough buckets.
-   - "Operations rate" — only after you trigger update/restart/remove actions.
+
+- "Up-to-date / Updates / Errors / Unknown" stat panels — as soon as the first `_gather()`
+  completes.
+- "Cache age" — second tick after that.
+- Histograms (Gather duration, Registry latency) — after ~5m of scrapes so
+  `histogram_quantile()` has enough buckets.
+- "Operations rate" — only after you trigger update/restart/remove actions.
 
 ## Validation checklist
 
 - [ ] `curl http://<host>:<port>/metrics` returns `text/plain` and contains
-      `omnigrid_items_total`.
+  `omnigrid_items_total`.
 - [ ] Prometheus `/targets` shows the `omnigrid` job as UP.
 - [ ] Grafana panel "Up-to-date" is not N/A.
 - [ ] `omnigrid_cache_age_seconds` drops to ~0 right after a manual refresh and climbs back up
-      afterwards.
+  afterwards.
 - [ ] Trigger a bulk restart in the UI — the "Operations rate" panel gains a bar within the
-      scrape interval.
+  scrape interval.
 
 ## Common pitfalls
 

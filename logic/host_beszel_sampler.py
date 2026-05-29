@@ -17,7 +17,7 @@ Why a separate sampler from `host_metrics_sampler`:
     ``host_beszel_samples``, putting Beszel data inside OmniGrid's
     own retention window (``tuning_stats_history_days``, default 7d).
   - The "every host-stats provider must have a local sample store"
-    rule (recorded in CLAUDE.md / agent memory) treats read-through-
+    rule (recorded in the project conventions / agent memory) treats read-through-
     only as forbidden because two failure modes can't be hidden
     otherwise: (a) upstream retention shorter than ours; (b)
     upstream cadence different from ours.

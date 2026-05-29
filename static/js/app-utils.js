@@ -6,7 +6,7 @@
 // noinspection NegatedConditionalExpressionJS,JSNegatedConditionalExpression,NegatedIfStatementJS,IfStatementWithIdenticalBranchesJS,StatementWithEmptyBodyJS,SingleStatementBlockJS,UnnecessaryLocalVariableJS,UnnecessaryContinueJS
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,RegExpRedundantEscape,AnonymousCapturingGroupJS,RegExpAnonymousGroup
 // Per-inspection suppressions match the sibling SPA files (app-drawer-bulk.js / app-topbar.js / i18n.js).
-// Covered SPA idioms (CLAUDE.md-sanctioned):
+// Covered SPA idioms (the project conventions-sanctioned):
 // - constants on the right of comparisons (modern ESLint default the SPA pre-dates)
 // - arrow / anonymous callbacks; nested t() / toString() / Math.floor() / Date.now() calls
 // - empty catch blocks holding the fire-and-forget pattern with `_` unused parameter
