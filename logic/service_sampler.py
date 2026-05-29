@@ -383,13 +383,31 @@ async def service_sampler_loop() -> None:
                             # transition gate fires once per chip, not
                             # once per port — per-port rows are detail,
                             # not a separate failure signal.
+                            #
+                            # ROW_NUMBER() window — O(N) fleet-wide
+                            # with seek through the (host_id, ts DESC)
+                            # composite index. Pre-fix used a
+                            # CORRELATED SUBQUERY (`AND ts = (SELECT
+                            # MAX(ts) FROM s2 WHERE host_id + idx +
+                            # port match)`) that ran per outer row →
+                            # O(N²) full-table scan. On a busy fleet
+                            # with tens of thousands of service_samples
+                            # rows this single sampler-tick prologue
+                            # took seconds, blocking the sampler from
+                            # ticking on schedule + bottlenecking the
+                            # SQLite writer pool against /api/apps
+                            # readers. Same fix shape as the per-host
+                            # `latest_for_host` / `latest_per_port_all`
+                            # rewrites below.
                             rows = c.execute(
-                                "SELECT host_id, service_idx, alive FROM service_samples s1 "
-                                "WHERE port = 0 "
-                                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
-                                "WHERE s2.host_id = s1.host_id "
-                                "AND s2.service_idx = s1.service_idx "
-                                "AND s2.port = 0)"
+                                "SELECT host_id, service_idx, alive FROM ("
+                                "  SELECT host_id, service_idx, alive, "
+                                "         ROW_NUMBER() OVER ("
+                                "             PARTITION BY host_id, service_idx ORDER BY ts DESC"
+                                "         ) AS rn "
+                                "  FROM service_samples "
+                                "  WHERE port = 0"
+                                ") WHERE rn = 1"
                             ).fetchall()
                             for r in rows:
                                 if not r[2]:
@@ -731,20 +749,36 @@ def latest_for_host(host_id: str) -> dict:
 
     Returns ``{service_idx: {alive, rtt_ms, ts, error}, ...}``. Empty
     dict when no samples found.
+
+    **Query shape:** ROW_NUMBER() window partitioned by
+    ``service_idx`` ordered by ``ts DESC``, then filtered to rn=1.
+    O(N) per host with index seek via
+    ``idx_service_samples_host_idx_ts``. Pre-fix this used a
+    CORRELATED SUBQUERY (`AND ts = (SELECT MAX(ts) FROM
+    service_samples s2 WHERE s2.host_id = s1.host_id AND
+    s2.service_idx = s1.service_idx AND s2.port = 0)`) which made
+    the SQLite query planner run the inner SELECT MAX(ts) for
+    EACH outer row → O(N²) per host. On a busy fleet (200 hosts
+    × thousands of samples each) the cumulative wall-clock made
+    `/api/apps` 504 even WITH the `asyncio.to_thread` offload
+    (the worker thread still serialised on SQLite). User-flagged
+    crash class — "apps page keeps loading without any end" /
+    "Failed to load apps: HTTP 504". Same anti-pattern fixed
+    in `latest_per_port_all_for_host` below.
     """
     if not host_id:
         return {}
     try:
         with db_conn() as c:
-            # Most-recent ROLLUP row (port=0) per service_idx for this host.
             rows = c.execute(
-                "SELECT service_idx, ts, alive, rtt_ms, error "
-                "FROM service_samples s1 "
-                "WHERE host_id = ? AND port = 0 "
-                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
-                "          WHERE s2.host_id = s1.host_id "
-                "          AND s2.service_idx = s1.service_idx "
-                "          AND s2.port = 0)",
+                "SELECT service_idx, ts, alive, rtt_ms, error FROM ("
+                "  SELECT service_idx, ts, alive, rtt_ms, error, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY service_idx ORDER BY ts DESC"
+                "         ) AS rn "
+                "  FROM service_samples "
+                "  WHERE host_id = ? AND port = 0"
+                ") WHERE rn = 1",
                 (host_id,),
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
@@ -776,16 +810,26 @@ def latest_per_port_for_host(host_id: str, service_idx: int) -> list[dict]:
     """
     if not host_id or service_idx is None:
         return []
+    # ROW_NUMBER() window — O(N) per chip with seek through
+    # idx_service_samples_host_idx_ts. Same fix as the batched
+    # `latest_per_port_all_for_host` + `latest_for_host` above —
+    # pre-fix all three used a CORRELATED SUBQUERY that made the
+    # inner MAX(ts) re-run per outer row → O(N²) per chip → on a
+    # multi-port service with thousands of samples, each drawer
+    # open took seconds. The drawer-open path is less hot than
+    # /api/apps but still operator-visible; fix the same way for
+    # consistency.
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT port, ts, alive, rtt_ms, error "
-                "FROM service_samples s1 "
-                "WHERE host_id = ? AND service_idx = ? AND port > 0 "
-                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
-                "          WHERE s2.host_id = s1.host_id "
-                "          AND s2.service_idx = s1.service_idx "
-                "          AND s2.port = s1.port) "
+                "SELECT port, ts, alive, rtt_ms, error FROM ("
+                "  SELECT port, ts, alive, rtt_ms, error, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY port ORDER BY ts DESC"
+                "         ) AS rn "
+                "  FROM service_samples "
+                "  WHERE host_id = ? AND service_idx = ? AND port > 0"
+                ") WHERE rn = 1 "
                 "ORDER BY port ASC",
                 (host_id, int(service_idx)),
             ).fetchall()
@@ -815,19 +859,30 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
     query per host instead of one per chip — same query-count profile
     as :func:`latest_for_host`. Empty dict when the host has no
     multi-port sample history.
+
+    **Query shape:** ROW_NUMBER() window partitioned by
+    ``(service_idx, port)`` ordered by ``ts DESC``, filtered to
+    rn=1. O(N) per host with index seek. Pre-fix used the same
+    correlated-subquery anti-pattern as `latest_for_host` (now
+    fixed above) — the inner SELECT MAX(ts) ran per outer row →
+    O(N²) per host → on a busy fleet `/api/apps` 504'd because
+    the worker thread serialised on SQLite even with the
+    `asyncio.to_thread` offload. See `latest_for_host` docstring
+    for the full crash-class explanation.
     """
     if not host_id:
         return {}
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT service_idx, port, ts, alive, rtt_ms, error "
-                "FROM service_samples s1 "
-                "WHERE host_id = ? AND port > 0 "
-                "AND ts = (SELECT MAX(ts) FROM service_samples s2 "
-                "          WHERE s2.host_id = s1.host_id "
-                "          AND s2.service_idx = s1.service_idx "
-                "          AND s2.port = s1.port) "
+                "SELECT service_idx, port, ts, alive, rtt_ms, error FROM ("
+                "  SELECT service_idx, port, ts, alive, rtt_ms, error, "
+                "         ROW_NUMBER() OVER ("
+                "             PARTITION BY service_idx, port ORDER BY ts DESC"
+                "         ) AS rn "
+                "  FROM service_samples "
+                "  WHERE host_id = ? AND port > 0"
+                ") WHERE rn = 1 "
                 "ORDER BY service_idx ASC, port ASC",
                 (host_id,),
             ).fetchall()
