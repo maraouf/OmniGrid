@@ -1031,7 +1031,7 @@ export default {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       this.showToast(this.t('toasts.retag_queued', {name: item.name, tag: newTag}));
       this.closeRetagPopover();

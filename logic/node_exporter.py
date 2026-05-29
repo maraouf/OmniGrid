@@ -755,12 +755,25 @@ async def probe_node(
             # reachable, port closed).
             if klass == "ConnectTimeout" or "connecttimeout" in lower:
                 # Pull concrete host:port from the URL + container
-                # short-hostname so the operator's troubleshooting
-                # command is copy-paste-ready instead of placeholder-
-                # bearing. `socket.gethostname()` inside the container
-                # returns the container ID prefix (also valid as a
-                # `docker exec` target); `urlparse` handles missing
-                # port (falls back to the URL's scheme default 80/443).
+                # short-hostname so the troubleshooting command is
+                # copy-paste-ready instead of placeholder-bearing.
+                # `socket.gethostname()` inside the container returns
+                # the container ID prefix (a valid `docker exec`
+                # target); `urlparse` handles missing port (falls back
+                # to the URL's scheme default 80/443).
+                #
+                # Note on tooling: the image is `python:3.14-slim`
+                # which deliberately ships NO `nc` / `ping` / `curl` /
+                # `telnet` / `ss`. The suggested command uses `python`
+                # (always present in the image) to do an equivalent
+                # TCP-connect probe. Earlier revisions suggested
+                # `nc -vz` which 100% of the time produced
+                # `exec: "nc": executable file not found in $PATH`
+                # when the user tried to copy-paste it. Same rule for
+                # the "connection refused" + "ReadTimeout" branches
+                # below — Python first, falling back to a host-side
+                # `ss` suggestion if the user SSHes into the target
+                # rather than the OmniGrid container.
                 from urllib.parse import urlparse as _urlparse
                 import socket as _socket
                 _u = _urlparse(u)
@@ -776,8 +789,11 @@ async def probe_node(
                     "host actually on the network? (b) is the port "
                     "correct? (c) is a firewall dropping packets from "
                     "the OmniGrid container's network to this host? "
-                    f"Run `docker exec {_container} nc -vz {_host} {_port}` "
-                    "to confirm."
+                    f"Run `docker exec {_container} python -c \""
+                    f"import socket; s=socket.socket(); s.settimeout(3); "
+                    f"s.connect(('{_host}', {_port or 0})); print('OK')\"` "
+                    "to confirm (ConnectionRefusedError means port closed, "
+                    "TimeoutError means firewall/unreachable)."
                 )
             # TCP-connect refused — kernel returned RST.  Host is
             # reachable but nothing is listening on the port.
@@ -790,7 +806,9 @@ async def probe_node(
                     "but NOTHING is listening on this port. The service "
                     "(node_exporter) is probably stopped or running on "
                     f"a different port. SSH to the host and run "
-                    f"`ss -tlnp | grep {_port_cr}` to confirm."
+                    f"`ss -tlnp | grep {_port_cr}` (or "
+                    f"`netstat -tlnp | grep {_port_cr}` on older boxes) "
+                    "to confirm."
                 )
             # Read timeout — TCP connect succeeded but the server
             # didn't send the full response within `timeout`.

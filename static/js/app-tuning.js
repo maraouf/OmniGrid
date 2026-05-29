@@ -587,7 +587,7 @@ export default {
     try {
       const r = await fetch('/api/admin/tuning');
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       const d = await r.json();
       this.tuningEffective = d || {};
@@ -720,7 +720,7 @@ export default {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       await this.loadTuning();
       // Refresh `me.client_config` from /api/me so any SPA bindings

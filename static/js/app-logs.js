@@ -134,7 +134,7 @@ export default {
         body: JSON.stringify(body),
       });
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       // Refresh tuning baseline so the section's dirty cue clears.
       await this.loadTuning();

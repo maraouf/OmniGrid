@@ -199,7 +199,7 @@ export default {
         body: JSON.stringify(payload),
       });
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       // Re-capture per-tab baselines under the unified dirty-tracking
       // pattern — the Notifications tab (Apprise + Open-Meteo) is the
