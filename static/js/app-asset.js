@@ -314,7 +314,7 @@ export default {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${r.status}`);
+        throw new Error(this.fmtApiError(j, r.status));
       }
       this.showToast(this.t('admin_assets.saved'), 'success');
       await this.loadSettings();

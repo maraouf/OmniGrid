@@ -100,7 +100,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
 # `_stamp_test_success` lives in main_pkg.admin_ai_routes which loads
 # EARLIER in the chain than scan_routes — at runtime it reaches us
 # via the wildcard, but PyCharm doesn't trace that.
-from main_pkg.admin_ai_routes import _stamp_test_success  # noqa: E402,F401
+from main_pkg.admin_ai_routes import _stamp_test_success, _log_provider_test_start  # noqa: E402,F401
 # `PingTestIn` + `PortScanIn` live in main_pkg.hosts_provider_routes —
 # also EARLIER in the chain (defined before its tail `from
 # main_pkg.scan_routes import *`) so a real import resolves cleanly.
@@ -1016,6 +1016,11 @@ async def api_ping_test(
     from logic import ping as _ping_mod
     if transport == "icmp" and not _ping_mod.has_icmp_support():
         transport = "tcp"
+    # Log target = `host:port/transport` so operators see WHICH host
+    # the test resolved to (the bare host_id may differ from the
+    # resolved address per the canonical address-fallback chain).
+    _ping_target = f"{target}:{int(port)}/{transport}"
+    _log_provider_test_start("ping", target=_ping_target)
     result = await _ping_mod.probe_ping(
         target, port=int(port), transport=transport,
         timeout_seconds=timeout,
@@ -1026,7 +1031,7 @@ async def api_ping_test(
         "port": int(port),
         "transport": transport,
         **result,
-    })
+    }, target=_ping_target)
 
 
 @app.post("/api/http-probe/test")
@@ -1047,6 +1052,7 @@ async def api_http_probe_test(
     url = (body.url or "").strip()
     if not url:
         raise HTTPException(400, "url required")
+    _log_provider_test_start("http_probe", target=url)
     timeout = float(body.timeout) if body.timeout is not None \
         else float(tuning.tuning_int(Tunable.HTTP_PROBE_TIMEOUT_SECONDS))
     dns_timeout = float(body.dns_timeout) if body.dns_timeout is not None \
@@ -1066,7 +1072,7 @@ async def api_http_probe_test(
         "ok": bool(result.get("ok")),
         "url": url,
         **result,
-    })
+    }, target=url)
 
 
 @app.get("/api/auth/providers")
@@ -1139,6 +1145,12 @@ async def api_apprise_test(_admin: AdminUser):
     combined `/api/notify-test` route stays for back-compat. Result
     shape matches the Telegram probe contract so the SPA can render
     the inline result chip identically across channels."""
+    # Surface the configured Apprise URL as the test target so
+    # operators see WHICH endpoint received the test fire.
+    from logic.db import get_setting as _get_setting_local
+    from logic.settings_keys import Settings as _Settings_local
+    _apprise_target = (_get_setting_local(_Settings_local.APPRISE_URL) or "").strip() or "(unset)"
+    _log_provider_test_start("apprise", target=_apprise_target)
     result = await _ops_mod.notify_medium_apprise(
         title="🔔 OmniGrid test",
         body="Apprise channel test — if you see this, the integration is wired correctly.",
@@ -1162,7 +1174,7 @@ async def api_apprise_test(_admin: AdminUser):
         "ok": bool(result.get("ok")),
         "detail": result.get("error") or result.get("skipped") or ("sent" if result.get("ok") else "failed"),
         "status": int(result.get("status") or 0),
-    })
+    }, target=_apprise_target)
 
 
 class _NotifySendIn(BaseModel):
@@ -1927,6 +1939,11 @@ async def api_weather_test(
     requested_provider = (body.get("provider") or "").strip().lower()
     if requested_provider not in ("open-meteo", "weatherapi"):
         requested_provider = _weather_mod.provider()
+    # Log target = provider + base-url-shape (resolved later in
+    # the body) — START line goes out now so the operator's click
+    # is observable even when the body short-circuits early.
+    _wx_target = f"provider={requested_provider}"
+    _log_provider_test_start("weather", target=_wx_target)
     # Resolve test coords in priority order:
     #   1. Explicit lat/lon in the request body (operator typing them
     #      into the Test form — power-user override).
@@ -1940,7 +1957,9 @@ async def api_weather_test(
         lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
         lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
     except (TypeError, ValueError):
-        return {"ok": False, "detail": "lat/lon must be numbers"}
+        return _stamp_test_success("weather", {
+            "ok": False, "detail": "lat/lon must be numbers",
+        }, target=_wx_target)
     if lat is None or lon is None:
         user_locs = _weather_mod.user_locations()
         if user_locs:
@@ -1952,10 +1971,12 @@ async def api_weather_test(
                 lat = legacy["lat"]
                 lon = legacy["lon"]
             else:
-                return {"ok": False,
-                        "detail": "no user has configured a weather location yet — "
-                                  "set one in Settings → Profile → Weather, then "
-                                  "re-run Test"}
+                return _stamp_test_success("weather", {
+                    "ok": False,
+                    "detail": "no user has configured a weather location yet — "
+                              "set one in Settings → Profile → Weather, then "
+                              "re-run Test",
+                }, target=_wx_target)
     base = (body.get("base_url") or "").strip().rstrip("/")
     try:
         timeout = float(tuning.tuning_int(Tunable.WEATHER_FETCH_TIMEOUT_SECONDS))
@@ -1966,14 +1987,18 @@ async def api_weather_test(
         if not raw_key:
             raw_key = (get_setting(_S.WEATHER_API_KEY) or "").strip()
         if not raw_key:
-            return {"ok": False, "detail": "no API key configured or supplied"}
+            return _stamp_test_success("weather", {
+                "ok": False, "detail": "no API key configured or supplied",
+            }, target=_wx_target)
         if not base:
             base = _weather_mod.base_url()
         if not base:
-            return {"ok": False,
-                    "detail": "no WeatherAPI base URL configured — "
-                              "paste one in Admin → Weather or set the "
-                              "WEATHER_WEATHERAPI_ENDPOINT env var"}
+            return _stamp_test_success("weather", {
+                "ok": False,
+                "detail": "no WeatherAPI base URL configured — "
+                          "paste one in Admin → Weather or set the "
+                          "WEATHER_WEATHERAPI_ENDPOINT env var",
+            }, target=_wx_target)
         upstream = base + "/forecast.json"
         params = {
             "key": raw_key,
@@ -1986,15 +2011,24 @@ async def api_weather_test(
             async with httpx.AsyncClient(timeout=timeout) as client:
                 r = await client.get(upstream, params=params)
                 if r.status_code == 401 or r.status_code == 403:
-                    return {"ok": False, "detail": f"HTTP {r.status_code} — API key rejected",
-                            "status_code": r.status_code, "upstream": upstream}
+                    return _stamp_test_success("weather", {
+                        "ok": False,
+                        "detail": f"HTTP {r.status_code} — API key rejected",
+                        "status_code": r.status_code, "upstream": upstream,
+                    }, target=upstream)
                 r.raise_for_status()
                 j = r.json() or {}
         except httpx.HTTPStatusError as e:
-            return {"ok": False, "detail": f"HTTP {e.response.status_code}",
-                    "status_code": e.response.status_code, "upstream": upstream}
+            return _stamp_test_success("weather", {
+                "ok": False,
+                "detail": f"HTTP {e.response.status_code}",
+                "status_code": e.response.status_code,
+                "upstream": upstream,
+            }, target=upstream)
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "detail": str(e), "upstream": upstream}
+            return _stamp_test_success("weather", {
+                "ok": False, "detail": str(e), "upstream": upstream,
+            }, target=upstream)
         cur = j.get("current") or {}
         loc_obj = j.get("location") or {}
         # Stamp a successful Test sample directly into `weather_samples`
@@ -2016,7 +2050,7 @@ async def api_weather_test(
                                        "label": loc_obj.get("name") or ""})
         except Exception:  # noqa: BLE001 — sample-write failure must not break Test
             pass
-        return {
+        return _stamp_test_success("weather", {
             "ok": True,
             "detail": f"Live: {cur.get('temp_c')}°C at "
                       f"{loc_obj.get('name', '')}, {loc_obj.get('country', '')} "
@@ -2026,15 +2060,17 @@ async def api_weather_test(
             "provider": "weatherapi",
             "supports_moon": True,
             "upstream": upstream,
-        }
+        }, target=upstream)
     # Open-Meteo — no API key, plain GET against the configured endpoint.
     if not base:
         base = _weather_mod.base_url()
     if not base:
-        return {"ok": False,
-                "detail": "no Open-Meteo base URL configured — "
-                          "paste one in Admin → Weather or set the "
-                          "WEATHER_OPEN_METEO_ENDPOINT env var"}
+        return _stamp_test_success("weather", {
+            "ok": False,
+            "detail": "no Open-Meteo base URL configured — "
+                      "paste one in Admin → Weather or set the "
+                      "WEATHER_OPEN_METEO_ENDPOINT env var",
+        }, target=_wx_target)
     upstream = base
     params = {
         "latitude": str(round(lat, 2)),
@@ -2049,10 +2085,15 @@ async def api_weather_test(
             r.raise_for_status()
             j = r.json() or {}
     except httpx.HTTPStatusError as e:
-        return {"ok": False, "detail": f"HTTP {e.response.status_code}",
-                "status_code": e.response.status_code, "upstream": upstream}
+        return _stamp_test_success("weather", {
+            "ok": False,
+            "detail": f"HTTP {e.response.status_code}",
+            "status_code": e.response.status_code, "upstream": upstream,
+        }, target=upstream)
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "detail": str(e), "upstream": upstream}
+        return _stamp_test_success("weather", {
+            "ok": False, "detail": str(e), "upstream": upstream,
+        }, target=upstream)
     cur = j.get("current") or {}
     # Stamp a successful Open-Meteo test sample directly into
     # `weather_samples` so the historical data starts populating
@@ -2066,7 +2107,7 @@ async def api_weather_test(
                               loc={"lat": lat, "lon": lon, "label": ""})
     except Exception:  # noqa: BLE001 — sample-write failure must not break Test
         pass
-    return {
+    return _stamp_test_success("weather", {
         "ok": True,
         "detail": f"Live: {cur.get('temperature_2m')}°C "
                   f"(Open-Meteo — no API key required, NO moon data, sample saved)",
@@ -2074,7 +2115,7 @@ async def api_weather_test(
         "provider": "open-meteo",
         "supports_moon": False,
         "upstream": upstream,
-    }
+    }, target=upstream)
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences

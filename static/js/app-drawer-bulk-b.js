@@ -1952,7 +1952,7 @@ export default {
     try {
       const r = await fetch(`/api/update/stack/${stack.stack_id}`, {method: 'POST'});
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       this.showToast(this.t('toasts.queued', {name: stack.name}));
       this.pollOpsNow();
@@ -2052,7 +2052,7 @@ export default {
     try {
       const r = await fetch(url, {method: 'POST'});
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       this.showToast(this.t('toasts.restart_queued', {name: item.name}));
       this.drawerItem = null;
@@ -2085,7 +2085,7 @@ export default {
     try {
       const r = await fetch('/api/swarm/restart-agent', {method: 'POST'});
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       this.showToast(this.t('swarm_agent_banner.restart_queued'));
       this.pollOpsNow();
@@ -2124,7 +2124,7 @@ export default {
     try {
       const r = await fetch(`/api/remove/container/${item.raw_id}`, {method: 'POST'});
       if (!r.ok) {
-        throw new Error(await r.text());
+        throw new Error(await this.fmtResponseError(r));
       }
       this.showToast(this.t('toasts.remove_queued', {name: item.name}));
       this.drawerItem = null;
