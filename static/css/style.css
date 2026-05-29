@@ -9444,20 +9444,19 @@ select.field-invalid {
   scrollbar-color: var(--border-bright) transparent;
 }
 
-/* Edit-mode treatment — see index.html's app-card branch comment. The
-   FULL card renders (title + pills + structure); this layers a grab
-   cursor, a dashed accent outline, and a subtle shimmer sweep so the
-   card reads as draggable / editable without collapsing to a
-   placeholder. Content stays interactive — the `::after` is
-   pointer-events:none and sits visually behind the readable title. */
+/* Edit-mode treatment. Each card/widget renders at its current SIZE
+   but STRIPPED to just the icon + title + control pills — every data
+   value (app instance list / ports / sparklines / status / meta; widget
+   clock time / weather / public-ip body) is hidden (rules below). This
+   is the "shimmer / placeholder" look the operator asked for: a clean
+   arrange + resize surface, NOT the live card. Stripping the clock time
+   also removes the per-second reflow that was flickering the X button +
+   the card-settings radios. The card gets a grab cursor + a dashed
+   accent outline so it reads as editable. */
 .apps-card--editing {
   cursor: grab;
-  /* Suppress text selection in edit mode so the cursor never flips to
-     the text I-beam over the title — operator-flagged: moving toward
-     the X / action buttons flickered between pointer and the text-edit
-     cursor, making the buttons hard to click. With selection off the
-     card surface reads `grab`, buttons read `pointer` (rule below),
-     and no element shows the I-beam. */
+  /* No text selection in edit mode — keeps the cursor from flipping to
+     the text I-beam over the title. */
   user-select: none;
   -webkit-user-select: none;
 }
@@ -9466,10 +9465,9 @@ select.field-invalid {
   cursor: grabbing;
 }
 
-/* Action buttons (settings / refresh / remove-X) keep a stable pointer
-   cursor inside an editing card — without this they'd inherit the
-   card's `grab` and the cursor would flicker as the pointer crossed
-   between the draggable surface and the button hit-areas. */
+/* Edit controls (size button / gear / refresh / remove-X) keep a stable
+   pointer cursor inside an editing card — without this they'd inherit
+   the card's `grab`. */
 .apps-card--editing button {
   cursor: pointer;
 }
@@ -9481,26 +9479,34 @@ select.field-invalid {
   border-radius: var(--r-md);
 }
 
-.apps-card--editing .apps-card-face-front::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(100deg, transparent 35%, var(--row-hover) 50%, transparent 65%);
-  background-size: 200% 100%;
-  animation: apps-edit-shimmer 2.4s ease-in-out infinite;
+/* EDIT-MODE DATA STRIP — hide every data region so only icon + title +
+   control pills remain. Control pills (gear → settings, refresh,
+   remove-X) and the corner size button stay so the operator can still
+   configure / resize / delete the card. */
+.apps-card--editing .apps-card-body-region,
+.apps-card--editing .apps-card-meta,
+.apps-card--editing .apps-card-status,
+.apps-card--editing .apps-widget-tile-body {
+  display: none;
 }
 
-@keyframes apps-edit-shimmer {
-  0% { background-position: 150% 0; }
-  100% { background-position: -150% 0; }
+/* Stripped widget tiles drop their 148px min-height floor in edit mode
+   so they match the header-only height of stripped app cards — uniform
+   placeholder height across the board (operator wanted all edit-mode
+   cards the same height). Width still follows the size-preset span. */
+.apps-card--editing .apps-widget-tile {
+  min-height: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .apps-card--editing .apps-card-face-front::after {
-    animation: none;
-  }
+/* The card-settings back face is a CONTROLS panel (size radios, clock
+   options), never selectable prose — turn off text selection so its
+   labels never show the text I-beam cursor. Operator-flagged: choosing
+   analog / digital on the clock card flickered the cursor between
+   pointer (radio) and the I-beam (adjacent label text). Applies in BOTH
+   edit and non-edit mode (the gear flip works in either). */
+.apps-card-face-back {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Settings pane visual rhythm. Each labelled group reads as a
@@ -10393,6 +10399,18 @@ select.field-invalid {
   display: flex;
   align-items: center;
   gap: var(--s-3);
+}
+
+/* Moon widget: fill + centre the ring + phase block in the tile body so
+   the content uses the whole card instead of sitting top-left at ~25%
+   of the area (operator-flagged). `flex: 1` claims the tile-body's free
+   vertical space; centring on both axes keeps the ring + text composed.
+   This does NOT grow the tile's intrinsic height (it fills existing
+   space), so the earlier "moon widget too tall, peers inherit it" fix
+   is preserved — the ring is only modestly larger (60px). */
+.apps-widget-moon-fill {
+  flex: 1;
+  justify-content: center;
 }
 
 .apps-widget-hero-icon {
