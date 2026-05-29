@@ -85,15 +85,17 @@
         <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
            x-text="t('admin.config.fields.' + key + '.help')"></p>
         <div class="flex flex-wrap items-center gap-2">
-          <input type="number"
-                 :id="'pubip-' + key"
-                 :aria-label="t('admin.config.fields.' + key + '.label')"
-                 x-model="tuningForm[key]"
-                 :placeholder="tuningPlaceholder(key)"
-                 :min="(tuningEffective[key] || {}).min"
-                 :max="(tuningEffective[key] || {}).max"
-                 :disabled="!isAdmin() || publicIpSaving"
-                 class="w-44 mono fs-sm py-1">
+          <label class="contents">
+            <input type="number"
+                   :id="'pubip-' + key"
+                   :aria-label="t('admin.config.fields.' + key + '.label')"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="!isAdmin() || publicIpSaving"
+                   class="w-44 mono fs-sm py-1">
+          </label>
           <div class="bounds-chips" role="group"
                :aria-label="t('admin.config.bounds.group_label')">
                   <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
