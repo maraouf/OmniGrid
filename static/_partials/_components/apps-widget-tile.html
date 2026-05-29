@@ -542,8 +542,8 @@
               arc geometry (cheaper diff + the helper stays a single
               source of truth for the lit-fraction math).
             -->
-            <div class="apps-widget-hero-row">
-              <svg class="apps-widget-moon-ring" width="40" height="40" viewBox="0 0 56 56" aria-hidden="true">
+            <div class="apps-widget-hero-row apps-widget-moon-fill">
+              <svg class="apps-widget-moon-ring" width="60" height="60" viewBox="0 0 56 56" aria-hidden="true">
                 <!-- Background dim disc (the un-illuminated portion). -->
                 <circle cx="28" cy="28" r="24"
                         fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
@@ -572,7 +572,7 @@
                      size lets two-word phases ("Waxing Gibbous" /
                      "Waning Crescent") fit cleanly on one line at the
                      widget's typical narrow width. -->
-                <div class="apps-widget-hero" style="font-size: var(--fs-md); line-height: 1.15; font-weight: 600;"
+                <div class="apps-widget-hero" style="font-size: var(--fs-lg); line-height: 1.15; font-weight: 600;"
                      x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
                 <div class="apps-widget-subtitle"
                      x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })

@@ -153,6 +153,11 @@
          to paint between mounts. Per-tile timing in devtools via
          `[apps-tile]` console.debug lines AND container stdout via
          the matching POST /api/apps/tile-trace diagnostic sink. -->
+    <!-- Body region — wrapped so edit mode can hide ALL data (instance
+         list / ports / sparklines / skeleton) and leave just the
+         icon + title + control pills. CSS: `.apps-card--editing
+         .apps-card-body-region { display: none }`. -->
+    <div class="apps-card-body-region">
     <template x-if="!appsCardVisible(app.group_id)">
       <div class="fs-2xs text-[var(--text-faint)] italic mt-1"
            x-text="(app.instance_count || 0) + ' ' + (t('apps.counts.up_suffix') || 'instance(s)')"></div>
@@ -285,6 +290,7 @@
                 x-text="(appsInstancesExpanded[app.group_id]) ? (t('apps.show_less') || 'Show less') : (t('apps.show_all', { n: (app.instances || []).length }) || ('Show all (' + (app.instances || []).length + ')'))"></button>
       </div>
     </template>
+    </div>
     <!-- End lazy-render gate ============================================ -->
   </div>
 </article>

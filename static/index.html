@@ -3570,8 +3570,8 @@
                      class toggles via the front-face gear button. -->
                 <div class="apps-custom-cell min-w-0 apps-card-flip"
                      :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
-                     :draggable="appsCustomEditMode ? 'true' : 'false'"
-                     @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
+                     :draggable="appsCustomEditMode && !_appsResizing ? 'true' : 'false'"
+                     @dragstart="(appsCustomEditMode && !_appsResizing) ? appsItemDragStart($event, item.uid) : $event.preventDefault()"
                      @dragover.prevent
                      @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
                   <div class="apps-card-flip-inner">

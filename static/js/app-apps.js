@@ -2534,6 +2534,15 @@ export default {
     if (!item) {
       return;
     }
+    // Suppress the cell's HTML5 reorder-drag for the duration of this
+    // resize gesture. The cell is `draggable=true` for reorder, so a
+    // pointer-drag that STARTS on this size button would otherwise fire
+    // the cell's dragstart (move mode) instead of resizing — the
+    // operator-reported "cards go into move mode when trying to drag the
+    // edges". Set synchronously in this pointerdown handler (which fires
+    // BEFORE dragstart) so the cell's `@dragstart` guard preventDefaults
+    // the move. Cleared in `up`.
+    this._appsResizing = true;
     const sizes = ['half', 'normal', 'double'];
     const startX = (ev && typeof ev.clientX === 'number') ? ev.clientX : 0;
     let startIdx = sizes.indexOf(this.appsCardSize(item));
@@ -2561,6 +2570,10 @@ export default {
       if (!dragged) {
         self.setAppsCardSize(uid, null);
       }
+      // Re-enable the cell's reorder-drag now the resize gesture is
+      // done. Deferred one tick so a trailing dragstart from this same
+      // gesture (some browsers fire it late) still sees the flag set.
+      setTimeout(() => { self._appsResizing = false; }, 0);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
