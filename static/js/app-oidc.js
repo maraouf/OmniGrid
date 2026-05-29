@@ -17,7 +17,7 @@
 // SPA Authentik / OIDC integration (Admin → Authentik OIDC).
 //
 // All OIDC settings are DB-backed, edited via this form. The flow
-// follows the canonical Test-before-Save gate pattern (see CLAUDE.md):
+// follows the canonical Test-before-Save gate pattern (see the project conventions):
 // snapshot the form on Test success, compare on every keystroke, lock
 // Save until snapshot matches live form.
 

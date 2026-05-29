@@ -12,7 +12,7 @@ The ``ops`` dict + ``ops_order`` list hold the last 50 operations in
 memory for the ``/api/ops`` live-status polling loop — they're NOT the
 source of truth for history (the ``history`` SQLite table is). If ops
 ever need to outlive a process restart, wire a persistence hook in
-:func:`new_op`, but the single-replica invariant (CLAUDE.md) makes
+:func:`new_op`, but the single-replica invariant (the project conventions) makes
 in-memory fine for now.
 
 Notification dispatcher
@@ -27,7 +27,7 @@ admin-side enable flag (``notify_medium_<name>``) — the per-event
 toggle gates the WHOLE notification, the per-medium toggle gates ONE
 delivery channel without disabling the event entirely.
 
-Adding a medium: see CLAUDE.md "Canonical extension pattern: add a
+Adding a medium: see the project conventions "Canonical extension pattern: add a
 notification medium" — six steps (module + dispatcher + toggle + UI
 + i18n + CHANGELOG).
 
@@ -195,7 +195,7 @@ OP_TYPES: frozenset[str] = frozenset({
     # that's NOT an Operation (and isn't a high-volume / low-stakes
     # path like notification mark-as-read) writes a synchronous direct
     # INSERT INTO history at the success path's top via
-    # `assert_op_type(<canonical>)`. See CLAUDE.md "Admin write-actions
+    # `assert_op_type(<canonical>)`. See the project conventions "Admin write-actions
     # audit-trail gap" rule for the full contract — including which
     # paths are intentionally exempt and which canonical helper to use
     # for new audit rows. notification_read intentionally OUT
@@ -392,7 +392,7 @@ def write_admin_audit(
 ) -> None:
     """Synchronous audit-trail writer for admin write-actions that
     don't go through `new_op` / `Operation`. Used by the 18 admin
-    write-routes covered by the CLAUDE.md "Admin write-actions
+    write-routes covered by the the project conventions "Admin write-actions
     audit-trail gap" rule (user / session / token / backup /
     config-backup / schedule / notification CRUD), AND by the
     Telegram listener for command audit rows — pre-helper the
@@ -1138,7 +1138,7 @@ class Operation:
         SSE frame so the live panel updates in-place without a poll.
 
         The printed line's level-prefix is NEUTRALIZED for the
-        persistent-log classifier (per CLAUDE.md "pick verbs
+        persistent-log classifier (per the project conventions "pick verbs
         carefully" — `_RE_OK` matches `\\bsuccess\\b`). Mapping:
         info → info, success → step (intra-op step succeeded; the
         OP'S overall completion still classifies via op.done →
@@ -1424,7 +1424,7 @@ async def _notify_medium_app(
 
 # Medium dispatcher map. Add a new medium by writing
 # ``logic/notify_<medium>.py`` exposing an ``async def send(...)`` of
-# the same shape and registering here. CLAUDE.md "Canonical extension
+# the same shape and registering here. the project conventions "Canonical extension
 # pattern: add a notification medium" is the full contract.
 MediumSender = Callable[..., Awaitable[dict]]
 
@@ -1737,7 +1737,7 @@ async def notify(
     for medium_name, result in zip(fired_mediums, results):
         if isinstance(result, Exception):
             # Verb avoids the ERROR-severity classifier regex per
-            # CLAUDE.md — `dropped` reads as an outcome, not a failure.
+            # the project conventions — `dropped` reads as an outcome, not a failure.
             print(f"[notify] medium '{medium_name}' dropped: {result}")
 
 

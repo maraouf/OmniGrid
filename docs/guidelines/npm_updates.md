@@ -155,11 +155,11 @@ actually changed.
 
 ## What's committed where — quick reference
 
-| Path                   | git | dev | server |
-| ---------------------- | --- | --- | ------ |
-| `package.json`         | ✓   | ✓   | ✗ (rsync-excluded) |
-| `package-lock.json`    | ✓   | ✓   | ✗ (rsync-excluded) |
-| `node_modules/`        | ✓   | ✓   | ✓                  |
+| Path                   | git | dev | server                                     |
+| ---------------------- | --- | --- | ------------------------------------------ |
+| `package.json`         | ✓   | ✓   | ✗ (rsync-excluded)                         |
+| `package-lock.json`    | ✓   | ✓   | ✗ (rsync-excluded)                         |
+| `node_modules/`        | ✓   | ✓   | ✓                                          |
 | `static/vendor/`       | —   | —   | — (removed — nothing vendors here anymore) |
 
 ## Why `node_modules` is committed

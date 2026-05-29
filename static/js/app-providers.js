@@ -166,7 +166,7 @@ export default {
     // `settings.port_scan_default_concurrency` (the UI binds to
     // `tuningForm['tuning_port_scan_default_*']`), so these
     // branches were dead code. Backend's matching write paths were
-    // also removed in the same audit fix. Per CLAUDE.md "Plain
+    // also removed in the same audit fix. Per the project conventions "Plain
     // -settings escape hatch is a drift class".
     // SNMP provider. Defaults always round-trip (so the
     // operator's saved community / version / port survive an

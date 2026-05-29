@@ -14,11 +14,11 @@ ritual that takes ~5 minutes.
 
 ## What each digit means
 
-| Field | Bumped by | When | Reset on bump |
-|---|---|---|---|
-| **MAJOR** | Operator (manual) | Breaking change — DB migration that isn't forward-compatible, env var rename, `/api` contract breakage | `MINOR` → 0, `PATCH` → 0 |
-| **MINOR** | Operator (manual) | Cutting a release — a batch of PATCH-shipped items is ready to be tagged as `vX.Y.0` | `PATCH` → 0 |
-| **PATCH** | CI (automatic) | Every successful `git push origin main` that triggers a deploy | n/a |
+| Field       | Bumped by             | When                                                                                                     | Reset on bump              |
+| ----------- | --------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------- |
+| **MAJOR**   | Maintainer (manual)   | Breaking change — DB migration that isn't forward-compatible, env var rename, `/api` contract breakage   | `MINOR` → 0, `PATCH` → 0   |
+| **MINOR**   | Maintainer (manual)   | Cutting a release — a batch of PATCH-shipped items is ready to be tagged as `vX.Y.0`                     | `PATCH` → 0                |
+| **PATCH**   | CI (automatic)        | Every successful `git push origin main` that triggers a deploy                                           | n/a                        |
 
 The accumulating PATCH counter between MINOR releases is intentional —
 it's the "tasks shipped since the last release" signal the maintainer
@@ -54,23 +54,25 @@ For every change:
 1. Implement.
 2. Smoke-check locally.
 3. Push to `main`. The CI pipeline:
-   - rsyncs the build context to `/opt/omnigrid/app` on the Swarm manager,
-   - resolves the previous version from THREE sources and picks the
-     highest semver:
-     1. **Live `/api/version`** on the running service — most authoritative
-        when reachable.
-     2. **`VERSION.txt` from the rsynced build context** (file-grounded
-        floor; survives a brief outage of the live service AND lets the
-        maintainer seed MAJOR / MINOR bumps from the repo).
-     3. **Highest existing `omnigrid:<X.Y.Z>` tag** in the local image
-        registry on the manager (covers post-rollback scenarios).
-   - increments PATCH by 1, runs `docker build --build-arg VERSION=<new>`,
-     pushes `omnigrid:<new>` + `omnigrid:latest` to the container
-     registry, and `docker service update --force --image <reg>:<new>` rolls
-     the running task in zero-downtime via Swarm's `start-first` +
-     `failure_action: rollback` update_config.
-   - asserts `/api/version` equals the freshly-built tag — catches the
-     edge case where the build succeeded but Swarm rolled back.
+
+- rsyncs the build context to `/opt/omnigrid/app` on the Swarm manager,
+- resolves the previous version from THREE sources and picks the
+  highest semver:
+  1. **Live `/api/version`** on the running service — most authoritative
+     when reachable.
+  2. **`VERSION.txt` from the rsynced build context** (file-grounded
+     floor; survives a brief outage of the live service AND lets the
+     maintainer seed MAJOR / MINOR bumps from the repo).
+  3. **Highest existing `omnigrid:<X.Y.Z>` tag** in the local image
+     registry on the manager (covers post-rollback scenarios).
+- increments PATCH by 1, runs `docker build --build-arg VERSION=<new>`,
+  pushes `omnigrid:<new>` + `omnigrid:latest` to the container
+  registry, and `docker service update --force --image <reg>:<new>` rolls
+  the running task in zero-downtime via Swarm's `start-first` +
+  `failure_action: rollback` update_config.
+- asserts `/api/version` equals the freshly-built tag — catches the
+  edge case where the build succeeded but Swarm rolled back.
+
 4. Validate on the live deploy.
 5. Add a one-line entry under `CHANGELOG.md`'s `## [Unreleased]` block
    in the appropriate category (Added / Changed / Fixed / Internal /
@@ -118,12 +120,14 @@ a line:
    The next CI deploy will see `/api/version=1.1.0` (Source A, most
    authoritative) and increment PATCH → `1.1.1`.
 3. **Cut the CHANGELOG.** In `CHANGELOG.md`:
-   - Rename the `## [Unreleased]` heading to `## [1.1.0] — YYYY-MM-DD`.
-   - Add a fresh empty `## [Unreleased]` block at the top with the
-     standard category placeholders.
-   - Update the link references at the bottom of the file
-     (`[Unreleased]: ...compare/v1.1.0...HEAD` and
-     `[1.1.0]: ...releases/tag/v1.1.0`).
+
+- Rename the `## [Unreleased]` heading to `## [1.1.0] — YYYY-MM-DD`.
+- Add a fresh empty `## [Unreleased]` block at the top with the
+  standard category placeholders.
+- Update the link references at the bottom of the file
+  (`[Unreleased]: ...compare/v1.1.0...HEAD` and
+  `[1.1.0]: ...releases/tag/v1.1.0`).
+
 4. **Tag the commit.** From the local checkout:
    ```bash
    git pull
@@ -154,11 +158,13 @@ Process:
 1. Same as MINOR cut, but the new version increments MAJOR (resetting both
    MINOR and PATCH).
 2. Add a `notes/MIGRATIONS.md` entry for the upgrade path. Include:
-   - **What changed** (env var name, DB column rename, etc).
-   - **Operator action required** (rename in `.env`, run a one-shot
-     migration script, etc).
-   - **Roll-back plan** (which previous MAJOR is forward-compatible
-     and how to pin to it).
+
+- **What changed** (env var name, DB column rename, etc).
+- **Manual action required** (rename in `.env`, run a one-shot
+  migration script, etc).
+- **Roll-back plan** (which previous MAJOR is forward-compatible
+  and how to pin to it).
+
 3. Bake the migration into `init_db()` / lifespan startup where
    possible so the upgrade is hands-off; otherwise document the manual
    command clearly.

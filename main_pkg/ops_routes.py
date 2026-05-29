@@ -70,6 +70,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     app,
     db_conn,
     httpx,
+    portainer,
     tuning,
 )
 
@@ -1395,7 +1396,7 @@ class SettingsIn(BaseModel):
     # or "lifetime_token" (static key POSTed to services.php with
     # X-Authorization header). Lifetime key follows the secret suffix
     # + `_set` flag + `clear_*` contract like every other write-only
-    # secret (see CLAUDE.md "Secrets in the settings table follow a
+    # secret (see the project conventions "Secrets in the settings table follow a
     # naming convention").
     asset_inventory_auth_mode: Optional[str] = None
     asset_inventory_lifetime_token: Optional[str] = None
@@ -1772,7 +1773,7 @@ class SettingsIn(BaseModel):
     tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None
     # Per-provider default ports — promoted out of the plain settings
-    # table per the CLAUDE.md "Plain-`settings`-row escape hatch" rule.
+    # table per the project's "Plain-`settings`-row escape hatch" rule.
     # Bounds 1..65535 (TCP / UDP port range) enforced by TUNABLES.
     tuning_ssh_default_port: Optional[str] = None
     tuning_snmp_default_port: Optional[str] = None
@@ -1859,7 +1860,7 @@ class SettingsIn(BaseModel):
     # silences that channel WITHOUT disabling the event entirely. Both
     # default true for back-compat. Stored as "true" / "false" strings
     # alongside notify_event_* so they share the same hydration drift
-    # audit (CLAUDE.md "Settings hydration drift class").
+    # audit (the project conventions "Settings hydration drift class").
     # -----------------------------------------------------------------
     notify_medium_app: Optional[str] = None
     notify_medium_apprise: Optional[str] = None

@@ -2,7 +2,7 @@
 
 Sibling of :mod:`logic.host_metrics_sampler` (NE) and
 :mod:`logic.host_pulse_sampler` (Pulse) — same architectural shape,
-same skip-don't-synthesize discipline (CLAUDE.md "Counter-rate
+same skip-don't-synthesize discipline (the project conventions "Counter-rate
 samplers must SKIP, not synthesize"), but sources its data from
 per-host Miniserv probes.
 

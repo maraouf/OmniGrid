@@ -1,7 +1,7 @@
 """Lifespan-managed baseline sampler — recomputes per-host baselines
 once an hour for drift-from-baseline detection.
 
-Per CLAUDE.md "Background-task startup rule" this is started inside
+Per the project conventions "Background-task startup rule" this is started inside
 FastAPI's `lifespan` handler, not at module import. Cancellation is
 honoured via the standard `asyncio.CancelledError` re-raise so a
 container shutdown / hot-reload doesn't leave the loop running.
@@ -62,24 +62,47 @@ async def _baseline_tick(tick: int) -> None:
         )
     hosts = list(host_targets.keys())
     start = time.time()
-    for hid in hosts:
-        try:
-            # Offload per-host compute to a worker thread — each
-            # call opens two `db_conn`s and computes median/IQR
-            # over up to 30 days of samples; on 100+ hosts the
-            # serial loop can stall the event loop for seconds
-            # once an hour. Same pattern as host_metrics_sampler's
-            # prune offload. The per-host serial dispatch is
-            # intentional (avoid SQLite write-lock contention from
-            # parallel UPSERTs); the `to_thread` just keeps the
-            # event loop hot for /api/* requests.
-            await asyncio.to_thread(
-                _baseline.compute_baselines, hid, host_targets.get(hid, ""),
-            )
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            raise
-        except Exception as exc:  # noqa: BLE001
-            print(f"[host_baseline_sampler] tick {tick} {hid!r} failed: {exc}")
+
+    # Single shared `db_conn()` for the whole tick — collapses N
+    # per-host connection-opens into ONE. Pre-fix each
+    # `compute_baselines` opened its own connection; on a 200-host
+    # fleet that was 200 connection-opens per tick, each waiting
+    # on the writer-lock's PRAGMA setup -- the visible smoking-gun
+    # source of the slow-query storm (`compute_baselines:237 sql=
+    # PRAGMA synchronous=NORMAL` 481ms). Now: ONE conn open per
+    # tick, one PRAGMA chain, ONE commit at the end. The worker
+    # thread offload still applies (the whole walk runs off the
+    # event loop) so /api/healthz + /api/* stay responsive.
+
+    def _walk(hosts, host_targets):
+        """Single-threaded walk against one shared connection."""
+        from logic.db import db_conn as _db_conn
+        failures: list[tuple[str, str]] = []
+        with _db_conn() as conn:
+            for hid in hosts:
+                try:
+                    _baseline.compute_baselines(
+                        hid, host_targets.get(hid, ""), conn=conn,
+                    )
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    failures.append((hid, str(exc)))
+            conn.commit()
+        return failures
+
+    try:
+        failures = await asyncio.to_thread(_walk, hosts, host_targets)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # Whole-tick failure (rare — usually a connection-open
+        # error). Log + continue so the next tick can retry; don't
+        # let one bad tick kill the sampler lifetime.
+        print(f"[host_baseline_sampler] tick {tick} aborted: {exc}")
+        failures = []
+    for hid, exc_msg in failures:
+        print(f"[host_baseline_sampler] tick {tick} {hid!r} failed: {exc_msg}")
     elapsed = time.time() - start
     print(
         f"[host_baseline_sampler] tick {tick}: walked {len(hosts)} curated "

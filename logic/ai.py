@@ -5,7 +5,7 @@ tab's "Test connection" button. The actual call wrapper that Stage 2+
 will use to record into ``ai_jobs`` is NOT in this module yet — it
 lands in a follow-up that we'll build once the contract is settled.
 
-Auth model reconnaissance (per the CLAUDE.md provider-checklist rule):
+Auth model reconnaissance (per the project's provider-checklist rule):
 
   Claude  — Anthropic API key in `x-api-key` header + ``anthropic-version``
             constant. Default endpoint: https://api.anthropic.com.
@@ -389,7 +389,7 @@ async def test_provider(
     with the exception text in ``detail`` — the SPA renders it inline.
 
     The caller is responsible for pulling the API key out of the saved
-    settings (see CLAUDE.md's keep-current-if-blank contract) — this
+    settings (see the project's keep-current-if-blank contract) — this
     function takes the cleartext key as an argument.
 
     ``timeout`` defaults to the live ``tuning_ai_http_timeout_seconds``

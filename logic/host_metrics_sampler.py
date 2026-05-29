@@ -1,7 +1,7 @@
 """Per-host historical CPU / Memory / Disk / Network metrics sampler.
 
 Sibling of :mod:`logic.host_net_sampler` — same architectural shape, same
-skip-don't-synthesize discipline (see CLAUDE.md "Counter-rate samplers
+skip-don't-synthesize discipline (see the project conventions "Counter-rate samplers
 must SKIP, not synthesize"), but covers the broader gauge metrics
 (cpu_percent, mem_used/total, disk_used/total) plus net rx/tx rates so
 node-exporter-only hosts (no Beszel agent) get a usable historical
@@ -319,7 +319,7 @@ def _resolve_target_for_log(host_id: str) -> str:
     immediately recognise. Best-effort: returns empty string on any
     lookup failure (the caller falls back to the bare host_id). The
     chain mirrors the canonical address-fallback contract documented
-    in CLAUDE.md: address → ssh.fqdn → ssh.host → SKIP."""
+    in the project conventions: address → ssh.fqdn → ssh.host → SKIP."""
     try:
         for _h in iter_curated_hosts():
             if (_h.get("id") or "").strip() != host_id:
@@ -402,7 +402,7 @@ _PROVIDER_PREFIXES = frozenset((
     "service_probe",
 ))
 # Public alias for cross-module use. main.py imports as
-# `_PROVIDER_AUTO_PAUSE_NAMES` per CLAUDE.md ("Vendor / capability key
+# `_PROVIDER_AUTO_PAUSE_NAMES` per the project conventions ("Vendor / capability key
 # sets need ONE source of truth"); exposing without the leading
 # underscore satisfies the IDE's protected-member check without
 # duplicating the literal.
@@ -430,6 +430,8 @@ PROVIDER_PREFIXES = _PROVIDER_PREFIXES
 # mapping takes effect on the very next probe.
 _HOST_PROVIDER_CONFIG_CACHE: dict[str, set[str]] | None = None
 _HOST_PROVIDER_CONFIG_CACHE_TS: float = 0.0
+
+
 # Cache TTL — even if invalidate isn't called, refresh from disk after
 # this many seconds. Belt-and-braces against any future code path that
 # writes hosts_config without going through the canonical save endpoint.
@@ -735,7 +737,7 @@ async def _record_failure(
                     # this chain in Admin → Logs.
                     # Lazy main import — avoids circular dependency at module
                     # load. Routes through `spawn_background_task` so the
-                    # strong-ref + done-callback contract (see CLAUDE.md
+                    # strong-ref + done-callback contract (see the project conventions
                     # "Background-task lifecycle") is honoured.
                     import main as _main
                     _main.spawn_background_task(

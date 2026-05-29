@@ -17,7 +17,7 @@ That gap is what the centralized ``_wire_cross_module_underscore_globals()``
 block at ``main.py``'s tail covers: it eagerly copies every
 cross-module underscore-prefixed symbol into the consumer's
 ``__dict__`` so bare LOAD_GLOBAL resolves locally without bouncing
-through any dynamic-resolution layer. See CLAUDE.md "Cross-module
+through any dynamic-resolution layer. See the project conventions "Cross-module
 underscore-name LOAD_GLOBAL leaks" for the full rule.
 
 This resolver remains load-bearing for the ATTRIBUTE-ACCESS path —

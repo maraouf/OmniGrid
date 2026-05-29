@@ -307,7 +307,7 @@ export default {
   // to clipboard"). Pre-fix the copy buttons were icon-only with
   // a `:title` (hover-only) — screen readers announced "button
   // button button" because the SVG is `aria-hidden="true"` and no
-  // accessible name was bound. Per CLAUDE.md "icon-only buttons
+  // accessible name was bound. Per the project conventions "icon-only buttons
   // need aria-label". This helper lets every copy button bind a
   // single one-line aria-label without duplicating the t()
   // composition at every site.
@@ -655,7 +655,7 @@ export default {
   // chip strip (`static/_partials/admin/hosts.html`). Each consumer
   // surface that wants a "what's configured on this curated row"
   // signal should route through this helper instead of inlining the
-  // gate logic (see CLAUDE.md "SPA chip-rendering parity").
+  // gate logic (see the project conventions "SPA chip-rendering parity").
   curatedHostProviderChips(row) {
     if (!row) {
       return [];
@@ -696,7 +696,7 @@ export default {
   // by construction.
   //
   // Adding a new provider — ONE entry in `_PROVIDER_DEFS` is sufficient;
-  // this helper picks it up automatically. See CLAUDE.md "SPA chip-
+  // this helper picks it up automatically. See the project conventions "SPA chip-
   // rendering parity" for the canonical contract.
   hostEnabledAgents(h) {
     if (!h) {
@@ -1423,7 +1423,7 @@ export default {
     // either the explicit per-provider `snmp_name` OR the canonical
     // per-host `address` field that the SNMP sampler's resolver
     // chain falls back to (`aliases[id] → snmp_name → address →
-    // SKIP` — see logic/snmp.py + CLAUDE.md "address is the
+    // SKIP` — see logic/snmp.py + the project conventions "address is the
     // canonical provider-independent probe target"). Operator
     // pattern: tick SNMP on a host, leave `snmp_name` blank,
     // populate `address` once with the LAN hostname/IP — the
@@ -1841,7 +1841,7 @@ export default {
     );
   },
   // Color mapping for the heatmap cell: green < 50 < amber < 85 < red.
-  // Same thresholds as the .stat-bar fill (CLAUDE.md: 60/85 split was
+  // Same thresholds as the .stat-bar fill (the project conventions: 60/85 split was
   // for CPU/mem; ports tend to alarm earlier so 50/85). Returns a
   // CSS color literal — heatmap uses inline style because there's
   // no pre-existing token for the per-cell shade.

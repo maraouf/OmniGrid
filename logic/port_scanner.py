@@ -5,7 +5,7 @@ drawer or the AI palette (admin-only); never from a scheduler in
 Stage 1. Stage 2 will layer per-service follow-up actions on top of
 the bare port-discovery surface.
 
-Auth model reconnaissance (per the CLAUDE.md provider checklist):
+Auth model reconnaissance (per the project's provider checklist):
   * No authentication — pure TCP-connect probes against the target's
     listening sockets. The probe IS the auth model; closed ports are
     indistinguishable from filtered ports under TCP-connect.
@@ -97,9 +97,9 @@ DEFAULT_PORTS: tuple[int, ...] = (
     51510, 51511, 51820, 53000, 57221,
     # Operator-requested additions:
     1514, 1515, 1516, 1517, 1518, 1519, 1520,  # syslog-TLS / Splunk fwd range (1521 oracle already above)
-    5201,   # iPerf3
-    5480,   # VMware vCenter Server Management (VAMI)
-    9997,   # Splunk forwarder receiver (splunkd)
+    5201,  # iPerf3
+    5480,  # VMware vCenter Server Management (VAMI)
+    9997,  # Splunk forwarder receiver (splunkd)
     10051,  # Zabbix server (active-agent + proxy connections)
 )
 

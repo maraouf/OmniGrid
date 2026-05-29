@@ -13,7 +13,7 @@ tab's "Test connection" button. The actual call wrapper that Stage 2+
 will use to record into ``ai_jobs`` is NOT in this module yet — it
 lands in a follow-up that we'll build once the contract is settled.
 
-Auth model reconnaissance (per the CLAUDE.md provider-checklist rule):
+Auth model reconnaissance (per the project's provider-checklist rule):
 
   Claude  — Anthropic API key in `x-api-key` header + ``anthropic-version``
             constant. Default endpoint: https://api.anthropic.com.

@@ -30,6 +30,7 @@ import {CURATED_REFRESH_FIELDS} from './app-curated-fields.js?v=__APP_VERSION__'
 // module-level singleton is correct.
 let _filteredHostsFlushCache = null;
 let _filteredHostsFlushScheduled = false;
+
 function _clearFilteredHostsFlushCache() {
   _filteredHostsFlushCache = null;
   _filteredHostsFlushScheduled = false;
@@ -43,6 +44,7 @@ function _clearFilteredHostsFlushCache() {
 // drift after a poll; the per-flush clear is what keeps it correct.
 let _hostDriftFlushCache = null;
 let _hostDriftFlushScheduled = false;
+
 function _clearHostDriftFlushCache() {
   _hostDriftFlushCache = null;
   _hostDriftFlushScheduled = false;
@@ -224,7 +226,7 @@ export default {
     // `apiGate` (per-host config gate) + `apiStatus` (self-status
     // getter for the state machine — 'down' on hard failure, null
     // otherwise). Adding a new provider = ONE entry on `_PROVIDER_DEFS`
-    // in app.js; this loop picks it up automatically. See CLAUDE.md
+    // in app.js; this loop picks it up automatically. See the project conventions
     // "SPA chip-rendering parity" for the canonical contract.
     for (const def of (this._PROVIDER_DEFS || [])) {
       add(def.name, def.apiGate(h), def.apiStatus(h));
@@ -1834,7 +1836,7 @@ export default {
         return '—';
       }
       if (metric === 'ping_rtt_ms') {
-        return this.t('common.unit_ms_inline', { n: (+v).toFixed(1) });
+        return this.t('common.unit_ms_inline', {n: (+v).toFixed(1)});
       }
       return (+v).toFixed(1) + '%';
     };

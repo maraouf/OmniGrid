@@ -938,7 +938,7 @@ async def _run_prune_node(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     )
     # Lazy main import — avoids the circular dependency. Routes through
     # `spawn_background_task` so the strong-ref + done-callback contract
-    # (see CLAUDE.md "Background-task lifecycle") protects the spawn
+    # (see the project conventions "Background-task lifecycle") protects the spawn
     # from asyncio GC mid-execution.
     import main as _main
     _main.spawn_background_task(
@@ -994,7 +994,7 @@ async def _run_prune_all_nodes(_params: dict) -> tuple[str, Awaitable[tuple[int,
     child_ops: list[_ops.Operation] = []
     # Lazy main import — avoids the circular dependency. Routes every
     # fan-out spawn through `spawn_background_task` so the strong-ref +
-    # done-callback contract (see CLAUDE.md "Background-task lifecycle")
+    # done-callback contract (see the project conventions "Background-task lifecycle")
     # protects the per-host tasks from asyncio GC mid-execution. This
     # matters MORE here than the single-node path: 5 nodes pruning
     # concurrently means 5 tasks share the GC-collection risk surface
@@ -2040,6 +2040,7 @@ async def _run_port_scan_refresh(
                 f"skipped_paused={len(skipped['paused'])} "
                 f"skipped_too_recent={len(skipped['too_recent'])}"
             )
+
             # Per-skip-reason host lists — only emit when the bucket is
             # non-empty so the steady-state log stays quiet. Bucket
             # `no_address` is the most operator-actionable (host won't
@@ -2060,6 +2061,7 @@ async def _run_port_scan_refresh(
                     f"[scheduler] port_scan_refresh skipped[{label}]: "
                     f"{', '.join(shown)}{tail}"
                 )
+
             _fmt_skip_list("no_address", skipped["no_address"])
             _fmt_skip_list("disabled", skipped["disabled"])
             _fmt_skip_list("paused", skipped["paused"])
@@ -2673,7 +2675,7 @@ async def fire_schedule(schedule: dict) -> str:
             print(f"[events] schedule:fired (end) publish failed: {pub_err}")
 
     # Lazy main import — strong-ref + done-callback contract via
-    # `spawn_background_task` (see CLAUDE.md "Background-task lifecycle").
+    # `spawn_background_task` (see the project conventions "Background-task lifecycle").
     import main as _main
     _main.spawn_background_task(
         _await_and_record(),

@@ -2,7 +2,7 @@
 
 Sibling of :mod:`logic.host_metrics_sampler` (which serves the
 node-exporter path) — same architectural shape, same skip-don't-
-synthesize discipline (see CLAUDE.md "Counter-rate samplers must
+synthesize discipline (see the project conventions "Counter-rate samplers must
 SKIP, not synthesize"), but sources its data from a single Pulse
 hub probe per tick instead of per-host node-exporter scrapes.
 
@@ -48,7 +48,6 @@ from logic.coerce import (
     int_or_none as _int_or_none,
     float_or_none as _float_or_none,
 )
-
 
 # Same sanity bounds + rationale as host_metrics_sampler — see that
 # module's docstring for the full discussion. Out-of-bounds deltas

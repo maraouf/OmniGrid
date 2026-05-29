@@ -25,7 +25,7 @@ Contract:
     silently drops the persistent copy but never breaks the tee. The
     in-memory ring is the source of truth for the live UI.
   - Only the main process buffer matters — the codebase runs as a
-    single uvicorn worker (see CLAUDE.md "single-replica" invariant).
+    single uvicorn worker (see the project conventions "single-replica" invariant).
 """
 from __future__ import annotations
 
@@ -481,7 +481,7 @@ def recent_lines_window(*, hours: int = 24,
     # Walk back day-by-day until the file's date predates the cutoff.
     # Files are named `omnigrid-YYYY-MM-DD.log`. Resolved-tz-aware so
     # the day boundary matches `_today_log_path()` (the rotation +
-    # parse halves stay consistent per CLAUDE.md's TZ-aware paths
+    # parse halves stay consistent per the project's TZ-aware paths
     # rule).
     tz = _resolved_tz() or timezone.utc
     cutoff_date = datetime.fromtimestamp(cutoff_ts, tz=tz).date() if cutoff_ts > 0 else None

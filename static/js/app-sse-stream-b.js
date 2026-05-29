@@ -809,7 +809,7 @@ export default {
   // ``@keydown="open && _focusTrapKeydown($event, $el)"`` on the
   // dialog root. Intercepts Tab / Shift-Tab to cycle focus within
   // the dialog. Other keys pass through. Tab leak was a fleet-wide
-  // gap (CLAUDE.md "Drawers + modals need ... focus-trap helper" —
+  // gap (the project conventions "Drawers + modals need ... focus-trap helper" —
   // documented since 2026-04-30, never built fleet-wide). This helper
   // is the building block; existing dialogs (host drawer, item drawer,
   // terminal modal, hotkeys modal, schedule edit modal) can adopt it
@@ -2209,18 +2209,15 @@ export default {
       if (!this._loggedMissingTypeShort) {
         this._loggedMissingTypeShort = new Set();
       }
+      // Diagnostic console.info that previously dumped the full Type
+      // object on every page load was operator-flagged as noise --
+      // the fallback derived-acronym path is the correct behaviour
+      // when the upstream Type record has no ShortName, not a bug
+      // worth surfacing. The dedup Set is kept (in case we want to
+      // restore the log under a debug flag later) but the log is
+      // intentionally elided.
       const aid = String(a.id || a.type || '');
-      if (!this._loggedMissingTypeShort.has(aid)) {
-        this._loggedMissingTypeShort.add(aid);
-
-        console.info(
-          '[asset] type has no recognised short-name field; available keys:',
-          Object.keys(a._raw.Type || {}),
-          '— type:', a.type,
-          '— full Type object:', a._raw.Type,
-          '— falling back to derived acronym.',
-        );
-      }
+      this._loggedMissingTypeShort.add(aid);
     }
     // Source of truth is the asset's `ShortName` (<asset-api-host> MDI
     // §5.2.4, exposed by `shape_asset` as `type_short`). When the
@@ -2508,7 +2505,7 @@ export default {
 
   // Status taxonomy considered "in trouble" — matches the Telegram
   // AI context's `problem_hosts` block for symmetry. `unconfigured`
-  // hosts are intentionally NOT in this set per CLAUDE.md (curated
+  // hosts are intentionally NOT in this set per the project conventions (curated
   // rows with no provider mapped are inventory-only entries, not
   // outages).
   _PROBLEM_HOST_STATUSES: new Set(['down', 'paused', 'unknown']),

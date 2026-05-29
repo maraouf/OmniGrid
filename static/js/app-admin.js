@@ -556,7 +556,7 @@ export default {
                 // the inputs + bounds-chips + effective-value chip
                 // render. Without this, the Advanced section shows
                 // "default:" / "Effective: undefined" everywhere
-                // (operator-reported bug).
+              // (operator-reported bug).
               else if (tab === 'weather') {
                 await this.loadSettings();
                 if (!this.tuningLoaded) {
@@ -834,7 +834,7 @@ export default {
   // localStorage shape.
   setHostStatsTab(name) {
     // Validate against `HOST_STATS_TAB_ORDER` (single source of
-    // truth — see canonical-key-set rule in CLAUDE.md). Pre-fix
+    // truth — see canonical-key-set rule in the project conventions). Pre-fix
     // this hardcoded a parallel literal that lagged behind every
     // new tab — `port_scan` shipped in `HOST_STATS_TAB_ORDER` but
     // got silently rejected here, so the tab couldn't be clicked.

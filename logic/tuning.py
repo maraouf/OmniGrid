@@ -677,7 +677,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # connection's execute / executemany with a perf_counter pair;
     # queries exceeding this threshold land in Admin → Logs with
     # the `[slow_query] warning:` prefix family (WARN bucket).
-    # Default 100ms — matches the sync-loop-block boundary CLAUDE.md
+    # Default 100ms — matches the sync-loop-block boundary the project conventions
     # uses for the to_thread offload rule. Lower (e.g. 25) for
     # verbose debugging when hunting a regression; raise (e.g. 500)
     # to focus only on catastrophic queries on a noisy fleet. 0
@@ -843,7 +843,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # SNMP per-host auto-pause threshold (consecutive failed probe
     # rounds). When `_probe_one_snmp` fails this many ticks in a row,
     # the (snmp, host) pair is marked auto-paused in
-    # `host_failure_state` (keyed `snmp:<host_id>` — see CLAUDE.md
+    # `host_failure_state` (keyed `snmp:<host_id>` — see the project conventions
     # SNMP-aware sampler). Subsequent probes are SKIPPED entirely
     # until the operator clears the marker via
     # POST /api/hosts/{id}/provider/snmp/resume. Distinct from the
@@ -1194,7 +1194,7 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
 
     # ----- Per-provider default ports --------------------------------------
     # Each port setting promoted out of the plain `settings` table per the
-    # CLAUDE.md "Plain-`settings`-row escape hatch is a drift class" rule.
+    # the project conventions "Plain-`settings`-row escape hatch is a drift class" rule.
     # Operator-tunable defaults consumed by per-host probes when the row
     # doesn't carry its own per-host port override. Bounds 1..65535 (TCP /
     # UDP port range). Defaults match standard service ports.
@@ -1361,7 +1361,7 @@ def resolve_provider_interval(provider_tunable_key: "Tunable",
 
     Replaces the twin `_resolve_<provider>_probe_interval()` helpers
     in `logic/host_http_sampler.py` and `logic/service_sampler.py`
-    (per CLAUDE.md priority L duplicate-code rule). Future per-
+    (per the project conventions priority L duplicate-code rule). Future per-
     provider samplers add their `tuning_<provider>_sample_interval_seconds`
     knob to `TUNABLES` + consume this helper.
     """

@@ -1,7 +1,7 @@
 """SSH console — admin-only, one-shot remote command runner.
 
 MVP scope is a single fire-and-forget command per request. Interactive
-terminals are explicitly out of scope for V1 (see CLAUDE.md "SSH runs are
+terminals are explicitly out of scope for V1 (see the project conventions "SSH runs are
 admin-only, dry-run-by-default, audit-logged" bullet); this module makes
 "run one command, show me stdout/stderr/exit" cheap and auditable without
 opening a full PTY channel or multiplexed stream API.
@@ -25,7 +25,7 @@ Credentials storage model:
   - **Global** defaults live in the ``settings`` table under
     ``ssh_default_*``. Secret fields (``ssh_default_private_key``,
     ``ssh_default_private_key_passphrase``) follow the suffix + ``_set``
-    flag convention from CLAUDE.md — the browser only ever learns
+    flag convention from the project conventions — the browser only ever learns
     "is it set", never the material.
   - **Per-host** overrides live in ``hosts_config[].ssh`` as a JSON
     sub-dict with optional ``user`` / ``port`` / ``enabled`` keys
@@ -34,7 +34,7 @@ Credentials storage model:
     intentionally keeps key material GLOBAL only — per-host user + port
     is enough for the current use case without adding a named-keys
     table. Operators who need multiple keys can revisit this when the
-    actual need arises (see CLAUDE.md "solve when needed" ethos).
+    actual need arises (see the project conventions "solve when needed" ethos).
 
 Safety rails:
   - Every write operation runs **admin-only** at the route layer.
@@ -138,7 +138,7 @@ def get_global_ssh_settings() -> dict:
 
     Secret values (the private key + passphrase) are returned in the
     clear — this helper is called from the runner, not the /api/settings
-    shaper. The API layer redacts per CLAUDE.md's ``_set`` flag pattern.
+    shaper. The API layer redacts per the project's ``_set`` flag pattern.
     """
     from logic.db import get_setting
     return {
@@ -1022,7 +1022,7 @@ def ssh_status(host_id: str, hosts_config: list[dict]) -> dict:
             # The word `error` in the line text was painting these
             # informational reports red in Admin → Logs even though
             # `configured=True` and the value was None — exactly the
-            # drift class CLAUDE.md flags ("pick verbs carefully").
+            # drift class the project conventions flags ("pick verbs carefully").
             f"detail={resolved.get('error')!r}"
         )
     # Strip every underscore-prefixed key from the resolved dict
@@ -1076,7 +1076,7 @@ def sanitize_command_for_audit(command: str) -> str:
 # frames = control messages) to an asyncssh interactive process.
 #
 # Reuses every safety rail the one-shot ``run_command`` already enforces:
-# - ``request_pty="force"`` so sudo behaves correctly (CLAUDE.md
+# - ``request_pty="force"`` so sudo behaves correctly (the project conventions
 #   "SSH runs need ``request_pty='force'``" rule).
 # - per-(host_id, user) ``_arm_cooldown`` on auth failure.
 # - same credential-resolution ladder + ``password_source`` lookup.

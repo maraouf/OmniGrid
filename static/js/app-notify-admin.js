@@ -277,7 +277,7 @@ export default {
   // Per-medium master switches. Mirrors `NOTIFY_MEDIUM_NAMES` in
   // logic/ops.py. Adding a third medium adds one entry here +
   // NOTIFY_MEDIUM_NAMES + SettingsIn + api_get_settings hydration
-  // (CLAUDE.md "Settings hydration drift class" four-place audit).
+  // (the project conventions "Settings hydration drift class" four-place audit).
   notifyMediumKeys: [
     'notify_medium_app',
     'notify_medium_apprise',

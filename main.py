@@ -267,7 +267,7 @@ def _totp_required_for(role: str, policy: Optional[dict] = None) -> bool:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Lifespan-managed startup — per the single-replica rule in
-    CLAUDE.md, long-running workers live here so they stay at
+    the project conventions, long-running workers live here so they stay at
     one-per-process. The `_app` parameter is FastAPI's required
     handler signature; the lifespan body uses module-level `app`
     directly, so the parameter is unused-by-design."""
@@ -335,21 +335,28 @@ async def _lifespan(_app: FastAPI):
         import traceback as _traceback
         _loop = _asyncio.get_running_loop()
 
-        def _async_exception_handler(loop, context):
+        def _async_exception_handler(_loop_unused, context):
             """Log every un-awaited task exception with a full
             traceback to the persistent log. asyncio's default
             handler prints to stderr but doesn't include the
             stack frame that spawned the failing task — `context`
             carries the exception + the task ref so we can extract
-            both."""
+            both. ``_loop_unused`` is the asyncio-mandated first
+            positional (the event loop instance); we don't need it
+            but the handler signature is fixed by asyncio's
+            `set_exception_handler` contract."""
             exc = context.get("exception")
             msg = context.get("message") or "unhandled asyncio exception"
-            task = context.get("task")
+            inner_task = context.get("task")
             task_name = ""
             try:
-                if task is not None and hasattr(task, "get_name"):
-                    task_name = f" task={task.get_name()}"
-            except Exception:  # noqa: BLE001
+                if inner_task is not None and hasattr(inner_task, "get_name"):
+                    task_name = f" task={inner_task.get_name()}"
+            except (AttributeError, RuntimeError):
+                # AttributeError: get_name missing on a stub task;
+                # RuntimeError: task in a transition state that
+                # rejects introspection. Neither should block the
+                # exception log -- fall through with empty task_name.
                 task_name = ""
             if exc is not None:
                 tb = "".join(_traceback.format_exception(
@@ -445,10 +452,26 @@ async def _lifespan(_app: FastAPI):
             _socket.setdefaulttimeout(2.0)
             try:
                 for h in iter_curated_hosts():
+                    # `iter_curated_hosts` is typed Iterable[Any] (the
+                    # JSON-loaded shape isn't statically narrow); guard
+                    # explicitly so the `.get(...)` chain below type-checks
+                    # AND a corrupt non-dict row in `hosts_config` can't
+                    # crash the boot DNS sweep.
+                    if not isinstance(h, dict):
+                        continue
                     hid = (h.get("id") or "").strip()
                     if not hid:
                         continue
-                    _ssh = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+                    # Explicit isinstance + separate bind so PyCharm
+                    # narrows `_ssh` to `dict` (the inline conditional
+                    # form `_ssh = h.get("ssh") if isinstance(h.get(
+                    # "ssh"), dict) else {}` leaves _ssh typed as
+                    # `dict | Any | None` from the conditional's
+                    # return, which trips the `_ssh.get(...)` chain
+                    # below with `Member 'None' of '...' does not have
+                    # attribute 'get'`).
+                    _ssh_raw = h.get("ssh")
+                    _ssh: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
                     target = (
                         (h.get("address") or "").strip()
                         or (_ssh.get("fqdn") or "").strip()
@@ -1701,7 +1724,7 @@ def init_db():
         -- here we trigger via a defensive duplicate-column-tolerant
         -- ALTER that no-ops cleanly when the column is already there.
         -- Schema drift defence: every ALTER lands without breaking
-        -- a re-run of init_db (per CLAUDE.md additive-schema rule).
+        -- a re-run of init_db (per the project conventions additive-schema rule).
         CREATE INDEX IF NOT EXISTS idx_service_catalog_slug
             ON service_catalog(slug);
 

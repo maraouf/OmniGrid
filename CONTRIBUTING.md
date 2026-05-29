@@ -38,7 +38,7 @@ constraint and are unlikely to change:
   CI deploy gates (`docker info`, `service ps`, `/api/healthz` probe,
   `/api/version` round-trip). Adding pytest fixtures alongside
   timing-sensitive features is encouraged.
-- Public-shippable docs live under `docs/`. Operator-private working
+- Public-shippable docs live under `docs/`. Maintainer-private working
   notes live under `notes/` and are not the contract — please don't
   open PRs against `notes/`.
 

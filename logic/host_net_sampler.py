@@ -10,7 +10,7 @@ the gap by scraping ``node_network_receive_bytes_total`` /
 rates across consecutive samples.
 
 Design:
-  - One lifespan-managed task (see CLAUDE.md's "Long-running tasks
+  - One lifespan-managed task (see the project's "Long-running tasks
     belong in `_lifespan`" rule).
   - Ticks on ``STATS_SAMPLE_INTERVAL_SECONDS`` (reused — no new tunable).
   - Per curated host with a ``ne_url`` and node-exporter in

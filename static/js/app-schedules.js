@@ -288,7 +288,7 @@ export default {
     // Clone so edits don't mutate the list until Save. `params_text` is
     // a pretty-printed JSON blob for the textarea; we re-parse on save.
     // The `kind` + `cadence_mode` selects need the documented empty →
-    // $nextTick → reassign dance from CLAUDE.md : the modal's
+    // $nextTick → reassign dance from the project conventions : the modal's
     // <select> elements mount alongside their <template x-for>
     // <option> children, but Alpine commits x-model BEFORE the
     // options exist — so the matching <option value="X"> is missing

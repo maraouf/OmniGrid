@@ -12,12 +12,12 @@
 
 ## 1. Endpoints
 
-| Purpose                    | Method | URL                          | Content-Type                          |
-|----------------------------|--------|------------------------------|---------------------------------------|
-| Obtain an access token     | POST   | `/admin/api/oauth/token.php` | `application/x-www-form-urlencoded`   |
-| Introspect a token         | POST   | `/admin/api/oauth/introspect.php` | `application/x-www-form-urlencoded` |
-| Revoke a token             | POST   | `/admin/api/oauth/revoke.php` | `application/x-www-form-urlencoded`  |
-| Dispatch a service action  | POST   | `/admin/api/services.php`    | `application/x-www-form-urlencoded`   |
+| Purpose                      | Method   | URL                               | Content-Type                            |
+| ---------------------------- | -------- | --------------------------------- | --------------------------------------- |
+| Obtain an access token       | POST     | `/admin/api/oauth/token.php`      | `application/x-www-form-urlencoded`     |
+| Introspect a token           | POST     | `/admin/api/oauth/introspect.php` | `application/x-www-form-urlencoded`     |
+| Revoke a token               | POST     | `/admin/api/oauth/revoke.php`     | `application/x-www-form-urlencoded`     |
+| Dispatch a service action    | POST     | `/admin/api/services.php`         | `application/x-www-form-urlencoded`     |
 
 All four endpoints require **HTTPS** (`Authentication::RequireHTTPS()`).
 Non-POST or wrong Content-Type returns `405 Method Not Allowed` /
@@ -31,16 +31,16 @@ Non-POST or wrong Content-Type returns `405 Method Not Allowed` /
 
 **POST** `/admin/api/oauth/token.php`
 
-| Field         | Required           | Type   | Description                                                                           |
-|---------------|--------------------|--------|---------------------------------------------------------------------------------------|
-| `grant_type`  | yes                | string | `client_credentials` (recommended), `password`, `refresh_token`, `authorization_code` |
-| `username`    | yes (CC & PW)      | string | Web-service user username (e.g. `ws_assets_user`)                                     |
-| `password`    | yes (CC & PW)      | string | Web-service user password                                                             |
-| `scope`       | yes (CC & PW)      | string | Space-separated scopes (see §3). For a single scope just pass the value.              |
-| `user_type`   | yes (PW grant)     | int    | Numeric user type (only used by the `password` grant)                                 |
-| `refresh_token` | yes (RT grant)   | string | Opaque refresh token                                                                  |
-| `token_format` | optional          | string | `opaque` (default) or `jwt`                                                           |
-| `lifetime`    | optional (CC)      | int    | `1` issues a long-lived token (no refresh). Default: standard TTL with refresh token  |
+| Field           | Required             | Type     | Description                                                                             |
+| --------------- | -------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `grant_type`    | yes                  | string   | `client_credentials` (recommended), `password`, `refresh_token`, `authorization_code`   |
+| `username`      | yes (CC & PW)        | string   | Web-service user username (e.g. `ws_assets_user`)                                       |
+| `password`      | yes (CC & PW)        | string   | Web-service user password                                                               |
+| `scope`         | yes (CC & PW)        | string   | Space-separated scopes (see §3). For a single scope just pass the value.                |
+| `user_type`     | yes (PW grant)       | int      | Numeric user type (only used by the `password` grant)                                   |
+| `refresh_token` | yes (RT grant)       | string   | Opaque refresh token                                                                    |
+| `token_format`  | optional             | string   | `opaque` (default) or `jwt`                                                             |
+| `lifetime`      | optional (CC)        | int      | `1` issues a long-lived token (no refresh). Default: standard TTL with refresh token    |
 
 **Success response (HTTP 200):**
 ```json
@@ -49,9 +49,11 @@ Non-POST or wrong Content-Type returns `405 Method Not Allowed` /
   "token_type": "Bearer",
   "expires_in": 3600,
   "scope": "assets:read",
-  "refresh_token": "…"   // omitted when lifetime=1
+  "refresh_token": "…"
 }
 ```
+
+`refresh_token` is omitted when `lifetime=1`.
 
 **Failure:** `400` / `401` with
 `{error: "invalid_request|invalid_client|invalid_grant|unsupported_grant_type", error_description: "…"}`.
@@ -72,12 +74,12 @@ server-side `webservice_request` table.
 
 ## 3. Scopes
 
-| Scope              | Granted by webservice user                                  | Services it unlocks           |
-|--------------------|-------------------------------------------------------------|-------------------------------|
-| `assets:read`      | `ws_assets_user`                                            | `service=assets`              |
-| `monitoring:read`  | `ws_monitoring_user`                                        | `service=monitoring`          |
-| `location:read`    | per-user (password grant from end-user accounts)            | `service=location`            |
-| `scheduler:write`  | `ws_scheduler_user`                                         | `service=scheduler`           |
+| Scope                | Granted by webservice user                                    | Services it unlocks             |
+| -------------------- | ------------------------------------------------------------- | ------------------------------- |
+| `assets:read`        | `ws_assets_user`                                              | `service=assets`                |
+| `monitoring:read`    | `ws_monitoring_user`                                          | `service=monitoring`            |
+| `location:read`      | per-user (password grant from end-user accounts)              | `service=location`              |
+| `scheduler:write`    | `ws_scheduler_user`                                           | `service=scheduler`             |
 
 Source of truth: `webservices_oauth_scopes` table +
 `admin/api/shared/OAuthScope.php` enum.
@@ -102,23 +104,23 @@ on the row; they are `null` otherwise.
 
 **Request body** (`application/x-www-form-urlencoded`):
 
-| Field     | Required | Type   | Notes                    |
-|-----------|----------|--------|--------------------------|
-| `service` | yes      | string | `assets`                 |
-| `action`  | yes      | string | `get_asset_by_id`        |
-| `id`      | yes      | int    | Primary key of the asset |
+| Field       | Required   | Type     | Notes                      |
+| ----------- | ---------- | -------- | -------------------------- |
+| `service`   | yes        | string   | `assets`                   |
+| `action`    | yes        | string   | `get_asset_by_id`          |
+| `id`        | yes        | int      | Primary key of the asset   |
 
 **Success response (HTTP 200):**
 
-| Field          | Type     | Description                                         |
-|----------------|----------|-----------------------------------------------------|
-| `return`       | int      | `1` (success)                                       |
-| `message`      | string   | `"Success"`                                         |
-| `reference_id` | string   | GUID — echo back when opening tickets               |
-| `service_name` | string   | `"AssetsWebService"`                                |
-| `asset`        | `Asset`  | Single asset object (see §5.2). Always non-null on success. |
+| Field            | Type       | Description                                                 |
+| ---------------- | ---------- | ----------------------------------------------------------- |
+| `return`         | int        | `1` (success)                                               |
+| `message`        | string     | `"Success"`                                                 |
+| `reference_id`   | string     | GUID — echo back when opening tickets                       |
+| `service_name`   | string     | `"AssetsWebService"`                                        |
+| `asset`          | `Asset`    | Single asset object (see §5.2). Always non-null on success. |
 
-```json
+```text
 {
   "return": 1,
   "message": "Success",
@@ -136,9 +138,9 @@ on the row; they are `null` otherwise.
     "LocationID": 12, "Location": { "ID": 12, "Name": "DC1 Rack A", "CalculatedName": "DC1 / Rack A" },
     "RAM": "16GB", "Firmware": "17.6.4", "HardwareVersion": "V03",
     "Hostname": "core-sw-01", "Barcode": null, "Comment": null,
-    "Ports": [ /* AssetPort[] — see §5.2 */ ],
+    "Ports": [ <AssetPort[] -- see §5.2> ],
     "Images": null,
-    "Interfaces": [ /* AssetInterface[] — see §5.2 */ ],
+    "Interfaces": [ <AssetInterface[] -- see §5.2> ],
     "StatusID": 1, "Status": { "ID": 1, "Name": "Active", "Color": "#28a745" },
     "StatusDate": "2026-04-25 09:14:00", "StatusValue": null, "StatusComment": null,
     "CreatedOn": "2024-08-12 10:32:11",
@@ -155,11 +157,11 @@ on the row; they are `null` otherwise.
 
 **Request body:**
 
-| Field           | Required | Type   | Notes                          |
-|-----------------|----------|--------|--------------------------------|
-| `service`       | yes      | string | `assets`                       |
-| `action`        | yes      | string | `get_asset_by_custom_number`   |
-| `custom_number` | yes      | int    | Asset `CustomNumber` value     |
+| Field             | Required   | Type     | Notes                            |
+| ----------------- | ---------- | -------- | -------------------------------- |
+| `service`         | yes        | string   | `assets`                         |
+| `action`          | yes        | string   | `get_asset_by_custom_number`     |
+| `custom_number`   | yes        | int      | Asset `CustomNumber` value       |
 
 **Success response:** identical envelope to §4.1.1 — single `asset` object
 matching the `Asset` schema.
@@ -171,12 +173,12 @@ matching the `Asset` schema.
 
 **Request body:**
 
-| Field       | Required | Type   | Notes                              |
-|-------------|----------|--------|------------------------------------|
-| `service`   | yes      | string | `assets`                           |
-| `action`    | yes      | string | `get_assets_custom_number_range`   |
-| `min_value` | yes      | int    | Inclusive lower bound              |
-| `max_value` | yes      | int    | Inclusive upper bound              |
+| Field         | Required   | Type     | Notes                                |
+| ------------- | ---------- | -------- | ------------------------------------ |
+| `service`     | yes        | string   | `assets`                             |
+| `action`      | yes        | string   | `get_assets_custom_number_range`     |
+| `min_value`   | yes        | int      | Inclusive lower bound                |
+| `max_value`   | yes        | int      | Inclusive upper bound                |
 
 Server caps the result size via the `ASSET_SERVICES_DATABASE_RECORDS_LIMITS`
 configuration value (default **50**). The endpoint **does not paginate** —
@@ -186,20 +188,20 @@ range (no asset has a `CustomNumber` between min and max) returns
 
 **Success response (HTTP 200):**
 
-| Field          | Type        | Description                                                  |
-|----------------|-------------|--------------------------------------------------------------|
-| `return`       | int         | `1` (success)                                                |
-| `message`      | string      | `"Success"`                                                  |
-| `reference_id` | string      | GUID                                                         |
-| `service_name` | string      | `"AssetsWebService"`                                         |
-| `assets`       | `Asset[]`   | Array of asset objects (see §5.2), max length = config limit |
+| Field            | Type          | Description                                                    |
+| ---------------- | ------------- | -------------------------------------------------------------- |
+| `return`         | int           | `1` (success)                                                  |
+| `message`        | string        | `"Success"`                                                    |
+| `reference_id`   | string        | GUID                                                           |
+| `service_name`   | string        | `"AssetsWebService"`                                           |
+| `assets`         | `Asset[]`     | Array of asset objects (see §5.2), max length = config limit   |
 
-```json
+```text
 {
   "return": 1, "message": "Success",
   "reference_id": "9F1A4C3E-…",
   "service_name": "AssetsWebService",
-  "assets": [ { "ID": 42, "CustomNumber": 178, /* … */ }, /* … up to limit … */ ]
+  "assets": [ { "ID": 42, "CustomNumber": 178, "...": "..." }, "...": "..." ]
 }
 ```
 
@@ -213,21 +215,21 @@ range (no asset has a `CustomNumber` between min and max) returns
 
 **Request body:**
 
-| Field      | Required | Type   | Notes                              |
-|------------|----------|--------|------------------------------------|
-| `service`  | yes      | string | `monitoring`                       |
-| `action`   | yes      | string | `get_error_stats_in_last_hour`    |
-| `interval` | yes      | int    | Lookback window in **hours** (≥1) |
+| Field        | Required   | Type     | Notes                                |
+| ------------ | ---------- | -------- | ------------------------------------ |
+| `service`    | yes        | string   | `monitoring`                         |
+| `action`     | yes        | string   | `get_error_stats_in_last_hour`       |
+| `interval`   | yes        | int      | Lookback window in **hours** (≥1)    |
 
 **Success response (HTTP 200):**
 
-| Field          | Type           | Description                  |
-|----------------|----------------|------------------------------|
-| `return`       | int            | `1`                          |
-| `message`      | string         | `"Success"`                  |
-| `reference_id` | string         | GUID                         |
-| `service_name` | string         | `"MonitoringWebService"`     |
-| `monitoring`   | `Monitoring`   | Stats object (see §5.2)      |
+| Field            | Type             | Description                    |
+| ---------------- | ---------------- | ------------------------------ |
+| `return`         | int              | `1`                            |
+| `message`        | string           | `"Success"`                    |
+| `reference_id`   | string           | GUID                           |
+| `service_name`   | string           | `"MonitoringWebService"`       |
+| `monitoring`     | `Monitoring`     | Stats object (see §5.2)        |
 
 ```json
 {
@@ -263,22 +265,22 @@ location update is attributed to a real user via `UserID`).
 
 **Request body:**
 
-| Field       | Required | Type  | Notes                |
-|-------------|----------|-------|----------------------|
-| `service`   | yes      | string| `location`           |
-| `action`    | yes      | string| `update_location`    |
-| `latitude`  | yes      | float | Range `-90 … 90`     |
-| `longitude` | yes      | float | Range `-180 … 180`   |
+| Field         | Required   | Type    | Notes                  |
+| ------------- | ---------- | ------- | ---------------------- |
+| `service`     | yes        | string  | `location`             |
+| `action`      | yes        | string  | `update_location`      |
+| `latitude`    | yes        | float   | Range `-90 … 90`       |
+| `longitude`   | yes        | float   | Range `-180 … 180`     |
 
 **Success response (HTTP 200):**
 
-| Field          | Type   | Description                                             |
-|----------------|--------|---------------------------------------------------------|
-| `return`       | int    | `1`                                                     |
-| `message`      | string | `"Success"`                                             |
-| `reference_id` | string | GUID                                                    |
-| `service_name` | string | `"LocationUpdateWebService"`                            |
-| `location_id`  | int    | Primary key of the inserted `users_locations` row       |
+| Field            | Type     | Description                                               |
+| ---------------- | -------- | --------------------------------------------------------- |
+| `return`         | int      | `1`                                                       |
+| `message`        | string   | `"Success"`                                               |
+| `reference_id`   | string   | GUID                                                      |
+| `service_name`   | string   | `"LocationUpdateWebService"`                              |
+| `location_id`    | int      | Primary key of the inserted `users_locations` row         |
 
 ```json
 {
@@ -304,10 +306,10 @@ and continues work in the background.
 
 **Request body:**
 
-| Field     | Required | Type   | Notes          |
-|-----------|----------|--------|----------------|
-| `service` | yes      | string | `scheduler`    |
-| `action`  | yes      | string | `run_schedule` |
+| Field       | Required   | Type     | Notes            |
+| ----------- | ---------- | -------- | ---------------- |
+| `service`   | yes        | string   | `scheduler`      |
+| `action`    | yes        | string   | `run_schedule`   |
 
 **Success responses (HTTP 200) — three flavours:**
 
@@ -344,27 +346,31 @@ until the loop exits. Either way the response shape is identical.
 
 Every service response is a JSON object with this shape:
 
-| Field          | Type            | When present | Description                                                    |
-|----------------|-----------------|--------------|----------------------------------------------------------------|
-| `return`       | int             | always       | `0` Failure, `1` Success, `2` Processing, `3` Stalled          |
-| `message`      | string          | always       | Short human-readable summary (`"Success"` / `"Failure"`)       |
-| `reference_id` | string (GUID)   | always       | Trace ID — log on the caller side, supply when opening tickets |
-| `service_name` | string          | always       | One of `AssetsWebService`, `MonitoringWebService`, `LocationUpdateWebService`, `SchedulerWebService` |
-| `details`      | string          | failure path, sometimes success | Long description; on failure includes the `ExNNNN` tag |
-| `code`         | string          | failure only | The full `"ExNNNN"` tag (e.g. `"Ex1645"`), **not** a number     |
-| `<payload>`    | object \| array | success only | Varies per action — see §4 / §5.2                              |
+| Field            | Type              | When present                    | Description                                                                                          |                                   |
+| ---------------- | ----------------- | --------------                  | ----------------------------------------------------------------                                     |                                   |
+| `return`         | int               | always                          | `0` Failure, `1` Success, `2` Processing, `3` Stalled                                                |                                   |
+| `message`        | string            | always                          | Short human-readable summary (`"Success"` / `"Failure"`)                                             |                                   |
+| `reference_id`   | string (GUID)     | always                          | Trace ID — log on the caller side, supply when opening tickets                                       |                                   |
+| `service_name`   | string            | always                          | One of `AssetsWebService`, `MonitoringWebService`, `LocationUpdateWebService`, `SchedulerWebService` |                                   |
+| `details`        | string            | failure path, sometimes success | Long description; on failure includes the `ExNNNN` tag                                               |                                   |
+| `code`           | string            | failure only                    | The full `"ExNNNN"` tag (e.g. `"Ex1645"`), **not** a number                                          |                                   |
+| `<payload>`      | object \          | array                           | success only                                                                                         | Varies per action — see §4 / §5.2 |
+
+**Success**
 
 ```json
-// Success
 {
   "return": 1,
   "message": "Success",
   "reference_id": "9F1A4C3E-…",
   "service_name": "AssetsWebService",
-  "asset": { /* see §5.2 */ }
+  "asset": {"...": "see §5.2"}
 }
+```
 
-// Failure
+**Failure**
+
+```json
 {
   "return": 0,
   "message": "Failure",
@@ -382,13 +388,13 @@ Every service response is a JSON object with this shape:
 
 **HTTP status mapping**
 
-| HTTP | When |
-|------|------|
-| `200 OK` | All successful service calls |
-| `400 Bad Request` | Validation failure (missing/invalid params, no records found) |
-| `401 Unauthorized` | Missing / invalid / expired bearer token |
-| `403 Forbidden` | Token valid, but does not include the required scope |
-| `405 Method Not Allowed` | Non-POST or wrong `Content-Type` |
+| HTTP                        | When                                                           |
+| --------------------------- | -------------------------------------------------------------- |
+| `200 OK`                    | All successful service calls                                   |
+| `400 Bad Request`           | Validation failure (missing/invalid params, no records found)  |
+| `401 Unauthorized`          | Missing / invalid / expired bearer token                       |
+| `403 Forbidden`             | Token valid, but does not include the required scope           |
+| `405 Method Not Allowed`    | Non-POST or wrong `Content-Type`                               |
 | `500 Internal Server Error` | Uncaught server-side exception (always carries `reference_id`) |
 
 Return codes live in `admin/api/shared/WebServiceReturnCode.php`:
@@ -406,131 +412,131 @@ empty.
 
 #### 5.2.1 `Asset` (returned by §4.1.1, §4.1.2; element type of §4.1.3)
 
-| Field              | Type                  | Description                                                |
-|--------------------|-----------------------|------------------------------------------------------------|
-| `ID`               | int                   | Primary key, never null                                    |
-| `CustomNumber`     | int \| null           | Tenant-defined asset number (used by `get_asset_by_custom_number`) |
-| `TypeID`           | int \| null           | FK → `assets_types.ID`                                     |
-| `Type`             | `AssetType` \| null   | Eager-loaded type object (see §5.2.4)                      |
-| `Name`             | string \| null        | Asset display name                                         |
-| `SerialNumber`     | string \| null        | Vendor-issued serial                                       |
-| `BrandID`          | int \| null           | FK → `assets_brands.ID`                                    |
-| `Brand`            | `AssetBrand` \| null  | Eager-loaded brand object (see §5.2.5)                     |
-| `Model`            | string \| null        | Vendor model designation                                   |
-| `SKU`              | string \| null        | Stock keeping unit                                         |
-| `LocationID`       | int \| null           | FK → `assets_locations.ID`                                 |
-| `Location`         | `AssetLocation` \| null | Eager-loaded location object (see §5.2.6)                |
-| `RAM`              | string \| null        | Free-text memory description                               |
-| `Firmware`         | string \| null        | Firmware version string                                    |
-| `HardwareVersion`  | string \| null        | Hardware revision string                                   |
-| `Hostname`         | string \| null        | Network hostname                                           |
-| `Barcode`          | string \| null        | Barcode value                                              |
-| `Comment`          | string \| null        | Free-text comment                                          |
-| `Ports`            | `AssetPort[]` \| null | Open ports configured for this asset (see §5.2.2)          |
-| `Images`           | array \| null         | Reserved (not populated by these endpoints)                |
-| `Interfaces`       | `AssetInterface[]` \| null | Network interfaces for this asset (see §5.2.3)        |
-| `StatusID`         | int \| null           | FK → `assets_statuses.ID`                                  |
-| `Status`           | `AssetStatus` \| null | Eager-loaded status object (see §5.2.7)                    |
-| `StatusDate`       | string (datetime) \| null | When the current status was set                        |
-| `StatusLink`       | string \| null        | Optional URL associated with the status                    |
-| `StatusValue`      | float \| null         | Optional numeric value associated with the status          |
-| `StatusComment`    | string \| null        | Optional free-text status note                             |
-| `CreatedOn`        | string (datetime) \| null | Row creation timestamp                                 |
-| `LastModifiedOn`   | string (datetime) \| null | Last update timestamp                                  |
-| `IsDeleted`        | bool \| null          | Soft-delete flag                                           |
-| `DeletedOn`        | string (datetime) \| null | Soft-delete timestamp                                  |
+| Field                | Type                    | Description                                                  |                                                                    |
+| -------------------- | ----------------------- | ------------------------------------------------------------ |                                                                    |
+| `ID`                 | int                     | Primary key, never null                                      |                                                                    |
+| `CustomNumber`       | int \                   | null                                                         | Tenant-defined asset number (used by `get_asset_by_custom_number`) |
+| `TypeID`             | int \                   | null                                                         | FK → `assets_types.ID`                                             |
+| `Type`               | `AssetType` \           | null                                                         | Eager-loaded type object (see §5.2.4)                              |
+| `Name`               | string \                | null                                                         | Asset display name                                                 |
+| `SerialNumber`       | string \                | null                                                         | Vendor-issued serial                                               |
+| `BrandID`            | int \                   | null                                                         | FK → `assets_brands.ID`                                            |
+| `Brand`              | `AssetBrand` \          | null                                                         | Eager-loaded brand object (see §5.2.5)                             |
+| `Model`              | string \                | null                                                         | Vendor model designation                                           |
+| `SKU`                | string \                | null                                                         | Stock keeping unit                                                 |
+| `LocationID`         | int \                   | null                                                         | FK → `assets_locations.ID`                                         |
+| `Location`           | `AssetLocation` \       | null                                                         | Eager-loaded location object (see §5.2.6)                          |
+| `RAM`                | string \                | null                                                         | Free-text memory description                                       |
+| `Firmware`           | string \                | null                                                         | Firmware version string                                            |
+| `HardwareVersion`    | string \                | null                                                         | Hardware revision string                                           |
+| `Hostname`           | string \                | null                                                         | Network hostname                                                   |
+| `Barcode`            | string \                | null                                                         | Barcode value                                                      |
+| `Comment`            | string \                | null                                                         | Free-text comment                                                  |
+| `Ports`              | `AssetPort[]` \         | null                                                         | Open ports configured for this asset (see §5.2.2)                  |
+| `Images`             | array \                 | null                                                         | Reserved (not populated by these endpoints)                        |
+| `Interfaces`         | `AssetInterface[]` \    | null                                                         | Network interfaces for this asset (see §5.2.3)                     |
+| `StatusID`           | int \                   | null                                                         | FK → `assets_statuses.ID`                                          |
+| `Status`             | `AssetStatus` \         | null                                                         | Eager-loaded status object (see §5.2.7)                            |
+| `StatusDate`         | string (datetime) \     | null                                                         | When the current status was set                                    |
+| `StatusLink`         | string \                | null                                                         | Optional URL associated with the status                            |
+| `StatusValue`        | float \                 | null                                                         | Optional numeric value associated with the status                  |
+| `StatusComment`      | string \                | null                                                         | Optional free-text status note                                     |
+| `CreatedOn`          | string (datetime) \     | null                                                         | Row creation timestamp                                             |
+| `LastModifiedOn`     | string (datetime) \     | null                                                         | Last update timestamp                                              |
+| `IsDeleted`          | bool \                  | null                                                         | Soft-delete flag                                                   |
+| `DeletedOn`          | string (datetime) \     | null                                                         | Soft-delete timestamp                                              |
 
 #### 5.2.2 `AssetPort` (element of `Asset.Ports`)
 
-| Field             | Type                       | Description                                |
-|-------------------|----------------------------|--------------------------------------------|
-| `ID`              | int                        | Primary key                                |
-| `Name`            | string \| null             | Friendly name                              |
-| `Port`            | int \| null                | TCP/UDP port number                        |
-| `ServiceName`     | string \| null             | Service running on the port                |
-| `Protocol`        | string \| null             | `tcp`, `udp`, etc.                         |
-| `Comment`         | string \| null             | Free-text                                  |
-| `IsEnabled`       | bool \| null               | Soft-disable flag                          |
-| `CreatedOn`       | string (datetime) \| null  |                                            |
-| `LastModifiedOn`  | string (datetime) \| null  |                                            |
-| `IsDeleted`       | bool \| null               |                                            |
-| `DeletedOn`       | string (datetime) \| null  |                                            |
+| Field               | Type                         | Description                                  |                             |
+| ------------------- | ---------------------------- | -------------------------------------------- |                             |
+| `ID`                | int                          | Primary key                                  |                             |
+| `Name`              | string \                     | null                                         | Friendly name               |
+| `Port`              | int \                        | null                                         | TCP/UDP port number         |
+| `ServiceName`       | string \                     | null                                         | Service running on the port |
+| `Protocol`          | string \                     | null                                         | `tcp`, `udp`, etc.          |
+| `Comment`           | string \                     | null                                         | Free-text                   |
+| `IsEnabled`         | bool \                       | null                                         | Soft-disable flag           |
+| `CreatedOn`         | string (datetime) \          | null                                         |                             |
+| `LastModifiedOn`    | string (datetime) \          | null                                         |                             |
+| `IsDeleted`         | bool \                       | null                                         |                             |
+| `DeletedOn`         | string (datetime) \          | null                                         |                             |
 
 #### 5.2.3 `AssetInterface` (element of `Asset.Interfaces`)
 
-| Field             | Type                      | Description                                  |
-|-------------------|---------------------------|----------------------------------------------|
-| `ID`              | int                       | Primary key                                  |
-| `AssetID`         | int \| null               | FK → `assets.ID` (matches the parent asset)  |
-| `Name`            | string \| null            | Interface label (e.g. `eth0`, `Gi1/0/1`)     |
-| `IP`              | string \| null            | IPv4/IPv6 address as text                    |
-| `IPVersion`       | string \| null            | `"4"` or `"6"`                               |
-| `MacAddress`      | string \| null            | MAC, no enforced format                      |
-| `Number`          | int \| null               | Display ordering                             |
-| `Comment`         | string \| null            |                                              |
-| `IsEnabled`       | bool \| null              |                                              |
-| `CreatedOn`       | string (datetime) \| null |                                              |
-| `LastModifiedOn`  | string (datetime) \| null |                                              |
-| `IsDeleted`       | bool \| null              |                                              |
-| `DeletedOn`       | string (datetime) \| null |                                              |
+| Field               | Type                        | Description                                    |                                             |
+| ------------------- | --------------------------- | ---------------------------------------------- |                                             |
+| `ID`                | int                         | Primary key                                    |                                             |
+| `AssetID`           | int \                       | null                                           | FK → `assets.ID` (matches the parent asset) |
+| `Name`              | string \                    | null                                           | Interface label (e.g. `eth0`, `Gi1/0/1`)    |
+| `IP`                | string \                    | null                                           | IPv4/IPv6 address as text                   |
+| `IPVersion`         | string \                    | null                                           | `"4"` or `"6"`                              |
+| `MacAddress`        | string \                    | null                                           | MAC, no enforced format                     |
+| `Number`            | int \                       | null                                           | Display ordering                            |
+| `Comment`           | string \                    | null                                           |                                             |
+| `IsEnabled`         | bool \                      | null                                           |                                             |
+| `CreatedOn`         | string (datetime) \         | null                                           |                                             |
+| `LastModifiedOn`    | string (datetime) \         | null                                           |                                             |
+| `IsDeleted`         | bool \                      | null                                           |                                             |
+| `DeletedOn`         | string (datetime) \         | null                                           |                                             |
 
 #### 5.2.4 `AssetType` (nested under `Asset.Type`)
 
-| Field       | Type           | Description                |
-|-------------|----------------|----------------------------|
-| `ID`        | int            | Primary key                |
-| `Name`      | string \| null | Full label                 |
-| `ShortName` | string \| null | Short label / abbreviation |
-| `IsEnabled` | bool \| null   |                            |
-| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset` |  |
+| Field                                                      | Type             | Description                  |                            |
+| -------------                                              | ---------------- | ---------------------------- |                            |
+| `ID`                                                       | int              | Primary key                  |                            |
+| `Name`                                                     | string \         | null                         | Full label                 |
+| `ShortName`                                                | string \         | null                         | Short label / abbreviation |
+| `IsEnabled`                                                | bool \           | null                         |                            |
+| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset`       |                              |                            |
 
 #### 5.2.5 `AssetBrand` (nested under `Asset.Brand`)
 
-| Field       | Type           | Description                       |
-|-------------|----------------|-----------------------------------|
-| `ID`        | int            | Primary key                       |
-| `Name`      | string \| null | Brand name                        |
-| `Link`      | string \| null | Vendor URL                        |
-| `ImageID`   | int \| null    | FK → `files.ID` for the logo file |
-| `IsEnabled` | bool \| null   |                                   |
-| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset` |  |
+| Field                                                      | Type             | Description                         |                                   |
+| -------------                                              | ---------------- | ----------------------------------- |                                   |
+| `ID`                                                       | int              | Primary key                         |                                   |
+| `Name`                                                     | string \         | null                                | Brand name                        |
+| `Link`                                                     | string \         | null                                | Vendor URL                        |
+| `ImageID`                                                  | int \            | null                                | FK → `files.ID` for the logo file |
+| `IsEnabled`                                                | bool \           | null                                |                                   |
+| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset`       |                                     |                                   |
 
 #### 5.2.6 `AssetLocation` (nested under `Asset.Location`)
 
-| Field            | Type           | Description                                       |
-|------------------|----------------|---------------------------------------------------|
-| `ID`             | int            | Primary key                                       |
-| `Name`           | string \| null | Top-level location name                           |
-| `Sub`            | string \| null | Sub-location (e.g. rack, shelf)                   |
-| `Details`        | string \| null | Free-text address / description                   |
-| `CalculatedName` | string \| null | Server-computed display string (`Name / Sub`)     |
-| `IsEnabled`      | bool \| null   |                                                   |
-| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset` |  |
+| Field                                                      | Type             | Description                                         |                                               |
+| ------------------                                         | ---------------- | --------------------------------------------------- |                                               |
+| `ID`                                                       | int              | Primary key                                         |                                               |
+| `Name`                                                     | string \         | null                                                | Top-level location name                       |
+| `Sub`                                                      | string \         | null                                                | Sub-location (e.g. rack, shelf)               |
+| `Details`                                                  | string \         | null                                                | Free-text address / description               |
+| `CalculatedName`                                           | string \         | null                                                | Server-computed display string (`Name / Sub`) |
+| `IsEnabled`                                                | bool \           | null                                                |                                               |
+| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset`       |                                                     |                                               |
 
 #### 5.2.7 `AssetStatus` (nested under `Asset.Status`)
 
-| Field            | Type           | Description                                            |
-|------------------|----------------|--------------------------------------------------------|
-| `ID`             | int            | Primary key                                            |
-| `Name`           | string \| null | Status label (`Active`, `In Repair`, …)                |
-| `Sub`            | string \| null | Sub-status                                             |
-| `CalculatedName` | string \| null | Server-computed display string                         |
-| `Color`          | string \| null | `#RRGGBB` hex used by the admin badge                  |
-| `IsEnabled`      | bool \| null   |                                                        |
-| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset` |  |
+| Field                                                      | Type             | Description                                              |                                         |
+| ------------------                                         | ---------------- | -------------------------------------------------------- |                                         |
+| `ID`                                                       | int              | Primary key                                              |                                         |
+| `Name`                                                     | string \         | null                                                     | Status label (`Active`, `In Repair`, …) |
+| `Sub`                                                      | string \         | null                                                     | Sub-status                              |
+| `CalculatedName`                                           | string \         | null                                                     | Server-computed display string          |
+| `Color`                                                    | string \         | null                                                     | `#RRGGBB` hex used by the admin badge   |
+| `IsEnabled`                                                | bool \           | null                                                     |                                         |
+| `CreatedOn` / `LastModifiedOn` / `IsDeleted` / `DeletedOn` | as `Asset`       |                                                          |                                         |
 
 #### 5.2.8 `Monitoring` (returned by §4.2.1)
 
-| Field                 | Type                      | Description                                             |
-|-----------------------|---------------------------|---------------------------------------------------------|
-| `Interval`            | int                       | The interval in hours that was requested (echoed back)  |
-| `IntervalFormat`      | string                    | ISO-8601 duration form, e.g. `"PT24H"` for 24 hours     |
-| `StartDate`           | string (datetime)         | Window start = `now − interval` (the **earlier** bound) |
-| `EndDate`             | string (datetime)         | Window end   = `now`                                    |
-| `WarningsCount`       | int                       | `WARNING`-level log count over the window               |
-| `ErrorsCount`         | int                       | `ERROR`-level log count over the window                 |
-| `CriticalCount`       | int                       | `CRITICAL`-level log count over the window              |
-| `CriticalErrorsCount` | int                       | Subset of `ErrorsCount` that was classified as critical |
+| Field                   | Type                        | Description                                               |
+| ----------------------- | --------------------------- | --------------------------------------------------------- |
+| `Interval`              | int                         | The interval in hours that was requested (echoed back)    |
+| `IntervalFormat`        | string                      | ISO-8601 duration form, e.g. `"PT24H"` for 24 hours       |
+| `StartDate`             | string (datetime)           | Window start = `now − interval` (the **earlier** bound)   |
+| `EndDate`               | string (datetime)           | Window end   = `now`                                      |
+| `WarningsCount`         | int                         | `WARNING`-level log count over the window                 |
+| `ErrorsCount`           | int                         | `ERROR`-level log count over the window                   |
+| `CriticalCount`         | int                         | `CRITICAL`-level log count over the window                |
+| `CriticalErrorsCount`   | int                         | Subset of `ErrorsCount` that was classified as critical   |
 
 ---
 
@@ -541,11 +547,11 @@ empty.
 > its own user/password/token set; never reuse a token across tenants, and
 > never commit live credentials to git.
 
-| Username              | Example password    | Scope             | Notes |
-|-----------------------|---------------------|-------------------|-------|
-| `ws_assets_user`      | `assetsuser22`      | `assets:read`     | Sample assets-integration creds |
-| `ws_monitoring_user`  | `monitoringuser22`  | `monitoring:read` | Sample monitoring creds |
-| `ws_scheduler_user`   | `scheduleruser1`    | `scheduler:write` | Invoked by cronjob on a short interval |
+| Username                | Example password      | Scope               | Notes                                  |
+| ----------------------- | --------------------- | ------------------- | -------------------------------------- |
+| `ws_assets_user`        | `assetsuser22`        | `assets:read`       | Sample assets-integration creds        |
+| `ws_monitoring_user`    | `monitoringuser22`    | `monitoring:read`   | Sample monitoring creds                |
+| `ws_scheduler_user`     | `scheduleruser1`      | `scheduler:write`   | Invoked by cronjob on a short interval |
 
 **Sample live tokens** are one per tenant, long-lifetime `client_credentials`.
 Format: `Bearer <id>.<secret>` (64 hex + dot + 64 hex). Live token values are
@@ -679,21 +685,21 @@ const json = await res.json();
 
 ## 9. File map (source references)
 
-| Concern                    | File |
-|----------------------------|------|
-| Service dispatcher         | `admin/api/services.php` |
-| OAuth token endpoint       | `admin/api/oauth/token.php` |
-| OAuth introspect endpoint  | `admin/api/oauth/introspect.php` |
-| OAuth revoke endpoint      | `admin/api/oauth/revoke.php` |
-| Orchestrator               | `admin/api/shared/OAuthServer.php` |
-| Grant handlers             | `admin/api/shared/GrantHandler.php` |
-| Token manager (opaque/JWT) | `admin/api/shared/TokenManager.php` |
-| Scope validation           | `admin/api/shared/ScopeValidator.php` |
-| Service traits             | `admin/api/services/AssetsService.php`, `MonitoringService.php`, `LocationService.php`, `SchedulerService.php` |
-| Service handler composer   | `admin/api/shared/ServiceHandler.php` |
-| Response envelope helpers  | `admin/api/shared/ApiResponse.php`, `OAuthResponse.php`, `ServiceConstants.php` |
-| Scopes enum                | `admin/api/shared/OAuthScope.php` |
-| Grant types enum           | `admin/api/shared/OAuthGrantType.php` |
-| Service names enum         | `admin/api/shared/WebServiceName.php` |
-| Return-code enum           | `admin/api/shared/WebServiceReturnCode.php` |
-| HTTP-code enum             | `admin/api/shared/HttpCode.php` |
+| Concern                      | File                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Service dispatcher           | `admin/api/services.php`                                                                                       |
+| OAuth token endpoint         | `admin/api/oauth/token.php`                                                                                    |
+| OAuth introspect endpoint    | `admin/api/oauth/introspect.php`                                                                               |
+| OAuth revoke endpoint        | `admin/api/oauth/revoke.php`                                                                                   |
+| Orchestrator                 | `admin/api/shared/OAuthServer.php`                                                                             |
+| Grant handlers               | `admin/api/shared/GrantHandler.php`                                                                            |
+| Token manager (opaque/JWT)   | `admin/api/shared/TokenManager.php`                                                                            |
+| Scope validation             | `admin/api/shared/ScopeValidator.php`                                                                          |
+| Service traits               | `admin/api/services/AssetsService.php`, `MonitoringService.php`, `LocationService.php`, `SchedulerService.php` |
+| Service handler composer     | `admin/api/shared/ServiceHandler.php`                                                                          |
+| Response envelope helpers    | `admin/api/shared/ApiResponse.php`, `OAuthResponse.php`, `ServiceConstants.php`                                |
+| Scopes enum                  | `admin/api/shared/OAuthScope.php`                                                                              |
+| Grant types enum             | `admin/api/shared/OAuthGrantType.php`                                                                          |
+| Service names enum           | `admin/api/shared/WebServiceName.php`                                                                          |
+| Return-code enum             | `admin/api/shared/WebServiceReturnCode.php`                                                                    |
+| HTTP-code enum               | `admin/api/shared/HttpCode.php`                                                                                |

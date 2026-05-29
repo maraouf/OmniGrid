@@ -61,7 +61,7 @@ export default {
   // onto a cluster with the same key on page 2.
   _notificationsClusterExpanded: {},
   // Polling fallback for bearer-token clients (SSE skips them per
-  // CLAUDE.md). Always running but no-ops when the view isn't open
+  // the project conventions). Always running but no-ops when the view isn't open
   // and SSE is healthy.
   _notificationsPollHandle: null,
   // ---------------- in-app notifications ----------------

@@ -76,7 +76,7 @@ def _curated_ping_hosts() -> list[dict]:
         _ssh_raw = row.get("ssh")
         ssh_cfg: dict = _ssh_raw if isinstance(_ssh_raw, dict) else {}
         # Target resolution chain — MUST mirror the canonical chain
-        # documented in CLAUDE.md and used by `_resolve_ping_target`
+        # documented in the project conventions and used by `_resolve_ping_target`
         # in `main.py`, the on-demand port-scan resolver, the SNMP
         # `_merge_one_host` block, and `logic/ssh.py:resolve_ssh_params`:
         #   address → ping.host → ssh.fqdn → ssh.host → host_id

@@ -18,7 +18,7 @@ Both are fine for additive changes. They CAN'T express:
 
 Adding the version table now is cheap; retro-fitting one AFTER a
 non-additive migration is needed (and you've already shipped the
-broken DDL) is expensive — that's exactly the case CLAUDE.md's
+broken DDL) is expensive — that's exactly the case the project conventions's
 "forward-looking" note warns against.
 
 Contract:

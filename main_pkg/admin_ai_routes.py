@@ -782,7 +782,7 @@ async def api_ai_palette(
         # an error trace), and the AI palette ships these to an
         # external service. Admin → Logs continues to show the raw
         # text — only the outbound AI-bound path is redacted. Per
-        # CLAUDE.md "Operator-private hostnames" / data-handling
+        # the project conventions "Operator-private hostnames" / data-handling
         # rules, this is defence-in-depth — operator-owned creds
         # SHOULDN'T appear in logs in the first place, but a typo'd
         # provider library can leak them, and we shouldn't propagate
@@ -1552,7 +1552,7 @@ async def api_admin_tuning(_admin: AdminUser):
 #
 # Resolution order at fire time: DB setting (when non-empty) → hard-coded
 # default → empty (defence in depth — the audit gate flags missing
-# defaults so this branch is unreachable in practice). See CLAUDE.md
+# defaults so this branch is unreachable in practice). See the project conventions
 # "How notification templates resolve" + "How to add a new notify event
 # with a template default" for the canonical extension pattern.
 # ----------------------------------------------------------------------------
@@ -1908,7 +1908,7 @@ def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
         _d = detail[:200] + ("…" if len(detail) > 200 else "")
         if ok:
             # Verb is "passed" not "OK" so the line classifies as
-            # INFO not SUCCESS (per CLAUDE.md "pick verbs carefully"
+            # INFO not SUCCESS (per the project conventions "pick verbs carefully"
             # — `_RE_OK` matches `\bsuccess\b|\bok —|→ ok\b`).
             # ALSO scrub the echoed detail: many test_discovery
             # paths return `"OK — issuer: ..."` which (when echoed

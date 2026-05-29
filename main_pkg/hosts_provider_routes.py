@@ -122,7 +122,7 @@ async def api_hosts_http_probe_history(
     tls_expires_in_days}, ...], collectors: {...}, error: None}``
     bucketed via the standard `_bucket_drawer_series` helper so the
     chart tail lands at the latest raw-sample timestamp inside each
-    bucket (the freshness-label contract — see CLAUDE.md). Window
+    bucket (the freshness-label contract — see the project conventions). Window
     clamped to 1..168 hours.
 
     The ``series`` shape is a flat list of points (NOT a dict
@@ -240,7 +240,12 @@ async def api_hosts_http_probe_test_row(
         body = await request.json()
         if not isinstance(body, dict):
             body = {}
-    except Exception:  # noqa: BLE001
+    except (ValueError, TypeError):
+        # ValueError (incl. JSONDecodeError, which subclasses
+        # ValueError): body wasn't valid JSON. TypeError: body was
+        # JSON but not the expected type. Either case: degrade to
+        # an empty body so the rest of the handler runs with
+        # defaults.
         body = {}
     # Find the curated row for this host via the sampler's shared
     # URL-resolver helper. Keeps the sampler + manual-test paths in

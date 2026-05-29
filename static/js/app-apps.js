@@ -19,7 +19,7 @@
 // Per-instance uptime-sparkline memo — keyed on the instance's
 // `status_history` array REFERENCE (stable across reactive flushes until
 // /api/apps reloads), so the SVG points string + uptime % are built ONCE
-// per series, not on every Alpine flush (see CLAUDE.md "Template-read
+// per series, not on every Alpine flush (see the project conventions "Template-read
 // getters … MUST be flush-memoized"). Module-scope so Alpine reactivity
 // never wraps it; WeakMap so a cache entry is GC'd with its history array
 // when the app list reloads.
@@ -44,7 +44,7 @@ function _clearHostAppsHealthFlushCache() {
 // SSE events, mouse interactions), allocating GC pressure + re-running
 // the search / filter every time. Module-scope cache cleared via
 // queueMicrotask (= next reactive flush). Same pattern as filteredHosts
-// documented in CLAUDE.md. Cache key includes searchQuery + statusFilter
+// documented in the project conventions. Cache key includes searchQuery + statusFilter
 // + appsList ref so a filter change OR poll-replace invalidates cleanly.
 let _filteredAppsCache = null;
 let _filteredAppsCacheKey = null;
@@ -96,6 +96,15 @@ function _appsVisibleInstancesCacheReplace() {
 // memo just amortises the registry walk to once per app per flush.
 const _anyAppExtrasMatchCache = new WeakMap();
 
+// Per-tile lazy-render diagnostic — single module-scope dict that
+// tracks the per-tile render durations so the operator can see in
+// devtools' console which tile took how long to mount. Cleared on
+// every fresh `loadAppsList(force=true)`. Keys are app.group_id,
+// values are {first_seen_ms, mount_ms}. console.debug emits one
+// line per tile transition; filter the devtools console by
+// `[apps-tile]` to see per-tile timing without other noise.
+const _appsTileRenderLog = {};
+
 export default {
   // ----------------------------------------------------------------
   // Top-level Apps view — cross-host aggregate.
@@ -107,6 +116,24 @@ export default {
     // calls so a fast SSE-driven re-poll doesn't stack dozens of GETs.
     if (this.appsListLoading && !force) {
       return;
+    }
+    // Force refresh -- drop the per-tile visibility tracker so the
+    // observer re-runs against the fresh tile set (a renamed app or
+    // a newly-pinned chip otherwise stays rendered as a stale empty
+    // skeleton until the operator scrolls past it).
+    if (force) {
+      this._appsVisibleTiles = {};
+      // Also disconnect the old observer -- a new one will be lazy-
+      // created on the next `_observeAppCard` call. Otherwise the
+      // stale observer keeps observing torn-down DOM nodes.
+      if (this._appsCardObserver) {
+        try {
+          this._appsCardObserver.disconnect();
+        } catch (_e) {
+          // ignore — observer already gone in some browsers.
+        }
+        this._appsCardObserver = null;
+      }
     }
     this.appsListLoading = true;
     this.appsListError = '';
@@ -245,7 +272,7 @@ export default {
     // any filter change OR appsList reconcile invalidates cleanly.
     const cacheKey = q + '|' + sf + '|' + src.length;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
-        && _filteredAppsCache.__src === src) {
+      && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
     }
     let out = src;
@@ -547,6 +574,77 @@ export default {
     // collapse what the operator just opened.
     return 3;
   },
+  // Lazy-render observer wiring. Each app card calls
+  // `_observeAppCard($el, app.group_id)` in `x-init`; the lazy
+  // observer flips `_appsVisibleTiles[group_id] = true` on first
+  // intersection. The heavy body (instance list, port pills,
+  // per-app extras) is gated on `appsCardVisible(group_id)` so
+  // off-screen tiles cost ZERO render work -- crucial on fleets
+  // where the Apps grid is dozens of tiles tall and Chrome
+  // previously hung trying to render every tile's chip list +
+  // per-app extras + Speedtest fetches simultaneously at page-
+  // load. Per-tile console.debug timing makes WHICH tile blocks
+  // visible in devtools (filter by `[apps-tile]`).
+  appsCardVisible(groupId) {
+    return !!(groupId && this._appsVisibleTiles && this._appsVisibleTiles[groupId]);
+  },
+  _observeAppCard(el, groupId) {
+    if (!el || !groupId) {
+      return;
+    }
+    // Already visible -- short-circuit before allocating the observer.
+    if (this._appsVisibleTiles && this._appsVisibleTiles[groupId]) {
+      return;
+    }
+    if (!this._appsCardObserver) {
+      // Defer the actual observe() call ONE microtask so x-init
+      // runs across every tile BEFORE the observer starts firing
+      // callbacks (avoids the cold-start "everything visible at
+      // once" thundering herd).
+      this._appsCardObserver = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) {
+            continue;
+          }
+          const gid = e.target.getAttribute('data-apps-group-id');
+          if (!gid || (this._appsVisibleTiles && this._appsVisibleTiles[gid])) {
+            continue;
+          }
+          if (!this._appsVisibleTiles) {
+            this._appsVisibleTiles = {};
+          }
+          const t0 = performance.now();
+          // Reactive write -- triggers exactly one re-render for
+          // THIS group_id's gated bindings (per-tile, not fleet-wide).
+          this._appsVisibleTiles[gid] = true;
+          _appsTileRenderLog[gid] = {first_seen_ms: t0, mount_ms: 0};
+          // One devtools-console line per tile so the operator can
+          // see render order + which tile is taking the longest.
+          // `console.debug` filters out of the default level so
+          // production users don't see it unless devtools is open
+          // + the "Verbose" filter is enabled.
+          try {
+            console.debug('[apps-tile] visible: ' + gid
+              + ' (' + (performance.now() - t0).toFixed(1) + 'ms to register)');
+          } catch (_e) {
+            // ignore — console.debug missing on some headless
+            // browsers (e.g. older webview embeds).
+          }
+          // Unobserve so the same tile doesn't re-fire on every
+          // intersection event (the gate is one-way: once visible,
+          // always rendered until the next loadAppsList(force)).
+          this._appsCardObserver.unobserve(e.target);
+        }
+      }, {
+        // Pre-render 200px above + below the viewport so scrolling
+        // doesn't reveal an unrendered tile mid-scroll. Same shape
+        // as the hosts-grid `_hostRowObserver`.
+        rootMargin: '200px 0px 200px 0px',
+        threshold: 0,
+      });
+    }
+    this._appsCardObserver.observe(el);
+  },
   appsVisibleInstances(app) {
     if (!app) {
       return [];
@@ -558,7 +656,7 @@ export default {
       && this.appsInstancesExpanded[app.group_id]);
     const cached = _appsVisibleInstancesCache.get(app);
     if (cached && cached.expanded === expanded
-        && cached.src === app.instances) {
+      && cached.src === app.instances) {
       return cached.result;
     }
     const all = Array.isArray(app.instances) ? app.instances : [];
@@ -1055,7 +1153,7 @@ export default {
       // Egyptian carriers — operator-flagged. Each maps to the
       // canonical brand slug (drop the matching SVG into
       // `static/img/icons/<slug>.svg` from an official source
-      // per CLAUDE.md "Brand-icon onboarding"). The detection
+      // per the project conventions "Brand-icon onboarding"). The detection
       // fires regardless of whether the SVG exists yet — the
       // `<img @error>` handler on the consumer hides the
       // placeholder cleanly when the file isn't present, so

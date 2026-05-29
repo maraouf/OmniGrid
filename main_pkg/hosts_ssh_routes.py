@@ -1434,7 +1434,7 @@ def _ssh_terminal_audit_close(
         print(f"[ssh] terminal audit-close update failed: {e}")
 
 
-# Registered BEFORE the StaticFiles "/" catch-all per CLAUDE.md mount-order
+# Registered BEFORE the StaticFiles "/" catch-all per the project conventions mount-order
 # rule — the catch-all responds to every path and would shadow the
 # WebSocket route otherwise.
 # noinspection PyTypeChecker,PyUnresolvedReferences
