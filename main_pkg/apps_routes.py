@@ -682,17 +682,47 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
                 scheme = "https" if sp["protocol"] == "https" else "http"
                 sub_url = f"{scheme}://{parsed_host}:{sp_port}{sp['probe_path']}"
                 r = await _ss.probe_http(sub_url, sp_status, timeout_s)
+            elif sp["probe_type"] == "udp":
+                # Real UDP probe via the protocol-correct path —
+                # MUST mirror the sampler's UDP branch at
+                # `logic/service_sampler.py:452-470` so the manual
+                # probe-now endpoint and the lifespan sampler produce
+                # IDENTICAL outcomes for the same chip. Pre-fix this
+                # branch was missing — UDP fell into the TCP `else`
+                # below → port 161 (SNMP / NTP / etc.) TCP-connected
+                # → returned `ConnectionRefusedError: [Errno 111]`
+                # because the service is UDP-only and nothing's
+                # listening on TCP/161. Operator-flagged with the
+                # APC chip's SNMP port: the sampler tick correctly
+                # reported "udp: no response (open|filtered)" but
+                # the Refresh button replaced it with a
+                # ConnectionRefused that misled diagnosis. Same
+                # shape + fallback message as the sampler.
+                from logic.port_scanner_udp import _probe_one_udp as _udp_probe
+                _udp_out = await _udp_probe(parsed_host, sp_port, timeout_s)
+                r = {
+                    "alive": bool(_udp_out.get("open")),
+                    "rtt_ms": None,
+                    "error": None if _udp_out.get("open")
+                    else "udp: no response (open|filtered — can't confirm)",
+                }
             else:
                 r = await _ss.probe_tcp(parsed_host, sp_port, timeout_s)
             r_rtt = _coerce_int_local(r.get("rtt_ms"))
+            # `r.get("error")` is `Any` (dict value) — narrow to
+            # Optional[str] so `persist_row(error=Optional[str])`'s
+            # signature matches without an Any|None|bool fallthrough
+            # that Pyright flags at the call site below.
+            _r_error_raw = r.get("error")
+            r_error: Optional[str] = _r_error_raw if isinstance(_r_error_raw, str) else None
             pr = {"port": sp_port, "label": sp["label"],
                   "alive": bool(r.get("alive")), "rtt_ms": r_rtt,
-                  "error": r.get("error")}
+                  "error": r_error}
             port_results.append(pr)
             # Per-port row persistence.
             _ss.persist_row(host_id, service_idx,
                             bool(r.get("alive")), r_rtt,
-                            r.get("error"), ts, port=sp_port)
+                            r_error, ts, port=sp_port)
             if r.get("alive"):
                 any_alive = True
                 if r_rtt is not None and (min_rtt is None or r_rtt < min_rtt):
@@ -1359,6 +1389,7 @@ def _maybe_log_host_provider_cache_diag() -> None:
           f"({pct}% hit rate over last {total} calls)")
     _host_provider_cache_diag["hits"] = 0
     _host_provider_cache_diag["misses"] = 0
+
 
 # Per-host Webmin result cache. Webmin probes are the slowest link in
 # the /api/hosts/one/{id} path (up to 20s each on slow Miniserv); a

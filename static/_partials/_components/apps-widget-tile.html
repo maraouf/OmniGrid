@@ -7,6 +7,26 @@
      polished visual identity; see the `.apps-widget-tile--<kind>` rules in
      style.css for accent token wiring. -->
 <!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
+<!--
+  IMPORTANT — the entire partial body MUST be wrapped in ONE root
+  element. This file is included inside an outer
+  `<template x-if="item.kind === 'widget'">` in index.html, and
+  Alpine's `<template x-if>` requires EXACTLY ONE top-level child;
+  rendering MULTIPLE siblings inside it is undefined behaviour
+  (in practice Alpine renders only the FIRST, silently dropping
+  the others). Pre-fix this file had two top-level siblings
+  (edit-mode `<template x-if="appsCustomEditMode">` + locked-mode
+  `<div x-show="!appsCustomEditMode">`), so when the operator was
+  in the normal LOCKED Apps view, Alpine kept the edit-mode
+  template (which is empty when editMode is false) and DROPPED
+  the rich-widget body entirely — operator-flagged "in apps, all
+  widgets like clock and weather are not displayed". The wrapping
+  `<div class="apps-widget-tile-root">` below gives the outer
+  x-if its required single child; both edit + locked modes live
+  INSIDE this wrapper as siblings that x-show / x-if each other
+  off the editMode flag.
+-->
+<div class="apps-widget-tile-root">
 <!-- EDIT-MODE compact tile — small, static, drag-handle shape
      matching the app-tile pattern in index.html so the operator's
      drag-and-drop UI reads as a consistent grid of tiles regardless
@@ -431,4 +451,6 @@
     </svg>
     <span x-text="widgetFreshnessLabel(item.widget)"></span>
   </div>
-</div>
+</div><!-- /.apps-widget-tile (locked-mode) -->
+</div><!-- /.apps-widget-tile-root — single root for the outer x-if -->
+

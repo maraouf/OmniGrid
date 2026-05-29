@@ -1978,11 +1978,40 @@ async def _run_port_scan_refresh(
                     continue
                 eligible.append((last_ts, h))
 
+            # Sort oldest-scanned first so the cap (`max_hosts` per
+            # tick) always picks the hosts furthest behind. `last_ts=0`
+            # (never-scanned) hosts get priority over any scanned ones
+            # by the natural number ordering — operators adding a new
+            # host see it scanned on the next eligible tick. Within
+            # the scanned cohort: smallest ts (oldest scan) first,
+            # working forward in time. Operator-flagged: "even if
+            # they stop at 5, oldest hosts with port scans get
+            # updated first" — confirming yes, this is the prevailing
+            # behaviour; the log line below makes it visible per
+            # tick so operators can verify the picked set matches
+            # their expectation.
             eligible.sort(key=lambda t: t[0])  # oldest-first
-            picks = [h for _ts, h in eligible[:max_hosts]]
+            picks_with_ts = eligible[:max_hosts]
+            picks = [h for _ts, h in picks_with_ts]
 
+            # Eligible-but-not-picked queue depth — the rotation tail.
+            # Each tick selects only `max_hosts` so on a fleet > max_hosts
+            # the remaining eligible hosts wait their turn. Operators
+            # complained "I have hosts not updated for 2 days" — the
+            # answer is usually "they're in the rotation queue behind
+            # other older-scanned hosts", but the previous log only
+            # showed totals so there was no way to verify that vs an
+            # actual skip-condition silent drop. Surface the QUEUE
+            # tail count + the oldest-waiting host's age so an
+            # operator can see "next 3 ticks will get hosts X, Y, Z".
+            queue_tail = eligible[max_hosts:]
+            oldest_waiting_age_s = (
+                (now_ts - queue_tail[0][0]) if queue_tail and queue_tail[0][0] else 0
+            )
             print(
                 f"[scheduler] port_scan_refresh fire — selected={len(picks)} "
+                f"queue_tail={len(queue_tail)} "
+                f"oldest_waiting_s={oldest_waiting_age_s} "
                 f"max_per_tick={max_hosts} min_age_s={min_age} "
                 f"per_host_conc={per_host_conc} "
                 f"skipped_disabled={len(skipped['disabled'])} "
@@ -1990,6 +2019,60 @@ async def _run_port_scan_refresh(
                 f"skipped_paused={len(skipped['paused'])} "
                 f"skipped_too_recent={len(skipped['too_recent'])}"
             )
+            # Per-skip-reason host lists — only emit when the bucket is
+            # non-empty so the steady-state log stays quiet. Bucket
+            # `no_address` is the most operator-actionable (host won't
+            # scan until they set the Address field in Admin → Hosts).
+            # `paused` means the auto-pause kicked in; operator clicks
+            # Resume in the host drawer. `disabled` means the per-host
+            # port_scan.enabled is explicitly False. `too_recent` is
+            # benign — the host just got scanned within min_age, will
+            # rotate next time. Cap each list at 8 ids to keep the log
+            # line readable; "+N more" suffix when truncated.
+            def _fmt_skip_list(label: str, ids: list) -> None:
+                if not ids:
+                    return
+                shown = ids[:8]
+                more = len(ids) - len(shown)
+                tail = f" (+{more} more)" if more > 0 else ""
+                print(
+                    f"[scheduler] port_scan_refresh skipped[{label}]: "
+                    f"{', '.join(shown)}{tail}"
+                )
+            _fmt_skip_list("no_address", skipped["no_address"])
+            _fmt_skip_list("disabled", skipped["disabled"])
+            _fmt_skip_list("paused", skipped["paused"])
+            # `too_recent` is intentionally NOT logged — on a happy
+            # fleet that's the majority of the curated list every tick
+            # and would drown the log. Operators chasing "why isn't
+            # this host updating" can correlate via the `queue_tail`
+            # count above + per-host `host_port_scans` newest_ts.
+
+            # Per-pick visibility — emit the ordered list of picked
+            # host ids + their last-scan age so operators can verify
+            # the oldest-first prioritisation is actually selecting
+            # the hosts they expect. Format:
+            # `<hid>(<age>s)` where age is the seconds since the
+            # last successful scan (0 = never-scanned, surfaces as
+            # `<hid>(NEW)` for clarity). Same 8-id cap as the skip
+            # lists so the log line stays scannable.
+            if picks_with_ts:
+                shown_picks = picks_with_ts[:8]
+                more_picks = len(picks_with_ts) - len(shown_picks)
+                pick_tail = f" (+{more_picks} more)" if more_picks > 0 else ""
+
+                def _fmt_pick(item: tuple) -> str:
+                    _ts, _h = item
+                    _hid = str(_h.get("id") or "")
+                    if not _ts:
+                        return f"{_hid}(NEW)"
+                    return f"{_hid}({now_ts - _ts}s)"
+
+                pick_str = ", ".join(_fmt_pick(p) for p in shown_picks)
+                print(
+                    f"[scheduler] port_scan_refresh picked (oldest-first): "
+                    f"{pick_str}{pick_tail}"
+                )
 
             if not picks:
                 duration = int(time.time() - started)

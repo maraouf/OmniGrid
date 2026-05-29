@@ -9371,11 +9371,21 @@ select.field-invalid {
 }
 
 /* Status pill upgraded — bigger dot with a soft accent glow + slight
-   uppercase letter-spacing for a polished label. */
+   uppercase letter-spacing for a polished label.
+   `min-width` + `justify-content: center` keep the status pill the
+   SAME width as the sibling `.apps-card-action-pill` rows (Refresh
+   / Open) so the vertical cluster reads as a tidy column of equal
+   chips instead of mixed-width pills. Width sized for the longest
+   label that fits naturally — DEGRADED (status) + REFRESH (action)
+   are the two longest at 8 / 7 chars uppercased; 88px gives a
+   small breathing margin without stretching short labels (UP / OPEN)
+   too wide. Operator-flagged consistency request. */
 .apps-card-status {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  min-width: 88px;
   padding: 3px 10px;
   border-radius: var(--r-pill);
   font-size: var(--fs-2xs);
@@ -9405,7 +9415,12 @@ select.field-invalid {
 .apps-card-action-pill {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  /* min-width must match `.apps-card-status` above so the vertical
+     pill cluster (status + refresh + open) renders as equal-width
+     stacked chips. If you change one, change BOTH. */
+  min-width: 88px;
   padding: 3px 10px;
   border-radius: var(--r-pill);
   font-size: var(--fs-2xs);
