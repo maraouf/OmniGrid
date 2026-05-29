@@ -9271,6 +9271,14 @@ select.field-invalid {
       var(--apps-card-accent-soft) 0%,
       transparent 70%),
     var(--surface);
+  /* Flex column so the card itself stretches to fill the grid-row
+     height (CSS grid default `align-items: stretch`). Pairs with
+     `.apps-widget-tile-root`'s same `height: 100%` so an app card
+     (opnsense) + a widget (clock / weather / public_ip / moon) on
+     the SAME row visually align to the tallest item in that row.
+     Operator-flagged consistency request. */
+  display: flex;
+  flex-direction: column;
 }
 
 .apps-card:hover {
@@ -9733,12 +9741,33 @@ select.field-invalid {
 /* Per-kind accent — fallback to --primary so a new widget without an
    explicit accent still renders. Each kind below overrides via the
    `.apps-widget-tile--<kind>` modifier on the wrapper. */
+/* Single-root wrapper from `_partials/_components/apps-widget-tile.html`
+   — this is the actual CSS Grid item inside `.apps-section-grid`. The
+   wrapper exists so the partial can host BOTH the edit-mode template
+   AND the locked-mode rich tile under ONE root (Alpine `<template
+   x-if>` requires exactly one child). Without `height: 100%` here, the
+   grid's row-stretch goes to the wrapper but the inner tile shrinks
+   to its content, leaving widgets visually shorter than app cards on
+   the same row. Operator-flagged: "make public_ip, clock, weather +
+   moon widget same height with the app they are with — opnsense is
+   on the same row, they should all have the same height."
+   `display: flex; flex-direction: column` lets the inner `.apps-widget-
+   tile` (the only direct child rendered in locked mode) be `flex: 1`
+   and fill the stretched height. */
+.apps-widget-tile-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
 .apps-widget-tile {
   --widget-accent: var(--primary);
   --widget-accent-soft: color-mix(in srgb, var(--primary) 12%, transparent);
   --widget-accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
   display: flex;
   flex-direction: column;
+  flex: 1;  /* fill the stretched height passed through from the grid via .apps-widget-tile-root */
   gap: var(--s-2);
   padding: var(--s-3) var(--s-3) var(--s-3) var(--s-3);
   border: 1px solid var(--border);
