@@ -489,7 +489,16 @@ _SETTINGS_KV_CACHE_TTL = 3.0
 # single-flight pattern for read-through caches.
 import threading as _threading  # noqa: E402,PLC0415
 
-_SETTINGS_KV_CACHE_LOCK = _threading.Lock()
+# RLock (not Lock) — the SELECT inside the refill goes through
+# `_TimedConnection.execute` -> `_check_slow_query` ->
+# `tuning_int(...)` -> `get_setting(...)`, which re-enters THIS
+# function on the SAME thread while the lock is held. A plain
+# `Lock` deadlocks on the recursive acquire (catastrophic:
+# lifespan startup hangs at "Waiting for application startup",
+# healthcheck misses, swarm SIGKILLs the container — exit 137
+# crash-loop). `RLock` lets the same thread re-acquire freely;
+# cross-thread contention is still serialized as designed.
+_SETTINGS_KV_CACHE_LOCK = _threading.RLock()
 
 
 def _invalidate_settings_cache() -> None:
