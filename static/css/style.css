@@ -10152,19 +10152,26 @@ select.field-invalid {
 
 .apps-widget-tile-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s-1);
   position: relative;
   z-index: 1;
 }
 
-/* Action-button cluster (refresh / remove). Right-aligned in the
-   tile head so the title gets the lion's share of the row. */
+/* Action-button cluster (settings / refresh / remove). Stacked
+   VERTICALLY to mirror the app cards' pill column (apps-card.html uses
+   `flex flex-col items-stretch gap-1`) so widgets and apps present the
+   same action affordance — gear above refresh, not side-by-side.
+   `align-items: stretch` + `var(--s-2)` (4px = Tailwind gap-1) match
+   the app-card stack exactly; `flex-start` on the head top-aligns the
+   column with the title. */
 .apps-widget-tile-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-2);
+  flex-shrink: 0;
 }
 
 /* Country-flag emoji in the Public-IP widget detail row. Emoji
