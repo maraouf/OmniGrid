@@ -240,7 +240,7 @@ export default {
     // hammering the render loop.
     this._clockTimer = setInterval(() => this.tickHeaderClock(), 10000);
   },
-  async loadHeaderWeather() {
+  async loadHeaderWeather(force = false) {
     if (!this.headerWeatherEnabled
       || this.headerWeatherLat == null
       || this.headerWeatherLon == null) {
@@ -253,6 +253,14 @@ export default {
         lon: String(this.headerWeatherLon),
         label: this.headerWeatherLabel || '',
       });
+      // Explicit Refresh bypasses the backend per-coord TTL cache so the
+      // operator gets current data on demand. NOT done by zeroing the
+      // freshness stamp (the old approach) — that blanked the "Updated
+      // Xs ago" label mid-fetch and flickered the card. The stamp now
+      // holds its previous value until the fresh response lands.
+      if (force) {
+        p.set('force', '1');
+      }
       const r = await fetch('/api/weather?' + p.toString());
       if (!r.ok) {
         this.weather = null;
@@ -305,16 +313,15 @@ export default {
     try {
       if (kind === 'weather' || kind === 'moon') {
         // Moon data comes from the same /api/weather response, so
-        // refreshing weather refreshes the moon widget too. Force-
-        // bypass the in-process cache by zeroing the fetched-at
-        // stamp BEFORE the call, so the helper's TTL gate doesn't
-        // short-circuit on a still-warm cache (same pattern as the
-        // public_ip branch below). Pre-fix this branch DIDN'T
-        // bypass — operator clicked Refresh, cache returned the
-        // last value, nothing visibly changed, button read as
-        // "disabled" / "does nothing".
-        this._weatherFetchedAt = 0;
-        await this.loadHeaderWeather();
+        // refreshing weather refreshes the moon widget too. Pass
+        // `force` so the BACKEND bypasses its per-coord TTL cache and
+        // returns fresh data. Do NOT zero `_weatherFetchedAt` here (the
+        // old approach): that blanked the "Updated Xs ago" freshness
+        // label for the duration of the fetch, so the label text was
+        // removed then re-added — a visible flicker on the card. The
+        // stamp now holds its prior value until the fresh response
+        // lands + `loadHeaderWeather` updates it.
+        await this.loadHeaderWeather(true);
       } else if (kind === 'public_ip') {
         // Force-bypass the in-process cache by zeroing the stamp
         // BEFORE the call, so the helper's TTL gate doesn't

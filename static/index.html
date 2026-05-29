@@ -3569,7 +3569,11 @@
                      drives grid-span + body-density; the flipped
                      class toggles via the front-face gear button. -->
                 <div class="apps-custom-cell min-w-0 apps-card-flip"
-                     :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '')">
+                     :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
+                     :draggable="appsCustomEditMode ? 'true' : 'false'"
+                     @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
+                     @dragover.prevent
+                     @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
                   <div class="apps-card-flip-inner">
                     <div class="apps-card-face-front">
                       <!-- Floating gear + edit-mode size-cycle button.
@@ -3606,38 +3610,22 @@
                           </svg>
                         </button>
                       </div>
-                      <template x-if="item.kind === 'app' && !appsCustomEditMode">
+                      <!-- App card — rendered at FULL fidelity in BOTH
+                           locked AND edit mode (operator-flagged: edit
+                           must show the real card at its current size
+                           with the title + settings/refresh pills, in a
+                           shimmer treatment — NOT the old small icon
+                           tile). The cell carries `.apps-card--editing`
+                           in edit mode (shimmer + grab cursor + dashed
+                           outline) and is draggable for reorder; the
+                           corner size button resizes between the three
+                           presets. `appsCardSizeClass` drives the grid
+                           span so half / normal / double are visibly
+                           distinct widths. -->
+                      <template x-if="item.kind === 'app'">
                         <template x-for="app in [item.app]" :key="app.group_id">
                           <!-- INCLUDE: _components/apps-card.html -->
                         </template>
-                      </template>
-                      <template x-if="item.kind === 'app' && appsCustomEditMode">
-                        <!-- Edit-mode compact tile (ALL sizes): title +
-                             icon + status dot only — never the full app
-                             card. Edit mode is for arranging + resizing,
-                             so every app renders as the same lightweight
-                             shimmer-style placeholder as the widgets
-                             (operator-flagged: "edit should show the
-                             shimmer + title, not the full app"). The
-                             cell's `appsCardSizeClass` still drives the
-                             grid-column span, so resizing visibly
-                             widens / narrows this tile. Click still
-                             opens the app drawer — the tile IS the card. -->
-                        <article class="apps-tile apps-tile--skeleton"
-                                 :class="'apps-tile--' + item.app.status"
-                                 draggable="true"
-                                 @dragstart.stop="appsItemDragStart($event, item.uid)"
-                                 @dragover.prevent @drop.stop="appsTileDrop(sec.id, item.uid)"
-                                 role="button" tabindex="0"
-                                 :aria-label="t('apps.drawer.open_aria', {name: item.app.name})"
-                                 @click="openAppDrawer(item.app)"
-                                 @keydown.enter="openAppDrawer(item.app)"
-                                 @keydown.space.prevent="openAppDrawer(item.app)">
-                          <img :src="iconUrlFor(item.app.icon || item.app.name)" alt="" width="32" height="32"
-                               class="apps-tile-icon" @error="$event.target.style.visibility='hidden'">
-                          <span class="apps-tile-name truncate" x-text="item.app.name"></span>
-                          <span class="apps-tile-dot" :title="t('apps.status_' + item.app.status) || item.app.status"></span>
-                        </article>
                       </template>
                       <template x-if="item.kind === 'widget'">
                         <!-- INCLUDE: _components/apps-widget-tile.html -->

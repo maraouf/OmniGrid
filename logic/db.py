@@ -112,11 +112,38 @@ def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
         busy_ms = _DB_BUSY_TIMEOUT_MS_DEFAULT
     if busy_ms < 0:
         busy_ms = _DB_BUSY_TIMEOUT_MS_DEFAULT
+    # Run the per-connection setup PRAGMAs through a CURSOR
+    # (`conn.cursor().execute(...)`), NOT `conn.execute(...)`. `conn` is a
+    # `_TimedConnection`, whose `execute` / `executemany` OVERRIDES time
+    # every statement and call `_check_slow_query`; `_TimedConnection`
+    # does NOT override `cursor()` or the Cursor's own `execute`, so the
+    # cursor path bypasses the timing wrapper (see the Coverage caveat in
+    # the `_TimedConnection` docstring — the un-intercepted cursor path is
+    # exactly what we want here). It also keeps the call type-clean: the
+    # earlier `sqlite3.Connection.execute(conn, ...)` unbound-method form
+    # passed a `_TimedConnection` as the base method's `self`, which the
+    # type checker flagged ("Expected 'Self@Connection', got 'Connection'").
+    # These PRAGMAs are connection-SETUP statements that run on EVERY
+    # db_conn() open, not operator queries:
+    #   * Timing them measures connection-establishment + writer-lock
+    #     wait (busy_timeout riding out a sampler's commit), NOT query
+    #     cost — which floods Admin → Logs with bogus
+    #     `[slow_query] PRAGMA busy_timeout=2000` lines under contention.
+    #   * Worse, `_check_slow_query` calls `tuning_int(SLOW_QUERY_*)` ->
+    #     `get_setting` -> (on a cold-cache refill) a NEW `db_conn()` ->
+    #     whose setup PRAGMA re-enters `_check_slow_query` again. That
+    #     feedback loop opens several connections per refill, each
+    #     queuing on SQLite's single-writer lock (the cycling
+    #     116→203→288→371ms latency operators saw) and each logging a
+    #     bogus slow-query line. The cursor path breaks the loop here.
+    # Real SELECT/INSERT/UPDATE still flow through `conn.execute` (the
+    # timed override) elsewhere, so the slow-query diagnostic keeps
+    # working for genuine queries.
     try:
         # PRAGMA can't bind params; busy_ms is a sanitized int so the
         # f-string is injection-safe. These two take no lock.
-        conn.execute(f"PRAGMA busy_timeout={busy_ms}")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.cursor().execute(f"PRAGMA busy_timeout={busy_ms}")
+        conn.cursor().execute("PRAGMA synchronous=NORMAL")
     except sqlite3.Error as e:
         print(f"[db] busy_timeout/synchronous PRAGMA skipped ({e})")
     # Set the journal mode exactly once per process (set the flag BEFORE the
@@ -128,7 +155,9 @@ def _apply_sqlite_pragmas(conn: sqlite3.Connection) -> None:
         _wal_attempted = True
         target_mode = "WAL" if _WAL_ENABLED else "DELETE"
         try:
-            row = conn.execute(f"PRAGMA journal_mode={target_mode}").fetchone()
+            # Cursor path (not the timed override) — same rationale as
+            # the busy_timeout / synchronous PRAGMAs above.
+            row = conn.cursor().execute(f"PRAGMA journal_mode={target_mode}").fetchone()
             print(f"[db] journal_mode set once -> {row[0] if row else '?'} (target {target_mode})")
         except sqlite3.Error as e:
             print(f"[db] journal_mode={target_mode} skipped ({e}); using existing journal mode")
@@ -258,6 +287,23 @@ def _resolve_caller_site() -> str:
         return "<unknown>"
 
 
+# Re-entrancy guard for `_check_slow_query`. The threshold lookup inside
+# it (`tuning_int` -> `get_setting`) can itself run a TIMED statement —
+# the settings-cache refill SELECT when the read-through cache is cold —
+# which routes straight back into `_check_slow_query` -> `tuning_int` ->
+# `get_setting` -> ... a feedback loop that opens a fresh connection per
+# level and queues each on SQLite's single-writer lock (the cycling
+# 116→203→288→371ms `PRAGMA busy_timeout` latency operators saw). The
+# guard makes any nested invocation on the same call chain a no-op, so
+# the timer measures the OUTER query exactly once and the threshold
+# lookup's own infrastructure queries can't recurse. Plain module bool
+# (not threading.local): the recursion is SYNCHRONOUS on one thread (see
+# the RLock note on the settings cache), so a bool correctly catches
+# re-entrancy; a rare cross-thread false-skip just leaves one concurrent
+# slow query unlogged, which the streak dedup already tolerates.
+_slow_query_check_active = False
+
+
 def _check_slow_query(sql: str, t0: float) -> None:
     """Per-call timing check — emit `[slow_query] warning:` when the
     elapsed wall-clock for a SQLite execute / executemany exceeds the
@@ -280,6 +326,13 @@ def _check_slow_query(sql: str, t0: float) -> None:
     diagnosing a slow query can jump straight to the caller without
     reading the SQL and reverse-engineering which surface ran it.
     """
+    global _slow_query_check_active
+    if _slow_query_check_active:
+        # Re-entrant call from the threshold lookup's own infrastructure
+        # query — skip so the timer can't recurse into a
+        # connection-per-level storm (see the guard declaration above).
+        return
+    _slow_query_check_active = True
     try:
         # Late-import to avoid a load-time cycle between
         # `logic/db.py` and `logic/tuning.py` (tuning depends on
@@ -366,6 +419,12 @@ def _check_slow_query(sql: str, t0: float) -> None:
         # KeyboardInterrupt) deliberately NOT caught so they
         # propagate to the asyncio runtime.
         return
+    finally:
+        # Always clear the re-entrancy guard, including on the early
+        # `return` in the except branch above — otherwise one swallowed
+        # exception would wedge the guard True and silence the
+        # slow-query diagnostic for the rest of the process lifetime.
+        _slow_query_check_active = False
 
 
 # Typed shape for the streak-tracker values — without it PyCharm
@@ -423,11 +482,19 @@ class _TimedConnection(sqlite3.Connection):
     executemany shortcuts. `c.cursor().execute(...)` is the Cursor
     object's own execute method which is NOT intercepted here.
     Audit recipe: `grep -rEn 'cursor\\(\\)\\.execute\\(' main.py
-    main_pkg/ logic/` — every hit should be evaluated; the entire
-    OmniGrid codebase uses the Connection shortcut shape today so
-    coverage is complete. If a future contributor switches to the
-    Cursor path, either revert to the shortcut OR extend this with
-    a `cursor(self)` override that returns a `_TimedCursor` subclass.
+    main_pkg/ logic/` — every hit should be evaluated. There is exactly
+    ONE intentional cursor-path site: `_apply_sqlite_pragmas` runs the
+    connection-setup PRAGMAs (busy_timeout / synchronous / journal_mode)
+    via `conn.cursor().execute(...)` SPECIFICALLY to bypass this timing
+    wrapper — those are infrastructure statements run on every open, not
+    operator queries, and timing them both flooded the log and created a
+    `_check_slow_query` -> `tuning_int` -> `get_setting` -> `db_conn`
+    re-entry storm. Do NOT "fix" those back to the Connection shortcut.
+    Every OTHER query in the codebase uses the Connection shortcut shape,
+    so timing coverage of real queries is complete. If a future
+    contributor adds a NEW cursor-path site that DOES want timing, either
+    switch it to the shortcut OR extend this with a `cursor(self)`
+    override that returns a `_TimedCursor` subclass.
     """
 
     def execute(self, sql, *args, **kwargs):  # type: ignore[override]

@@ -271,9 +271,14 @@ def invalidate_cache() -> None:
     _cache.clear()
 
 
-async def fetch(lat: float, lon: float, *, label: str = "") -> dict:
+async def fetch(lat: float, lon: float, *, label: str = "", force: bool = False) -> dict:
     """Fetch current + forecast (+ astronomy when WeatherAPI) for
-    one lat/lon pair. Dispatches by ``provider()``."""
+    one lat/lon pair. Dispatches by ``provider()``.
+
+    ``force=True`` bypasses the per-coord TTL cache and fetches a fresh
+    response from the upstream — used by the explicit per-widget Refresh
+    button so the operator gets current data on demand (the result is
+    still written back to the cache for subsequent reads)."""
     if not is_enabled():
         return {"configured": False, "supports_moon": supports_moon(),
                 "provider": provider()}
@@ -282,7 +287,7 @@ async def fetch(lat: float, lon: float, *, label: str = "") -> dict:
     key = (active, qkey[0], qkey[1])
     now = time.time()
     cached = _cache.get(key)
-    if cached and (now - cached[0]) < _cache_ttl():
+    if not force and cached and (now - cached[0]) < _cache_ttl():
         body = dict(cached[1])
         body["label"] = label or body.get("label") or ""
         body["cached"] = True
