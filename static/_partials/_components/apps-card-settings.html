@@ -92,7 +92,7 @@
       <!-- Override-only block: TZ + format. Disabled when
            follow_user=true so the user can see what the override
            values WOULD be without re-typing them. -->
-      <div class="apps-card-settings-row">
+      <label class="apps-card-settings-row">
         <span class="apps-card-settings-label"
               x-text="t('apps.custom.settings.clock.tz_label') || 'Timezone'"></span>
         <input type="text" list="apps-clock-tz-list"
@@ -106,9 +106,9 @@
             <option :value="tz"></option>
           </template>
         </datalist>
-      </div>
+      </label>
 
-      <div class="apps-card-settings-row">
+      <label class="apps-card-settings-row">
         <span class="apps-card-settings-label"
               x-text="t('apps.custom.settings.clock.format_label') || 'Date/time format'"></span>
         <input type="text" class="input fs-xs"
@@ -118,7 +118,7 @@
                :placeholder="t('apps.custom.settings.clock.format_placeholder') || 'e.g. HH:mm:ss (blank = user profile)'">
         <span class="apps-card-settings-hint"
               x-text="t('apps.custom.settings.clock.format_hint') || 'Tokens: yyyy yy MMMM MMM MM M dd d HH H hh h mm m ss s a'"></span>
-      </div>
+      </label>
     </div>
   </template>
 
@@ -141,7 +141,7 @@
       <!-- Override location — label + lat + lng. Label is the human
            name shown in the card header; lat/lng feed the weather
            backend. -->
-      <div class="apps-card-settings-row">
+      <label class="apps-card-settings-row">
         <span class="apps-card-settings-label"
               x-text="t('apps.custom.settings.weather.label_label') || 'Location label'"></span>
         <input type="text" class="input fs-xs"
@@ -149,10 +149,10 @@
                :value="(item.opts && item.opts.weather_label) || ''"
                @change.stop="setAppsItemOpt(item.uid, 'weather_label', $event.target.value.trim())"
                :placeholder="t('apps.custom.settings.weather.label_placeholder') || 'e.g. Cairo, Egypt'">
-      </div>
+      </label>
 
       <div class="grid grid-cols-2 gap-2">
-        <div class="apps-card-settings-row">
+        <label class="apps-card-settings-row">
           <span class="apps-card-settings-label"
                 x-text="t('apps.custom.settings.weather.lat_label') || 'Latitude'"></span>
           <input type="number" step="0.0001" min="-90" max="90"
@@ -160,8 +160,8 @@
                  :disabled="(item.opts && item.opts.follow_user !== false)"
                  :value="(item.opts && typeof item.opts.weather_lat === 'number') ? item.opts.weather_lat : ''"
                  @change.stop="setAppsItemOpt(item.uid, 'weather_lat', $event.target.value === '' ? null : parseFloat($event.target.value))">
-        </div>
-        <div class="apps-card-settings-row">
+        </label>
+        <label class="apps-card-settings-row">
           <span class="apps-card-settings-label"
                 x-text="t('apps.custom.settings.weather.lng_label') || 'Longitude'"></span>
           <input type="number" step="0.0001" min="-180" max="180"
@@ -169,7 +169,7 @@
                  :disabled="(item.opts && item.opts.follow_user !== false)"
                  :value="(item.opts && typeof item.opts.weather_lng === 'number') ? item.opts.weather_lng : ''"
                  @change.stop="setAppsItemOpt(item.uid, 'weather_lng', $event.target.value === '' ? null : parseFloat($event.target.value))">
-        </div>
+        </label>
       </div>
 
       <!-- Units: Celsius vs Fahrenheit -->
@@ -191,7 +191,7 @@
       </div>
 
       <!-- Forecast days: 0..7. 0 hides the forecast strip entirely. -->
-      <div class="apps-card-settings-row">
+      <label class="apps-card-settings-row">
         <span class="apps-card-settings-label">
           <span x-text="t('apps.custom.settings.weather.forecast_label') || 'Forecast days'"></span>
           <span class="text-[var(--text-faint)]"
@@ -200,7 +200,7 @@
         <input type="range" min="0" max="7" step="1"
                :value="(item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 3"
                @change.stop="setAppsItemOpt(item.uid, 'weather_forecast_days', parseInt($event.target.value, 10))">
-      </div>
+      </label>
 
       <!-- Show weather conditions (rain / cloudy / wind chips) -->
       <div class="apps-card-settings-row">

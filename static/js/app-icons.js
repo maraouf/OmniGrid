@@ -57,7 +57,7 @@ export const KNOWN_ICONS = new Set([
   'komodo', 'kubernetes', 'lenovo', 'lidarr', 'linuxmint', 'lubelogger', 'mail',
   'mailcow', 'manageengine', 'mariadb', 'meta', 'microsoft', 'mikrotik', 'mongodb', 'motorola', 'mysql',
   'myspeed', 'n8n', 'nest', 'netboot-xyz', 'netdata', 'nextcloud', 'nginx', 'nixplay',
-  'nginx-proxy-manager', 'nintendo-switch', 'node-exporter', 'nzbget', 'oculus', 'omnigrid', 'openvpn', 'opnsense',
+  'nginx-proxy-manager', 'nintendo-switch', 'node-exporter', 'nzbget', 'oculus', 'omnigrid', 'openvpn', 'opnsense', 'orange',
   'pfsense', 'pi-hole', 'pihole', 'pivpn', 'playstation', 'plex',
   'portainer', 'portainer-dark', 'postgresql', 'poweredge', 'proliant', 'prometheus',
   'prowlarr', 'proxmox', 'pulse', 'qbittorrent', 'rachio', 'radarr',
@@ -66,7 +66,7 @@ export const KNOWN_ICONS = new Set([
   'speedtest-tracker', 'splunk', 'squid', 'stalwart', 'syncthing', 'synology', 'synology-dark', 'tailscale', 'tautulli', 'tdarr',
   'tracearr', 'traefik', 'transmission', 'truenas', 'truenas-core', 'truenas-scale',
   'ubiquiti', 'ubuntu', 'ui', 'unifi', 'ups', 'uptime-kuma',
-  'vcenter', 'vdsl', 'veeam', 'vmware', 'vsphere', 'wd', 'we',
+  'vcenter', 'vdsl', 'veeam', 'vmware', 'vodafone', 'vsphere', 'wd', 'we',
   'webmin', 'whisparr', 'windows', 'windows-10', 'windows-server', 'wireguard', 'xiaomi',
   'zabbix',
 ]);
