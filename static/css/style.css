@@ -9266,11 +9266,10 @@ select.field-invalid {
   transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
   border-inline-start-width: var(--apps-card-border-w);
   border-inline-start-color: var(--apps-card-accent);
-  background:
-    radial-gradient(ellipse 80% 60% at top right,
-      var(--apps-card-accent-soft) 0%,
-      transparent 70%),
-    var(--surface);
+  background: radial-gradient(ellipse 80% 60% at top right,
+  var(--apps-card-accent-soft) 0%,
+  transparent 70%),
+  var(--surface);
   /* Stretch to the grid-row height (CSS grid default `align-items:
      stretch`). Pairs with `.apps-widget-tile-root`'s same
      `height: 100%` so an app card (opnsense) + a widget (clock /
@@ -9288,7 +9287,7 @@ select.field-invalid {
 
 .apps-card:hover {
   box-shadow: 0 6px 18px var(--apps-card-accent-glow),
-              0 1px 3px var(--row-hover);
+  0 1px 3px var(--row-hover);
   transform: translateY(-2px);
   border-color: var(--apps-card-accent);
 }
@@ -9363,7 +9362,7 @@ select.field-invalid {
    prevents the FRONT from bleeding through during the rotation.
    Operators with prefers-reduced-motion get an instant face swap
    (no rotation) — the @media block at the bottom handles that.
-   ----------------------------------------------------------------*/
+   ---------------------------------------------------------------- */
 .apps-card-flip {
   perspective: 1200px;
   position: relative;
@@ -9552,7 +9551,7 @@ select.field-invalid {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .apps-card--up {
@@ -9592,10 +9591,9 @@ select.field-invalid {
   width: 72px;
   height: 72px;
   border-radius: var(--r-md);
-  background:
-    linear-gradient(135deg,
-      var(--apps-card-accent-soft) 0%,
-      color-mix(in srgb, var(--apps-card-accent) 4%, var(--surface-2)) 100%);
+  background: linear-gradient(135deg,
+  var(--apps-card-accent-soft) 0%,
+  color-mix(in srgb, var(--apps-card-accent) 4%, var(--surface-2)) 100%);
   border: 1px solid color-mix(in srgb, var(--apps-card-accent) 12%, var(--border));
   flex-shrink: 0;
   transition: border-color 200ms ease, background 200ms ease;
@@ -9654,9 +9652,9 @@ select.field-invalid {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 88px;
-  padding: 3px 10px;
+  gap: 5px;
+  min-width: 62px;
+  padding: 2px 8px;
   border-radius: var(--r-pill);
   font-size: var(--fs-2xs);
   font-weight: 600;
@@ -9686,12 +9684,12 @@ select.field-invalid {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   /* min-width must match `.apps-card-status` above so the vertical
-     pill cluster (status + refresh + open) renders as equal-width
-     stacked chips. If you change one, change BOTH. */
-  min-width: 88px;
-  padding: 3px 10px;
+     pill cluster (settings + status + refresh + open) renders as
+     equal-width stacked chips. If you change one, change BOTH. */
+  min-width: 62px;
+  padding: 2px 8px;
   border-radius: var(--r-pill);
   font-size: var(--fs-2xs);
   font-weight: 600;
@@ -9830,6 +9828,7 @@ select.field-invalid {
   .apps-card-instance-link {
     transition: none !important;
   }
+
   .apps-card:hover {
     transform: none;
   }
@@ -10029,7 +10028,7 @@ select.field-invalid {
   --widget-accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
   display: flex;
   flex-direction: column;
-  flex: 1;  /* fill the stretched height passed through from the grid via .apps-widget-tile-root */
+  flex: 1; /* fill the stretched height passed through from the grid via .apps-widget-tile-root */
   gap: var(--s-2);
   padding: var(--s-3) var(--s-3) var(--s-3) var(--s-3);
   border: 1px solid var(--border);
@@ -10125,10 +10124,15 @@ select.field-invalid {
    `vertical-align: -2px` keeps the flag visually centered against
    the country-name text. */
 .apps-widget-country-flag {
-  font-size: var(--fs-md);
-  line-height: 1;
+  /* Now a flag-icons SVG <img> (18x13), not an emoji glyph — small
+     rounded chip with a hairline so light flags read on the surface. */
+  width: 18px;
+  height: 13px;
+  border-radius: 2px;
+  object-fit: cover;
   vertical-align: -2px;
   flex-shrink: 0;
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 /* ISP brand icon — sits where the generic globe SVG would. Matches

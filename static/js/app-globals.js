@@ -1,7 +1,21 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,NestedFunctionCallJS,ConstantOnRightSideOfComparisonJS,AnonymousFunctionJS,FunctionTooLongJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS,JSForIIterationOverNonNumericKeyJS
-// noinspection NestedTemplateLiteralJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,ContinueStatementJS,BreakStatementJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection NegatedIfStatementJS,OverlyComplexBooleanExpressionJS,ExceptionCaughtLocallyJS,JSReusedLocalVariable,NegatedConditionalExpressionJS,JSNegatedConditionalExpression
+// noinspection JSUnresolvedReference,JSUnresolvedFunction,JSUnresolvedVariable,JSIgnoredPromiseFromCall,RedundantLocalVariableJS,JSMissingAwait,JSAsyncFunctionMissingAwait
+// noinspection OverlyLongMethodJS,OverlyLargeMethodJS,OverlyComplexMethodJS,OverlyLongLambdaJS,OverlyLongAnonymousFunctionJS,JSCheckFunctionSignatures
+// noinspection JSValidateTypes,JSCheckNamingConventionsInspection,UnnecessaryLocalVariableJS,RegExpRedundantEscape,JSPotentiallyInvalidUsageOfThis,JSUnfilteredForInLoop,IfStatementWithoutBlockJS,RegExpAnonymousGroup,JSDeprecatedSymbols,IncrementDecrementResultUsedJS
+// Sibling-file canonical noinspection block — same shape as
+// app-ssh.js / app-admin.js / app-charts.js so the suppressed warning
+// classes stay consistent across the SPA. Extras for THIS file:
+// `RegExpAnonymousGroup` (the `raf=(\d+)` query parse — JSHint rejects
+// a named group at esversion 11, so the positional group stays),
+// `JSDeprecatedSymbols` (the intentional `document.execCommand('copy')`
+// clipboard fallback, needed on http:// / non-secure-context LAN where
+// `navigator.clipboard` is undefined), and `IncrementDecrementResultUsedJS`.
+// Real bugs are fixed inline, NOT suppressed.
 /* global Alpine, Swal, I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // Top-level browser globals installed at module-load time. Side-effect
@@ -33,10 +47,10 @@ window.__ogCopyAiCode = function (btn) {
         ta.value = body;
         ta.style.position = 'fixed';
         ta.style.opacity = '0';
-        document.body.appendChild(ta);
+        wrapper.appendChild(ta);
         ta.select();
         document.execCommand('copy');
-        document.body.removeChild(ta);
+        wrapper.removeChild(ta);
         flashCopied();
       } catch (_) { /* clipboard not available — silently no-op */
       }
@@ -47,10 +61,10 @@ window.__ogCopyAiCode = function (btn) {
       ta.value = body;
       ta.style.position = 'fixed';
       ta.style.opacity = '0';
-      document.body.appendChild(ta);
+      wrapper.appendChild(ta);
       ta.select();
       document.execCommand('copy');
-      document.body.removeChild(ta);
+      wrapper.removeChild(ta);
       flashCopied();
     } catch (_) {
     }
@@ -103,7 +117,8 @@ window.__ogCopyAiCode = function (btn) {
     const orig = window.requestAnimationFrame.bind(window);
     let seq = 0;
     window.requestAnimationFrame = function (cb) {
-      const id = ++seq;
+      seq += 1;
+      const id = seq;
       const callerStack = (new Error()).stack || '';
       // Trim the stack to the FIRST 3 frames past this wrapper; that's
       // usually enough to spot the offender without flooding the log.

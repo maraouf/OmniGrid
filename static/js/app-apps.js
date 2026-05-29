@@ -214,10 +214,26 @@ export default {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
     const src = this.appsList || [];
+    // TEMP DEBUG (apps-hang bisection): cap how many cards render so the
+    // hang can be isolated one tile at a time. Default 1; bump from the
+    // browser console WITHOUT a redeploy via
+    //   localStorage.setItem('ogAppsLimit', '2'); location.reload();
+    // 0 or a blank value = no cap (normal behaviour). Remove this block
+    // once the offending card / count is found.
+    let _appsLimit = 1;
+    try {
+      const _raw = localStorage.getItem('ogAppsLimit');
+      if (_raw !== null && _raw !== '') {
+        _appsLimit = parseInt(_raw, 10);
+      }
+    } catch (_e) {
+      _appsLimit = 1;
+    }
     // Per-flush memo — see _filteredAppsCache comment block at top.
     // Cache key triples (search, statusFilter, source-array ref) so
     // any filter change OR appsList reconcile invalidates cleanly.
-    const cacheKey = q + '|' + sf + '|' + src.length;
+    // Includes the debug cap so changing it invalidates the memo.
+    const cacheKey = q + '|' + sf + '|' + src.length + '|lim' + _appsLimit;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
       && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
@@ -260,6 +276,11 @@ export default {
         }
         return false;
       });
+    }
+    // TEMP DEBUG (apps-hang bisection): apply the render cap last so
+    // search / status filters still compute against the full set.
+    if (_appsLimit > 0 && out.length > _appsLimit) {
+      out = out.slice(0, _appsLimit);
     }
     // Stamp the source reference on the result so the cache key
     // check (above) can verify the result was built from the
@@ -1077,7 +1098,10 @@ export default {
       return opts.format;
     }
     if (typeof this._userTimeOnlyFormat === 'function') {
-      try { return this._userTimeOnlyFormat(); } catch (_) {}
+      try {
+        return this._userTimeOnlyFormat();
+      } catch (_) {
+      }
     }
     return '';
   },
@@ -1363,25 +1387,11 @@ export default {
       percent: Math.round(pct * 100),
     };
   },
-  // Country flag emoji for the Public-IP widget. Maps an ISO 3166-1
-  // alpha-2 country code (e.g. "EG", "US", "DE") to the Unicode
-  // regional-indicator pair that renders as a flag (🇪🇬 / 🇺🇸 / 🇩🇪).
-  // No flag-image bundle needed — every modern OS / browser renders
-  // these pairs natively. Returns empty string for non-2-letter
-  // input so the SPA can gate display on truthy.
-  appsWidgetCountryFlag(code) {
-    const c = String(code || '').trim().toUpperCase();
-    if (c.length !== 2 || !/^[A-Z]{2}$/.test(c)) {
-      return '';
-    }
-    // Regional-indicator base: 0x1F1E6 ('🇦'). Code-point offset
-    // = char-code - 'A'.
-    const base = 0x1F1E6;
-    return String.fromCodePoint(
-      base + (c.charCodeAt(0) - 65),
-      base + (c.charCodeAt(1) - 65),
-    );
-  },
+  // (Country-flag rendering moved to a local SVG `<img>` from
+  // `/img/flags/<cc>.svg` in apps-widget-tile.html — the previous
+  // regional-indicator emoji approach rendered as bare "EG" letters on
+  // Windows, which has no flag-emoji glyphs. The image-based flag
+  // renders identically on every OS.)
   // ISP brand-icon resolver for the Public-IP widget. Maps a raw
   // ISP / ASN-org string (e.g. "Cloudflare, Inc.", "Google LLC",
   // "Comcast Cable Communications") to a brand-icon slug the
@@ -2465,7 +2475,7 @@ export default {
       const cur = it.opts.size || 'normal';
       it.opts.size = (cur === 'normal') ? 'double'
         : (cur === 'double') ? 'half'
-        : 'normal';
+          : 'normal';
     }
     this._persistAppsCustomLayout();
   },
