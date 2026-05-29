@@ -201,18 +201,29 @@ async def _persist_tick(rows: list[tuple]) -> None:
         print(f"[host_webmin_sampler] persist failed: {e}")
 
 
-def _prune_old_rows_sync() -> None:
+def _prune_old_rows_sync() -> int:
     """Synchronous prune body — offloaded to worker thread via
-    `_prune_old_rows`. Pattern matches host_metrics_sampler."""
+    `_prune_old_rows`. Pattern matches host_metrics_sampler.
+
+    MUST return the deleted-row count as an int so the
+    `prune_with_metrics` wrapper records non-zero `last_prune_rows`
+    in the Stats → Samplers dashboard. Pre-fix returned None which
+    the helper silently coerced to 0, making this sampler appear to
+    never prune anything even when it deleted thousands of rows
+    hourly.
+    """
     days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
+    removed = 0
     try:
         with db_conn() as c:
-            c.execute(
+            cur = c.execute(
                 "DELETE FROM host_webmin_samples WHERE ts < ?", (cutoff,),
             )
+            removed = cur.rowcount or 0
     except Exception as e:  # noqa: BLE001
         print(f"[host_webmin_sampler] prune failed: {e}")
+    return removed
 
 
 async def _prune_old_rows() -> None:

@@ -1022,14 +1022,21 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # host_id, name, etc.) the SPA-side descriptor knows how to read.
     # Naming matches the `OP_TYPES` registry entries for parity so the
     # AI palette + History filter dropdown + i18n bundle stay in sync.
-    "services_catalog_create",
-    "services_catalog_update",
-    "services_catalog_delete",
-    "services_catalog_seed",
-    "services_pin",
-    "services_discover",
-    "services_discover_apply",
-    "services_probe_now",
+    #
+    # Apps write-ops (services_catalog_* / services_pin /
+    # services_discover* / services_probe_now) were REMOVED from this
+    # whitelist — they had no matching SPA descriptor or alias entry
+    # in `static/js/app-command-palette.js:_actionDescriptorById`,
+    # so the AI parser would extract the ACTION but the dispatcher
+    # would silently return null. Pre-fix the AI would claim "I'll
+    # pin this app" / "I'll seed the catalog" without any actual
+    # action firing. The operator-design intent is that Apps
+    # write-ops happen via the Admin → Apps editor + the per-app
+    # drawer (operator review + confirm flow), NOT via AI palette
+    # dispatch — so removing them from the whitelist is the
+    # honest answer. If a future surface needs AI-driven Apps
+    # writes, add the entries back here AND wire matching SPA
+    # descriptors in the same change.
 })
 
 PALETTE_SYSTEM_PROMPT: str = (

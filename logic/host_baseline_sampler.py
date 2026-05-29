@@ -33,20 +33,6 @@ def _first_tick_delay() -> int:
     return _tuning_int(Tunable.HOST_BASELINE_FIRST_TICK_DELAY_SECONDS)
 
 
-def _curated_host_ids() -> list[str]:
-    """Resolve every curated host's id from `hosts_config`. Thin wrapper
-    around :func:`logic.db.iter_curated_hosts` — pre-helper this was
-    19 lines of duplicated JSON-parse + isinstance + enabled-gate
-    boilerplate. The baseline sampler walks ALL curated
-    hosts regardless of provider — every per-provider sample table
-    contributes to the unified baseline window."""
-    return [
-        (h.get("id") or "").strip()
-        for h in iter_curated_hosts()
-        if (h.get("id") or "").strip()
-    ]
-
-
 async def _baseline_tick(tick: int) -> None:
     """Per-tick body — walk every curated host id and recompute its
     baseline. Per-host failures are caught + logged so one bad host

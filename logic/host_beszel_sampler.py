@@ -303,27 +303,37 @@ async def _persist_services(host_id: str, services_raw: list, now: float) -> Non
         print(f"[host_beszel_sampler] services persist failed: {e}")
 
 
-def _prune_old_rows_sync() -> None:
+def _prune_old_rows_sync() -> int:
     """Synchronous prune body. Sweeps both the time-series
     `host_beszel_samples` table AND the per-unit `host_beszel_services`
     table. Service rows whose `last_seen_ts` predates the retention
     cutoff are deleted (the Beszel agent stopped reporting them —
-    operator removed the unit, moved the host, etc.). Called from
+    user removed the unit, moved the host, etc.). Called from
     the async wrapper below via `asyncio.to_thread` so the sync SQLite
-    DELETEs don't stall the event loop."""
+    DELETEs don't stall the event loop.
+
+    Returns the SUM of deleted rows across BOTH DELETEs as a single
+    int. The `prune_with_metrics` wrapper expects this so Stats →
+    Samplers' `last_prune_rows` column reflects the real prune work
+    (pre-fix returned None → silently coerced to 0 by the helper).
+    """
     days = max(1, int(tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)) or 7)
     cutoff = int(time.time() - days * 86400)
+    removed = 0
     try:
         with db_conn() as c:
-            c.execute(
+            cur_samples = c.execute(
                 "DELETE FROM host_beszel_samples WHERE ts < ?", (cutoff,),
             )
-            c.execute(
+            removed += cur_samples.rowcount or 0
+            cur_services = c.execute(
                 "DELETE FROM host_beszel_services WHERE last_seen_ts < ?",
                 (cutoff,),
             )
+            removed += cur_services.rowcount or 0
     except Exception as e:  # noqa: BLE001
         print(f"[host_beszel_sampler] prune failed: {e}")
+    return removed
 
 
 async def _prune_old_rows() -> None:

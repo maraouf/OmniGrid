@@ -213,38 +213,17 @@ export default {
       } catch (_) {
       }
     });
-    es.addEventListener('host:row_updated', (e) => {
-      onAny();
-      if (this._isSelfEvent(e)) {
-        return;
-      }
-      try {
-        const data = JSON.parse(e.data || '{}');
-        const id = (data.payload && data.payload.id) || '';
-        console.log('[live] event=host:row_updated id=' + id);
-        if (!id) {
-          return;
-        }
-        // Route through the SHARED queue + worker pool so a burst
-        // of N events (sampler tick affecting many hosts) coalesces
-        // through the existing 200ms debounce + shares the cap.
-        // Pre-fix `refreshHostRow` was called directly here,
-        // bypassing both worker pools — bursts could exceed the
-        // operator-set parallel cap.
-        this._hostObserverPending = this._hostObserverPending || new Set();
-        this._hostObserverPending.add(id);
-        if (typeof this._scheduleHostObserverFlush === 'function') {
-          this._scheduleHostObserverFlush();
-        } else if (typeof this._runHostRefreshQueue === 'function') {
-          // Fallback path if the IO observer hasn't initialised yet
-          // (e.g. browsers without IntersectionObserver). Direct
-          // enqueue still goes through the shared worker pool.
-          this._runHostRefreshQueue([id]).catch(() => {
-          });
-        }
-      } catch (_) {
-      }
-    });
+    // `host:row_updated` SSE listener deleted — the backend retired
+    // the event type because `/api/hosts/one/{id}` was the only
+    // publisher and its handler caused an SSE infinite loop (the
+    // read endpoint published an event whose handler called the
+    // same read endpoint, which published another event). Per-host
+    // UI updates flow exclusively through `host:failure_state_changed`
+    // (sampler-driven, no infinite-loop risk) and the existing 30s
+    // polling fallback. Keeping the dead listener accumulated 30+
+    // lines of misleading code — operator's grep on
+    // "host:row_updated" returned the dead handler, suggesting the
+    // event was still in use.
     es.addEventListener('port_scan:completed', (e) => {
       onAny();
       // NOTE: do NOT short-circuit on `_isSelfEvent` — the SPA

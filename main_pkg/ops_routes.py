@@ -89,6 +89,12 @@ from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
 if _TYPE_CHECKING:
     from main_pkg.hosts_routes import _sqlite_like_escape  # noqa: F401
+    # IDE-only — `schedules` arrives at runtime via main.py's
+    # `from logic import schedules` re-exported through the
+    # `from main import *` star-import at the top of this file.
+    # Used by the `schedules.UNKNOWN_ACTOR` fallback constant in
+    # admin-required write routes (3 sites in this file).
+    from logic import schedules  # noqa: F401
 import asyncio
 import json
 import sqlite3
@@ -1045,7 +1051,7 @@ async def api_history_clear(_admin: AdminUser):
             c, "history_cleared",
             target_kind="history",
             target_name="all",
-            actor=_admin.username or "operator",
+            actor=_admin.username or schedules.UNKNOWN_ACTOR,
             message=f"history table cleared by {_admin.username or 'operator'} "
                     f"({cleared_count} row(s) destroyed)",
         )
@@ -1095,7 +1101,7 @@ async def api_add_ignore(
             target_kind="ignore",
             target_name=ig.pattern,
             target_id=ig.kind,
-            actor=_admin.username or "operator",
+            actor=_admin.username or schedules.UNKNOWN_ACTOR,
             message=f"ignore added pattern={ig.pattern!r} kind={ig.kind} "
                     f"reason={(ig.reason or '').strip()[:120]!r}",
         )
@@ -1121,7 +1127,7 @@ async def api_del_ignore(
             c, "ignore_delete",
             target_kind="ignore",
             target_name=pattern,
-            actor=_admin.username or "operator",
+            actor=_admin.username or schedules.UNKNOWN_ACTOR,
             message=f"ignore deleted pattern={pattern!r}",
         )
     _cache["ts"] = 0

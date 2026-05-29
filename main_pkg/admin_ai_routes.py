@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Names defined in main.py itself.
+    import asyncio  # noqa: F401
     import re  # noqa: F401
     import time  # noqa: F401
     from typing import Any  # noqa: F401
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel  # noqa: F401
     from fastapi import HTTPException, Request  # noqa: F401
     from logic import oidc  # noqa: F401
+    from logic import schedules  # noqa: F401  IDE-only; runtime via main.py's `from logic import schedules` re-exported through the star-import above. Used by the `schedules.UNKNOWN_ACTOR` fallback constant in admin-required write routes.
     from logic.ops import notify  # noqa: F401
     from logic.settings_keys import last_test_success_key  # noqa: F401
     from main import (  # noqa: F401  — IDE-only, runtime via the * above
@@ -1685,7 +1687,7 @@ async def api_admin_notify_templates_set(
                     target_kind="notify_template",
                     target_name=event,
                     target_id=",".join(touched),
-                    actor=_admin.username or "operator",
+                    actor=_admin.username or schedules.UNKNOWN_ACTOR,
                     message=f"notification template {event!r} touched "
                             f"({', '.join(touched)}) by {_admin.username or 'operator'}",
                 )
@@ -2708,7 +2710,7 @@ def _audit_asset_refresh(admin: auth.User, result: dict, auth_mode: str) -> None
             _ops_mod.write_admin_audit(
                 c, "asset_inventory_refresh",
                 target_kind="asset_inventory", target_name=auth_mode,
-                actor=admin.username or "operator",
+                actor=admin.username or schedules.UNKNOWN_ACTOR,
                 status="success" if ok else "error",
                 message=(f"asset_inventory manual refresh by {admin.username or 'operator'}: "
                          f"ok={ok} count={result.get('count') if result else 0} "

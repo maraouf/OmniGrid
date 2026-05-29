@@ -60,6 +60,15 @@ class EnvKey(str, Enum):
     ENV_FILE_PATH = "ENV_FILE_PATH"
     GITHUB_TOKEN = "GITHUB_TOKEN"
     LOG_DIR = "LOG_DIR"
+    # Diagnostic-only — emergency kill-switch for the SNMP sampler.
+    # When set (any non-empty value), the `host_metrics_sampler` SNMP
+    # branch short-circuits the entire tick. Default unset = enabled.
+    # Read via the bare `os.environ.get` boundary previously — moved
+    # to the EnvKey enum so a typo (`OMNIGRID_DISABLE_SMNP`) fails
+    # the typo-detection guarantee the rest of the codebase relies
+    # on per the canonical "every key reference MUST use Tunable /
+    # Settings / EnvKey enums" rule.
+    OMNIGRID_DISABLE_SNMP = "OMNIGRID_DISABLE_SNMP"
     # Diagnostic-only — tracemalloc allocation-traceback frame depth.
     # Default OFF in prod because tracemalloc adds ~2-3x overhead to
     # every Python allocation, which wedged the event loop past the

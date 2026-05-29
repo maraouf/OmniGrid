@@ -575,28 +575,32 @@ def latest_for_host(host_id: str) -> dict:
         return {}
     try:
         with db_conn() as c:
-            # Get the most recent timestamp for this host.
-            row = c.execute(
-                "SELECT MAX(ts) FROM host_http_samples WHERE host_id=?",
-                (host_id,),
-            ).fetchone()
-            if not row or row[0] is None:
-                return {}
-            newest_ts = int(row[0])
-            # Pull every URL row at that timestamp. The sampler writes
-            # all of a host's URLs in one batch so they share a ts.
+            # ONE query — fetch every URL row at the host's newest ts
+            # via correlated-MAX(ts) subquery. Pre-fix this was a
+            # MAX(ts) round-trip + a second round-trip to fetch the
+            # rows at that ts (2 connect / dispatch cycles per call,
+            # called once per host by `list_apps` and similar
+            # aggregators). Both halves are now in one statement;
+            # the SQLite planner evaluates the inner MAX(ts) once
+            # via the composite index `(host_id, ts DESC)` and the
+            # outer scan reuses it. `newest_ts` is derived from any
+            # returned row (the per-URL batch shares a ts by design).
             rows = c.execute(
                 "SELECT url, status_code, status_ok, content_match_ok, "
                 "tls_expires_in_days, tls_subject, tls_issuer, tls_error, "
-                "dns_resolved, latency_ms, error "
-                "FROM host_http_samples WHERE host_id=? AND ts=?",
-                (host_id, newest_ts),
+                "dns_resolved, latency_ms, error, ts "
+                "FROM host_http_samples "
+                "WHERE host_id = ? AND ts = ("
+                "  SELECT MAX(ts) FROM host_http_samples WHERE host_id = ?"
+                ")",
+                (host_id, host_id),
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
         print(f"[http_probe_sampler] latest_for_host({host_id!r}) skipped: {e}")
         return {}
     if not rows:
         return {}
+    newest_ts = int(rows[0]["ts"])
     url_rows: list[dict] = []
     n_ok = 0
     min_tls: Optional[int] = None
