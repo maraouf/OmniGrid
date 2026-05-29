@@ -560,13 +560,14 @@ export default {
     if (window.__ogXtermLoadPromise) {
       return window.__ogXtermLoadPromise;
     }
-    const version = (window.__APP_VERSION__ || Date.now());
+    const version = (window.OG_VERSION || Date.now());
     const cssHref = '/node_modules/@xterm/xterm/css/xterm.css?v=' + version;
     const scripts = [
       '/node_modules/@xterm/xterm/lib/xterm.js?v=' + version,
       '/node_modules/@xterm/addon-fit/lib/addon-fit.js?v=' + version,
       '/node_modules/@xterm/addon-web-links/lib/addon-web-links.js?v=' + version,
     ];
+
     function _loadScript(src) {
       return new Promise((resolve, reject) => {
         // Already injected for some reason? Resolve immediately.
@@ -584,6 +585,7 @@ export default {
         document.head.appendChild(s);
       });
     }
+
     function _loadCss(href) {
       if (document.querySelector('link[data-og-xterm-css]')) {
         return;
@@ -594,6 +596,7 @@ export default {
       l.setAttribute('data-og-xterm-css', '1');
       document.head.appendChild(l);
     }
+
     _loadCss(cssHref);
     window.__ogXtermLoadPromise = (async () => {
       try {
