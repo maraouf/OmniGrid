@@ -5034,6 +5034,7 @@
       "api_key_hint": "Required for the expanded card to fetch latest/average/graph data. Leave blank to keep the stored key.",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading speedtest data…",
+      "fetch_failed": "Speedtest fetch failed",
       "latest_download": "Latest ↓",
       "latest_upload": "Latest ↑",
       "latest_ping": "Latest ping",

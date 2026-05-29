@@ -1005,12 +1005,25 @@ async def _probe_one(
     client: httpx.AsyncClient,
     host: dict,
     sem: asyncio.Semaphore,
-) -> None:
-    """Probe NE for one host; insert a row if there's anything worth
-    storing. Per-host failures isolated — one dead exporter doesn't
-    cascade to the rest of the fleet. Honours the permanent-fail
-    pause flag: if the host is paused, skip the probe entirely (no
-    network attempt, no log spam).
+) -> Optional[dict]:
+    """Probe NE for one host; return a row dict if there's anything
+    worth storing, else None. Per-host failures isolated — one dead
+    exporter doesn't cascade to the rest of the fleet. Honours the
+    permanent-fail pause flag: paused hosts skip the probe entirely
+    (no network attempt, no log spam).
+
+    Write batching contract: the INSERT used to happen inline here.
+    Now the caller (the NE tick body in `host_metrics_sampler_loop`)
+    collects every non-None return into a single
+    ``executemany`` flushed via :func:`_persist_ne_tick`, so a 50-host
+    fleet does ONE connection-open per NE tick instead of 50. The
+    success-path side-effects (failure-state clear,
+    ``record_provider_outcome`` upsert, SSE ``host:history_appended``
+    publish, the per-host wrote-blurb log line) are deferred to
+    :func:`_fire_ne_success_side_effects`, called only after the
+    batched persist succeeds — so a bulk-write failure leaves
+    every host in its pre-tick failure-state rather than leaking
+    half-success markers.
     """
     async with sem:
         hid = host["id"]
@@ -1019,7 +1032,7 @@ async def _probe_one(
         # probe entirely until the operator resumes via the API.
         state = _get_failure_state(hid)
         if state and state["paused"]:
-            return
+            return None
         # DNS-failure short-circuit — when the boot DNS check (or a
         # previous probe attempt) caught the ne_url's hostname as
         # unresolvable, skip the probe entirely for the cached TTL.
@@ -1031,7 +1044,7 @@ async def _probe_one(
         from logic.dns_skip import should_skip_dns as _should_skip_dns
         _parsed = _urlparse(ne_url)
         if _parsed.hostname and _should_skip_dns(_parsed.hostname):
-            return
+            return None
         now = time.time()
         # Per-use read so Admin → Config edits to the NE probe timeout
         # land on the next sampler tick. Defensive fallback to the
@@ -1064,7 +1077,7 @@ async def _probe_one(
                 )
             except (KeyError, ValueError, TypeError):
                 pass
-            return
+            return None
         if stats.get("exporter_error"):
             err = stats["exporter_error"]
             # Include the resolved ne_url in the log so the operator
@@ -1083,7 +1096,7 @@ async def _probe_one(
                 )
             except (KeyError, ValueError, TypeError):
                 pass
-            return
+            return None
 
         prev = _last_counters.get(hid)
         row, next_counter = _compute_row(hid, now, stats, prev)
@@ -1097,78 +1110,103 @@ async def _probe_one(
             else:
                 print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
                       f"probe returned no meaningful metrics; skipping INSERT")
-            return
+            return None
+        # Stash the resolved URL on the row dict so the deferred
+        # success-side-effects + wrote-blurb log line have it without
+        # re-resolving. Underscore-prefixed so the INSERT-row builder
+        # in `_persist_ne_tick` skips it.
+        row["_ne_url"] = ne_url
+        return row
 
-        try:
-            with db_conn() as c:
-                c.execute(
-                    "INSERT OR REPLACE INTO host_metrics_samples "
-                    "(ts, host_id, cpu_percent, mem_used, mem_total, "
-                    "disk_used, disk_total, net_rx_bps, net_tx_bps, "
-                    "disk_read_bps, disk_write_bps) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        row["ts"], row["host_id"], row["cpu_percent"],
-                        row["mem_used"], row["mem_total"],
-                        row["disk_used"], row["disk_total"],
-                        row["net_rx_bps"], row["net_tx_bps"],
-                        row["disk_read_bps"], row["disk_write_bps"],
-                    ),
-                )
-        # noinspection PyBroadException
-        except Exception as e:
-            print(f"[host_metrics_sampler] {hid!r} target={ne_url} DB insert failed: {e}")
-            return
-        # Successful probe + write — clear any in-flight failure tracking
-        # so a previously-pausing host can recover quietly. Whole-host
-        # (provider="") clears the bare-key row; per-(provider, host)
-        # call ALSO fires so the `host_provider_last_ok[node_exporter:<hid>]`
-        # row UPSERTs on every tick (drives the NE chip's "Updated Xm
-        # ago" subtitle). Pre-fix the whole-host clear was a bare
-        # `_clear_failure(hid)`; now unified through
-        # `record_provider_outcome` so both shapes share ONE entry point.
-        await record_provider_outcome(hid, "", True)
-        try:
-            await record_provider_outcome(hid, "node_exporter", True)
-        except (KeyError, ValueError, TypeError):
-            pass
-        # SSE push — broadcast a `host:history_appended` event so
-        # any SPA tab with this host's drawer open in Live mode
-        # repaints its chart immediately. Payload carries host_id +
-        # ts only; the SPA fetches the full window via /api/hosts/history
-        # on receipt (cheap — same call the polling baseline made every
-        # 30s, just triggered by the event instead of a timer). Wraps
-        # the publish in try/except so a bus regression never blocks
-        # the sampler tick.
-        try:
-            from logic import events as _events
-            _events.publish("host:history_appended", {
-                "host_id": hid,
-                "ts": row["ts"],
-            })
-        # noinspection PyBroadException
-        except Exception as e:  # noqa: BLE001
-            print(f"[host_metrics_sampler] {hid!r} target={ne_url} history_appended publish failed: {e}")
-        net_blurb = (
-            f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
-            if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)
-            else "net=skip"
-        )
-        disk_blurb = (
-            f"diskio r={row['disk_read_bps']:.0f} w={row['disk_write_bps']:.0f} B/s"
-            if (row["disk_read_bps"] is not None and row["disk_write_bps"] is not None)
-            else "diskio=skip"
-        )
-        # Include the resolved ne_url so operators can verify WHICH
-        # exporter URL the sample came from — the curated `id` is
-        # often a short alias and a misconfigured `ne_url` would
-        # silently pull data from a different host. Matches the
-        # convention surfaced by host_net_sampler / ping_sampler /
-        # SNMP for every per-host probe log line.
-        print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
-              f"wrote cpu={row['cpu_percent']} "
-              f"mem={row['mem_used']}/{row['mem_total']} "
-              f"disk={row['disk_used']}/{row['disk_total']} {net_blurb} {disk_blurb}")
+
+async def _persist_ne_tick(rows: list[dict]) -> None:
+    """Bulk INSERT for the NE leg of one tick. Replaces the per-host
+    `with db_conn() as c: c.execute(...)` inside :func:`_probe_one`
+    -- on a 50-host fleet this collapses 50 connection-opens (each
+    waiting on PRAGMA busy_timeout for the writer lock) into ONE.
+    Mirrors the Beszel / Pulse / Webmin ``_persist_tick`` shape.
+
+    On success, fires the deferred per-host side-effects (failure
+    state clear, last_ok upsert, SSE publish, wrote-blurb log). On
+    failure, leaves every host's failure state untouched -- the
+    next tick will overwrite cleanly when contention clears.
+    """
+    if not rows:
+        return
+    try:
+        payload = [
+            (
+                r["ts"], r["host_id"], r["cpu_percent"],
+                r["mem_used"], r["mem_total"],
+                r["disk_used"], r["disk_total"],
+                r["net_rx_bps"], r["net_tx_bps"],
+                r["disk_read_bps"], r["disk_write_bps"],
+            )
+            for r in rows
+        ]
+        with db_conn() as c:
+            c.executemany(
+                "INSERT OR REPLACE INTO host_metrics_samples "
+                "(ts, host_id, cpu_percent, mem_used, mem_total, "
+                "disk_used, disk_total, net_rx_bps, net_tx_bps, "
+                "disk_read_bps, disk_write_bps) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                payload,
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_metrics_sampler] NE bulk insert failed for "
+              f"{len(rows)} rows: {e}")
+        return
+    # Bulk write succeeded — fire per-host success side-effects.
+    for r in rows:
+        await _fire_ne_success_side_effects(r)
+
+
+async def _fire_ne_success_side_effects(row: dict) -> None:
+    """Per-host bookkeeping deferred until the batched INSERT in
+    :func:`_persist_ne_tick` succeeds. Failure-state clear +
+    per-provider last_ok upsert + SSE history_appended publish +
+    wrote-blurb log line. Each side-effect wrapped in try/except so
+    a bus regression / DB blip on one host doesn't block the rest."""
+    hid = row["host_id"]
+    ne_url = row.get("_ne_url", "")
+    # Whole-host bare-key + per-(provider, host) prefixed row -- same
+    # pre-batch contract; both routed through record_provider_outcome
+    # so the state machine stays single-source-of-truth.
+    await record_provider_outcome(hid, "", True)
+    try:
+        await record_provider_outcome(hid, "node_exporter", True)
+    except (KeyError, ValueError, TypeError):
+        pass
+    try:
+        from logic import events as _events
+        _events.publish("host:history_appended", {
+            "host_id": hid,
+            "ts": row["ts"],
+        })
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_metrics_sampler] {hid!r} target={ne_url} history_appended publish failed: {e}")
+    net_blurb = (
+        f"net rx={row['net_rx_bps']:.0f} tx={row['net_tx_bps']:.0f} B/s"
+        if (row["net_rx_bps"] is not None and row["net_tx_bps"] is not None)
+        else "net=skip"
+    )
+    disk_blurb = (
+        f"diskio r={row['disk_read_bps']:.0f} w={row['disk_write_bps']:.0f} B/s"
+        if (row["disk_read_bps"] is not None and row["disk_write_bps"] is not None)
+        else "diskio=skip"
+    )
+    # Include the resolved ne_url so operators can verify WHICH
+    # exporter URL the sample came from — the curated `id` is often
+    # a short alias and a misconfigured `ne_url` would silently pull
+    # data from a different host. Matches the convention surfaced by
+    # host_net_sampler / ping_sampler / SNMP for every per-host
+    # probe log line.
+    print(f"[host_metrics_sampler] {hid!r} target={ne_url} "
+          f"wrote cpu={row['cpu_percent']} "
+          f"mem={row['mem_used']}/{row['mem_total']} "
+          f"disk={row['disk_used']}/{row['disk_total']} {net_blurb} {disk_blurb}")
 
 
 async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
@@ -1569,7 +1607,15 @@ async def host_metrics_sampler_loop() -> None:
     tick = 0
     last_snmp_ts = 0.0
     last_ne_ts = 0.0
+    from logic.sampler_metrics import record_tick as _record_tick
     while True:
+        # Wall-clock tick body so Stats → Samplers panel surfaces
+        # per-tick duration trends. Inlined (vs. lifespan_sampler_loop
+        # helper) because this sampler interleaves NE / SNMP / prune
+        # on independent cadences inside one tick.
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         try:
             active = _active_providers()
             now_ts = time.time()
@@ -1590,10 +1636,21 @@ async def host_metrics_sampler_loop() -> None:
                         # 15s while the other sites used 10s — drift class.
                         _ne_timeout = tuning.tuning_int(Tunable.NODE_EXPORTER_PROBE_TIMEOUT_SECONDS)
                         async with httpx.AsyncClient(verify=False, timeout=float(_ne_timeout)) as client:
-                            await asyncio.gather(
+                            # `_probe_one` now RETURNS a row dict (or None) instead of
+                            # writing inline; collect + ONE bulk executemany via
+                            # `_persist_ne_tick`. On a 50-host fleet this collapses
+                            # 50 per-host connection-opens (each waiting on PRAGMA
+                            # busy_timeout for the writer lock) into ONE. Matches
+                            # the Beszel / Pulse / Webmin `_persist_tick` shape.
+                            ne_results = await asyncio.gather(
                                 *(_probe_one(client, h, sem) for h in hosts),
                                 return_exceptions=True,
                             )
+                            ne_rows = [
+                                r for r in ne_results
+                                if isinstance(r, dict)
+                            ]
+                            await _persist_ne_tick(ne_rows)
                     last_ne_ts = now_ts
             # SNMP-aware permanent-fail tracking. Independent of
             # the NE block above (a host can have NE off + SNMP on, or
@@ -1690,7 +1747,16 @@ async def host_metrics_sampler_loop() -> None:
                           f"{days}d")
         # noinspection PyBroadException
         except Exception as e:
+            _tick_ok = False
+            _tick_err = type(e).__name__
             print(f"[host_metrics_sampler] tick error: {e}")
+        finally:
+            _record_tick(
+                "host_metrics_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         tick += 1
         try:
             await asyncio.sleep(interval)

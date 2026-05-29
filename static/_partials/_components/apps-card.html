@@ -190,17 +190,27 @@
          `<template x-if="...IsApp(app)...">` so only the chip's
          matching app renders. Per-instance host loop runs once per
          visible instance so each host gets its own extras row when
-         the matching per-app partial fires. Adding a new per-app
-         extras partial does NOT touch this file — drop the partial
-         under `_components/apps/` + add one INCLUDE line in
-         `_components/apps/_all_extras.html`. -->
-    <div class="mt-2 space-y-2">
-      <template x-for="inst in appsVisibleInstances(app)" :key="'ext:' + inst.host_id + ':' + inst.service_idx">
-        <div>
-          <!-- INCLUDE: _components/apps/_all_extras.html -->
-        </div>
-      </template>
-    </div>
+         the matching per-app partial fires.
+
+         OUTER `<template x-if="anyAppExtrasMatch(app)">` gate skips
+         the entire iteration for apps that don't match ANY
+         registered per-app extras partial — saves N empty wrapper
+         divs per non-matching card. Big win on fleets with many
+         generic apps (Plex / Sonarr / Portainer / etc.) where
+         only ~2 apps (APC / Speedtest) actually need extras.
+
+         Adding a new per-app extras partial does NOT touch this
+         file — drop the partial under `_components/apps/` + add
+         one INCLUDE line in `_components/apps/_all_extras.html`. -->
+    <template x-if="anyAppExtrasMatch(app)">
+      <div class="mt-2 space-y-2">
+        <template x-for="inst in appsVisibleInstances(app)" :key="'ext:' + inst.host_id + ':' + inst.service_idx">
+          <div>
+            <!-- INCLUDE: _components/apps/_all_extras.html -->
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- Show-all / Show-less toggle so an app on many hosts doesn't
          grow the card tall + break the grid's uniform rows. -->
     <button type="button" x-show="appsInstancesCollapsible(app)"

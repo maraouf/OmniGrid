@@ -1589,6 +1589,21 @@ def init_db():
         -- degrades to a full scan (see stats_samples for the pattern).
         CREATE INDEX IF NOT EXISTS idx_host_http_samples_ts
             ON host_http_samples(ts);
+        -- Covering index for the per-host `last_ok` derivation query
+        -- in `main_pkg/hosts_routes.py:_build_provider_state_index`
+        -- (`SELECT host_id, MAX(ts) FROM host_http_samples
+        --  WHERE status_ok = 1 GROUP BY host_id`). The existing
+        -- (host_id, ts DESC) composite can't be used by the planner
+        -- because the query has no `host_id` equality predicate;
+        -- without this covering index the planner falls back to a
+        -- full scan that holds the writer lock for hundreds of ms
+        -- and triggers the "slow query storm" of `PRAGMA
+        -- busy_timeout=2000` waits queuing behind it. Leading
+        -- `status_ok` discriminates the filter, then `host_id`
+        -- supports the GROUP BY, then `ts DESC` supports MAX(ts).
+        -- EXPLAIN QUERY PLAN shows SEARCH USING INDEX (not SCAN).
+        CREATE INDEX IF NOT EXISTS idx_host_http_samples_ok_host_ts
+            ON host_http_samples(status_ok, host_id, ts DESC);
 
         -- Per-service reachability probe results — one row per
         -- (host_id, service_idx, ts). `service_idx` is the position
@@ -1632,6 +1647,22 @@ def init_db():
             ON service_samples(ts);
         CREATE INDEX IF NOT EXISTS idx_service_samples_host_idx_ts
             ON service_samples(host_id, service_idx, ts DESC);
+        -- Covering index for the per-host `last_ok` derivation
+        -- query in `main_pkg/hosts_routes.py:_build_provider_state_index`
+        -- (`SELECT host_id, MAX(ts) FROM service_samples
+        --  WHERE alive = 1 GROUP BY host_id`). Same pattern as
+        -- `idx_host_http_samples_ok_host_ts` above — leading `alive`
+        -- discriminates the filter, then `host_id` supports the
+        -- GROUP BY, then `ts DESC` supports MAX(ts). Pre-fix this
+        -- query was the smoking-gun root cause of the "slow_query"
+        -- storm operators saw: a full table scan on a multi-million
+        -- row sample table held the writer lock for ~450ms; every
+        -- reader landing during that window queued up + reported as
+        -- a separate slow-query warning (linear-growth pattern).
+        -- EXPLAIN QUERY PLAN should change from SCAN -> SEARCH
+        -- USING INDEX after this index lands.
+        CREATE INDEX IF NOT EXISTS idx_service_samples_alive_host_ts
+            ON service_samples(alive, host_id, ts DESC);
 
         -- Apps feature — reusable service templates ("catalog"). Each row
         -- is a recipe an operator can bind to N hosts (Radarr / Sonarr /

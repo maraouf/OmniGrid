@@ -350,7 +350,16 @@ async def host_http_sampler_loop() -> None:
     # the lifespan a chance to come up.
     await asyncio.sleep(min(30, interval))
     tick = 0
+    from logic.sampler_metrics import record_tick as _record_tick
     while True:
+        # Wall-clock the tick body so Stats → Samplers panel
+        # surfaces per-tick duration trends. Same shape as the
+        # shared lifespan_sampler_loop helper; inlined because
+        # this sampler's per-tick interval refresh + prune
+        # cadence don't fit the helper cleanly.
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         try:
             master_enabled = get_setting_bool(Settings.HTTP_PROBE_ENABLED)
             # Gate ONLY on the master toggle — matching service_sampler.
@@ -481,7 +490,16 @@ async def host_http_sampler_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
+            _tick_ok = False
+            _tick_err = type(e).__name__
             print(f"[http_probe_sampler] tick error: {e}")
+        finally:
+            _record_tick(
+                "host_http_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         tick += 1
         try:
             await asyncio.sleep(interval)

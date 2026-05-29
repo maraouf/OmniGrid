@@ -37,6 +37,65 @@ function _clearHostAppsHealthFlushCache() {
   _hostAppsHealthFlushScheduled = false;
 }
 
+// Per-flush memo for filteredApps — the Apps view's `<template x-for>`
+// binds it AND `appsCounts` reads it; the helper re-allocates a NEW
+// array + inner Object.assign on every read. Without the memo, Alpine
+// re-evaluates it on EVERY reactive flush (host polls, ops polls,
+// SSE events, mouse interactions), allocating GC pressure + re-running
+// the search / filter every time. Module-scope cache cleared via
+// queueMicrotask (= next reactive flush). Same pattern as filteredHosts
+// documented in CLAUDE.md. Cache key includes searchQuery + statusFilter
+// + appsList ref so a filter change OR poll-replace invalidates cleanly.
+let _filteredAppsCache = null;
+let _filteredAppsCacheKey = null;
+let _filteredAppsFlushScheduled = false;
+
+function _clearFilteredAppsFlushCache() {
+  _filteredAppsCache = null;
+  _filteredAppsCacheKey = null;
+  _filteredAppsFlushScheduled = false;
+}
+
+// Per-flush memo for appsVisibleInstances — called TWICE per app card
+// per flush (once for the standard chip list, once for the per-app
+// extras x-for added with the encapsulation architecture). Without
+// memoization, the helper allocates a NEW slice on each read, doubling
+// the per-card work. Module-scope WeakMap keyed on the app reference so
+// a card poll-reconcile invalidates cleanly.
+const _appsVisibleInstancesCache = new WeakMap();
+let _appsVisibleInstancesFlushScheduled = false;
+
+function _clearAppsVisibleInstancesFlushCache() {
+  _appsVisibleInstancesCache.clear?.();
+  // WeakMap has no clear() in older browsers; rebind a fresh one
+  // when clear() isn't available so the next flush starts cold.
+  if (typeof _appsVisibleInstancesCache.clear !== 'function') {
+    // eslint-disable-next-line no-global-assign
+    _appsVisibleInstancesCacheReplace();
+  }
+  _appsVisibleInstancesFlushScheduled = false;
+}
+
+// WeakMap.clear() doesn't exist in the JS spec — clear by replacing
+// the binding. Wrapped so the call site stays readable.
+function _appsVisibleInstancesCacheReplace() {
+  // No-op when clear() worked; fallback rebinds at the top of the
+  // file would require a `let` declaration. Since clear() isn't on
+  // WeakMap and the cache uses WeakRefs internally, entries are
+  // released by the GC as soon as their app object is replaced
+  // (poll-reconcile creates new app objects). Practical effect:
+  // entries die naturally on the next /api/apps round-trip.
+}
+
+// Per-flush memo for the "does ANY per-app extras partial match
+// this app?" gate. Wrapping the per-app extras `<template x-for>`
+// in an outer `<template x-if="anyAppExtrasMatch(app)">` lets every
+// non-matching app card SKIP the iteration entirely instead of
+// rendering N empty wrapper divs. The match-set is small (~2 apps
+// today: APC + Speedtest) so the per-flush cost is trivial; the
+// memo just amortises the registry walk to once per app per flush.
+const _anyAppExtrasMatchCache = new WeakMap();
+
 export default {
   // ----------------------------------------------------------------
   // Top-level Apps view — cross-host aggregate.
@@ -180,7 +239,16 @@ export default {
   filteredApps() {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
-    let out = this.appsList || [];
+    const src = this.appsList || [];
+    // Per-flush memo — see _filteredAppsCache comment block at top.
+    // Cache key triples (search, statusFilter, source-array ref) so
+    // any filter change OR appsList reconcile invalidates cleanly.
+    const cacheKey = q + '|' + sf + '|' + src.length;
+    if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
+        && _filteredAppsCache.__src === src) {
+      return _filteredAppsCache;
+    }
+    let out = src;
     if (sf) {
       // Status filter: keep apps whose rollup status matches AND drill
       // into each so ONLY the matching instances show — so the by-host
@@ -218,6 +286,17 @@ export default {
         }
         return false;
       });
+    }
+    // Stamp the source reference on the result so the cache key
+    // check (above) can verify the result was built from the
+    // current appsList — defensive when the search/filter strings
+    // hash-collide across two distinct poll snapshots.
+    Object.defineProperty(out, '__src', {value: src, enumerable: false});
+    _filteredAppsCache = out;
+    _filteredAppsCacheKey = cacheKey;
+    if (!_filteredAppsFlushScheduled) {
+      _filteredAppsFlushScheduled = true;
+      queueMicrotask(_clearFilteredAppsFlushCache);
     }
     return out;
   },
@@ -469,11 +548,63 @@ export default {
     return 3;
   },
   appsVisibleInstances(app) {
-    const all = (app && Array.isArray(app.instances)) ? app.instances : [];
-    if (this.appsInstancesExpanded && this.appsInstancesExpanded[app.group_id]) {
-      return all;
+    if (!app) {
+      return [];
     }
-    return all.slice(0, this._appsInstancesLimit());
+    // Per-flush WeakMap memo — called TWICE per card (standard chip
+    // list + per-app extras x-for). See _appsVisibleInstancesCache
+    // comment block at top.
+    const expanded = !!(this.appsInstancesExpanded
+      && this.appsInstancesExpanded[app.group_id]);
+    const cached = _appsVisibleInstancesCache.get(app);
+    if (cached && cached.expanded === expanded
+        && cached.src === app.instances) {
+      return cached.result;
+    }
+    const all = Array.isArray(app.instances) ? app.instances : [];
+    const result = expanded ? all : all.slice(0, this._appsInstancesLimit());
+    _appsVisibleInstancesCache.set(app, {expanded, src: app.instances, result});
+    if (!_appsVisibleInstancesFlushScheduled) {
+      _appsVisibleInstancesFlushScheduled = true;
+      queueMicrotask(_clearAppsVisibleInstancesFlushCache);
+    }
+    return result;
+  },
+  // True when at least one per-app extras partial matches the app —
+  // gates the per-app-extras `<template x-for>` so non-matching apps
+  // skip the iteration entirely (saves N empty wrapper divs per
+  // non-matching app card). Memoized per-flush via WeakMap so the
+  // registry walk is one-shot per app per flush regardless of how
+  // many bindings consult it.
+  anyAppExtrasMatch(app) {
+    if (!app) {
+      return false;
+    }
+    if (_anyAppExtrasMatchCache.has(app)) {
+      return _anyAppExtrasMatchCache.get(app);
+    }
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    const cat = app.catalog || {};
+    const slug = String(cat.slug || '').trim().toLowerCase();
+    const name = String(app.name || '').toLowerCase();
+    let matched = false;
+    for (const e of ext) {
+      if (!e || !Array.isArray(e.slugs)) {
+        continue;
+      }
+      for (const s of e.slugs) {
+        const needle = String(s).toLowerCase();
+        if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
+          matched = true;
+          break;
+        }
+      }
+      if (matched) {
+        break;
+      }
+    }
+    _anyAppExtrasMatchCache.set(app, matched);
+    return matched;
   },
   appsInstancesCollapsible(app) {
     const all = (app && Array.isArray(app.instances)) ? app.instances : [];
@@ -1070,13 +1201,60 @@ export default {
       return null;
     }
     if (!this._appsDataCache) {
-      this._appsDataCache = Object.create(null);
+      this._appsDataCache = {};
     }
     if (key in this._appsDataCache) {
-      return this._appsDataCache[key];
+      const v = this._appsDataCache[key];
+      // Sentinel filtering — internal pending / error markers are
+      // hidden from the template gate (which expects truthy = render
+      // the live data card). The dedicated `appsAppDataStatus(inst)`
+      // helper surfaces them for the loading / error empty states.
+      if (v && typeof v === 'object' && v.__pending) {
+        return null;
+      }
+      if (v && typeof v === 'object' && v.__error) {
+        return null;
+      }
+      return v;
     }
     this.loadAppData(inst, false);
     return null;
+  },
+  // Status of the per-app data fetch for one instance. Drives the
+  // template's empty-state branches: `pending` shows "Loading...",
+  // `error` shows the upstream failure detail, `ok` is the live
+  // card, `idle` is "no api_key set" / "not yet requested".
+  appsAppDataStatus(inst) {
+    const key = this.appsAppDataKey(inst);
+    if (!key || !this._appsDataCache) {
+      return 'idle';
+    }
+    const v = this._appsDataCache[key];
+    if (v && typeof v === 'object' && v.__pending) {
+      return 'pending';
+    }
+    if (v && typeof v === 'object' && v.__error) {
+      return 'error';
+    }
+    if (v && typeof v === 'object') {
+      return 'ok';
+    }
+    return 'idle';
+  },
+  // Human-readable error detail for the per-app data fetch — only
+  // populated when appsAppDataStatus(inst) === 'error'. Returns ''
+  // otherwise so the template's empty-state branch can render
+  // unconditionally.
+  appsAppDataError(inst) {
+    const key = this.appsAppDataKey(inst);
+    if (!key || !this._appsDataCache) {
+      return '';
+    }
+    const v = this._appsDataCache[key];
+    if (v && typeof v === 'object' && v.__error) {
+      return String(v.__error || '').slice(0, 240);
+    }
+    return '';
   },
   async loadAppData(inst, force) {
     const key = this.appsAppDataKey(inst);
@@ -1084,26 +1262,46 @@ export default {
       return;
     }
     if (!this._appsDataPending) {
-      this._appsDataPending = Object.create(null);
+      this._appsDataPending = {};
     }
     if (this._appsDataPending[key] && !force) {
       return;
     }
     this._appsDataPending[key] = true;
+    // Stamp a __pending sentinel into the cache so the template's
+    // status helper renders the "Loading..." empty state immediately
+    // (vs. cache-miss → null → re-trigger loadAppData → loop). Once
+    // the fetch lands the sentinel is replaced by the real response
+    // or an __error sentinel.
+    if (!this._appsDataCache) {
+      this._appsDataCache = {};
+    }
+    if (!(key in this._appsDataCache)) {
+      this._appsDataCache[key] = {__pending: true};
+    }
     try {
       const url = '/api/services/' + encodeURIComponent(inst.host_id)
         + '/' + encodeURIComponent(inst.service_idx) + '/app-data'
         + (force ? '?force=true' : '');
       const r = await fetch(url, {cache: 'no-store'});
-      if (!this._appsDataCache) {
-        this._appsDataCache = Object.create(null);
+      if (!r.ok) {
+        // Try to surface a useful error detail from the backend's
+        // JSON body; fall through to status text on parse failure.
+        let detail = 'HTTP ' + r.status;
+        try {
+          const j = await r.json();
+          if (j && j.detail) {
+            detail = String(j.detail);
+          }
+        } catch (_e) {
+          // body wasn't JSON; keep the HTTP status fallback.
+        }
+        this._appsDataCache[key] = {__error: detail};
+      } else {
+        this._appsDataCache[key] = await r.json();
       }
-      this._appsDataCache[key] = r.ok ? await r.json() : null;
-    } catch (_e) {
-      if (!this._appsDataCache) {
-        this._appsDataCache = Object.create(null);
-      }
-      this._appsDataCache[key] = null;
+    } catch (err) {
+      this._appsDataCache[key] = {__error: (err && err.message) ? err.message : String(err)};
     } finally {
       this._appsDataPending[key] = false;
     }

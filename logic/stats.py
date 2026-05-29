@@ -179,7 +179,11 @@ async def stats_sampler_loop() -> None:
     interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
     await asyncio.sleep(min(60, interval))
     tick = 0
+    from logic.sampler_metrics import record_tick as _record_tick
     while True:
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         try:
             n = _snapshot_stats_to_db()
             interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
@@ -198,7 +202,16 @@ async def stats_sampler_loop() -> None:
             if n:
                 print(f"[sampler] wrote {n} samples")
         except Exception as e:
+            _tick_ok = False
+            _tick_err = type(e).__name__
             print(f"[sampler] error: {e}")
+        finally:
+            _record_tick(
+                "stats_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         tick += 1
         try:
             await asyncio.sleep(interval)

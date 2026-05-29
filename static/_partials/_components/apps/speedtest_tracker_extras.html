@@ -102,13 +102,17 @@
         </template>
       </div>
     </template>
-    <template x-if="!appsAppData(inst) && !inst.api_key_set">
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
       <p class="fs-xs text-[var(--text-faint)] italic"
          x-text="t('apps.speedtest.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
     </template>
-    <template x-if="!appsAppData(inst) && inst.api_key_set">
+    <template x-if="appsAppDataStatus(inst) === 'pending'">
       <p class="fs-xs text-[var(--text-faint)] italic"
          x-text="t('apps.speedtest.loading') || 'Loading speedtest data...'"></p>
+    </template>
+    <template x-if="appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.speedtest.fetch_failed') || 'Speedtest fetch failed') + ': ' + appsAppDataError(inst)"></p>
     </template>
   </div>
 </template>
