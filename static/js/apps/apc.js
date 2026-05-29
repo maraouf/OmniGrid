@@ -95,31 +95,41 @@ function _hasAnyUpsData(batt, load, rt, temp, status) {
 // `filteredHosts` / `providerStates` memo pattern documented in
 // the project conventions).
 //
-// The memo lives on the Alpine component (`this._appsUpsCache`)
-// rather than module scope so a hot-reload / second page-load
-// initialises cleanly. Same shape as the speedtest module's
-// `_appsDataCache`.
+// CRITICAL — the memo MUST live in MODULE SCOPE, never on the Alpine
+// component (`this._appsUpsCache`). `hostUpsData` is called from the
+// extras partial's `x-text` bindings, i.e. DURING a render. Writing a
+// reactive `this.*` property mid-render mutates tracked state, which
+// schedules another render, which re-runs `hostUpsData`, which writes
+// again — an infinite render loop that FROZE the entire UI the moment
+// the APC card mounted (the operator's "3rd app freezes everything").
+// Module-scope vars are NOT reactive, so the same populate-now /
+// clear-on-next-microtask memo is safe. This mirrors how
+// `filteredHosts` / `providerStates` keep their caches at module
+// scope for exactly this reason.
+let _upsCache = null;
+let _upsCachePending = false;
+
 function hostUpsData(inst) {
-  // `this` is the Alpine component (the function gets merged
-  // in via `appsHelpers`); `_appsUpsCache` lives on the
-  // component for hot-reload safety. JSHint can't infer the
-  // bind so opt into `validthis` at function scope.
+  // `this` is the Alpine component (the function gets merged in via
+  // `appsHelpers`) — only READ from it (`this.hosts`), never write,
+  // so no reactive mutation happens during render. JSHint can't infer
+  // the bind so opt into `validthis` at function scope.
   /* jshint validthis: true */
   if (!inst || !inst.host_id) {
     return null;
   }
-  if (!this._appsUpsCache) {
-    this._appsUpsCache = Object.create(null);
-    if (!this._appsUpsCachePending) {
-      this._appsUpsCachePending = true;
+  if (!_upsCache) {
+    _upsCache = Object.create(null);
+    if (!_upsCachePending) {
+      _upsCachePending = true;
       queueMicrotask(() => {
-        this._appsUpsCache = null;
-        this._appsUpsCachePending = false;
+        _upsCache = null;
+        _upsCachePending = false;
       });
     }
   }
-  if (inst.host_id in this._appsUpsCache) {
-    return this._appsUpsCache[inst.host_id];
+  if (inst.host_id in _upsCache) {
+    return _upsCache[inst.host_id];
   }
   // `Array.find` replaces the for/break lookup so PyCharm's
   // BreakStatementJS inspection stays quiet AND the intent
@@ -127,7 +137,7 @@ function hostUpsData(inst) {
   const hosts = Array.isArray(this.hosts) ? this.hosts : [];
   const host = hosts.find(_hostMatcher(inst.host_id)) || null;
   if (!host) {
-    this._appsUpsCache[inst.host_id] = null;
+    _upsCache[inst.host_id] = null;
     return null;
   }
   // Gate: at least ONE UPS field must be populated. Otherwise
@@ -142,7 +152,7 @@ function hostUpsData(inst) {
   const temp = host.host_battery_temp_c;
   const status = host.host_ups_status || host.host_battery_status || '';
   if (!_hasAnyUpsData(batt, load, rt, temp, status)) {
-    this._appsUpsCache[inst.host_id] = null;
+    _upsCache[inst.host_id] = null;
     return null;
   }
   const data = {
@@ -156,7 +166,7 @@ function hostUpsData(inst) {
     // Fall back to battery_status if output is empty.
     status: (host.host_ups_status || host.host_battery_status || '').trim(),
   };
-  this._appsUpsCache[inst.host_id] = data;
+  _upsCache[inst.host_id] = data;
   return data;
 }
 

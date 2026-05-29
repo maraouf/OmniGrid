@@ -214,26 +214,10 @@ export default {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
     const src = this.appsList || [];
-    // TEMP DEBUG (apps-hang bisection): cap how many cards render so the
-    // hang can be isolated one tile at a time. Default 1; bump from the
-    // browser console WITHOUT a redeploy via
-    //   localStorage.setItem('ogAppsLimit', '2'); location.reload();
-    // 0 or a blank value = no cap (normal behaviour). Remove this block
-    // once the offending card / count is found.
-    let _appsLimit = 1;
-    try {
-      const _raw = localStorage.getItem('ogAppsLimit');
-      if (_raw !== null && _raw !== '') {
-        _appsLimit = parseInt(_raw, 10);
-      }
-    } catch (_e) {
-      _appsLimit = 1;
-    }
     // Per-flush memo — see _filteredAppsCache comment block at top.
     // Cache key triples (search, statusFilter, source-array ref) so
     // any filter change OR appsList reconcile invalidates cleanly.
-    // Includes the debug cap so changing it invalidates the memo.
-    const cacheKey = q + '|' + sf + '|' + src.length + '|lim' + _appsLimit;
+    const cacheKey = q + '|' + sf + '|' + src.length;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
       && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
@@ -276,11 +260,6 @@ export default {
         }
         return false;
       });
-    }
-    // TEMP DEBUG (apps-hang bisection): apply the render cap last so
-    // search / status filters still compute against the full set.
-    if (_appsLimit > 0 && out.length > _appsLimit) {
-      out = out.slice(0, _appsLimit);
     }
     // Stamp the source reference on the result so the cache key
     // check (above) can verify the result was built from the
@@ -1131,6 +1110,15 @@ export default {
   appsWidgetClockDate(item) {
     try {
       const d = this._clockDateForItem(item);
+      // Follow the operator's Settings → Profile date format (the
+      // date-only portion, e.g. `dd/MM/yyyy` -> "30/05/2026") instead
+      // of the browser-locale "Sat, May 30" — the clock claims to
+      // follow the user format, so the date subtitle must too. Falls
+      // back to the locale long-date only when the helpers aren't ready.
+      if (typeof this._userDateOnlyFormat === 'function'
+        && typeof this._applyDateTimeFormat === 'function') {
+        return this._applyDateTimeFormat(d, this._userDateOnlyFormat());
+      }
       return d.toLocaleDateString([], {
         weekday: 'short', month: 'short', day: 'numeric',
       });
@@ -1143,22 +1131,41 @@ export default {
   // can pulse independently. Returns just the hour digits in
   // 2-digit zero-padded form (matches HH token of the user's
   // pref / the per-card override).
+  // True when the resolved clock format is 12-hour — a lowercase `h`
+  // token present and no uppercase `H`. Drives 12h hour rendering +
+  // whether the AM/PM segment shows. Defaults to 24h when no format.
+  _clockIs12Hour(item) {
+    const fmt = this._clockFormatForItem(item) || '';
+    return /h/.test(fmt) && !/H/.test(fmt);
+  },
   appsWidgetClockHH(item) {
     try {
       const d = this._clockDateForItem(item);
-      const t = this._applyDateTimeFormat(d, 'HH:mm');
-      const idx = t.indexOf(':');
-      return idx > 0 ? t.slice(0, idx) : t;
+      // Respect the user's / per-card 12h-vs-24h preference (was
+      // hardcoded 'HH' = 24h, so a 12h profile like `hh:mm a` wrongly
+      // showed 00:07 instead of 12:07). `hh` renders the zero-padded
+      // 12-hour hour; `HH` the 24-hour one.
+      return this._applyDateTimeFormat(d, this._clockIs12Hour(item) ? 'hh' : 'HH');
     } catch (_) {
       return '';
     }
   },
   appsWidgetClockMM(item) {
     try {
-      const d = this._clockDateForItem(item);
-      const t = this._applyDateTimeFormat(d, 'HH:mm');
-      const idx = t.indexOf(':');
-      return idx > 0 ? t.slice(idx + 1) : '';
+      return this._applyDateTimeFormat(this._clockDateForItem(item), 'mm');
+    } catch (_) {
+      return '';
+    }
+  },
+  // AM/PM segment for the digital clock tile — empty string for a
+  // 24-hour format so the markup renders nothing. Rendered next to the
+  // HH:MM digits when the resolved format is 12-hour.
+  appsWidgetClockAMPM(item) {
+    try {
+      if (!this._clockIs12Hour(item)) {
+        return '';
+      }
+      return this._applyDateTimeFormat(this._clockDateForItem(item), 'a');
     } catch (_) {
       return '';
     }
@@ -2478,6 +2485,51 @@ export default {
           : 'normal';
     }
     this._persistAppsCustomLayout();
+  },
+  // Edit-mode size control — ONE pointer handler that's both a TAP and
+  // a DRAG: a tap cycles the preset (old behaviour), a horizontal drag
+  // snaps between the three presets (half / normal / double) by drag
+  // distance, so the operator can "drag to resize" as requested. The
+  // cell's `appsCardSizeClass` updates live as `setAppsCardSize` mutates
+  // the layout, so the tile visibly widens / narrows while dragging.
+  appsSizeControl(ev, uid) {
+    if (!uid) {
+      return;
+    }
+    const item = this._findAppsItemByUid(uid);
+    if (!item) {
+      return;
+    }
+    const sizes = ['half', 'normal', 'double'];
+    const startX = (ev && typeof ev.clientX === 'number') ? ev.clientX : 0;
+    let startIdx = sizes.indexOf(this.appsCardSize(item));
+    if (startIdx < 0) {
+      startIdx = 1;
+    }
+    let dragged = false;
+    const STEP = 64;  // px of horizontal drag per preset step
+    const self = this;
+    const move = (e) => {
+      const delta = e.clientX - startX;
+      if (Math.abs(delta) > 4) {
+        dragged = true;
+      }
+      let idx = startIdx + Math.round(delta / STEP);
+      idx = Math.max(0, Math.min(sizes.length - 1, idx));
+      if (sizes[idx] !== self.appsCardSize(item)) {
+        self.setAppsCardSize(uid, sizes[idx]);
+      }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      // A clean tap (no drag) keeps the legacy click-to-cycle behaviour.
+      if (!dragged) {
+        self.setAppsCardSize(uid, null);
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   },
 
   // Flip-state tracker — module-scope Set so a re-render doesn't

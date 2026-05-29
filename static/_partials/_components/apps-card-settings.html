@@ -41,8 +41,7 @@
         <button type="button" role="radio"
                 :aria-checked="appsCardSize(item) === opt ? 'true' : 'false'"
                 :tabindex="appsCardSize(item) === opt ? 0 : -1"
-                class="btn btn-ghost fs-2xs"
-                :class="appsCardSize(item) === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                class="apps-seg-btn fs-2xs"
                 @click.stop="setAppsCardSize(item.uid, opt)"
                 x-text="(t('apps.custom.settings.size_' + opt) || opt)"></button>
       </template>
@@ -81,8 +80,7 @@
             <button type="button" role="radio"
                     :aria-checked="effectiveClockOpts(item).style === opt ? 'true' : 'false'"
                     :tabindex="effectiveClockOpts(item).style === opt ? 0 : -1"
-                    class="btn btn-ghost fs-2xs"
-                    :class="effectiveClockOpts(item).style === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                    class="apps-seg-btn fs-2xs"
                     @click.stop="setAppsItemOpt(item.uid, 'clock_style', opt)"
                     x-text="t('apps.custom.settings.clock.style_' + opt) || opt"></button>
           </template>
@@ -181,8 +179,7 @@
             <button type="button" role="radio"
                     :aria-checked="((item.opts && item.opts.weather_units) || 'metric') === opt ? 'true' : 'false'"
                     :tabindex="((item.opts && item.opts.weather_units) || 'metric') === opt ? 0 : -1"
-                    class="btn btn-ghost fs-2xs"
-                    :class="((item.opts && item.opts.weather_units) || 'metric') === opt ? 'bg-[var(--primary)] text-[var(--text-on-primary)]' : ''"
+                    class="apps-seg-btn fs-2xs"
                     :disabled="(item.opts && item.opts.follow_user !== false)"
                     @click.stop="setAppsItemOpt(item.uid, 'weather_units', opt)"
                     x-text="opt === 'metric' ? (t('apps.custom.settings.weather.units_metric') || '°C') : (t('apps.custom.settings.weather.units_imperial') || '°F')"></button>
