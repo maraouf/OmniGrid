@@ -17,6 +17,12 @@ from __future__ import annotations
 
 import importlib
 
+# pytest is a test-only dependency — deliberately NOT in requirements.txt
+# (the project keeps test / lint deps out of the runtime image). Install
+# it ad-hoc to run this suite (`pip install pytest`). The suppression
+# stops the IDE flagging the import as unresolved when pytest isn't in
+# the active interpreter.
+# noinspection PyUnresolvedReferences,PyPackageRequirements
 import pytest
 
 
