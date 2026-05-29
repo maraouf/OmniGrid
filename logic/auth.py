@@ -842,7 +842,7 @@ def update_ui_prefs(
         else:
             merged[k] = v
     merged_json = _json.dumps(merged)
-    size = len(merged_json.encode("utf-8"))
+    size = len(merged_json.encode())
     if size > _UI_PREFS_MAX_BYTES:
         raise ValueError(
             "ui_prefs payload too large (%d bytes > %d cap)"

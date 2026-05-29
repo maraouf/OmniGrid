@@ -65,7 +65,6 @@ try:
     )
     from webauthn.helpers.cose import COSEAlgorithmIdentifier
     from webauthn.helpers.structs import (
-        AttestationConveyancePreference,
         AuthenticatorSelectionCriteria,
         AuthenticatorTransport,
         PublicKeyCredentialDescriptor,

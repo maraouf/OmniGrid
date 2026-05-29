@@ -412,7 +412,6 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         try:
             loc = _listener()._load_user_weather_pref(username)
             if loc and loc.get("lat") is not None and loc.get("lon") is not None:
-                from main import api_weather as _api_weather
                 wx = await _listener()._api_weather(
                     lat=float(loc["lat"]),
                     lon=float(loc["lon"]),
@@ -439,7 +438,6 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # window. Disabled state -> no `public_ip` key in ctx, prompt-
     # builder skips the block cleanly.
     try:
-        from logic.public_ip import fetch as _public_ip_fetch
         _listener()._pip = await _listener()._public_ip_fetch()
         if _listener()._pip:
             ctx["public_ip"] = _listener()._pip
@@ -463,7 +461,6 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # no separate `update_available` field on items — earlier code in
     # this module read that key and silently filtered to an empty list.
     try:
-        from logic import gather as _gather
         # noinspection PyProtectedMember
         items = list(_listener()._gather._cache.get("items") or [])
 
@@ -532,7 +529,6 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # logic for free.
     sample_cap = 60
     try:
-        from main import api_hosts_list as _api_hosts_list
         # `api_hosts_list` is a FastAPI handler but its body has no
         # Request dependencies and `_admin: AdminUser = ...` is
         # accepted at call time without an injected user (the body
@@ -561,7 +557,6 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # matches the SPA Hosts view's effective rendering after
         # the per-host fan-out lands.
         try:
-            from main import _get_provider_state_index as _state_index
             provider_state = _listener()._state_index() or {}
         # noinspection PyBroadException
         except Exception as _idx_err:  # noqa: BLE001
@@ -790,9 +785,8 @@ async def _ai_reply(
          back to a fresh ``_listener()._send_reply`` if the edit fails.
     """
     try:
-        from logic import ai as _ai
         from logic.db import get_setting, get_setting_bool
-        from logic.tuning import Tunable, tuning_int as _tuning_int
+        from logic.tuning import Tunable
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] _ai_reply import failed: {e}")
@@ -996,7 +990,6 @@ async def _ai_reply(
     # block below, so an excessive setting can't push past the wire
     # limit. Defence in depth: clamp to a reasonable upper bound.
     try:
-        from logic import tuning as _tuning
         from logic.tuning import Tunable
         max_toks = _listener()._tuning.tuning_int(Tunable.AI_MAX_TOKENS)
     except (ImportError, KeyError, ValueError, TypeError):
@@ -1104,7 +1097,6 @@ async def _ai_reply(
         actions, _ = _listener()._ai.parse_palette_actions(raw_text)
         action_data, _ = _listener()._ai.parse_palette_action_data(raw_text)
         if "send_notification" in actions and isinstance(action_data, dict):
-            from logic.ops import notify_one_medium as _notify_one_medium
             medium = (action_data.get("medium") or "").strip().lower()
             note_body = (action_data.get("body") or "").strip()
             note_title = (action_data.get("title") or "").strip() or "🔔 OmniGrid"

@@ -1700,6 +1700,27 @@ _NPM_ALLOWED: Set[str] = {
     "qrcode-generator/dist/qrcode.js",
 }
 
+# Directory-prefix allowances for packages that legitimately need MANY
+# files served (an exact-match entry per file would be unmaintainable).
+# A request is allowed when its subpath starts with one of these AND
+# ends with `.svg` — keeps the served surface to the asset type the SPA
+# actually consumes, while the realpath guard below still confines every
+# hit to the node_modules root. `flag-icons` ships 271 country-flag SVGs
+# (4x3 + 1x1); the Public-IP widget builds the src dynamically from the
+# geolocated 2-letter country code, so the exact filename isn't known
+# ahead of time.
+_NPM_ALLOWED_SVG_PREFIXES: tuple[str, ...] = (
+    "flag-icons/flags/",
+)
+
+
+def _npm_path_allowed(subpath: str) -> bool:
+    """True when `subpath` is an exact allowlisted file OR a `.svg`
+    under an allowed directory prefix (e.g. flag-icons flags)."""
+    if subpath in _NPM_ALLOWED:
+        return True
+    return subpath.endswith(".svg") and subpath.startswith(_NPM_ALLOWED_SVG_PREFIXES)
+
 
 # FastAPI `{subpath:path}` route-converter accepts segments with slashes —
 # required so a request like `/node_modules/@xterm/xterm/lib/xterm.js`
@@ -1718,7 +1739,7 @@ async def api_node_modules(subpath: str = FastApiPath(...)):
     # match an entry in the allowlist exactly. Belt-and-braces — FastAPI's
     # path converter wouldn't let `..` through in practice, but the
     # explicit check makes the security property obvious.
-    if ".." in subpath or subpath.startswith("/") or subpath not in _NPM_ALLOWED:
+    if ".." in subpath or subpath.startswith("/") or not _npm_path_allowed(subpath):
         raise HTTPException(404, "Not found")
     # Defence-in-depth: even though `_NPM_ALLOWED` is a closed set of
     # 8 known-safe relative paths, also normalise the joined result
