@@ -41,6 +41,7 @@
 // memo). Module-scope singleton — exactly one app() instance.
 let _nodeItemsIndexCache = null;
 let _nodeItemsIndexScheduled = false;
+
 function _clearNodeItemsIndexCache() {
   _nodeItemsIndexCache = null;
   _nodeItemsIndexScheduled = false;
@@ -71,6 +72,7 @@ const _stacksFlushCache = {
   sortedFiltered: undefined,
 };
 let _stacksFlushScheduled = false;
+
 function _scheduleStacksFlushClear() {
   if (_stacksFlushScheduled) {
     return;
@@ -2153,6 +2155,20 @@ export default {
           : 'admin_hosts.snmp_vendors_bulk_cleared',
         {vendor: this.snmpVendorLabel(vendor), count: touched}
       ));
+    } else {
+      // Always-feedback contract: silent no-ops read as "the button
+      // is broken" to operators. Explain why nothing happened — the
+      // most common cases are (a) every filtered row already had the
+      // target state (no work to do), (b) every filtered row has
+      // snmp.enabled !== true so the bulk-apply correctly skipped
+      // them (the inner loop guards on `snmp.enabled` to avoid
+      // toggling vendor state on hosts where SNMP isn't even on).
+      // Toast lands in the WARN tier so it's visually distinct from
+      // a SUCCESS bulk-apply.
+      this.showToast(this.t(
+        'admin_hosts.snmp_vendors_bulk_noop',
+        {vendor: this.snmpVendorLabel(vendor), count: rows.length}
+      ), 'warning');
     }
   },
   // Last auto-detected vendor set for THIS curated row, sourced
