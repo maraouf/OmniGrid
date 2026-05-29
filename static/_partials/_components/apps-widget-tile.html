@@ -119,7 +119,7 @@
       <button type="button"
               x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget) && widgetHasData(item.widget)"
               class="apps-card-action-pill whitespace-nowrap"
-              :disabled="appsWidgetRefreshing && appsWidgetRefreshing[item.widget]"
+              :disabled="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) === true"
               @click.stop="refreshWidget(item.widget)"
               :aria-label="t('apps.custom.widget_refresh_aria', {kind: appsWidgetLabel(item.widget)}) || ('Refresh ' + appsWidgetLabel(item.widget) + ' data')"
               :title="t('apps.custom.widget_refresh_title') || 'Refresh now'">
@@ -373,8 +373,25 @@
     <template x-if="item.widget === 'moon'">
       <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
         <div>
+          <!--
+            Compact 40×40 ring (down from 56×56) + smaller phase
+            name so the moon widget renders at the same intrinsic
+            height as clock / weather / public_ip peers. Pre-fix
+            the larger ring + 17px phase name combined with the
+            equal-height stretch (`.apps-widget-tile-root { height:
+            100% }` + `.apps-widget-tile { flex: 1 }`) made EVERY
+            widget on the same row inherit moon's tall height —
+            operator-flagged "moon phase widget is very long in
+            height, decrease to match others". Ring circle r=16
+            (down from r=24) → circumference 2·π·16 ≈ 100.5; the
+            `appsWidgetMoonPhase()` helper continues to use the
+            r=24 / circumference≈150.8 numbers it always has so
+            we pass `:viewBox` scaling instead of recomputing the
+            arc geometry (cheaper diff + the helper stays a single
+            source of truth for the lit-fraction math).
+          -->
           <div class="apps-widget-hero-row">
-            <svg class="apps-widget-moon-ring" viewBox="0 0 56 56" aria-hidden="true">
+            <svg class="apps-widget-moon-ring" width="40" height="40" viewBox="0 0 56 56" aria-hidden="true">
               <!-- Background dim disc (the un-illuminated portion). -->
               <circle cx="28" cy="28" r="24"
                       fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
@@ -391,17 +408,19 @@
                       :stroke-dasharray="appsWidgetMoonPhase().circumference"
                       :stroke-dashoffset="appsWidgetMoonPhase().offset"
                       transform="rotate(-90 28 28)"/>
-              <text x="28" y="32" text-anchor="middle"
-                    style="font-size: 13px; font-weight: 600; fill: var(--text);"
+              <text x="28" y="34" text-anchor="middle"
+                    style="font-size: 18px; font-weight: 600; fill: var(--text);"
                     x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
             </svg>
             <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
-              <!-- FULL phase name as the hero — operators want to
-                   see "Waxing Gibbous" / "Waning Crescent" / "First
-                   Quarter" / "New Moon" verbatim, not abbreviated.
-                   Slightly smaller display size than the temperature
-                   hero so two-word phase names fit comfortably. -->
-              <div class="apps-widget-hero" style="font-size: var(--fs-display-sm); line-height: 1.1; font-weight: 600;"
+              <!-- FULL phase name — bumped DOWN to `--fs-md` (13px)
+                   from the earlier 17px display-sm. The phase name is
+                   the hero but it's a SECONDARY widget (compared to
+                   weather's primary temperature), and the smaller
+                   size lets two-word phases ("Waxing Gibbous" /
+                   "Waning Crescent") fit cleanly on one line at the
+                   widget's typical narrow width. -->
+              <div class="apps-widget-hero" style="font-size: var(--fs-md); line-height: 1.15; font-weight: 600;"
                    x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
               <div class="apps-widget-subtitle"
                    x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })

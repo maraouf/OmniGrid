@@ -9271,14 +9271,19 @@ select.field-invalid {
       var(--apps-card-accent-soft) 0%,
       transparent 70%),
     var(--surface);
-  /* Flex column so the card itself stretches to fill the grid-row
-     height (CSS grid default `align-items: stretch`). Pairs with
-     `.apps-widget-tile-root`'s same `height: 100%` so an app card
-     (opnsense) + a widget (clock / weather / public_ip / moon) on
-     the SAME row visually align to the tallest item in that row.
-     Operator-flagged consistency request. */
-  display: flex;
-  flex-direction: column;
+  /* Stretch to the grid-row height (CSS grid default `align-items:
+     stretch`). Pairs with `.apps-widget-tile-root`'s same
+     `height: 100%` so an app card (opnsense) + a widget (clock /
+     weather / public_ip / moon) on the SAME row visually align
+     to the tallest item in that row. Operator-flagged consistency
+     request. NOTE: do NOT force `flex-direction: column` here —
+     the `<article>` already carries Tailwind's `flex items-start
+     gap-3` for the horizontal logo | body | status-pills row;
+     overriding to column flips the status + Refresh pills from
+     the top-right into the middle (operator-flagged regression
+     from a prior batch). Using `height: 100%` for the stretch
+     leaves the inline-classes' row layout untouched. */
+  height: 100%;
 }
 
 .apps-card:hover {
@@ -9291,6 +9296,69 @@ select.field-invalid {
 .apps-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* Wide app card — opts into a 2-column grid span so the card has
+   room for an inline extras panel (the APC UPS stats grid is the
+   only consumer today: Battery / Output load / Runtime / Battery
+   temp / Battery state across 5 cells). Toggled via the SPA helper
+   `appsCardSpan(app)` stamped onto the `<article>` class list.
+   On narrow viewports (single-column grid) the `span 2` is a
+   harmless no-op — there's only one track to span. Future apps
+   with rich extra data follow the same helper pattern. */
+.apps-card--span-2 {
+  grid-column: span 2;
+}
+
+/* APC UPS extras panel — inline stats grid rendered below the
+   per-instance host list inside the .apps-card body. 5 cells
+   (Battery / Output load / Runtime / Battery temperature / Battery
+   state) with `repeat(auto-fit, minmax(110px, 1fr))` so they wrap
+   gracefully on narrow viewports (mobile / a card pinned to a single
+   grid column instead of two). Each cell renders a small label +
+   a larger value; tokenised colours / spacing throughout. The
+   header host line `.apps-card-ups-host` shows only when the app
+   has > 1 instance — the parent header already shows the host for
+   the single-instance case. */
+.apps-card-ups {
+  background: color-mix(in srgb, var(--apps-card-accent) 5%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--apps-card-accent) 18%, var(--border));
+  border-radius: var(--r-sm);
+  padding: var(--s-2);
+}
+
+.apps-card-ups-host {
+  font-weight: 600;
+}
+
+.apps-card-ups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--s-2);
+}
+
+.apps-card-ups-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.apps-card-ups-label {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.apps-card-ups-value {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  word-break: break-word;
 }
 
 .apps-card--up {

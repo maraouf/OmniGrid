@@ -5019,6 +5019,13 @@
     "probe_all_done": "Probed all {name} instances — {up}/{total} up",
     "open_all": "Open all ({n})",
     "open_all_label": "Open",
+    "ups": {
+      "battery": "Battery",
+      "output_load": "Output load",
+      "runtime": "Runtime remaining",
+      "battery_temp": "Battery temperature",
+      "battery_state": "Battery state"
+    },
     "open_all_title": "Open every instance URL in a new tab",
     "open_all_aria": "Open all URLs for {name}",
     "show_all": "Show all ({n})",

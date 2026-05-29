@@ -15,8 +15,18 @@
      describing the action. We do NOT set role="button" — `button` isn't a
      valid ARIA role for <article>, and the card holds its own interactive
      descendants (URL links, probe/open buttons) which a button role forbids. -->
+<!--
+  `:class` binds TWO modifiers:
+    - `apps-card--<status>` — colour/accent based on rollup status.
+    - `apps-card--span-2` — when the helper `appsCardSpan(app)`
+      reports a 2-column span (currently only APC because of its
+      inline UPS-stats panel — `appsIsUpsApp(app)`). The matching
+      `.apps-card--span-2 { grid-column: span 2 }` CSS rule sits
+      next to `.apps-card`. Future apps with rich extra data ride
+      the same helper without touching markup.
+-->
 <article class="apps-card border border-[var(--border)] rounded-md p-3 cursor-pointer flex items-start gap-3"
-         :class="'apps-card--' + app.status"
+         :class="('apps-card--' + app.status) + (appsCardSpan(app) === 2 ? ' apps-card--span-2' : '')"
          tabindex="0"
          :aria-label="t('apps.drawer.open_aria', {name: app.name})"
          @click="openAppDrawer(app)"
@@ -173,6 +183,65 @@
         </li>
       </template>
     </ul>
+    <!-- APC UPS extra-data panel — per-instance inline grid of
+         Battery / Output load / Runtime / Battery temp / Battery
+         state. Gated on (1) the app being an APC (or apc-named)
+         template AND (2) the matching host having at least one
+         UPS-related SNMP field populated. `appsHostUpsData(inst)`
+         returns null for non-UPS hosts so the gate hides cleanly.
+         Each instance gets its own panel so a fleet with multiple
+         UPS units shows distinct stats per host. The card's
+         span-2 grid column (via appsCardSpan) gives the 5-cell
+         row room to breathe without forcing a vertical wrap on
+         narrow viewports. -->
+    <template x-if="appsIsUpsApp(app)">
+      <div class="mt-2 space-y-2">
+        <template x-for="inst in appsVisibleInstances(app)" :key="'ups:' + inst.host_id + ':' + inst.service_idx">
+          <template x-if="appsHostUpsData(inst)">
+            <!--suppress JSUnresolvedVariable -->
+            <div class="apps-card-ups" :data-ups-host="inst.host_id">
+              <!-- Per-host header (host name only when the app has
+                   > 1 instance; with 1 instance the card header
+                   already shows the host). -->
+              <div x-show="(app.instances || []).length > 1"
+                   class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+                   x-text="inst.host_address || inst.host_id"></div>
+              <div class="apps-card-ups-grid">
+                <!-- Battery % -->
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-ups-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
+                  <div class="apps-card-ups-value"
+                       x-text="(appsHostUpsData(inst).battery_percent != null) ? (appsHostUpsData(inst).battery_percent.toFixed(0) + '%') : '—'"></div>
+                </div>
+                <!-- Output load % -->
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-ups-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
+                  <div class="apps-card-ups-value"
+                       x-text="(appsHostUpsData(inst).load_percent != null) ? (appsHostUpsData(inst).load_percent.toFixed(0) + '%') : '—'"></div>
+                </div>
+                <!-- Runtime remaining (mm:ss / Nh Mm) -->
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-ups-label" x-text="t('apps.ups.runtime') || 'Runtime remaining'"></div>
+                  <div class="apps-card-ups-value"
+                       x-text="appsUpsRuntimeLabel(appsHostUpsData(inst).runtime_s)"></div>
+                </div>
+                <!-- Battery temperature °C -->
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-ups-label" x-text="t('apps.ups.battery_temp') || 'Battery temperature'"></div>
+                  <div class="apps-card-ups-value"
+                       x-text="(appsHostUpsData(inst).battery_temp_c != null) ? (appsHostUpsData(inst).battery_temp_c.toFixed(0) + '°C') : '—'"></div>
+                </div>
+                <!-- Battery state (Normal / Low / On Battery / etc.) -->
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-ups-label" x-text="t('apps.ups.battery_state') || 'Battery state'"></div>
+                  <div class="apps-card-ups-value" x-text="appsHostUpsData(inst).status || '—'"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </template>
+      </div>
+    </template>
     <!-- Show-all / Show-less toggle so an app on many hosts doesn't
          grow the card tall + break the grid's uniform rows. -->
     <button type="button" x-show="appsInstancesCollapsible(app)"
