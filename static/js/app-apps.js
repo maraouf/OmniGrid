@@ -921,6 +921,28 @@ export default {
       ['digitalocean', 'digitalocean'],
       ['linode', 'linode'],
       ['vultr', 'vultr'],
+      // Egyptian carriers — operator-flagged. Each maps to the
+      // canonical brand slug (drop the matching SVG into
+      // `static/img/icons/<slug>.svg` from an official source
+      // per CLAUDE.md "Brand-icon onboarding"). The detection
+      // fires regardless of whether the SVG exists yet — the
+      // `<img @error>` handler on the consumer hides the
+      // placeholder cleanly when the file isn't present, so
+      // shipping the mapping today + the SVG later is safe.
+      //   - e& (formerly Etisalat — UAE parent, present across
+      //     Egypt / Saudi / etc.) — match both names since the
+      //     rebrand is incomplete in many ASN registries.
+      //   - WE (Telecom Egypt, formerly TE Data) — match all
+      //     three names since ASN.org may still surface any of
+      //     them depending on the upstream registry's age.
+      //   Vodafone + Orange already covered above and serve
+      //   Egypt too; no per-region branch needed for those.
+      ['e&', 'e-and'],  // ampersand is fine in a substring needle
+      ['etisalat', 'etisalat'],
+      [' we ', 'we'],  // whitespace-padded — avoid matching "we are" / "swe" / etc.
+      ['telecom egypt', 'telecom-egypt'],
+      ['te data', 'te-data'],
+      ['te-data', 'te-data'],
     ];
     for (const [needle, slug] of tokens) {
       if (raw.indexOf(needle) !== -1) {

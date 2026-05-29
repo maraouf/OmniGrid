@@ -106,18 +106,29 @@
            per-kind in-flight flag so the icon rotates while
            the fetch is mid-flight. Hidden in edit mode — the
            trash button takes priority then. -->
+      <!-- Refresh button — converted from the icon-only
+           `user-action-btn` chrome to the `apps-card-action-pill`
+           shape (rounded grey pill with icon + REFRESH label) so
+           the widgets visually match the regular app cards
+           (opnsense / etc.) sitting on the same Apps grid row.
+           Operator-flagged: "make these widgets have the same
+           pill for refresh like other apps". Same i18n key the
+           Apps app-card refresh pill uses (`apps.probe_all_label`
+           = "Refresh") so a future locale flip both surfaces
+           consistently. -->
       <button type="button"
               x-show="!appsCustomEditMode && widgetSupportsRefresh(item.widget) && widgetHasData(item.widget)"
-              class="user-action-btn"
+              class="apps-card-action-pill whitespace-nowrap"
               :disabled="appsWidgetRefreshing && appsWidgetRefreshing[item.widget]"
               @click.stop="refreshWidget(item.widget)"
               :aria-label="t('apps.custom.widget_refresh_aria', {kind: appsWidgetLabel(item.widget)}) || ('Refresh ' + appsWidgetLabel(item.widget) + ' data')"
               :title="t('apps.custom.widget_refresh_title') || 'Refresh now'">
-        <svg width="12" height="12"
+        <svg width="11" height="11"
              :class="(appsWidgetRefreshing && appsWidgetRefreshing[item.widget]) ? 'spin-md' : ''"
              aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
         </svg>
+        <span x-text="t('apps.probe_all_label') || 'Refresh'"></span>
       </button>
       <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
               @click.stop="removeAppsItem(sec.id, item.uid)"

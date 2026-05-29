@@ -787,6 +787,22 @@ export default {
         } catch (_e) { /* non-fatal */
         }
       }
+      // Beszel systemd services — refresh ONLY when the host has
+      // Beszel configured. `beszel_name` is the canonical "is this
+      // host wired to a Beszel agent" check (matches the chip
+      // apiGate at app-drawer-bulk.js:545). Skipping the call for
+      // non-Beszel hosts avoids a useless API round-trip + a 404
+      // log noise. The systemd-units pane in the drawer reads from
+      // the same per-host cache `loadHostBeszelServices` populates,
+      // so a successful refresh here updates the rendered list
+      // without a separate UI poke.
+      if (h.beszel_name && String(h.beszel_name).trim()
+        && typeof this.loadHostBeszelServices === 'function') {
+        try {
+          await this.loadHostBeszelServices(h.id);
+        } catch (_e) { /* non-fatal */
+        }
+      }
       if (typeof this.showToast === 'function') {
         this.showToast(this.t('host_drawer.actions.full_refresh_ok') || 'Host data refreshed', 'success');
       }
