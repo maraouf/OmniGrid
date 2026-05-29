@@ -60,6 +60,15 @@ class EnvKey(str, Enum):
     ENV_FILE_PATH = "ENV_FILE_PATH"
     GITHUB_TOKEN = "GITHUB_TOKEN"
     LOG_DIR = "LOG_DIR"
+    # Diagnostic-only — tracemalloc allocation-traceback frame depth.
+    # Default OFF in prod because tracemalloc adds ~2-3x overhead to
+    # every Python allocation, which wedged the event loop past the
+    # 20s `/api/healthz` Docker healthcheck on busy gather + sampler
+    # cycles → SIGKILL crash-loop (see #0166). Set to 1..100 when
+    # diagnosing "coroutine was never awaited" / ResourceWarning so
+    # those warnings carry the allocation site; unset before next
+    # deploy.
+    OG_TRACEMALLOC_FRAMES = "OG_TRACEMALLOC_FRAMES"
     PORTAINER_API_KEY = "PORTAINER_API_KEY"
     PORTAINER_ENDPOINT_ID = "PORTAINER_ENDPOINT_ID"
     PORTAINER_URL = "PORTAINER_URL"
