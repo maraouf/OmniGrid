@@ -27,6 +27,17 @@ export default {
   hostsConfigLoading: false,
   hostsConfigSaving: false,
   hostsConfigDirty: false,
+  // Snapshot of the curated host list at the moment of the most-
+  // recent `loadHostsConfig` / successful `saveHostsConfig`. Used
+  // by `recomputeHostsConfigDirty()` so the dirty flag tracks the
+  // ROUND-TRIP delta against the last-loaded state instead of
+  // latching to true on first mutation forever. This is what makes
+  // "bulk Apply vendor X to N rows" then "bulk Clear vendor X from
+  // N rows" un-dirty the form (operator returned to baseline; the
+  // amber Save ring should clear too). Plain JSON string compare
+  // — sub-ms on the typical 5-100 host fleet, single-shot per
+  // mutation site so the cost is bounded.
+  _hostsConfigBaseline: '',
   hostsConfigFilter: '',
   // Client-side pagination for the Admin → Hosts editor. At
   // ~200 hosts the rendered DOM (each row is a multi-input form
@@ -244,6 +255,12 @@ export default {
         }
       }
       this.hostsConfigDirty = false;
+      // Snapshot baseline AFTER the array + per-row uid stamping is
+      // settled so any subsequent mutation diffs cleanly against
+      // the load-time shape. Skipped strings if serialise fails
+      // (circular reference safety — falls back to latching boolean
+      // behaviour for that call).
+      this._captureHostsConfigBaseline();
       this.rebuildHostsConfigOrder();
       // Clamp paging to the loaded data — preserves the persisted
       // page when valid, and falls back to the new last page
@@ -1493,6 +1510,11 @@ export default {
         this.settings.webmin_aliases = webminAliases;
       }
       this.hostsConfigDirty = false;
+      // Re-capture baseline AFTER the save's post-processing
+      // (per-row uid reseeding + sub-field normalisation) so a
+      // subsequent mutation diffs against the just-saved shape —
+      // not the previous-pre-save baseline.
+      this._captureHostsConfigBaseline();
       this.showToast(this.t('admin_hosts.saved_n', {count: d.count}), 'success');
       // Refresh the Hosts tab data unconditionally — was previously
       // gated on ``this.view === 'hosts'`` so an Admin → Hosts save

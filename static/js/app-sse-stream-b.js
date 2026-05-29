@@ -1523,9 +1523,72 @@ export default {
     return 'r' + Date.now().toString(36) + '_' + this._uidCounter.toString(36);
   },
   markHostRowDirty(idx) {
-    this.hostsConfigDirty = true;
+    // Snapshot-based dirty tracker — diff the current `hostsConfig`
+    // against `_hostsConfigBaseline` (captured on load + after each
+    // successful save). This makes the dirty flag BIDIRECTIONAL:
+    // bulk Apply vendor X → dirty=true; bulk Clear vendor X back to
+    // baseline → dirty=false again. Pre-fix the flag latched to
+    // true on first mutation and only Save / Load could un-set it,
+    // so reverting changes via the UI didn't clear the amber Save
+    // ring + "Unsaved" pulse-dot (user-flagged regression — bulk
+    // Apply / Clear in Admin → Hosts didn't trigger dirty/undirty
+    // cleanly).
+    //
+    // Microtask-debounce the JSON.stringify so bulk operations
+    // (bulkApplySnmpVendor walks N rows and calls markHostRowDirty
+    // per touched row) collapse to ONE snapshot compute per turn
+    // instead of N × O(rows) stringify calls. Per-row test-result
+    // clearing still runs SYNCHRONOUSLY because operators need it
+    // immediate. Fallback to plain `true` if JSON serialisation
+    // raises (circular ref / extremely large list) so we never
+    // silently DROP a dirty state — the operator gets at-least the
+    // latching boolean behaviour on the rare failure path.
     if (this.hostsTestResults && this.hostsTestResults[idx]) {
       delete this.hostsTestResults[idx];
+    }
+    if (this._hostsConfigDirtyPending) {
+      return;
+    }
+    this._hostsConfigDirtyPending = true;
+    queueMicrotask(() => {
+      this._hostsConfigDirtyPending = false;
+      try {
+        this.hostsConfigDirty = (
+          this._hostsConfigSnapshot() !== (this._hostsConfigBaseline || '')
+        );
+      } catch (_) {
+        this.hostsConfigDirty = true;
+      }
+    });
+  },
+  // Snapshot helper — single source of truth for what's compared
+  // against `_hostsConfigBaseline`. Strips per-row UI bookkeeping
+  // fields that aren't part of the saved payload (`_uid` so a
+  // freshly-minted row doesn't perpetually read as dirty against
+  // an empty baseline; any other `_*` field added in future
+  // should be added to the strip list here so it doesn't pollute
+  // the dirty comparison).
+  _hostsConfigSnapshot() {
+    const list = Array.isArray(this.hostsConfig) ? this.hostsConfig : [];
+    const stripped = list.map((row) => {
+      const out = {};
+      for (const k of Object.keys(row || {})) {
+        if (k.charAt(0) === '_') {
+          continue;
+        }
+        out[k] = row[k];
+      }
+      return out;
+    });
+    return JSON.stringify(stripped);
+  },
+  // Capture the load-time / post-save baseline. Mutations route
+  // through `markHostRowDirty` which diffs against this snapshot.
+  _captureHostsConfigBaseline() {
+    try {
+      this._hostsConfigBaseline = this._hostsConfigSnapshot();
+    } catch (_) {
+      this._hostsConfigBaseline = '';
     }
   },
   // Set ONE field on a row's http_probe sub-dict IN PLACE, then mark the

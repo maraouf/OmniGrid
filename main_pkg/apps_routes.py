@@ -570,17 +570,44 @@ async def api_service_unpin(host_id: str, service_idx: int, request: Request, _a
 async def api_apps_list(_admin: AdminUser):
     """Admin-only: cross-host aggregate view. Returns one row per
     distinct app (grouped by catalog_id or name) with every host that
-    runs an instance + per-instance status."""
+    runs an instance + per-instance status.
+
+    OFFLOADED to a worker thread via `asyncio.to_thread` because
+    `list_apps()` is synchronous + opens a fresh `db_conn()` per
+    host × 3 queries each (`latest_for_host` + `latest_per_port_all_
+    for_host` + `history_rollup_all_for_host`). On a busy fleet
+    (200 curated hosts × 5 chips each), that's hundreds of SQLite
+    operations running on the event loop, which wedges /api/healthz
+    past the 20s Docker healthcheck timeout → Swarm SIGKILL →
+    crash-loop. Same offload pattern as `host_baseline_sampler` (the
+    B7 fix). Symptom that surfaced this: operator-flagged "apps page
+    keeps loading without any end, and it seems it crashed the
+    backend after loading: Failed to load apps: HTTP 504" — the
+    proxy timed out waiting for the synchronously-blocked event
+    loop to respond. The deeper fix (batch the per-host queries
+    into ONE multi-host SELECT) is a follow-up; this offload is
+    the immediate crash-loop preventer.
+    """
     from logic import service_catalog as _sc
-    return {"apps": _sc.list_apps()}
+    apps = await asyncio.to_thread(_sc.list_apps)
+    return {"apps": apps}
 
 
 @app.get("/api/apps/instances")
 async def api_apps_instances(_admin: AdminUser):
     """Admin-only: flat per-instance iterator — every chip across every
-    host. Used by the Admin → Apps tab's instance list."""
+    host. Used by the Admin → Apps tab's instance list.
+
+    Same `asyncio.to_thread` offload rationale as `/api/apps` above
+    — `iter_instances()` walks every curated host, opens DB reads
+    per host, runs synchronously. Without the offload it blocks
+    /api/healthz on the same code path that triggered the
+    crash-loop. List materialisation runs inside the worker thread
+    too so the generator doesn't leak back to the event loop.
+    """
     from logic import service_catalog as _sc
-    return {"instances": list(_sc.iter_instances())}
+    instances = await asyncio.to_thread(lambda: list(_sc.iter_instances()))
+    return {"instances": instances}
 
 
 # noinspection PyProtectedMember

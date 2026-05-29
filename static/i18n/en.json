@@ -4274,6 +4274,7 @@
     "snmp_vendors_bulk_clear_title": "Remove the selected vendor from every visible row's checkbox group ({count} rows pass the current filter, SNMP-disabled rows skipped).",
     "snmp_vendors_bulk_applied": "Applied {vendor} to {count} row(s) — Save to persist",
     "snmp_vendors_bulk_cleared": "Cleared {vendor} from {count} row(s) — Save to persist",
+    "snmp_vendors_bulk_noop": "Nothing changed for {vendor} across {count} filtered row(s) — every row either already matched the target state OR has SNMP disabled (the bulk-apply skips SNMP-disabled rows by design).",
     "label_source_asset": "{name} — from Asset Inventory (no operator label set)",
     "click_to_edit": "Click to edit",
     "discover_button": "Discover from providers",
