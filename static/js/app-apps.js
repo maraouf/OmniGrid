@@ -955,6 +955,137 @@ export default {
     }
     return '';
   },
+  // ----- APC UPS extra-data card (catalog slug 'apc') -----------
+  // The APC catalog template binds a chip to a host that's also
+  // SNMP-probed; the SNMP extractor (logic/snmp.py) populates
+  // host_ups_status / host_battery_percent / host_battery_runtime_s /
+  // host_battery_temp_c / host_battery_status / host_load_percent on
+  // the host row. The Apps card surfaces those as an inline UPS
+  // stats panel below the standard instance list so operators see
+  // battery / load / runtime / temp / state at a glance without
+  // opening the host drawer. Span-2 grid hook (`appsCardSpan(app)`)
+  // gives the APC card double width so the 5-stat panel doesn't
+  // squeeze the per-instance host list.
+  //
+  // appsIsUpsApp(app) — true when the app group is the APC catalog
+  // template (or matches the slug fallback). Drives both the span
+  // hook AND the UPS-stats panel render gate.
+  appsIsUpsApp(app) {
+    if (!app) {
+      return false;
+    }
+    const cat = app.catalog || {};
+    const slug = String(cat.slug || '').trim().toLowerCase();
+    if (slug === 'apc') {
+      return true;
+    }
+    // Fallback: name-based detection for operator-edited chips that
+    // dropped the catalog link but kept the brand. Generous match
+    // (substring) so "APC Smart-UPS" / "APC UPS" / "APC RT 3000XL"
+    // all hit. Case-insensitive.
+    return (String(app.name || '').toLowerCase().indexOf('apc') !== -1);
+  },
+  // Grid-column span hint — APC card takes 2 columns so the inline
+  // UPS-stats panel (Battery / Output load / Runtime / Battery
+  // temp / Battery state) has room without forcing the per-instance
+  // host list narrower than the other app cards on the same row.
+  // Stamped via `:class` on the apps-card `<article>` root.
+  // Future apps with rich extra data follow the same pattern.
+  appsCardSpan(app) {
+    return this.appsIsUpsApp(app) ? 2 : 1;
+  },
+  // Per-instance UPS data lookup — finds the host the chip is
+  // pinned to via `inst.host_id` against this.hosts, pulls the six
+  // SNMP-populated UPS fields, returns null when none of them are
+  // present (so the panel gate can hide cleanly for non-SNMP /
+  // non-APC hosts that happen to be pinned to the APC catalog
+  // template). Cached per-(host_id) via `_appsUpsCache` so the
+  // O(N) host-array walk runs once per render flush instead of N
+  // times per chip instance.
+  _appsUpsCache: null,
+  _appsUpsCachePending: false,
+  appsHostUpsData(inst) {
+    if (!inst || !inst.host_id) {
+      return null;
+    }
+    if (!this._appsUpsCache) {
+      this._appsUpsCache = Object.create(null);
+      // Flush-memo clear — same pattern documented in CLAUDE.md
+      // for template-read getters that iterate a reactive
+      // collection. Next microtask = next reactive flush, so the
+      // cache picks up fresh host UPS data on every poll cycle.
+      if (!this._appsUpsCachePending) {
+        this._appsUpsCachePending = true;
+        queueMicrotask(() => {
+          this._appsUpsCache = null;
+          this._appsUpsCachePending = false;
+        });
+      }
+    }
+    if (inst.host_id in this._appsUpsCache) {
+      return this._appsUpsCache[inst.host_id];
+    }
+    const hosts = Array.isArray(this.hosts) ? this.hosts : [];
+    let host = null;
+    for (const h of hosts) {
+      if (h && h.id === inst.host_id) {
+        host = h;
+        break;
+      }
+    }
+    if (!host) {
+      this._appsUpsCache[inst.host_id] = null;
+      return null;
+    }
+    // Gate: at least ONE UPS field must be populated. Otherwise
+    // the host is just an SNMP-probed non-UPS device pinned to
+    // the APC template by mistake — render nothing rather than
+    // an empty panel of dashes.
+    const batt = host.host_battery_percent;
+    const load = host.host_load_percent;
+    const rt = host.host_battery_runtime_s;
+    const temp = host.host_battery_temp_c;
+    const status = host.host_ups_status || host.host_battery_status || '';
+    if (batt == null && load == null && rt == null && temp == null && !status) {
+      this._appsUpsCache[inst.host_id] = null;
+      return null;
+    }
+    const data = {
+      battery_percent: (batt == null) ? null : Number(batt),
+      load_percent: (load == null) ? null : Number(load),
+      runtime_s: (rt == null) ? null : Number(rt),
+      battery_temp_c: (temp == null) ? null : Number(temp),
+      // Prefer output-status (On Line / On Battery) since it
+      // answers the "is the UPS doing its job right now" question
+      // better than the binary battery-status (Normal / Low).
+      // Fall back to battery_status if output is empty.
+      status: (host.host_ups_status || host.host_battery_status || '').trim(),
+    };
+    this._appsUpsCache[inst.host_id] = data;
+    return data;
+  },
+  // Format a runtime in seconds as "Nh Mm" / "Mm Ss" / "Ss" —
+  // operator-readable mins/sec. APC's `upsAdvBatteryRunTimeRemaining`
+  // is TimeTicks (centiseconds), already converted to seconds at
+  // the extractor level. Negative / null → "—" so the panel cell
+  // shows a sensible placeholder.
+  appsUpsRuntimeLabel(s) {
+    if (s == null) {
+      return '—';
+    }
+    const total = Math.max(0, Math.round(Number(s) || 0));
+    if (total >= 3600) {
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    if (total >= 60) {
+      const m = Math.floor(total / 60);
+      const sec = total % 60;
+      return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+    }
+    return `${total}s`;
+  },
   // Public-IP detail value formatter — strips the "AS" prefix from
   // the ASN field so the chip reads cleanly. Backend returns "AS15169"
   // (Google), "AS13335" (Cloudflare), etc.; the visual chip looks

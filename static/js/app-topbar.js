@@ -286,7 +286,15 @@ export default {
     try {
       if (kind === 'weather' || kind === 'moon') {
         // Moon data comes from the same /api/weather response, so
-        // refreshing weather refreshes the moon widget too.
+        // refreshing weather refreshes the moon widget too. Force-
+        // bypass the in-process cache by zeroing the fetched-at
+        // stamp BEFORE the call, so the helper's TTL gate doesn't
+        // short-circuit on a still-warm cache (same pattern as the
+        // public_ip branch below). Pre-fix this branch DIDN'T
+        // bypass — operator clicked Refresh, cache returned the
+        // last value, nothing visibly changed, button read as
+        // "disabled" / "does nothing".
+        this._weatherFetchedAt = 0;
         await this.loadHeaderWeather();
       } else if (kind === 'public_ip') {
         // Force-bypass the in-process cache by zeroing the stamp
