@@ -10024,37 +10024,33 @@ select.field-invalid {
   flex-shrink: 0;
 }
 
-/* Bookmark PRIMARY action — "Open". A prominent primary-accented pill so
-   the bookmark's main action reads as the clear call-to-action, visually
-   distinct from the muted grey settings / refresh pills above it. Shares
-   the action-pill geometry (equal-width stacked cluster) but flips to the
-   primary fill. The whole bookmark tile is the actual <a> link; this is
-   the visual affordance. */
-.apps-card-open-pill {
+/* Bookmark Open affordance — a clean borderless LAUNCH GLYPH, not a pill.
+   The whole bookmark tile is the <a> link, so a heavy labelled CTA pill
+   was overkill; this is a primary-tinted external-link icon sitting where
+   the action pills stack, with a soft circular hover halo (filled on card
+   hover) so it reads as "opens in a new tab" without pill chrome. Square
+   touch target, centred icon. */
+.apps-card-open-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-width: 62px;
-  padding: 2px 8px;
+  width: 26px;
+  height: 26px;
+  align-self: flex-end;
   border-radius: var(--r-pill);
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  background: var(--primary);
-  color: var(--text-on-primary);
-  border: 1px solid var(--primary);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  color: var(--primary);
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
-.apps-bookmark-tile:hover .apps-card-open-pill {
-  background: var(--primary-hov);
-  border-color: var(--primary-hov);
-}
-
-.apps-card-open-pill svg {
+.apps-card-open-glyph svg {
   flex-shrink: 0;
+}
+
+.apps-bookmark-tile:hover .apps-card-open-glyph {
+  background: var(--primary-soft);
+  color: var(--primary-hov);
+  transform: translateY(-1px);
 }
 
 /* Per-host instance row — subtle row card on a hairline-divided list,
@@ -10402,15 +10398,17 @@ select.field-invalid {
   --widget-accent: var(--primary);
   --widget-accent-soft: color-mix(in srgb, var(--primary) 12%, transparent);
   --widget-accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
-  /* Size-query container so widget CONTENT adapts to the chosen card
-     width (the 4 width presets feed the tile's actual width). Descendants
-     query `ogtile` via @container + scale type with `cqi` units, so a
-     wider card shows more / larger content and a narrow one stays
-     compact — "the card decides based on the space available". Width-only
-     (`inline-size`) containment is the safe variant: the tile's height
-     is still driven by the cell's height preset, so this doesn't risk
-     collapsing the tile. */
-  container-type: inline-size;
+  /* Size-query container so widget CONTENT adapts to the chosen card's
+     ACTUAL width AND height (the 4 width × 2 height presets feed the
+     tile's real box). Descendants scale type with `cqmin` / `cqh` /
+     `cqi` units + reveal detail via @container, so a bigger card shows
+     larger / more content and a small one stays compact — "the card
+     decides based on the space available". `container-type: size`
+     queries both axes (needed so a TALL card grows the clock etc., not
+     just a WIDE one); safe here because the tile is `flex: 1` inside a
+     definite-height cell + grid-sized width, so it always has a definite
+     box to contain (size containment never collapses it to 0). */
+  container-type: size;
   container-name: ogtile;
   display: flex;
   flex-direction: column;
@@ -10632,12 +10630,12 @@ select.field-invalid {
    generic hero's display-lg + nowrap. `break-all` lets a long IPv6 wrap
    onto a second line instead of ellipsis-truncating. */
 .apps-widget-pubip-ip {
-  /* Scales with the card width via the `ogtile` container: a comfortable
-     floor on a narrow card (bumped up from the old display-sm — it read
-     too small), growing toward display-lg on a wide / x-large card so the
-     IP is the clear focal point and the tile uses its width. Still wraps
-     (break-all) so a long IPv6 never ellipsis-truncates. */
-  font-size: clamp(var(--fs-display-md), 6cqi, var(--fs-display-lg));
+  /* Scales with the card's smaller dimension (cqmin) so the IP is the
+     clear focal point + uses the empty space above/around it: a
+     comfortable floor on a narrow card, growing toward display-2xl on a
+     wide / tall card. Still wraps (break-all) so a long IPv6 never
+     ellipsis-truncates. cqmin (not cqi) so a TALL card also grows it. */
+  font-size: clamp(var(--fs-display-base), 12cqmin, var(--fs-display-2xl));
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -10913,7 +10911,12 @@ select.field-invalid {
 }
 
 .apps-widget-clock {
-  font-size: var(--fs-display-lg);
+  /* Scales with the card's SMALLER dimension (cqmin) so a max width +
+     height card shows a big clock that uses the space, while a compact
+     card stays readable. Floor = display-md, ceiling = display-2xl
+     (both real tokens; the cqmin coefficient is a responsive coordinate,
+     not a spacing literal). */
+  font-size: clamp(var(--fs-display-md), 24cqmin, var(--fs-display-2xl));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -11233,16 +11236,13 @@ a.apps-drawer-tile-name {
    rtt. Border accent matches the per-status colour family. */
 .apps-port-grid {
   display: flex;
-  /* One horizontal row that scrolls sideways instead of WRAPPING to a
-     second line. Wrapping pushed a multi-port app (e.g. opnsense's
-     80/http + 443/https) past the card's fixed height, so the lower
-     port row got clipped by the cell's `overflow: hidden` (the
-     reported "ports cropped"). A single scrollable row keeps every
-     port on one line at any card width — the `.scrollbar` chrome
-     (thin, hover-revealed) signals there's more when the ports exceed
-     the width. Trade vertical clipping for a tidy horizontal strip. */
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  /* Wrap cleanly to a second line when the ports don't all fit the card
+     width — NO horizontal scrollbar (the operator rejected the scroll
+     treatment; they want the pills to align tidily inside the card).
+     At a normal/medium width two ports (e.g. 80/http + 443/https) sit on
+     one row; more ports wrap. The card's height preset owns whether a
+     wrapped 2nd row fits — size the card taller if it clips. */
+  flex-wrap: wrap;
   gap: var(--s-2);
 }
 
