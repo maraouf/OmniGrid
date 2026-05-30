@@ -16,7 +16,7 @@
        apcHostUpsData(inst)      -- per-instance UPS data dict
        apcUpsRuntimeLabel(s)     -- human runtime formatter -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst) && apcHostUpsData(inst)">
+<template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && apcHostUpsData(inst)">
   <!--suppress JSUnresolvedVariable -->
   <div class="apps-card-ups" :data-ups-host="inst.host_id">
     <!-- Per-host header (host name only when the app has > 1

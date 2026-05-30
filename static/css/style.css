@@ -9397,22 +9397,18 @@ select.field-invalid {
    (see the block further down, next to the `display: contents` base
    rule) so they win the specificity race against that base rule. */
 
-/* SIZE-aware content adaptation — the card has a FIXED footprint, so
-   content that can't fit is dropped per the available space (operator:
-   "the card decides based on the size available"). The hero (current
-   conditions: icon + temp + condition / clock / moon ring / app
-   name+ports) ALWAYS shows — only secondary detail is trimmed:
-     • SHORT height (150px): hide the humidity/wind detail grid + the
-       forecast strip + the APC UPS grid — they don't fit under the
-       hero in 150px. Tall (300px) shows them all.
-     • HALF width: hide the 5-day forecast strip regardless of height —
-       it needs horizontal room a half-width card doesn't have.
-   Normal + double width at tall height = the full rich card. Edit mode
-   shows everything (so the operator sees the real card while sizing).
-   NEVER hides the whole body — that blanked the card (earlier bug). */
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-detail,
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast,
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups,
+/* SIZE-aware content adaptation. The hero (current conditions: icon +
+   temp + condition / clock / moon ring / app name+ports) ALWAYS shows.
+   Secondary detail (humidity/wind grid, forecast strip, UPS grid) is NO
+   LONGER hidden at SHORT height — the user wants that detail to USE the
+   available vertical space rather than leave the card half-empty, and on
+   a short card it still fits comfortably under the compact hero (the card
+   clips gracefully via `overflow: hidden` only if genuinely overfilled;
+   the `tall` preset guarantees full room). The ONLY content trim left is
+   the 5-day forecast at HALF WIDTH — that strip needs horizontal room a
+   half-width card simply doesn't have, so it stays hidden there. Edit
+   mode shows everything. NEVER hide the whole body (that blanked the
+   card — an earlier bug). */
 .apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-widget-forecast {
   display: none;
 }
@@ -11237,7 +11233,16 @@ a.apps-drawer-tile-name {
    rtt. Border accent matches the per-status colour family. */
 .apps-port-grid {
   display: flex;
-  flex-wrap: wrap;
+  /* One horizontal row that scrolls sideways instead of WRAPPING to a
+     second line. Wrapping pushed a multi-port app (e.g. opnsense's
+     80/http + 443/https) past the card's fixed height, so the lower
+     port row got clipped by the cell's `overflow: hidden` (the
+     reported "ports cropped"). A single scrollable row keeps every
+     port on one line at any card width — the `.scrollbar` chrome
+     (thin, hover-revealed) signals there's more when the ports exceed
+     the width. Trade vertical clipping for a tidy horizontal strip. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: var(--s-2);
 }
 
