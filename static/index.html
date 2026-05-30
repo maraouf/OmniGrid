@@ -3496,11 +3496,19 @@
                    x-show="appsCustomEditMode || sec.items.length"
                    @dragover.prevent
                    @drop.stop="appsCustomEditMode ? appsSectionDrop(sec.id) : null">
-            <header class="apps-section-head flex items-center gap-2 px-2 py-1.5"
+            <!-- The ENTIRE header row toggles collapse (operator-flagged:
+                 clicking anywhere on the header, not just the chevron).
+                 The guard ignores clicks that originate on an interactive
+                 control (the rename input, the add/delete buttons, the
+                 number/select inputs shown in edit mode) so those keep
+                 their own behaviour — only "bare" header clicks toggle.
+                 `cursor: pointer` on the header signals the affordance. -->
+            <header class="apps-section-head flex items-center gap-2 px-2 py-1.5 cursor-pointer"
                     :draggable="appsCustomEditMode ? 'true' : 'false'"
-                    @dragstart="appsCustomEditMode ? appsSectionDragStart($event, sec.id) : null">
+                    @dragstart="appsCustomEditMode ? appsSectionDragStart($event, sec.id) : null"
+                    @click="(($event.target.closest('input, select, textarea, button, a')) ? null : toggleAppsSectionCollapsed(sec.id))">
               <button type="button" class="user-action-btn"
-                      @click="toggleAppsSectionCollapsed(sec.id)"
+                      @click.stop="toggleAppsSectionCollapsed(sec.id)"
                       :aria-expanded="(!sec.collapsed).toString()"
                       :aria-label="sec.collapsed ? (t('actions.expand') || 'Expand') : (t('actions.collapse') || 'Collapse')">
                 <svg width="14" height="14" aria-hidden="true" class="flip-rtl" :class="sec.collapsed ? '' : 'rotate-90'">
@@ -3690,9 +3698,10 @@
         <!-- Unsectioned (apps only) — big cards locked, condensed draggable edit -->
         <section class="apps-section apps-section--unsectioned border border-[var(--border)] rounded-md"
                  x-show="appsCustomUnsectioned().length || (appsCustomEditMode && !appsCustomSections().length)">
-          <header class="apps-section-head flex items-center gap-2 px-2 py-1.5">
+          <header class="apps-section-head flex items-center gap-2 px-2 py-1.5 cursor-pointer"
+                  @click="(($event.target.closest('input, select, textarea, button, a')) ? null : toggleAppsUnsectionedCollapsed())">
             <button type="button" class="user-action-btn"
-                    @click="toggleAppsUnsectionedCollapsed()"
+                    @click.stop="toggleAppsUnsectionedCollapsed()"
                     :aria-expanded="(!appsUnsectionedCollapsed()).toString()"
                     :aria-label="appsUnsectionedCollapsed() ? (t('actions.expand') || 'Expand') : (t('actions.collapse') || 'Collapse')">
               <svg width="14" height="14" aria-hidden="true" class="flip-rtl"

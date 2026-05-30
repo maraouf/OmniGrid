@@ -26,14 +26,24 @@
        link-glyph when no icon resolves (a bookmark may have no brand
        match), instead of leaving an empty gap. -->
   <div class="apps-card-logo">
-    <template x-if="!!appsBookmarkIconUrl(item)">
-      <img :src="appsBookmarkIconUrl(item)" alt=""
-           @error="$event.target.closest('.apps-card-logo').classList.add('apps-bookmark-logo--noicon')">
-    </template>
-    <!-- Fallback link glyph — shown when no icon resolves OR the
-         resolved file 404s (the @error above tags the logo block, and
-         the CSS reveals this glyph + hides the broken img). -->
-    <svg width="24" height="24" aria-hidden="true" class="apps-bookmark-fallback-icon text-[var(--text-faint)]">
+    <!-- The brand <img> renders UNCONDITIONALLY (no x-if gate) so any
+         resolvable icon shows; on a genuine load failure the @error
+         handler hides the img + reveals the fallback link glyph. The
+         earlier x-if gate caused the icon to vanish whenever the
+         resolver returned a falsy-at-first-eval value (operator-flagged:
+         ftth / 5g slugs not rendering). `x-show` keeps the img element
+         present so @error can fire. The `:key` rebinds the img when the
+         resolved URL changes (icon edit) so a previously-errored img
+         re-attempts the new URL. -->
+    <img :src="appsBookmarkIconUrl(item)" alt=""
+         x-show="!_bookmarkIconBroken[item.uid]"
+         @error="_bookmarkIconBroken[item.uid] = true"
+         @load="_bookmarkIconBroken[item.uid] = false">
+    <!-- Fallback link glyph — shown only when the img has no src OR the
+         resolved file failed to load. -->
+    <svg width="24" height="24" aria-hidden="true"
+         x-show="!appsBookmarkIconUrl(item) || _bookmarkIconBroken[item.uid]"
+         class="text-[var(--text-faint)]">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/>
     </svg>
   </div>

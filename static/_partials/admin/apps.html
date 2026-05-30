@@ -579,7 +579,9 @@
     </div>
 
     <div class="flex items-center gap-2 pt-2">
-      <button type="button" class="btn btn-primary fs-sm" @click="saveAppCatalogEntry()" :disabled="appsCatalogSaving">
+      <button type="button" class="btn btn-primary fs-sm" @click="saveAppCatalogEntry()"
+              :disabled="appsCatalogSaving || !appsCatalogDirty()"
+              :title="!appsCatalogDirty() ? (t('apps.no_changes') || 'No changes to save') : ''">
         <span x-text="t('actions.save') || 'Save'"></span>
       </button>
       <button type="button" class="btn btn-soft fs-sm" @click="closeAppCatalogEditor()" :disabled="appsCatalogSaving">
@@ -1101,7 +1103,10 @@
         </div>
       </div>
       <div class="flex items-center gap-2 mt-4">
-        <button type="button" class="btn btn-primary fs-sm" :disabled="appsInstanceEditSaving" @click="saveInstanceEdit()">
+        <button type="button" class="btn btn-primary fs-sm"
+                :disabled="appsInstanceEditSaving || !appsInstanceDirty()"
+                :title="!appsInstanceDirty() ? (t('apps.no_changes') || 'No changes to save') : ''"
+                @click="saveInstanceEdit()">
           <span x-show="!appsInstanceEditSaving" x-text="t('actions.save') || 'Save'"></span>
           <span x-show="appsInstanceEditSaving" x-text="t('actions.saving') || 'Saving…'"></span>
         </button>

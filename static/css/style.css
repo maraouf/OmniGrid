@@ -492,8 +492,8 @@
   /* Apps Custom card HEIGHT presets (short / tall) — the two fixed
      heights a card / widget / bookmark can be; the operator drags the
      bottom-edge handle to switch. Theme-agnostic. */
-  --apps-card-h-short: 132px;
-  --apps-card-h-tall: 248px;
+  --apps-card-h-short: 150px;
+  --apps-card-h-tall: 300px;
 }
 
 :root[data-theme="light"] {
@@ -679,8 +679,8 @@
   /* Apps Custom card HEIGHT presets (short / tall) — the two fixed
      heights a card / widget / bookmark can be; the operator drags the
      bottom-edge handle to switch. Theme-agnostic. */
-  --apps-card-h-short: 132px;
-  --apps-card-h-tall: 248px;
+  --apps-card-h-short: 150px;
+  --apps-card-h-tall: 300px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -9388,13 +9388,9 @@ select.field-invalid {
    `tall` gives roomy cards (multi-instance app lists, big clock, moon).
    Operator drags the bottom-edge handle (or the back-face radio) to
    switch. Both heights apply uniformly to apps, widgets AND bookmarks. */
-.apps-custom-cell.apps-card--height-short {
-  height: var(--apps-card-h-short);
-}
-
-.apps-custom-cell.apps-card--height-tall {
-  height: var(--apps-card-h-tall);
-}
+/* The height presets are applied on `.apps-custom-cell.apps-card-flip`
+   (see the block further down, next to the `display: contents` base
+   rule) so they win the specificity race against that base rule. */
 
 /* ----------------------------------------------------------------
    Apps Custom — per-card flip-to-settings animation. The gear icon
@@ -9528,15 +9524,12 @@ select.field-invalid {
   outline: 1px dashed var(--primary);
   outline-offset: -2px;
   border-radius: var(--r-md);
-  /* Stripped cards (icon + title only) would otherwise collapse to a
-     razor-thin header strip. Give them a comfortable, UNIFORM card
-     height in edit mode so the board reads as a grid of real cards
-     that's easy to grab + resize, and vertically centre the
-     icon + title. Width still follows the size-preset span. */
-  min-height: 76px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  /* Edit mode keeps the card at its REAL size + content (operator
+     wants to SEE how a card looks at its current width/height preset
+     while resizing — NOT a shrunken placeholder). `height: 100%` makes
+     the front face fill the cell's preset height so the dashed outline
+     traces the actual card footprint the operator is sizing. */
+  height: 100%;
 }
 
 /* Right-edge resize handle (edit mode). A draggable grip pinned to the
@@ -9607,24 +9600,13 @@ select.field-invalid {
   width: 40px;
 }
 
-/* EDIT-MODE DATA STRIP — hide every data region so only icon + title +
-   control pills remain. Control pills (gear → settings, refresh,
-   remove-X) and the corner size button stay so the operator can still
-   configure / resize / delete the card. */
-.apps-card--editing .apps-card-body-region,
-.apps-card--editing .apps-card-meta,
-.apps-card--editing .apps-card-status,
-.apps-card--editing .apps-widget-tile-body {
-  display: none;
-}
-
-/* Stripped widget tiles drop their 148px min-height floor in edit mode
-   so they match the header-only height of stripped app cards — uniform
-   placeholder height across the board (operator wanted all edit-mode
-   cards the same height). Width still follows the size-preset span. */
-.apps-card--editing .apps-widget-tile {
-  min-height: 0;
-}
+/* NOTE: edit mode intentionally does NOT strip the card body anymore.
+   The operator wants to SEE the real card (its content + actual
+   width/height preset) while arranging + resizing, so the size handles
+   give honest visual feedback (operator-flagged: a stripped/shrunken
+   edit tile didn't show how the card would actually look). The earlier
+   `.apps-card--editing .apps-card-body-region { display: none }` strip
+   + the widget `min-height: 0` override were removed for this. */
 
 /* The card-settings back face is a CONTROLS panel (size radios, clock
    options), never selectable prose — turn off text selection so its
@@ -10278,10 +10260,26 @@ select.field-invalid {
    against the wrong ancestor and the flip didn't rotate back cleanly
    on close (open animated, close snapped). Override for flip cells
    only; plain widget / bookmark cells keep `display: contents`.
-   `height: 100%` keeps the flip cell filling its grid row. */
+
+   HEIGHT: the cell is locked to one of the two presets (default
+   `--apps-card-h-short`; `--height-tall` opts into the taller one) so
+   a card NEVER content-grows past its preset and all cards in a section
+   read at a consistent height. `align-self: start` defeats the CSS-grid
+   default `stretch` (which otherwise inflated a short card to a taller
+   row-mate's height — the operator-flagged inconsistency). `overflow:
+   hidden` clips anything past the cap so the height is truly fixed.
+   This block carries the `.apps-card-flip` specificity so it wins over
+   the `display: contents` base rule above; the `--height-tall` modifier
+   below raises specificity once more to switch presets. */
 .apps-custom-cell.apps-card-flip {
   display: block;
-  height: 100%;
+  height: var(--apps-card-h-short);
+  align-self: start;
+  overflow: hidden;
+}
+
+.apps-custom-cell.apps-card-flip.apps-card--height-tall {
+  height: var(--apps-card-h-tall);
 }
 
 /* ============================================================
@@ -10337,7 +10335,12 @@ select.field-invalid {
   color-mix(in srgb, var(--widget-accent) 6%, var(--surface-2)) 0%,
   var(--surface-2) 100%);
   min-width: 0;
-  min-height: 148px;
+  /* No min-height floor — the cell (`.apps-custom-cell.apps-card-flip`)
+     owns the height via the short/tall preset, and the widget fills it
+     via `flex: 1` on its `.apps-widget-tile-root` parent. A 148px floor
+     here fought the `short` cap (overflow-clipping the widget); the cap
+     IS the height now. */
+  min-height: 0;
   position: relative;
   overflow: hidden;
   transition: transform 180ms ease,
@@ -10877,22 +10880,6 @@ select.field-invalid {
   align-items: center;  /* vertical-centre the logo + text + actions row */
 }
 
-/* Fallback link glyph in the logo block — hidden by default (the brand
-   <img> shows). Revealed when there's NO icon (img absent) OR the
-   resolved file 404'd (the @error handler adds `.apps-bookmark-logo--noicon`
-   which hides the img + shows this). */
-.apps-card-logo .apps-bookmark-fallback-icon {
-  display: none;
-}
-
-.apps-card-logo:not(:has(img)) .apps-bookmark-fallback-icon,
-.apps-card-logo.apps-bookmark-logo--noicon .apps-bookmark-fallback-icon {
-  display: block;
-}
-
-.apps-card-logo.apps-bookmark-logo--noicon img {
-  display: none;
-}
 
 /* ==========================================================================
    APPS — host-grouped view (group-by=host). Each host card carries a

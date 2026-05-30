@@ -1837,11 +1837,25 @@ export default {
     }
     const raw = (item.icon || '').trim();
     if (raw) {
-      // Full URL OR data-URI OR absolute path — render verbatim.
-      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-        || raw.startsWith('data:')
-        || raw.startsWith('/')) {
+      // data-URI or absolute path — render verbatim (these ARE images).
+      if (raw.startsWith('data:') || raw.startsWith('/')) {
         return raw;
+      }
+      // A full http(s) URL is only trustworthy as an icon when it points
+      // at an actual IMAGE file (ends in an image extension). Operators
+      // who saved a bookmark before the icon input was fixed from
+      // type="url" to type="text" ended up with the PAGE url (e.g.
+      // `https://5g/`) sitting in the icon field — loading that as an
+      // <img> just 404s / renders nothing. So: an image-extension URL is
+      // used verbatim; any OTHER http(s) value is ignored here and we
+      // fall through to brand-resolving the NAME below (which finds the
+      // ftth / 5g brand icon).
+      if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+        if (/\.(?:svg|png|webp|jpe?g|gif|ico)(?:\?.*)?$/i.test(raw)) {
+          return raw;
+        }
+        // Non-image URL in the icon field — skip it, resolve from name.
+        return this.iconUrlFor(item.name || '') || '';
       }
       // Bare slug — route through the brand-icon resolver first.
       let resolved = '';
@@ -2584,7 +2598,9 @@ export default {
       if (!dragged) {
         self.setAppsCardHeight(uid, null);  // tap = toggle
       }
-      setTimeout(() => { self._appsResizing = false; }, 0);
+      setTimeout(() => {
+        self._appsResizing = false;
+      }, 0);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -2642,7 +2658,9 @@ export default {
       // Re-enable the cell's reorder-drag now the resize gesture is
       // done. Deferred one tick so a trailing dragstart from this same
       // gesture (some browsers fire it late) still sees the flag set.
-      setTimeout(() => { self._appsResizing = false; }, 0);
+      setTimeout(() => {
+        self._appsResizing = false;
+      }, 0);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);

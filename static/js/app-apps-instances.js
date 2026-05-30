@@ -168,6 +168,7 @@ export default {
       slug: '',
       icon: '',
       description: '',
+      show_extras: false,
       default_ports: [],
     };
     this.appsCatalogEditError = '';
@@ -176,6 +177,9 @@ export default {
     // tab strip back to Templates when opening so the editor is
     // visible even if the operator is currently on Instances.
     this.appsAdminTab = 'templates';
+    // Snapshot the (empty) new-template form so the first typed field
+    // dirties Save. See `appsCatalogDirty()`.
+    this._appsCatalogEditSnapshot = this._appsCatalogFormSig();
     this._scrollAppsEditorIntoView();
   },
 
@@ -189,6 +193,7 @@ export default {
       slug: entry.slug || '',
       icon: entry.icon || '',
       description: entry.description || '',
+      show_extras: !!entry.show_extras,
       // Deep-clone the port list so editor edits don't mutate the
       // table's reactive row before Save.
       default_ports: JSON.parse(JSON.stringify(entry.default_ports || [])),
@@ -196,7 +201,36 @@ export default {
     this.appsCatalogEditError = '';
     this.appsCatalogEditOpen = true;
     this.appsAdminTab = 'templates';
+    this._appsCatalogEditSnapshot = this._appsCatalogFormSig();
     this._scrollAppsEditorIntoView();
+  },
+
+  // Stable signature of the template (catalog) editor form for dirty
+  // tracking — folds name / slug / icon / description / show_extras +
+  // the default_ports array into one string. Drives `appsCatalogDirty()`.
+  _appsCatalogFormSig() {
+    const e = this.appsCatalogEdit || {};
+    const ports = Array.isArray(e.default_ports) ? e.default_ports.map((p) => ({
+      port: p.port, protocol: p.protocol, label: p.label,
+      probe_path: p.probe_path, probe_status: p.probe_status, open_url: p.open_url,
+    })) : [];
+    return JSON.stringify({
+      name: e.name || '', slug: e.slug || '', icon: e.icon || '',
+      description: e.description || '',
+      show_extras: !!e.show_extras,
+      ports,
+    });
+  },
+
+  // True when the template editor form differs from its open-time
+  // snapshot — gates the template Save button (operator-flagged: Save
+  // didn't react to field edits). A brand-new template (openAppCatalogNew)
+  // snapshots an empty form, so typing a name immediately dirties it.
+  appsCatalogDirty() {
+    if (!this.appsCatalogEditOpen) {
+      return false;
+    }
+    return this._appsCatalogFormSig() !== (this._appsCatalogEditSnapshot || '');
   },
 
   // Smooth-scroll the editor anchor into view after Alpine renders the
@@ -516,6 +550,9 @@ export default {
   appsInstanceEditOpen: false,
   appsInstanceEditSaving: false,
   appsInstanceEditError: '',
+  // Open-time snapshot signature for dirty tracking — see
+  // `appsInstanceDirty()` / `_appsInstanceFormSig()`.
+  _appsInstanceEditSnapshot: '',
   appsInstanceEditForm: {
     host_id: '', service_idx: -1, host_label: '',
     catalog_name: '', catalog_slug: '',
@@ -594,7 +631,44 @@ export default {
     // (so it shows what's linked) + start with the dropdown closed.
     this.appsDockerLinkSearch = this.appsInstanceDockerLinkLabel();
     this.appsDockerLinkDropdownOpen = false;
+    // Snapshot the form at open so `appsInstanceDirty()` can gate the
+    // Save button — every checkbox / textbox / dropdown change toggles
+    // dirty, and reverting a field back un-dirties (operator-flagged:
+    // Save didn't react to field edits). Captured AFTER the form is
+    // fully built above.
+    this._appsInstanceEditSnapshot = this._appsInstanceFormSig();
     this.appsInstanceEditOpen = true;
+  },
+
+  // Stable signature of the instance-edit form for dirty tracking. Folds
+  // every operator-editable field — incl. the ports array + the api_key
+  // input — into one JSON string. The api_key starts blank and any typed
+  // value makes the form dirty (a fresh secret is always a change).
+  _appsInstanceFormSig() {
+    const f = this.appsInstanceEditForm || {};
+    const ports = Array.isArray(f.ports) ? f.ports.map((p) => ({
+      port: p.port, protocol: p.protocol, label: p.label,
+      probe_path: p.probe_path, probe_status: p.probe_status, open_url: p.open_url,
+    })) : [];
+    return JSON.stringify({
+      name: f.name || '', url: f.url || '', icon: f.icon || '',
+      probe_enabled: f.probe_enabled !== false,
+      probe_type: f.probe_type || 'tcp',
+      docker_stack: f.docker_stack || '', docker_container: f.docker_container || '',
+      docker_host: f.docker_host || '',
+      show_extras: (f.show_extras === true || f.show_extras === false) ? f.show_extras : null,
+      api_key: (typeof f.api_key === 'string') ? f.api_key : '',
+      ports,
+    });
+  },
+
+  // True when the instance-edit form differs from its open-time snapshot
+  // — gates the Save button so it only enables on a real change.
+  appsInstanceDirty() {
+    if (!this.appsInstanceEditOpen) {
+      return false;
+    }
+    return this._appsInstanceFormSig() !== (this._appsInstanceEditSnapshot || '');
   },
 
   // Datalist candidates for the "Link to Docker" picker, sourced from

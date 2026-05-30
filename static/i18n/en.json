@@ -5068,6 +5068,7 @@
     "open_link": "Open service URL",
     "probe_all": "Probe all ({n})",
     "probe_all_label": "Refresh",
+    "no_changes": "No changes to save",
     "probe_all_title": "Probe every instance of this app now",
     "probe_all_aria": "Probe all instances of {name}",
     "probe_all_summary": "{up}/{total} up",
