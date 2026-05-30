@@ -75,6 +75,7 @@ class Tunable(str, Enum):
     AI_RETRY_FIRST_ATTEMPT_MAX_MS = "tuning_ai_retry_first_attempt_max_ms"
     AI_SIDEBAR_WIDTH_PX = "tuning_ai_sidebar_width_px"
     APPS_EXTRAS_TTL_SECONDS = "tuning_apps_extras_ttl_seconds"
+    APPS_TILE_RENDER_BATCH = "tuning_apps_tile_render_batch"
     ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS = "tuning_asset_inventory_fetch_timeout_seconds"
     ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS = "tuning_asset_inventory_token_timeout_seconds"
     AUTH_FAILURE_COOLDOWN_SECONDS = "tuning_auth_failure_cooldown_seconds"
@@ -397,6 +398,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Refresh. 0 disables auto-refresh (fetch-once-until-forced). Surfaced to
     # the SPA via /api/me client_config.apps_extras_ttl_seconds.
     "tuning_apps_extras_ttl_seconds": ("APPS_EXTRAS_TTL_SECONDS", 90, 0, 3600),
+    # Apps tile-render batch size. The Apps view stages each card's heavy
+    # body in via a setTimeout(0)-paced queue to avoid building every body
+    # in one Alpine flush (a page-hang). This is how many cards are readied
+    # PER tick — higher = the visible grid finishes filling faster, lower =
+    # more yielding to the browser between batches. Default 4. Raise on a
+    # fast client with many apps; lower toward 1 if a heavy custom-widget
+    # fleet stutters during the fill. Surfaced via /api/me
+    # client_config.apps_tile_render_batch. Range 1..20.
+    "tuning_apps_tile_render_batch": ("APPS_TILE_RENDER_BATCH", 4, 1, 20),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via

@@ -1208,6 +1208,10 @@ async def api_me(request: Request):
             # Speedtest / APC cards update without a manual Refresh. 0 =
             # fetch-once (no auto-refresh).
             "apps_extras_ttl_seconds": tuning.tuning_int(Tunable.APPS_EXTRAS_TTL_SECONDS),
+            # Apps tile-render batch size — how many cards _processAppsTileQueue
+            # readies per setTimeout(0) tick (perf finding 2). Higher fills the
+            # visible grid faster; lower yields more between batches.
+            "apps_tile_render_batch": tuning.tuning_int(Tunable.APPS_TILE_RENDER_BATCH),
             # Idle-time progressive fill cadence (seconds). When the
             # operator is on the Hosts view and stays at the top
             # without scrolling, a background ticker trickles

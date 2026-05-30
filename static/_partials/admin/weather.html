@@ -265,13 +265,17 @@
       <svg width="12" height="12" class="transition-transform" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
       </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+      </svg>
       <span x-text="t('admin.weather.history_label')"></span>
       <span class="fs-2xs text-[var(--text-faint)]"
             x-show="weatherHistory && weatherHistory.length"
             x-text="'(' + weatherHistory.length + ')'"></span>
       <!-- Manual refresh — reloads the samples table in place (no page
            refresh). @click.stop so it doesn't toggle the <details>. -->
-      <button type="button" class="user-action-btn ms-auto"
+      <button type="button"
+              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto"
               @click.stop="loadWeatherHistory()"
               :disabled="weatherHistoryLoading"
               :title="t('admin.weather.history_refresh') || 'Refresh samples'"
@@ -279,6 +283,7 @@
         <svg width="13" height="13" :class="weatherHistoryLoading ? 'spin-md' : ''" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
         </svg>
+        <span x-text="t('admin.weather.history_refresh') || 'Refresh samples'"></span>
       </button>
     </summary>
     <div class="mt-3">

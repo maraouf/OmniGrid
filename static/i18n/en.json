@@ -1589,6 +1589,7 @@
     "notifications": {
       "tunables_heading": "In-app notifications tunables",
       "tunables_intro": "Knobs scoped to the in-app notifications surface — DB retention window (how long to keep entries), per-page count for the popup pagination, and SPA poll cadence. All edits commit through the notifications Save button.",
+      "telegram_tunables_intro": "Timeouts for the Telegram listener — the long-poll wait (how long each getUpdates call holds open waiting for a message) and the outer HTTP wall-clock that caps it. Raise the long-poll for fewer reconnects on a quiet chat; keep the HTTP timeout slightly above it. All edits commit through the notifications Save button.",
       "tabs_label": "Notification channels",
       "tabs_intro": "Pick the channel you want to configure. In-app keeps notifications inside OmniGrid; Apprise relays them to any of 100+ external services via webhook; Telegram delivers them to a Telegram chat / supergroup / topic. Per-event toggles below apply to every enabled channel uniformly.",
       "tab_app": "In-app",
@@ -1919,6 +1920,10 @@
         "tuning_apps_extras_ttl_seconds": {
           "label": "App extras freshness TTL (seconds)",
           "help": "How long an expanded app card's per-app extras (Speedtest Tracker / APC UPS / etc.) stay fresh before the SPA auto-refreshes them. A cached /app-data response older than this is treated as stale: the stale values keep rendering while a background fetch revalidates (stale-while-revalidate), so an open card updates on its own instead of waiting for a manual Refresh. Default 90s. Lower to 30-60s for near-real-time speedtest / UPS readouts; raise to 300+ to reduce upstream polling. Set 0 to disable auto-refresh entirely (fetch-once until the operator forces a reload). Range 0..3600."
+        },
+        "tuning_apps_tile_render_batch": {
+          "label": "Apps tile-render batch size",
+          "help": "How many app cards the Apps view readies per render tick. To avoid building every card body in one reactive flush (a page-hang), the view stages cards in via a paced queue; this is the batch size readied per tick. Higher fills the visible grid faster (fewer ticks); lower yields more to the browser between batches. Default 4. Raise toward 8-12 on a fast client with many apps for a snappier fill; lower toward 1 if a heavy custom-widget fleet stutters during the staggered fill. Range 1..20. Takes effect on the next Apps-view load."
         },
         "tuning_backend_unreachable_threshold_seconds": {
           "label": "Backend-unreachable banner threshold (seconds)",
@@ -4716,7 +4721,14 @@
     "test_result_label": "Last lookup",
     "tunables_heading": "Tunables",
     "tunables_intro": "In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "history_label": "Recent samples (database)",
+    "history_refresh": "Refresh samples",
+    "history_empty": "No public-IP changes recorded yet — the change-sampler records a row only when the address differs from the last one.",
+    "history_col_ts": "When",
+    "history_col_ip": "IP",
+    "history_col_isp": "ISP",
+    "history_col_loc": "Location"
   },
   "hosts_extra_ssh": {
     "card_title": "SSH",

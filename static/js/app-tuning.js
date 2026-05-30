@@ -34,6 +34,7 @@ export default {
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',
+    'tuning_apps_tile_render_batch',
     // permanent-fail window (was a separate card with its own
     // Save button until the operator asked for it to be a regular
     // tunable). Backend's `_record_failure` reads it via

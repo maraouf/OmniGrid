@@ -736,6 +736,12 @@ BACKEND_UNREACHABLE_THRESHOLD_SECONDS=30
 # Set 0 to disable auto-refresh (fetch-once until forced). Range 0..3600.
 # Default 90.
 APPS_EXTRAS_TTL_SECONDS=90
+# Apps tile-render batch size — how many app cards the Apps view readies
+# per render tick. The view stages card bodies in via a paced queue (to
+# avoid building all of them in one reactive flush, a page-hang); this is
+# the batch readied per tick. Higher fills the grid faster, lower yields
+# more to the browser between batches. Default 4. Range 1..20.
+APPS_TILE_RENDER_BATCH=4
 
 # Config-backup retention count — analogous knob for the new
 # `config_backup` schedule kind (Settings-as-Code snapshots under
@@ -1038,6 +1044,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_HTTP_TIMEOUT_SECONDS`                  | Runtime     | `15`                    | AI provider HTTP timeout — standard tier (palette / host-filter / dashboard fetches). Range 2..120.                                                                                                                                                                                                               |
 | `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`         | Runtime     | `30`                    | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300.                                                                                                                                                                                                                      |
 | `APPS_EXTRAS_TTL_SECONDS`                  | Runtime     | `90`                    | Per-app expanded-card extras (Speedtest / APC) freshness TTL — the SPA background-refreshes a cached `/app-data` entry older than this (stale-while-revalidate). 0 = fetch-once. Range 0..3600.                                                                                                                    |
+| `APPS_TILE_RENDER_BATCH`                   | Runtime     | `4`                     | How many Apps cards the view readies per render tick (the staged tile-render queue). Higher fills the grid faster; lower yields more to the browser between batches. Range 1..20.                                                                                                                                 |
 | `BACKUP_RETENTION_COUNT`                   | Runtime     | `0`                     | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000.                                                                                                                                                                                            |
 | `BACKEND_UNREACHABLE_THRESHOLD_SECONDS`    | Runtime     | `30`                    | Seconds of silence before the SPA's "Backend unreachable" top banner appears (0 disables). Range 0..600.                                                                                                                                                                                                          |
 | `CONFIG_BACKUP_RETENTION_COUNT`            | Runtime     | `30`                    | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000.                                                                                                                                                                                                     |

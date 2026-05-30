@@ -267,14 +267,13 @@
        same body so dirty/undirty round-trips cleanly. Same
        bounds-chips + effective-label shape every Admin →
        Config row uses. -->
-  <div x-show="tuningLoaded" class="mt-3 pt-3 border-t border-[var(--border)] space-y-3">
-    <div class="flex items-center gap-2 mb-1">
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-      </svg>
-      <h3 class="font-semibold fs-sm"
-          x-text="t('admin_assets.tunables_heading')"></h3>
-    </div>
+  <details x-show="tuningLoaded" class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+      <span x-text="t('common.tunables')"></span>
+    </summary>
+    <div class="mt-3 space-y-3">
     <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
        x-text="t('admin_assets.tunables_intro')"></p>
     <template x-for="key in ['tuning_asset_inventory_token_timeout_seconds',
@@ -321,7 +320,8 @@
         </div>
       </div>
     </template>
-  </div>
+    </div>
+  </details>
 
   <!-- Action row 2 (Save): separated by HR like authentication.
        Test-before-Save gate: same pattern as Portainer / OIDC.

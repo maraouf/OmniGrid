@@ -1774,6 +1774,7 @@ class SettingsIn(BaseModel):
     # Per-app extras (Speedtest / APC) freshness TTL — SPA stale-while-
     # revalidate window for the expanded-card /app-data cache (0 = fetch-once).
     tuning_apps_extras_ttl_seconds: Optional[str] = None
+    tuning_apps_tile_render_batch: Optional[str] = None
     # Settings-as-Code (config_backup schedule kind) snapshot retention.
     tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None
