@@ -21,6 +21,18 @@
    @dragover.prevent
    @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"
    @click="appsCustomEditMode ? $event.preventDefault() : null">
+  <!-- Open launch glyph — leading edge, VERTICALLY CENTERED (operator-flagged:
+       move it off the right action-stack-below-the-gear and onto the left,
+       centered, next to the logo). NOT a pill — a clean borderless
+       primary-tinted glyph with a circular hover halo that reads as "this
+       opens in a new tab" without heavy CTA chrome. `self-center` overrides
+       the tile's `items-start`. aria-hidden: the enclosing <a> carries the
+       link role + accessible name. -->
+  <span x-show="!appsCustomEditMode" class="apps-card-open-glyph self-center" aria-hidden="true">
+    <svg width="15" height="15" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+    </svg>
+  </span>
   <!-- Logo block — same tinted backdrop slot the app card uses, so the
        brand icon reads as deliberate composition. Falls back to a
        link-glyph when no icon resolves (a bookmark may have no brand
@@ -51,8 +63,9 @@
     <h3 class="apps-card-name truncate" x-text="item.name || appsBookmarkHost(item.url)"></h3>
     <div class="apps-card-meta truncate" x-text="appsBookmarkHost(item.url)"></div>
   </div>
-  <!-- Action stack — gear pill FIRST (top), matching apps + widgets;
-       the open-in-new-tab glyph + edit-mode remove sit below. -->
+  <!-- Action stack — gear pill (top), matching apps + widgets; the
+       edit-mode remove button sits below it. The open-in-new-tab glyph
+       moved to the leading edge (see top of the tile). -->
   <div class="flex flex-col items-stretch gap-1 flex-shrink-0">
     <button type="button"
             class="apps-card-action-pill whitespace-nowrap"
@@ -64,16 +77,6 @@
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
       </svg>
     </button>
-    <!-- Open affordance — NOT a pill. The whole tile is already the link,
-         so this is a clean borderless launch glyph (primary-tinted,
-         circular hover halo) that reads as "this opens in a new tab"
-         without the heavy CTA-pill chrome. aria-hidden: the enclosing
-         <a> carries the link role + accessible name. -->
-    <span x-show="!appsCustomEditMode" class="apps-card-open-glyph" aria-hidden="true">
-      <svg width="15" height="15" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-      </svg>
-    </span>
     <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
             @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
             :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
