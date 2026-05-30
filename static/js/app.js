@@ -349,6 +349,14 @@ function app() {
     appsCatalogEdit: {},
     appsCatalogSaving: false,
     appsCatalogEditError: '',
+    // Open-time snapshot signature for template-editor dirty tracking —
+    // see `appsCatalogDirty()` / `_appsCatalogFormSig()`.
+    _appsCatalogEditSnapshot: '',
+    // Per-bookmark-uid icon-load-failure flags. A bookmark's logo <img>
+    // sets its uid true on @error (shows the fallback link glyph) and
+    // false on @load (so an icon edit that now resolves re-shows the
+    // brand mark). Keyed by item.uid.
+    _bookmarkIconBroken: {},
     // Pin-to-host modal — operator selects a curated host + optional
     // overrides, then POSTs to /api/services/catalog/{cid}/pin which
     // appends a new chip to the host's services[] array pre-filled

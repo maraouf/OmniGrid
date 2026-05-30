@@ -633,19 +633,24 @@ async def probe_http_health(
                         tls_refused_reachable = True
                         http_error = None
                         latency_ms = int((time.monotonic() - t0) * 1000)
-                        # WARN (not INFO, not ERROR) — TLS is broken
-                        # for this hostname (SNI refused, no-SNI also
-                        # refused) but TCP IS reachable so the host is
-                        # alive. Operator-visible degraded state worth
-                        # surfacing in the WARN bucket — the chip
-                        # shows the host up but a real TLS user-agent
-                        # would still fail. NEUTRAL wording on the
-                        # ERROR side (no `fail`/`error` token) keeps
-                        # the classifier off the ERROR bucket; the
-                        # `warning:` token bumps it to WARN.
-                        print(f"[http_probe] warning: no-SNI retry refused for {url_clean} "
-                              f"(via {_ip}); verify-off TCP fallback OK "
-                              f"(port {port} reachable; TLS handshake refused by name)")
+                        # INFO — when verify_tls is OFF the operator has
+                        # EXPLICITLY accepted that TLS correctness isn't
+                        # enforced for this probe, so a host whose server
+                        # refuses the TLS handshake by name BUT accepts
+                        # the TCP connection is a SUCCESSFUL verify-off
+                        # probe, not a degraded state. Logging it as WARN
+                        # made operators think something was broken when
+                        # they'd deliberately unchecked verify_tls
+                        # (operator-flagged: "I thought we fixed this with
+                        # verify TLS unchecked"). No `warning:` / `fail` /
+                        # `error` token so the severity classifier keeps
+                        # it in the INFO bucket. (When verify_tls is ON the
+                        # handshake failure is a real error and is reported
+                        # via the `else` branch below, never reaching here.)
+                        print(f"[http_probe] INFO no-SNI retry refused for {url_clean} "
+                              f"(via {_ip}) but verify-off TCP fallback OK "
+                              f"(port {port} reachable; TLS handshake refused by name — "
+                              f"expected with verify_tls unchecked)")
                     else:
                         # Genuine failure: SNI refused, no-SNI refused, AND the
                         # port is not TCP-reachable. THIS one is a real ERROR.

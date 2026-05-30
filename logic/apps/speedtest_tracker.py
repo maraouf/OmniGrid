@@ -15,9 +15,12 @@ upstream. The cache is process-local; the single-replica deploy
 constraint makes the dict-cache correct.
 
 Upstream API reference: https://docs.speedtest-tracker.dev/api/authorization
-Endpoints used:
-    GET /api/v1/speedtests/latest  — test-credential probe
-    GET /api/v1/speedtests?perPage=30 — data fetch (latest + series + avg)
+Endpoints used (Speedtest Tracker v1.x — the resource is ``results``,
+NOT ``speedtests``; the older ``/api/v1/speedtests`` path 404s on
+current builds, operator-flagged from the deploy at
+``docker.home.lan:5050``):
+    GET /api/v1/results/latest  — test-credential probe
+    GET /api/v1/results?perPage=30 — data fetch (latest + series + avg)
 """
 from __future__ import annotations
 
@@ -96,7 +99,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str) -> dic
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "detail": "no upstream URL configured", "status": 0}
-    url = base + "/api/v1/speedtests/latest"
+    url = base + "/api/v1/results/latest"
     headers = {
         "Authorization": f"Bearer {key}",
         "Accept": "application/json",
@@ -139,7 +142,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         cached = _data_cache.get(ck)
         if cached and (now - cached[0]) < CACHE_TTL_S:
             return cached[1]
-    list_url = base + "/api/v1/speedtests"
+    list_url = base + "/api/v1/results"
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     # Diagnostic: every fetch logs the host + resolved upstream URL so a
     # failure (404 / auth / timeout) is traceable to a specific host +
@@ -176,28 +179,58 @@ async def fetch_data(host_row: dict, chip: dict, *,
         if r.status_code == 404:
             raise RuntimeError(f"upstream returned HTTP 404 for {list_url} — "
                                f"the chip URL may not point at the Speedtest "
-                               f"Tracker root (no /api/v1/speedtests there)")
+                               f"Tracker root (no /api/v1/results there)")
         raise RuntimeError(f"upstream returned HTTP {r.status_code} for {list_url}")
     try:
         body = r.json()
     except (ValueError, TypeError):  # noqa: BLE001
         raise RuntimeError("upstream returned non-JSON")
-    # Speedtest Tracker v1.x response shape:
-    # {"data": [{id, ping, download, upload, service_name, server_name,
-    #            status, scheduled, created_at, ...}, ...]}
+    # Speedtest Tracker `/api/v1/results` response shape varies by
+    # version. Newest builds nest the metrics under a per-row `data`
+    # object using Ookla's schema:
+    #   {"data": [{"id", "service", "server_name", "created_at",
+    #              "data": {"download": {"bandwidth": <bytes/s>},
+    #                       "upload":   {"bandwidth": <bytes/s>},
+    #                       "ping":     {"latency": <ms>}}}, ...]}
+    # Older builds expose flat `download` / `upload` / `ping` Mbps floats
+    # straight on the row. `_metric()` reads BOTH so the parser is
+    # version-agnostic; bandwidth (bytes/s) is converted to Mbps.
     rows = body.get("data") if isinstance(body, dict) else None
     if not isinstance(rows, list):
         rows = []
+
+    def _metric(row: dict, key: str) -> float:
+        # Flat float (older builds) wins when present + numeric.
+        flat = row.get(key)
+        if isinstance(flat, (int, float)):
+            return float(flat)
+        # Nested Ookla shape under the row's own `data` object.
+        nested = row.get("data")
+        if isinstance(nested, dict):
+            sub = nested.get(key)
+            if isinstance(sub, dict):
+                if key == "ping":
+                    lat = sub.get("latency")
+                    return float(lat) if isinstance(lat, (int, float)) else 0.0
+                bw = sub.get("bandwidth")
+                if isinstance(bw, (int, float)):
+                    # bandwidth is bytes/s → Mbps (×8 bits, ÷1e6).
+                    return float(bw) * 8.0 / 1_000_000.0
+        # Flat string that parses (some builds stringify the metric).
+        if isinstance(flat, str) and flat.strip():
+            try:
+                return float(flat)
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
     series: list[dict[str, Any]] = []
     for entry in rows:
         if not isinstance(entry, dict):
             continue
-        try:
-            download = float(entry.get("download") or 0)
-            upload = float(entry.get("upload") or 0)
-            ping = float(entry.get("ping") or 0)
-        except (TypeError, ValueError):
-            continue
+        download = _metric(entry, "download")
+        upload = _metric(entry, "upload")
+        ping = _metric(entry, "ping")
         ts_str = (entry.get("created_at") or entry.get("scheduled") or "").strip()
         series.append({
             "ts": ts_str,
@@ -205,7 +238,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             "upload": upload,
             "ping": ping,
             "status": (entry.get("status") or "").strip(),
-            "server": (entry.get("server_name") or "").strip(),
+            "server": (entry.get("server_name") or entry.get("service") or "").strip(),
         })
     # Latest = first row (Speedtest Tracker returns newest-first).
     latest: Optional[dict[str, Any]] = series[0] if series else None
