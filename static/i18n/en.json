@@ -1460,6 +1460,7 @@
       "moon_unsupported_title": "Moon-phase data not available",
       "moon_unsupported_hint": "Open-Meteo does not return moon data. The Apps moon widget hides automatically, the AI palette declines moon-related questions, and the Telegram /moon command reports the feature is unavailable. Switch to WeatherAPI.com above to enable moon features.",
       "tunables_label": "Tunables",
+      "tunables_intro": "Cache TTL, outbound fetch timeout, persisted-sample retention, and the historical-sampler cadence. Per-call reads, so an edit takes effect on the next fetch / sampler tick without a restart.",
       "history_label": "Recent samples (database)",
       "history_refresh": "Refresh samples",
       "history_empty": "No samples yet — the historical sampler runs once per hour, OR click Test connection above to write one now.",

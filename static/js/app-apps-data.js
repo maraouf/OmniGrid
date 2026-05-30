@@ -45,6 +45,25 @@ export default {
       if (v && typeof v === 'object' && v.__error) {
         return null;
       }
+      // Stale-while-revalidate (perf finding 4): if the cached value has aged
+      // past the operator TTL (me.client_config.apps_extras_ttl_seconds;
+      // 0 = off → fetch-once), kick a background force-refetch but RETURN the
+      // stale value NOW so the card doesn't re-shimmer. Pre-stamp the fetch
+      // time before firing so per-render re-reads during the in-flight
+      // revalidate don't fan out a storm (force=true bypasses the pending
+      // guard in loadAppData).
+      try {
+        const ttl = (this.me && this.me.client_config
+          && this.me.client_config.apps_extras_ttl_seconds) || 0;
+        const ts = (this._appsDataFetchedAt && this._appsDataFetchedAt[key]) || 0;
+        if (ttl > 0 && ts && (Date.now() - ts) > ttl * 1000) {
+          if (!this._appsDataFetchedAt) {
+            this._appsDataFetchedAt = {};
+          }
+          this._appsDataFetchedAt[key] = Date.now();
+          this.loadAppData(inst, true);
+        }
+      } catch (_e) { /* SWR is best-effort — stale value still renders */ }
       return v;
     }
     this.loadAppData(inst, false);
@@ -132,6 +151,12 @@ export default {
         this._appsDataCache[key] = {__error: detail};
       } else {
         this._appsDataCache[key] = await r.json();
+        // Stamp the fetch time for the stale-while-revalidate check in
+        // appsAppData() (perf finding 4).
+        if (!this._appsDataFetchedAt) {
+          this._appsDataFetchedAt = {};
+        }
+        this._appsDataFetchedAt[key] = Date.now();
       }
     } catch (err) {
       this._appsDataCache[key] = {__error: (err && err.message) ? err.message : String(err)};

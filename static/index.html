@@ -3391,20 +3391,26 @@
       <!-- Card grid. Tailwind: 1 col mobile, 2 col sm, 3 col lg, 4 col xl.
            Per-card status accent border on left, per-port chips beneath
            the instance list. -->
-      <div x-show="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length"
-           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        <template x-for="app in filteredApps()" :key="app.group_id">
-          <!-- INCLUDE: _components/apps-card.html -->
-        </template>
-      </div>
+      <!-- x-if (not x-show) so the two INACTIVE view-mode grids are torn out
+           of the reactive graph entirely (perf finding 3) — x-show only
+           toggles display:none, leaving the hidden grids' x-for card builders
+           running on every flush (2-3x mount work). Caveat-6 N/A: these are
+           container gates, not memoized getters feeding a count badge. -->
+      <template x-if="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          <template x-for="app in filteredApps()" :key="app.group_id">
+            <!-- INCLUDE: _components/apps-card.html -->
+          </template>
+        </div>
+      </template>
 
       <!-- Host-grouped card grid. One card per host carrying the apps
            that run on it; each app renders as an icon tile (brand icon
            + status dot) beneath the host header. Clicking the header
            opens the host-app drawer; clicking a tile jumps straight to
            that app's drawer. -->
-      <div x-show="appsListLoaded && appsViewGroupBy === 'host' && appsHostGroups().length"
-           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+      <template x-if="appsListLoaded && appsViewGroupBy === 'host' && appsHostGroups().length">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="grp in appsHostGroups()" :key="grp.host_id">
           <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3"
                    :class="'apps-card--' + grp.status">
@@ -3454,7 +3460,8 @@
             </div>
           </article>
         </template>
-      </div>
+        </div>
+      </template>
 
       <!-- Custom layout (Homarr-style) — the user organises app cards into
            their own collapsible sections; the layout (sections + order +
@@ -3465,7 +3472,8 @@
            board can't be moved accidentally; EDIT mode swaps in condensed
            draggable tiles + section CRUD (native HTML5 DnD: tiles carry
            group_id, section headers carry the section id). -->
-      <div x-show="appsListLoaded && appsViewGroupBy === 'custom'" class="space-y-3">
+      <template x-if="appsListLoaded && appsViewGroupBy === 'custom'">
+        <div class="space-y-3">
         <div class="flex items-center justify-between gap-2 px-1">
           <p class="fs-xs text-[var(--text-faint)]"
              x-text="appsCustomEditMode
@@ -3808,7 +3816,8 @@
           </div>
         </section>
         </template>
-      </div>
+        </div>
+      </template>
 
       <!-- Empty states -->
       <div x-show="appsListLoaded && !appsListLoading && !filteredApps().length && (appsSearchQuery || appsStatusFilter)"
