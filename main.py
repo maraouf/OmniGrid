@@ -1712,8 +1712,9 @@ def init_db():
             -- Output load / Runtime / Battery temp / Battery state);
             -- future templates with rich per-host data follow the same
             -- gate. Per-host chip's `show_extras` overrides this when
-            -- set. Default 1 (= show) keeps the pre-toggle behaviour.
-            show_extras     INTEGER NOT NULL DEFAULT 1,
+            -- set. Default 0 (= hidden): extras are OPT-IN — the operator
+            -- ticks "Show extras" on the template to enable the panel.
+            show_extras     INTEGER NOT NULL DEFAULT 0,
             source          TEXT    NOT NULL DEFAULT 'operator',
             created_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
             updated_ts      INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
@@ -1959,10 +1960,11 @@ def init_db():
                 # Drives the APC UPS-stats panel today; future
                 # extras-capable templates (Plex now-playing widget,
                 # Sonarr queue summary, etc.) follow the same gate.
-                # Default 1 = show (back-compat with the pre-toggle
-                # behaviour where every APC instance unconditionally
-                # rendered the UPS panel).
-                "ALTER TABLE service_catalog ADD COLUMN show_extras INTEGER NOT NULL DEFAULT 1",
+                # Default 0 = hidden: extras are OPT-IN (the operator ticks
+                # "Show extras" on the template). Existing rows that were
+                # added under the prior DEFAULT 1 are flipped to 0 by
+                # migration 006 so the unchecked state matches the render.
+                "ALTER TABLE service_catalog ADD COLUMN show_extras INTEGER NOT NULL DEFAULT 0",
         ):
             try:
                 c.execute(ddl)

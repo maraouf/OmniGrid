@@ -829,11 +829,13 @@ def _row_to_dict(row: sqlite3.Row | tuple) -> dict[str, Any]:
         ports_raw = json.loads(row[5] or "[]")
     except (TypeError, ValueError):
         ports_raw = []
-    # `show_extras` column was added additively; legacy rows pre-
-    # ALTER read as None — treat None as the back-compat default
-    # (True / 1) so existing APC templates keep rendering their
-    # UPS panel without an explicit DB update.
-    show_extras_raw = row[9] if len(row) > 9 else 1
+    # `show_extras` column was added additively. Extras are OPT-IN:
+    # a None / missing value means "not enabled" (False), matching the
+    # unchecked "Show extras" checkbox state. Operator-flagged: the panel
+    # rendered even though the box was unchecked on both template AND
+    # instance — that was the old True/1 default leaking through. The
+    # operator now ticks the box to turn a template's extras panel on.
+    show_extras_raw = row[9] if len(row) > 9 else 0
     return {
         "id": int(row[0]),
         "name": row[1] or "",
@@ -844,7 +846,7 @@ def _row_to_dict(row: sqlite3.Row | tuple) -> dict[str, Any]:
         "source": row[6] or "operator",
         "created_ts": int(row[7] or 0),
         "updated_ts": int(row[8] or 0),
-        "show_extras": bool(show_extras_raw) if show_extras_raw is not None else True,
+        "show_extras": bool(show_extras_raw) if show_extras_raw is not None else False,
     }
 
 

@@ -511,10 +511,35 @@ def _migration_005_service_samples_port_column(conn: sqlite3.Connection) -> None
     )
 
 
+def _migration_006_service_catalog_extras_opt_in(conn: sqlite3.Connection) -> None:
+    """Flip ``service_catalog.show_extras`` from the legacy default-ON
+    (1) to opt-IN (0).
+
+    The column shipped as ``INTEGER NOT NULL DEFAULT 1``, so every
+    template — including the built-in APC template — stored ``1`` and
+    rendered its extras panel on the Apps card EVEN WHEN the operator
+    never ticked "Show extras" (the unchecked checkbox didn't match the
+    render). Extras are now opt-in: the operator ticks the box per
+    template (or per instance) to enable the panel. This migration
+    resets every existing row to the new baseline; the operator
+    re-enables the templates they actually want extras on.
+
+    Idempotent: after the first run every row is 0, so a re-run flips
+    nothing. Guarded by the schema_migrations head, so it runs once.
+    Skips cleanly if the column doesn't exist yet (fresh DB created by
+    init_db's updated CREATE TABLE already defaults to 0).
+    """
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(service_catalog)").fetchall()]
+    if "show_extras" not in cols:
+        return
+    conn.execute("UPDATE service_catalog SET show_extras = 0 WHERE show_extras = 1")
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
     (2, "split_provider_host_pk", _migration_002_split_provider_host_pk),
     (3, "history_target_kind", _migration_003_history_target_kind),
     (4, "port_scan_protocol_column", _migration_004_port_scan_protocol_column),
     (5, "service_samples_port_column", _migration_005_service_samples_port_column),
+    (6, "service_catalog_extras_opt_in", _migration_006_service_catalog_extras_opt_in),
 ]

@@ -211,4 +211,63 @@
     </div>
   </template>
 
+  <!-- ============================================================
+       App with an extras-capable template — admin-only "Show extras"
+       toggle. Writes the SAME catalog flag as the Admin → Apps template
+       toggle (via /api/apps/catalog/{slug}/show-extras), so the per-app
+       extras panel (e.g. APC's UPS stats) can be flipped from either
+       place. Gated on appsTemplateSupportsExtras so it only shows for
+       apps that actually have an extras partial (APC / Speedtest).
+       ============================================================ -->
+  <template x-if="item.kind === 'app' && item.app && item.app.catalog && appsTemplateSupportsExtras(item.app.catalog.slug) && isAdmin()">
+    <div class="apps-card-settings-row mt-1">
+      <label class="flex items-center gap-2 fs-xs">
+        <input type="checkbox"
+               :checked="!!(item.app.catalog && item.app.catalog.show_extras)"
+               @change.stop="appsSetTemplateExtras(item, $event.target.checked)">
+        <span x-text="t('apps.custom.settings.show_extras_label') || 'Show extras panel'"></span>
+      </label>
+      <span class="apps-card-settings-hint"
+            x-text="t('apps.custom.settings.show_extras_hint') || 'Show this app’s extra data panel (e.g. APC UPS stats) on the card. Same setting as Admin → Apps.'"></span>
+    </div>
+  </template>
+
+  <!-- ============================================================
+       Bookmark — edit Name / URL / icon. Top-level item fields (not
+       opts), persisted via setAppsItemField. The icon accepts a brand
+       slug (resolved through appsBookmarkIconUrl: brand resolver +
+       explicit-slug file fallback, so e.g. `ftth` works), a full URL,
+       or blank (auto-resolve from the name).
+       ============================================================ -->
+  <template x-if="item.kind === 'bookmark'">
+    <div class="space-y-2 mt-1">
+      <label class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.bookmark.name_label') || 'Name'"></span>
+        <input type="text" class="input fs-xs"
+               :value="item.name || ''"
+               @change.stop="setAppsItemField(item.uid, 'name', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.bookmark.name_placeholder') || 'Display name'">
+      </label>
+      <label class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.bookmark.url_label') || 'URL'"></span>
+        <input type="url" class="input fs-xs"
+               :value="item.url || ''"
+               @change.stop="setAppsItemField(item.uid, 'url', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.bookmark.url_placeholder') || 'https://example.com'">
+      </label>
+      <label class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.custom.settings.bookmark.icon_label') || 'Icon'"></span>
+        <input type="text" class="input fs-xs"
+               :value="item.icon || ''"
+               @change.stop="setAppsItemField(item.uid, 'icon', $event.target.value.trim())"
+               :placeholder="t('apps.custom.settings.bookmark.icon_placeholder') || 'brand slug, URL, or blank'">
+        <span class="apps-card-settings-hint"
+              x-text="t('apps.custom.settings.bookmark.icon_hint') || 'A brand slug (e.g. ftth, plex), a full URL, or blank to auto-resolve from the name.'"></span>
+      </label>
+    </div>
+  </template>
+
 </div>

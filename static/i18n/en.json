@@ -5019,6 +5019,17 @@
         "size_normal": "Normal",
         "size_double": "Double",
         "size_hint": "Half: title only. Normal: full card. Double: spans two columns.",
+        "show_extras_label": "Show extras panel",
+        "show_extras_hint": "Show this app’s extra data panel (e.g. APC UPS stats) on the card. Same setting as Admin → Apps.",
+        "bookmark": {
+          "name_label": "Name",
+          "name_placeholder": "Display name",
+          "url_label": "URL",
+          "url_placeholder": "https://example.com",
+          "icon_label": "Icon",
+          "icon_placeholder": "brand slug, URL, or blank",
+          "icon_hint": "A brand slug (e.g. ftth, plex), a full URL, or blank to auto-resolve from the name."
+        },
         "clock": {
           "follow_user": "Follow user profile (timezone + format)",
           "style_label": "Style",
