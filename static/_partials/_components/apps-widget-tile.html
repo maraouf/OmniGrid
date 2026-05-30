@@ -200,7 +200,11 @@
                subtitle stays below the face so the operator gets both
                "time at a glance" + "what day is it". -->
           <template x-if="appsWidgetClockIsAnalog(item)">
-            <div>
+            <!-- Dial + meta laid out as a flex row so the date + location
+                 sit BESIDE the clock face when the tile is wide enough,
+                 and wrap BELOW it on a narrow tile — using the chosen
+                 widget width's available space instead of always stacking. -->
+            <div class="apps-widget-clock-analog-wrap">
               <svg class="apps-widget-clock-analog" viewBox="0 0 100 100"
                    width="120" height="120" aria-hidden="true">
                 <circle cx="50" cy="50" r="48" fill="none"
@@ -247,27 +251,30 @@
                       stroke="var(--text)" stroke-width="3"
                       stroke-linecap="round"
                       :style="'transform: rotate(' + appsWidgetClockHands(item).hour + 'deg); transform-origin: 50px 50px;'"/>
-                <!-- Minute hand (longer + medium) -->
+                <!-- Minute hand (longer + medium). No seconds hand — it
+                     was removed deliberately: a sweeping seconds hand
+                     repaints the dial every second, and an analog face
+                     reads fine to the minute. Hour + minute still tick
+                     (recomputed from the shared 1s clock signal). -->
                 <line x1="50" y1="50" x2="50" y2="14"
                       stroke="var(--text)" stroke-width="2"
                       stroke-linecap="round"
                       :style="'transform: rotate(' + appsWidgetClockHands(item).minute + 'deg); transform-origin: 50px 50px;'"/>
-                <!-- Second hand (thinnest, accent colour) -->
-                <line x1="50" y1="55" x2="50" y2="10"
-                      stroke="var(--primary)" stroke-width="1"
-                      stroke-linecap="round"
-                      :style="'transform: rotate(' + appsWidgetClockHands(item).second + 'deg); transform-origin: 50px 50px;'"/>
                 <circle cx="50" cy="50" r="2.5" fill="var(--primary)"/>
               </svg>
-              <div class="apps-widget-subtitle">
-                <span x-text="appsWidgetClockDate(item)"></span>
+              <!-- Meta column — date + location stacked beside (or below,
+                   when wrapped) the dial. -->
+              <div class="apps-widget-clock-analog-meta">
+                <div class="apps-widget-subtitle">
+                  <span x-text="appsWidgetClockDate(item)"></span>
+                </div>
+                <!-- Human-friendly timezone label (city name derived from
+                     the effective IANA zone — "Cairo" / "New York", never
+                     a UTC offset or abbreviation). Hidden when the zone
+                     can't be resolved so the line collapses cleanly. -->
+                <div class="apps-widget-clock-tz" x-show="appsWidgetClockTzLabel(item)"
+                     x-text="appsWidgetClockTzLabel(item)"></div>
               </div>
-              <!-- Human-friendly timezone label (city name derived from
-                   the effective IANA zone — "Cairo" / "New York", never
-                   a UTC offset or abbreviation). Hidden when the zone
-                   can't be resolved so the line collapses cleanly. -->
-              <div class="apps-widget-clock-tz" x-show="appsWidgetClockTzLabel(item)"
-                   x-text="appsWidgetClockTzLabel(item)"></div>
             </div>
           </template>
         </div>

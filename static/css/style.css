@@ -9345,13 +9345,14 @@ select.field-invalid {
      per-app `cardSpan(app)` extender). When BOTH classes are
      set the effect is identical (idempotent); the size class
      takes precedence semantically. */
-/* In the EDIT-mode grid (`.apps-section-grid` — a fine 90px-track
-   auto-fill grid) the three sizes map to DISTINCT column spans so
-   half / normal / double render as visibly different widths
-   (operator-flagged: setting a card to half produced no size change).
-   Scoped to the edit grid via the child combinator so the LOCKED-mode
-   Tailwind grid — which relies on the `.apps-card--size-double
-   { grid-column: span 2 }` rule below — is unaffected. */
+/* `.apps-section-grid` (a fine 90px-track auto-fill grid) backs BOTH
+   edit AND locked mode now, so the three sizes map to DISTINCT column
+   spans — half / normal / double render as visibly different widths in
+   either mode. (Locked mode used to use a Tailwind equal-column grid
+   that ignored these spans, so a width set while editing reverted on
+   save — reported on bookmark tiles.) The child combinator keeps the
+   spans scoped to this grid so an app's extender-driven
+   `.apps-card--span-2` request elsewhere is unaffected. */
 .apps-section-grid > .apps-card--size-half {
   grid-column: span 2;
 }
@@ -10023,6 +10024,39 @@ select.field-invalid {
   flex-shrink: 0;
 }
 
+/* Bookmark PRIMARY action — "Open". A prominent primary-accented pill so
+   the bookmark's main action reads as the clear call-to-action, visually
+   distinct from the muted grey settings / refresh pills above it. Shares
+   the action-pill geometry (equal-width stacked cluster) but flips to the
+   primary fill. The whole bookmark tile is the actual <a> link; this is
+   the visual affordance. */
+.apps-card-open-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 62px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--primary);
+  color: var(--text-on-primary);
+  border: 1px solid var(--primary);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.apps-bookmark-tile:hover .apps-card-open-pill {
+  background: var(--primary-hov);
+  border-color: var(--primary-hov);
+}
+
+.apps-card-open-pill svg {
+  flex-shrink: 0;
+}
+
 /* Per-host instance row — subtle row card on a hairline-divided list,
    so a card with multiple hosts reads as a clean stack rather than a
    wall of text. Hover gives operators a precise hit-target signal. */
@@ -10684,6 +10718,33 @@ select.field-invalid {
   text-overflow: ellipsis;
   font-weight: 500;
   letter-spacing: 0.02em;
+}
+
+/* Analog clock face + meta laid out as a centred flex row: the dial on
+   one side, the date + location stacked beside it. `flex-wrap: wrap`
+   means a narrow tile drops the meta BELOW the dial instead of
+   overflowing — so the analog clock adapts to the chosen widget width
+   (wide → side-by-side, narrow → stacked) rather than always stacking. */
+.apps-widget-clock-analog-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+}
+
+.apps-widget-clock-analog-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+/* When the meta sits beside the dial the date label's top margin (used
+   for the stacked layout) would push it off-centre — zero it inside the
+   row so the column centres against the dial. */
+.apps-widget-clock-analog-meta .apps-widget-clock-tz {
+  margin-top: 0;
 }
 
 /* Bottom detail row — humidity + wind / country + city / degraded

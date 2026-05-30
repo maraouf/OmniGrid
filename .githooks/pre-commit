@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# OmniGrid pre-commit shim — calls scripts/lint.py against staged files.
+# This file is CHECKED IN at .githooks/pre-commit and activated per-clone
+# by `python scripts/install_precommit.py` (which sets core.hooksPath to
+# .githooks). Edit here + commit to update the hook on every machine;
+# re-run the installer once per fresh clone to activate. Skip the hook
+# for ONE commit via `git commit --no-verify`.
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$repo_root" ]; then
+  echo "[pre-commit] not in a git repo — skipping lint" >&2
+  exit 0
+fi
+
+lint="$repo_root/scripts/lint.py"
+if [ ! -f "$lint" ]; then
+  # Hook active but the lint script is gone — don't block commits
+  # silently. Inform + pass.
+  echo "[pre-commit] $lint not found — skipping" >&2
+  exit 0
+fi
+
+# Resolve a python interpreter — prefer `python` (Windows) then python3.
+if command -v python >/dev/null 2>&1; then
+  py="python"
+elif command -v python3 >/dev/null 2>&1; then
+  py="python3"
+else
+  echo "[pre-commit] neither python nor python3 on PATH — skipping lint" >&2
+  exit 0
+fi
+
+# --staged is the default; --severity warn blocks the commit on any
+# WARNING or ERROR finding (info-level prints but doesn't block). Full
+# audit on demand: python scripts/lint.py --all
+exec "$py" "$lint" --staged --severity warn
