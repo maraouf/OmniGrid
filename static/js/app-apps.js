@@ -43,6 +43,17 @@ import {
   _appsTileQueue,
   _appsTileQueueProcessing,
   _setAppsTileQueueProcessing,
+  _appsSparkCache,
+  _appsVisibleInstancesCache,
+  _appsVisibleInstancesFlushScheduled,
+  _setAppsVisibleInstancesFlushScheduled,
+  _clearAppsVisibleInstancesFlushCache,
+  _anyAppExtrasMatchCache,
+  _hostAppsHealthFlushCache,
+  _setHostAppsHealthFlushCache,
+  _hostAppsHealthFlushScheduled,
+  _setHostAppsHealthFlushScheduled,
+  _clearHostAppsHealthFlushCache,
 } from './app-apps-state.js?v=__APP_VERSION__';
 
 export default {
@@ -702,7 +713,7 @@ export default {
     const result = expanded ? all : all.slice(0, this._appsInstancesLimit());
     _appsVisibleInstancesCache.set(app, {expanded, src: app.instances, result});
     if (!_appsVisibleInstancesFlushScheduled) {
-      _appsVisibleInstancesFlushScheduled = true;
+      _setAppsVisibleInstancesFlushScheduled(true);
       queueMicrotask(_clearAppsVisibleInstancesFlushCache);
     }
     return result;
@@ -774,9 +785,9 @@ export default {
     const _key = (h && h.id) || null;
     if (_key !== null) {
       if (_hostAppsHealthFlushCache === null) {
-        _hostAppsHealthFlushCache = new Map();
+        _setHostAppsHealthFlushCache(new Map());
         if (!_hostAppsHealthFlushScheduled) {
-          _hostAppsHealthFlushScheduled = true;
+          _setHostAppsHealthFlushScheduled(true);
           queueMicrotask(_clearHostAppsHealthFlushCache);
         }
       }
@@ -1868,7 +1879,7 @@ export default {
         return this.iconUrlFor(item.name || '') || '';
       }
       // Bare slug — route through the brand-icon resolver first.
-      let resolved = '';
+      let resolved;
       try {
         resolved = this.iconUrlFor(raw);
       } catch (_) {
@@ -2062,7 +2073,7 @@ export default {
     // section: any subsequent call after me has loaded re-hydrates
     // from the real prefs; any operator-driven mutation flips the
     // sections array non-empty which then sticks via the early-return.
-    let saved = null;
+    let saved;
     try {
       saved = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
     } catch (_) {

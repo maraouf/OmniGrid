@@ -793,7 +793,7 @@ export default {
     ws.addEventListener('message', (ev) => {
       if (typeof ev.data === 'string') {
         // Control frame — JSON.
-        let ctl = null;
+        let ctl;
         try {
           ctl = JSON.parse(ev.data);
         } catch (_) {

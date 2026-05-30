@@ -1313,7 +1313,6 @@ export default {
       const targetSnake = target.replace(/-/g, '_');
       if (!allowed.has(id) && !allowed.has(targetSnake)) {
         try {
-          // eslint-disable-next-line no-console
           console.warn('[ai-palette] action not in backend whitelist: '
             + id + ' (resolved=' + target + ')');
         } catch (_) { /* console-write must never break dispatch */ }

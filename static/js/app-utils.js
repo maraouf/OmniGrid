@@ -73,7 +73,7 @@ export default {
     }
     const status = r.status;
     const ct = (r.headers && r.headers.get) ? (r.headers.get('content-type') || '') : '';
-    let bodyText = '';
+    let bodyText;
     try {
       bodyText = await r.text();
     } catch (_) {

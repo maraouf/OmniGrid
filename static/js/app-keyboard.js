@@ -621,7 +621,7 @@ export default {
       return;
     }
     ev.preventDefault();
-    let isRtl = false;
+    let isRtl;
     try {
       isRtl = group.matches(':dir(rtl)');
     } catch (_e) {
@@ -640,7 +640,7 @@ export default {
     if (idx < 0) {
       idx = 0;
     }
-    let next = idx;
+    let next;
     if (key === 'Home') {
       next = 0;
     } else {

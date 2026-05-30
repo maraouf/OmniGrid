@@ -1051,7 +1051,7 @@ export default {
         '{value}%/day');
       trendLabel = _trendTmpl.replace('{value}', sign + slope.toFixed(2));
     }
-    let exhaustionLabel = '';
+    let exhaustionLabel;
     if (exhaustionTs) {
       const days = Math.max(0, Math.round((exhaustionTs - Math.floor(Date.now() / 1000)) / 86400));
       exhaustionLabel = days <= 0
