@@ -103,6 +103,7 @@ export default {
       'tuning_public_ip_enabled',
       'tuning_public_ip_cache_ttl_seconds',
       'tuning_public_ip_fetch_timeout_seconds',
+      'tuning_public_ip_sample_interval_seconds',
     ];
   },
   publicIpSectionDirty() {

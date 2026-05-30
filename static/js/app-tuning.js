@@ -244,6 +244,7 @@ export default {
     'tuning_public_ip_enabled',
     'tuning_public_ip_cache_ttl_seconds',
     'tuning_public_ip_fetch_timeout_seconds',
+    'tuning_public_ip_sample_interval_seconds',
     // WeatherAPI.com — standalone subsystem with its own Admin →
     // Weather section. Cache TTL (default 600s), outbound HTTP
     // wall-clock (default 8s), persisted-sample retention (default

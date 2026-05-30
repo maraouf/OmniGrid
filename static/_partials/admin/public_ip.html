@@ -10,7 +10,13 @@
       </svg>
       <h3 class="font-semibold fs-md" x-text="t('admin_public_ip.title')"></h3>
     </div>
-    <span class="chip"
+    <!-- Until tuningForm has loaded, the enabled flag is unknown — show a
+         neutral "Loading…" pill instead of the default-falsy "Disabled",
+         which flashed Disabled->Enabled on every reload and deceived the
+         user into thinking the feature was off. -->
+    <span x-show="!tuningLoaded" class="chip pill-muted"
+          x-text="t('common.loading') || 'Loading…'"></span>
+    <span x-show="tuningLoaded" class="chip"
           :class="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? 'pill-ok' : 'pill-muted'"
           x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>
@@ -23,13 +29,16 @@
        `logic.public_ip.fetch()` short-circuits to None and no
        outbound request to ifconfig.co fires. -->
   <label class="flex items-center gap-2 fs-sm cursor-pointer mb-3 select-none">
+    <!-- Disabled until tuningForm loads so the checkbox can't show a
+         premature unchecked (=looks-off) state nor accept a toggle against
+         a value we haven't read yet — pairs with the Loading pill above. -->
     <input type="checkbox"
            :checked="tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1"
            @change="tuningForm['tuning_public_ip_enabled'] = ($event.target.checked ? '1' : '0')"
-           :disabled="isReadonly()">
+           :disabled="isReadonly() || !tuningLoaded">
     <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
     <span class="fs-xs text-[var(--text-faint)]"
-          x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint')"></span>
+          x-text="!tuningLoaded ? (t('common.loading') || 'Loading…') : ((tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint'))"></span>
   </label>
 
   <!-- Action row 1: Test lookup button + last-result chip.
@@ -76,7 +85,8 @@
     <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
        x-text="t('admin_public_ip.tunables_intro') || 'In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.'"></p>
     <template x-for="key in ['tuning_public_ip_cache_ttl_seconds',
-                                    'tuning_public_ip_fetch_timeout_seconds']"
+                                    'tuning_public_ip_fetch_timeout_seconds',
+                                    'tuning_public_ip_sample_interval_seconds']"
               :key="key">
       <div>
         <label class="block fs-xs font-medium mb-1"

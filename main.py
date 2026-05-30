@@ -817,6 +817,18 @@ async def _lifespan(_app: FastAPI):
         _weather_sampler.sampler_loop(),
         name="weather-sampler",
     )
+    # Public-IP change sampler — force-probes ifconfig.co at
+    # tuning_public_ip_sample_interval_seconds cadence (default 300s) so a
+    # public-IP CHANGE is recorded in public_ip_history even when no one is
+    # looking at the widget. Without it, change-detection only fires on
+    # incidental fetch() calls (SPA / Telegram / AI), which are cache-gated
+    # so a short flap shorter than the cache TTL is missed. Master-gated on
+    # tuning_public_ip_enabled (default OFF); interval 0 disables it.
+    from logic import public_ip_sampler as _public_ip_sampler
+    public_ip_sampler = asyncio.create_task(
+        _public_ip_sampler.sampler_loop(),
+        name="public-ip-sampler",
+    )
     try:
         yield
     finally:
@@ -826,7 +838,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

@@ -1740,6 +1740,8 @@ class SettingsIn(BaseModel):
     tuning_public_ip_cache_ttl_seconds: Optional[str] = None
     # Outbound HTTP wall-clock to ifconfig.co (seconds, default 8).
     tuning_public_ip_fetch_timeout_seconds: Optional[str] = None
+    # Background change-sampler cadence (seconds, default 300; 0 = off).
+    tuning_public_ip_sample_interval_seconds: Optional[str] = None
     # WeatherAPI.com tunables — in-process cache TTL (default 600s so
     # the public 1M-calls-month free tier stays comfortably under cap),
     # outbound HTTP wall-clock (default 8s), persisted-sample retention
