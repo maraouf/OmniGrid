@@ -3578,11 +3578,11 @@
             </header>
             <div x-show="appsCustomEditMode && appsBookmarkOpenFor === sec.id"
                  class="flex items-center gap-2 px-2 py-1.5 border-t border-[var(--border)] flex-wrap">
-              <input type="text" class="fs-xs" style="flex:1;min-width:120px;"
+              <input type="text" class="fs-xs apps-bookmark-quickadd-input"
                      x-model="appsBookmarkName"
                      :placeholder="t('apps.custom.bookmark_name_placeholder') || 'Name'"
                      :aria-label="t('apps.custom.bookmark_name_placeholder') || 'Name'">
-              <input type="url" class="fs-xs" style="flex:1.4;min-width:160px;"
+              <input type="url" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--url"
                      x-model="appsBookmarkUrl"
                      :placeholder="t('apps.custom.bookmark_url_placeholder') || 'https://…'"
                      :aria-label="t('apps.custom.bookmark_url_placeholder') || 'URL'"
@@ -3596,7 +3596,7 @@
                    icon source (operator saw it try to load `https://5g/`
                    as the image). appsBookmarkIconUrl resolves the slug
                    through the same brand resolver the hosts use. -->
-              <input type="text" class="fs-xs" style="flex:1.2;min-width:160px;"
+              <input type="text" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--icon"
                      x-model="appsBookmarkIcon"
                      :placeholder="t('apps.custom.bookmark_icon_placeholder') || 'Icon slug, URL, or blank'"
                      :aria-label="t('apps.custom.bookmark_icon_aria') || 'Icon slug or URL (optional)'"
@@ -3636,6 +3636,10 @@
                   <div class="apps-custom-cell min-w-0 apps-card-flip"
                        :class="appsCardSizeClass(item) + ' ' + appsCardHeightClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
                        :draggable="appsCustomEditMode && !_appsResizing ? 'true' : 'false'"
+                       :data-apps-tile-uid="item.uid"
+                       :tabindex="appsCustomEditMode ? 0 : null"
+                       :aria-label="appsCustomEditMode ? (t('apps.custom.tile_reorder_aria') || 'Reorder tile — arrow keys move it within its section') : null"
+                       @keydown="appsCustomEditMode ? _appsTileMoveKey($event, item.uid) : null"
                        @dragstart="(appsCustomEditMode && !_appsResizing) ? appsItemDragStart($event, item.uid) : $event.preventDefault()"
                        @dragover.prevent
                        @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
@@ -10798,7 +10802,8 @@
                (one severity at a time, NOT multi-select). -->
           <div class="px-4 py-3 border-b border-[var(--border)] sticky top-[57px] bg-[var(--surface)] z-10 flex flex-wrap gap-2 items-center fs-sm">
             <span class="text-[var(--text-faint)]" x-text="t('notifications.filter_severity')"></span>
-            <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1">
+            <div role="radiogroup" :aria-label="t('notifications.filter_severity')" class="flex gap-1"
+                 @keydown="_radiogroupArrowKey($event)">
               <!-- Per-severity colouring: each chip carries the brand
                    pill class for its severity (info/success/warning/error)
                    so operators see at a glance which filter is which.
@@ -10808,6 +10813,7 @@
                    the active state is unmissable but visually subtle. -->
               <template x-for="sev in ['all','info','success','warning','error']" :key="sev">
                 <button type="button" role="radio" :aria-checked="notificationsFilterSeverity === sev"
+                        :tabindex="notificationsFilterSeverity === sev ? 0 : -1"
                         @click="notificationsFilterSeverity = sev; loadNotifications()"
                         :class="[
                         'chip',
@@ -11242,7 +11248,7 @@
                x-text="turn.error ? t('ai_sidebar.error_label', { error: turn.error }) : turn.text"></div>
           <div x-show="turn.text && turn.role !== 'user' && !turn.error"
                class="ai-bubble ai-bubble-assistant"
-               x-html="_renderAiAnswerMd(turn.text)"></div>
+               x-html="turn._html || _renderAiAnswerMd(turn.text)"></div>
           <!-- Pending inline confirmation — destructive action awaits
                operator's Yes / Cancel click in-conversation. Replaces
                the SweetAlert popup that the modal palette uses.

@@ -1410,6 +1410,21 @@ function app() {
                 })
                 : conv;
               this.aiConversation = filtered;
+              // Precompute rendered markdown for each restored assistant
+              // turn so the x-html binding reads the stamped turn._html
+              // field instead of re-parsing on every flush (same
+              // precompute-once win the live reply path applies). Error /
+              // user turns render via x-text and are skipped; any turn
+              // left unstamped falls back to the memoized renderer.
+              for (const _t of filtered) {
+                if (_t && _t.role === 'assistant' && !_t.error && _t.text
+                  && _t._html === undefined) {
+                  try {
+                    _t._html = this._renderAiAnswerMd(_t.text);
+                  } catch (_e) { /* fall back to the binding's renderer */
+                  }
+                }
+              }
               this._aiConversationClearedAt = cutoff;
               // If localStorage held more turns than the DB (a
               // mid-flight regression mid-PATCH or a redeploy that

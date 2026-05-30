@@ -206,6 +206,16 @@
   --metric-net: #3b82f6; /* blue */
   --metric-net-out: #8b5cf6; /* violet (Net Out accent) */
   --metric-http-latency: #fb923c; /* orange — matches HTTP probe brand */
+  /* Apps widget per-kind accent hues (clock / weather / public_ip /
+     system_stats). The `.apps-widget-tile--<kind>` rules consume these via
+     `--widget-accent: var(--widget-accent-<kind>)`; the soft/glow tints are
+     color-mix'd off `--widget-accent`, so the raw hex lives ONLY here (was
+     a token-discipline violation: hex inside the component rules + no
+     light-theme variant). */
+  --widget-accent-clock: #818cf8;        /* indigo-400 */
+  --widget-accent-weather: #38bdf8;      /* sky-400 */
+  --widget-accent-public_ip: #2dd4bf;    /* teal-400 */
+  --widget-accent-system_stats: #34d399; /* emerald-400 */
   /* Chart extended palette — distinguishing hues for per-host probe
      charts (Dell temp probes, sensor strips, multi-line plots) when
      the base --info / --warning / --success / --danger / --primary
@@ -575,6 +585,12 @@
   --metric-net: #2563eb;
   --metric-net-out: #7c3aed;
   --metric-http-latency: #ea580c; /* darker orange for light-theme contrast */
+  /* Apps widget per-kind accent hues — darker 600-shade equivalents so the
+     soft tints / glows / accent borders keep contrast on the light bg. */
+  --widget-accent-clock: #4f46e5;        /* indigo-600 */
+  --widget-accent-weather: #0284c7;      /* sky-600 */
+  --widget-accent-public_ip: #0d9488;    /* teal-600 */
+  --widget-accent-system_stats: #059669; /* emerald-600 */
   --chart-palette-violet: #7c3aed; /* darker violet for light-theme contrast */
   --chart-palette-pink: #be185d; /* darker pink */
   --chart-palette-cyan: #0e7490; /* darker cyan */
@@ -9656,21 +9672,26 @@ select.field-invalid {
   container-name: ogcard;
 }
 
-/* Narrow / medium-width cards — compact the port pills so more fit per
-   row before wrapping (operator-flagged: ports cramped + wrapping to many
-   rows at medium width). Smaller padding + gap + the /proto suffix
-   dropped to the tiniest token keeps the port NUMBER legible while
-   shrinking the row footprint. */
-@container ogcard (max-width: 300px) {
+/* Narrow / medium-width cards — DENSE port layout so many ports fit the
+   card without wrapping to a clipped pile of rows (operator-flagged: ports
+   not fitting, needs a real layout overhaul not a tweak). The pill's
+   BACKGROUND colour already encodes up / down / unknown, so at tight widths
+   we drop BOTH the status dot AND the `/proto` suffix and keep just the
+   port NUMBER in a minimal chip — packing 2-3× as many ports per row. The
+   full dot + proto view returns at wider widths. */
+@container ogcard (max-width: 360px) {
   .apps-port-grid {
     gap: 3px;
   }
   .apps-port-pill {
-    padding: 1px 5px;
-    gap: 2px;
-  }
-  .apps-port-proto {
+    padding: 0 5px;
+    gap: 0;
     font-size: var(--fs-3xs);
+    line-height: 1.6;
+  }
+  .apps-port-pill .apps-port-dot,
+  .apps-port-pill .apps-port-proto {
+    display: none;
   }
 }
 
@@ -9679,6 +9700,29 @@ select.field-invalid {
 @container ogcard (min-width: 380px) {
   .apps-port-grid {
     gap: var(--s-2);
+  }
+  /* 2-COLUMN body for extras-bearing cards: instance list LEFT, per-app
+     extras (Speedtest / APC) RIGHT, so the extras fit BESIDE the instances
+     within the fixed height preset instead of stacking below + clipping
+     (operator-flagged: extras not displayed at large width; card must NOT
+     grow past its preset). Only `--has-extras` cards get the split — plain
+     apps keep full-width instance rows. The show-all toggle spans both
+     columns underneath. */
+  .apps-card-ready--has-extras {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: var(--s-2) var(--s-3);
+    align-items: start;
+  }
+  .apps-card-ready--has-extras > ul,
+  .apps-card-ready--has-extras > .apps-card-extras-col {
+    min-width: 0;
+  }
+  .apps-card-ready--has-extras > .apps-card-extras-col {
+    margin-top: 0;
+  }
+  .apps-card-ready--has-extras > button {
+    grid-column: 1 / -1;
   }
 }
 
@@ -10116,6 +10160,23 @@ select.field-invalid {
   transform: translateY(-1px);
 }
 
+/* Bookmark quick-add row inputs (name / url / icon) — promoted from inline
+   `flex:N;min-width:120-160px` pixel literals to classes so the row WRAPS
+   cleanly on a narrow section-header strip instead of forcing horizontal
+   overflow. rem-based flex-basis + a modest min-width floor; the url / icon
+   inputs grow a touch more than the name. The parent row already has
+   `flex-wrap`. */
+.apps-bookmark-quickadd-input {
+  flex: 1 1 8rem;
+  min-width: 7rem;
+}
+.apps-bookmark-quickadd-input--url {
+  flex-grow: 1.4;
+}
+.apps-bookmark-quickadd-input--icon {
+  flex-grow: 1.2;
+}
+
 /* Per-host instance row — subtle row card on a hairline-divided list,
    so a card with multiple hosts reads as a clean stack rather than a
    wall of text. Hover gives operators a precise hit-target signal. */
@@ -10225,6 +10286,22 @@ select.field-invalid {
 
   .apps-card:hover {
     transform: none;
+  }
+}
+
+/* Mobile single-column grid (below the `sm` breakpoint, where the by-app
+   card grid collapses to 1 column) — do NOT stretch app cards to the grid
+   row. The desktop `.apps-card { height: 100% }` exists only for same-ROW
+   height alignment between an app card + a widget sharing a row; in a
+   1-column layout there's no row to align against, and the CSS-grid item
+   default `align-self: stretch` + that `height: 100%` left cards stretched
+   tall with a big empty gap below their content (operator-flagged on
+   mobile — a single-instance app card ran ~3× its content height). Size to
+   content instead. */
+@media (max-width: 639px) {
+  .apps-card {
+    height: auto;
+    align-self: start;
   }
 }
 
@@ -10509,29 +10586,31 @@ select.field-invalid {
   var(--surface-2) 100%);
 }
 
-/* Per-kind accent colours — each kind's brand identity. */
+/* Per-kind accent — each kind sets `--widget-accent` from its :root token
+   pair (defined in BOTH theme blocks); soft/glow tints derive from it, so
+   no raw hex lives in these component rules. */
 .apps-widget-tile--clock {
-  --widget-accent: #818cf8; /* indigo-400 */
-  --widget-accent-soft: color-mix(in srgb, #818cf8 12%, transparent);
-  --widget-accent-glow: color-mix(in srgb, #818cf8 25%, transparent);
+  --widget-accent: var(--widget-accent-clock);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
 }
 
 .apps-widget-tile--weather {
-  --widget-accent: #38bdf8; /* sky-400 */
-  --widget-accent-soft: color-mix(in srgb, #38bdf8 12%, transparent);
-  --widget-accent-glow: color-mix(in srgb, #38bdf8 25%, transparent);
+  --widget-accent: var(--widget-accent-weather);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
 }
 
 .apps-widget-tile--public_ip {
-  --widget-accent: #2dd4bf; /* teal-400 */
-  --widget-accent-soft: color-mix(in srgb, #2dd4bf 12%, transparent);
-  --widget-accent-glow: color-mix(in srgb, #2dd4bf 25%, transparent);
+  --widget-accent: var(--widget-accent-public_ip);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
 }
 
 .apps-widget-tile--system_stats {
-  --widget-accent: #34d399; /* emerald-400 */
-  --widget-accent-soft: color-mix(in srgb, #34d399 12%, transparent);
-  --widget-accent-glow: color-mix(in srgb, #34d399 25%, transparent);
+  --widget-accent: var(--widget-accent-system_stats);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
 }
 
 /* Background-icon decoration — a large faded brand icon in the
@@ -10719,7 +10798,7 @@ select.field-invalid {
      comfortable floor on a narrow card, growing toward display-2xl on a
      wide / tall card. Still wraps (break-all) so a long IPv6 never
      ellipsis-truncates. cqmin (not cqi) so a TALL card also grows it. */
-  font-size: clamp(var(--fs-display-base), 17cqmin, var(--fs-display-2xl));
+  font-size: clamp(var(--fs-display-base), 13cqmin, var(--fs-display-lg));
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -10739,7 +10818,10 @@ select.field-invalid {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  /* `safe center` — centers the IP + ISP + detail stack when it fits (uses
+     the space), but top-aligns on overflow so the IP hero is never CLIPPED
+     AT THE TOP (operator-flagged: "IP text is cut from the top"). */
+  justify-content: safe center;
   gap: var(--s-1);
   min-height: 0;
 }
@@ -10765,12 +10847,28 @@ select.field-invalid {
    free vertical space; `justify-content: center` parks the block in the
    middle like the clock's "HH:MM" hero. Centring (not intrinsic-height
    growth) preserves the earlier "peers inherit moon's tall height" fix. */
+/* Shared hero sub-column — the system-stats ring meta + the moon phase
+   text both stack tightly (2px, a half-step below --s-1 = 4px). Promoted
+   from two inline `display:flex;flex-direction:column;gap:2px` blocks to
+   one class so the spacing lives in a single place, not scattered inline. */
+.apps-widget-hero-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .apps-widget-moon-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: var(--s-3);
+  /* `safe center` centers the ring + phase + rise/set when they FIT, but
+     falls back to flex-start (top-align) when the stack is taller than the
+     body — so the ring is never CLIPPED AT THE TOP (operator-flagged: "the
+     circle is cut a bit from the top"). Plain `center` clips both ends on
+     overflow because the body is `overflow: hidden` (the pinned-footer fix). */
+  justify-content: safe center;
+  gap: var(--s-2);
   min-height: 0;
 }
 
@@ -10790,7 +10888,7 @@ select.field-invalid {
    legible on a tiny card; the cap matches the original 120px on a tall /
    wide one. `height: auto` follows the square aspect from the width. */
 .apps-widget-moon-ring {
-  width: clamp(64px, 42cqmin, 116px);
+  width: clamp(56px, 36cqmin, 104px);
   height: auto;
   flex-shrink: 0;
 }
@@ -11093,6 +11191,63 @@ select.field-invalid {
   font-size: var(--fs-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* Weather 2-column body — hero / location / detail on the LEFT, the
+   forecast as a VERTICAL column on the RIGHT using the otherwise-empty
+   horizontal space (operator-flagged: "use the space on the right for the
+   forecast, fit as many days as the space allows"). `flex-wrap: wrap`
+   means a narrow card drops the forecast BELOW the main column instead of
+   cramping; the half-width preset hides the forecast entirely (separate
+   rule). The forecast column clips days past the card height (the tile
+   body is `overflow: hidden`) so it shows "as many as fit" without growing
+   the card. */
+.apps-widget-weather-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s-1) var(--s-3);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.apps-widget-weather-main {
+  flex: 1 1 130px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  justify-content: safe center;
+}
+
+/* The `--col` modifier flips the base horizontal forecast strip into the
+   right-hand vertical column. Each day becomes a compact one-row entry
+   (name · icon · hi/lo). No scrollbar — overflow is clipped (the operator
+   rejected scroll). */
+.apps-widget-forecast--col {
+  flex: 0 1 auto;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: auto;
+  max-width: 52%;
+  margin-top: 0;
+  overflow: hidden;
+  align-self: stretch;
+}
+.apps-widget-forecast--col .apps-widget-forecast-day {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-1);
+  width: 100%;
+  min-width: 0;
+  padding: 2px var(--s-1);
+}
+.apps-widget-forecast--col .apps-widget-forecast-name,
+.apps-widget-forecast--col .apps-widget-forecast-temp {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .apps-widget-clock {

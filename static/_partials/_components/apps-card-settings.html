@@ -35,7 +35,7 @@
   <div class="apps-card-settings-row">
     <span class="apps-card-settings-label"
           x-text="t('apps.custom.settings.size_label') || 'Size'"></span>
-    <div class="inline-flex gap-1" role="radiogroup"
+    <div class="inline-flex gap-1" role="radiogroup" @keydown="_radiogroupArrowKey($event)"
          :aria-label="t('apps.custom.settings.size_label') || 'Size'">
       <template x-for="opt in ['half', 'normal', 'double', 'xlarge']" :key="opt">
         <button type="button" role="radio"
@@ -59,7 +59,7 @@
   <div class="apps-card-settings-row">
     <span class="apps-card-settings-label"
           x-text="t('apps.custom.settings.height_label') || 'Height'"></span>
-    <div class="inline-flex gap-1" role="radiogroup"
+    <div class="inline-flex gap-1" role="radiogroup" @keydown="_radiogroupArrowKey($event)"
          :aria-label="t('apps.custom.settings.height_label') || 'Height'">
       <template x-for="opt in ['short', 'tall']" :key="opt">
         <button type="button" role="radio"

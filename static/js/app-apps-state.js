@@ -123,6 +123,63 @@ export const _anyAppExtrasMatchCache = new WeakMap();
 // component in devtools to see per-tile timing.
 export const _appsTileRenderLog = {};
 
+// ---- Dev-only per-flush getter-call histogram ---------------------
+// Cheapest instrumentation for spotting a REGRESSED (un-memoized) getter
+// without re-reading every binding: a suspect getter calls
+// `this._ogPerfCount('getterName')` at its top; counts accumulate per
+// ~1s window and log a sorted histogram so an outsized count stands out
+// (a memoized getter reads ~1/flush; an un-memoized x-for source reads
+// N×). TRUE no-op in production — gated on the
+// `localStorage.og_perf_histogram === '1'` flag, resolved once + cached,
+// so a disabled call costs one cached-boolean check. Enable in devtools:
+//   localStorage.setItem('og_perf_histogram', '1')   (then reload)
+//   localStorage.removeItem('og_perf_histogram')      (to disable)
+// Mirrors the `_appsTileRenderLog` devtools-tracing pattern. Nothing is
+// instrumented by default — wrap a suspect getter on demand during a pass.
+export const _ogPerfHist = Object.create(null);
+let _ogPerfHistOn = null;
+let _ogPerfHistTimer = null;
+
+function _ogPerfHistEnabled() {
+  if (_ogPerfHistOn === null) {
+    try {
+      _ogPerfHistOn = (typeof localStorage !== 'undefined' &&
+        localStorage.getItem('og_perf_histogram') === '1');
+    } catch (_e) {
+      _ogPerfHistOn = false;
+    }
+  }
+  return _ogPerfHistOn;
+}
+
+function _ogPerfRowCmp(a, b) {
+  return b.callsPerWindow - a.callsPerWindow;
+}
+
+function _ogPerfHistFlush() {
+  const rows = [];
+  // Object.keys() snapshots the keys, so deleting in the same pass is safe.
+  for (const k of Object.keys(_ogPerfHist)) {
+    rows.push({getter: k, callsPerWindow: _ogPerfHist[k]});
+    delete _ogPerfHist[k];
+  }
+  rows.sort(_ogPerfRowCmp);
+  const con = globalThis.console;
+  if (con) {
+    (con.table || con.log).call(con, rows);
+  }
+  _ogPerfHistTimer = null;
+}
+
+export function _ogPerfCount(name) {
+  if (_ogPerfHistEnabled()) {
+    _ogPerfHist[name] = (_ogPerfHist[name] || 0) + 1;
+    if (_ogPerfHistTimer === null) {
+      _ogPerfHistTimer = setTimeout(_ogPerfHistFlush, 1000);
+    }
+  }
+}
+
 // FIFO queue of group_ids whose body subtree should mount, one per
 // setTimeout(0) tick (NOT requestAnimationFrame — rAF defers when
 // Alpine's reactive flush blocks paint, which would stall the queue
