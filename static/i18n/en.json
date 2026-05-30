@@ -4982,6 +4982,8 @@
       "widget_weather_humidity_label": "Humidity",
       "widget_weather_wind": "Wind {value} km/h",
       "widget_weather_wind_label": "Wind",
+      "widget_weather_wind_kmh": "{n} km/h",
+      "widget_weather_wind_mph": "{n} mph",
       "widget_weather_tomorrow": "Tomorrow {hi}/{lo}°",
       "widget_weather_no_data": "No weather data yet — click the refresh button to try again.",
       "widget_weather_admin_disabled": "Weather service is disabled. Ask an admin to enable it in Admin → Weather.",
@@ -5019,6 +5021,7 @@
       "all_sorted": "All apps are sorted into sections.",
       "gear_title": "Card settings",
       "gear_aria": "Open card settings",
+      "tile_reorder_aria": "Reorder tile — arrow keys move it within its section",
       "size_drag_title": "Tap to cycle size, or drag to resize (half / normal / double)",
       "height_drag_title": "Tap to toggle height, or drag to resize (short / tall)",
       "settings": {

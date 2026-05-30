@@ -40,6 +40,7 @@ import {
   _setFilteredAppsFlushScheduled,
   _clearFilteredAppsFlushCache,
   _appsTileRenderLog,
+  _ogPerfCount,
   _appsTileQueue,
   _appsTileQueueProcessing,
   _setAppsTileQueueProcessing,
@@ -1350,6 +1351,22 @@ export default {
     }
     return Math.round(tempC) + '°C';
   },
+  // Wind value + unit — mirrors appsWidgetWeatherTemp's per-card units
+  // handling so an imperial-units card shows mph (not km/h), and routes
+  // the unit through t() (the binding previously hard-appended a raw
+  // English/metric ' km/h' with no i18n + ignored the units toggle).
+  appsWidgetWindLabel(item, kmh) {
+    if (kmh === null || kmh === undefined || isNaN(kmh)) {
+      return '';
+    }
+    const opts = this.effectiveWeatherOpts(item);
+    if (!opts.follow && opts.units === 'imperial') {
+      const mph = Math.round(kmh * 0.621371);
+      return this.t('apps.custom.widget_weather_wind_mph', {n: mph}) || (mph + ' mph');
+    }
+    const k = Math.round(kmh);
+    return this.t('apps.custom.widget_weather_wind_kmh', {n: k}) || (k + ' km/h');
+  },
 
   // N-day rollup for the weather widget's forecast strip. Cap N from
   // the per-card override (`weather_forecast_days`, default 3, range
@@ -1643,6 +1660,13 @@ export default {
       return n * 1000;
     }
     return 90000;
+  },
+  // Dev-only per-flush getter-call histogram (see app-apps-state.js for the
+  // full contract). Any getter under investigation can call
+  // `this._ogPerfCount('getterName')` at its top; counts log per ~1s window
+  // when `localStorage.og_perf_histogram === '1'`, true no-op otherwise.
+  _ogPerfCount(name) {
+    return _ogPerfCount(name);
   },
   appsAppDataKey(inst) {
     if (!inst || !inst.host_id || inst.service_idx == null) {
@@ -2531,6 +2555,69 @@ export default {
     }
     sec.items.splice(pos, 0, moving);
     this._persistAppsCustomLayout();
+  },
+
+  // Keyboard reorder for a focused edit-mode tile (WCAG 2.1.1 — the
+  // drag-and-drop reorder is otherwise mouse/touch-only). Moves the tile
+  // one slot WITHIN its section: dir -1 = earlier (Arrow Up/Left), +1 =
+  // later (Arrow Down/Right). No wrap at the section edges. Reuses the same
+  // layout array + persist path as appsTileDrop; cross-section moves stay on
+  // the drag path. Returns true when a move happened so the caller can
+  // preventDefault only on an actual reorder.
+  appsItemMove(uid, dir) {
+    if (!uid || (dir !== -1 && dir !== 1)) {
+      return false;
+    }
+    this._hydrateAppsCustomLayout();
+    const secs = this.appsCustomLayout.sections || [];
+    for (const s of secs) {
+      const i = (s.items || []).findIndex(it => it.uid === uid);
+      if (i < 0) {
+        continue;
+      }
+      const j = i + dir;
+      if (j < 0 || j >= s.items.length) {
+        return false;
+      }
+      const tmp = s.items[i];
+      s.items[i] = s.items[j];
+      s.items[j] = tmp;
+      this._persistAppsCustomLayout();
+      // Restore focus to the moved tile after Alpine re-renders the list.
+      this.$nextTick(() => {
+        try {
+          const el = document.querySelector('[data-apps-tile-uid="' + uid + '"]');
+          if (el && typeof el.focus === 'function') {
+            el.focus();
+          }
+        } catch (_e) { /* ignore */
+        }
+      });
+      return true;
+    }
+    return false;
+  },
+
+  // Arrow-key handler for a focused edit-mode tile → appsItemMove. Bound on
+  // the draggable cell; the `ev.target === ev.currentTarget` guard means it
+  // only fires when the CELL itself is focused, never when an arrow key is
+  // pressed inside a descendant input (so text-field caret nav is intact).
+  _appsTileMoveKey(ev, uid) {
+    if (!this.appsCustomEditMode || ev.target !== ev.currentTarget) {
+      return;
+    }
+    const k = ev.key;
+    let dir;
+    if (k === 'ArrowUp' || k === 'ArrowLeft') {
+      dir = -1;
+    } else if (k === 'ArrowDown' || k === 'ArrowRight') {
+      dir = 1;
+    } else {
+      return;
+    }
+    if (this.appsItemMove(uid, dir)) {
+      ev.preventDefault();
+    }
   },
 
   appsSectionDragStart(ev, sectionId) {

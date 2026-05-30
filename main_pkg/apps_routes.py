@@ -728,26 +728,28 @@ async def api_apps_list(_admin: AdminUser, force: bool = False):
     distinct app (grouped by catalog_id or name) with every host that
     runs an instance + per-instance status.
 
-    Served from a short-TTL cache in `list_apps()` so a burst of page
-    loads / polls doesn't re-run the three heavy `service_samples`
-    window queries; `?force=true` bypasses the cache for an explicit
-    operator Refresh.
+    Served from a short-TTL (8s) cache in `list_apps()` so a burst of
+    page loads / polls doesn't re-run the heavy `service_samples`
+    queries; `?force=true` bypasses the cache for an explicit operator
+    Refresh.
 
-    OFFLOADED to a worker thread via `asyncio.to_thread` because
-    `list_apps()` is synchronous + opens a fresh `db_conn()` per
-    host × 3 queries each (`latest_for_host` + `latest_per_port_all_
-    for_host` + `history_rollup_all_for_host`). On a busy fleet
-    (200 curated hosts × 5 chips each), that's hundreds of SQLite
-    operations running on the event loop, which wedges /api/healthz
-    past the 20s Docker healthcheck timeout → Swarm SIGKILL →
-    crash-loop. Same offload pattern as `host_baseline_sampler` (the
-    B7 fix). Symptom that surfaced this: operator-flagged "apps page
-    keeps loading without any end, and it seems it crashed the
-    backend after loading: Failed to load apps: HTTP 504" — the
-    proxy timed out waiting for the synchronously-blocked event
-    loop to respond. The deeper fix (batch the per-host queries
-    into ONE multi-host SELECT) is a follow-up; this offload is
-    the immediate crash-loop preventer.
+    OFFLOADED to a worker thread via `asyncio.to_thread`: `list_apps()`
+    is synchronous SQLite. The per-host fan-out it once did (a fresh
+    `db_conn()` per host × 3 queries each) has been BATCHED into THREE
+    fleet-wide windowed queries — `latest_for_hosts` /
+    `latest_per_port_all_for_hosts` / `history_rollup_all_for_hosts`
+    (each ONE `ROW_NUMBER()` SELECT over the whole curated-host set, in
+    `logic/service_sampler.py`), so the per-host round-trip count went
+    from hundreds to three. The `to_thread` offload stays anyway because
+    even three large windowed SELECTs are synchronous SQLite that would
+    block the event loop — wedging `/api/healthz` past the 20s Docker
+    healthcheck → Swarm SIGKILL → crash-loop (the original
+    operator-flagged "apps page loads forever → HTTP 504" symptom, the
+    proxy timing out on the synchronously-blocked loop). Same offload
+    pattern as `host_baseline_sampler`. The 8s `_LIST_APPS_CACHE` module
+    cache + the batched queries + the offload are complementary, not
+    redundant — caching avoids re-running, batching cuts the per-call
+    cost, offloading keeps even the batched call off the event loop.
     """
     from logic import service_catalog as _sc
     apps = await asyncio.to_thread(_sc.list_apps, force)

@@ -1197,6 +1197,16 @@ export default {
           forget_texts: memoriesToForget,
         };
       }
+      // Precompute the rendered markdown ONCE on turn-commit so the
+      // x-html binding reads the stamped `turn._html` field instead of
+      // re-parsing the answer (a multi-pass markdown build + full-text
+      // memo hash) on EVERY reactive flush while the sidebar is open —
+      // the report's "biggest single frontend win". The binding falls
+      // back to the memoized _renderAiAnswerMd for any turn without
+      // _html (error turns render via x-text + are skipped here).
+      if (turn.text) {
+        turn._html = this._renderAiAnswerMd(turn.text);
+      }
       this.aiConversation.push(turn);
       // Fire chart population AFTER the bubble renders. Each shell
       // is scoped by `data-turn-ts` so multi-turn chats don't fight
