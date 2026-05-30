@@ -57,31 +57,18 @@ export default {
     if (this.appsListLoading && !force) {
       return;
     }
-    // Force refresh -- drop the per-tile visibility tracker so the
-    // observer re-runs against the fresh tile set (a renamed app or
-    // a newly-pinned chip otherwise stays rendered as a stale empty
-    // skeleton until the operator scrolls past it).
-    if (force) {
-      this._appsVisibleTiles = {};
-      this._appsReadyTiles = {};
-      // Drain the staggered-render queue: the tiles it points at are
-      // about to be torn down by the reconcile, so processing them
-      // post-fetch would either mount on the wrong tile OR fire the
-      // diagnostic against a vanished group_id.
-      _appsTileQueue.length = 0;
-      _setAppsTileQueueProcessing(false);
-      // Also disconnect the old observer -- a new one will be lazy-
-      // created on the next `_observeAppCard` call. Otherwise the
-      // stale observer keeps observing torn-down DOM nodes.
-      if (this._appsCardObserver) {
-        try {
-          this._appsCardObserver.disconnect();
-        } catch (_e) {
-          // ignore — observer already gone in some browsers.
-        }
-        this._appsCardObserver = null;
-      }
-    }
+    // NOTE: a `force` refresh must NOT blanket-reset `_appsVisibleTiles`
+    // / `_appsReadyTiles`. Doing so un-readied EVERY tile, un-mounting
+    // every card body (ports / sparklines) back to a skeleton and then
+    // re-staggering them — so probing ONE app (which calls
+    // loadAppsList(true)) visibly stripped the ports from ALL apps for a
+    // beat. Each app is autonomous: an existing tile keeps its mounted
+    // body across a data refresh; the in-place reconcile below just
+    // updates its fields. New / renamed apps (new group_id) still mount
+    // correctly via their own `x-init="_observeAppCard(...)"` + the
+    // persistent observer, and removed gids are pruned after the splice
+    // below — so the "stale skeleton on rename" case the old reset
+    // guarded against is handled without the global tear-down.
     this.appsListLoading = true;
     this.appsListError = '';
     try {
@@ -133,6 +120,21 @@ export default {
       for (let i = this.appsList.length - 1; i >= 0; i--) {
         if (!seenGids.has(this.appsList[i].group_id)) {
           this.appsList.splice(i, 1);
+        }
+      }
+      // Prune per-tile render trackers for apps that no longer exist so
+      // they don't grow unbounded across refreshes (replaces the hygiene
+      // the old blanket force-reset did, WITHOUT un-readying surviving
+      // tiles). Surviving tiles keep their ready/visible state → bodies
+      // stay mounted (no flash).
+      for (const map of [this._appsVisibleTiles, this._appsReadyTiles]) {
+        if (!map) {
+          continue;
+        }
+        for (const gid of Object.keys(map)) {
+          if (!seenGids.has(gid)) {
+            delete map[gid];
+          }
         }
       }
       // Re-sort by name (incoming is already sorted, but in-place
@@ -214,38 +216,14 @@ export default {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
     const src = this.appsList || [];
-    // DIAGNOSTIC SAFETY CAP — the apps page intermittently freezes the
-    // browser; while the root cause is under analysis we render at most
-    // `ogLimit` apps (default 1) so the UI stays responsive. Tunable two
-    // ways from the console:
-    //   localStorage.setItem('ogAppsLimit','3'); location.reload();
-    //       -> persists across reloads (preferred for step-by-step debug)
-    //   window.ogAppsLimit = 3;   (then trigger any re-render, e.g. type
-    //       in the search box) -> immediate, no reload, doesn't persist
-    // Set either to 0 (or any value <= 0) to render every app.
-    // localStorage wins when both are set. REMOVE this whole block once
-    // the hang is root-caused.
-    let ogLimit = 1;
-    try {
-      const _ls = (typeof localStorage !== 'undefined')
-        ? localStorage.getItem('ogAppsLimit') : null;
-      const _lsN = (_ls !== null && _ls !== '') ? parseInt(_ls, 10) : NaN;
-      if (Number.isFinite(_lsN)) {
-        ogLimit = _lsN;
-      } else if (typeof window !== 'undefined'
-        && typeof window.ogAppsLimit === 'number'
-        && Number.isFinite(window.ogAppsLimit)) {
-        ogLimit = window.ogAppsLimit;
-      }
-    } catch (_) {
-      // localStorage can throw in private-mode / sandboxed iframes —
-      // fall through to the default cap of 1.
-    }
     // Per-flush memo — see _filteredAppsCache comment block at top.
-    // Cache key folds (search, statusFilter, source-array ref, cap) so
-    // any filter change OR appsList reconcile OR a console cap bump
-    // invalidates cleanly.
-    const cacheKey = q + '|' + sf + '|' + src.length + '|' + ogLimit;
+    // Cache key folds (search, statusFilter, source-array ref) so any
+    // filter change OR appsList reconcile invalidates cleanly.
+    // (The temporary `ogAppsLimit` render cap was removed once the APC
+    // UI-freeze was root-caused + fixed — extras are now opt-in, so the
+    // heavy panel no longer renders unless ticked, and the page loads
+    // correctly with every app rendered.)
+    const cacheKey = q + '|' + sf + '|' + src.length;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
       && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
@@ -288,12 +266,6 @@ export default {
         }
         return false;
       });
-    }
-    // DIAGNOSTIC SAFETY CAP — keep only the first `ogLimit` apps so the
-    // page stays responsive while the intermittent freeze is analyzed.
-    // REMOVE alongside the `ogLimit` computation above once root-caused.
-    if (ogLimit > 0 && out.length > ogLimit) {
-      out = out.slice(0, ogLimit);
     }
     // Stamp the source reference on the result so the cache key
     // check (above) can verify the result was built from the
@@ -1886,12 +1858,30 @@ export default {
         || raw.startsWith('/')) {
         return raw;
       }
-      // Bare slug — route through the brand-icon resolver.
+      // Bare slug — route through the brand-icon resolver first.
+      let resolved = '';
       try {
-        return this.iconUrlFor(raw);
+        resolved = this.iconUrlFor(raw);
       } catch (_) {
-        return raw;
+        resolved = '';
       }
+      if (resolved) {
+        return resolved;
+      }
+      // The operator set this icon slug EXPLICITLY, so trust it and hit
+      // the file directly — bypassing iconUrlFor's KNOWN_ICONS gate
+      // (that gate exists to avoid 404s for AUTO-derived stack/host
+      // NAMES, not for an operator's deliberate slug). This is why a
+      // host-keyword slug like `ftth` — a real /img/icons/ftth.svg that
+      // resolves for hosts via the keyword scan but isn't in
+      // KNOWN_ICONS — now also resolves for a bookmark. The bookmark
+      // <img> has an @error handler that hides it cleanly if the slug
+      // turns out to have no matching file.
+      const slug = raw.toLowerCase().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
+      if (slug) {
+        return '/img/icons/' + slug + '.svg';
+      }
+      return raw;
     }
     // No explicit icon — fall back to the brand resolver on the
     // bookmark's display name (matches the prior behaviour).
@@ -2653,6 +2643,64 @@ export default {
       it.opts[key] = value;
     }
     this._persistAppsCustomLayout();
+  },
+
+  // Set a TOP-LEVEL field on a custom-layout item (name / url / icon),
+  // not an opts key — used by the bookmark card-settings editor so the
+  // operator can rename a bookmark / change its URL or icon from the
+  // gear flip. Persists immediately via the same ui_prefs layout
+  // channel as setAppsItemOpt. The icon resolves through
+  // appsBookmarkIconUrl (brand resolver + explicit-slug file fallback).
+  setAppsItemField(uid, key, value) {
+    if (!uid || !key) {
+      return;
+    }
+    const it = this._findAppsItemByUid(uid);
+    if (!it) {
+      return;
+    }
+    it[key] = value;
+    this._persistAppsCustomLayout();
+  },
+
+  // Toggle an APP TEMPLATE's `show_extras` flag from the card-settings
+  // flip (admin-only). Persists to the catalog via the partial-update
+  // endpoint (only show_extras changes — no full-template re-save), so
+  // it's the SAME state the Admin → Apps template toggle writes; either
+  // surface flips the per-app extras panel (e.g. APC's UPS stats) for
+  // every instance of the app. Optimistically reflects the new value on
+  // the in-memory catalog block, then force-refreshes so the card body
+  // shows / hides the panel.
+  async appsSetTemplateExtras(item, checked) {
+    const cat = item && item.app && item.app.catalog;
+    const slug = cat && (cat.slug || '').trim();
+    if (!slug) {
+      return;
+    }
+    const value = !!checked;
+    try {
+      const r = await fetch('/api/apps/catalog/' + encodeURIComponent(slug) + '/show-extras', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({show_extras: value}),
+      });
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      // Optimistic local reflect so the checkbox + body update without
+      // waiting on the refetch round-trip.
+      cat.show_extras = value;
+      await this.loadAppsList(true);
+    } catch (err) {
+      // Non-fatal: revert the optimistic flip on failure + surface.
+      cat.show_extras = !value;
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      } else {
+        console.error('[apps] set template extras failed:', msg);
+      }
+    }
   },
 
   // Effective Clock-widget options — resolves the override-or-fallback

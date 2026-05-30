@@ -249,8 +249,8 @@
                      rel="noopener"
                      @click.stop
                      :title="appsPortTitle(pr)">
-                    <span class="apps-card-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                    <span x-text="pr.port + '/' + (pr.protocol || 'tcp')" class="mono"></span>
+                    <span class="apps-card-dot apps-port-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
+                    <span class="apps-port-num mono" x-text="pr.port"></span><span class="apps-port-proto mono" x-text="'/' + (pr.protocol || 'tcp')"></span>
                   </a>
                 </template>
               </div>

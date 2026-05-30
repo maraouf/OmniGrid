@@ -9389,6 +9389,23 @@ select.field-invalid {
   transform: rotateY(180deg);
 }
 
+/* When flipped to the settings back face, take the FRONT face out of
+   paint + hit-testing entirely. `backface-visibility: hidden` already
+   hides it visually, but the front face stays LIVE — a clock widget's
+   per-second tick + the continuous colon-pulse animation keep
+   repainting behind the (3D-transformed) back face, and that repaint
+   re-triggers cursor hit-testing over the back-face CLOSE button, so the
+   cursor flickered hand<->arrow and the X was hard to click
+   (operator-flagged repeatedly). `visibility: hidden` stops the paint
+   (and the not-painted animation can't bleed through) while KEEPING the
+   front face in layout, so the inner's size — and thus the absolutely
+   positioned back face — stays stable (no reflow). `pointer-events:
+   none` removes it from hit-testing as belt-and-braces. */
+.apps-card-flip.apps-card--flipped .apps-card-face-front {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .apps-card-face-front,
 .apps-card-face-back {
   backface-visibility: hidden;
@@ -11023,9 +11040,13 @@ a.apps-drawer-tile-name {
 }
 
 .apps-spark {
-  width: 48px;
-  height: 12px;
+  /* Slightly larger than the original 48x12 so the uptime trend reads
+     at a glance on a dense card; the SVG viewBox stays 0 0 48 12 +
+     preserveAspectRatio=none so the existing points stretch cleanly. */
+  width: 56px;
+  height: 14px;
   display: block;
+  opacity: 0.9;
 }
 
 .apps-spark--up {
@@ -11039,30 +11060,57 @@ a.apps-drawer-tile-name {
 .apps-port-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--s-1);
-  padding: 1px 6px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--border);
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
   background: var(--surface-2);
-  line-height: 1.4;
+  font-size: var(--fs-3xs);
+  line-height: 1.5;
+  transition: background 140ms ease, border-color 140ms ease;
   /* Keep the status dot + port number (+ any indicator) on one line —
      never wrap the glyph below the dot. */
   white-space: nowrap;
 }
 
+/* Status now reads from a soft tinted FILL (not just a border) so a
+   wall of ports parses at a glance — green = up, red = down, neutral =
+   pending. Cleaner + denser than the old uniform-border boxes. */
 .apps-port-pill--up {
-  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--success) 26%, transparent);
 }
 
 .apps-port-pill--down {
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
 }
 
 /* Pending — port is configured on the chip but not probed yet (just
-   added, awaiting the next sampler tick). Neutral border so it reads
-   as "no verdict" rather than down. */
+   added, awaiting the next sampler tick). Neutral so it reads as "no
+   verdict" rather than down. */
 .apps-port-pill--unknown {
+  background: var(--surface-2);
   border-color: var(--border);
+}
+
+/* Typographic hierarchy: the port NUMBER is the signal (bold, full
+   text), the /proto suffix is supporting detail (dimmed). */
+.apps-port-num {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.apps-port-proto {
+  color: var(--text-faint);
+}
+
+/* Smaller status dot inside the dense pill than the 9px instance-row
+   dot — the tinted fill already carries the status, the dot is just a
+   reinforcing accent. */
+.apps-port-dot {
+  width: 6px;
+  height: 6px;
 }
 
 /* Port pills are now <a> elements (single x-for root) so a port flagged
@@ -11089,8 +11137,18 @@ a.apps-port-pill--link {
   cursor: pointer;
 }
 
-.apps-port-pill--link .mono {
-  text-decoration: underline dotted;
+/* Linkable (open_url + http/https) port — the noisy dotted underline
+   was dropped (it cluttered every dense card). The affordance is now a
+   clean hover: the pill brightens + adopts the accent border, and the
+   port number underlines only on hover so a clickable port is obvious
+   on interaction without adding rest-state noise. */
+a.apps-port-pill--link:hover {
+  background: var(--surface-3);
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+
+a.apps-port-pill--link:hover .apps-port-num {
+  text-decoration: underline;
   text-underline-offset: 2px;
 }
 

@@ -728,6 +728,28 @@ async def api_apps_list(_admin: AdminUser):
     return {"apps": apps}
 
 
+@app.post("/api/apps/catalog/{slug}/show-extras")
+async def api_apps_catalog_set_show_extras(slug: str, payload: dict, _admin: AdminUser):
+    """Toggle a catalog template's ``show_extras`` flag by slug. Admin-only.
+
+    PARTIAL update — only the ``show_extras`` column changes (via
+    ``update_catalog_entry``'s keyword-only `show_extras`), so the
+    template's name / icon / ports / probe config are untouched. Lets the
+    operator flip a per-app extras panel (e.g. APC's UPS stats) straight
+    from the Apps-page card-settings flip OR from Admin → Apps; both hit
+    this one endpoint. 404 when the slug doesn't resolve.
+    """
+    from logic import service_catalog as _sc
+    existing = await asyncio.to_thread(_sc.get_catalog_by_slug, slug)
+    if not existing:
+        raise HTTPException(status_code=404, detail="template not found")
+    value = bool(payload.get("show_extras"))
+    updated = await asyncio.to_thread(
+        _sc.update_catalog_entry, int(existing["id"]), show_extras=value
+    )
+    return {"ok": updated is not None, "show_extras": value}
+
+
 @app.post("/api/apps/tile-trace")
 async def api_apps_tile_trace(payload: dict[str, Any], _admin: AdminUser):
     """Admin-only diagnostic sink for the Apps-view per-tile render trace.
