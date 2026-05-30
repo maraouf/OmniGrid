@@ -82,6 +82,14 @@ def write_sample(body: dict, *, loc: Optional[dict] = None) -> bool:
         return False
     if body.get("error") or not body.get("configured"):
         return False
+    # Skip-don't-synthesize: a fetch that came back configured + error-free
+    # but with no current temperature (e.g. an upstream in-body error the
+    # parser surfaced as null fields, or a malformed 200) must NOT write a
+    # null ("—") history row — that pollutes the samples table + the
+    # AI / charts read it as real data. The next fetch with actual current
+    # data is the next sample.
+    if body.get("temp_c") is None:
+        return False
     upstream_label = body.get("label") or ""
     if loc is None:
         # Back-compat: caller didn't pass a loc. Fall through to the

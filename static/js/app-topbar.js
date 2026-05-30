@@ -264,10 +264,20 @@ export default {
       }
       const r = await fetch('/api/weather?' + p.toString());
       if (!r.ok) {
-        this.weather = null;
+        this._markWeatherStale();
         return;
       }
       const fresh = await r.json();
+      // The backend can return a configured + in-body-error / null-temp
+      // body (e.g. a WeatherAPI quota / key error surfaced in-body) — that
+      // is NOT a usable reading. KEEP the last-known-good this.weather
+      // (stale) instead of overwriting it with the empty result, so the
+      // widget still shows the last real reading and the freshness footer
+      // ages it ("Updated 2h ago") instead of going blank.
+      if (!fresh || typeof fresh !== 'object' || fresh.temp_c == null) {
+        this._markWeatherStale(fresh && fresh.error);
+        return;
+      }
       // In-place reconcile instead of `this.weather = fresh`: replacing
       // the object reference makes Alpine tear down + rebuild the whole
       // widget subtree (the "updated section" visibly removed + re-added
@@ -296,6 +306,27 @@ export default {
       // its cache).
       this._weatherFetchedAt = Date.now();
     } catch (_) {
+      this._markWeatherStale();
+    }
+  },
+  // Backend weather fetch failed (HTTP error, network error, OR a
+  // configured+error / null-temp body like a WeatherAPI quota error).
+  // Keep the last-known-good `this.weather` so the widget still shows the
+  // last real reading, mark it `_stale`, and DON'T bump `_weatherFetchedAt`
+  // so the "Updated X ago" freshness footer keeps aging from the last GOOD
+  // fetch — that growing age is the "this data is a bit old" signal the
+  // user asked for. Only blank when there's no prior good value to fall
+  // back to (first-ever fetch failed). The `_stale` / `_stale_error` keys
+  // auto-clear on the next good fetch via loadHeaderWeather's reconcile
+  // (keys absent from the fresh body are deleted). Moon reads the same
+  // `this.weather`, so it inherits the stale-but-shown behaviour for free.
+  _markWeatherStale(err) {
+    if (this.weather && typeof this.weather === 'object' && this.weather.temp_c != null) {
+      this.weather._stale = true;
+      if (err) {
+        this.weather._stale_error = String(err);
+      }
+    } else {
       this.weather = null;
     }
   },

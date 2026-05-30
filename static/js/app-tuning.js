@@ -34,11 +34,6 @@ export default {
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',
-    // Per-app expanded-card extras (Speedtest / APC) freshness TTL.
-    // SPA reads via `me.client_config.apps_extras_ttl_seconds`; a cached
-    // /app-data entry older than this triggers a background refresh
-    // (stale-while-revalidate). 0 = fetch-once (no auto-refresh).
-    'tuning_apps_extras_ttl_seconds',
     // permanent-fail window (was a separate card with its own
     // Save button until the operator asked for it to be a regular
     // tunable). Backend's `_record_failure` reads it via
@@ -113,11 +108,6 @@ export default {
     // hostnames consults logic.dns_skip to skip probes for
     // unresolvable hosts within this window.
     'tuning_dns_failed_skip_seconds',
-    // Short probe timeout when Beszel/Pulse hub latched as
-    // unreachable on previous probe — cold-cache callers fail
-    // fast instead of paying the full 15s budget.
-    'tuning_beszel_probe_timeout_unreachable_seconds',
-    'tuning_pulse_probe_timeout_unreachable_seconds',
     // Slow-query log threshold (ms) — every db_conn() wraps its
     // execute / executemany with timing; queries exceeding land in
     // Admin → Logs with the [slow_query] WARN prefix. 0 disables.
@@ -163,12 +153,14 @@ export default {
     ],
     beszel: [
       'tuning_beszel_probe_timeout_seconds',
+      'tuning_beszel_probe_timeout_unreachable_seconds',
       'tuning_beszel_sample_interval_seconds',
       'tuning_beszel_failure_pause_rounds',
     ],
     pulse: [
       'tuning_pulse_failure_pause_rounds',
       'tuning_pulse_probe_timeout_seconds',
+      'tuning_pulse_probe_timeout_unreachable_seconds',
       'tuning_pulse_sample_interval_seconds',
     ],
     webmin: [
@@ -227,6 +219,8 @@ export default {
     'tuning_webmin_probe_budget_seconds', // → Admin → Providers → Webmin
     'tuning_webmin_sampler_budget_seconds', // → Admin → Providers → Webmin (sampler tick budget)
     'tuning_node_exporter_probe_timeout_seconds', // → Admin → Providers → NE
+    'tuning_beszel_probe_timeout_unreachable_seconds', // → Admin → Providers → Beszel
+    'tuning_pulse_probe_timeout_unreachable_seconds', // → Admin → Providers → Pulse
     // Asset Inventory outbound HTTP timeouts — rendered in
     // Admin → Asset Inventory next to URL / client ID / etc.
     // Section-owned save via assetDirty() / saveAssetSettings().
@@ -245,6 +239,12 @@ export default {
     'tuning_public_ip_cache_ttl_seconds',
     'tuning_public_ip_fetch_timeout_seconds',
     'tuning_public_ip_sample_interval_seconds',
+    // Apps per-card extras (Speedtest / APC) freshness TTL — rendered in
+    // Admin → Apps (not the generic Config form). Section-owned save via
+    // appsSettingsSectionDirty() / saveAppsSettingsSection(). SPA consumer
+    // reads via me.client_config.apps_extras_ttl_seconds (stale-while-
+    // revalidate background refresh of the per-instance /app-data cache).
+    'tuning_apps_extras_ttl_seconds',
     // WeatherAPI.com — standalone subsystem with its own Admin →
     // Weather section. Cache TTL (default 600s), outbound HTTP
     // wall-clock (default 8s), persisted-sample retention (default

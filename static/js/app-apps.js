@@ -1318,9 +1318,29 @@ export default {
       fetch('/api/weather?lat=' + opts.lat + '&lon=' + opts.lng + labelParam)
         .then(r => r.ok ? r.json() : null)
         .then(j => {
-          this._perCardWeatherCache[key] = {
-            ts: Date.now(), data: j || null, pending: false,
-          };
+          // A null body (HTTP error) or a configured+error / null-temp
+          // body (e.g. WeatherAPI quota) is NOT a usable reading — keep
+          // the last-known-good (stale) so an override-mode card shows the
+          // last real values instead of going blank. Mark stale + preserve
+          // the prior `ts` so the freshness label keeps aging from the last
+          // good fetch. Only overwrite when the prior value wasn't good
+          // either (so a genuine first-load empty still surfaces).
+          const jOk = j && typeof j === 'object' && j.temp_c != null;
+          const priorEntry = this._perCardWeatherCache[key] || {};
+          const priorData = priorEntry.data;
+          if (!jOk && priorData && priorData.temp_c != null) {
+            priorData._stale = true;
+            if (j && j.error) {
+              priorData._stale_error = j.error;
+            }
+            this._perCardWeatherCache[key] = {
+              ts: priorEntry.ts || now, data: priorData, pending: false,
+            };
+          } else {
+            this._perCardWeatherCache[key] = {
+              ts: Date.now(), data: j || null, pending: false,
+            };
+          }
         })
         .catch(() => {
           // Leave the stale data + clear pending so a future re-render
