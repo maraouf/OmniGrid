@@ -9726,6 +9726,36 @@ select.field-invalid {
   }
 }
 
+/* Wide cards — SCALE UP the per-host instance rows so a double / x-large
+   app card USES its width instead of leaving the host name + latency + port
+   pills tiny in the top-left with dead space around them (operator-flagged:
+   "ports still need much more adjustment", "use every available space").
+   The host label + latency + port pills all step up a font size, the row
+   gains breathing gap, and the port pills get a roomier hit-target. Pairs
+   with the dense `max-width: 360px` tier above (which strips the dot +
+   /proto to pack many ports on a narrow card) — opposite ends of the same
+   size-adaptive spectrum. */
+@container ogcard (min-width: 440px) {
+  .apps-card-instance-row {
+    gap: var(--s-2);
+  }
+  .apps-card-instance-host {
+    font-size: var(--fs-sm);
+  }
+  .apps-card-latency {
+    font-size: var(--fs-xs);
+  }
+  .apps-port-grid {
+    gap: var(--s-2);
+    margin-top: 2px;
+  }
+  .apps-port-pill {
+    padding: 2px var(--s-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+  }
+}
+
 /* Speedtest extras — the two stat grids (latest down/up/ping + avg
    down/up/ping). Base: 3-up, two stacked rows (the Tailwind `grid-cols-3`
    moved here so the @container reformat can override it cleanly). */
@@ -10775,7 +10805,12 @@ select.field-invalid {
      hero shrinks on a compact card so the whole stack fits, and grows
      toward display-lg on a tall / wide one. Floor = display-base so it
      stays a clear focal number even on the smallest tile. */
-  font-size: clamp(var(--fs-display-base), 18cqmin, var(--fs-display-lg));
+  /* cqmin (smaller dimension) so a TALL card grows it too; cap raised to
+     display-2xl (was display-lg) so a genuinely large card keeps growing
+     the temperature / fleet count to use the space instead of capping early
+     and leaving dead area below (operator-flagged on the large preset —
+     matches the clock hero's cqmin→2xl fill). */
+  font-size: clamp(var(--fs-display-base), 20cqmin, var(--fs-display-2xl));
   font-weight: 700;
   line-height: 1.0;
   letter-spacing: -0.02em;
@@ -10888,7 +10923,11 @@ select.field-invalid {
    legible on a tiny card; the cap matches the original 120px on a tall /
    wide one. `height: auto` follows the square aspect from the width. */
 .apps-widget-moon-ring {
-  width: clamp(56px, 36cqmin, 104px);
+  /* cap raised 104 -> 176px + coefficient 36 -> 46cqmin so the ring GROWS to
+     fill a large card instead of staying small with dead space around it
+     (operator-flagged on the large preset). The inner "100%" <text> is a
+     viewBox coordinate, so it scales proportionally with the ring width. */
+  width: clamp(56px, 46cqmin, 176px);
   height: auto;
   flex-shrink: 0;
 }
@@ -10952,6 +10991,38 @@ select.field-invalid {
   }
   .apps-widget-detail {
     gap: var(--s-2) var(--s-3);
+  }
+}
+
+/* Large cards — SCALE UP the secondary (non-hero) content + SPREAD the
+   weather forecast column vertically so a tall / large widget fills its
+   space instead of clustering the hero + forecast at the top with dead
+   area below (operator-flagged on the large preset). The heroes already
+   grow continuously via their cqmin clamps above (clock / weather temp /
+   pubip / moon ring); this tier handles the content AROUND them — forecast
+   rows, subtitle, detail KV row, moon body spacing. */
+@container ogtile (min-height: 280px) {
+  .apps-widget-forecast--col {
+    justify-content: space-between;
+    gap: var(--s-1);
+  }
+  .apps-widget-forecast--col .apps-widget-forecast-day {
+    padding: var(--s-1) var(--s-2);
+  }
+  .apps-widget-forecast-name {
+    font-size: var(--fs-sm);
+  }
+  .apps-widget-forecast-temp {
+    font-size: var(--fs-md);
+  }
+  .apps-widget-subtitle {
+    font-size: var(--fs-md);
+  }
+  .apps-widget-detail {
+    font-size: var(--fs-sm);
+  }
+  .apps-widget-moon-body {
+    gap: var(--s-3);
   }
 }
 
