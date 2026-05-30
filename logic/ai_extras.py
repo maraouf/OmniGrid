@@ -1136,7 +1136,11 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 + str(hosts_sample_cap) + " of " + str(hosts_total or len(hosts))
                 + " total)",
                 "id, label, status, cpu_pct, mem_pct, disk_pct, "
-                "disk_free_gb, disk_total_gb, uptime_s, paused, providers",
+                "disk_free_gb, disk_total_gb, uptime_s, paused, providers, "
+                "plus per-host telemetry WHEN PRESENT: ups_status, "
+                "battery_pct, battery_status, battery_runtime_s, "
+                "battery_temp_c, load_pct, model, serial, firmware, vendor, "
+                "package_updates",
                 hosts[:hosts_sample_cap],
             ))
         # Problem-hosts block — the FULL list of every host whose status

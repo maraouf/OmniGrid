@@ -34,3 +34,18 @@ tmp/
 # Only the npm-metadata lockfile that lives INSIDE node_modules is noise.
 .package-lock.json
 
+# node_modules/.bin/ holds npm's CLI launcher shims. The extensionless
+# ones are Unix SYMLINKS (e.g. eslint -> ../eslint/bin/eslint.js) which
+# git cannot index on a Windows / WSL `/mnt` (DrvFs) checkout — `git add`
+# fails with "open(...): Function not implemented / unable to index
+# file". They're dev-tooling launchers only: the server serves the
+# package dist files as static and never runs .bin, and `npm run lint`
+# resolves the tool from node_modules/<pkg> directly. So they don't
+# belong in the committed tree — ignore the whole dir (run
+# `git rm -r --cached node_modules/.bin` once to untrack the existing
+# entries). The `**/.bin/` form also covers NESTED .bin dirs
+# (e.g. node_modules/global-prefix/node_modules/.bin) which carry the
+# same launcher shims / symlinks.
+node_modules/.bin/
+node_modules/**/.bin/
+

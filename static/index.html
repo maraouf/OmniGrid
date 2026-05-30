@@ -28,8 +28,14 @@
      document/fetch (not an image), so `as="image"` triggered a
      "preloaded but not used" console warning even though the sprite
      WAS being used. `crossorigin="anonymous"` is required by the
-     preload spec for `as="fetch"` even on same-origin requests. -->
-  <link rel="preload" as="fetch" type="image/svg+xml" crossorigin="anonymous" href="/img/ui-sprite.svg">
+     preload spec for `as="fetch"` even on same-origin requests.
+     The href MUST carry the SAME `?v=__APP_VERSION__` cache-bust query
+     the `<use href>` consumers use — without it the browser preloads
+     `/img/ui-sprite.svg` while every `<use>` fetches
+     `/img/ui-sprite.svg?v=<version>` (a different cache key), so the
+     preloaded copy is never used and Chrome floods the console with
+     "preloaded but not used" (one aggregated warning per page load). -->
+  <link rel="preload" as="fetch" type="image/svg+xml" crossorigin="anonymous" href="/img/ui-sprite.svg?v=__APP_VERSION__">
   <link rel="apple-touch-icon" href="/img/logo/omnigrid.png">
   <link rel="shortcut icon" href="/img/logo/omnigrid.png">
   <script>
@@ -3524,6 +3530,25 @@
                      @keydown.enter.prevent="$event.target.blur()">
               <span x-show="!appsCustomEditMode" class="fs-display-sm font-semibold flex-1 truncate"
                     x-text="sec.name || (t('apps.custom.unsectioned') || 'Unsectioned')"></span>
+              <!-- Per-section status rollup chips (up / degraded / down) so a
+                   COLLAPSED section signals at a glance which one has an issue
+                   to expand. Mirrors the fleet summary pills at the top of the
+                   Apps page. Each chip hides at count 0; the green up chip shows
+                   whenever the section has at least one app. Shown in both edit
+                   and locked mode. -->
+              <template x-if="appsSectionCounts(sec).total">
+                <span class="flex items-center gap-1 flex-shrink-0">
+                  <span class="chip pill-ok fs-3xs" x-show="appsSectionCounts(sec).up"
+                        x-text="appsSectionCounts(sec).up"
+                        :title="t('apps.counts.up', { n: appsSectionCounts(sec).up })"></span>
+                  <span class="chip pill-warning fs-3xs" x-show="appsSectionCounts(sec).degraded"
+                        x-text="appsSectionCounts(sec).degraded"
+                        :title="t('apps.counts.degraded', { n: appsSectionCounts(sec).degraded })"></span>
+                  <span class="chip pill-error fs-3xs" x-show="appsSectionCounts(sec).down"
+                        x-text="appsSectionCounts(sec).down"
+                        :title="t('apps.counts.down', { n: appsSectionCounts(sec).down })"></span>
+                </span>
+              </template>
               <span class="fs-2xs text-[var(--text-faint)]" x-text="sec.items.length"></span>
               <template x-if="appsCustomEditMode">
                 <span class="flex items-center gap-1 flex-shrink-0">

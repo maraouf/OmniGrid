@@ -1962,7 +1962,7 @@ export default {
   // Sanitiser for the per-item `opts` sub-dict (Apps Custom dashboard
   // per-card settings). Every Custom-layout item carries an optional
   // opts dict via this shape:
-  //   {size: 'half' | 'normal' | 'double',
+  //   {size: 'half' | 'normal' | 'double' | 'xlarge',
   //    follow_user: bool,            // widget-specific (clock + weather)
   //    clock_tz: string,             // IANA TZ name (clock widget only)
   //    clock_format: string,         // datetime token string (clock only)
@@ -1981,7 +1981,7 @@ export default {
     }
     const out = {};
     const size = String(raw.size || '').toLowerCase();
-    if (size === 'half' || size === 'normal' || size === 'double') {
+    if (size === 'half' || size === 'normal' || size === 'double' || size === 'xlarge') {
       out.size = size;
     }
     if (typeof raw.follow_user === 'boolean') {
@@ -2483,9 +2483,37 @@ export default {
   // Default 'normal' when no override is set. Used by the apps-card.html
   // + apps-widget-tile.html + apps-bookmark-tile.html `:class`
   // bindings to swap the grid-span + content-density rules.
+  // Per-section status rollup for the section-header chips (up /
+  // degraded / down / unknown counts across the section's APP items).
+  // Widgets + bookmarks have no probe status so they're skipped. NOT
+  // memoised on purpose: the only consumers are lightweight header chips
+  // (x-text / x-show, not an x-for), and a flush-memo with a cache-hit
+  // early-return would freeze them when an app's status changes via the
+  // in-place reconcile (see the perf "freeze" caveat). The loop is tiny
+  // (a handful of sections, few items each) so always-compute is cheap.
+  appsSectionCounts(sec) {
+    let up = 0, degraded = 0, down = 0, unknown = 0;
+    const items = (sec && sec.items) || [];
+    for (const it of items) {
+      if (!it || it.kind !== 'app' || !it.app) {
+        continue;
+      }
+      const s = it.app.status;
+      if (s === 'up') {
+        up++;
+      } else if (s === 'degraded') {
+        degraded++;
+      } else if (s === 'down') {
+        down++;
+      } else {
+        unknown++;
+      }
+    }
+    return {up, degraded, down, unknown, total: up + degraded + down + unknown};
+  },
   appsCardSizeClass(item) {
     const size = item && item.opts && item.opts.size;
-    if (size === 'half' || size === 'double') {
+    if (size === 'half' || size === 'double' || size === 'xlarge') {
       return 'apps-card--size-' + size;
     }
     return 'apps-card--size-normal';
@@ -2494,7 +2522,7 @@ export default {
   // back-face radio bindings for `:checked` selection state.
   appsCardSize(item) {
     const size = item && item.opts && item.opts.size;
-    return (size === 'half' || size === 'double') ? size : 'normal';
+    return (size === 'half' || size === 'double' || size === 'xlarge') ? size : 'normal';
   },
   // True when the card should render its body skeleton-only (just
   // title + icon at a small footprint). Same gate the body-render
@@ -2504,10 +2532,10 @@ export default {
     return this.appsCardSize(item) === 'half';
   },
 
-  // Mutate the per-card size + persist. Cycles half → normal → double
-  // → half when called without an explicit size. Called from the
-  // size-cycle button on the front face (quick-toggle in edit mode)
-  // AND from the back-face size radio.
+  // Mutate the per-card size + persist. Cycles ascending half → normal
+  // → double → xlarge → (wrap) half when called without an explicit
+  // size. Called from the size-cycle tap on the front face (quick-toggle
+  // in edit mode) AND from the back-face size radio.
   setAppsCardSize(uid, size) {
     if (!uid) {
       return;
@@ -2519,14 +2547,13 @@ export default {
     if (!it.opts) {
       it.opts = {};
     }
-    if (size === 'half' || size === 'normal' || size === 'double') {
+    if (size === 'half' || size === 'normal' || size === 'double' || size === 'xlarge') {
       it.opts.size = size;
     } else {
-      // Cycle: normal → double → half → normal.
-      const cur = it.opts.size || 'normal';
-      it.opts.size = (cur === 'normal') ? 'double'
-        : (cur === 'double') ? 'half'
-          : 'normal';
+      // Cycle ascending through the four width presets, wrapping at the end.
+      const order = ['half', 'normal', 'double', 'xlarge'];
+      const idx = order.indexOf(it.opts.size || 'normal');
+      it.opts.size = order[(idx + 1) % order.length];
     }
     this._persistAppsCustomLayout();
   },
@@ -2638,7 +2665,7 @@ export default {
     // BEFORE dragstart) so the cell's `@dragstart` guard preventDefaults
     // the move. Cleared in `up`.
     this._appsResizing = true;
-    const sizes = ['half', 'normal', 'double'];
+    const sizes = ['half', 'normal', 'double', 'xlarge'];
     const startX = (ev && typeof ev.clientX === 'number') ? ev.clientX : 0;
     let startIdx = sizes.indexOf(this.appsCardSize(item));
     if (startIdx < 0) {

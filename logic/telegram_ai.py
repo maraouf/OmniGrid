@@ -612,7 +612,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # typed targets; the `*_name` aliases let it match by
         # provider-specific aliases.
         def _shape(r: dict) -> dict:
-            return {
+            d = {
                 "id": r.get("id") or "",
                 "label": r.get("label") or r.get("id") or "",
                 "status": r.get("status") or "unknown",
@@ -629,7 +629,27 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 "pulse_name": r.get("pulse_name") or "",
                 "webmin_name": r.get("webmin_name") or "",
                 "snmp_name": r.get("snmp_name") or "",
+                # Per-host telemetry the user commonly asks the AI about
+                # DIRECTLY ("what's the UPS battery %", "load on X?",
+                # "how many updates pending on Y") — surfacing it here lets
+                # the AI answer from the data instead of deflecting to a
+                # "run /host <name>" instruction. Null / empty values are
+                # stripped below so a host WITHOUT a field (e.g. no UPS)
+                # doesn't carry a dozen empty keys into the prompt; a real
+                # 0 (0% load) is kept.
+                "ups_status": r.get("host_ups_status"),
+                "battery_pct": r.get("host_battery_percent"),
+                "battery_status": r.get("host_battery_status"),
+                "battery_runtime_s": r.get("host_battery_runtime_s"),
+                "battery_temp_c": r.get("host_battery_temp_c"),
+                "load_pct": r.get("host_load_percent"),
+                "model": r.get("host_model"),
+                "serial": r.get("host_serial"),
+                "firmware": r.get("host_firmware"),
+                "vendor": r.get("host_vendor"),
+                "package_updates": r.get("package_updates_count"),
             }
+            return {k: v for k, v in d.items() if v is not None and v != ""}
 
         host_records = [_shape(r) for r in api_hosts_sorted[:sample_cap]]
 
