@@ -9365,6 +9365,10 @@ select.field-invalid {
   grid-column: span 5;
 }
 
+.apps-section-grid > .apps-card--size-xlarge {
+  grid-column: span 7;
+}
+
 /* Half cards stay compact (body + meta hidden) but KEEP the title and
    the settings / refresh action pills visible — operator-flagged: the
    pills disappeared on half cards. Pills were previously hidden here. */
@@ -10402,6 +10406,16 @@ select.field-invalid {
   --widget-accent: var(--primary);
   --widget-accent-soft: color-mix(in srgb, var(--primary) 12%, transparent);
   --widget-accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
+  /* Size-query container so widget CONTENT adapts to the chosen card
+     width (the 4 width presets feed the tile's actual width). Descendants
+     query `ogtile` via @container + scale type with `cqi` units, so a
+     wider card shows more / larger content and a narrow one stays
+     compact — "the card decides based on the space available". Width-only
+     (`inline-size`) containment is the safe variant: the tile's height
+     is still driven by the cell's height preset, so this doesn't risk
+     collapsing the tile. */
+  container-type: inline-size;
+  container-name: ogtile;
   display: flex;
   flex-direction: column;
   flex: 1; /* fill the stretched height passed through from the grid via .apps-widget-tile-root */
@@ -10622,7 +10636,12 @@ select.field-invalid {
    generic hero's display-lg + nowrap. `break-all` lets a long IPv6 wrap
    onto a second line instead of ellipsis-truncating. */
 .apps-widget-pubip-ip {
-  font-size: var(--fs-display-sm);
+  /* Scales with the card width via the `ogtile` container: a comfortable
+     floor on a narrow card (bumped up from the old display-sm — it read
+     too small), growing toward display-lg on a wide / x-large card so the
+     IP is the clear focal point and the tile uses its width. Still wraps
+     (break-all) so a long IPv6 never ellipsis-truncates. */
+  font-size: clamp(var(--fs-display-md), 6cqi, var(--fs-display-lg));
   white-space: normal;
   overflow: visible;
   text-overflow: clip;

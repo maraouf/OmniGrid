@@ -261,7 +261,7 @@ export default {
     // the same `.ai-resp*` Question / Answer / metadata layout the
     // live response popup uses so an admin clicking through the
     // History tab sees a familiar surface.
-    let payload = {};
+    let payload;
     try {
       payload = JSON.parse(h.events || '{}') || {};
     } catch (_) {
@@ -1886,6 +1886,36 @@ export default {
       }
       if (h.host_serial) {
         out.serial = String(h.host_serial);
+      }
+      if (h.host_firmware) {
+        out.firmware = String(h.host_firmware);
+      }
+      // Per-host telemetry the user commonly asks the AI about DIRECTLY
+      // ("what's the UPS battery %", "any load on X") — surfacing it
+      // here (parity with the Telegram context-builder) lets the AI
+      // answer from the data + single-match auto-resolve instead of
+      // deflecting. Only stamped when the host actually reports the
+      // field, so non-UPS hosts don't carry empty keys.
+      if (h.host_ups_status) {
+        out.ups_status = String(h.host_ups_status);
+      }
+      if (h.host_battery_percent != null) {
+        out.battery_pct = h.host_battery_percent;
+      }
+      if (h.host_battery_status) {
+        out.battery_status = String(h.host_battery_status);
+      }
+      if (h.host_battery_runtime_s != null) {
+        out.battery_runtime_s = h.host_battery_runtime_s;
+      }
+      if (h.host_battery_temp_c != null) {
+        out.battery_temp_c = h.host_battery_temp_c;
+      }
+      if (h.host_load_percent != null) {
+        out.load_pct = h.host_load_percent;
+      }
+      if (h.package_updates_count != null) {
+        out.package_updates = h.package_updates_count;
       }
       // Platform / kernel — short strings the AI can correlate
       // against `uname -a` output (`Linux raspberry4tm02 5.15...`).

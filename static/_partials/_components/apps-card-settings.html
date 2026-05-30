@@ -37,7 +37,7 @@
           x-text="t('apps.custom.settings.size_label') || 'Size'"></span>
     <div class="inline-flex gap-1" role="radiogroup"
          :aria-label="t('apps.custom.settings.size_label') || 'Size'">
-      <template x-for="opt in ['half', 'normal', 'double']" :key="opt">
+      <template x-for="opt in ['half', 'normal', 'double', 'xlarge']" :key="opt">
         <button type="button" role="radio"
                 :aria-checked="appsCardSize(item) === opt ? 'true' : 'false'"
                 :tabindex="appsCardSize(item) === opt ? 0 : -1"
@@ -47,7 +47,7 @@
       </template>
     </div>
     <span class="apps-card-settings-hint"
-          x-text="t('apps.custom.settings.size_hint') || 'Half: title only. Normal: full card. Double: spans two columns.'"></span>
+          x-text="t('apps.custom.settings.size_hint') || 'Half: title only. Normal: full card. Double: wider. X-Large: widest.'"></span>
   </div>
 
   <!-- ============================================================
