@@ -29,6 +29,7 @@
     },
     "loading": "Loading…",
     "testing": "Testing…",
+    "tunables": "Tunables",
     "unit_seconds_short": "s",
     "unit_minutes_short": "m"
   },

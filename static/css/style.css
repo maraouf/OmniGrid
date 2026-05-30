@@ -11276,7 +11276,13 @@ select.field-invalid {
 .apps-widget-weather-body {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  /* `stretch` (was flex-start) so BOTH columns fill the body's full height
+     on a tall card — without this they took only their content height and
+     clustered at the top, leaving the bottom half empty on the large
+     presets (operator-flagged on the xlarge/tall variant). The main column
+     then space-betweens its content + the forecast column space-betweens
+     its days, so the content distributes across the whole card. */
+  align-items: stretch;
   gap: var(--s-1) var(--s-3);
   flex: 1;
   min-height: 0;
@@ -11288,7 +11294,11 @@ select.field-invalid {
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
-  justify-content: safe center;
+  /* space-between (was safe center) — on a tall card the hero rides the
+     top, the humidity/wind detail sinks to the bottom, USING the vertical
+     space instead of clumping mid-column. On a short card the content ~=
+     the height so the gaps stay tight. */
+  justify-content: space-between;
 }
 
 /* The `--col` modifier flips the base horizontal forecast strip into the
@@ -11299,6 +11309,12 @@ select.field-invalid {
   flex: 0 1 auto;
   flex-direction: column;
   flex-wrap: nowrap;
+  /* space-between distributes the day rows across the column's full
+     (stretched) height so they FILL a tall card instead of bunching at the
+     top with empty space below. align-self: stretch makes the column take
+     the body's height; the gap is the minimum spacing when the days don't
+     fill it (short card). */
+  justify-content: space-between;
   gap: 2px;
   width: auto;
   max-width: 52%;

@@ -73,17 +73,14 @@
            where "Auto-retry on transient overload" implicitly
            headed everything beneath it even though it only
            described the retry knobs. -->
-      <div x-show="tuningLoaded" class="pt-3 mt-2 border-t border-[var(--border)]">
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-          </svg>
-          <h3 class="font-semibold fs-sm"
-              x-text="t('admin.ai.tunables_heading')"></h3>
-        </div>
-        <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+      <details x-show="tuningLoaded" class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mt-2">
+        <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+          <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+          <span x-text="t('common.tunables')"></span>
+        </summary>
+        <p class="fs-2xs text-[var(--text-faint)] mb-3 mt-3 leading-snug"
            x-text="t('admin.ai.tunables_intro')"></p>
-      </div>
       <!-- Auto-retry knobs (master toggle + backoff + first-attempt
            cap). Disabled inputs while AI master toggle is off,
            since retry has no effect when AI is disabled. The
@@ -454,6 +451,7 @@
           </div>
         </template>
       </div>
+      </details>
       <!-- Provider fallback chain — opt-in resilience surface.
            When enabled, a transient overload (HTTP 429 / 502 /
            503 / 504) on the active provider falls through to the
