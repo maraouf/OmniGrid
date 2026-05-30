@@ -1183,21 +1183,21 @@ export default {
   },
   // Hand rotations for the analog clock face. Each angle is in
   // degrees, measured clockwise from 12-o'clock (`transform:
-  // rotate(<deg>deg)` on each SVG `<line>`). Second hand has a
-  // discrete tick; hour + minute hands move fractionally between
-  // marks so the face reads naturally between minutes.
+  // rotate(<deg>deg)` on each SVG `<line>`). NO seconds hand — it was
+  // removed to avoid a per-second dial repaint; the hour hand still
+  // advances fractionally across the minute so the face reads
+  // naturally, while the minute hand ticks discretely (it only needs
+  // to move once a minute now that there's no seconds sweep above it).
   appsWidgetClockHands(item) {
     const d = this._clockDateForItem(item);
     const h = d.getHours();
     const m = d.getMinutes();
-    const s = d.getSeconds();
-    // Hour: 360 deg / 12 hours = 30 deg/hr; smooth across minute.
+    // Hour: 360 deg / 12 hours = 30 deg/hr; smooth across the minute.
     const hourDeg = ((h % 12) * 30) + (m * 0.5);
-    // Minute: 360 / 60 = 6 deg/min; smooth across second.
-    const minuteDeg = (m * 6) + (s * 0.1);
-    // Second: discrete tick.
-    const secondDeg = s * 6;
-    return {hour: hourDeg, minute: minuteDeg, second: secondDeg};
+    // Minute: 360 / 60 = 6 deg/min; discrete per minute (no seconds
+    // smoothing — the seconds hand is gone).
+    const minuteDeg = m * 6;
+    return {hour: hourDeg, minute: minuteDeg};
   },
   // Weather-condition → sprite icon-id mapper. Matches the backend's
   // `weather.condition` string against common WMO-mapped phrases the

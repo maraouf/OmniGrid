@@ -3590,8 +3590,15 @@
                  grid, which re-arms the observers + lazy-render queue, so
                  probing resumes only when the section is back in view. -->
             <template x-if="!sec.collapsed">
-              <div class="apps-section-body-grid"
-                   :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+              <!-- BOTH edit AND locked mode use the span-aware
+                   `.apps-section-grid` (fine 90px auto-fill track) so the
+                   per-card width presets (half=span 2 / normal=span 3 /
+                   double=span 5) render at the SAME width in both modes.
+                   Locked mode previously used a Tailwind equal-column grid
+                   that ignored the span classes entirely, so a width set
+                   while editing silently reverted the moment edit mode
+                   closed (reported on bookmark tiles). -->
+              <div class="apps-section-body-grid apps-section-grid"
                    @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
                 <template x-for="item in sec.items" :key="item.uid">
                   <!-- apps-custom-cell wraps a flip-capable container.
@@ -3695,9 +3702,18 @@
           </section>
         </template>
 
-        <!-- Unsectioned (apps only) — big cards locked, condensed draggable edit -->
+        <!-- Unsectioned (apps only) — EDIT MODE ONLY. In locked mode the
+             whole bucket is torn out of the DOM (x-if, not x-show) so apps
+             the user never placed into a section are both HIDDEN and NOT
+             PROBED: no card mounts, so no IntersectionObserver + no
+             app-data / probe fetch runs for them. The reasoning: an app
+             left unsectioned in locked mode is one the user chose not to
+             surface, so it shouldn't cost render or network work. Edit
+             mode shows them as a condensed draggable staging area to drag
+             into a section (or knowingly leave out → hidden). -->
+        <template x-if="appsCustomEditMode">
         <section class="apps-section apps-section--unsectioned border border-[var(--border)] rounded-md"
-                 x-show="appsCustomUnsectioned().length || (appsCustomEditMode && !appsCustomSections().length)">
+                 x-show="appsCustomUnsectioned().length || !appsCustomSections().length">
           <header class="apps-section-head flex items-center gap-2 px-2 py-1.5 cursor-pointer"
                   @click="(($event.target.closest('input, select, textarea, button, a')) ? null : toggleAppsUnsectionedCollapsed())">
             <button type="button" class="user-action-btn"
@@ -3718,9 +3734,10 @@
                @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop('__unsectioned', null) : null">
             <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
               <div class="apps-custom-cell min-w-0">
-                <template x-if="!appsCustomEditMode">
-                  <!-- INCLUDE: _components/apps-card.html -->
-                </template>
+                <!-- Edit-mode only (the enclosing section is x-if'd to edit
+                     mode) — a condensed draggable staging tile. No locked-
+                     mode card branch here: unsectioned apps never render
+                     (or probe) outside edit mode. -->
                 <template x-if="appsCustomEditMode">
                   <article class="apps-tile" :class="'apps-tile--' + app.status" draggable="true"
                            @dragstart.stop="appsUnsectionedDragStart($event, app.group_id)"
@@ -3742,6 +3759,7 @@
                  x-text="t('apps.custom.all_sorted') || 'All apps are sorted into sections.'"></div>
           </div>
         </section>
+        </template>
       </div>
 
       <!-- Empty states -->

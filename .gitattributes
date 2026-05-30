@@ -4,3 +4,9 @@
 # changes checksums but nothing visible in diffs.
 static/vendor/*.js  -text
 static/vendor/*.css -text
+
+# Git hook shims live at .githooks/ (committed) and are activated per
+# clone via `core.hooksPath` (python scripts/install_precommit.py). They
+# MUST stay LF — a CRLF shebang line breaks bash on Linux / macOS — even
+# though the rest of this Windows-authored repo is CRLF.
+.githooks/* text eol=lf
