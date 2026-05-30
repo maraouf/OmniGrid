@@ -34,7 +34,6 @@ export default {
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',
-    'tuning_apps_tile_render_batch',
     // permanent-fail window (was a separate card with its own
     // Save button until the operator asked for it to be a regular
     // tunable). Backend's `_record_failure` reads it via
@@ -246,6 +245,12 @@ export default {
     // reads via me.client_config.apps_extras_ttl_seconds (stale-while-
     // revalidate background refresh of the per-instance /app-data cache).
     'tuning_apps_extras_ttl_seconds',
+    // Apps first-paint tile-render batch size — also rendered in Admin → Apps
+    // (relocated out of the generic Config form), saved via the same
+    // appsSettingsSectionDirty() / saveAppsSettingsSection() path. SPA consumer
+    // reads via me.client_config.apps_tile_render_batch (how many tiles the
+    // lazy-render queue readies per setTimeout(0) tick on first paint).
+    'tuning_apps_tile_render_batch',
     // WeatherAPI.com — standalone subsystem with its own Admin →
     // Weather section. Cache TTL (default 600s), outbound HTTP
     // wall-clock (default 8s), persisted-sample retention (default

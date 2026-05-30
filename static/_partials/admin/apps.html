@@ -18,61 +18,76 @@
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
      x-text="t('admin_apps.intro') || 'Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.'"></p>
 
-  <!-- App-extras freshness TTL — relocated here from Admin → Config so
-       the knob lives next to the feature it governs. Controls how stale a
-       per-card extras (Speedtest / APC) /app-data entry may get before a
-       background refresh fires (stale-while-revalidate). Section-owned
-       save: editing flips the amber Save ring; saveAppsSettingsSection()
-       POSTs it in one body. Same bounds-chips + effective-label shape every
-       Admin → Config row uses. -->
-  <div x-show="tuningLoaded" class="mb-4 pb-4 border-b border-[var(--border)] space-y-2">
-    <template x-for="key in ['tuning_apps_extras_ttl_seconds']" :key="key">
-      <div>
-        <label class="block fs-xs font-medium mb-1" :for="'apps-' + key"
-               x-text="t('admin.config.fields.' + key + '.label')"></label>
-        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-           x-text="t('admin.config.fields.' + key + '.help')"></p>
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="contents">
-            <input type="number" :id="'apps-' + key"
-                   :aria-label="t('admin.config.fields.' + key + '.label')"
-                   x-model="tuningForm[key]" :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min" :max="(tuningEffective[key] || {}).max"
-                   :disabled="!isAdmin() || appsSettingsSaving"
-                   class="w-44 mono fs-sm py-1">
-          </label>
-          <div class="bounds-chips" role="group" :aria-label="t('admin.config.bounds.group_label')">
-            <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
-              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
-              <span x-text="(tuningEffective[key] || {}).min"></span>
-            </span>
-            <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
-              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
-              <span x-text="(tuningEffective[key] || {}).max"></span>
-            </span>
-            <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
-              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
-              <span x-text="(tuningEffective[key] || {}).default"></span>
-            </span>
-          </div>
-          <span class="fs-2xs text-[var(--text-faint)] ms-auto" x-text="tuningEffectiveLabel(key)"></span>
-        </div>
-        <div class="mt-2 flex items-center gap-2 flex-wrap">
-          <button type="button" x-show="isAdmin()" @click="saveAppsSettingsSection()"
-                  class="btn btn-primary fs-sm"
-                  :class="appsSettingsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
-                  :disabled="appsSettingsSaving || !appsSettingsSectionDirty()">
-            <span x-show="!appsSettingsSaving" x-text="t('actions.save')"></span>
-            <span x-show="appsSettingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving') || 'Saving…'"></span></span>
-          </button>
-          <span x-show="appsSettingsSectionDirty()" class="fs-xs text-[var(--warning)] flex items-center gap-1.5" :title="t('common.unsaved_title')">
-            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
-            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
-          </span>
-        </div>
+  <!-- Apps tunables — collapsible menu matching the other admin Tunables
+       sections. Relocated from Admin → Config so the knobs live next to the
+       feature they govern: app-extras freshness TTL (stale-while-revalidate
+       window for the per-card Speedtest / APC /app-data cache) + the
+       first-paint tile-render batch size. Section-owned save: editing flips
+       the amber Save ring; saveAppsSettingsSection() POSTs both in one body.
+       Header always renders (isAdmin) with a loading indicator until tunables
+       hydrate, matching every other admin Tunables collapsible. -->
+  <details x-show="isAdmin()" class="mb-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+      <span x-text="t('common.tunables')"></span>
+    </summary>
+    <div class="mt-3 space-y-3">
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('admin_apps.tunables_intro')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
       </div>
-    </template>
-  </div>
+      <template x-for="key in (tuningLoaded ? ['tuning_apps_extras_ttl_seconds', 'tuning_apps_tile_render_batch'] : [])" :key="key">
+        <div>
+          <label class="block fs-xs font-medium mb-1" :for="'apps-' + key"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="contents">
+              <input type="number" :id="'apps-' + key"
+                     :aria-label="t('admin.config.fields.' + key + '.label')"
+                     x-model="tuningForm[key]" :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min" :max="(tuningEffective[key] || {}).max"
+                     :disabled="!isAdmin() || appsSettingsSaving"
+                     class="w-44 mono fs-sm py-1">
+            </label>
+            <div class="bounds-chips" role="group" :aria-label="t('admin.config.bounds.group_label')">
+              <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+                <span x-text="(tuningEffective[key] || {}).min"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+                <span x-text="(tuningEffective[key] || {}).max"></span>
+              </span>
+              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+                <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+                <span x-text="(tuningEffective[key] || {}).default"></span>
+              </span>
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto" x-text="tuningEffectiveLabel(key)"></span>
+          </div>
+        </div>
+      </template>
+      <div x-show="tuningLoaded" class="mt-2 flex items-center gap-2 flex-wrap">
+        <button type="button" x-show="isAdmin()" @click="saveAppsSettingsSection()"
+                class="btn btn-primary fs-sm"
+                :class="appsSettingsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                :disabled="appsSettingsSaving || !appsSettingsSectionDirty()">
+          <span x-show="!appsSettingsSaving" x-text="t('actions.save')"></span>
+          <span x-show="appsSettingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving') || 'Saving…'"></span></span>
+        </button>
+        <span x-show="appsSettingsSectionDirty()" class="fs-xs text-[var(--warning)] flex items-center gap-1.5" :title="t('common.unsaved_title')">
+          <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+          <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+        </span>
+      </div>
+    </div>
+  </details>
 
   <!-- Tab strip — Templates / Instances. Delegated to the shared
        og-tab-strip partial for the blue-pill active state + leading
@@ -268,7 +283,7 @@
                     :title="t('admin_apps.edit') || 'Edit template'"
                     @click="openAppCatalogEdit(entry)">
               <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pencil"/>
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
               </svg>
             </button>
             <button type="button" class="user-action-btn user-action-btn--danger"
@@ -599,57 +614,42 @@
                 x-text="(t('admin_apps.add_port') || 'Add port')"></button>
       </div>
       <template x-for="(p, idx) in (appsCatalogEdit.default_ports || [])" :key="idx">
-        <!-- Single root element — an <template x-for> renders ONLY its first
-             root child, so the grid row + the URL toggle MUST share one
-             wrapper or the toggle silently never renders. -->
-        <div class="mb-2">
-          <div class="grid grid-cols-6 gap-2 items-end">
-            <div>
-              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_port') || 'Port'"></label>
-              <input type="number" class="w-full fs-xs" min="1" max="65535" x-model.number="p.port">
-            </div>
-            <div>
-              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_protocol') || 'Proto'"></label>
-              <select class="w-full fs-xs" x-model="p.protocol">
-                <option value="tcp">tcp</option>
-                <option value="udp">udp</option>
-                <option value="http">http</option>
-                <option value="https">https</option>
-              </select>
-            </div>
-            <div class="col-span-2">
-              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_label') || 'Label'"></label>
-              <input type="text" class="w-full fs-xs" maxlength="64" x-model="p.label">
-            </div>
-            <div>
-              <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_path') || 'Probe path'"></label>
-              <input type="text" class="w-full fs-xs" maxlength="256" x-model="p.probe_path">
-            </div>
-            <div class="flex items-end gap-1">
-              <div class="flex-1">
-                <label class="block fs-3xs text-[var(--text-faint)]" x-text="t('admin_apps.port_status') || 'Status'"></label>
-                <input type="number" class="w-full fs-xs" min="0" max="599" x-model.number="p.probe_status">
-              </div>
-              <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
-                      :aria-label="t('admin_apps.remove_port') || 'Remove port'">
-                <svg width="13" height="13" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-                </svg>
-              </button>
-            </div>
-          </div>
+        <!-- Single flex-wrap row matching the instance-edit modal's port
+             editor so both read the same and the URL toggle stays on the
+             SAME line as the port fields (captions become placeholders,
+             exactly as the instance editor does). One root element — a
+             <template x-for> renders only its first root child. -->
+        <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+          <input type="number" class="w-[78px] fs-xs" min="1" max="65535" x-model.number="p.port"
+                 :placeholder="t('admin_apps.port_port') || 'Port'">
+          <select class="fs-xs" x-model="p.protocol">
+            <option value="tcp">tcp</option>
+            <option value="udp">udp</option>
+            <option value="http">http</option>
+            <option value="https">https</option>
+          </select>
+          <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="64" x-model="p.label"
+                 :placeholder="t('admin_apps.port_label') || 'Label'">
+          <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="256" x-model="p.probe_path"
+                 :placeholder="t('admin_apps.port_path') || 'Probe path'">
+          <input type="number" class="w-[64px] fs-xs" min="0" max="599" x-model.number="p.probe_status"
+                 :placeholder="t('admin_apps.port_status') || 'Status'">
           <!-- URL toggle — when ticked, this port renders as a clickable link
                (<scheme>://<host>:<port><path>) in the Apps view + host drawer,
-               on ANY protocol. Cloned onto the chip when the template is pinned. -->
-          <!-- Compact "URL" checkbox matching the instance-edit modal's
-               per-port toggle so both editors read the same. When ticked
-               the port renders as a clickable <scheme>://<host>:<port> link
-               in the Apps view + host drawer (any protocol). -->
-          <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap mt-1 ps-1 cursor-pointer"
+               on ANY protocol. Cloned onto the chip when the template is pinned.
+               Compact "URL" checkbox matching the instance-edit modal's per-port
+               toggle so both editors read the same. -->
+          <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap cursor-pointer"
                  :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
             <input type="checkbox" x-model="p.open_url">
             <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
           </label>
+          <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
+                  :aria-label="t('admin_apps.remove_port') || 'Remove port'">
+            <svg width="13" height="13" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+            </svg>
+          </button>
         </div>
       </template>
     </div>

@@ -26,7 +26,7 @@ export default {
   // Apps module) so the partial's bindings resolve on the merged component.
   appsSettingsSaving: false,
   _appsSettingsSectionTuningKeys() {
-    return ['tuning_apps_extras_ttl_seconds'];
+    return ['tuning_apps_extras_ttl_seconds', 'tuning_apps_tile_render_batch'];
   },
   appsSettingsSectionDirty() {
     try {
