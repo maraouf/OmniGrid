@@ -15,6 +15,18 @@
 // SPA AI Integration — sidebar chat, command-palette AI mode, AI
 // dashboard, AI memory, AI provider settings.
 
+// Module-scope memo for `_renderAiAnswerMd` — the AI-sidebar conversation
+// x-for binds each assistant bubble via `x-html="_renderAiAnswerMd(turn.text)"`,
+// so Alpine re-runs the (expensive, multi-pass regex) markdown parser on EVERY
+// reactive flush (1s host ticker, /api/ops poll, every SSE event…). Keying on
+// the raw text string means a stable committed turn is parsed ONCE then served
+// from cache — and because the SAME string object is returned on a hit, Alpine
+// sees an unchanged x-html value and SKIPS the innerHTML rewrite (no DOM
+// rebuild, no lost text-selection in code blocks). A streaming turn whose text
+// mutates per chunk gets a fresh key each chunk → re-renders correctly, then
+// settles to a cache hit once complete. Cleared wholesale past a cap so a
+// long-lived session can't grow it unbounded (conversation is ≤50 turns).
+const _aiMdCache = new Map();
 
 export default {
   // ----- AI Assistant sidebar (conversational drawer) ---------------
@@ -111,6 +123,14 @@ export default {
   _renderAiAnswerMd(text) {
     if (!text) {
       return '';
+    }
+    // Per-flush re-parse guard: return the cached render for this exact
+    // text (same string object back → Alpine skips the x-html write).
+    // See the `_aiMdCache` declaration above for the full rationale.
+    const _cacheKey = String(text);
+    const _cached = _aiMdCache.get(_cacheKey);
+    if (_cached !== undefined) {
+      return _cached;
     }
     // Three-pass parser:
     //   1. Extract fenced code blocks (```...```) BEFORE escaping or
@@ -252,6 +272,13 @@ export default {
         + '</div>'
       );
     });
+    // Cache the render keyed on the source text. Clear wholesale past a
+    // cap so a long session (many distinct turn texts + the response
+    // popup) can't grow the Map unbounded — cheap to rebuild on demand.
+    if (_aiMdCache.size > 300) {
+      _aiMdCache.clear();
+    }
+    _aiMdCache.set(_cacheKey, html);
     return html;
   },
   _openAiPaletteHistoryDetail(h) {

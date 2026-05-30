@@ -9413,11 +9413,30 @@ select.field-invalid {
   display: none;
 }
 
-/* On a short app card, cap the per-host instance list to the first row
-   + scroll the rest (rather than clipping) so a multi-instance app still
-   shows its primary host. `tall` lets the full list breathe. */
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-body-region {
+/* App-card body scrolls (rather than CLIPPING) at EVERY height preset when
+   overfilled — the cell has a fixed `height` + `overflow: hidden`, so the
+   instance list / ports / per-app extras (Speedtest / APC) that sit below
+   the fold were clipped and unreachable on normal / tall cards (this rule
+   was short-height-only). Now any overfilled body scrolls in place; the
+   hero stays in flow at the top. Thin tokenised scrollbar chrome (matching
+   the flip back-face) keeps it unobtrusive. */
+.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region {
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) transparent;
+}
+.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar {
+  width: 6px;
+}
+.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar-track {
+  background: transparent;
+}
+.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: var(--r-sm);
+}
+.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region:hover::-webkit-scrollbar-thumb {
+  background: var(--text-faint);
 }
 
 /* ----------------------------------------------------------------
@@ -10675,9 +10694,23 @@ select.field-invalid {
 
 /* The hero ROW (ring + phase text) centres horizontally; it must NOT
    grow (no flex:1) — the outer body owns the vertical centring, so the
-   row stays sized to the 120px ring + text. */
+   row stays sized to the ring + text. */
 .apps-widget-moon-fill {
   justify-content: center;
+}
+
+/* Moon ring SCALES with the card's smaller dimension. The SVG's inline
+   width/height=120 attrs were a FIXED 120px, which on a short (150px)
+   card overflowed the available height once the phase text + rise/set
+   detail were stacked under it → the ring clipped at the top (operator-
+   reported "moon cropped" repeatedly). CSS width/height override the SVG
+   attrs; the viewBox keeps the arc geometry intact. clamp floor keeps it
+   legible on a tiny card; the cap matches the original 120px on a tall /
+   wide one. `height: auto` follows the square aspect from the width. */
+.apps-widget-moon-ring {
+  width: clamp(64px, 42cqmin, 116px);
+  height: auto;
+  flex-shrink: 0;
 }
 
 .apps-widget-hero-icon {

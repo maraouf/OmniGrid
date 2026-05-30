@@ -56,6 +56,27 @@ import {
   _clearHostAppsHealthFlushCache,
 } from './app-apps-state.js?v=__APP_VERSION__';
 
+// Per-flush memo for `_buildAppsCustom()`. appsCustomSections() +
+// appsCustomUnsectioned() call it ~5x per reactive flush (the section
+// x-for + length guards + the unsectioned x-for / count span), and each
+// pass re-allocates the entire {sections, unsectioned} model. Build it
+// ONCE per flush, serve the same object to all 5 readers, then clear on
+// the next microtask so a layout edit / poll reconcile rebuilds. App-
+// apps.js-only state, so it lives here (not in the shared app-apps-state
+// module). Freeze-safe per caveat-6: both consumers feed x-for sources
+// that re-subscribe to filteredApps() every flush.
+let _appsCustomBuildCache = null;
+let _appsCustomBuildScheduled = false;
+
+// Per-flush memo for `appsHostGroups()` — the by-app grid's x-for source.
+// It walks filteredApps(), builds a per-host grouping + a fresh per-app
+// descriptor for every instance, and per-group sorts; un-memoized it
+// re-ran fully every flush (+ a 2nd call from appResolvePin). Build once
+// per flush; queueMicrotask clear rebuilds next flush. Freeze-safe
+// (caveat-6: the grid x-for re-subscribes to filteredApps every flush).
+let _appsHostGroupsCache = null;
+let _appsHostGroupsScheduled = false;
+
 export default {
   // ----------------------------------------------------------------
   // Top-level Apps view — cross-host aggregate.
@@ -2164,6 +2185,12 @@ export default {
   // Unsectioned only ever holds APP cards (widgets / bookmarks live solely
   // where the user placed them).
   _buildAppsCustom() {
+    // Flush-memo (see _appsCustomBuildCache decl): collapse the ~5
+    // calls/flush from appsCustomSections() + appsCustomUnsectioned()
+    // into ONE model build per flush.
+    if (_appsCustomBuildCache !== null) {
+      return _appsCustomBuildCache;
+    }
     this._hydrateAppsCustomLayout();
     const apps = this.filteredApps() || [];
     const byId = {};
@@ -2215,7 +2242,16 @@ export default {
       return {id: s.id, name: s.name, collapsed: !!s.collapsed, items};
     });
     const unsectioned = apps.filter(a => !assignedRefs.has(a.group_id));
-    return {sections, unsectioned};
+    const result = {sections, unsectioned};
+    _appsCustomBuildCache = result;
+    if (!_appsCustomBuildScheduled) {
+      _appsCustomBuildScheduled = true;
+      queueMicrotask(() => {
+        _appsCustomBuildCache = null;
+        _appsCustomBuildScheduled = false;
+      });
+    }
+    return result;
   },
 
   appsCustomSections() {
@@ -2956,6 +2992,9 @@ export default {
   // render an icon tile + status dot and the drawer can show per-port
   // detail. Sorted by host label / address.
   appsHostGroups() {
+    if (_appsHostGroupsCache !== null) {
+      return _appsHostGroupsCache;
+    }
     const apps = this.filteredApps();
     const byHost = {};
     const order = [];
@@ -3037,6 +3076,14 @@ export default {
     });
     groups.sort((a, b) => (a.host_label || a.host_address || '').toLowerCase()
       .localeCompare((b.host_label || b.host_address || '').toLowerCase()));
+    _appsHostGroupsCache = groups;
+    if (!_appsHostGroupsScheduled) {
+      _appsHostGroupsScheduled = true;
+      queueMicrotask(() => {
+        _appsHostGroupsCache = null;
+        _appsHostGroupsScheduled = false;
+      });
+    }
     return groups;
   },
 
