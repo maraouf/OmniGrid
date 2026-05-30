@@ -5012,6 +5012,7 @@
       "gear_title": "Card settings",
       "gear_aria": "Open card settings",
       "size_drag_title": "Tap to cycle size, or drag to resize (half / normal / double)",
+      "height_drag_title": "Tap to toggle height, or drag to resize (short / tall)",
       "settings": {
         "title": "Card settings",
         "size_label": "Size",
@@ -5019,6 +5020,10 @@
         "size_normal": "Normal",
         "size_double": "Double",
         "size_hint": "Half: title only. Normal: full card. Double: spans two columns.",
+        "height_label": "Height",
+        "height_short": "Short",
+        "height_tall": "Tall",
+        "height_hint": "Short: compact tile. Tall: roomy card for lists / large widgets.",
         "show_extras_label": "Show extras panel",
         "show_extras_hint": "Show this app’s extra data panel (e.g. APC UPS stats) on the card. Same setting as Admin → Apps.",
         "bookmark": {

@@ -74,7 +74,7 @@ def is_enabled() -> bool:
         return False
 
 
-async def fetch() -> Optional[dict]:
+async def fetch(force: bool = False) -> Optional[dict]:
     """Return ``{ip, isp, asn, country, city}`` or None.
 
     Cache-aware: a fresh entry (TTL configurable via
@@ -82,6 +82,12 @@ async def fetch() -> Optional[dict]:
     without hitting the upstream. Errors are logged + cached as None
     for a short window so a transient outage doesn't hammer
     ifconfig.co on every call.
+
+    ``force=True`` bypasses the positive TTL cache (used by the explicit
+    per-widget Refresh button) so the operator gets a fresh lookup on
+    demand; the result is still written back to the cache for subsequent
+    reads. The negative cache still applies under force so a Refresh
+    spammed during an upstream outage doesn't hammer ifconfig.co.
     """
     if not is_enabled():
         return None
@@ -90,7 +96,7 @@ async def fetch() -> Optional[dict]:
         ttl = float(tuning_int(Tunable.PUBLIC_IP_CACHE_TTL_SECONDS))
     except (KeyError, ValueError, TypeError):
         ttl = 600.0
-    if now - _cache["ts"] < ttl and _cache["data"] is not None:
+    if not force and now - _cache["ts"] < ttl and _cache["data"] is not None:
         return _cache["data"]
     # Negative cache — a recent failure short-circuits ifconfig.co under
     # sustained outages so we don't hammer the upstream on every call.

@@ -489,6 +489,11 @@
      rule). Same value for both themes; status colour varies by
      .apps-card--<status> modifier. */
   --apps-card-border-w: 3px;
+  /* Apps Custom card HEIGHT presets (short / tall) — the two fixed
+     heights a card / widget / bookmark can be; the operator drags the
+     bottom-edge handle to switch. Theme-agnostic. */
+  --apps-card-h-short: 132px;
+  --apps-card-h-tall: 248px;
 }
 
 :root[data-theme="light"] {
@@ -671,6 +676,11 @@
      both themes because the status colour (not the thickness)
      carries the per-state semantic. */
   --apps-card-border-w: 3px;
+  /* Apps Custom card HEIGHT presets (short / tall) — the two fixed
+     heights a card / widget / bookmark can be; the operator drags the
+     bottom-edge handle to switch. Theme-agnostic. */
+  --apps-card-h-short: 132px;
+  --apps-card-h-tall: 248px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -4509,7 +4519,14 @@ details summary::-webkit-details-marker {
 .ai-sidebar-launcher {
   position: fixed;
   left: 0;
-  top: 50%;
+  /* Anchored in the LOWER portion of the viewport (within the bottom
+     ~20%) rather than vertically centred — operator-flagged: a
+     centre-left launcher overlaps mid-screen content the user is
+     reading. `top: 82%` + the -50% self-offset puts the button's
+     centre at 82% of viewport height, so a 56px button sits roughly in
+     the 79-85% band — clear of the main content area but not jammed
+     into the very corner. */
+  top: 82%;
   transform: translateY(-50%);
   z-index: 35;
   background: var(--primary);
@@ -9362,6 +9379,23 @@ select.field-invalid {
   grid-column: span 2;
 }
 
+/* HEIGHT presets — every card / widget / bookmark is locked to ONE of
+   two fixed heights so it can never grow past its preset (the vertical
+   analogue of the half/normal/double WIDTH caps). The cap goes on the
+   `.apps-custom-cell` (the grid item) as a fixed height; the inner flip
+   surfaces already fill 100% of it, and the body content clips with the
+   card's own overflow rules. `short` is the default compact tile;
+   `tall` gives roomy cards (multi-instance app lists, big clock, moon).
+   Operator drags the bottom-edge handle (or the back-face radio) to
+   switch. Both heights apply uniformly to apps, widgets AND bookmarks. */
+.apps-custom-cell.apps-card--height-short {
+  height: var(--apps-card-h-short);
+}
+
+.apps-custom-cell.apps-card--height-tall {
+  height: var(--apps-card-h-tall);
+}
+
 /* ----------------------------------------------------------------
    Apps Custom — per-card flip-to-settings animation. The gear icon
    in the card header toggles `.apps-card--flipped` on the outer
@@ -9538,6 +9572,39 @@ select.field-invalid {
 .apps-card-resize-handle:hover::after {
   opacity: 0.9;
   height: 40px;
+}
+
+/* BOTTOM-EDGE resize handle (edit mode) — vertical analogue of the
+   right-edge width handle. Drag it up / down to snap the card between
+   its two height presets (short / tall). `ns-resize` cursor + a
+   horizontal accent grip make the affordance discoverable; wider
+   hit-area than the visible bar. */
+.apps-card-resize-handle-v {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 14px;
+  cursor: ns-resize;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.apps-card-resize-handle-v::after {
+  content: "";
+  height: 4px;
+  width: 28px;
+  border-radius: var(--r-sm);
+  background: var(--primary);
+  opacity: 0.45;
+  transition: opacity 120ms ease, width 120ms ease;
+}
+
+.apps-card-resize-handle-v:hover::after {
+  opacity: 0.9;
+  width: 40px;
 }
 
 /* EDIT-MODE DATA STRIP — hide every data region so only icon + title +
@@ -10798,42 +10865,33 @@ select.field-invalid {
   }
 }
 
+/* Bookmark tile now reuses `.apps-card` for its chrome (logo backdrop,
+   border accent, HOVER LIFT + glow, name/meta typography) so a bookmark
+   reads as the same kind of card as apps + widgets (operator-flagged:
+   small name, no hover, gear not at top). This rule only adds the
+   <a>-link resets `.apps-card` doesn't carry; everything else is
+   inherited. */
 .apps-bookmark-tile {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
-  color: var(--text);
   text-decoration: none;
-  cursor: pointer;
-  transition: box-shadow 120ms ease;
-  min-width: 0;
-  /* Fill the flip cell's height so a bookmark sitting next to an app
-     card / widget in the same section row matches their height instead
-     of shrinking to its own content (operator-flagged: bookmark card
-     shorter than its neighbours). The `.apps-card-face-front` ancestor
-     is already height:100%, so claiming 100% here propagates the
-     grid-row stretch down to the bookmark surface. */
-  height: 100%;
-  box-sizing: border-box;
+  color: var(--text);
+  align-items: center;  /* vertical-centre the logo + text + actions row */
 }
 
-.apps-bookmark-tile:hover {
-  box-shadow: 0 1px 6px var(--row-hover);
+/* Fallback link glyph in the logo block — hidden by default (the brand
+   <img> shows). Revealed when there's NO icon (img absent) OR the
+   resolved file 404'd (the @error handler adds `.apps-bookmark-logo--noicon`
+   which hides the img + shows this). */
+.apps-card-logo .apps-bookmark-fallback-icon {
+  display: none;
 }
 
-.apps-bookmark-icon {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  flex-shrink: 0;
+.apps-card-logo:not(:has(img)) .apps-bookmark-fallback-icon,
+.apps-card-logo.apps-bookmark-logo--noicon .apps-bookmark-fallback-icon {
+  display: block;
 }
 
-.apps-bookmark-text {
-  min-width: 0;
+.apps-card-logo.apps-bookmark-logo--noicon img {
+  display: none;
 }
 
 /* ==========================================================================

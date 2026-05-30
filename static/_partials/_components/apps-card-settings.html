@@ -51,6 +51,30 @@
   </div>
 
   <!-- ============================================================
+       Universal: card height (two presets — short / tall). Every card
+       type (apps + widgets + bookmarks) is locked to one of these two
+       heights so it can never grow past its preset. Drag the bottom-
+       edge handle in edit mode, or pick here.
+       ============================================================ -->
+  <div class="apps-card-settings-row">
+    <span class="apps-card-settings-label"
+          x-text="t('apps.custom.settings.height_label') || 'Height'"></span>
+    <div class="inline-flex gap-1" role="radiogroup"
+         :aria-label="t('apps.custom.settings.height_label') || 'Height'">
+      <template x-for="opt in ['short', 'tall']" :key="opt">
+        <button type="button" role="radio"
+                :aria-checked="appsCardHeight(item) === opt ? 'true' : 'false'"
+                :tabindex="appsCardHeight(item) === opt ? 0 : -1"
+                class="apps-seg-btn fs-2xs"
+                @click.stop="setAppsCardHeight(item.uid, opt)"
+                x-text="(t('apps.custom.settings.height_' + opt) || opt)"></button>
+      </template>
+    </div>
+    <span class="apps-card-settings-hint"
+          x-text="t('apps.custom.settings.height_hint') || 'Short: compact tile. Tall: roomy card for lists / large widgets.'"></span>
+  </div>
+
+  <!-- ============================================================
        Clock widget — per-card timezone + format + analog/digital
        overrides. Gates on item.kind=widget AND item.widget=clock.
        ============================================================ -->

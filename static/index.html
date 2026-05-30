@@ -3592,7 +3592,7 @@
                        drives grid-span + body-density; the flipped
                        class toggles via the front-face gear button. -->
                   <div class="apps-custom-cell min-w-0 apps-card-flip"
-                       :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
+                       :class="appsCardSizeClass(item) + ' ' + appsCardHeightClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
                        :draggable="appsCustomEditMode && !_appsResizing ? 'true' : 'false'"
                        @dragstart="(appsCustomEditMode && !_appsResizing) ? appsItemDragStart($event, item.uid) : $event.preventDefault()"
                        @dragover.prevent
@@ -3612,6 +3612,16 @@
                              @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
                              :title="t('apps.custom.size_drag_title') || 'Drag to resize (half / normal / double)'"
                              :aria-label="t('apps.custom.size_drag_title') || 'Drag to resize'"
+                             aria-hidden="false"></div>
+                        <!-- Edit-mode BOTTOM-EDGE resize handle. Drag it
+                             up / down to snap the card between its two
+                             height presets (short / tall). Vertical
+                             analogue of the right-edge width handle;
+                             applies to apps, widgets AND bookmarks. -->
+                        <div class="apps-card-resize-handle-v" x-show="appsCustomEditMode"
+                             @pointerdown.stop.prevent="appsHeightControl($event, item.uid)"
+                             :title="t('apps.custom.height_drag_title') || 'Drag to resize height (short / tall)'"
+                             :aria-label="t('apps.custom.height_drag_title') || 'Drag to resize height'"
                              aria-hidden="false"></div>
                         <!-- Floating gear (bookmark cards only). The
                              edit-mode resize affordance is the right-edge

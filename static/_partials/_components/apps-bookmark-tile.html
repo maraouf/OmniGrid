@@ -3,9 +3,16 @@
      `sec` are in scope, as is `appsCustomEditMode`. Pure-frontend on the
      ui_prefs layout blob. In LOCKED mode it's a real <a> link opening in a
      new tab; in EDIT mode the href is dropped, the tile is draggable, and a
-     remove button appears. -->
+     remove button appears.
+
+     Layout mirrors the app card (apps-card.html): a logo block on the
+     leading edge, a flex-1 text column (larger name + url subtitle), and a
+     trailing action stack with the settings gear pill at the TOP — so a
+     bookmark sitting next to an app card / widget reads as the same kind of
+     card (operator-flagged: name too small, gear not at top, no hover). -->
 <!--suppress HtmlUnknownAttribute -->
-<a class="apps-bookmark-tile"
+<a class="apps-bookmark-tile apps-card border border-[var(--border)] rounded-md p-3 cursor-pointer flex items-center gap-3"
+   :class="'apps-card--up'"
    :href="appsCustomEditMode ? null : (item.url || null)"
    :target="appsCustomEditMode ? null : '_blank'" rel="noopener"
    :draggable="appsCustomEditMode ? 'true' : 'false'"
@@ -14,38 +21,51 @@
    @dragover.prevent
    @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"
    @click="appsCustomEditMode ? $event.preventDefault() : null">
-  <img :src="appsBookmarkIconUrl(item)" alt="" width="32" height="32"
-       class="apps-bookmark-icon" @error="$event.target.style.visibility='hidden'">
-  <span class="apps-bookmark-text flex-1 min-w-0">
-    <span class="block truncate fs-sm" x-text="item.name || appsBookmarkHost(item.url)"></span>
-    <span class="block truncate fs-3xs text-[var(--text-faint)]" x-text="appsBookmarkHost(item.url)"></span>
-  </span>
-  <svg x-show="!appsCustomEditMode" width="11" height="11" class="flex-shrink-0 text-[var(--text-faint)]" aria-hidden="true">
-    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-  </svg>
-  <!-- Settings (gear) pill — parity with the app cards + widget tiles,
-       which carry the gear as an `apps-card-action-pill` in their action
-       cluster. Flips to the shared apps-card-settings back face (where
-       the bookmark Name / URL / icon editor lives). Shown in LOCKED mode
-       too (like the app-card gear) so the operator can edit a bookmark
-       without entering edit mode. The floating corner gear is suppressed
-       for bookmarks in index.html so this is the single gear affordance. -->
-  <button type="button"
-          class="apps-card-action-pill flex-shrink-0"
-          @click.stop.prevent="toggleAppsCardFlipped(item.uid)"
-          :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'"
-          :title="t('apps.custom.gear_title') || 'Card settings'"
-          :aria-label="t('apps.custom.gear_aria') || 'Card settings'">
-    <svg width="11" height="11" aria-hidden="true">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+  <!-- Logo block — same tinted backdrop slot the app card uses, so the
+       brand icon reads as deliberate composition. Falls back to a
+       link-glyph when no icon resolves (a bookmark may have no brand
+       match), instead of leaving an empty gap. -->
+  <div class="apps-card-logo">
+    <template x-if="!!appsBookmarkIconUrl(item)">
+      <img :src="appsBookmarkIconUrl(item)" alt=""
+           @error="$event.target.closest('.apps-card-logo').classList.add('apps-bookmark-logo--noicon')">
+    </template>
+    <!-- Fallback link glyph — shown when no icon resolves OR the
+         resolved file 404s (the @error above tags the logo block, and
+         the CSS reveals this glyph + hides the broken img). -->
+    <svg width="24" height="24" aria-hidden="true" class="apps-bookmark-fallback-icon text-[var(--text-faint)]">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/>
     </svg>
-  </button>
-  <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
-          @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
-          :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
-          :title="t('apps.custom.remove_tile') || 'Remove tile'">
-    <svg width="12" height="12" aria-hidden="true">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
-    </svg>
-  </button>
+  </div>
+  <div class="flex-1 min-w-0">
+    <h3 class="apps-card-name truncate" x-text="item.name || appsBookmarkHost(item.url)"></h3>
+    <div class="apps-card-meta truncate" x-text="appsBookmarkHost(item.url)"></div>
+  </div>
+  <!-- Action stack — gear pill FIRST (top), matching apps + widgets;
+       the open-in-new-tab glyph + edit-mode remove sit below. -->
+  <div class="flex flex-col items-stretch gap-1 flex-shrink-0">
+    <button type="button"
+            class="apps-card-action-pill whitespace-nowrap"
+            @click.stop.prevent="toggleAppsCardFlipped(item.uid)"
+            :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'"
+            :title="t('apps.custom.gear_title') || 'Card settings'"
+            :aria-label="t('apps.custom.gear_aria') || 'Card settings'">
+      <svg width="11" height="11" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+      </svg>
+    </button>
+    <span x-show="!appsCustomEditMode" class="apps-card-action-pill whitespace-nowrap" aria-hidden="true">
+      <svg width="11" height="11" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+      </svg>
+    </span>
+    <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+            @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
+            :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
+            :title="t('apps.custom.remove_tile') || 'Remove tile'">
+      <svg width="12" height="12" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+      </svg>
+    </button>
+  </div>
 </a>

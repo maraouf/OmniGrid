@@ -323,11 +323,13 @@ export default {
         // lands + `loadHeaderWeather` updates it.
         await this.loadHeaderWeather(true);
       } else if (kind === 'public_ip') {
-        // Force-bypass the in-process cache by zeroing the stamp
-        // BEFORE the call, so the helper's TTL gate doesn't
-        // short-circuit on a still-warm cache.
-        this._publicIpFetchedAt = 0;
-        await this._ensurePublicIp();
+        // Pass `force` so BOTH the client TTL gate AND the backend cache
+        // are bypassed, WITHOUT zeroing `_publicIpFetchedAt` (the old
+        // approach blanked the "Updated Xs ago" label mid-fetch — the
+        // same flicker fixed for weather). The stamp holds its prior
+        // value until the fresh response lands; the in-place reconcile in
+        // `_ensurePublicIp` keeps the card subtree mounted.
+        await this._ensurePublicIp(true);
       }
     } catch (_) {
     } finally {
@@ -445,17 +447,35 @@ export default {
   // same cache window doesn't re-fetch even from the warm backend
   // cache. Fire-and-forget;
   // a slow/failing fetch never blocks the AI call.
-  async _ensurePublicIp() {
+  async _ensurePublicIp(force = false) {
     const now = Date.now();
-    if (this.publicIp && (now - this._publicIpFetchedAt) < 10 * 60 * 1000) {
+    if (!force && this.publicIp && (now - this._publicIpFetchedAt) < 10 * 60 * 1000) {
       return;
     }
     try {
-      const r = await fetch('/api/public-ip');
+      const r = await fetch('/api/public-ip' + (force ? '?force=1' : ''));
       if (!r.ok) {
         return;
       }
-      this.publicIp = await r.json();
+      const fresh = await r.json();
+      // In-place reconcile (same anti-flicker pattern as loadHeaderWeather):
+      // mutate the existing object instead of replacing the reference, so
+      // Alpine keeps the bound subtree (incl. the "Updated Xs ago"
+      // freshness label) mounted + just updates fields. Replacing the
+      // reference tore the subtree down + rebuilt it, blanking the
+      // freshness label for a frame (operator-flagged flicker on Refresh).
+      const haveCurrent = this.publicIp && typeof this.publicIp === 'object';
+      const haveFresh = fresh && typeof fresh === 'object';
+      if (haveCurrent && haveFresh) {
+        Object.keys(this.publicIp).forEach((k) => {
+          if (!(k in fresh)) {
+            delete this.publicIp[k];
+          }
+        });
+        Object.assign(this.publicIp, fresh);
+      } else {
+        this.publicIp = fresh;
+      }
       this._publicIpFetchedAt = now;
     } catch (_) { /* silent — AI prompt just omits the block */
     }

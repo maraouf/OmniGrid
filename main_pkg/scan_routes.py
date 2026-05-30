@@ -1825,7 +1825,7 @@ _WMO_CODES: dict[int, tuple[str, str]] = {
 
 
 @app.get("/api/public-ip")
-async def api_public_ip(_admin: AdminUser):
+async def api_public_ip(_admin: AdminUser, force: bool = False):
     """Admin-only public-IP + ISP / ASN lookup. Standalone subsystem
     (NOT AI-related). The AI palette + Telegram /ip command both
     consume it but the feature owns its own Admin → Public IP section.
@@ -1846,7 +1846,7 @@ async def api_public_ip(_admin: AdminUser):
     from logic import public_ip as _public_ip
     if not _public_ip.is_enabled():
         return {"enabled": False}
-    data = await _public_ip.fetch()
+    data = await _public_ip.fetch(force=force)
     if data is None:
         return {"enabled": True, "error": "lookup failed — see Admin → Logs"}
     return {"enabled": True, **data}
