@@ -18,6 +18,87 @@
 // threshold.
 
 export default {
+  // App-extras freshness TTL — relocated from Admin → Config into this
+  // Admin → Apps tab. Section-owned save mirrors the public-IP / provider
+  // sections: editing the tunable flips the same amber Save ring, and
+  // saveAppsSettingsSection() POSTs it in one body so the dirty/undirty
+  // round-trip is clean. State + the three helpers live here (the Admin →
+  // Apps module) so the partial's bindings resolve on the merged component.
+  appsSettingsSaving: false,
+  _appsSettingsSectionTuningKeys() {
+    return ['tuning_apps_extras_ttl_seconds'];
+  },
+  appsSettingsSectionDirty() {
+    try {
+      const baseline = this._tuningBaselineMap();
+      for (const k of this._appsSettingsSectionTuningKeys()) {
+        const cur = (this.tuningForm || {})[k];
+        const curStr = (cur == null ? '' : String(cur).trim());
+        const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (curStr !== baseStr) {
+          return true;
+        }
+      }
+    } catch (_) {
+    }
+    return false;
+  },
+  async saveAppsSettingsSection() {
+    if (this.appsSettingsSaving) {
+      return;
+    }
+    // Validate every tunable against its declared (min, max) bounds BEFORE
+    // the POST so a typo lands a toast instead of a partial save.
+    for (const k of this._appsSettingsSectionTuningKeys()) {
+      const raw = (this.tuningForm || {})[k];
+      if (raw === '' || raw == null) {
+        continue;
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        this.showToast(this.t('admin.config.errors.must_be_int', {
+          field: this.t('admin.config.fields.' + k + '.label'),
+        }), 'error');
+        return;
+      }
+      const eff = this.tuningEffective[k] || {};
+      if (Number.isFinite(eff.min) && n < eff.min) {
+        this.showToast(this.t('admin.config.errors.below_min', {
+          field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+        }), 'error');
+        return;
+      }
+      if (Number.isFinite(eff.max) && n > eff.max) {
+        this.showToast(this.t('admin.config.errors.above_max', {
+          field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+        }), 'error');
+        return;
+      }
+    }
+    this.appsSettingsSaving = true;
+    try {
+      const body = {};
+      for (const k of this._appsSettingsSectionTuningKeys()) {
+        const v = (this.tuningForm || {})[k];
+        body[k] = (v == null ? '' : String(v).trim());
+      }
+      const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(this.fmtApiError(j, r.status));
+      }
+      await Promise.all([this.loadSettings(), this.loadTuning()]);
+      this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+    } catch (e) {
+      this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+    } finally {
+      this.appsSettingsSaving = false;
+    }
+  },
   setAppsInstancesGroupBy(mode) {
     if (!['none', 'host', 'service'].includes(mode)) {
       return;

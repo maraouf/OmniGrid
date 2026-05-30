@@ -271,6 +271,44 @@ def invalidate_cache() -> None:
     _cache.clear()
 
 
+# Per-(provider, coord, error-signature) throttle for the fetch-error log
+# line below. Errors are NOT cached (see fetch()), so a multi-tab refresh
+# storm during an upstream outage re-probes on every render — without a
+# throttle the [weather] error line would flood the log. ~60s window means
+# a real outage logs promptly (first hit) then stays quiet until it changes
+# or recurs after the window. Cap the dict so a long uptime cycling through
+# many coords / messages can't grow it unbounded.
+_error_log_throttle: dict = {}
+_ERROR_LOG_THROTTLE_SECONDS = 60.0
+
+
+def _log_fetch_error(provider_name: str, qkey, label: str, err, upstream: str) -> None:
+    """Print a weather-fetch failure to stdout — which the persistent-log
+    capture routes to the daily log file + Admin → Logs (the ``[weather]``
+    tag). Makes an upstream key / quota / location / HTTP failure
+    DIAGNOSABLE instead of silently producing empty widgets + null history
+    rows. Throttled per (provider, coord, error-signature). The word
+    "error" in the message intentionally lands it in the ERROR severity
+    bucket — a failed weather fetch IS a real failure the operator should
+    see."""
+    try:
+        sig = (provider_name, qkey[0], qkey[1], str(err)[:120])
+        now = time.time()
+        if (now - _error_log_throttle.get(sig, 0.0)) < _ERROR_LOG_THROTTLE_SECONDS:
+            return
+        if len(_error_log_throttle) > 200:
+            _error_log_throttle.clear()
+        _error_log_throttle[sig] = now
+        loc = label or f"{qkey[0]},{qkey[1]}"
+        print(
+            f"[weather] {provider_name} fetch error for {loc}: {err}"
+            + (f" (upstream={upstream})" if upstream else ""),
+            flush=True,
+        )
+    except Exception:  # noqa: BLE001 — logging must never break the fetch
+        pass
+
+
 async def fetch(lat: float, lon: float, *, label: str = "", force: bool = False) -> dict:
     """Fetch current + forecast (+ astronomy when WeatherAPI) for
     one lat/lon pair. Dispatches by ``provider()``.
@@ -302,6 +340,11 @@ async def fetch(lat: float, lon: float, *, label: str = "", force: bool = False)
         )
     if not body.get("error"):
         _cache[key] = (now, dict(body))
+    else:
+        # Surface the failure to stdout / log file / Admin → Logs (throttled)
+        # — without this the request-path fetch returns the error silently
+        # and the operator sees empty widgets with nothing in the logs.
+        _log_fetch_error(active, qkey, label, body.get("error"), body.get("upstream") or "")
     body["cached"] = False
     return body
 
@@ -421,6 +464,23 @@ async def _fetch_weatherapi(
     except Exception as e:  # noqa: BLE001
         return {"configured": True, "supports_moon": True, "provider": "weatherapi",
                 "error": str(e), "label": label, "upstream": upstream}
+    # WeatherAPI signals key / quota / location failures via an in-body
+    # ``{"error": {"code", "message"}}`` object — frequently with HTTP 200
+    # (so raise_for_status above does NOT catch it). Without this check the
+    # missing ``current`` block parses as temp_c=None and we'd report a
+    # FALSE success: the sampler would write a useless null ("—") history
+    # row and the widget would render an empty body with no explanation.
+    # Surface it as a real error so callers skip it + the reason (e.g.
+    # "API key has exceeded calls per month") reaches the logs + the
+    # widget's empty-state. Common codes: 1002/2006/2008 (key invalid /
+    # disabled), 2007 (monthly quota), 2009 (key has no access).
+    if isinstance(j.get("error"), dict):
+        err = j["error"]
+        emsg = (str(err.get("message") or "").strip()) or "WeatherAPI returned an error"
+        ecode = err.get("code")
+        return {"configured": True, "supports_moon": True, "provider": "weatherapi",
+                "error": (f"WeatherAPI error {ecode}: {emsg}" if ecode else emsg),
+                "label": label, "upstream": upstream}
     current = (j.get("current") or {}) if isinstance(j.get("current"), dict) else {}
     cond_obj = (current.get("condition") or {}) if isinstance(current.get("condition"), dict) else {}
     code = int(cond_obj.get("code") or 0)

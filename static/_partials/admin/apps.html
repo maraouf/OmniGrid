@@ -18,6 +18,62 @@
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
      x-text="t('admin_apps.intro') || 'Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.'"></p>
 
+  <!-- App-extras freshness TTL — relocated here from Admin → Config so
+       the knob lives next to the feature it governs. Controls how stale a
+       per-card extras (Speedtest / APC) /app-data entry may get before a
+       background refresh fires (stale-while-revalidate). Section-owned
+       save: editing flips the amber Save ring; saveAppsSettingsSection()
+       POSTs it in one body. Same bounds-chips + effective-label shape every
+       Admin → Config row uses. -->
+  <div x-show="tuningLoaded" class="mb-4 pb-4 border-b border-[var(--border)] space-y-2">
+    <template x-for="key in ['tuning_apps_extras_ttl_seconds']" :key="key">
+      <div>
+        <label class="block fs-xs font-medium mb-1" :for="'apps-' + key"
+               x-text="t('admin.config.fields.' + key + '.label')"></label>
+        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+           x-text="t('admin.config.fields.' + key + '.help')"></p>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="contents">
+            <input type="number" :id="'apps-' + key"
+                   :aria-label="t('admin.config.fields.' + key + '.label')"
+                   x-model="tuningForm[key]" :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min" :max="(tuningEffective[key] || {}).max"
+                   :disabled="!isAdmin() || appsSettingsSaving"
+                   class="w-44 mono fs-sm py-1">
+          </label>
+          <div class="bounds-chips" role="group" :aria-label="t('admin.config.bounds.group_label')">
+            <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
+              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
+              <span x-text="(tuningEffective[key] || {}).min"></span>
+            </span>
+            <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
+              <span x-text="(tuningEffective[key] || {}).max"></span>
+            </span>
+            <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+              <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
+              <span x-text="(tuningEffective[key] || {}).default"></span>
+            </span>
+          </div>
+          <span class="fs-2xs text-[var(--text-faint)] ms-auto" x-text="tuningEffectiveLabel(key)"></span>
+        </div>
+        <div class="mt-2 flex items-center gap-2 flex-wrap">
+          <button type="button" x-show="isAdmin()" @click="saveAppsSettingsSection()"
+                  class="btn btn-primary fs-sm"
+                  :class="appsSettingsSectionDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                  :disabled="appsSettingsSaving || !appsSettingsSectionDirty()">
+            <span x-show="!appsSettingsSaving" x-text="t('actions.save')"></span>
+            <span x-show="appsSettingsSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving') || 'Saving…'"></span></span>
+          </button>
+          <span x-show="appsSettingsSectionDirty()" class="fs-xs text-[var(--warning)] flex items-center gap-1.5" :title="t('common.unsaved_title')">
+            <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+            <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+          </span>
+        </div>
+      </div>
+    </template>
+  </div>
+
   <!-- Tab strip — Templates / Instances. Delegated to the shared
        og-tab-strip partial for the blue-pill active state + leading
        sprite icons, matching the Providers tab strip for cross-admin

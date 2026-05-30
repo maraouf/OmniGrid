@@ -525,6 +525,15 @@ export default {
                   this.loadAppsCatalog(),
                   this.loadAppsInstances(),
                 ]);
+                // Apps tab also renders the relocated
+                // tuning_apps_extras_ttl_seconds card (App extras freshness
+                // TTL) — hydrate tuning state on first visit so its
+                // bounds-chips + effective-value + form binding render
+                // instead of staying invisible. Same lazy-load pattern as
+                // providers / notifications / weather / port_scan tabs.
+                if (!this.tuningLoaded) {
+                  await this.loadTuning();
+                }
               } else if (tab === 'assets') {
                 await this.loadSettings();
                 await this.loadAssetCache();
