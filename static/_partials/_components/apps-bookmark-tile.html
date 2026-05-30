@@ -64,15 +64,15 @@
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
       </svg>
     </button>
-    <!-- Open-URL is the bookmark's PRIMARY action — the whole tile is the
-         link, so this is a prominent primary-accented CTA (icon + label),
-         deliberately NOT the muted grey gear-style pill. aria-hidden: the
-         enclosing <a> already carries the link role + accessible name. -->
-    <span x-show="!appsCustomEditMode" class="apps-card-open-pill whitespace-nowrap" aria-hidden="true">
-      <svg width="12" height="12" aria-hidden="true">
+    <!-- Open affordance — NOT a pill. The whole tile is already the link,
+         so this is a clean borderless launch glyph (primary-tinted,
+         circular hover halo) that reads as "this opens in a new tab"
+         without the heavy CTA-pill chrome. aria-hidden: the enclosing
+         <a> carries the link role + accessible name. -->
+    <span x-show="!appsCustomEditMode" class="apps-card-open-glyph" aria-hidden="true">
+      <svg width="15" height="15" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
       </svg>
-      <span x-text="t('actions.open') || 'Open'"></span>
     </span>
     <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
             @click.stop.prevent="removeAppsItem(sec.id, item.uid)"

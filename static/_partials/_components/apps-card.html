@@ -240,7 +240,7 @@
                    A pill flagged open_url (+ http/https) renders as a
                    clickable link to <scheme>://<host>:<port>; @click.stop
                    so it doesn't also open the app drawer. -->
-              <div x-show="(inst.port_results || []).length" class="apps-port-grid scrollbar ps-4">
+              <div x-show="(inst.port_results || []).length" class="apps-port-grid ps-4">
                 <template x-for="pr in (inst.port_results || [])" :key="pr.port">
                   <a class="apps-port-pill"
                      :class="'apps-port-pill--' + appsPortState(pr) + (appsPortHref(pr, inst) ? ' apps-port-pill--link' : '')"
