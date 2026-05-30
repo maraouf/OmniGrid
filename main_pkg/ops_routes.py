@@ -1769,6 +1769,9 @@ class SettingsIn(BaseModel):
     # banner appears after the last successful backend signal (SSE event or
     # REST 2xx). 0 disables the banner entirely.
     tuning_backend_unreachable_threshold_seconds: Optional[str] = None
+    # Per-app extras (Speedtest / APC) freshness TTL — SPA stale-while-
+    # revalidate window for the expanded-card /app-data cache (0 = fetch-once).
+    tuning_apps_extras_ttl_seconds: Optional[str] = None
     # Settings-as-Code (config_backup schedule kind) snapshot retention.
     tuning_config_backup_retention_count: Optional[str] = None
     tuning_ssh_ws_heartbeat_seconds: Optional[str] = None

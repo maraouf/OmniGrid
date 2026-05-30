@@ -678,6 +678,10 @@ def set_user_role(conn: sqlite3.Connection, user_id: int, role: str) -> None:
     if role not in ("admin", "readonly"):
         raise ValueError(f"invalid role: {role}")
     conn.execute("UPDATE users SET role=? WHERE id=?", (role, user_id))
+    # `role` is in the cached profile dict — drop it so the demoted /
+    # promoted user's next /api/me reflects the change immediately rather
+    # than after the 5s TTL (the read-through-cache defence-in-depth hook).
+    invalidate_user_profile(user_id)
 
 
 def set_user_disabled(conn: sqlite3.Connection, user_id: int, disabled: bool) -> None:
@@ -688,6 +692,9 @@ def set_user_disabled(conn: sqlite3.Connection, user_id: int, disabled: bool) ->
         "UPDATE users SET disabled=? WHERE id=?",
         (1 if disabled else 0, user_id),
     )
+    # `disabled` is in the cached profile dict — drop it so the change is
+    # read-through immediately (the docstring's defence-in-depth promise).
+    invalidate_user_profile(user_id)
     if disabled:
         delete_user_sessions(conn, user_id)
 

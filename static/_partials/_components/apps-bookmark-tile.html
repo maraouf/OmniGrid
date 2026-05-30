@@ -21,14 +21,14 @@
    @dragover.prevent
    @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"
    @click="appsCustomEditMode ? $event.preventDefault() : null">
-  <!-- Open launch glyph — leading edge, VERTICALLY CENTERED (operator-flagged:
-       move it off the right action-stack-below-the-gear and onto the left,
-       centered, next to the logo). NOT a pill — a clean borderless
-       primary-tinted glyph with a circular hover halo that reads as "this
-       opens in a new tab" without heavy CTA chrome. `self-center` overrides
-       the tile's `items-start`. aria-hidden: the enclosing <a> carries the
-       link role + accessible name. -->
-  <span x-show="!appsCustomEditMode" class="apps-card-open-glyph self-center" aria-hidden="true">
+  <!-- Open launch glyph — pinned to the BOTTOM-RIGHT corner of the tile
+       (operator-flagged: not bottom-left, not below the gear). NOT a pill —
+       a clean borderless primary-tinted glyph with a circular hover halo
+       that reads as "this opens in a new tab" without heavy CTA chrome.
+       Absolutely positioned via `.apps-bookmark-tile .apps-card-open-glyph`
+       so it anchors to the corner regardless of the row flow. aria-hidden:
+       the enclosing <a> carries the link role + accessible name. -->
+  <span x-show="!appsCustomEditMode" class="apps-card-open-glyph" aria-hidden="true">
     <svg width="15" height="15" aria-hidden="true">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
     </svg>

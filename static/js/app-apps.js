@@ -1629,6 +1629,21 @@ export default {
   // returned shape.
   _appsDataCache: null,
   _appsDataPending: null,
+  // Epoch-ms timestamp per cache key of the last SUCCESSFUL /app-data
+  // fetch — drives the stale-while-revalidate refresh in appsAppData.
+  _appsDataFetchedAt: null,
+  // Resolved extras freshness TTL in ms (0 = disabled / fetch-once).
+  // Reads the operator tunable via /api/me client_config; the 90000
+  // fallback only covers the brief window before /api/me hydrates.
+  _appsExtrasTtlMs() {
+    const s = this.me && this.me.client_config
+      && this.me.client_config.apps_extras_ttl_seconds;
+    const n = Number(s);
+    if (Number.isFinite(n) && n >= 0) {
+      return n * 1000;
+    }
+    return 90000;
+  },
   appsAppDataKey(inst) {
     if (!inst || !inst.host_id || inst.service_idx == null) {
       return '';
@@ -1654,6 +1669,20 @@ export default {
       }
       if (v && typeof v === 'object' && v.__error) {
         return null;
+      }
+      // Stale-while-revalidate: a real cached value older than the TTL kicks
+      // a BACKGROUND refresh (the stale value still renders now; the cache
+      // swaps when the fetch lands). The _appsDataPending guard in
+      // loadAppData coalesces repeated stale hits to a single fetch per TTL
+      // window, and loadAppData(false) leaves the stale value in place (it
+      // only stamps a __pending sentinel on a cache MISS), so the card never
+      // flickers to a loading state on revalidation. 0 = disabled.
+      const ttlMs = this._appsExtrasTtlMs();
+      if (ttlMs > 0 && this._appsDataFetchedAt) {
+        const at = this._appsDataFetchedAt[key];
+        if (at && (Date.now() - at) > ttlMs) {
+          this.loadAppData(inst, false);
+        }
       }
       return v;
     }
@@ -1739,6 +1768,12 @@ export default {
         this._appsDataCache[key] = {__error: detail};
       } else {
         this._appsDataCache[key] = await r.json();
+        // Stamp the success time so appsAppData's stale-while-revalidate
+        // check can age this entry out + trigger a background refresh.
+        if (!this._appsDataFetchedAt) {
+          this._appsDataFetchedAt = {};
+        }
+        this._appsDataFetchedAt[key] = Date.now();
       }
     } catch (err) {
       this._appsDataCache[key] = {__error: (err && err.message) ? err.message : String(err)};

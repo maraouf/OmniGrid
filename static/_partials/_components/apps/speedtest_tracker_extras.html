@@ -19,8 +19,8 @@
 <template x-if="speedtestIsApp && speedtestIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <div class="apps-card-speedtest mt-3 pt-3 border-t border-[var(--border)] space-y-2">
     <template x-if="appsAppData(inst)">
-      <div class="space-y-2">
-        <div class="grid grid-cols-3 gap-2">
+      <div class="space-y-2 apps-speedtest-grid">
+        <div class="apps-speedtest-statgrid">
           <div class="apps-card-stat">
             <div class="fs-2xs text-[var(--text-faint)]"
                  x-text="t('apps.speedtest.latest_download') || 'Latest down'"></div>
@@ -43,7 +43,7 @@
                    ? speedtestPingLabel(appsAppData(inst).latest.ping) : '--'"></div>
           </div>
         </div>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="apps-speedtest-statgrid">
           <div class="apps-card-stat">
             <div class="fs-2xs text-[var(--text-faint)]"
                  x-text="t('apps.speedtest.avg_download') || 'Avg down (10)'"></div>
@@ -64,7 +64,7 @@
           </div>
         </div>
         <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
-          <div class="space-y-1">
+          <div class="space-y-1 apps-speedtest-trend">
             <div class="flex items-center justify-between">
               <span class="fs-2xs text-[var(--text-faint)]"
                     x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>

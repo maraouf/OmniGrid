@@ -1202,6 +1202,12 @@ async def api_me(request: Request):
             # per /api/me round-trip so an Admin → Config save takes
             # effect on the next call.
             "hosts_parallel_fetch": tuning.tuning_int(Tunable.HOSTS_PARALLEL_FETCH),
+            # Per-app expanded-card extras freshness TTL (seconds). The SPA's
+            # appsAppData() treats a cached /app-data entry older than this as
+            # stale + kicks a background refresh (stale-while-revalidate) so
+            # Speedtest / APC cards update without a manual Refresh. 0 =
+            # fetch-once (no auto-refresh).
+            "apps_extras_ttl_seconds": tuning.tuning_int(Tunable.APPS_EXTRAS_TTL_SECONDS),
             # Idle-time progressive fill cadence (seconds). When the
             # operator is on the Hosts view and stays at the top
             # without scrolling, a background ticker trickles

@@ -376,7 +376,7 @@
            waiting for the AI palette to open. Polished empty state when
            the feature is disabled (default OFF for privacy). -->
       <template x-if="item.widget === 'public_ip'">
-        <div x-init="_ensurePublicIp()">
+        <div class="apps-widget-pubip-wrap" x-init="_ensurePublicIp()">
           <template x-if="publicIp && publicIp.enabled && publicIp.ip">
             <div>
               <div class="apps-widget-hero apps-widget-pubip-ip mono" x-text="publicIp.ip"></div>

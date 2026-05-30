@@ -722,6 +722,15 @@ BACKUP_RETENTION_COUNT=0
 # Range 0..600 (10 min). Default 30.
 BACKEND_UNREACHABLE_THRESHOLD_SECONDS=30
 
+# Per-app expanded-card extras (Speedtest Tracker / APC UPS / ...) freshness
+# TTL in seconds. The SPA caches each app's `/app-data` response; once a
+# cached entry is older than this it's treated as stale and a background
+# refresh fires while the stale value still renders (stale-while-revalidate),
+# so an open card updates on its own instead of waiting for a manual Refresh.
+# Set 0 to disable auto-refresh (fetch-once until forced). Range 0..3600.
+# Default 90.
+APPS_EXTRAS_TTL_SECONDS=90
+
 # Config-backup retention count — analogous knob for the new
 # `config_backup` schedule kind (Settings-as-Code snapshots under
 # /app/data/config_backups/). Default 30 = ~one month at daily cadence.
@@ -1022,6 +1031,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_FALLBACK_MAX_DEPTH`                    | Runtime     | `1`                     | AI provider fallback chain depth — number of backup providers tried on transient overload. Range 0..3 (0 disables the chain).                                                                                                                                                                                     |
 | `AI_HTTP_TIMEOUT_SECONDS`                  | Runtime     | `15`                    | AI provider HTTP timeout — standard tier (palette / host-filter / dashboard fetches). Range 2..120.                                                                                                                                                                                                               |
 | `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`         | Runtime     | `30`                    | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300.                                                                                                                                                                                                                      |
+| `APPS_EXTRAS_TTL_SECONDS`                  | Runtime     | `90`                    | Per-app expanded-card extras (Speedtest / APC) freshness TTL — the SPA background-refreshes a cached `/app-data` entry older than this (stale-while-revalidate). 0 = fetch-once. Range 0..3600.                                                                                                                    |
 | `BACKUP_RETENTION_COUNT`                   | Runtime     | `0`                     | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000.                                                                                                                                                                                            |
 | `BACKEND_UNREACHABLE_THRESHOLD_SECONDS`    | Runtime     | `30`                    | Seconds of silence before the SPA's "Backend unreachable" top banner appears (0 disables). Range 0..600.                                                                                                                                                                                                          |
 | `CONFIG_BACKUP_RETENTION_COUNT`            | Runtime     | `30`                    | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000.                                                                                                                                                                                                     |

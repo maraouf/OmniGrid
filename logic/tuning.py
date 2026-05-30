@@ -74,6 +74,7 @@ class Tunable(str, Enum):
     AI_RETRY_ENABLED = "tuning_ai_retry_enabled"
     AI_RETRY_FIRST_ATTEMPT_MAX_MS = "tuning_ai_retry_first_attempt_max_ms"
     AI_SIDEBAR_WIDTH_PX = "tuning_ai_sidebar_width_px"
+    APPS_EXTRAS_TTL_SECONDS = "tuning_apps_extras_ttl_seconds"
     ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS = "tuning_asset_inventory_fetch_timeout_seconds"
     ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS = "tuning_asset_inventory_token_timeout_seconds"
     AUTH_FAILURE_COOLDOWN_SECONDS = "tuning_auth_failure_cooldown_seconds"
@@ -376,6 +377,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # prevent accidentally disabling.
     "tuning_asset_inventory_token_timeout_seconds": ("ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS", 10, 2, 120),
     "tuning_asset_inventory_fetch_timeout_seconds": ("ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS", 15, 2, 300),
+    # Per-app expanded-card extras (Speedtest / APC / ...) freshness TTL.
+    # The SPA caches each `/app-data` response per (host, service_idx); past
+    # this many seconds it's treated as STALE and a background refresh fires
+    # while the stale value still renders (stale-while-revalidate), so an
+    # expanded card updates on its own instead of going stale until a manual
+    # Refresh. 0 disables auto-refresh (fetch-once-until-forced). Surfaced to
+    # the SPA via /api/me client_config.apps_extras_ttl_seconds.
+    "tuning_apps_extras_ttl_seconds": ("APPS_EXTRAS_TTL_SECONDS", 90, 0, 3600),
     # host_metrics_sampler permanent-fail window. After this many
     # seconds of consecutive probe failures the sampler auto-pauses the
     # host (no more probe attempts) until the operator resumes via

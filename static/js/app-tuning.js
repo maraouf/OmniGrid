@@ -34,6 +34,11 @@ export default {
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',
+    // Per-app expanded-card extras (Speedtest / APC) freshness TTL.
+    // SPA reads via `me.client_config.apps_extras_ttl_seconds`; a cached
+    // /app-data entry older than this triggers a background refresh
+    // (stale-while-revalidate). 0 = fetch-once (no auto-refresh).
+    'tuning_apps_extras_ttl_seconds',
     // permanent-fail window (was a separate card with its own
     // Save button until the operator asked for it to be a regular
     // tunable). Backend's `_record_failure` reads it via
