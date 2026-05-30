@@ -9477,6 +9477,15 @@ select.field-invalid {
   outline: 1px dashed var(--primary);
   outline-offset: -2px;
   border-radius: var(--r-md);
+  /* Stripped cards (icon + title only) would otherwise collapse to a
+     razor-thin header strip. Give them a comfortable, UNIFORM card
+     height in edit mode so the board reads as a grid of real cards
+     that's easy to grab + resize, and vertically centre the
+     icon + title. Width still follows the size-preset span. */
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 /* Right-edge resize handle (edit mode). A draggable grip pinned to the
@@ -10453,15 +10462,27 @@ select.field-invalid {
   gap: var(--s-3);
 }
 
-/* Moon widget: fill + centre the ring + phase block in the tile body so
-   the content uses the whole card instead of sitting top-left at ~25%
-   of the area (operator-flagged). `flex: 1` claims the tile-body's free
-   vertical space; centring on both axes keeps the ring + text composed.
-   This does NOT grow the tile's intrinsic height (it fills existing
-   space), so the earlier "moon widget too tall, peers inherit it" fix
-   is preserved — the ring is only modestly larger (60px). */
-.apps-widget-moon-fill {
+/* Moon widget: the OUTER body fills the tile-body and CENTRES the
+   ring + phase + rise/set block on the vertical axis, so the content
+   uses the whole card height instead of sitting top-aligned with a big
+   empty gap below (operator screenshot showed the ring + name in the
+   top half, dead space underneath). `flex: 1` claims the tile-body's
+   free vertical space; `justify-content: center` parks the block in the
+   middle like the clock's "HH:MM" hero. Centring (not intrinsic-height
+   growth) preserves the earlier "peers inherit moon's tall height" fix. */
+.apps-widget-moon-body {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-3);
+  min-height: 0;
+}
+
+/* The hero ROW (ring + phase text) centres horizontally; it must NOT
+   grow (no flex:1) — the outer body owns the vertical centring, so the
+   row stays sized to the 120px ring + text. */
+.apps-widget-moon-fill {
   justify-content: center;
 }
 

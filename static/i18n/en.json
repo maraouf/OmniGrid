@@ -2480,6 +2480,7 @@
         "prune_notifications": "Prune notifications",
         "swarm_agent_health": "Swarm agent health check",
         "port_scan_refresh": "Refresh open ports (port scan)",
+        "port_scan": "Port scan",
         "config_backup": "Config backup snapshot",
         "prune_config_backups": "Prune config backups"
       },

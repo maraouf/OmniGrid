@@ -3590,21 +3590,14 @@
                            :title="t('apps.custom.size_drag_title') || 'Drag to resize (half / normal / double)'"
                            :aria-label="t('apps.custom.size_drag_title') || 'Drag to resize'"
                            aria-hidden="false"></div>
-                      <!-- Floating gear + edit-mode size-cycle button.
-                           Absolutely positioned over the top-right of
-                           the card; @click.stop so the card's own
-                           click handlers (open drawer / open URL)
-                           don't fire. The size-cycle button only
-                           renders in edit mode — quick toggle for
-                           operators who don't want to flip the card. -->
+                      <!-- Floating gear (bookmark cards only). The
+                           edit-mode resize affordance is the right-edge
+                           drag handle above — the old corner size-cycle
+                           button ("Normal"/"Half" text) was removed: it
+                           overlapped the trash / gear icons in the
+                           top-right corner and is redundant now that the
+                           edge handle does the resize. -->
                       <div class="apps-card-corner-actions">
-                        <template x-if="appsCustomEditMode">
-                          <button type="button" class="apps-card-size-btn"
-                                  @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
-                                  :title="t('apps.custom.size_drag_title') || 'Tap to cycle size, or drag to resize (half / normal / double)'"
-                                  :aria-label="t('apps.custom.size_drag_title') || 'Resize card — tap to cycle or drag'"
-                                  x-text="appsCardSize(item).slice(0,1).toUpperCase() + appsCardSize(item).slice(1)"></button>
-                        </template>
                         <!-- Floating gear: bookmark cards only. App cards
                              render the gear as the first pill in their
                              status-pill stack (apps-card.html) and widget
