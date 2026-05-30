@@ -1847,9 +1847,18 @@ async def api_public_ip(_admin: AdminUser, force: bool = False):
     if not _public_ip.is_enabled():
         return {"enabled": False}
     data = await _public_ip.fetch(force=force)
+    # Most-recent change event (current IP first-seen ts + the IP it
+    # replaced) so the SPA card can show "changed <when>: <old> → <new>"
+    # and the AI palette context can answer "when did my IP last change".
+    # Best-effort — `last_change()` returns None on no-history / DB error.
+    try:
+        last_change = await asyncio.to_thread(_public_ip.last_change)
+    except Exception:  # noqa: BLE001
+        last_change = None
     if data is None:
-        return {"enabled": True, "error": "lookup failed — see Admin → Logs"}
-    return {"enabled": True, **data}
+        return {"enabled": True, "error": "lookup failed — see Admin → Logs",
+                "last_change": last_change}
+    return {"enabled": True, **data, "last_change": last_change}
 
 
 @app.get("/api/public-ip/history")

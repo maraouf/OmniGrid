@@ -2415,6 +2415,21 @@ export default {
         country: this.publicIp.country || '',
         city: this.publicIp.city || '',
       };
+      // Last CHANGE event — stamped on the /api/public-ip response
+      // (backend `logic.public_ip.last_change`) and carried on
+      // `this.publicIp.last_change`. The backend prompt-builder reads
+      // `public_ip.last_change` to answer "when did my IP last change /
+      // what was the previous IP / provider" — without forwarding it
+      // here that block never fires. `{ts, ip, isp, asn, country, city,
+      // prev_ip, prev_ts}` shape; omitted when there's no history yet.
+      if (this.publicIp.last_change && this.publicIp.last_change.ts) {
+        const lc = this.publicIp.last_change;
+        ctx.public_ip.last_change = {
+          ts: lc.ts, ip: lc.ip || '', isp: lc.isp || '', asn: lc.asn || '',
+          country: lc.country || '', city: lc.city || '',
+          prev_ip: lc.prev_ip || '', prev_ts: lc.prev_ts || 0,
+        };
+      }
       // Public-IP CHANGE history — lets the AI answer questions like
       // "when did my IP last change?" / "what was my previous ISP?".
       // Reads from the same `this._publicIpHistoryCache` populated by

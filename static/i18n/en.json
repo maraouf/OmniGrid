@@ -19,6 +19,7 @@
     "minutes_ago": "{count}m ago",
     "hours_ago": "{count}h ago",
     "days_ago": "{count}d ago",
+    "ago": "ago",
     "now": "Now",
     "errors": {
       "gateway_timeout": "The reverse proxy timed out — the request may still be running on the backend. Wait ~30s; if results don't appear, retry with a smaller scope.",
@@ -4982,6 +4983,8 @@
       "widget_weather_no_location": "Set your weather location in Settings → Profile → Weather to see live conditions here.",
       "widget_ip_unknown_isp": "Unknown ISP",
       "widget_ip_disabled": "Public-IP lookup disabled in Admin → Public IP",
+      "widget_publicip_changed_label": "Changed",
+      "widget_publicip_was": "was",
       "widget_system_subtitle": "{total} hosts monitored",
       "widget_system_down": "down",
       "widget_system_paused": "paused",

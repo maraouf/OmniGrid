@@ -372,6 +372,31 @@ export default {
     return (this.t('apps.custom.widget_freshness_hours', {n: h})
       || ('Updated ' + h + 'h ago'));
   },
+  // "<N><unit> ago" label for an epoch-SECONDS timestamp (the public-IP
+  // last_change.ts shape). Distinct from widgetFreshnessLabel (kind-keyed
+  // + reads ms fetched-at stamps). Adds a day tier since an IP can sit
+  // unchanged for weeks. Empty string for a missing / zero ts so the
+  // bound element collapses. Reuses hostHistoryNow (1s tick) so the label
+  // counts up live without its own timer.
+  appsRelativeTime(tsSeconds) {
+    const ts = Number(tsSeconds) || 0;
+    if (ts <= 0) {
+      return '';
+    }
+    const nowSec = Math.floor((this.hostHistoryNow || Date.now()) / 1000);
+    const sec = Math.max(0, nowSec - ts);
+    const suffix = ' ' + (this.t('common.ago') || 'ago');
+    if (sec < 60) {
+      return sec + 's' + suffix;
+    }
+    if (sec < 3600) {
+      return Math.floor(sec / 60) + 'm' + suffix;
+    }
+    if (sec < 86400) {
+      return Math.floor(sec / 3600) + 'h' + suffix;
+    }
+    return Math.floor(sec / 86400) + 'd' + suffix;
+  },
   // Whether a given widget kind has a refresh button. Clock + system_stats
   // are client-side derivations; refresh wouldn't change anything.
   widgetSupportsRefresh(kind) {
