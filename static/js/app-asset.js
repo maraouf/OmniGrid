@@ -143,7 +143,7 @@ export default {
     // — if the baseline string ever fails to parse, fall back to
     // empty strings so the comparison just looks at current form
     // values.
-    let baseline = {};
+    let baseline;
     try {
       baseline = baselineStr ? JSON.parse(baselineStr) : {};
     } catch (_e) {

@@ -539,7 +539,7 @@ export default {
       const s = this.stats[id];
       const sp = this.sparks[id];
       const sparkCount = Array.isArray(sp) ? sp.length : 0;
-      let diagnosis = '';
+      let diagnosis;
       if (!s) {
         diagnosis = 'no entry in this.stats — /api/stats did not include this id';
         missingFromStats++;

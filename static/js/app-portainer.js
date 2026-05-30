@@ -224,7 +224,7 @@ export default {
     // flips back to false on success.
     const tf = this.tuningForm || {};
     const baselineStr = this._tuningBaseline || '';
-    let baseline = {};
+    let baseline;
     try {
       baseline = baselineStr ? JSON.parse(baselineStr) : {};
     } catch (_e) {

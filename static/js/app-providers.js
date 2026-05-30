@@ -57,7 +57,7 @@ export default {
         this.showToast(this.t('settings.host_stats.placeholder_required'), 'error');
         return;
       }
-      let overrides = {};
+      let overrides;
       const raw = (this.settings.node_exporter_overrides_json || '').trim() || '{}';
       try {
         const parsed = JSON.parse(raw);
@@ -203,7 +203,7 @@ export default {
     }
     if (this.settings.snmp_aliases_json !== undefined) {
       const raw = (this.settings.snmp_aliases_json || '').trim() || '{}';
-      let aliases = {};
+      let aliases;
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -590,7 +590,7 @@ export default {
     }
     if (s.snmp_aliases_json !== undefined) {
       const raw = (s.snmp_aliases_json || '').trim() || '{}';
-      let aliases = {};
+      let aliases;
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {

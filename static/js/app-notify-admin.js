@@ -516,7 +516,7 @@ export default {
     if (rows.length === 0) {
       return false;
     }
-    let baseEvents = null;
+    let baseEvents;
     try {
       baseEvents = (JSON.parse(this._profileBaseline || '{}').notify_events) || {};
     } catch {

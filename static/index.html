@@ -19,23 +19,16 @@
      1Password vault items) and the .ico-style 192/512 hints. -->
   <link rel="icon" type="image/png" sizes="512x512" href="/img/logo/omnigrid.png">
   <link rel="icon" type="image/svg+xml" href="/img/logo/omnigrid.svg">
-  <!-- UI sprite preload — every <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-..."/>
-     reference depends on this single same-origin file. The preload hint
-     starts the fetch in parallel with the HTML parse so icons appear
-     without a flash-of-unstyled-icon when the first paint runs.
-     `as="fetch"` + `crossorigin` is the correct destination for SVGs
-     consumed via `<use href>` — modern browsers fetch the sprite as a
-     document/fetch (not an image), so `as="image"` triggered a
-     "preloaded but not used" console warning even though the sprite
-     WAS being used. `crossorigin="anonymous"` is required by the
-     preload spec for `as="fetch"` even on same-origin requests.
-     The href MUST carry the SAME `?v=__APP_VERSION__` cache-bust query
-     the `<use href>` consumers use — without it the browser preloads
-     `/img/ui-sprite.svg` while every `<use>` fetches
-     `/img/ui-sprite.svg?v=<version>` (a different cache key), so the
-     preloaded copy is never used and Chrome floods the console with
-     "preloaded but not used" (one aggregated warning per page load). -->
-  <link rel="preload" as="fetch" type="image/svg+xml" crossorigin="anonymous" href="/img/ui-sprite.svg?v=__APP_VERSION__">
+  <!-- UI sprite: NO <link rel="preload">. Every icon is a
+       `<use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-...">` which
+       fetches the same-origin sprite on first render. A preload hint was
+       tried (both `as="image"` and `as="fetch"` + matching `?v=` query)
+       but Chrome will NOT credit a preload of an SVG sprite consumed via
+       `<use>` as "used" — the `<use>` request's destination/mode differs
+       from the preload's, so it floods the console with "preloaded but
+       not used within a few seconds" regardless of `as` value. The
+       sprite is tiny + same-origin, so the parallel-fetch micro-win
+       isn't worth the warning noise; the `<use>` fetch loads it fine. -->
   <link rel="apple-touch-icon" href="/img/logo/omnigrid.png">
   <link rel="shortcut icon" href="/img/logo/omnigrid.png">
   <script>

@@ -135,6 +135,15 @@ export default [
       // the redeclare check — the globals block stays authoritative
       // ESLint-side, the `/* global */` directive serves JSHint only.
       "no-redeclare": "off",
+      // `preserve-caught-error` (ESLint v9.x) flags re-throwing a NEW
+      // error inside a catch without attaching the caught one as
+      // `{ cause }`. The SPA has 300+ catch sites and deliberately
+      // re-throws sanitised / domain-specific errors (toast-friendly
+      // messages, HTTP-status wrappers) where chaining the raw cause
+      // would leak internals into operator-facing toasts + add noise.
+      // Declined as a stylistic rule — same convention-respecting stance
+      // as the turn-offs above, NOT a real-bug suppression.
+      "preserve-caught-error": "off",
     },
   },
   // ES-module override for the SPA's refactored top-level Alpine
