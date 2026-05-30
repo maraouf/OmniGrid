@@ -1665,19 +1665,22 @@ export default {
   pollSparks() {
     if (this._sparksTimer) {
       clearInterval(this._sparksTimer);
+      this._sparksTimer = null;
     }
-    // Off mode kills the sparks timer too. The picker's
-    // "static snapshot" promise must hold for sparklines as well as
-    // every other chart. Live and interval modes stay at the 5min
-    // baseline because sparklines are coarse 24h aggregates that
-    // barely change tick-to-tick — even with picker=30s, polling
-    // sparks every 30s would be wasted bandwidth without visible
-    // benefit. The first one-shot loadSparks() also gates on Off
-    // so an Off-on-boot doesn't fetch once and freeze.
+    // One-shot load runs in EVERY mode — including Off — so the Nodes +
+    // Stacks sparklines render their 24h history snapshot on boot /
+    // view-switch instead of staying blank. "Off" means "static
+    // snapshot, no RECURRING poll": a single load + no interval, NOT
+    // zero data. (An empty sparkline strip when auto-refresh was set to
+    // Off was the reported "node sparklines sometimes don't show" bug.)
+    // Live + interval modes additionally arm the 5-min refresh — that
+    // cadence is plenty because sparklines are coarse 24h aggregates
+    // that barely change tick-to-tick, so polling more often is wasted
+    // bandwidth without visible benefit.
+    this.loadSparks();
     if (this.refreshInterval === 0) {
       return;
     }
-    this.loadSparks();
     this._sparksTimer = setInterval(() => this.loadSparks(), 5 * 60 * 1000);
   },
   // Build an SVG polyline `points` attribute for one metric of one item.
@@ -1898,6 +1901,20 @@ export default {
       }
       this._reconcileById(this.items, incomingItems);
       this._reconcileById(this.stacks, d.stacks || [], 'name');
+      // Cold-load race: pollSparks() can run at init BEFORE /api/items
+      // populates this.items, so loadSparks() early-returns on an empty
+      // id list and the sparkline strips stay blank until the next
+      // 5-min tick (or never, in Off mode). Now that items are present,
+      // kick a throttled one-shot load while sparks is still empty so
+      // the strips fill in promptly. The 60s throttle stops a fresh
+      // deploy with no sample history yet from re-fetching every poll.
+      if (this.items.length && Object.keys(this.sparks || {}).length === 0) {
+        const _nowTs = Date.now();
+        if (_nowTs - (this._sparksColdKickTs || 0) > 60000) {
+          this._sparksColdKickTs = _nowTs;
+          this.loadSparks();
+        }
+      }
       this.nodes = d.nodes || {};
       // Per-node capacity + uptime proxy — see logic/gather.py's nodes_info.
       // Drives the Nodes view's normalized CPU/mem bars.

@@ -9392,20 +9392,23 @@ select.field-invalid {
    (see the block further down, next to the `display: contents` base
    rule) so they win the specificity race against that base rule. */
 
-/* SHORT-HEIGHT content adaptation — at the compact `short` preset the
-   secondary / overflow-prone content is hidden so the hero data fits
-   cleanly instead of being clipped mid-row by the cell's
-   `overflow: hidden` (operator-flagged: weather forecast / moon rise+set
-   / APC UPS grid / Speedtest extras spilled past a small tile). `tall`
-   shows everything. Scoped to NON-edit mode (`:not(.apps-card--editing)`)
-   so edit mode still shows the real full card for accurate sizing.
-   The hero (temperature / clock / moon ring / app name+status+ports)
-   stays visible; only the deep detail is trimmed. */
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast,
+/* SIZE-aware content adaptation — the card has a FIXED footprint, so
+   content that can't fit is dropped per the available space (operator:
+   "the card decides based on the size available"). The hero (current
+   conditions: icon + temp + condition / clock / moon ring / app
+   name+ports) ALWAYS shows — only secondary detail is trimmed:
+     • SHORT height (150px): hide the humidity/wind detail grid + the
+       forecast strip + the APC UPS grid — they don't fit under the
+       hero in 150px. Tall (300px) shows them all.
+     • HALF width: hide the 5-day forecast strip regardless of height —
+       it needs horizontal room a half-width card doesn't have.
+   Normal + double width at tall height = the full rich card. Edit mode
+   shows everything (so the operator sees the real card while sizing).
+   NEVER hides the whole body — that blanked the card (earlier bug). */
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-detail,
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast,
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups,
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-extras,
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-meta {
+.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-widget-forecast {
   display: none;
 }
 
@@ -9624,13 +9627,22 @@ select.field-invalid {
   width: 40px;
 }
 
-/* NOTE: edit mode intentionally does NOT strip the card body anymore.
-   The operator wants to SEE the real card (its content + actual
-   width/height preset) while arranging + resizing, so the size handles
-   give honest visual feedback (operator-flagged: a stripped/shrunken
-   edit tile didn't show how the card would actually look). The earlier
-   `.apps-card--editing .apps-card-body-region { display: none }` strip
-   + the widget `min-height: 0` override were removed for this. */
+/* Edit mode strips the live body so the tile shows ONLY its header —
+   icon + title + status / action pills — at the card's REAL preset
+   footprint. This is the requested "like shimmer mode, but at the
+   actual size" affordance: you see exactly how big each card will be
+   while arranging + resizing, without the live probe / port / sparkline
+   content competing for attention. Safe now because the fixed preset
+   height lives on `.apps-custom-cell.apps-card-flip` (the CELL), not on
+   the content — so hiding the body no longer collapses the tile (that
+   shrink was the only reason an earlier version of this strip was
+   removed). Instance list / ports / sparklines / skeleton / per-app
+   extras all live inside `.apps-card-body-region`, so one rule hides
+   them all; widget tiles get the same effect via their own
+   `<template x-if="appsCustomEditMode">` edit template. */
+.apps-card--editing .apps-card-body-region {
+  display: none;
+}
 
 /* The card-settings back face is a CONTROLS panel (size radios, clock
    options), never selectable prose — turn off text selection so its
@@ -10297,6 +10309,15 @@ select.field-invalid {
    below raises specificity once more to switch presets. */
 .apps-custom-cell.apps-card-flip {
   display: block;
+  /* FIXED height — the size presets are a fixed footprint (operator:
+     "we have them fixed sizes") so every card at a given preset reads
+     the SAME height regardless of content; the board stays a tidy grid.
+     `overflow: hidden` clips gracefully. Content is made to FIT the
+     footprint by hiding the overflow-prone ELEMENTS (forecast / detail
+     grid) at the short preset — NOT by hiding the whole body (that was
+     the earlier blank-card bug). The hero (temp / clock / moon ring /
+     app name+ports) is first in flow so it ALWAYS shows within the
+     150px short height. `short` = compact, `tall` = roomy. */
   height: var(--apps-card-h-short);
   align-self: start;
   overflow: hidden;
@@ -10560,6 +10581,21 @@ select.field-invalid {
   text-overflow: ellipsis;
 }
 
+/* Public-IP hero IP — smaller + allowed to WRAP so the full IP plus the
+   ISP / ASN / country / city rows all fit at any card width
+   (operator-flagged: the big nowrap+ellipsis IP filled the card and
+   pushed the rest of the info off / truncated it). Overrides the
+   generic hero's display-lg + nowrap. `break-all` lets a long IPv6 wrap
+   onto a second line instead of ellipsis-truncating. */
+.apps-widget-pubip-ip {
+  font-size: var(--fs-display-sm);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-all;
+  line-height: 1.15;
+}
+
 .apps-widget-hero--xl {
   font-size: var(--fs-display-2xl);
 }
@@ -10633,6 +10669,21 @@ select.field-invalid {
   height: 12px;
   color: var(--text-faint);
   flex-shrink: 0;
+}
+
+/* Human-friendly timezone label under the clock face ("Cairo" /
+   "New York"). One notch dimmer + smaller than the date subtitle so
+   the time stays the focal point; truncates with an ellipsis on a
+   narrow tile. */
+.apps-widget-clock-tz {
+  margin-top: var(--s-1);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 /* Bottom detail row — humidity + wind / country + city / degraded

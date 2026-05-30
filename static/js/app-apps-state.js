@@ -117,11 +117,10 @@ export const _anyAppExtrasMatchCache = new WeakMap();
 
 // ---- Per-tile lazy-render diagnostic + RAF-staggered queue ---------
 // `_appsTileRenderLog` tracks per-tile render durations so the user
-// can see in devtools which tile took how long to mount. Cleared on
+// can inspect in devtools which tile took how long to mount. Cleared on
 // every fresh `loadAppsList(force=true)`. Keys are app.group_id, values
-// are {first_seen_ms, mount_ms}. `console.debug` emits one line per
-// tile transition; filter the devtools console by `[apps-tile]` to
-// see per-tile timing without other noise.
+// are {first_seen_ms, mount_ms}. Read the object directly off the Alpine
+// component in devtools to see per-tile timing.
 export const _appsTileRenderLog = {};
 
 // FIFO queue of group_ids whose body subtree should mount, one per

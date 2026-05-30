@@ -539,8 +539,8 @@ export default {
   // where the Apps grid is dozens of tiles tall and Chrome
   // previously hung trying to render every tile's chip list +
   // per-app extras + Speedtest fetches simultaneously at page-
-  // load. Per-tile console.debug timing makes WHICH tile blocks
-  // visible in devtools (filter by `[apps-tile]`).
+  // load. Per-tile mount timing is recorded on the inspectable
+  // `_appsTileRenderLog` object for devtools-side tracing.
   // First-stage gate: tile is on-screen so the shimmer skeleton +
   // header should mount. The heavy body still waits for the queue
   // processor to flip `_appsReadyTiles[gid]` (see `appsCardReady`).
@@ -551,9 +551,8 @@ export default {
   // and granted it a paint slot. Template uses this to swap the
   // shimmer skeleton for the real instance list / port pills /
   // sparklines / per-app extras. See `_processAppsTileQueue` for the
-  // RAF cadence (one tile per animation frame). The dual-log
-  // diagnostic also fires at the moment this flips, so any tile
-  // whose body crashes still has its `[apps-tile]` line on disk.
+  // RAF cadence (one tile per animation frame). Mount duration for
+  // each tile is recorded on `_appsTileRenderLog[gid].mount_ms`.
   appsCardReady(groupId) {
     return !!(groupId && this._appsReadyTiles && this._appsReadyTiles[groupId]);
   },
@@ -589,13 +588,6 @@ export default {
           // the stagger queue.
           this._appsVisibleTiles[gid] = true;
           _appsTileRenderLog[gid] = {first_seen_ms: t0, mount_ms: 0};
-          try {
-            console.debug('[apps-tile] visible: ' + gid
-              + ' (' + (performance.now() - t0).toFixed(1) + 'ms to register)');
-          } catch (_e) {
-            // ignore — console.debug missing on some headless
-            // browsers (e.g. older webview embeds).
-          }
           // Enqueue body-mount on the staggered RAF queue so
           // N simultaneously-becoming-visible tiles don't all build
           // their chip / port / sparkline subtrees in the same
@@ -642,12 +634,12 @@ export default {
     }
   },
   // Process one tile per macrotask tick: pop, flip the ready flag
-  // (mounts the heavy body via Alpine's per-key reactivity), time the
-  // mount, emit a console.debug line for devtools-side tracing. The
+  // (mounts the heavy body via Alpine's per-key reactivity), and
+  // record the mount duration on `_appsTileRenderLog`. The
   // setTimeout-per-tile cadence lets the browser drain its render
-  // queue between mounts — the symptom the operator hit (page hangs
-  // after tile headers paint) was caused by every visible tile's
-  // body mounting in ONE Alpine flush.
+  // queue between mounts — the page-hang symptom (hangs after tile
+  // headers paint) was caused by every visible tile's body mounting
+  // in ONE Alpine flush.
   _processAppsTileQueue() {
     if (_appsTileQueue.length === 0) {
       _setAppsTileQueueProcessing(false);
@@ -666,9 +658,7 @@ export default {
       this._processAppsTileQueue();
       return;
     }
-    const slug = (app.catalog && app.catalog.slug) || '';
     const t0 = performance.now();
-    let mountErr = '';
     try {
       if (!this._appsReadyTiles) {
         this._appsReadyTiles = {};
@@ -676,33 +666,21 @@ export default {
       // Reactive write — flips this tile's body gate (Alpine's
       // per-key reactivity re-renders ONLY this card's body block).
       this._appsReadyTiles[gid] = true;
-    } catch (e) {
-      mountErr = (e && e.message) ? String(e.message) : String(e);
+    } catch (_e) {
+      // Mount flip failed — skip this tile so one bad body can't
+      // stall the queue; the next tick continues with the rest.
     }
+    // Record per-tile mount duration on the inspectable diagnostic
+    // object (read the Alpine component's `_appsTileRenderLog` in
+    // devtools for per-tile timing).
     const took = Math.round(performance.now() - t0);
     if (_appsTileRenderLog[gid]) {
       _appsTileRenderLog[gid].mount_ms = took;
-    }
-    try {
-      console.debug('[apps-tile] mount: ' + gid + ' slug=' + (slug || '?')
-        + ' took=' + took + 'ms queue_remaining=' + _appsTileQueue.length
-        + (mountErr ? ' error=' + mountErr : ''));
-    } catch (_e) {
-      // ignore — console.debug missing on some headless browsers.
     }
     // Schedule the next tile on the next macrotask tick. setTimeout
     // (not rAF) so the queue advances independent of paint cadence —
     // critical when Alpine's reactive flush from this tile's body
     // mount monopolises the main thread + would otherwise defer rAF.
-    // Includes a queue-empty diagnostic so the user can tell whether
-    // the queue actually drained vs stalled.
-    if (_appsTileQueue.length === 0) {
-      try {
-        console.debug('[apps-tile] queue empty — waiting for more IntersectionObserver hits');
-      } catch (_e) {
-        // ignore.
-      }
-    }
     const self = this;
     setTimeout(() => self._processAppsTileQueue(), 0);
   },
@@ -1116,6 +1094,35 @@ export default {
       return d.toLocaleDateString([], {
         weekday: 'short', month: 'short', day: 'numeric',
       });
+    } catch (_) {
+      return '';
+    }
+  },
+  // Human-friendly timezone label for the clock widget — derives a
+  // city name from the effective IANA zone ("Africa/Cairo" → "Cairo",
+  // "America/New_York" → "New York", "America/Argentina/Buenos_Aires"
+  // → "Buenos Aires"). In follow-user mode the zone comes from the
+  // browser (`Intl…resolvedOptions().timeZone`); with a per-card
+  // override it's `opts.tz`. Deliberately a CITY name, never a UTC
+  // offset ("+2") or abbreviation ("EEST"). Returns '' when the zone
+  // can't be resolved so the bound label collapses cleanly.
+  appsWidgetClockTzLabel(item) {
+    try {
+      const opts = item ? this.effectiveClockOpts(item) : null;
+      let tz = (opts && !opts.follow && opts.tz) ? opts.tz : '';
+      if (!tz) {
+        // follow-user / no override → the browser's resolved zone.
+        tz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || '';
+      }
+      if (!tz) {
+        return '';
+      }
+      if (tz === 'UTC' || tz === 'Etc/UTC') {
+        return 'UTC';
+      }
+      // City portion = last path segment, underscores → spaces.
+      const seg = tz.split('/').pop() || tz;
+      return seg.replace(/_/g, ' ');
     } catch (_) {
       return '';
     }

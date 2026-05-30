@@ -185,6 +185,12 @@
               <div class="apps-widget-subtitle">
                 <span x-text="appsWidgetClockDate(item)"></span>
               </div>
+              <!-- Human-friendly timezone label (city name derived from
+                   the effective IANA zone — "Cairo" / "New York", never
+                   a UTC offset or abbreviation). Hidden when the zone
+                   can't be resolved so the line collapses cleanly. -->
+              <div class="apps-widget-clock-tz" x-show="appsWidgetClockTzLabel(item)"
+                   x-text="appsWidgetClockTzLabel(item)"></div>
             </div>
           </template>
           <!-- Analog face. SVG clock with 12 tick marks + hour / minute /
@@ -256,6 +262,12 @@
               <div class="apps-widget-subtitle">
                 <span x-text="appsWidgetClockDate(item)"></span>
               </div>
+              <!-- Human-friendly timezone label (city name derived from
+                   the effective IANA zone — "Cairo" / "New York", never
+                   a UTC offset or abbreviation). Hidden when the zone
+                   can't be resolved so the line collapses cleanly. -->
+              <div class="apps-widget-clock-tz" x-show="appsWidgetClockTzLabel(item)"
+                   x-text="appsWidgetClockTzLabel(item)"></div>
             </div>
           </template>
         </div>
@@ -360,7 +372,7 @@
         <div x-init="_ensurePublicIp()">
           <template x-if="publicIp && publicIp.enabled && publicIp.ip">
             <div>
-              <div class="apps-widget-hero mono" x-text="publicIp.ip"></div>
+              <div class="apps-widget-hero apps-widget-pubip-ip mono" x-text="publicIp.ip"></div>
               <!-- ISP subtitle with dynamic brand icon when recognised
                    (Cloudflare / Google / AWS / Comcast / etc.); falls
                    back to the generic globe icon for unknown ISPs.
@@ -443,6 +455,16 @@
                 <span x-show="publicIp.asn" class="apps-widget-chip apps-widget-chip--ok mono"
                       :style="'background: color-mix(in srgb, var(--widget-accent) 16%, transparent); color: var(--widget-accent);'"
                       x-text="'AS' + appsWidgetIpAsnNumber(publicIp.asn)"></span>
+              </div>
+              <!-- Last IP change — shown when public_ip_history recorded a
+                   change. "Changed <relative time>" + the previous IP it
+                   replaced (in the title), so the operator sees at a glance
+                   when their ISP last rotated the address. -->
+              <div class="apps-widget-kv" x-show="publicIp.last_change && publicIp.last_change.ts">
+                <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_publicip_changed_label') || 'Changed'"></span>
+                <span class="apps-widget-kv-value"
+                      :title="(publicIp.last_change && publicIp.last_change.prev_ip) ? ((t('apps.custom.widget_publicip_was') || 'was') + ' ' + publicIp.last_change.prev_ip) : ''"
+                      x-text="publicIp.last_change ? appsRelativeTime(publicIp.last_change.ts) : ''"></span>
               </div>
             </div>
           </template>

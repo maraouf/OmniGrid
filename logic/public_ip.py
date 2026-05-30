@@ -202,6 +202,45 @@ def _record_ip_change(ts: int, ip: str, payload: dict) -> None:
         print(f"[public_ip] recorded IP change: {prev_ip or '(first)'} -> {ip}")
 
 
+def last_change() -> Optional[dict]:
+    """Return the most-recent public-IP CHANGE event from
+    ``public_ip_history`` as ``{ts, ip, isp, asn, country, city,
+    prev_ip, prev_ts}`` — or None when there's no recorded history yet.
+
+    "Change event" = the newest row (the current IP's first-seen ts) plus
+    the row before it (the IP it replaced). Surfaced on ``/api/public-ip``
+    so the app card can show "changed <when>: <old> → <new>" and the AI
+    palette can answer "when did my IP last change / what was the
+    previous provider". Best-effort — any DB error returns None so the
+    caller renders 'no change history' rather than failing."""
+    try:
+        from logic.db import db_conn
+        with db_conn() as c:
+            rows = c.execute(
+                "SELECT ts, ip, isp, asn, country, city "
+                "FROM public_ip_history ORDER BY ts DESC LIMIT 2"
+            ).fetchall()
+    except Exception:  # noqa: BLE001 — history is a nicety, never fatal
+        return None
+    if not rows:
+        return None
+    cur = rows[0]
+    out: dict = {
+        "ts": int(cur[0]),
+        "ip": cur[1] or "",
+        "isp": cur[2] or "",
+        "asn": cur[3] or "",
+        "country": cur[4] or "",
+        "city": cur[5] or "",
+        "prev_ip": "",
+        "prev_ts": 0,
+    }
+    if len(rows) > 1:
+        out["prev_ip"] = rows[1][1] or ""
+        out["prev_ts"] = int(rows[1][0])
+    return out
+
+
 def invalidate_cache() -> None:
     """Force the next fetch() to re-probe. Call after the operator
     toggles tuning_public_ip_enabled so a freshly-enabled deploy

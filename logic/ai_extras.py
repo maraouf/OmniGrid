@@ -1326,6 +1326,50 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     "ISP / external network identity, do NOT refuse): "
                     + " · ".join(bits_pip)
                 )
+            # Last CHANGE event — lets the AI answer "when did my IP / ISP
+            # last change?" + "what was the previous IP / provider?" from
+            # real history (public_ip_history) instead of refusing.
+            # `last_change` is stamped on the public_ip dict by the
+            # /api/public-ip response (logic.public_ip.last_change). `ts`
+            # is epoch-SECONDS — told explicitly so the model phrases a
+            # relative answer against the current-time block above.
+            lc = public_ip.get("last_change")
+            if isinstance(lc, dict) and lc.get("ts"):
+                lc_bits = [f"changed at {lc['ts']} (Unix epoch seconds)"]
+                if lc.get("prev_ip"):
+                    lc_bits.append(f"previous IP: {lc['prev_ip']}")
+                if lc.get("isp"):
+                    lc_bits.append(f"current provider: {lc['isp']}")
+                if lc.get("ip"):
+                    lc_bits.append(f"current IP: {lc['ip']}")
+                parts.append(
+                    "Public IP last change (answer when/what/provider "
+                    "questions from this — do NOT refuse): "
+                    + " · ".join(lc_bits)
+                )
+            # Full CHANGE history — the SPA forwards the recent rows of
+            # `public_ip_history` (newest-first) so the AI can answer
+            # "how many times has my IP changed", "list my IP history",
+            # "what ISPs have I had". Each row is one recorded change.
+            # `ts` is epoch-SECONDS (phrase relative to the current-time
+            # block). Capped at 20 rows so the block stays inside budget.
+            hist = public_ip.get("history")
+            if isinstance(hist, list) and hist:
+                hist_lines = []
+                for row in hist[:20]:
+                    if not isinstance(row, dict) or not row.get("ip"):
+                        continue
+                    seg = f"{row.get('ts', 0)}: {row['ip']}"
+                    if row.get("isp"):
+                        seg += f" ({row['isp']})"
+                    hist_lines.append(seg)
+                if hist_lines:
+                    parts.append(
+                        "Public IP change history (newest first, ts is Unix "
+                        "epoch seconds — answer count / list / past-provider "
+                        "questions from this, do NOT refuse):\n"
+                        + "\n".join(hist_lines)
+                    )
         # Backups summary — sqlite-zip backups (Admin → Backup) AND
         # Settings-as-Code JSON snapshots (Admin → Config Backup).
         # Operator-flagged: AI was answering "I don't have access to
