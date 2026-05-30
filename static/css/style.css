@@ -9392,6 +9392,30 @@ select.field-invalid {
    (see the block further down, next to the `display: contents` base
    rule) so they win the specificity race against that base rule. */
 
+/* SHORT-HEIGHT content adaptation — at the compact `short` preset the
+   secondary / overflow-prone content is hidden so the hero data fits
+   cleanly instead of being clipped mid-row by the cell's
+   `overflow: hidden` (operator-flagged: weather forecast / moon rise+set
+   / APC UPS grid / Speedtest extras spilled past a small tile). `tall`
+   shows everything. Scoped to NON-edit mode (`:not(.apps-card--editing)`)
+   so edit mode still shows the real full card for accurate sizing.
+   The hero (temperature / clock / moon ring / app name+status+ports)
+   stays visible; only the deep detail is trimmed. */
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast,
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-detail,
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups,
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-extras,
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-meta {
+  display: none;
+}
+
+/* On a short app card, cap the per-host instance list to the first row
+   + scroll the rest (rather than clipping) so a multi-instance app still
+   shows its primary host. `tall` lets the full list breathe. */
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-body-region {
+  overflow-y: auto;
+}
+
 /* ----------------------------------------------------------------
    Apps Custom — per-card flip-to-settings animation. The gear icon
    in the card header toggles `.apps-card--flipped` on the outer
@@ -10877,7 +10901,13 @@ select.field-invalid {
 .apps-bookmark-tile {
   text-decoration: none;
   color: var(--text);
-  align-items: center;  /* vertical-centre the logo + text + actions row */
+  /* `align-items: start` (NOT center) so the trailing action stack —
+     gear pill / open-link / remove — top-aligns like the app cards do,
+     putting the gear at the TOP of the card (operator-flagged: the edit
+     pill sat mid-card because the row was vertically centred). The
+     markup carries `items-start` too; this reinforces it against the
+     `.apps-card`-inherited layout. */
+  align-items: start;
 }
 
 

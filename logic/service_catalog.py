@@ -1397,8 +1397,30 @@ def merge_port_results(probe_ports: Any, sample_rows: Any) -> list[dict]:
     return out
 
 
+# Short-TTL result cache for `list_apps()`. The Apps page fans out a
+# `/api/apps` call on entry + a refresh on every poll, and `list_apps()`
+# runs three window-function queries over the (multi-million-row)
+# `service_samples` table — 1.5-2.4s each even with the partition index
+# (operator-flagged `[slow_query]` storm). The full result changes only
+# when a sampler writes a new row (≤ once per probe interval) or the
+# operator edits a chip, so caching the assembled list for a few seconds
+# collapses a burst of page loads / polls to ONE DB pass. `force_refresh`
+# (operator Refresh button, post-edit reload) bypasses it. Single-process
+# single-replica → a plain module cache is correct.
+_LIST_APPS_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_LIST_APPS_CACHE_TTL_S = 8.0
+
+
+def invalidate_list_apps_cache() -> None:
+    """Drop the cached `list_apps()` result so the next call rebuilds.
+    Called after any chip / catalog mutation so an edit shows immediately
+    instead of waiting out the TTL."""
+    _LIST_APPS_CACHE["ts"] = 0.0
+    _LIST_APPS_CACHE["data"] = None
+
+
 # noinspection DuplicatedCode
-def list_apps() -> list[dict[str, Any]]:
+def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
     """Cross-host aggregate. Each returned row is one APP (group) with
     every host that runs an instance:
 
@@ -1429,7 +1451,15 @@ def list_apps() -> list[dict[str, Any]]:
         }
 
     Sorted by name ASC.
+
+    Served from a short-TTL module cache (see ``_LIST_APPS_CACHE``);
+    ``force_refresh=True`` bypasses it for an explicit operator Refresh.
     """
+    import time as _time
+    if not force_refresh:
+        _cached = _LIST_APPS_CACHE.get("data")
+        if isinstance(_cached, list) and (_time.time() - _LIST_APPS_CACHE["ts"]) < _LIST_APPS_CACHE_TTL_S:
+            return _cached
     catalog_rows = list_catalog()
     catalog_by_id: dict[int, dict[str, Any]] = {int(r["id"]): r for r in catalog_rows}
     # Fleet-wide batched DB reads — three queries TOTAL instead of
@@ -1597,6 +1627,8 @@ def list_apps() -> list[dict[str, Any]]:
             grp["status"] = "degraded"
         out.append(grp)
     out.sort(key=lambda g: g["name"].lower())
+    _LIST_APPS_CACHE["ts"] = _time.time()
+    _LIST_APPS_CACHE["data"] = out
     return out
 
 
