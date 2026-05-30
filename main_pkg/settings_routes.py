@@ -572,6 +572,37 @@ async def api_get_settings(request: Request):
     }
 
 
+# Secret-suffix keys whose VALUES must never be written to the audit trail
+# (same convention as the api_get_settings `_set`-flag redaction, extended
+# with SNMP v3's `_auth_key` / `_priv_key`). The settings_update audit row
+# shows "(secret updated)" for these instead of the actual value.
+_AUDIT_SECRET_SUFFIXES = (
+    "_token", "_password", "_secret", "_api_key", "_private_key",
+    "_passphrase", "_auth_key", "_priv_key",
+)
+
+
+def _fmt_settings_change(key: str, old, new) -> str:
+    """Format one settings change as ``key: <old> -> <new>`` for the
+    settings_update audit row. Returns '' when the value is UNCHANGED so
+    identical re-submits + keep-current secret blanks don't clutter the
+    row. Secret-suffix keys are REDACTED — only the fact that the secret
+    changed is recorded, never the value. Long values (e.g. a hosts_config
+    JSON blob) truncate + newlines flatten so one change stays one line."""
+    o = "" if old is None else str(old)
+    n = "" if new is None else str(new)
+    if o == n:
+        return ""
+    if any(key.endswith(suf) for suf in _AUDIT_SECRET_SUFFIXES):
+        return f"{key}: (secret updated)"
+
+    def _t(v: str) -> str:
+        v = v.replace("\r", " ").replace("\n", " ")
+        return (v[:80] + "...") if len(v) > 80 else (v or "(empty)")
+
+    return f"{key}: {_t(o)} -> {_t(n)}"
+
+
 @app.post("/api/settings")
 async def api_set_settings(
     s: SettingsIn,
@@ -591,26 +622,43 @@ async def api_set_settings(
     # handler's `await`s can't mis-buffer). The two contexts compose
     # cleanly: defer handles the cross-tab notification, batch handles
     # the DB transaction count.
+    # Snapshot the touched field names + their OLD stored values BEFORE the
+    # write so the audit row can show "key: old -> new". field-name ==
+    # setting-key for the vast majority of fields; the few that don't map
+    # 1:1 simply show no value delta (skipped). get_setting here reads the
+    # current (cached) value = the OLD value; set_setting invalidates the
+    # cache, so the post-write read below returns the NEW value.
+    # `str(...)` narrows Pydantic's `dict[str, Any]` key view to `list[str]`.
+    touched: list[str] = sorted(str(k) for k in s.model_dump(exclude_unset=True).keys())
+    old_vals: dict = {k: get_setting(k) for k in touched} if touched else {}
     with defer_settings_version_bump():
         with batch_settings_writes():
             result = await _api_set_settings_inner(s, request, _portainer)
-    # Audit row — record which top-level fields were touched (Pydantic
-    # `model_dump(exclude_unset=True)` keys). Secret-suffix fields are
-    # already filtered server-side; the audit row carries field NAMES
-    # only, never values. Skip when the operator submitted an empty body.
+    # Audit row — record the per-key old -> new delta. Secret-suffix keys
+    # are REDACTED to "(secret updated)" (the value is never written to the
+    # audit trail); long blobs truncate; unchanged values are skipped.
     try:
-        # Explicit `str(...)` map narrows from Pydantic's `dict[str, Any]`
-        # key view (which pyright widens to `list[Any]`) to `list[str]`
-        # so `', '.join(...)` doesn't trip "Unexpected type" diagnostics.
-        touched: list[str] = sorted(str(k) for k in s.model_dump(exclude_unset=True).keys())
         if touched:
+            changes: list[str] = []
+            for k in touched:
+                line = _fmt_settings_change(k, old_vals.get(k), get_setting(k))
+                if line:
+                    changes.append(line)
+            if changes:
+                message = "Settings changed:\n" + "\n".join(changes[:30])
+                if len(changes) > 30:
+                    message += f"\n(+{len(changes) - 30} more)"
+            else:
+                # No detectable value delta (identical re-submit OR keep-
+                # current secret blanks) — fall back to the field names.
+                message = ("Updated settings: " + ", ".join(touched[:30])
+                           + (f" (+{len(touched) - 30} more)" if len(touched) > 30 else ""))
             with db_conn() as c:
                 _ops_mod.write_admin_audit(
                     c, "settings_update",
                     target_kind="settings",
                     actor=_admin.username,
-                    message=f"Updated settings: {', '.join(touched[:30])}"
-                            + (f" (+{len(touched) - 30} more)" if len(touched) > 30 else ""),
+                    message=message,
                 )
     except Exception as _e:
         print(f"[ops] settings_update audit-row skipped: {_e!r}")

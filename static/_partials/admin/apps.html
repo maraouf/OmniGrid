@@ -518,17 +518,30 @@
     </table>
   </div>
 
-  <!-- INLINE TEMPLATE EDITOR — opens via openAppCatalogNew / openAppCatalogEdit.
-       Modal-ish overlay; not a true modal but reuses the .drawer pattern
-       to stay inside the admin section's flow. The data-apps-editor-anchor
-       attribute is the target the SPA scrolls into view when the editor
-       opens — without it the operator on a long catalog table clicked
-       Edit on a row at the bottom and the editor opened below the fold. -->
-  <div x-show="appsCatalogEditOpen" data-apps-editor-anchor class="mt-5 pt-4 border-t border-[var(--border)] space-y-3" x-cloak>
-    <div class="flex items-center justify-between">
-      <h4 class="font-semibold fs-md" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></h4>
+  <!-- TEMPLATE EDITOR MODAL — a true modal matching the instance-edit modal
+       below (same fixed-overlay + backdrop + .relative card shell + header)
+       so both Apps edit flows share one experience. Opens via
+       openAppCatalogNew / openAppCatalogEdit; closes via
+       closeAppCatalogEditor(). data-apps-editor-anchor stays on the card so
+       _scrollAppsEditorIntoView still focuses the first input on open
+       (scrollIntoView is a harmless no-op on a position:fixed modal). -->
+  <div x-show="appsCatalogEditOpen" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center"
+       role="dialog" aria-modal="true"
+       :aria-label="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"
+       @keydown.escape.window="closeAppCatalogEditor()">
+    <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeAppCatalogEditor()"></div>
+    <div data-apps-editor-anchor class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[640px] w-full mx-4 max-h-[85vh] overflow-y-auto scrollbar space-y-3">
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
+        <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+        </svg>
+        <span class="truncate" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></span>
+      </h3>
       <button type="button" class="user-action-btn"
               :aria-label="t('actions.close') || 'Close'"
+              :title="t('actions.close') || 'Close'"
               @click="closeAppCatalogEditor()">
         <svg width="14" height="14" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
@@ -645,9 +658,10 @@
       </button>
       <span x-show="appsCatalogEditError" class="fs-xs text-[var(--danger)]" x-text="appsCatalogEditError"></span>
     </div>
+    </div>
   </div>
 
-  <!-- PIN-TO-HOST MODAL — operator picks a curated host + optional URL
+  <!-- PIN-TO-HOST MODAL — picks a curated host + optional URL
        override + probe-enable flag, then POSTs to /api/services/catalog
        /{cid}/pin which appends a new chip to the host's services[]
        array pre-filled from the template. Lives at the bottom of the

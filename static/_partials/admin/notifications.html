@@ -279,7 +279,15 @@
          bounds-chips (min / max / default) + effective-label.
          Side-by-side 2-col was a regression — bounds-chips
          don't fit. -->
-    <div x-show="tuningLoaded" class="mt-4 space-y-3">
+    <!-- Tunables sub-heading (icon-sliders, matching the Public IP /
+         Weather / Portainer Tunables headings) before the timeout knobs. -->
+    <div x-show="tuningLoaded" class="flex items-center gap-2 mb-1 mt-4">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+      </svg>
+      <h3 class="font-semibold fs-sm" x-text="t('common.tunables')"></h3>
+    </div>
+    <div x-show="tuningLoaded" class="space-y-3">
       <template x-for="key in ['tuning_telegram_long_poll_timeout_seconds',
                                       'tuning_telegram_http_timeout_seconds']"
                 :key="key">
