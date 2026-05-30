@@ -391,6 +391,14 @@
   --fs-display-md: 20px;
   --fs-display-lg: 48px;
   --fs-display-2xl: 56px;
+  /* `-3xl` (72px) / `-4xl` (96px) extend the display scale for the LARGEST
+     Apps custom-dashboard widget tiles (4x2 / 3x2): the hero / clock heroes
+     cap at -2xl on a normal tile, but a genuinely large tile has room to
+     grow the focal number further so it fills the allocated space instead
+     of leaving dead area. Driven by the `@container ogtile` large-tier rules
+     below. Theme-independent like the rest of the display family. */
+  --fs-display-3xl: 72px;
+  --fs-display-4xl: 96px;
 
   /* Modal sizing tokens. Default upper bound for full-height modals
      * (SSH terminal, future log viewer, debug-blob inspector): caps at
@@ -9436,6 +9444,30 @@ select.field-invalid {
   overflow-y: auto;
 }
 
+/* Per-app extras (APC UPS stats / Speedtest) on a SHORT card (e.g. 3x1) — the
+   wide-card 2-col split (instances | extras) leaves the extras column too
+   narrow to show the UPS stat grid within the short height, so it clipped /
+   scrolled out of view (operator-flagged: extras not displayed at 3x1). On a
+   short card drop back to a SINGLE column so the extras panel spans the FULL
+   width, and lay the UPS stats as a compact horizontal auto-fit strip so all
+   five fit in the short height (one row across the wide card) beside the
+   instance row instead of stacking tall + clipping. Higher specificity than
+   the @container ogcard 2-col rule, so it wins regardless of card width. */
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ready--has-extras {
+  display: block;
+}
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups {
+  margin-top: var(--s-1);
+  padding: var(--s-1);
+}
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: var(--s-1) var(--s-2);
+}
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+  font-size: var(--fs-sm);
+}
+
 /* ----------------------------------------------------------------
    Apps Custom — per-card flip-to-settings animation. The gear icon
    in the card header toggles `.apps-card--flipped` on the outer
@@ -10932,6 +10964,20 @@ select.field-invalid {
   flex-shrink: 0;
 }
 
+/* Moon phase name — was pinned at a fixed --fs-xl (15px) via an inline style,
+   which (a) overrode the `.apps-widget-hero` clamp it also carried and
+   (b) couldn't be grown by the @container large tier (inline beats the
+   query). Now a class with its own cqmin clamp: a compact --fs-md floor keeps
+   two-word phases ("Waxing Gibbous") on one line on a narrow / short tile,
+   and it grows toward --fs-display-md when BOTH dimensions are large so the
+   moon widget fills the 4x2 tile instead of leaving the phase tiny. Defined
+   AFTER `.apps-widget-hero` so it wins the same-specificity font-size. */
+.apps-widget-moon-phase {
+  font-size: clamp(var(--fs-md), 9cqmin, var(--fs-display-md));
+  line-height: 1.15;
+  font-weight: 600;
+}
+
 /* ============================================================
    Widget responsive adaptation — content REFLOWS + COMPACTS to FIT the
    chosen card size. No scrollbars: a short card shows a tighter, smaller
@@ -10979,6 +11025,13 @@ select.field-invalid {
   .apps-widget-forecast-day {
     gap: 1px;
   }
+  /* Nx1 (single-row) tiles crop the 4th+ forecast box for lack of vertical /
+     horizontal room — cap the rendered forecast to 3 days so the row never
+     shows a clipped half-box, regardless of how many days the user selected
+     (operator-flagged: the 4th was being cut off). */
+  .apps-widget-forecast-day:nth-child(n+4) {
+    display: none;
+  }
   .apps-widget-tile-freshness {
     padding-top: 2px;
   }
@@ -11024,6 +11077,18 @@ select.field-invalid {
   .apps-widget-moon-body {
     gap: var(--s-3);
   }
+  /* Moon elements fill the large tile — grow the illumination ring past its
+     normal 176px cap and the phase name past --fs-display-md so the 4x2 moon
+     widget uses the space instead of a small ring + tiny label adrift in an
+     empty tile (operator-flagged on the 4x2 preset). cqmin keeps both bound
+     to the tile so they never overflow. The inner "100%" <text> is a viewBox
+     coordinate so it scales proportionally with the ring. */
+  .apps-widget-moon-ring {
+    width: clamp(120px, 52cqmin, 220px);
+  }
+  .apps-widget-moon-phase {
+    font-size: clamp(var(--fs-display-base), 14cqmin, var(--fs-display-lg));
+  }
 }
 
 /* Wide cards — the detail row gets generous horizontal room, so spread
@@ -11031,6 +11096,52 @@ select.field-invalid {
 @container ogtile (min-width: 360px) {
   .apps-widget-detail {
     gap: var(--s-1) var(--s-4);
+  }
+}
+
+/* Large + wide tiles (4x2 / 3x2) — let the CLOCK hero keep growing past the
+   -2xl cqmin cap so it fills the extra horizontal + vertical room instead of
+   topping out at 56px and leaving dead space (operator-flagged on the 4x2
+   preset). Gated on BOTH axes so a wide-but-short (4x1) tile keeps the safe
+   height-bound clamp and never overflows its single row. cqmin (≥240 inside
+   this gate) grows the time toward -4xl; the floor stays -2xl so the clock
+   never SHRINKS below the normal-tile cap at this size. */
+@container ogtile (min-width: 360px) and (min-height: 280px) {
+  .apps-widget-clock {
+    font-size: clamp(var(--fs-display-2xl), 34cqmin, var(--fs-display-4xl));
+  }
+}
+
+/* Weather forecast on the LARGEST (4x2 / wide+tall) tile — move the forecast
+   from the right-hand vertical column to a full-width ROW OF BOXES BELOW the
+   hero + humidity/wind row, so it uses the generous vertical space like the
+   earlier boxed design (operator-flagged on the 4x2 preset). Smaller tiles
+   keep the right-side `--col` layout (this gate doesn't match them). Gated on
+   width AND height so only a genuinely large tile reflows; a wide-but-short
+   (Nx1) tile keeps the right-side column + the 3-box cap above. */
+@container ogtile (min-width: 440px) and (min-height: 280px) {
+  .apps-widget-weather-body {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .apps-widget-weather-main {
+    flex: 0 0 auto;
+  }
+  .apps-widget-forecast--col {
+    flex: 1 1 auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    width: 100%;
+    max-width: 100%;
+    margin-top: var(--s-2);
+    gap: var(--s-2);
+  }
+  .apps-widget-forecast--col .apps-widget-forecast-day {
+    flex: 1 1 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--s-1);
+    padding: var(--s-2) var(--s-1);
   }
 }
 

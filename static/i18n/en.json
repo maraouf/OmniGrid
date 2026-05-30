@@ -4800,6 +4800,7 @@
     "instance_edit_show_extras": "Show extras (UPS stats etc.) on the app card",
     "intro": "Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.",
     "templates_pill": "templates",
+    "tunables_intro": "In-process caches and first-paint render cadence for the Apps view. Per-use reads, so an edit takes effect on the next render without a restart.",
     "tab_templates": "Templates",
     "tab_instances": "Instances",
     "tablist_label": "Apps sub-tabs",
