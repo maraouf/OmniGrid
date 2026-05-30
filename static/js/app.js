@@ -325,6 +325,13 @@ function app() {
     // visit) — the layout itself persists in ui_prefs; this flag just
     // gates the condensed-draggable editor vs the locked big-card view.
     appsCustomEditMode: false,
+    // True WHILE an edit-mode resize gesture is in progress (the edge
+    // handle / corner size button is being dragged). Declared here so
+    // the cell's `:draggable` + `@dragstart` bindings can read it without
+    // a ReferenceError — appsSizeControl sets it on pointerdown and the
+    // cell @dragstart preventDefaults the reorder-move while it's true,
+    // so dragging the resize handle resizes instead of starting a move.
+    _appsResizing: false,
     // Inline add-bookmark form (edit mode) — set to a section id to open
     // its name/url form; cleared on submit/cancel. Transient.
     appsBookmarkOpenFor: '',

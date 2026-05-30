@@ -524,7 +524,7 @@
            false` for the provider-mismatch empty state. -->
       <template x-if="item.widget === 'moon'">
         <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
-          <div>
+          <div class="apps-widget-moon-body">
             <!--
               Compact 40×40 ring (down from 56×56) + smaller phase
               name so the moon widget renders at the same intrinsic
@@ -543,7 +543,7 @@
               source of truth for the lit-fraction math).
             -->
             <div class="apps-widget-hero-row apps-widget-moon-fill">
-              <svg class="apps-widget-moon-ring" width="96" height="96" viewBox="0 0 56 56" aria-hidden="true">
+              <svg class="apps-widget-moon-ring" width="120" height="120" viewBox="0 0 56 56" aria-hidden="true">
                 <!-- Background dim disc (the un-illuminated portion). -->
                 <circle cx="28" cy="28" r="24"
                         fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
