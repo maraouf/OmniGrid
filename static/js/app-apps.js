@@ -1884,9 +1884,13 @@ export default {
       return raw;
     }
     // No explicit icon — fall back to the brand resolver on the
-    // bookmark's display name (matches the prior behaviour).
+    // bookmark's display name. Returns '' when the name matches no
+    // brand (the <img> @error handler then hides the broken image
+    // cleanly). NEVER fall through to the bookmark URL as an icon
+    // source — a URL like `https://5g/` is not an image and the
+    // browser would try (and fail) to load it as one (operator-flagged).
     try {
-      return this.iconUrlFor(item.name || '');
+      return this.iconUrlFor(item.name || '') || '';
     } catch (_) {
       return '';
     }

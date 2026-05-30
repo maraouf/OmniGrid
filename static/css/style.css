@@ -10811,6 +10811,14 @@ select.field-invalid {
   cursor: pointer;
   transition: box-shadow 120ms ease;
   min-width: 0;
+  /* Fill the flip cell's height so a bookmark sitting next to an app
+     card / widget in the same section row matches their height instead
+     of shrinking to its own content (operator-flagged: bookmark card
+     shorter than its neighbours). The `.apps-card-face-front` ancestor
+     is already height:100%, so claiming 100% here propagates the
+     grid-row stretch down to the bookmark surface. */
+  height: 100%;
+  box-sizing: border-box;
 }
 
 .apps-bookmark-tile:hover {
