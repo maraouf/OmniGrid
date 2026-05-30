@@ -561,10 +561,20 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
+    // A per-app module that declares a wide cardSpan (Speedtest / APC span
+    // 2) is implicitly asking for the rich extras view — show it whenever
+    // the card is physically wide, INDEPENDENT of the user's size preset.
+    // This is the path that actually fires for them: the extras partial
+    // calls appsShowExtras(app, inst) with NO `item`, so the opts branch
+    // below can never see a preset and would always return false. The
+    // matching .apps-card-ready--has-extras 2-col grid only kicks in past
+    // the ogcard min-width, so a genuinely narrow card still stacks safely.
+    if (this.appsCardSpan(app) >= 2) {
+      return true;
+    }
     // No explicit flag: AUTO-SHOW at the large presets (double / x-large
     // width OR tall height) — sizing a card up is an implicit request for
-    // the rich view. See the matching helper in app-apps.js for the full
-    // rationale. `item` is only passed on the Custom dashboard.
+    // the rich view. `item` is only passed on the Custom dashboard.
     const opts = (item && item.opts) || null;
     if (opts) {
       if (opts.size === 'double' || opts.size === 'xlarge') {
