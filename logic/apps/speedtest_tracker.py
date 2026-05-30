@@ -141,15 +141,43 @@ async def fetch_data(host_row: dict, chip: dict, *,
             return cached[1]
     list_url = base + "/api/v1/speedtests"
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    # Diagnostic: every fetch logs the host + resolved upstream URL so a
+    # failure (404 / auth / timeout) is traceable to a specific host +
+    # base URL in stdout / Admin -> Logs WITHOUT exposing the api_key.
+    # Operator-flagged: "Speedtest fetch failed: upstream returned HTTP
+    # 404 — why no log to tell us which host or the nature of the error?"
+    # Severity convention: lines carry an explicit INFO / warning: /
+    # error: marker near the start so `logic/logs.py:_severity_for`
+    # buckets them deterministically (operator-requested consistent
+    # logging) rather than relying on incidental body keywords. The
+    # api_key is NEVER logged.
+    print(f"[speedtest] INFO fetch host={host_id} svc_idx={service_idx} url={list_url}")
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as cli:
             r = await cli.get(list_url, headers=headers, params={"perPage": 30})
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[speedtest] error: fetch host={host_id} url={list_url} "
+              f"failed — {type(e).__name__}: {e}")
         raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
     if r.status_code != 200:
+        # 404 is almost always a base-URL / path issue: the chip's `url`
+        # points at the host but not the Speedtest Tracker root (e.g. a
+        # reverse-proxy sub-path, or http-vs-https, or a trailing
+        # `/dashboard`). Log the full URL + status so the operator can
+        # curl it directly. `request.url` carries the final URL incl. the
+        # perPage query so it's copy-pasteable.
+        print(f"[speedtest] error: fetch host={host_id} url={r.request.url} "
+              f"returned HTTP {r.status_code} "
+              f"(check the chip URL points at the Speedtest Tracker root, "
+              f"e.g. https://speedtest.example.com — not a sub-page)")
         if r.status_code in (401, 403):
-            raise RuntimeError(f"upstream auth failed: HTTP {r.status_code}")
-        raise RuntimeError(f"upstream returned HTTP {r.status_code}")
+            raise RuntimeError(f"upstream auth failed: HTTP {r.status_code} "
+                               f"(check api_key) — {list_url}")
+        if r.status_code == 404:
+            raise RuntimeError(f"upstream returned HTTP 404 for {list_url} — "
+                               f"the chip URL may not point at the Speedtest "
+                               f"Tracker root (no /api/v1/speedtests there)")
+        raise RuntimeError(f"upstream returned HTTP {r.status_code} for {list_url}")
     try:
         body = r.json()
     except (ValueError, TypeError):  # noqa: BLE001

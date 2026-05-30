@@ -562,21 +562,6 @@ export default {
     if (this._appsVisibleTiles && this._appsVisibleTiles[groupId]) {
       return;
     }
-    // Diagnostic: every observed tile is logged so the user can see
-    // which tiles the IntersectionObserver is even WATCHING. If a tile
-    // is rendered (x-init ran) but appears here without a matching
-    // `[apps-tile] visible:` line, the observer isn't firing for it
-    // (off-screen + rootMargin not reached, OR the tile's parent has
-    // an opacity:0 / display:none ancestor that's defeating
-    // intersection). Compare the observed count to the total tile
-    // count to spot the gap.
-    try {
-      console.debug('[apps-tile] observe: ' + groupId
-        + ' el-bottom-y=' + Math.round(el.getBoundingClientRect().bottom)
-        + ' viewport-h=' + Math.round(window.innerHeight));
-    } catch (_e) {
-      // ignore — console.debug missing on some headless browsers.
-    }
     if (!this._appsCardObserver) {
       // Defer the actual observe() call ONE microtask so x-init
       // runs across every tile BEFORE the observer starts firing
@@ -2520,6 +2505,89 @@ export default {
           : 'normal';
     }
     this._persistAppsCustomLayout();
+  },
+
+  // ---- HEIGHT presets (parallel to the width/size system above) -----
+  // Every card / widget / bookmark is locked to one of TWO fixed
+  // heights — `short` or `tall` — so a card can never grow past its
+  // preset (same containment guarantee the width presets give on the
+  // horizontal axis). Default is `short`. Stored under
+  // `item.opts.height`; the `.apps-card--height-<h>` class caps the
+  // flip cell's height in CSS.
+  appsCardHeightClass(item) {
+    const h = item && item.opts && item.opts.height;
+    return (h === 'tall') ? 'apps-card--height-tall' : 'apps-card--height-short';
+  },
+  // Just the height value (without the class prefix) — back-face radio
+  // `:checked` state + the drag-handle's start index.
+  appsCardHeight(item) {
+    const h = item && item.opts && item.opts.height;
+    return (h === 'tall') ? 'tall' : 'short';
+  },
+  // Mutate the per-card height + persist. Explicit value sets it; a
+  // null/absent arg TOGGLES short ↔ tall (the two-preset cycle).
+  setAppsCardHeight(uid, height) {
+    if (!uid) {
+      return;
+    }
+    const it = this._findAppsItemByUid(uid);
+    if (!it) {
+      return;
+    }
+    if (!it.opts) {
+      it.opts = {};
+    }
+    if (height === 'short' || height === 'tall') {
+      it.opts.height = height;
+    } else {
+      it.opts.height = (it.opts.height === 'tall') ? 'short' : 'tall';
+    }
+    this._persistAppsCustomLayout();
+  },
+  // Edit-mode VERTICAL resize control — mirror of appsSizeControl but on
+  // the Y axis + only TWO presets. Tap toggles short ↔ tall; a vertical
+  // drag snaps between the two by drag distance. Suppresses the cell's
+  // reorder-drag for the gesture duration (same _appsResizing guard the
+  // width handle uses).
+  appsHeightControl(ev, uid) {
+    if (!uid) {
+      return;
+    }
+    const item = this._findAppsItemByUid(uid);
+    if (!item) {
+      return;
+    }
+    this._appsResizing = true;
+    const heights = ['short', 'tall'];
+    const startY = (ev && typeof ev.clientY === 'number') ? ev.clientY : 0;
+    let startIdx = heights.indexOf(this.appsCardHeight(item));
+    if (startIdx < 0) {
+      startIdx = 0;
+    }
+    let dragged = false;
+    const STEP = 56;  // px of vertical drag per preset step
+    const self = this;
+    const move = (e) => {
+      const delta = e.clientY - startY;
+      if (Math.abs(delta) > 4) {
+        dragged = true;
+      }
+      let idx = startIdx + Math.round(delta / STEP);
+      idx = Math.max(0, Math.min(heights.length - 1, idx));
+      if (heights[idx] !== self.appsCardHeight(item)) {
+        self.setAppsCardHeight(uid, heights[idx]);
+      }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!dragged) {
+        self.setAppsCardHeight(uid, null);  // tap = toggle
+      }
+      setTimeout(() => { self._appsResizing = false; }, 0);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
   },
   // Edit-mode size control — ONE pointer handler that's both a TAP and
   // a DRAG: a tap cycles the preset (old behaviour), a horizontal drag

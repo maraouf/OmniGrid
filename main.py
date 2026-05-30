@@ -1686,6 +1686,21 @@ def init_db():
         -- USING INDEX after this index lands.
         CREATE INDEX IF NOT EXISTS idx_service_samples_alive_host_ts
             ON service_samples(alive, host_id, ts DESC);
+        -- Partition-matching index for the Apps "latest per (host, chip,
+        -- port)" + "rollup history per (host, chip)" window queries in
+        -- logic/service_sampler.py (latest_per_port_all_for_hosts /
+        -- history_rollup_all_for_hosts / bulk_latest_per_port_for_hosts).
+        -- Those PARTITION BY (host_id, service_idx, port) ORDER BY ts DESC
+        -- (or the MAX(ts) GROUP BY equivalent). None of the indexes above
+        -- match that key order, so each ran ROW_NUMBER()/GROUP BY over a
+        -- full table SCAN of the (multi-million-row) sample table — the
+        -- 1.5-2.4s slow_query warnings operators saw. With the leading
+        -- columns in partition order + ts DESC last, SQLite walks each
+        -- partition pre-sorted: the window/MAX collapses to an index
+        -- range-scan that takes the first row per group (no sort, no
+        -- scan). EXPLAIN QUERY PLAN flips SCAN -> SEARCH USING INDEX.
+        CREATE INDEX IF NOT EXISTS idx_service_samples_chip_port_ts
+            ON service_samples(host_id, service_idx, port, ts DESC);
 
         -- Apps feature — reusable service templates ("catalog"). Each row
         -- is a recipe an operator can bind to N hosts (Radarr / Sonarr /

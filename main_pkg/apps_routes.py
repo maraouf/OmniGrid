@@ -669,8 +669,22 @@ async def api_service_app_data(host_id: str, service_idx: int,
                                     host_id=host_id, service_idx=service_idx,
                                     force=force)
     except ValueError as e:  # caller-side errors (missing key / URL)
+        # Generic per-app-data failure log so EVERY app (not just the
+        # ones with their own module-level logging) is traceable in
+        # stdout / Admin -> Logs with the host + chip + module that
+        # failed. ValueError = operator-fixable config (missing key /
+        # URL) -> WARN (use the `warning:` marker the severity
+        # classifier in logic/logs.py keys on).
+        slug = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
+        print(f"[apps] warning: app-data config issue host={host_id} "
+              f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(400, str(e))
     except RuntimeError as e:  # upstream errors
+        # Upstream actually failed (404 / auth / timeout) -> ERROR (the
+        # `error:` marker routes it to the ERROR bucket).
+        slug = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
+        print(f"[apps] error: app-data fetch failed host={host_id} "
+              f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(502, str(e))
 
 
