@@ -3529,17 +3529,27 @@
                    Apps page. Each chip hides at count 0; the green up chip shows
                    whenever the section has at least one app. Shown in both edit
                    and locked mode. -->
-              <template x-if="appsSectionCounts(sec).total">
-                <span class="flex items-center gap-1 flex-shrink-0">
-                  <span class="chip pill-ok fs-3xs" x-show="appsSectionCounts(sec).up"
-                        x-text="appsSectionCounts(sec).up"
-                        :title="t('apps.counts.up', { n: appsSectionCounts(sec).up })"></span>
-                  <span class="chip pill-warning fs-3xs" x-show="appsSectionCounts(sec).degraded"
-                        x-text="appsSectionCounts(sec).degraded"
-                        :title="t('apps.counts.degraded', { n: appsSectionCounts(sec).degraded })"></span>
-                  <span class="chip pill-error fs-3xs" x-show="appsSectionCounts(sec).down"
-                        x-text="appsSectionCounts(sec).down"
-                        :title="t('apps.counts.down', { n: appsSectionCounts(sec).down })"></span>
+              <!-- appsSectionCounts(sec) computed ONCE via a single-element
+                   x-for (was read 9x across the gate + 3 chips, each looping
+                   sec.items) — the chips reference the local `c`. NOT
+                   memoized (header-chip consumers, caveat-6 freeze risk), so
+                   call-once-and-destructure is the right shape. Each chip
+                   carries :aria-label (not just :title) so a screen reader
+                   announces "N up / degraded / down", not a bare number. -->
+              <template x-for="c in [appsSectionCounts(sec)]" :key="'seccounts'">
+                <span x-show="c.total" class="flex items-center gap-1 flex-shrink-0">
+                  <span class="chip pill-ok fs-3xs" x-show="c.up"
+                        x-text="c.up"
+                        :title="t('apps.counts.up', { n: c.up })"
+                        :aria-label="t('apps.counts.up', { n: c.up })"></span>
+                  <span class="chip pill-warning fs-3xs" x-show="c.degraded"
+                        x-text="c.degraded"
+                        :title="t('apps.counts.degraded', { n: c.degraded })"
+                        :aria-label="t('apps.counts.degraded', { n: c.degraded })"></span>
+                  <span class="chip pill-error fs-3xs" x-show="c.down"
+                        x-text="c.down"
+                        :title="t('apps.counts.down', { n: c.down })"
+                        :aria-label="t('apps.counts.down', { n: c.down })"></span>
                 </span>
               </template>
               <template x-if="appsCustomEditMode">

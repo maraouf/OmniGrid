@@ -9413,30 +9413,11 @@ select.field-invalid {
   display: none;
 }
 
-/* App-card body scrolls (rather than CLIPPING) at EVERY height preset when
-   overfilled — the cell has a fixed `height` + `overflow: hidden`, so the
-   instance list / ports / per-app extras (Speedtest / APC) that sit below
-   the fold were clipped and unreachable on normal / tall cards (this rule
-   was short-height-only). Now any overfilled body scrolls in place; the
-   hero stays in flow at the top. Thin tokenised scrollbar chrome (matching
-   the flip back-face) keeps it unobtrusive. */
-.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region {
+/* On a short app card, cap the per-host instance list to the first row
+   + scroll the rest (rather than clipping) so a multi-instance app still
+   shows its primary host. `tall` lets the full list breathe. */
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-body-region {
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-bright) transparent;
-}
-.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar {
-  width: 6px;
-}
-.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar-track {
-  background: transparent;
-}
-.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region::-webkit-scrollbar-thumb {
-  background: var(--border-bright);
-  border-radius: var(--r-sm);
-}
-.apps-custom-cell.apps-card-flip:not(.apps-card--editing) .apps-card-body-region:hover::-webkit-scrollbar-thumb {
-  background: var(--text-faint);
 }
 
 /* ----------------------------------------------------------------
@@ -9662,6 +9643,69 @@ select.field-invalid {
    `<template x-if="appsCustomEditMode">` edit template. */
 .apps-card--editing .apps-card-body-region {
   display: none;
+}
+
+/* App-card body is an inline-size container (`ogcard`) so the port grid +
+   per-app extras REFORMAT by the card's chosen WIDTH preset (half /
+   normal / double / xlarge) — no scrollbars, the layout adapts to the
+   space. inline-size (not size) so it only contains the width axis and
+   can't collapse the variable-height body. The @container rules below
+   consume it (not decorative containment). */
+.apps-card-body-region {
+  container-type: inline-size;
+  container-name: ogcard;
+}
+
+/* Narrow / medium-width cards — compact the port pills so more fit per
+   row before wrapping (operator-flagged: ports cramped + wrapping to many
+   rows at medium width). Smaller padding + gap + the /proto suffix
+   dropped to the tiniest token keeps the port NUMBER legible while
+   shrinking the row footprint. */
+@container ogcard (max-width: 300px) {
+  .apps-port-grid {
+    gap: 3px;
+  }
+  .apps-port-pill {
+    padding: 1px 5px;
+    gap: 2px;
+  }
+  .apps-port-proto {
+    font-size: var(--fs-3xs);
+  }
+}
+
+/* Wide cards (double / xlarge) — generous horizontal room: let the port
+   row breathe and give the per-app extras the full width to lay out. */
+@container ogcard (min-width: 380px) {
+  .apps-port-grid {
+    gap: var(--s-2);
+  }
+}
+
+/* Speedtest extras — the two stat grids (latest down/up/ping + avg
+   down/up/ping). Base: 3-up, two stacked rows (the Tailwind `grid-cols-3`
+   moved here so the @container reformat can override it cleanly). */
+.apps-speedtest-statgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+
+/* Speedtest extras REFORMAT at wide card width — the latest + average stat
+   grids sit SIDE BY SIDE (was stacked) so the panel is short enough to fit
+   a wide-but-short card instead of stacking tall + clipping (operator-
+   flagged: extras not displayed at large width). The trend chart + its
+   legend span the full width below. */
+@container ogcard (min-width: 380px) {
+  .apps-speedtest-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-1) var(--s-3);
+    align-items: start;
+  }
+  .apps-speedtest-grid > .apps-speedtest-trend {
+    grid-column: 1 / -1;
+  }
 }
 
 /* The card-settings back face is a CONTROLS panel (size radios, clock
@@ -10582,6 +10626,9 @@ select.field-invalid {
   font-variant-numeric: tabular-nums;
   position: relative;
   z-index: 1;
+  /* Never compress the footer — it's the pinned freshness stamp the body
+     shrinks AROUND (see `.apps-widget-tile-body { min-height: 0 }`). */
+  flex-shrink: 0;
 }
 
 .apps-widget-tile-freshness svg {
@@ -10621,6 +10668,17 @@ select.field-invalid {
   gap: var(--s-1);
   color: var(--text);
   min-width: 0;
+  /* `min-height: 0` lets the body SHRINK below its content size so the
+     pinned freshness footer (a SIBLING below it) always stays visible —
+     without this, a flex item's default `min-height: auto` refuses to
+     shrink, the body pushes the footer past the tile's `overflow: hidden`
+     edge, and "Updated Ns ago" clips off the bottom (operator-flagged on
+     weather / moon / public-IP repeatedly). `overflow: hidden` makes the
+     body clip its OWN overflow internally instead. Paired with the
+     cqmin hero clamps + @container compaction so the content actually
+     fits rather than just clipping. */
+  min-height: 0;
+  overflow: hidden;
   position: relative;
   z-index: 1;
 }
@@ -10631,7 +10689,14 @@ select.field-invalid {
    spacing reads as a true display number rather than just enlarged
    body text. */
 .apps-widget-hero {
-  font-size: var(--fs-display-lg);
+  /* Scales with the card's SMALLER dimension (cqmin) like the clock / IP
+     heroes — a fixed display-lg (48px) overflowed a SHORT card and pushed
+     the detail + forecast + pinned freshness footer off the bottom
+     (clipped by the tile's `overflow: hidden`). Now the temp / fleet-count
+     hero shrinks on a compact card so the whole stack fits, and grows
+     toward display-lg on a tall / wide one. Floor = display-base so it
+     stays a clear focal number even on the smallest tile. */
+  font-size: clamp(var(--fs-display-base), 18cqmin, var(--fs-display-lg));
   font-weight: 700;
   line-height: 1.0;
   letter-spacing: -0.02em;
@@ -10654,12 +10719,29 @@ select.field-invalid {
      comfortable floor on a narrow card, growing toward display-2xl on a
      wide / tall card. Still wraps (break-all) so a long IPv6 never
      ellipsis-truncates. cqmin (not cqi) so a TALL card also grows it. */
-  font-size: clamp(var(--fs-display-base), 12cqmin, var(--fs-display-2xl));
+  font-size: clamp(var(--fs-display-base), 17cqmin, var(--fs-display-2xl));
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
   word-break: break-all;
   line-height: 1.15;
+}
+
+/* Public-IP face fills the tile-body + vertically CENTERS its stack (IP
+   hero + ISP + country/ASN + changed row) so the content USES the empty
+   vertical space instead of clumping at the top with a gap below
+   (operator-flagged: "IP is not using the space above it"). `flex: 1`
+   claims the body's free height; `justify-content: center` parks the
+   block in the middle like the clock's centred hero. `min-height: 0` so
+   it cooperates with the body's overflow clipping + the pinned freshness
+   footer. */
+.apps-widget-pubip-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-1);
+  min-height: 0;
 }
 
 .apps-widget-hero--xl {
@@ -10711,6 +10793,76 @@ select.field-invalid {
   width: clamp(64px, 42cqmin, 116px);
   height: auto;
   flex-shrink: 0;
+}
+
+/* ============================================================
+   Widget responsive adaptation — content REFLOWS + COMPACTS to FIT the
+   chosen card size. No scrollbars: a short card shows a tighter, smaller
+   variant; a tall / wide card breathes. Two mechanisms working together:
+     1. Continuous cqmin clamps on the heroes (clock / pubip / moon-ring /
+        generic hero) — already in place above; they shrink the focal
+        number on a small tile so the rest of the stack fits.
+     2. The `ogtile` size-container (`container-type: size` on
+        `.apps-widget-tile`) drives the discrete breakpoints below, which
+        compact the SECONDARY content (icon / detail / forecast / subtitle
+        / freshness) at short height so the pinned "Updated Ns ago" footer
+        + the forecast strip stay visible instead of clipping off the
+        bottom. (This is what consumes the container — previously declared
+        but unqueried.)
+   NB an element can't be styled by its OWN container query, so the tile's
+   own gap/padding compaction rides the cell's `.apps-card--height-short`
+   class rather than the @container block.
+   ============================================================ */
+
+/* Short cards — tighten the tile's own box (gap + padding) so the vertical
+   budget covers head + hero + detail + forecast + freshness. Class-based
+   because the tile is the container, not a descendant of it. */
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-widget-tile {
+  gap: var(--s-1);
+  padding: var(--s-2);
+}
+
+/* Short container — compact the SECONDARY (non-hero) descendants so the
+   forecast + the pinned freshness footer fit without scrolling. */
+@container ogtile (max-height: 175px) {
+  .apps-widget-tile-body {
+    gap: 2px;
+  }
+  .apps-widget-hero-icon {
+    width: 34px;
+    height: 34px;
+  }
+  .apps-widget-detail {
+    gap: 2px var(--s-2);
+    font-size: var(--fs-3xs);
+  }
+  .apps-widget-subtitle {
+    font-size: var(--fs-xs);
+  }
+  .apps-widget-forecast-day {
+    gap: 1px;
+  }
+  .apps-widget-tile-freshness {
+    padding-top: 2px;
+  }
+}
+
+/* Roomy cards — let the body + detail breathe into the extra height. */
+@container ogtile (min-height: 240px) {
+  .apps-widget-tile-body {
+    gap: var(--s-2);
+  }
+  .apps-widget-detail {
+    gap: var(--s-2) var(--s-3);
+  }
+}
+
+/* Wide cards — the detail row gets generous horizontal room, so spread
+   the humidity/wind / ISP/ASN/country kv pairs out instead of cramping. */
+@container ogtile (min-width: 360px) {
+  .apps-widget-detail {
+    gap: var(--s-1) var(--s-4);
+  }
 }
 
 .apps-widget-hero-icon {
@@ -11064,6 +11216,8 @@ select.field-invalid {
 .apps-bookmark-tile {
   text-decoration: none;
   color: var(--text);
+  /* Anchor for the absolutely-positioned bottom-right Open glyph below. */
+  position: relative;
   /* `align-items: start` (NOT center) so the trailing action stack —
      gear pill / open-link / remove — top-aligns like the app cards do,
      putting the gear at the TOP of the card (operator-flagged: the edit
@@ -11071,6 +11225,16 @@ select.field-invalid {
      markup carries `items-start` too; this reinforces it against the
      `.apps-card`-inherited layout. */
   align-items: start;
+}
+
+/* Open launch glyph pinned to the bottom-RIGHT corner of the bookmark
+   tile (operator-flagged: it was sitting bottom-LEFT). Absolute so it
+   anchors to the corner regardless of the logo / text / gear row flow;
+   `inset-inline-end` = right edge in LTR and flips correctly for RTL. */
+.apps-bookmark-tile .apps-card-open-glyph {
+  position: absolute;
+  inset-block-end: var(--s-2);
+  inset-inline-end: var(--s-2);
 }
 
 

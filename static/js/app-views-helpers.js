@@ -29,6 +29,17 @@
 // memo). WeakMap auto-GCs when an item's placements array is replaced/dropped.
 const _topologyGroupsMemo = new WeakMap();
 
+// memo sortedHostApps(host) per host.apps ARRAY REFERENCE — same shape +
+// reactivity-safety rationale as _topologyGroupsMemo above. The Hosts view
+// reads it from 3 bindings per host per flush and it allocated a fresh
+// `[...apps].sort(...)` every call, so the keyed `<template x-for>` re-diffed
+// even when the apps strip was unchanged. The in-place host reconcile
+// (refreshHostRow) replaces the apps array when it changes (fresh ref ->
+// busts) and keeps the ref stable between refreshes (-> hits); the lookup
+// reads host.apps to key, so the binding still subscribes on a cache hit
+// (no freeze). WeakMap auto-GCs when a host's apps array is replaced/dropped.
+const _sortedHostAppsMemo = new WeakMap();
+
 export default {
   itemSubline(item) {
     // Node hostname is rendered by the topology chip strip below,
@@ -2455,6 +2466,14 @@ export default {
     if (apps.length < 2) {
       return apps;
     }
+    // Per-(apps array) memo — one sort per apps-array identity, shared
+    // across the 3 Hosts-view bindings + re-renders until the host's apps
+    // array is replaced by the next reconcile. Returns a STABLE reference
+    // so the keyed x-for skips its re-diff when nothing changed.
+    const _memo = _sortedHostAppsMemo.get(apps);
+    if (_memo !== undefined) {
+      return _memo;
+    }
     const services = (host && Array.isArray(host.services)) ? host.services : [];
     const portOf = (app) => {
       const ports = [];
@@ -2479,7 +2498,7 @@ export default {
       }
       return ports.length ? Math.min(...ports) : Number.MAX_SAFE_INTEGER;
     };
-    return [...apps].sort((a, b) => {
+    const sorted = [...apps].sort((a, b) => {
       const pa = portOf(a);
       const pb = portOf(b);
       if (pa !== pb) {
@@ -2487,6 +2506,8 @@ export default {
       }
       return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
     });
+    _sortedHostAppsMemo.set(apps, sorted);
+    return sorted;
   },
   // Convenience: clear the provider filter ("All" pill click).
   clearHostsProviderFilter() {
