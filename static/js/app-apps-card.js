@@ -552,7 +552,8 @@ export default {
   //      extras render. Backward-compatible with the pre-toggle
   //      behaviour where every extras-capable instance
   //      unconditionally rendered its panel.
-  appsShowExtras(app, inst) {
+  appsShowExtras(app, inst, item) {
+    // Explicit per-instance / per-template flag ALWAYS wins.
     if (inst && typeof inst.show_extras === 'boolean') {
       return inst.show_extras;
     }
@@ -560,9 +561,20 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    // Default OFF — extras are OPT-IN (see the matching helper in
-    // app-apps.js for the full rationale). Unchecked "Show extras" now
-    // means no panel; the operator ticks the box to enable it.
+    // No explicit flag: AUTO-SHOW at the large presets (double / x-large
+    // width OR tall height) — sizing a card up is an implicit request for
+    // the rich view. See the matching helper in app-apps.js for the full
+    // rationale. `item` is only passed on the Custom dashboard.
+    const opts = (item && item.opts) || null;
+    if (opts) {
+      if (opts.size === 'double' || opts.size === 'xlarge') {
+        return true;
+      }
+      if (opts.height === 'tall') {
+        return true;
+      }
+    }
+    // Default OFF on a compact card — extras are opt-in via the flag.
     return false;
   },
   // Per-app expanded-card data — generic dispatcher backed by

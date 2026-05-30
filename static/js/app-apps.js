@@ -1568,7 +1568,8 @@ export default {
   //      extras render. Backward-compatible with the pre-toggle
   //      behaviour where every extras-capable instance
   //      unconditionally rendered its panel.
-  appsShowExtras(app, inst) {
+  appsShowExtras(app, inst, item) {
+    // Explicit per-instance / per-template flag ALWAYS wins.
     if (inst && typeof inst.show_extras === 'boolean') {
       return inst.show_extras;
     }
@@ -1576,13 +1577,26 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    // Default OFF — extras are OPT-IN. Operator-flagged: "Show extras"
-    // was unchecked on both the APC template AND its instance, yet the
-    // heavy UPS extras panel still rendered (the old default was `true`),
-    // which matches the APC-card UI freeze. Defaulting to false makes the
-    // unchecked state mean what it says (no panel) and the operator ticks
-    // the box only when they want it. The card still shows icon + title +
-    // per-host instance list; only the per-app extras panel is gated.
+    // No explicit flag: AUTO-SHOW at the large presets. Sizing a card up
+    // to double / x-large width OR tall height is an implicit "give me
+    // the rich view" request — that space is there to be used. Smaller
+    // cards stay compact (extras opt-in via the flag). `item` is only in
+    // scope on the Custom dashboard; the by-app grid passes nothing, so
+    // it falls through to the OFF default there (no size concept).
+    const opts = (item && item.opts) || null;
+    if (opts) {
+      if (opts.size === 'double' || opts.size === 'xlarge') {
+        return true;
+      }
+      if (opts.height === 'tall') {
+        return true;
+      }
+    }
+    // Default OFF — extras are OPT-IN on a compact card. The card still
+    // shows icon + title + per-host instance list; only the per-app
+    // extras panel is gated. (Historical: defaulting true caused the
+    // APC freeze before that bug was fixed; the auto-show above is safe
+    // now + only fires on deliberately-enlarged cards.)
     return false;
   },
   // Per-app expanded-card data — generic dispatcher backed by
