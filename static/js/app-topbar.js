@@ -55,6 +55,9 @@ export default {
   publicIpTesting: false,
   publicIpTestOk: false,
   publicIpTestResult: '',
+  // Admin → Public IP "Recent samples" table state (mirrors weatherHistory).
+  publicIpHistory: [],
+  publicIpHistoryLoading: false,
 
   // Admin → Weather (WeatherAPI.com). `weatherForm` holds the
   // transient secret-input + clear-flag so the persisted SettingsIn
@@ -815,6 +818,34 @@ export default {
       this.weatherHistory = [];
     } finally {
       this.weatherHistoryLoading = false;
+    }
+  },
+
+  // Admin → Public IP "Recent samples" table loader — mirrors
+  // loadWeatherHistory. Reads the admin-only /api/public-ip/history
+  // (newest-first public_ip_history rows). Lazy-loaded on first expand of
+  // the samples <details> + by its refresh button. `publicIpHistory` /
+  // `publicIpHistoryLoading` are the table-bound state (distinct from the
+  // AI-palette `_publicIpHistoryCache` so a manual refresh here doesn't
+  // perturb the palette's 10-min cache).
+  async loadPublicIpHistory() {
+    if (this.publicIpHistoryLoading) {
+      return;
+    }
+    this.publicIpHistoryLoading = true;
+    try {
+      const r = await fetch('/api/public-ip/history?limit=50');
+      if (!r.ok) {
+        this.publicIpHistory = [];
+        return;
+      }
+      const data = await r.json();
+      this.publicIpHistory = Array.isArray(data && data.history)
+        ? data.history : [];
+    } catch (_) {
+      this.publicIpHistory = [];
+    } finally {
+      this.publicIpHistoryLoading = false;
     }
   },
 

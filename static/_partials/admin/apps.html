@@ -532,11 +532,18 @@
        @keydown.escape.window="closeAppCatalogEditor()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeAppCatalogEditor()"></div>
     <div data-apps-editor-anchor class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[640px] w-full mx-4 max-h-[85vh] overflow-y-auto scrollbar space-y-3">
-    <div class="flex items-center justify-between mb-1">
+    <div class="flex items-center justify-between mb-3">
       <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
         <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
         </svg>
+        <!-- App brand icon in the title bar — matches the instance-edit
+             modal so both editors read the same. Resolves from the
+             editor's icon slug → name; hidden until one is set. -->
+        <img x-show="appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name"
+             :src="iconUrlFor(appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name)"
+             alt="" width="20" height="20" class="rounded flex-shrink-0"
+             @error="$event.target.style.display='none'">
         <span class="truncate" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></span>
       </h3>
       <button type="button" class="user-action-btn"
@@ -634,14 +641,14 @@
           <!-- URL toggle — when ticked, this port renders as a clickable link
                (<scheme>://<host>:<port><path>) in the Apps view + host drawer,
                on ANY protocol. Cloned onto the chip when the template is pinned. -->
-          <label class="inline-flex items-center gap-1.5 fs-xs mt-1 ps-1 cursor-pointer"
-                 :class="p.open_url ? 'text-[var(--primary)]' : 'text-[var(--text-dim)]'"
+          <!-- Compact "URL" checkbox matching the instance-edit modal's
+               per-port toggle so both editors read the same. When ticked
+               the port renders as a clickable <scheme>://<host>:<port> link
+               in the Apps view + host drawer (any protocol). -->
+          <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap mt-1 ps-1 cursor-pointer"
                  :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
             <input type="checkbox" x-model="p.open_url">
-            <svg x-show="p.open_url" width="11" height="11" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-            </svg>
-            <span x-text="t('admin_apps.port_open_url') || 'Open as URL'"></span>
+            <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
           </label>
         </div>
       </template>

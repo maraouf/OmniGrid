@@ -3355,13 +3355,30 @@
         </div>
       </div>
 
-      <!-- Loading skeleton — matches the canonical admin-table loading
-           spinner (`.loading-state` flex container + `.spin-lg`
-           border-spinner) so every async-loaded view in the SPA reads
-           the same way. -->
-      <div x-show="!appsListLoaded && appsListLoading" class="loading-state">
-        <span class="spin-lg" aria-hidden="true"></span>
-        <span class="fs-sm text-[var(--text-dim)]" x-text="t('common.loading') || 'Loading…'"></span>
+      <!-- Instant skeleton card grid — painted the MOMENT the Apps view
+           mounts, BEFORE /api/apps returns, so the operator sees the page
+           STRUCTURE immediately instead of a multi-second blank spinner
+           (perf finding 1: the view used to gate entirely on appsListLoaded
+           with only a centred spinner). Matches the Stacks/Services
+           instant-skeleton convention; the real cards reconcile in when the
+           fetch lands + appsListLoaded flips true. 8 placeholder shells in
+           the SAME grid layout as the real card grids below so there's no
+           layout shift on swap. aria-hidden — the load state is conveyed by
+           the visible shimmer, not announced. -->
+      <div x-show="!appsListLoaded && !appsListError"
+           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+           aria-hidden="true">
+        <template x-for="i in 8" :key="'apps-skel-' + i">
+          <div class="apps-card border border-[var(--border)] rounded-md p-3 flex items-start gap-3">
+            <div class="apps-card-logo"><div class="skeleton-cell" style="width: 100%; height: 100%;"></div></div>
+            <div class="flex-1 min-w-0 space-y-2">
+              <div class="skeleton-cell short" style="width: 60%;"></div>
+              <div class="skeleton-cell short" style="width: 40%;"></div>
+              <div class="skeleton-cell bar" style="width: 80%;"></div>
+              <div class="skeleton-cell bar" style="width: 70%;"></div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Error banner -->

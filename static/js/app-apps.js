@@ -678,44 +678,58 @@ export default {
       _setAppsTileQueueProcessing(false);
       return;
     }
-    const gid = _appsTileQueue.shift();
-    // Skip stale gids (the tile was torn down by a poll-reconcile
-    // between enqueue + process). The matching DOM node is gone, so
-    // flipping the ready flag would be a no-op.
-    const app = (this.appsList || []).find(a => a && a.group_id === gid);
-    if (!app) {
-      // Continue processing the next tile without paying for an
-      // extra setTimeout — keeping the cadence paced only when
-      // actual work happens. Empty pops chain immediately so a
-      // stale-tile burst doesn't stall the queue.
-      this._processAppsTileQueue();
-      return;
-    }
-    const t0 = performance.now();
+    // Ready a BATCH of tiles per macrotask tick (perf finding 2) instead of
+    // exactly one — a screenful of cards finishes ~batch-factor faster while
+    // STILL yielding to the browser between batches (the anti-hang property
+    // is "never build ALL N bodies in one synchronous flush", NOT "exactly
+    // one per tick"). Batch size is the operator tunable
+    // `tuning_apps_tile_render_batch` (default 4), delivered via
+    // /api/me's client_config; the `|| 4` fallback covers the brief window
+    // before /api/me hydrates. Stale gids (tile torn down by a poll-reconcile
+    // between enqueue + process) are skipped WITHOUT consuming the batch
+    // budget so a stale burst still drains promptly.
+    let batch = 4;
     try {
-      if (!this._appsReadyTiles) {
-        this._appsReadyTiles = {};
+      const b = this.me && this.me.client_config && this.me.client_config.apps_tile_render_batch;
+      if (Number.isFinite(b) && b >= 1) {
+        batch = b;
       }
-      // Reactive write — flips this tile's body gate (Alpine's
-      // per-key reactivity re-renders ONLY this card's body block).
-      this._appsReadyTiles[gid] = true;
-    } catch (_e) {
-      // Mount flip failed — skip this tile so one bad body can't
-      // stall the queue; the next tick continues with the rest.
+    } catch (_e) { /* keep default */ }
+    let processed = 0;
+    while (_appsTileQueue.length > 0 && processed < batch) {
+      const gid = _appsTileQueue.shift();
+      const app = (this.appsList || []).find(a => a && a.group_id === gid);
+      if (!app) {
+        continue;  // stale gid — no real work, doesn't count against the batch
+      }
+      const t0 = performance.now();
+      try {
+        if (!this._appsReadyTiles) {
+          this._appsReadyTiles = {};
+        }
+        // Reactive write — flips this tile's body gate (Alpine's per-key
+        // reactivity re-renders ONLY this card's body block).
+        this._appsReadyTiles[gid] = true;
+      } catch (_e) {
+        // Mount flip failed — skip this tile so one bad body can't stall
+        // the queue; the rest of the batch continues.
+      }
+      const took = Math.round(performance.now() - t0);
+      if (_appsTileRenderLog[gid]) {
+        _appsTileRenderLog[gid].mount_ms = took;
+      }
+      processed++;
     }
-    // Record per-tile mount duration on the inspectable diagnostic
-    // object (read the Alpine component's `_appsTileRenderLog` in
-    // devtools for per-tile timing).
-    const took = Math.round(performance.now() - t0);
-    if (_appsTileRenderLog[gid]) {
-      _appsTileRenderLog[gid].mount_ms = took;
+    // Schedule the next batch on the next macrotask tick. setTimeout (not
+    // rAF) so the queue advances independent of paint cadence — critical
+    // when the batch's reactive flush monopolises the main thread + would
+    // otherwise defer rAF.
+    if (_appsTileQueue.length > 0) {
+      const self = this;
+      setTimeout(() => self._processAppsTileQueue(), 0);
+    } else {
+      _setAppsTileQueueProcessing(false);
     }
-    // Schedule the next tile on the next macrotask tick. setTimeout
-    // (not rAF) so the queue advances independent of paint cadence —
-    // critical when Alpine's reactive flush from this tile's body
-    // mount monopolises the main thread + would otherwise defer rAF.
-    const self = this;
-    setTimeout(() => self._processAppsTileQueue(), 0);
   },
   appsVisibleInstances(app) {
     if (!app) {
