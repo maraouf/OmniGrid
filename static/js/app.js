@@ -2103,6 +2103,14 @@ function app() {
         // timer, no SSE wiring) — keeps the data fresh enough for
         // grounded answers without competing with the view-specific
         // 15s timer that takes over once the operator switches views.
+        // Perf finding 6: when the restored view is 'apps', fire the VISIBLE
+        // view's data FIRST so /api/apps isn't queued behind this
+        // fire-and-forget AI-context loadHosts on the cold event loop. The
+        // apps branch below only wires the refresh timer — its initial
+        // loadAppsList is hoisted here.
+        if (this.view === 'apps' && typeof this.loadAppsList === 'function') {
+          this.loadAppsList();
+        }
         this.loadHosts();
       }
       // If the SPA restored to the Apps view (saved in localStorage or a
@@ -2112,9 +2120,9 @@ function app() {
       // until the operator clicked Reload — mirror the watcher's apps
       // branch here so initial render populates automatically.
       if (this.view === 'apps') {
-        if (typeof this.loadAppsList === 'function') {
-          this.loadAppsList();
-        }
+        // Initial loadAppsList() is hoisted into the else-branch above (fired
+        // BEFORE the AI-context loadHosts per perf finding 6); here we only
+        // wire the refresh timer.
         if (this.statsInterval > 0) {
           this._appsTimer = setInterval(() => {
             if (this._sseConnected) {

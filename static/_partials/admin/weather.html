@@ -207,6 +207,9 @@
       <span x-text="t('admin.weather.tunables_label')"></span>
     </summary>
     <div class="mt-3 space-y-3">
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('admin.weather.tunables_intro')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
       <template x-for="key in weatherTuningKeys()" :key="key">
         <div>
           <label class="block fs-xs font-medium mb-1"
@@ -278,12 +281,12 @@
               class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto"
               @click.stop="loadWeatherHistory()"
               :disabled="weatherHistoryLoading"
-              :title="t('admin.weather.history_refresh') || 'Refresh samples'"
-              :aria-label="t('admin.weather.history_refresh') || 'Refresh samples'">
+              :title="t('actions.reload')"
+              :aria-label="t('actions.reload')">
         <svg width="13" height="13" :class="weatherHistoryLoading ? 'spin-md' : ''" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
         </svg>
-        <span x-text="t('admin.weather.history_refresh') || 'Refresh samples'"></span>
+        <span x-text="t('actions.reload')"></span>
       </button>
     </summary>
     <div class="mt-3">
