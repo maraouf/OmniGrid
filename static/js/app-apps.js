@@ -72,7 +72,10 @@ export default {
     this.appsListLoading = true;
     this.appsListError = '';
     try {
-      const r = await fetch('/api/apps');
+      // `force` (operator Refresh, post-edit reload) bypasses the
+      // backend's short-TTL list_apps cache so the operator sees fresh
+      // probe state on demand; idle polls hit the cache.
+      const r = await fetch('/api/apps' + (force ? '?force=true' : ''));
       if (!r.ok) {
         if (r.status === 401) {
           return;

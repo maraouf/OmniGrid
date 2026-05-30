@@ -158,6 +158,13 @@ def _persist_host_services(hosts: list, target_idx: int, services: list) -> None
     """
     hosts[target_idx]["services"] = _clean_host_services(services)
     set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
+    # Drop the cached `/api/apps` aggregate so a chip edit shows on the
+    # next page load instead of waiting out the short TTL.
+    try:
+        from logic import service_catalog as _sc
+        _sc.invalidate_list_apps_cache()
+    except Exception:  # noqa: BLE001 — cache-drop is best-effort
+        pass
 
 
 @app.post("/api/services/discover/{host_id}/apply")
@@ -716,10 +723,15 @@ async def api_service_unpin(host_id: str, service_idx: int, request: Request, _a
 
 
 @app.get("/api/apps")
-async def api_apps_list(_admin: AdminUser):
+async def api_apps_list(_admin: AdminUser, force: bool = False):
     """Admin-only: cross-host aggregate view. Returns one row per
     distinct app (grouped by catalog_id or name) with every host that
     runs an instance + per-instance status.
+
+    Served from a short-TTL cache in `list_apps()` so a burst of page
+    loads / polls doesn't re-run the three heavy `service_samples`
+    window queries; `?force=true` bypasses the cache for an explicit
+    operator Refresh.
 
     OFFLOADED to a worker thread via `asyncio.to_thread` because
     `list_apps()` is synchronous + opens a fresh `db_conn()` per
@@ -738,7 +750,7 @@ async def api_apps_list(_admin: AdminUser):
     the immediate crash-loop preventer.
     """
     from logic import service_catalog as _sc
-    apps = await asyncio.to_thread(_sc.list_apps)
+    apps = await asyncio.to_thread(_sc.list_apps, force)
     return {"apps": apps}
 
 
