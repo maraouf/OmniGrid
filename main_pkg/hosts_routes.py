@@ -1545,8 +1545,74 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
                 if isinstance(_sub, dict):
                     _sub.pop("enabled", None)
     ordered = list(seen.values())
+    # Per-chip api_key keep-current-if-blank — the SPA's Admin → Hosts
+    # editor NEVER receives the cleartext key back (only an `api_key_set`
+    # flag), so a full hosts-config save round-trips every chip WITHOUT
+    # its api_key. `_clean_host_services` only writes a NON-blank key, so
+    # without this pass the operator's saved Speedtest (etc.) api_key was
+    # silently wiped on the next Admin → Hosts save — the app then
+    # reported "api_key not set" (operator-flagged). Carry forward any
+    # prior api_key whose new chip lost it, matched by (host_id,
+    # service_idx) with a (host_id, catalog_id) fallback so a reorder
+    # within a host still re-homes the secret to the right chip.
+    try:
+        _preserve_chip_api_keys(ordered)
+    except Exception as e:  # noqa: BLE001 — never let secret-merge break the save
+        print(f"[hosts] api_key preserve-on-save skipped: {e}")
     set_setting(Settings.HOSTS_CONFIG, json.dumps(ordered))
     return ordered
+
+
+def _preserve_chip_api_keys(ordered: list[dict]) -> None:
+    """Carry forward each chip's stored ``api_key`` when the incoming
+    save dropped it (blank/absent) — the keep-current-if-blank contract
+    for the per-instance app secret, applied at the full-config boundary.
+
+    Mutates ``ordered`` in place. Matches the previously-stored chip by
+    ``(host_id, service_idx)`` first, then ``(host_id, catalog_id)`` so a
+    chip that moved position within its host still recovers its key. A
+    chip that genuinely has a fresh non-blank key keeps it (no overwrite).
+    """
+    prior = _load_hosts_config()
+    # Build: host_id -> {idx: api_key} + host_id -> {catalog_id: api_key}.
+    by_idx: dict[str, dict[int, str]] = {}
+    by_cat: dict[str, dict[int, str]] = {}
+    for ph in prior:
+        if not isinstance(ph, dict):
+            continue
+        phid = (ph.get("id") or "").strip()
+        if not phid:
+            continue
+        _psvcs_raw = ph.get("services")
+        psvcs = _psvcs_raw if isinstance(_psvcs_raw, list) else []
+        for pidx, pchip in enumerate(psvcs):
+            if not isinstance(pchip, dict):
+                continue
+            pkey = (pchip.get("api_key") or "").strip()
+            if not pkey:
+                continue
+            by_idx.setdefault(phid, {})[pidx] = pkey
+            pcat = _coerce_int(pchip.get("catalog_id"))
+            if pcat is not None:
+                by_cat.setdefault(phid, {})[pcat] = pkey
+    for nh in ordered:
+        nhid = (nh.get("id") or "").strip()
+        if not nhid or nhid not in by_idx:
+            continue
+        _nsvcs_raw = nh.get("services")
+        nsvcs = _nsvcs_raw if isinstance(_nsvcs_raw, list) else []
+        for nidx, nchip in enumerate(nsvcs):
+            if not isinstance(nchip, dict):
+                continue
+            if (nchip.get("api_key") or "").strip():
+                continue  # fresh key supplied — keep it
+            carried = by_idx.get(nhid, {}).get(nidx)
+            if not carried:
+                ncat = _coerce_int(nchip.get("catalog_id"))
+                if ncat is not None:
+                    carried = by_cat.get(nhid, {}).get(ncat)
+            if carried:
+                nchip["api_key"] = carried
 
 
 @app.get("/api/hosts/config")

@@ -1987,7 +1987,7 @@
            role="dialog" aria-modal="true"
            @keydown="_focusTrapKeydown($event, $el)">
         <div class="absolute inset-0 backdrop" @click="closeAppLogModal()"></div>
-        <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-4 w-full max-w-3xl shadow-xl flex flex-col" style="max-height: 80vh">
+        <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-4 w-full max-w-3xl shadow-xl flex flex-col" style="max-height: 80vh;">
           <div class="flex items-center justify-between gap-2 mb-2">
             <h3 class="fs-md font-semibold inline-flex items-center gap-2 min-w-0">
               <svg width="15" height="15" class="flex-shrink-0 text-[var(--text-dim)]" aria-hidden="true">
@@ -2011,7 +2011,8 @@
                 </svg>
               </button>
               <button type="button" class="user-action-btn" @click="closeAppLogModal()"
-                      :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕</button>
+                      :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕
+              </button>
             </div>
           </div>
           <div x-show="appLogModal.loading" class="loading-state"><span class="spin-lg" aria-hidden="true"></span></div>
@@ -3458,7 +3459,9 @@
             <button type="button" x-show="appsCustomEditMode"
                     class="btn btn-soft fs-sm inline-flex items-center gap-1"
                     @click="addAppsSection()">
-              <svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/>
+              </svg>
               <span x-text="t('apps.custom.add_section') || 'Add section'"></span>
             </button>
             <!-- Edit ⇄ Save (lock) toggle — pencil when locked, check when
@@ -3470,8 +3473,12 @@
                     :aria-pressed="appsCustomEditMode ? 'true' : 'false'"
                     @click="appsCustomEditMode = !appsCustomEditMode"
                     :title="appsCustomEditMode ? (t('apps.custom.save_title') || 'Lock the board') : (t('apps.custom.edit_title') || 'Rearrange the board')">
-              <svg width="13" height="13" aria-hidden="true" x-show="!appsCustomEditMode"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pencil"/></svg>
-              <svg width="13" height="13" aria-hidden="true" x-show="appsCustomEditMode"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/></svg>
+              <svg width="13" height="13" aria-hidden="true" x-show="!appsCustomEditMode">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pencil"/>
+              </svg>
+              <svg width="13" height="13" aria-hidden="true" x-show="appsCustomEditMode">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+              </svg>
               <span x-text="appsCustomEditMode ? (t('apps.custom.save') || 'Save') : (t('apps.custom.edit') || 'Edit')"></span>
             </button>
           </div>
@@ -3501,13 +3508,13 @@
                 </svg>
               </button>
               <input x-show="appsCustomEditMode" type="text"
-                     class="apps-section-name flex-1 fs-sm font-semibold bg-transparent border-0"
+                     class="apps-section-name flex-1 fs-display-sm font-semibold bg-transparent border-0"
                      :value="sec.name"
                      :placeholder="t('apps.custom.section_name_placeholder') || 'Section name'"
                      :aria-label="t('apps.custom.section_name_aria') || 'Section name'"
                      @change="renameAppsSection(sec.id, $event.target.value)"
                      @keydown.enter.prevent="$event.target.blur()">
-              <span x-show="!appsCustomEditMode" class="fs-sm font-semibold flex-1 truncate"
+              <span x-show="!appsCustomEditMode" class="fs-display-sm font-semibold flex-1 truncate"
                     x-text="sec.name || (t('apps.custom.unsectioned') || 'Unsectioned')"></span>
               <span class="fs-2xs text-[var(--text-faint)]" x-text="sec.items.length"></span>
               <template x-if="appsCustomEditMode">
@@ -3545,111 +3552,128 @@
                      :placeholder="t('apps.custom.bookmark_url_placeholder') || 'https://…'"
                      :aria-label="t('apps.custom.bookmark_url_placeholder') || 'URL'"
                      @keydown.enter.prevent="submitAppsBookmark(sec.id)">
-              <!-- Optional icon URL — paste an SVG / PNG / favicon URL
-                   here and the bookmark tile renders it instead of the
-                   default initial-letter fallback. Leave blank for the
-                   initial-letter behaviour. -->
-              <input type="url" class="fs-xs" style="flex:1.2;min-width:160px;"
+              <!-- Optional icon — a brand SLUG (e.g. ftth, plex), a full
+                   SVG / PNG / favicon URL, or blank to auto-resolve from
+                   the name. MUST be type="text" (NOT type="url"): a bare
+                   brand slug like `ftth` is not a valid URL, so type=url
+                   silently rejected it and the slug never persisted —
+                   the tile then fell back to the bookmark URL as the
+                   icon source (operator saw it try to load `https://5g/`
+                   as the image). appsBookmarkIconUrl resolves the slug
+                   through the same brand resolver the hosts use. -->
+              <input type="text" class="fs-xs" style="flex:1.2;min-width:160px;"
                      x-model="appsBookmarkIcon"
-                     :placeholder="t('apps.custom.bookmark_icon_placeholder') || 'Icon URL (optional)'"
-                     :aria-label="t('apps.custom.bookmark_icon_aria') || 'Icon URL (optional)'"
+                     :placeholder="t('apps.custom.bookmark_icon_placeholder') || 'Icon slug, URL, or blank'"
+                     :aria-label="t('apps.custom.bookmark_icon_aria') || 'Icon slug or URL (optional)'"
                      @keydown.enter.prevent="submitAppsBookmark(sec.id)">
               <button type="button" class="btn btn-primary fs-2xs" @click="submitAppsBookmark(sec.id)"
                       x-text="t('actions.add') || 'Add'"></button>
               <button type="button" class="btn btn-ghost fs-2xs" @click="cancelAppsBookmarkForm()"
                       x-text="t('actions.cancel') || 'Cancel'"></button>
             </div>
-            <div x-show="!sec.collapsed"
-                 :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
-                 @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
-              <template x-for="item in sec.items" :key="item.uid">
-                <!-- apps-custom-cell wraps a flip-capable container.
-                     `apps-card-flip` sets the perspective; the size
-                     class (`apps-card--size-half|normal|double`)
-                     drives grid-span + body-density; the flipped
-                     class toggles via the front-face gear button. -->
-                <div class="apps-custom-cell min-w-0 apps-card-flip"
-                     :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
-                     :draggable="appsCustomEditMode && !_appsResizing ? 'true' : 'false'"
-                     @dragstart="(appsCustomEditMode && !_appsResizing) ? appsItemDragStart($event, item.uid) : $event.preventDefault()"
-                     @dragover.prevent
-                     @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
-                  <div class="apps-card-flip-inner">
-                    <div class="apps-card-face-front">
-                      <!-- Edit-mode RIGHT-EDGE resize handle. Drag it
-                           left / right to snap the card between the three
-                           size presets (half / normal / double). This is
-                           the "drag the edge to resize" affordance — the
-                           tiny corner N/H/D button is a secondary
-                           tap-to-cycle. @pointerdown.stop.prevent so the
-                           cell's reorder-drag doesn't fire (appsSizeControl
-                           also sets `_appsResizing`, which the cell's
-                           @dragstart reads to preventDefault the move). -->
-                      <div class="apps-card-resize-handle" x-show="appsCustomEditMode"
-                           @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
-                           :title="t('apps.custom.size_drag_title') || 'Drag to resize (half / normal / double)'"
-                           :aria-label="t('apps.custom.size_drag_title') || 'Drag to resize'"
-                           aria-hidden="false"></div>
-                      <!-- Floating gear (bookmark cards only). The
-                           edit-mode resize affordance is the right-edge
-                           drag handle above — the old corner size-cycle
-                           button ("Normal"/"Half" text) was removed: it
-                           overlapped the trash / gear icons in the
-                           top-right corner and is redundant now that the
-                           edge handle does the resize. -->
-                      <div class="apps-card-corner-actions">
-                        <!-- Floating gear: bookmark cards only. App cards
-                             render the gear as the first pill in their
-                             status-pill stack (apps-card.html) and widget
-                             tiles render it as a pill in their actions row
-                             (apps-widget-tile.html) — both per the
-                             requested consistent pill design — so suppress
-                             the floating gear for those to avoid a
-                             duplicate sitting over the card. -->
-                        <button type="button" class="apps-card-gear"
-                                x-show="item.kind !== 'app' && item.kind !== 'widget'"
-                                @click.stop="toggleAppsCardFlipped(item.uid)"
-                                :title="t('apps.custom.gear_title') || 'Card settings'"
-                                :aria-label="t('apps.custom.gear_aria') || 'Card settings'"
-                                :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'">
-                          <svg aria-hidden="true">
-                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
-                          </svg>
-                        </button>
-                      </div>
-                      <!-- App card — rendered at FULL fidelity in BOTH
-                           locked AND edit mode (operator-flagged: edit
-                           must show the real card at its current size
-                           with the title + settings/refresh pills, in a
-                           shimmer treatment — NOT the old small icon
-                           tile). The cell carries `.apps-card--editing`
-                           in edit mode (shimmer + grab cursor + dashed
-                           outline) and is draggable for reorder; the
-                           corner size button resizes between the three
-                           presets. `appsCardSizeClass` drives the grid
-                           span so half / normal / double are visibly
-                           distinct widths. -->
-                      <template x-if="item.kind === 'app'">
-                        <template x-for="app in [item.app]" :key="app.group_id">
-                          <!-- INCLUDE: _components/apps-card.html -->
+            <!-- COLLAPSED SECTIONS RENDER NOTHING — `x-if` (not `x-show`)
+                 so a collapsed section's cards are TORN OUT of the DOM +
+                 the reactive graph entirely: no card bodies, no
+                 IntersectionObservers, no sparkline / spark memos, and no
+                 per-app `app-data` fetches run for a section the user
+                 can't see. `x-show` only set `display:none`, which kept
+                 every card live + polling — the overhead the operator
+                 asked to eliminate. Expanding the section re-mounts the
+                 grid, which re-arms the observers + lazy-render queue, so
+                 probing resumes only when the section is back in view. -->
+            <template x-if="!sec.collapsed">
+              <div class="apps-section-body-grid"
+                   :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+                   @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
+                <template x-for="item in sec.items" :key="item.uid">
+                  <!-- apps-custom-cell wraps a flip-capable container.
+                       `apps-card-flip` sets the perspective; the size
+                       class (`apps-card--size-half|normal|double`)
+                       drives grid-span + body-density; the flipped
+                       class toggles via the front-face gear button. -->
+                  <div class="apps-custom-cell min-w-0 apps-card-flip"
+                       :class="appsCardSizeClass(item) + (appsCardIsFlipped(item.uid) ? ' apps-card--flipped' : '') + (appsCustomEditMode ? ' apps-card--editing' : '')"
+                       :draggable="appsCustomEditMode && !_appsResizing ? 'true' : 'false'"
+                       @dragstart="(appsCustomEditMode && !_appsResizing) ? appsItemDragStart($event, item.uid) : $event.preventDefault()"
+                       @dragover.prevent
+                       @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null">
+                    <div class="apps-card-flip-inner">
+                      <div class="apps-card-face-front">
+                        <!-- Edit-mode RIGHT-EDGE resize handle. Drag it
+                             left / right to snap the card between the three
+                             size presets (half / normal / double). This is
+                             the "drag the edge to resize" affordance — the
+                             tiny corner N/H/D button is a secondary
+                             tap-to-cycle. @pointerdown.stop.prevent so the
+                             cell's reorder-drag doesn't fire (appsSizeControl
+                             also sets `_appsResizing`, which the cell's
+                             @dragstart reads to preventDefault the move). -->
+                        <div class="apps-card-resize-handle" x-show="appsCustomEditMode"
+                             @pointerdown.stop.prevent="appsSizeControl($event, item.uid)"
+                             :title="t('apps.custom.size_drag_title') || 'Drag to resize (half / normal / double)'"
+                             :aria-label="t('apps.custom.size_drag_title') || 'Drag to resize'"
+                             aria-hidden="false"></div>
+                        <!-- Floating gear (bookmark cards only). The
+                             edit-mode resize affordance is the right-edge
+                             drag handle above — the old corner size-cycle
+                             button ("Normal"/"Half" text) was removed: it
+                             overlapped the trash / gear icons in the
+                             top-right corner and is redundant now that the
+                             edge handle does the resize. -->
+                        <div class="apps-card-corner-actions">
+                          <!-- Floating gear: bookmark cards only. App cards
+                               render the gear as the first pill in their
+                               status-pill stack (apps-card.html) and widget
+                               tiles render it as a pill in their actions row
+                               (apps-widget-tile.html) — both per the
+                               requested consistent pill design — so suppress
+                               the floating gear for those to avoid a
+                               duplicate sitting over the card. -->
+                          <button type="button" class="apps-card-gear"
+                                  x-show="item.kind !== 'app' && item.kind !== 'widget' && item.kind !== 'bookmark'"
+                                  @click.stop="toggleAppsCardFlipped(item.uid)"
+                                  :title="t('apps.custom.gear_title') || 'Card settings'"
+                                  :aria-label="t('apps.custom.gear_aria') || 'Card settings'"
+                                  :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'">
+                            <svg aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+                            </svg>
+                          </button>
+                        </div>
+                        <!-- App card — rendered at FULL fidelity in BOTH
+                             locked AND edit mode (operator-flagged: edit
+                             must show the real card at its current size
+                             with the title + settings/refresh pills, in a
+                             shimmer treatment — NOT the old small icon
+                             tile). The cell carries `.apps-card--editing`
+                             in edit mode (shimmer + grab cursor + dashed
+                             outline) and is draggable for reorder; the
+                             corner size button resizes between the three
+                             presets. `appsCardSizeClass` drives the grid
+                             span so half / normal / double are visibly
+                             distinct widths. -->
+                        <template x-if="item.kind === 'app'">
+                          <template x-for="app in [item.app]" :key="app.group_id">
+                            <!-- INCLUDE: _components/apps-card.html -->
+                          </template>
                         </template>
-                      </template>
-                      <template x-if="item.kind === 'widget'">
-                        <!-- INCLUDE: _components/apps-widget-tile.html -->
-                      </template>
-                      <template x-if="item.kind === 'bookmark'">
-                        <!-- INCLUDE: _components/apps-bookmark-tile.html -->
-                      </template>
-                    </div>
-                    <div class="apps-card-face-back" x-show="appsCardIsFlipped(item.uid)">
-                      <!-- INCLUDE: _components/apps-card-settings.html -->
+                        <template x-if="item.kind === 'widget'">
+                          <!-- INCLUDE: _components/apps-widget-tile.html -->
+                        </template>
+                        <template x-if="item.kind === 'bookmark'">
+                          <!-- INCLUDE: _components/apps-bookmark-tile.html -->
+                        </template>
+                      </div>
+                      <div class="apps-card-face-back" x-show="appsCardIsFlipped(item.uid)">
+                        <!-- INCLUDE: _components/apps-card-settings.html -->
+                      </div>
                     </div>
                   </div>
-                </div>
-              </template>
-              <div x-show="appsCustomEditMode && !sec.items.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.custom.section_empty') || 'Drop apps here'"></div>
-            </div>
+                </template>
+                <div x-show="appsCustomEditMode && !sec.items.length" class="apps-section-empty fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.custom.section_empty') || 'Drop apps here'"></div>
+              </div>
+            </template>
           </section>
         </template>
 
@@ -3666,7 +3690,7 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
               </svg>
             </button>
-            <span class="fs-sm font-semibold text-[var(--text-dim)] flex-1"
+            <span class="fs-display-sm font-semibold text-[var(--text-dim)] flex-1"
                   x-text="t('apps.custom.unsectioned') || 'Unsectioned'"></span>
             <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
           </header>
@@ -6792,24 +6816,24 @@
                      the ~majority of hosts that have no Webmin probe
                      and therefore no pending-updates field. -->
             <template x-if="(h.updates_pending || 0) > 0">
-            <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
-              <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
-              <dl class="drawer-dl fs-sm">
-                <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
-                <dd class="mono text-end" x-text="h.updates_pending"></dd>
-                <template x-if="(h.updates_security || 0) > 0">
-                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.security')"></dt>
-                </template>
-                <template x-if="(h.updates_security || 0) > 0">
-                  <dd class="text-end">
+              <section class="rounded border border-[var(--border)] bg-[var(--surface)] p-4 md:col-span-6">
+                <h4 class="fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-3" x-text="t('host_drawer.updates.heading')"></h4>
+                <dl class="drawer-dl fs-sm">
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.pending')"></dt>
+                  <dd class="mono text-end" x-text="h.updates_pending"></dd>
+                  <template x-if="(h.updates_security || 0) > 0">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.security')"></dt>
+                  </template>
+                  <template x-if="(h.updates_security || 0) > 0">
+                    <dd class="text-end">
                         <span class="pill pill-degraded fs-2xs"
                               x-text="t('host_drawer.updates.security_count', { count: h.updates_security })"></span>
-                  </dd>
-                </template>
-                <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.source')"></dt>
-                <dd class="mono text-end text-[var(--text-faint)]" x-text="t('settings.host_stats.source_webmin')"></dd>
-              </dl>
-            </section>
+                    </dd>
+                  </template>
+                  <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.updates.source')"></dt>
+                  <dd class="mono text-end text-[var(--text-faint)]" x-text="t('settings.host_stats.source_webmin')"></dd>
+                </dl>
+              </section>
             </template>
           </div>
 
@@ -9695,7 +9719,9 @@
               </div>
               <button type="button" @click="closeAppDrawer()" class="user-action-btn"
                       :aria-label="t('actions.close')" :title="t('actions.close')">
-                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
+                <svg width="14" height="14" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
               </button>
             </div>
 
@@ -9817,68 +9843,68 @@
                          when collapsed — user-toggled panel, safe to unmount. -->
                     <template x-if="appDebugOpen[appInstanceKey(inst)] && me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
                       <div class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
-                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
-                        <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">
-                          <span class="spin"></span><span x-text="t('apps.drawer.debug_loading') || 'Loading diagnostics…'"></span>
-                        </div>
-                      </template>
-                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].error">
-                        <div class="fs-xs text-[var(--danger)]" x-text="appDebug[appInstanceKey(inst)].error"></div>
-                      </template>
-                      <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].data">
-                        <div class="fs-xs space-y-2">
-                          <div x-show="appDebug[appInstanceKey(inst)].data.probe_reason" class="text-[var(--warning)]"
-                               x-text="appDebug[appInstanceKey(inst)].data.probe_reason"></div>
-                          <!-- Continuous-probe blockers — why the port pills stay grey
-                               even though "Probe now" works. Each blocker is a reason
-                               the lifespan sampler skips this chip (master provider OFF
-                               and/or this chip's probe disabled). Empty => eligible. -->
-                          <div x-show="(appDebug[appInstanceKey(inst)].data.live_probe_blockers || []).length"
-                               class="rounded-md px-2 py-1.5 bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
-                            <div class="fs-2xs uppercase tracking-wide mb-1"
-                                 x-text="t('apps.drawer.live_probe_blocked') || 'Live probing not running — reasons:'"></div>
-                            <ul class="list-disc ps-4 space-y-0.5">
-                              <template x-for="b in (appDebug[appInstanceKey(inst)].data.live_probe_blockers || [])" :key="b">
-                                <li x-text="b"></li>
+                        <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
+                          <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">
+                            <span class="spin"></span><span x-text="t('apps.drawer.debug_loading') || 'Loading diagnostics…'"></span>
+                          </div>
+                        </template>
+                        <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].error">
+                          <div class="fs-xs text-[var(--danger)]" x-text="appDebug[appInstanceKey(inst)].error"></div>
+                        </template>
+                        <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].data">
+                          <div class="fs-xs space-y-2">
+                            <div x-show="appDebug[appInstanceKey(inst)].data.probe_reason" class="text-[var(--warning)]"
+                                 x-text="appDebug[appInstanceKey(inst)].data.probe_reason"></div>
+                            <!-- Continuous-probe blockers — why the port pills stay grey
+                                 even though "Probe now" works. Each blocker is a reason
+                                 the lifespan sampler skips this chip (master provider OFF
+                                 and/or this chip's probe disabled). Empty => eligible. -->
+                            <div x-show="(appDebug[appInstanceKey(inst)].data.live_probe_blockers || []).length"
+                                 class="rounded-md px-2 py-1.5 bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]">
+                              <div class="fs-2xs uppercase tracking-wide mb-1"
+                                   x-text="t('apps.drawer.live_probe_blocked') || 'Live probing not running — reasons:'"></div>
+                              <ul class="list-disc ps-4 space-y-0.5">
+                                <template x-for="b in (appDebug[appInstanceKey(inst)].data.live_probe_blockers || [])" :key="b">
+                                  <li x-text="b"></li>
+                                </template>
+                              </ul>
+                            </div>
+                            <div x-show="(appDebug[appInstanceKey(inst)].data.resolved_targets || []).length">
+                              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
+                                   x-text="t('apps.drawer.resolved_targets') || 'Resolved probe targets'"></div>
+                              <template x-for="rt in appDebug[appInstanceKey(inst)].data.resolved_targets" :key="rt.target">
+                                <div class="mono fs-2xs break-all">
+                                  <span x-text="rt.target"></span>
+                                  <span class="text-[var(--text-faint)]"
+                                        x-text="' [' + rt.probe_type + (rt.expected_status ? ' → ' + rt.expected_status : '') + ']'"></span>
+                                </div>
                               </template>
-                            </ul>
+                            </div>
+                            <div class="mono fs-2xs text-[var(--text-dim)]"
+                                 x-text="(t('apps.drawer.probe_enabled') || 'Probe enabled') + ': ' + (appDebug[appInstanceKey(inst)].data.chip.probe.enabled ? '✓' : '✕') + ' · ' + appDebug[appInstanceKey(inst)].data.chip.probe.type"></div>
+                            <!-- Master Service-probe provider toggle (Admin → Providers).
+                                 OFF means NO chip on any host gets continuous probing. -->
+                            <div class="mono fs-2xs text-[var(--text-dim)]"
+                                 x-text="(t('apps.drawer.master_probe_enabled') || 'Service-probe provider (global)') + ': ' + (appDebug[appInstanceKey(inst)].data.service_probe_master_enabled ? '✓' : '✕')"></div>
+                            <div class="flex items-center gap-2">
+                              <details class="flex-1 min-w-0">
+                                <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
+                                         x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>
+                                <pre class="fs-2xs mono whitespace-pre-wrap break-all mt-1"
+                                     x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
+                              </details>
+                              <button type="button" class="btn btn-ghost fs-2xs inline-flex items-center gap-1 flex-shrink-0 self-start"
+                                      @click.stop="copyToClipboard(JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2))"
+                                      :aria-label="t('apps.drawer.copy_debug') || 'Copy debug JSON'"
+                                      :title="t('apps.drawer.copy_debug') || 'Copy debug JSON'">
+                                <svg width="12" height="12" aria-hidden="true">
+                                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                                </svg>
+                                <span x-text="t('apps.drawer.copy_debug') || 'Copy'"></span>
+                              </button>
+                            </div>
                           </div>
-                          <div x-show="(appDebug[appInstanceKey(inst)].data.resolved_targets || []).length">
-                            <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
-                                 x-text="t('apps.drawer.resolved_targets') || 'Resolved probe targets'"></div>
-                            <template x-for="rt in appDebug[appInstanceKey(inst)].data.resolved_targets" :key="rt.target">
-                              <div class="mono fs-2xs break-all">
-                                <span x-text="rt.target"></span>
-                                <span class="text-[var(--text-faint)]"
-                                      x-text="' [' + rt.probe_type + (rt.expected_status ? ' → ' + rt.expected_status : '') + ']'"></span>
-                              </div>
-                            </template>
-                          </div>
-                          <div class="mono fs-2xs text-[var(--text-dim)]"
-                               x-text="(t('apps.drawer.probe_enabled') || 'Probe enabled') + ': ' + (appDebug[appInstanceKey(inst)].data.chip.probe.enabled ? '✓' : '✕') + ' · ' + appDebug[appInstanceKey(inst)].data.chip.probe.type"></div>
-                          <!-- Master Service-probe provider toggle (Admin → Providers).
-                               OFF means NO chip on any host gets continuous probing. -->
-                          <div class="mono fs-2xs text-[var(--text-dim)]"
-                               x-text="(t('apps.drawer.master_probe_enabled') || 'Service-probe provider (global)') + ': ' + (appDebug[appInstanceKey(inst)].data.service_probe_master_enabled ? '✓' : '✕')"></div>
-                          <div class="flex items-center gap-2">
-                            <details class="flex-1 min-w-0">
-                              <summary class="fs-2xs text-[var(--text-faint)] cursor-pointer"
-                                       x-text="t('apps.drawer.raw_json') || 'Raw debug JSON'"></summary>
-                              <pre class="fs-2xs mono whitespace-pre-wrap break-all mt-1"
-                                   x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
-                            </details>
-                            <button type="button" class="btn btn-ghost fs-2xs inline-flex items-center gap-1 flex-shrink-0 self-start"
-                                    @click.stop="copyToClipboard(JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2))"
-                                    :aria-label="t('apps.drawer.copy_debug') || 'Copy debug JSON'"
-                                    :title="t('apps.drawer.copy_debug') || 'Copy debug JSON'">
-                              <svg width="12" height="12" aria-hidden="true">
-                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                              </svg>
-                              <span x-text="t('apps.drawer.copy_debug') || 'Copy'"></span>
-                            </button>
-                          </div>
-                        </div>
-                      </template>
+                        </template>
                       </div>
                     </template>
                   </div>
@@ -9928,7 +9954,9 @@
               </div>
               <button type="button" @click="closeAppHostDrawer()" class="user-action-btn"
                       :aria-label="t('actions.close')" :title="t('actions.close')">
-                <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/></svg>
+                <svg width="14" height="14" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
               </button>
             </div>
 
@@ -11490,117 +11518,117 @@
          so a host-refresh / SSE event won't re-walk every closed-
          palette binding. -->
     <template x-if="commandPaletteOpen">
-    <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
-      <!-- Inner card uses inline style for max-height instead of
-           Tailwind v4's `max-h-[80vh]` arbitrary class — the in-
-           browser JIT was inconsistent at generating the arbitrary
-           value, leaving the card collapsed to its content height
-           AND with no scrollable overflow on long result lists.
-           The hotkeys modal renders fine because it uses standard
-           classes too — operator-confirmed Ctrl+K wasn't showing
-           the panel even though the keydown was firing. -->
-      <div id="cmdpal-card"
-           style="max-height: 80vh;"
-           class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full flex flex-col overflow-hidden shadow-xl"
-           @click.stop>
-        <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
-          <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
-          </svg>
-          <input type="text" id="cmdpal-input"
-                 x-model="commandPaletteQuery"
-                 @input="commandPaletteSelectedIdx = 0"
-                 @keydown.arrow-down.prevent="commandPaletteMove(1)"
-                 @keydown.arrow-up.prevent="commandPaletteMove(-1)"
-                 @keydown.enter.prevent="commandPaletteActivate()"
-                 :placeholder="t('command_palette.placeholder')"
-                 class="flex-1 bg-transparent border-0 outline-none fs-lg text-[var(--text)] placeholder:text-[var(--text-faint)]"
-                 autocomplete="off" spellcheck="false"
-                 role="combobox"
-                 aria-controls="cmdpal-results"
-                 aria-expanded="true"
-                 :aria-activedescendant="commandPaletteResults().length ? 'cmdpal-row-' + commandPaletteSelectedIdx : null">
-          <kbd class="fs-2xs text-[var(--text-faint)] border border-[var(--border)] rounded px-1.5 py-0.5">Esc</kbd>
-        </div>
-        <div class="overflow-y-auto scrollbar flex-1">
-          <!-- BULK MODE — chip strip + run row. Only renders when the
-               query parses as `<verb>: <selector>` (pause: / resume:).
-               The chip strip lets the operator click off individual
-               hosts before committing; the run row is keyboard-active
-               (Enter triggers `commandPaletteActivate` which the JS
-               re-routes to `runCommandPaletteBulk`). -->
-          <template x-if="isCommandPaletteBulkMode()">
-            <div class="cmdpal-bulk">
-              <div class="cmdpal-bulk-summary">
+      <div class="relative flex items-center justify-center p-4 w-full h-full overflow-auto scrollbar">
+        <!-- Inner card uses inline style for max-height instead of
+             Tailwind v4's `max-h-[80vh]` arbitrary class — the in-
+             browser JIT was inconsistent at generating the arbitrary
+             value, leaving the card collapsed to its content height
+             AND with no scrollable overflow on long result lists.
+             The hotkeys modal renders fine because it uses standard
+             classes too — operator-confirmed Ctrl+K wasn't showing
+             the panel even though the keydown was firing. -->
+        <div id="cmdpal-card"
+             style="max-height: 80vh;"
+             class="bg-[var(--surface)] border border-[var(--border)] rounded-md max-w-2xl w-full flex flex-col overflow-hidden shadow-xl"
+             @click.stop>
+          <div class="flex items-center gap-2 p-3 border-b border-[var(--border)]">
+            <svg width="16" height="16" class="text-[var(--text-faint)]" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
+            </svg>
+            <input type="text" id="cmdpal-input"
+                   x-model="commandPaletteQuery"
+                   @input="commandPaletteSelectedIdx = 0"
+                   @keydown.arrow-down.prevent="commandPaletteMove(1)"
+                   @keydown.arrow-up.prevent="commandPaletteMove(-1)"
+                   @keydown.enter.prevent="commandPaletteActivate()"
+                   :placeholder="t('command_palette.placeholder')"
+                   class="flex-1 bg-transparent border-0 outline-none fs-lg text-[var(--text)] placeholder:text-[var(--text-faint)]"
+                   autocomplete="off" spellcheck="false"
+                   role="combobox"
+                   aria-controls="cmdpal-results"
+                   aria-expanded="true"
+                   :aria-activedescendant="commandPaletteResults().length ? 'cmdpal-row-' + commandPaletteSelectedIdx : null">
+            <kbd class="fs-2xs text-[var(--text-faint)] border border-[var(--border)] rounded px-1.5 py-0.5">Esc</kbd>
+          </div>
+          <div class="overflow-y-auto scrollbar flex-1">
+            <!-- BULK MODE — chip strip + run row. Only renders when the
+                 query parses as `<verb>: <selector>` (pause: / resume:).
+                 The chip strip lets the operator click off individual
+                 hosts before committing; the run row is keyboard-active
+                 (Enter triggers `commandPaletteActivate` which the JS
+                 re-routes to `runCommandPaletteBulk`). -->
+            <template x-if="isCommandPaletteBulkMode()">
+              <div class="cmdpal-bulk">
+                <div class="cmdpal-bulk-summary">
                 <span class="cmdpal-bulk-verb"
                       x-text="(commandPaletteBulkState() && commandPaletteBulkState().verb) || ''"></span>
-                <span x-text="t('command_palette.bulk.matched_label', { matched: (commandPaletteBulkState() && commandPaletteBulkState().matched.length) || 0, selected: (commandPaletteBulkState() && commandPaletteBulkState().selected.length) || 0 })"></span>
-                <span class="flex-1"></span>
-                <span class="fs-2xs text-[var(--text-faint)]"
-                      x-text="t('command_palette.bulk.dsl_hint')"></span>
-              </div>
-              <div class="cmdpal-bulk-chips scrollbar">
-                <template x-for="h in (commandPaletteBulkState() && commandPaletteBulkState().matched) || []"
-                          :key="h.id || h.host">
-                  <button type="button"
-                          @click.stop="toggleCommandPaletteBulkChip(h.id || h.host)"
-                          :class="(commandPaletteBulkExcluded && commandPaletteBulkExcluded.has(h.id || h.host)) ? 'cmdpal-bulk-chip is-excluded' : 'cmdpal-bulk-chip is-included'"
-                          :title="t('command_palette.bulk.chip_toggle_hint')">
-                    <span class="cmdpal-bulk-chip-dot" aria-hidden="true"></span>
-                    <span x-text="h.label || h.id || h.host"></span>
-                  </button>
-                </template>
-                <span x-show="!(commandPaletteBulkState() && commandPaletteBulkState().matched.length)"
-                      class="fs-xs text-[var(--text-faint)] italic"
-                      x-text="t('command_palette.bulk.no_matches')"></span>
-              </div>
-              <button type="button"
-                      class="cmdpal-bulk-run"
-                      :disabled="!(commandPaletteBulkState() && commandPaletteBulkState().selected.length)"
-                      @click.stop="runCommandPaletteBulk()">
+                  <span x-text="t('command_palette.bulk.matched_label', { matched: (commandPaletteBulkState() && commandPaletteBulkState().matched.length) || 0, selected: (commandPaletteBulkState() && commandPaletteBulkState().selected.length) || 0 })"></span>
+                  <span class="flex-1"></span>
+                  <span class="fs-2xs text-[var(--text-faint)]"
+                        x-text="t('command_palette.bulk.dsl_hint')"></span>
+                </div>
+                <div class="cmdpal-bulk-chips scrollbar">
+                  <template x-for="h in (commandPaletteBulkState() && commandPaletteBulkState().matched) || []"
+                            :key="h.id || h.host">
+                    <button type="button"
+                            @click.stop="toggleCommandPaletteBulkChip(h.id || h.host)"
+                            :class="(commandPaletteBulkExcluded && commandPaletteBulkExcluded.has(h.id || h.host)) ? 'cmdpal-bulk-chip is-excluded' : 'cmdpal-bulk-chip is-included'"
+                            :title="t('command_palette.bulk.chip_toggle_hint')">
+                      <span class="cmdpal-bulk-chip-dot" aria-hidden="true"></span>
+                      <span x-text="h.label || h.id || h.host"></span>
+                    </button>
+                  </template>
+                  <span x-show="!(commandPaletteBulkState() && commandPaletteBulkState().matched.length)"
+                        class="fs-xs text-[var(--text-faint)] italic"
+                        x-text="t('command_palette.bulk.no_matches')"></span>
+                </div>
+                <button type="button"
+                        class="cmdpal-bulk-run"
+                        :disabled="!(commandPaletteBulkState() && commandPaletteBulkState().selected.length)"
+                        @click.stop="runCommandPaletteBulk()">
                 <span class="cmdpal-bulk-run-label"
                       x-text="t('command_palette.bulk.run_label_' + (commandPaletteBulkState() && commandPaletteBulkState().verb), { count: (commandPaletteBulkState() && commandPaletteBulkState().selected.length) || 0 })"></span>
-                <span class="cmdpal-bulk-run-hint" aria-hidden="true">↵</span>
-              </button>
-            </div>
-          </template>
-          <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length === 0">
-            <div class="p-6 text-center fs-sm text-[var(--text-faint)]"
-                 x-text="commandPaletteQuery ? t('command_palette.empty_state') : t('command_palette.start_typing')"></div>
-          </template>
-          <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length > 0">
-            <div id="cmdpal-results" role="listbox" :aria-label="t('command_palette.results_label')">
-              <template x-for="(r, i) in commandPaletteResults()" :key="r.kind + ':' + (r.payload && (r.payload.id || r.payload) || r.label) + ':' + i">
-                <button type="button"
-                        :id="'cmdpal-row-' + i"
-                        :data-cmdpal-idx="i"
-                        role="option"
-                        :aria-selected="commandPaletteSelectedIdx === i ? 'true' : 'false'"
-                        tabindex="-1"
-                        @click="commandPaletteSelectedIdx = i; commandPaletteActivate()"
-                        @mouseenter="commandPaletteSelectedIdx = i"
-                        class="cmdpal-row w-full text-start px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
-                        :class="commandPaletteSelectedIdx === i ? 'cmdpal-row-active' : ''">
+                  <span class="cmdpal-bulk-run-hint" aria-hidden="true">↵</span>
+                </button>
+              </div>
+            </template>
+            <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length === 0">
+              <div class="p-6 text-center fs-sm text-[var(--text-faint)]"
+                   x-text="commandPaletteQuery ? t('command_palette.empty_state') : t('command_palette.start_typing')"></div>
+            </template>
+            <template x-if="!isCommandPaletteBulkMode() && commandPaletteResults().length > 0">
+              <div id="cmdpal-results" role="listbox" :aria-label="t('command_palette.results_label')">
+                <template x-for="(r, i) in commandPaletteResults()" :key="r.kind + ':' + (r.payload && (r.payload.id || r.payload) || r.label) + ':' + i">
+                  <button type="button"
+                          :id="'cmdpal-row-' + i"
+                          :data-cmdpal-idx="i"
+                          role="option"
+                          :aria-selected="commandPaletteSelectedIdx === i ? 'true' : 'false'"
+                          tabindex="-1"
+                          @click="commandPaletteSelectedIdx = i; commandPaletteActivate()"
+                          @mouseenter="commandPaletteSelectedIdx = i"
+                          class="cmdpal-row w-full text-start px-3 py-2 cursor-pointer flex items-center gap-3 border-b border-[var(--border)] last:border-0"
+                          :class="commandPaletteSelectedIdx === i ? 'cmdpal-row-active' : ''">
                   <span class="cmdpal-kind-pill fs-3xs uppercase tracking-wider px-1.5 py-0.5 rounded"
                         :class="'cmdpal-kind-' + r.group"
                         x-text="t('command_palette.group.' + r.group)"></span>
-                  <span class="flex-1 min-w-0">
+                    <span class="flex-1 min-w-0">
                     <span class="block fs-sm text-[var(--text)] truncate" x-text="r.label"></span>
                     <span x-show="r.sub" class="block fs-2xs text-[var(--text-faint)] truncate mono" x-text="r.sub"></span>
                   </span>
-                  <span x-show="commandPaletteSelectedIdx === i" class="fs-2xs text-[var(--text-faint)]" aria-hidden="true">↵</span>
-                </button>
-              </template>
-            </div>
-          </template>
-        </div>
-        <div class="px-3 py-2 border-t border-[var(--border)] fs-2xs text-[var(--text-faint)] flex items-center gap-3 flex-wrap">
-          <span><kbd class="border border-[var(--border)] rounded px-1">↑</kbd> <kbd class="border border-[var(--border)] rounded px-1">↓</kbd> <span x-text="t('command_palette.footer_navigate')"></span></span>
-          <span><kbd class="border border-[var(--border)] rounded px-1">↵</kbd> <span x-text="t('command_palette.footer_select')"></span></span>
-          <span><kbd class="border border-[var(--border)] rounded px-1">Esc</kbd> <span x-text="t('command_palette.footer_close')"></span></span>
+                    <span x-show="commandPaletteSelectedIdx === i" class="fs-2xs text-[var(--text-faint)]" aria-hidden="true">↵</span>
+                  </button>
+                </template>
+              </div>
+            </template>
+          </div>
+          <div class="px-3 py-2 border-t border-[var(--border)] fs-2xs text-[var(--text-faint)] flex items-center gap-3 flex-wrap">
+            <span><kbd class="border border-[var(--border)] rounded px-1">↑</kbd> <kbd class="border border-[var(--border)] rounded px-1">↓</kbd> <span x-text="t('command_palette.footer_navigate')"></span></span>
+            <span><kbd class="border border-[var(--border)] rounded px-1">↵</kbd> <span x-text="t('command_palette.footer_select')"></span></span>
+            <span><kbd class="border border-[var(--border)] rounded px-1">Esc</kbd> <span x-text="t('command_palette.footer_close')"></span></span>
+          </div>
         </div>
       </div>
-    </div>
     </template>
   </div>
 

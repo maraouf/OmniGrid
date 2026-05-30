@@ -23,6 +23,23 @@
   <svg x-show="!appsCustomEditMode" width="11" height="11" class="flex-shrink-0 text-[var(--text-faint)]" aria-hidden="true">
     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
   </svg>
+  <!-- Settings (gear) pill — parity with the app cards + widget tiles,
+       which carry the gear as an `apps-card-action-pill` in their action
+       cluster. Flips to the shared apps-card-settings back face (where
+       the bookmark Name / URL / icon editor lives). Shown in LOCKED mode
+       too (like the app-card gear) so the operator can edit a bookmark
+       without entering edit mode. The floating corner gear is suppressed
+       for bookmarks in index.html so this is the single gear affordance. -->
+  <button type="button"
+          class="apps-card-action-pill flex-shrink-0"
+          @click.stop.prevent="toggleAppsCardFlipped(item.uid)"
+          :aria-pressed="appsCardIsFlipped(item.uid) ? 'true' : 'false'"
+          :title="t('apps.custom.gear_title') || 'Card settings'"
+          :aria-label="t('apps.custom.gear_aria') || 'Card settings'">
+    <svg width="11" height="11" aria-hidden="true">
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+    </svg>
+  </button>
   <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
           @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
           :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
