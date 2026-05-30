@@ -1826,6 +1826,10 @@
           "label": "Public-IP fetch timeout (seconds)",
           "help": "Outbound HTTP wall-clock for the ifconfig.co request. Default 8s. Raise on slow links / proxy paths. Range 2..60. Takes effect on the next lookup."
         },
+        "tuning_public_ip_sample_interval_seconds": {
+          "label": "Public-IP change-sampler interval (seconds)",
+          "help": "How often a background loop force-probes the public IP to record a CHANGE in the history, even when nobody is viewing the widget. Without it, change-detection only fires on incidental lookups (widget load / Telegram /ip / AI palette) which are gated by the cache TTL, so a short-lived WAN flap shorter than the cache window is missed entirely and the 'changed X ago' label goes stale. Default 300 (5 minutes) catches typical failover flaps while staying light on the upstream (~288 calls/day). 0 disables the sampler (change-detection falls back to incidental lookups only). Range 0..86400. Takes effect on the next tick."
+        },
         "tuning_weather_cache_ttl_seconds": {
           "label": "Weather cache TTL (seconds)",
           "help": "How long the in-process per-coordinate cache holds the last successful WeatherAPI.com response before re-fetching. Default 600 (10 minutes) keeps the public 1M-calls-month free tier comfortably under cap. Lower for fresher readings during active monitoring; raise to reduce outbound traffic on a large multi-user deployment. Range 60..86400. Takes effect on the next lookup."

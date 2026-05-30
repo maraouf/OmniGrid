@@ -151,6 +151,7 @@ class Tunable(str, Enum):
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
     PUBLIC_IP_ENABLED = "tuning_public_ip_enabled"
     PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
+    PUBLIC_IP_SAMPLE_INTERVAL_SECONDS = "tuning_public_ip_sample_interval_seconds"
     PULSE_FAILURE_PAUSE_ROUNDS = "tuning_pulse_failure_pause_rounds"
     PULSE_PROBE_TIMEOUT_SECONDS = "tuning_pulse_probe_timeout_seconds"
     PULSE_SAMPLE_INTERVAL_SECONDS = "tuning_pulse_sample_interval_seconds"
@@ -369,6 +370,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Public-IP outbound HTTP wall-clock. ifconfig.co normally answers
     # well under 1s; raise on slow links / proxy paths. Range 2..60.
     "tuning_public_ip_fetch_timeout_seconds": ("PUBLIC_IP_FETCH_TIMEOUT_SECONDS", 8, 2, 60),
+    # Public-IP background sampler cadence. A lifespan loop force-probes
+    # ifconfig.co every N seconds (when the master toggle is on) so a
+    # public-IP CHANGE is recorded in public_ip_history even when no one
+    # is looking at the widget — without it, change-detection only fires
+    # on incidental fetch() calls (SPA widget load / Telegram /ip / AI
+    # palette) which are gated by the cache TTL, so a short-lived flap
+    # shorter than the cache window is missed entirely. Default 300s
+    # (5 min) catches typical WAN-failover flaps while staying light on
+    # the upstream (~288 calls/day). 0 disables the sampler (change-
+    # detection falls back to incidental fetches only). Range 0..86400.
+    "tuning_public_ip_sample_interval_seconds": ("PUBLIC_IP_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
     # Asset-inventory outbound HTTP wall-clocks. Two tiers — token
     # probe (OAuth2 client_credentials handshake, default 10s) and
     # asset fetch (paginated /assets pull, default 15s). Operators on

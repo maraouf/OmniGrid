@@ -593,6 +593,12 @@ HOST_BASELINE_WINDOW_DAYS=30
 PUBLIC_IP_ENABLED=0
 PUBLIC_IP_CACHE_TTL_SECONDS=600
 PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
+# Background change-sampler cadence. A lifespan loop force-probes the
+# public IP every N seconds (when enabled) so a CHANGE is recorded in
+# history even when nobody is viewing the widget — incidental lookups
+# alone are cache-gated, so a flap shorter than the cache window is
+# missed. Default 300 s (~288 calls/day). 0 disables the sampler.
+PUBLIC_IP_SAMPLE_INTERVAL_SECONDS=300
 # Public-IP lookup endpoint URL — operator override. Leave blank
 # to use the well-known ifconfig.co default. Uncomment + paste an
 # alternative if you prefer a different no-key endpoint:
@@ -1047,6 +1053,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PUBLIC_IP_ENABLED`                        | Runtime     | `0`                     | Master gate for the Public-IP lookup module (Admin → Public IP). Default OFF — enabling authorises outbound calls to ifconfig.co.                                                                                                                                                                                 |
 | `PUBLIC_IP_CACHE_TTL_SECONDS`              | Runtime     | `600`                   | In-process cache TTL for Public-IP lookups. Range 60..3600.                                                                                                                                                                                                                                                       |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS`          | Runtime     | `8`                     | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60.                                                                                                                                                                                                                                            |
+| `PUBLIC_IP_SAMPLE_INTERVAL_SECONDS`        | Runtime     | `300`                   | Background change-sampler cadence (seconds). A lifespan loop force-probes the public IP so a CHANGE is recorded even when no one views the widget; incidental lookups alone are cache-gated and miss short flaps. `0` disables the sampler. Range 0..86400.                                                          |
 | `WEATHER_OPEN_METEO_ENDPOINT`              | Runtime     | `""`                    | Open-Meteo forecast endpoint URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                        |
 | `WEATHER_WEATHERAPI_ENDPOINT`              | Runtime     | `""`                    | WeatherAPI.com base URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                                 |
 | `WEATHER_CACHE_TTL_SECONDS`                | Runtime     | `600`                   | Weather provider in-process per-coordinate cache TTL. Range 60..86400.                                                                                                                                                                                                                                            |
