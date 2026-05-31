@@ -279,19 +279,16 @@
       <span class="fs-2xs text-[var(--text-faint)]"
             x-show="weatherHistory && weatherHistory.length"
             x-text="'(' + weatherHistory.length + ')'"></span>
-      <!-- Manual refresh — reloads the samples table in place (no page
-           refresh). @click.stop so it doesn't toggle the <details>. -->
-      <button type="button"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto"
-              @click.stop="loadWeatherHistory()"
-              :disabled="weatherHistoryLoading"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')">
-        <svg width="13" height="13" :class="weatherHistoryLoading ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component. A <span>
+           (NOT a div — <summary> only allows phrasing content, a div is
+           invalid here) carries ms-auto to right-float as a flex item +
+           @click.stop to catch the button's bubbling click before the
+           <summary> toggles the <details> (reloads the samples table in
+           place, no page refresh). -->
+      <span class="ms-auto" @click.stop
+            x-data="{ rbKey: 'weather_history', rbOnClick: () => _runWithBusy('weather_history', () => loadWeatherHistory()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </span>
     </summary>
     <div class="mt-3">
       <div x-show="weatherHistoryLoading" class="fs-xs text-[var(--text-faint)] flex items-center gap-1.5">
@@ -304,25 +301,25 @@
       <table x-show="!weatherHistoryLoading && weatherHistory && weatherHistory.length"
              class="w-full fs-xs">
         <thead>
-          <tr class="text-[var(--text-faint)] text-start">
-            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_ts')"></th>
-            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_location')"></th>
-            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_temp')"></th>
-            <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_condition')"></th>
-            <th class="text-start py-1" x-text="t('admin.weather.history_col_moon')"></th>
-          </tr>
+        <tr class="text-[var(--text-faint)] text-start">
+          <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_ts')"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_location')"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_temp')"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin.weather.history_col_condition')"></th>
+          <th class="text-start py-1" x-text="t('admin.weather.history_col_moon')"></th>
+        </tr>
         </thead>
         <tbody>
-          <template x-for="row in weatherHistory" :key="row.ts + '-' + row.lat + '-' + row.lon">
-            <tr class="border-t border-[var(--border)]">
-              <td class="py-1 pe-2 mono" x-text="fmtDate(row.ts)"></td>
-              <td class="py-1 pe-2" x-text="row.label || (row.lat + ',' + row.lon)"></td>
-              <td class="py-1 pe-2 mono" x-text="row.temp_c != null ? (Math.round(row.temp_c * 10) / 10) + '°C' : '—'"></td>
-              <td class="py-1 pe-2" x-text="row.condition || '—'"></td>
-              <td class="py-1"
-                  x-text="row.moon_phase ? row.moon_phase + (row.moon_illumination != null ? ' · ' + Math.round(row.moon_illumination) + '%' : '') : '—'"></td>
-            </tr>
-          </template>
+        <template x-for="row in weatherHistory" :key="row.ts + '-' + row.lat + '-' + row.lon">
+          <tr class="border-t border-[var(--border)]">
+            <td class="py-1 pe-2 mono" x-text="fmtDate(row.ts)"></td>
+            <td class="py-1 pe-2" x-text="row.label || (row.lat + ',' + row.lon)"></td>
+            <td class="py-1 pe-2 mono" x-text="row.temp_c != null ? (Math.round(row.temp_c * 10) / 10) + '°C' : '—'"></td>
+            <td class="py-1 pe-2" x-text="row.condition || '—'"></td>
+            <td class="py-1"
+                x-text="row.moon_phase ? row.moon_phase + (row.moon_illumination != null ? ' · ' + Math.round(row.moon_illumination) + '%' : '') : '—'"></td>
+          </tr>
+        </template>
         </tbody>
       </table>
     </div>

@@ -447,19 +447,16 @@
             <p class="fs-2xs text-[var(--text-faint)] leading-snug"
                x-text="t('admin.notifications.telegram_links_intro')"></p>
           </div>
-          <!-- Refresh button floats RIGHT (ms-auto inside a
-               flex-wrap parent) so on wide viewports it sits in
-               the corner; on narrow viewports flex-wrap drops it
-               to the next line right-aligned. -->
-          <button type="button" @click="loadTelegramLinks()"
-                  :disabled="telegramLinksLoading"
-                  class="btn btn-soft fs-xs inline-flex items-center gap-1.5 ms-auto flex-shrink-0"
-                  :title="t('actions.refresh')">
-            <svg width="11" height="11" :class="telegramLinksLoading ? 'spin-md' : ''" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-            </svg>
-            <span x-text="t('actions.refresh')"></span>
-          </button>
+          <!-- Reload via the shared og-reload-button component (same
+               component the Stats + AI-dashboard reloads use) so this
+               button can't drift on text / icon / spinner / busy wiring.
+               The wrapper div carries ms-auto + flex-shrink-0 so it floats
+               RIGHT in the flex-wrap header (wide viewports: corner;
+               narrow: drops to the next line right-aligned). -->
+          <div class="ms-auto flex-shrink-0"
+               x-data="{ rbKey: 'telegram_links', rbOnClick: () => _runWithBusy('telegram_links', () => loadTelegramLinks()) }">
+            <!-- INCLUDE: _components/og-reload-button.html -->
+          </div>
         </div>
 
         <div x-show="telegramLinksError"

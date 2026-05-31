@@ -649,16 +649,15 @@
                   x-text="t('admin.ai.' + opt[1])"></button>
         </template>
         <span class="flex-1"></span>
-        <button type="button"
-                @click="loadAiDashboard(true)"
-                :disabled="aiDashboardLoading"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.ai.refresh')"
-                :aria-label="t('admin.ai.refresh')">
-          <svg width="12" height="12" aria-hidden="true" :class="aiDashboardLoading ? 'spin-md' : ''">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-ccw"/>
-          </svg>
-        </button>
+        <!-- Reload via the shared og-reload-button component (same
+             INCLUDE-partial pattern as og-range-picker) — the AI dashboard
+             reload is now the SAME component every Stats/Admin reload uses,
+             so it can't drift on text / icon / spinner / busy wiring. The
+             preceding flex-1 spacer right-aligns it. ai_dashboard is
+             pre-declared in app-admin.js _loadBusy. -->
+        <div x-data="{ rbKey: 'ai_dashboard', rbOnClick: () => _runWithBusy('ai_dashboard', () => loadAiDashboard(true)) }">
+          <!-- INCLUDE: _components/og-reload-button.html -->
+        </div>
       </div>
     </div>
 
