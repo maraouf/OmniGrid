@@ -6118,6 +6118,21 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   display: none;
 }
 
+/* Companion to the no-empty-table rule: the "0 matched your filters" message
+   shows whenever the fleet view has items + isn't loading (its x-show reads
+   ONLY those direct reactive props, never the memoized filteredStacks/
+   filteredItems getter — reading the memo there short-circuited before the
+   effect subscribed to the filter props, so the message never re-appeared on
+   a zero-match filter). This rule HIDES the message whenever the fleet table
+   actually rendered rows, so it surfaces ONLY when the filter matched nothing.
+   `:has()` is DOM-reactive (re-evaluates as the row x-for adds/removes <tr>s)
+   so the show/hide tracks the live table with zero JS reactivity on the memo.
+   `!important` beats the natural `display:block` that x-show leaves when its
+   own (loading/items) condition is true. */
+.fleet-section:has(.ptable-fleet tbody tr) .fleet-empty-msg {
+  display: none !important;
+}
+
 .ptable thead th {
   position: sticky;
   top: 0;
