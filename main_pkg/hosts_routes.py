@@ -1753,6 +1753,27 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
             isinstance(h.get("snmp"), dict) and h["snmp"].get("enabled") is True
         ):
             configured.add("snmp")
+        # http_probe + service_probe are the master-toggle providers
+        # (per-host opt-in, NOT host_stats_source CSV members). They are
+        # in `_PROVIDER_AUTO_PAUSE_NAMES`, so the orphan check below
+        # WILL doom their rows unless they're also recognised here —
+        # MUST stay in lock-step with
+        # `logic/host_metrics_sampler.py:_host_provider_config`. Pre-fix
+        # this set omitted both, so a paused http_probe / service_probe
+        # row was deleted on EVERY hosts_config save AND every container
+        # restart; the sampler then resumed, re-failed to the threshold,
+        # and re-fired the "sampling paused" notification each time —
+        # the pause never stuck and the user saw a fresh pause email
+        # per deploy instead of one-until-manual-resume.
+        if isinstance(h.get("http_probe"), dict) and h["http_probe"].get("enabled") is True:
+            configured.add("http_probe")
+        svc_list = h.get("services")
+        if isinstance(svc_list, list) and any(
+            isinstance(svc, dict) and isinstance(svc.get("probe"), dict)
+            and svc["probe"].get("enabled") is True
+            for svc in svc_list
+        ):
+            configured.add("service_probe")
         host_providers[hid] = configured
     try:
         with db_conn() as c:
