@@ -35,6 +35,7 @@ from typing import Optional
 from logic.db import db_conn
 from logic.tuning import Tunable, tuning_int
 from logic import weather as _weather
+from logic.sampler_metrics import record_tick as _record_tick, record_prune as _record_prune
 
 
 # Same first-tick delay shape as host_baseline_sampler — gives boot-time
@@ -212,24 +213,41 @@ async def sampler_loop() -> None:
                   "operator default")
             await asyncio.sleep(interval)
             continue
+        # Per-tick health metric (Stats → Samplers). Timed around the
+        # actual fetch+write work; the gate / idle short-circuits above
+        # don't count as ticks. `ok=False` on the first raising location
+        # so a misbehaving upstream surfaces in the panel.
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         wrote = 0
-        for loc in locations:
-            try:
-                body = await _weather.fetch(loc["lat"], loc["lon"],
-                                             label=loc.get("label") or "")
-                if body and not body.get("error") and body.get("configured"):
-                    if write_sample(body, loc=loc):
-                        wrote += 1
-                elif body and body.get("error"):
-                    print(f"[weather_sampler] skipped {loc.get('label') or ''} "
-                          f"({loc['lat']},{loc['lon']}) — upstream "
-                          f"error: {body.get('error')}")
-            except Exception as e:  # noqa: BLE001
-                if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
-                    raise
-                print(f"[weather_sampler] tick failed for "
-                      f"{loc.get('label') or ''} "
-                      f"({loc['lat']},{loc['lon']}): {e}")
+        try:
+            for loc in locations:
+                try:
+                    body = await _weather.fetch(loc["lat"], loc["lon"],
+                                                 label=loc.get("label") or "")
+                    if body and not body.get("error") and body.get("configured"):
+                        if write_sample(body, loc=loc):
+                            wrote += 1
+                    elif body and body.get("error"):
+                        print(f"[weather_sampler] skipped {loc.get('label') or ''} "
+                              f"({loc['lat']},{loc['lon']}) — upstream "
+                              f"error: {body.get('error')}")
+                except Exception as e:  # noqa: BLE001
+                    if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
+                        raise
+                    _tick_ok = False
+                    _tick_err = type(e).__name__
+                    print(f"[weather_sampler] tick failed for "
+                          f"{loc.get('label') or ''} "
+                          f"({loc['lat']},{loc['lon']}): {e}")
+        finally:
+            _record_tick(
+                "weather_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         if wrote:
             print(f"[weather_sampler] wrote {wrote} sample(s) across "
                   f"{len(locations)} location(s)")
@@ -237,7 +255,10 @@ async def sampler_loop() -> None:
         # a sub-hourly tunable doesn't multiply prune cost.
         now = time.time()
         if (now - last_prune_ts) >= 3600.0:
+            _prune_t0 = time.perf_counter()
             removed = prune_old_samples()
+            _record_prune("weather_sampler", removed,
+                          (time.perf_counter() - _prune_t0) * 1000.0)
             last_prune_ts = now
             if removed:
                 print(f"[weather_sampler] pruned {removed} sample(s) "

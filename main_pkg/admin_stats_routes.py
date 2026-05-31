@@ -592,6 +592,32 @@ def _compute_admin_stats_database() -> dict:
                         "rows": cnt,
                         "bytes": None,  # unknown without dbstat
                     })
+            # Always surface db_size_samples — it's the source table for the
+            # growth projection, so the operator wants to see its size + row
+            # count even though it's tiny (one row/day) and never makes the
+            # top-5-by-size cut. Append it if the top-N pass didn't already
+            # include it. bytes via dbstat when available, else None.
+            if not any(t.get("name") == "db_size_samples" for t in tables_info):
+                try:
+                    _dbs_rows = int(c.execute(
+                        "SELECT COUNT(*) FROM db_size_samples"
+                    ).fetchone()[0])
+                except (sqlite3.OperationalError, TypeError, ValueError):
+                    _dbs_rows = None
+                _dbs_bytes = None
+                try:
+                    _r = c.execute(
+                        "SELECT SUM(pgsize) FROM dbstat WHERE name = 'db_size_samples'"
+                    ).fetchone()
+                    _dbs_bytes = int(_r[0]) if _r and _r[0] is not None else None
+                except sqlite3.Error:
+                    _dbs_bytes = None
+                if _dbs_rows is not None:
+                    tables_info.append({
+                        "name": "db_size_samples",
+                        "rows": _dbs_rows,
+                        "bytes": _dbs_bytes,
+                    })
             out["tables"] = tables_info
             # Top-N busiest tables proxy — total row count is a coarse
             # proxy for "which tables get the most write activity". For
@@ -1430,6 +1456,17 @@ def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
         ("stats_samples", "portainer", "container stats", "ts", "item_id"),
         ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
         ("host_failure_events", "events", "failure log", "ts", "host_id"),
+        # Host-less time-series — written by samplers that aren't
+        # per-host (db-size rides stats_sampler; weather + public-ip
+        # have their own lifespan loops). host_col is None so the
+        # per-host DISTINCT count + the drill-down are skipped (the
+        # summary loop's `unique_hosts` query guards on host_col, and
+        # `_SAMPLES_TABLE_HOST_COL` deliberately omits them so the
+        # by-host endpoint 400s — these rows render as non-clickable
+        # summary rows on the Samples page).
+        ("db_size_samples", "db_size", "db size per-tick", "ts", None),
+        ("weather_samples", "weather", "weather per-tick", "ts", None),
+        ("public_ip_history", "public_ip", "public-ip change log", "ts", None),
     ]
     # Bucket-totals — sample-INSERT counts summed across every
     # sample-bearing table, bucketed per the operator-selected range.
@@ -1525,14 +1562,15 @@ def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
                         # container stats) — the SPA renders the column
                         # title as "Distinct hosts / items" so both
                         # cases land cleanly.
-                        try:
-                            uh = c.execute(
-                                f'SELECT COUNT(DISTINCT "{host_col}") '
-                                f'  FROM "{table}"'
-                            ).fetchone()[0]
-                            row["unique_hosts"] = int(uh or 0)
-                        except (sqlite3.Error, ValueError, TypeError):
-                            pass
+                        if host_col:
+                            try:
+                                uh = c.execute(
+                                    f'SELECT COUNT(DISTINCT "{host_col}") '
+                                    f'  FROM "{table}"'
+                                ).fetchone()[0]
+                                row["unique_hosts"] = int(uh or 0)
+                            except (sqlite3.Error, ValueError, TypeError):
+                                pass
                     out["grand_total"] += row["rows"]
                     out["tables"].append(row)
                     # Per-bucket query for the chart. Skip on empty
@@ -1607,6 +1645,8 @@ _SAMPLES_TABLE_HOST_COL: dict[str, str] = {
     "host_webmin_samples": "host_id",
     "host_metrics_samples": "host_id",
     "host_net_samples": "host_id",
+    "host_http_samples": "host_id",
+    "service_samples": "host_id",
     "stats_samples": "item_id",
     "host_port_scans": "host_id",
     "host_failure_events": "host_id",

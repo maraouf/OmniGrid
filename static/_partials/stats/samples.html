@@ -128,10 +128,15 @@
                    render). `cursor: pointer` only when the
                    row is openable so the affordance is
                    honest. -->
+              <!-- Drill-down opens only for host-bearing tables
+                   (`unique_hosts != null`). Host-less rows (db-size /
+                   weather / public-ip) have no per-host breakdown and
+                   the by-host endpoint 400s for them, so they render as
+                   non-clickable summary rows. -->
               <tr class="border-t border-[var(--border)] hover:bg-[var(--surface-2)] transition"
-                  :class="row.error ? 'opacity-60 cursor-default' : (Number(row.rows || 0) > 0 ? 'cursor-pointer' : 'cursor-default')"
-                  @click="if (!row.error && Number(row.rows || 0) > 0) openStatsSamplesDrillDown(row)"
-                  :title="(!row.error && Number(row.rows || 0) > 0) ? t('stats.samples.drill_down.open_title') : ''">
+                  :class="row.error ? 'opacity-60 cursor-default' : ((Number(row.rows || 0) > 0 && row.unique_hosts != null) ? 'cursor-pointer' : 'cursor-default')"
+                  @click="if (!row.error && Number(row.rows || 0) > 0 && row.unique_hosts != null) openStatsSamplesDrillDown(row)"
+                  :title="(!row.error && Number(row.rows || 0) > 0 && row.unique_hosts != null) ? t('stats.samples.drill_down.open_title') : ''">
                 <td class="px-4 py-2 mono fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
