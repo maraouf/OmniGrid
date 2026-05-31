@@ -49,6 +49,17 @@ function _clearNodeSparkFlushCache() {
   _nodeSparkFlushScheduled = false;
 }
 
+// Reactive-subscription helper. Passing a reactive prop as an argument
+// here reads it, which registers Alpine's dependency tracking for that
+// prop — used where a method must SUBSCRIBE to props it doesn't otherwise
+// reference because a downstream per-flush memo (e.g. filteredItems) can
+// cache-hit and skip reading them, leaving the effect un-subscribed (see
+// nodeGroups). A no-op call statement: avoids the `void` / always-false-
+// guard / unused-expression lint flags while still doing the read.
+function _touchReactiveDeps(...deps) {
+  return deps.length;
+}
+
 export default {
   stats: {}, _statsTimer: null, _maxSize: 1,
   // Flips to true on the first successful `/api/stats` response so
@@ -158,6 +169,18 @@ export default {
   // plain containers / orphans appear under their single node.
   // -----------------------------------------------------------------
   nodeGroups() {
+    // Touch the filter inputs DIRECTLY so the Nodes x-for effect
+    // subscribes to them. `this.filteredItems` (read below) is a
+    // per-flush memo: if another visible-via-x-show view (Services'
+    // sortedFiltered / counts) populated its cache earlier in the same
+    // flush, the call here returns a cache HIT that never reads the
+    // filter props — so the Nodes effect wouldn't subscribe and a filter
+    // change left the expanded nodes showing the PREVIOUS filter's
+    // containers (the caveat-6 memo-subscription trap, same class as the
+    // groupedHosts filter bug). Reading them as args to the no-op
+    // `_touchReactiveDeps` registers the dependency without a `void` /
+    // always-false-guard / unused-expression lint flag.
+    _touchReactiveDeps(this.search, this.statusFilter, this.healthFilter);
     // Seed with every known node so a node with zero items still
     // renders (helps spot "this worker is empty" at a glance).
     const byNode = new Map();

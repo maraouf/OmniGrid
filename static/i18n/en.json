@@ -4990,6 +4990,8 @@
       "view_copy_suffix": "{name} (copy)",
       "view_picker_label": "Custom view",
       "view_loading": "Loading…",
+      "duplicate_title": "Duplicate this app card (adds a copy you can drag to another section)",
+      "remove_copy_title": "Remove this copy",
       "view_new": "New view",
       "view_new_title": "New view",
       "view_name_placeholder": "View name",

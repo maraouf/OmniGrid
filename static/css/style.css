@@ -212,9 +212,9 @@
      color-mix'd off `--widget-accent`, so the raw hex lives ONLY here (was
      a token-discipline violation: hex inside the component rules + no
      light-theme variant). */
-  --widget-accent-clock: #818cf8;        /* indigo-400 */
-  --widget-accent-weather: #38bdf8;      /* sky-400 */
-  --widget-accent-public_ip: #2dd4bf;    /* teal-400 */
+  --widget-accent-clock: #818cf8; /* indigo-400 */
+  --widget-accent-weather: #38bdf8; /* sky-400 */
+  --widget-accent-public_ip: #2dd4bf; /* teal-400 */
   --widget-accent-system_stats: #34d399; /* emerald-400 */
   /* Chart extended palette — distinguishing hues for per-host probe
      charts (Dell temp probes, sensor strips, multi-line plots) when
@@ -595,9 +595,9 @@
   --metric-http-latency: #ea580c; /* darker orange for light-theme contrast */
   /* Apps widget per-kind accent hues — darker 600-shade equivalents so the
      soft tints / glows / accent borders keep contrast on the light bg. */
-  --widget-accent-clock: #4f46e5;        /* indigo-600 */
-  --widget-accent-weather: #0284c7;      /* sky-600 */
-  --widget-accent-public_ip: #0d9488;    /* teal-600 */
+  --widget-accent-clock: #4f46e5; /* indigo-600 */
+  --widget-accent-weather: #0284c7; /* sky-600 */
+  --widget-accent-public_ip: #0d9488; /* teal-600 */
   --widget-accent-system_stats: #059669; /* emerald-600 */
   --chart-palette-violet: #7c3aed; /* darker violet for light-theme contrast */
   --chart-palette-pink: #be185d; /* darker pink */
@@ -9599,9 +9599,10 @@ select.field-invalid {
    half-width card simply doesn't have, so it stays hidden there. Edit
    mode shows everything. NEVER hide the whole body (that blanked the
    card — an earlier bug). */
-.apps-custom-cell.apps-card--size-half:not(.apps-card--editing):not(.apps-card--height-tall) .apps-widget-forecast {
+.apps-custom-cell.apps-card--size-half:not(.apps-card--editing, .apps-card--height-tall) .apps-widget-forecast {
   display: none;
 }
+
 /* …BUT a half-width TALL tile (1x2) HAS the vertical room for a couple of
    forecast days (the height-tall layout flips them to a boxed row below
    the hero), so show them there — capped to the 2 that fit the narrow
@@ -9629,14 +9630,17 @@ select.field-invalid {
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ready--has-extras {
   display: block;
 }
+
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups {
   margin-top: var(--s-1);
   padding: var(--s-1);
 }
+
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
   grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
   gap: var(--s-1) var(--s-2);
 }
+
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
   font-size: var(--fs-sm);
 }
@@ -9888,12 +9892,14 @@ select.field-invalid {
   .apps-port-grid {
     gap: 3px;
   }
+
   .apps-port-pill {
     padding: 0 5px;
     gap: 0;
     font-size: var(--fs-3xs);
     line-height: 1.6;
   }
+
   .apps-port-pill .apps-port-dot,
   .apps-port-pill .apps-port-proto {
     display: none;
@@ -9906,6 +9912,7 @@ select.field-invalid {
   .apps-port-grid {
     gap: var(--s-2);
   }
+
   /* 2-COLUMN body for extras-bearing cards: instance list LEFT, per-app
      extras (Speedtest / APC) RIGHT, so the extras fit BESIDE the instances
      within the fixed height preset instead of stacking below + clipping
@@ -9919,13 +9926,16 @@ select.field-invalid {
     gap: var(--s-2) var(--s-3);
     align-items: start;
   }
+
   .apps-card-ready--has-extras > ul,
   .apps-card-ready--has-extras > .apps-card-extras-col {
     min-width: 0;
   }
+
   .apps-card-ready--has-extras > .apps-card-extras-col {
     margin-top: 0;
   }
+
   .apps-card-ready--has-extras > button {
     grid-column: 1 / -1;
   }
@@ -9944,16 +9954,20 @@ select.field-invalid {
   .apps-card-instance-row {
     gap: var(--s-2);
   }
+
   .apps-card-instance-host {
     font-size: var(--fs-sm);
   }
+
   .apps-card-latency {
     font-size: var(--fs-xs);
   }
+
   .apps-port-grid {
     gap: var(--s-2);
     margin-top: 2px;
   }
+
   .apps-port-pill {
     padding: 2px var(--s-2);
     font-size: var(--fs-xs);
@@ -9982,6 +9996,7 @@ select.field-invalid {
     gap: var(--s-1) var(--s-3);
     align-items: start;
   }
+
   .apps-speedtest-grid > .apps-speedtest-trend {
     grid-column: 1 / -1;
   }
@@ -10352,6 +10367,21 @@ select.field-invalid {
   border-color: color-mix(in srgb, var(--text-dim) 35%, transparent);
 }
 
+/* Destructive variant — the "remove copy" pill on shadow app cards.
+   Reads red so it's clearly distinct from the neutral settings /
+   duplicate / refresh pills. */
+.apps-card-action-pill--danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.apps-card-action-pill--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
 .apps-card-action-pill:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -10405,9 +10435,11 @@ select.field-invalid {
   flex: 1 1 8rem;
   min-width: 7rem;
 }
+
 .apps-bookmark-quickadd-input--url {
   flex-grow: 1.4;
 }
+
 .apps-bookmark-quickadd-input--icon {
   flex-grow: 1.2;
 }
@@ -11195,6 +11227,7 @@ select.field-invalid {
   flex-direction: column;
   text-align: center;
 }
+
 .apps-custom-cell:is(.apps-card--size-half, .apps-card--size-normal).apps-card--height-tall:not(.apps-card--editing) .apps-widget-moon-phase {
   white-space: normal;
   overflow: visible;
@@ -11234,20 +11267,25 @@ select.field-invalid {
   .apps-widget-tile-body {
     gap: 2px;
   }
+
   .apps-widget-hero-icon {
     width: 34px;
     height: 34px;
   }
+
   .apps-widget-detail {
     gap: 2px var(--s-2);
     font-size: var(--fs-3xs);
   }
+
   .apps-widget-subtitle {
     font-size: var(--fs-xs);
   }
+
   .apps-widget-forecast-day {
     gap: 1px;
   }
+
   /* Short (Nx1) tiles use the right-side --col forecast. Each day row is
      flex:1 so the (up to FOUR) rows SHARE the column's stretched height
      equally instead of sizing to content and overflowing — that's what
@@ -11259,24 +11297,29 @@ select.field-invalid {
     gap: 1px;
     justify-content: flex-start;
   }
+
   .apps-widget-forecast--col .apps-widget-forecast-day {
     padding: 0 var(--s-1);
     flex: 1 1 0;
     min-height: 0;
   }
+
   .apps-widget-forecast--col .apps-widget-forecast-name,
   .apps-widget-forecast--col .apps-widget-forecast-temp {
     font-size: var(--fs-3xs);
   }
+
   .apps-widget-forecast--col .apps-widget-forecast-day svg {
     width: 13px;
     height: 13px;
   }
+
   /* Cap the rendered forecast to 4 days on a single-row tile so the row never
      shows a clipped half-box, regardless of how many days the user selected. */
   .apps-widget-forecast-day:nth-child(n+5) {
     display: none;
   }
+
   .apps-widget-tile-freshness {
     padding-top: 2px;
   }
@@ -11287,6 +11330,7 @@ select.field-invalid {
   .apps-widget-tile-body {
     gap: var(--s-2);
   }
+
   .apps-widget-detail {
     gap: var(--s-2) var(--s-3);
   }
@@ -11304,24 +11348,31 @@ select.field-invalid {
     justify-content: space-between;
     gap: var(--s-1);
   }
+
   .apps-widget-forecast--col .apps-widget-forecast-day {
     padding: var(--s-1) var(--s-2);
   }
+
   .apps-widget-forecast-name {
     font-size: var(--fs-sm);
   }
+
   .apps-widget-forecast-temp {
     font-size: var(--fs-md);
   }
+
   .apps-widget-subtitle {
     font-size: var(--fs-md);
   }
+
   .apps-widget-detail {
     font-size: var(--fs-sm);
   }
+
   .apps-widget-moon-body {
     gap: var(--s-3);
   }
+
   /* Moon elements fill the large tile — grow the illumination ring past its
      normal 176px cap and the phase name past --fs-display-md so the 4x2 moon
      widget uses the space instead of a small ring + tiny label adrift in an
@@ -11331,6 +11382,7 @@ select.field-invalid {
   .apps-widget-moon-ring {
     width: clamp(120px, 52cqmin, 220px);
   }
+
   .apps-widget-moon-phase {
     font-size: clamp(var(--fs-display-base), 14cqmin, var(--fs-display-lg));
   }
@@ -11372,31 +11424,31 @@ select.field-invalid {
   flex-direction: column;
   flex-wrap: nowrap;
 }
+
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-weather-main {
   flex: 0 0 auto;
 }
+
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col {
-  flex: 1 1 auto;
+  /* Content-height row + `margin-block: auto` is the reliable flex-column
+     centring technique: the auto top + bottom margins split ALL the free
+     space below the humidity/wind detail equally, so the gap BEFORE the
+     forecast row exactly matches the gap AFTER it (before the freshness
+     footer) — the row sits dead-centre in the leftover area instead of
+     bottom-hugging. The earlier `flex: 1 1 auto; align-items: center`
+     made the col FILL the space but the box row still bottom-aligned in
+     practice (operator-flagged: "spacing still wrong, top gap >> bottom
+     gap" on 2x2 / 3x2 / 4x2). */
+  flex: 0 0 auto;
   flex-direction: row;
   flex-wrap: nowrap;
-  /* Centre the box row vertically within the space between the
-     humidity/wind detail above and the freshness footer below, so the
-     boxes sit in the MIDDLE of the available area instead of hugging the
-     top with a dead gap underneath (flagged on the 4x2 tile). */
-  align-items: center;
+  align-items: stretch;
   width: 100%;
   max-width: 100%;
-  /* Roomy gap between the humidity/wind detail row above and the
-     forecast boxes — the tall card has the vertical space, and the
-     extra breathing room makes the boxes read as a distinct section
-     (flagged: the boxes felt cramped against humidity/wind). EQUAL top
-     + bottom margin so the gap BEFORE the forecast row matches the gap
-     AFTER it (before the freshness footer) — the row reads as centred /
-     balanced rather than top- or bottom-heavy (operator-flagged on
-     2x2 / 3x2 / 4x2). */
-  margin-block: var(--s-4);
+  margin-block: auto;
   gap: var(--s-2);
 }
+
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
   flex: 1 1 0;
   flex-direction: column;
@@ -11426,9 +11478,11 @@ select.field-invalid {
   flex-wrap: nowrap;
   align-items: center;
 }
+
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-weather-main {
   flex: 0 1 auto;
 }
+
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col {
   flex: 1 1 auto;
   flex-direction: row;
@@ -11442,6 +11496,7 @@ select.field-invalid {
   gap: var(--s-1);
   overflow: hidden;
 }
+
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
   flex: 1 1 0;
   min-width: 0;
@@ -11452,6 +11507,7 @@ select.field-invalid {
   background: color-mix(in srgb, var(--widget-accent) 10%, transparent);
   border-radius: var(--r-sm);
 }
+
 /* 4x1 (size-xlarge + height-short) spreads the forecast as a horizontal
    row of boxes across the wide tile, so there's room for the FULL
    user-configured day count — lift the 4-day cap the short-tile
@@ -11562,6 +11618,7 @@ select.field-invalid {
   flex-wrap: nowrap;
   gap: var(--s-2);
 }
+
 .apps-custom-cell:is(.apps-card--size-normal, .apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
   width: 190px;
   height: 190px;
@@ -11741,6 +11798,7 @@ select.field-invalid {
   min-height: 0;
   min-width: 0;
 }
+
 .apps-widget-weather-main {
   flex: 1 1 130px;
   min-width: 0;
@@ -11775,6 +11833,7 @@ select.field-invalid {
   overflow: hidden;
   align-self: stretch;
 }
+
 .apps-widget-forecast--col .apps-widget-forecast-day {
   flex-direction: row;
   align-items: center;
@@ -11784,6 +11843,7 @@ select.field-invalid {
   min-width: 0;
   padding: 2px var(--s-1);
 }
+
 .apps-widget-forecast--col .apps-widget-forecast-name,
 .apps-widget-forecast--col .apps-widget-forecast-temp {
   flex: 0 0 auto;
