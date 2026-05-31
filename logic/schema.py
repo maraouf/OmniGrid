@@ -101,6 +101,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_stats_samples_ts
             ON stats_samples(ts);
 
+        -- Database file-size history for the Stats -> Database growth
+        -- projection. One row per DB_SIZE_SAMPLE_INTERVAL (default daily),
+        -- written by the lifespan stats sampler; pruned to
+        -- DB_SIZE_HISTORY_DAYS (default 120, >= the 30-day regression
+        -- window the projection fits over). `bytes` is the total of the
+        -- main SQLite file + its -wal / -shm siblings. Grounds the 90-day
+        -- forward projection in real measured growth instead of a synthetic
+        -- per-day constant, and feeds the actual (past) portion of the
+        -- two-tone chart (-30..0 actual, 0..+90 projection).
+        CREATE TABLE IF NOT EXISTS db_size_samples (
+            ts INTEGER NOT NULL,
+            bytes INTEGER NOT NULL,
+            PRIMARY KEY (ts)
+        );
+        CREATE INDEX IF NOT EXISTS idx_db_size_samples_ts
+            ON db_size_samples(ts);
+
         -- Net-I/O fallback series per curated host. Populated by
         -- logic/host_net_sampler.py when node-exporter is the only
         -- network-counter source (Beszel agents with NICS= unset emit

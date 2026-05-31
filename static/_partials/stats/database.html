@@ -109,13 +109,15 @@
 
       <hr class="border-[var(--border)]">
 
-      <!-- 90-day growth projection chart -->
+      <!-- Growth chart: 30 days measured history (-30..0) + 90-day
+           forward projection (0..+90), two-tone (actual solid vs
+           projection dashed). -->
       <div>
         <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.database.projection.title')"></h4>
         <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.database.projection.hint')"></p>
         <div class="db-projection-chart"
              x-show="(statsDatabase.projection || []).length"
-             x-html="_renderDbProjectionChart(statsDatabase.projection || [])"></div>
+             x-html="_renderDbProjectionChart(statsDatabase.projection || [], statsDatabase.actual || [])"></div>
         <div x-show="!(statsDatabase.projection || []).length"
              class="py-6 text-center text-[var(--text-faint)] fs-sm italic"
              x-text="t('stats.database.projection.empty')"></div>

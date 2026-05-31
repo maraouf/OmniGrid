@@ -288,8 +288,19 @@
         <!-- x-init kicks the per-card weather fetch on first mount when
              the item carries a follow_user=false override. No-op for
              follow-user-mode cards (the global topbar fetcher already
-             populated `this.weather`). -->
-        <div x-init="_ensurePerCardWeather(item)">
+             populated `this.weather`).
+             `display: contents` (via .apps-widget-weather-wrap) is
+             LOAD-BEARING: this x-init carrier sat between the flex-column
+             `tile-body` and `weather-body`, and as a plain content-height
+             block it swallowed the height before it reached weather-body —
+             so weather-body's `flex:1` filled only its own content, the
+             tall forecast col had ZERO free space to grow into, and every
+             attempt to vertically centre the forecast row silently no-op'd
+             (the moon / pubip / clock widgets have NO such wrapper, which
+             is why they centred fine and weather never did). contents makes
+             the wrapper layout-transparent so weather-body is a DIRECT flex
+             child of tile-body and finally inherits the fillable height. -->
+        <div class="apps-widget-weather-wrap" x-init="_ensurePerCardWeather(item)">
           <template x-if="effectiveWeather(item) && effectiveWeather(item).temp_c != null">
             <!-- Weather body is a horizontal split: hero + location + detail
                  on the LEFT, the forecast as a VERTICAL column on the RIGHT

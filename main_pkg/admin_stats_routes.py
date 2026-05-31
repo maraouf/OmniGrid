@@ -621,39 +621,92 @@ def _compute_admin_stats_database() -> dict:
                 out["queries_error"] = str(e)
     except Exception as e:
         out["tables_error"] = str(e)
-    # 90-day growth projection. Use the recent /api/version-style
-    # implicit history we already have — stat_samples records sample
-    # times. We sample the DB file size on every tick of the projection
-    # builder. For now, take the current size as the latest point and
-    # a synthetic 30-day window from per-day file-stat estimates. Real
-    # implementation: persist DB-size snapshots to a new
-    # ``db_size_samples`` table sampled by the existing lifespan
-    # sampler. Stubbed for the first cut — projection returns the
-    # current size flat for N=90 days with a ±10% confidence band as
-    # placeholder until real history accumulates.
+    # 90-day growth projection, GROUNDED in real measured history.
+    # `db_size_samples` (written ~daily by the lifespan stats sampler)
+    # gives the trailing size curve; we fit an OLS line over the last 30
+    # days and extrapolate 90 days forward from the LAST measured point
+    # (so the projection starts exactly where the actual line ends — no
+    # visual discontinuity at day 0). The forward band is a classic OLS
+    # prediction interval that widens with extrapolation distance. The
+    # chart spans -30..0 (actual, `out["actual"]`) and 0..+90
+    # (projection, `out["projection"]`), drawn in two distinct colours.
+    #
+    # Cold-start fallback: with < 2 samples (fresh deploy, sampler hasn't
+    # accumulated history yet) there's nothing to fit, so we emit the
+    # legacy synthetic +0.5%/day line off the current file size until
+    # real history lands. `out["projection_basis"]` tells the SPA /
+    # operator which path produced the curve.
     try:
+        import math as _math
         import time as _time
+        from logic import stats as _stats_mod
+        from logic import tuning as _tuning
+        from logic.tuning import Tunable as _Tunable
+
         now = int(_time.time())
         size_now = int(out["size"]["bytes"]) or 1
-        # Generate 90 daily points. central = linear extrapolation from
-        # current size assuming +0.5% per day (matches the operator's
-        # typical home-lab fleet growth pattern); confidence band ±20%
-        # of the central value, widening with extrapolation distance.
-        daily_growth = 0.005
+        hist_days = _tuning.tuning_int(_Tunable.DB_SIZE_HISTORY_DAYS)
+        history = _stats_mod.db_size_history(hist_days)
+        out["size"]["history"] = history
+        # Actual (past) series for the chart's -30..0 region — measured
+        # samples within the trailing 30 days, oldest-first.
+        cutoff_30 = now - 30 * 86400
+        actual = [p for p in history if p["ts"] >= cutoff_30]
+        out["actual"] = actual
+
+        # Fit OLS over the trailing 30-day window (x = days relative to
+        # now, so x is negative for past samples / 0 at now; y = bytes).
+        fit_pts = [((p["ts"] - now) / 86400.0, float(p["bytes"])) for p in actual]
         projection: list[dict] = []
-        for d in range(0, 91):
-            ts = now + d * 86400
-            central = size_now * ((1.0 + daily_growth) ** d)
-            band_factor = 0.05 + 0.0015 * d  # widens with distance
-            low = central * (1.0 - band_factor)
-            high = central * (1.0 + band_factor)
-            projection.append({
-                "ts": ts,
-                "bytes": int(round(central)),
-                "low": int(round(max(0, low))),
-                "high": int(round(high)),
-            })
-        out["projection"] = projection
+        if len(fit_pts) >= 2:
+            n = len(fit_pts)
+            sum_x = sum(x for x, _ in fit_pts)
+            sum_y = sum(y for _, y in fit_pts)
+            sum_xx = sum(x * x for x, _ in fit_pts)
+            sum_xy = sum(x * y for x, y in fit_pts)
+            denom = (n * sum_xx) - (sum_x * sum_x)
+            mean_x = sum_x / n
+            # slope (bytes/day); flat line if x has no spread (denom 0).
+            slope = ((n * sum_xy) - (sum_x * sum_y)) / denom if denom else 0.0
+            intercept = (sum_y - slope * sum_x) / n
+            # Residual std for the prediction interval.
+            sse = sum((y - (intercept + slope * x)) ** 2 for x, y in fit_pts)
+            sigma = _math.sqrt(sse / (n - 2)) if n > 2 else 0.0
+            sxx = sum((x - mean_x) ** 2 for x, _ in fit_pts) or 1e-9
+            # Anchor the forward line at the LAST measured point so the
+            # projection visually continues the actual curve.
+            anchor_bytes = float(actual[-1]["bytes"])
+            for d in range(0, 91):
+                ts = now + d * 86400
+                central = anchor_bytes + slope * d
+                # Prediction-interval half-width widens with distance.
+                se_pred = sigma * _math.sqrt(1.0 + (1.0 / n) + ((d - mean_x) ** 2) / sxx)
+                half = 1.96 * se_pred
+                projection.append({
+                    "ts": ts,
+                    "bytes": int(round(max(0, central))),
+                    "low": int(round(max(0, central - half))),
+                    "high": int(round(max(0, central + half))),
+                })
+            out["projection"] = projection
+            out["projection_basis"] = "history"
+            out["projection_samples"] = n
+        else:
+            # Cold-start synthetic fallback (< 2 samples).
+            daily_growth = 0.005
+            for d in range(0, 91):
+                ts = now + d * 86400
+                central = size_now * ((1.0 + daily_growth) ** d)
+                band_factor = 0.05 + 0.0015 * d
+                projection.append({
+                    "ts": ts,
+                    "bytes": int(round(central)),
+                    "low": int(round(max(0, central * (1.0 - band_factor)))),
+                    "high": int(round(central * (1.0 + band_factor))),
+                })
+            out["projection"] = projection
+            out["projection_basis"] = "synthetic"
+            out["projection_samples"] = len(fit_pts)
     except Exception as e:
         out["projection_error"] = str(e)
     return out

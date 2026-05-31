@@ -1677,22 +1677,14 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    // A per-app module that declares a wide cardSpan (Speedtest / APC span
-    // 2) is implicitly asking for the rich extras view — show it whenever
-    // the card is physically wide, INDEPENDENT of the user's size preset.
-    // This is the path that actually fires for them: the extras partial
-    // calls appsShowExtras(app, inst) with NO `item`, so the opts branch
-    // below can never see a preset. The .apps-card-ready--has-extras 2-col
-    // grid only kicks in past the ogcard min-width, so a narrow card stacks.
-    if (this.appsCardSpan(app) >= 2) {
-      return true;
-    }
-    // No explicit flag: AUTO-SHOW at the large presets. Sizing a card up
-    // to double / x-large width OR tall height is an implicit "give me
-    // the rich view" request — that space is there to be used. Smaller
-    // cards stay compact (extras opt-in via the flag). `item` is only in
-    // scope on the Custom dashboard; the by-app grid passes nothing, so
-    // it falls through to the OFF default there (no size concept).
+    // On the Custom dashboard the size PRESET decides — checked BEFORE the
+    // cardSpan fallback below so a wide-span per-app module (APC / Speedtest)
+    // still honours the operator's chosen footprint. Sizing a card up to
+    // double / x-large WIDTH or tall HEIGHT is an implicit "give me the rich
+    // view" request; a narrow-short card (half / normal width + short height)
+    // HIDES extras so they don't clip the fixed footprint. `item` is only in
+    // scope on the Custom dashboard (the per-app extras partial passes it when
+    // defined); the by-app grid passes nothing and falls through below.
     const opts = (item && item.opts) || null;
     if (opts) {
       if (opts.size === 'double' || opts.size === 'xlarge') {
@@ -1701,6 +1693,15 @@ export default {
       if (opts.height === 'tall') {
         return true;
       }
+      // Narrow-short preset (half / normal width + short height): extras
+      // would clip the fixed footprint, so hide them — the operator
+      // explicitly omitted 1x1 / 2x1 from the show-list.
+      return false;
+    }
+    // No preset in scope (by-app grid): a wide-span per-app module
+    // (cardSpan >= 2, e.g. APC / Speedtest) implicitly wants the rich view.
+    if (this.appsCardSpan(app) >= 2) {
+      return true;
     }
     // Default OFF — extras are OPT-IN on a compact card. The card still
     // shows icon + title + per-host instance list; only the per-app
