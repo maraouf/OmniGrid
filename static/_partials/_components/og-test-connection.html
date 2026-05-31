@@ -1,0 +1,81 @@
+<!--
+  Shared "Test connection" affordance — the canonical test-button +
+  result-box unit for every admin integration panel (Portainer / OIDC /
+  Apprise / Telegram and any future provider). Single source of truth so
+  panels can't drift on icon / spinner / pending-loading state / success
+  + error styling (the four pre-migration copies had diverged: OIDC /
+  Portainer showed a pending warning box + strict `=== true` guard;
+  Telegram / Apprise hid the box while pending + used a truthy guard).
+  Same INCLUDE-partial pattern as og-reload-button.html and
+  og-range-picker.html — the consumer wraps it in an Alpine scope that
+  supplies the props below.
+
+  Surrounding Alpine scope MUST define:
+    - tcRun    : () => void|Promise — fired on click. MUST be the panel's
+                 own test fn (it owns the snapshot-stamp + recordTestSuccess
+                 + last-passed-test bookkeeping that the Test-before-Save
+                 gate reads). The component never touches gating state.
+    - tcResult : () => ({pending,ok,status,detail}|null) — returns the
+                 panel's reactive result object. A FUNCTION (not a value)
+                 because the test fn REASSIGNS the result to a fresh object
+                 on every outcome, so a copied reference wouldn't track the
+                 reassignment. Mirrors og-reload-button's arrow-fn props.
+
+  Optional (read via $data bracket-notation so an undeclared prop can't
+  throw under Alpine v3 strict expression semantics):
+    - tcDisabled  : () => bool — extra disable condition OR'd with the
+                    in-flight pending state (e.g. a master toggle being off).
+    - tcLabel     : i18n key for the button label (default
+                    'actions.test_connection'; Apprise / Telegram pass
+                    'actions.send_test').
+    - tcSuccessKey: provider key for lastTestSuccessLabel(...) — when set,
+                    renders the "✓ Last connected Xm ago" chip beside the
+                    button.
+    - tcExtraClass: extra Tailwind classes on the button.
+
+  Gating: this component is gating-AGNOSTIC. The consumer keeps its own
+  Save button + canSave<X>() gate + save_requires_test hint; because tcRun
+  is the panel's real test fn, the success-stamp it writes keeps the gate
+  working unchanged. Strict `pending === true` guard everywhere as
+  defence-in-depth — even a regression that omits the field can't visually
+  wedge the button (`undefined === true` is always false).
+-->
+<!--suppress HtmlUnknownAttribute -->
+<div class="og-test-conn">
+  <div class="flex items-center gap-3 flex-wrap">
+    <button type="button"
+            @click="tcRun()"
+            :disabled="(tcResult() && tcResult().pending === true) || (typeof $data['tcDisabled'] === 'function' && $data['tcDisabled']() === true)"
+            class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
+            :class="$data['tcExtraClass'] ? $data['tcExtraClass'] : ''">
+      <svg width="13" height="13" :class="(tcResult() && tcResult().pending === true) ? 'spin-md' : ''" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+      </svg>
+      <span x-show="!(tcResult() && tcResult().pending === true)"
+            x-text="t($data['tcLabel'] ? $data['tcLabel'] : 'actions.test_connection')"></span>
+      <span x-show="tcResult() && tcResult().pending === true" x-text="t('actions.testing')"></span>
+    </button>
+    <span x-show="$data['tcSuccessKey'] && lastTestSuccessLabel($data['tcSuccessKey'])"
+          class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1">
+      <span aria-hidden="true">✓</span>
+      <span x-text="$data['tcSuccessKey'] ? lastTestSuccessLabel($data['tcSuccessKey']) : ''"></span>
+    </span>
+  </div>
+  <div x-show="tcResult()"
+       class="og-test-result fs-sm rounded-md px-3 py-2"
+       :class="(tcResult() && tcResult().pending === true)
+                 ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
+                 : (tcResult() && tcResult().ok
+                      ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
+                      : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')">
+    <template x-if="tcResult() && tcResult().pending === true">
+      <span x-text="t('loading.testing')"></span>
+    </template>
+    <template x-if="tcResult() && tcResult().pending !== true">
+      <span>
+        <span aria-hidden="true" x-text="tcResult().ok ? '✓' : '✗'"></span>
+        <span class="ms-1" x-text="tcResult().detail"></span>
+      </span>
+    </template>
+  </div>
+</div>

@@ -4547,6 +4547,34 @@ details summary::-webkit-details-marker {
   white-space: nowrap;
 }
 
+/* Shared Test-connection component (og-test-connection.html). The
+   wrapper stacks the Test button row above the result box with a
+   consistent gap; spin-md on the play icon is the loading animation,
+   and the result box fades + slides in when an outcome lands. The
+   reduced-motion override for .og-test-result lives in the global
+   prefers-reduced-motion block (MED-A11Y) alongside the other
+   keyframed components. */
+.og-test-conn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.og-test-result {
+  animation: og-test-result-in 0.18s ease-out;
+}
+
+@keyframes og-test-result-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* AI ASSISTANT SIDEBAR — conversational drawer that slides in from
    the left edge of the viewport. Cmd-K / Ctrl-K toggles it; the
    floating launcher button on the left edge also opens it. */
@@ -7221,7 +7249,8 @@ button:focus:not(:focus-visible) {
   .chip-loading,
   .charts-refreshing > .metric-card,
   .chart-loading,
-  .bulk-applied-glyph {
+  .bulk-applied-glyph,
+  .og-test-result {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
@@ -11368,6 +11397,18 @@ select.field-invalid {
   padding: var(--s-1);
   background: color-mix(in srgb, var(--widget-accent) 10%, transparent);
   border-radius: var(--r-sm);
+}
+/* 4x1 (size-xlarge + height-short) spreads the forecast as a horizontal
+   row of boxes across the wide tile, so there's room for the FULL
+   user-configured day count — lift the 4-day cap the short-tile
+   @container block imposes (each box is flex:1 1 0 + min-width:0 so the
+   extra days share the width and shrink to fit). The narrower short
+   tiles (1x1 / 2x1 / 3x1) keep their right-column 4-day cap untouched —
+   their vertical column genuinely can't fit more without clipping. The
+   higher selector specificity (size-xlarge + height-short + :not())
+   beats the bare `.apps-widget-forecast-day:nth-child(n+5)` cap. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast-day:nth-child(n+5) {
+  display: flex;
 }
 
 .apps-widget-hero-icon {

@@ -173,30 +173,15 @@
         <span x-text="t('admin.notifications.medium_apprise_fanout_label')"></span>
       </label>
     </div>
-    <!-- Per-channel Test button. Fires ONLY Apprise via
-         /api/apprise/test — sibling per-channel Test on the
-         Telegram tab fires ONLY Telegram. Inline result chip
-         below the button. -->
-    <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
-      <button type="button" @click="testApprise()"
-              :disabled="(appriseTestResult && appriseTestResult.pending) || !settings.apprise_enabled"
-              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="(appriseTestResult && appriseTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-        </svg>
-        <span x-show="!(appriseTestResult && appriseTestResult.pending)" x-text="t('actions.send_test')"></span>
-        <span x-show="appriseTestResult && appriseTestResult.pending" x-text="t('actions.testing')"></span>
-      </button>
-      <p class="fs-2xs text-[var(--text-faint)]"
-         x-show="lastTestSuccessLabel('apprise')">
-        ✓ <span x-text="lastTestSuccessLabel('apprise')"></span>
-      </p>
+    <!-- Shared Test-connection component — fires ONLY Apprise via
+         /api/apprise/test using the IN-FORM values. tcRun is the real
+         testApprise() (which stamps _appriseLastPassedTest +
+         recordTestSuccess on success) so the notifications Save gate
+         (canSaveApprise) keeps working unchanged. -->
+    <div x-show="isAdmin()" class="mt-4"
+         x-data="{ tcRun: () => testApprise(), tcResult: () => appriseTestResult, tcDisabled: () => !settings.apprise_enabled, tcLabel: 'actions.send_test', tcSuccessKey: 'apprise' }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
-    <div x-show="appriseTestResult && !appriseTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
-         :class="appriseTestResult && appriseTestResult.ok
-                       ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                       : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-         x-text="appriseTestResult ? ((appriseTestResult.ok ? '✓ ' : '✗ ') + (appriseTestResult.detail || '')) : ''"></div>
   </div>
 
   <!-- ========== TAB: Telegram ========== -->
@@ -343,30 +328,16 @@
       </template>
       </div>
     </details>
-    <!-- Per-channel Test button. Fires ONLY Telegram via
+    <!-- Shared Test-connection component — fires ONLY Telegram via
          /api/telegram/test using the IN-FORM values (bot_token /
-         chat_id / thread_id) so the operator can verify NEW
-         creds before Save. Inline result chip below the button. -->
-    <div class="flex items-center gap-3 mt-4" x-show="isAdmin()">
-      <button type="button" @click="testTelegramConnection()"
-              :disabled="(telegramTestResult && telegramTestResult.pending) || !settings.notify_medium_telegram"
-              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="(telegramTestResult && telegramTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-        </svg>
-        <span x-show="!(telegramTestResult && telegramTestResult.pending)" x-text="t('actions.send_test')"></span>
-        <span x-show="telegramTestResult && telegramTestResult.pending" x-text="t('actions.testing')"></span>
-      </button>
-      <p class="fs-2xs text-[var(--text-faint)]"
-         x-show="lastTestSuccessLabel('telegram')">
-        ✓ <span x-text="lastTestSuccessLabel('telegram')"></span>
-      </p>
+         chat_id / thread_id). tcRun is the real testTelegramConnection()
+         (which stamps _telegramLastPassedTest + recordTestSuccess on
+         success) so the notifications Save gate (canSaveTelegram) keeps
+         working unchanged. -->
+    <div x-show="isAdmin()" class="mt-4"
+         x-data="{ tcRun: () => testTelegramConnection(), tcResult: () => telegramTestResult, tcDisabled: () => !settings.notify_medium_telegram, tcLabel: 'actions.send_test', tcSuccessKey: 'telegram' }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
-    <div x-show="telegramTestResult && !telegramTestResult.pending" class="fs-sm rounded-md px-3 py-2 mt-2"
-         :class="telegramTestResult && telegramTestResult.ok
-                       ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                       : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'"
-         x-text="telegramTestResult ? ((telegramTestResult.ok ? '✓ ' : '✗ ') + (telegramTestResult.detail || '')) : ''"></div>
 
     <!-- Phase 2 — inbound command listener config. Long-poll loop
          in logic/telegram_listener.py reads /restart and other

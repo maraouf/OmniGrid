@@ -76,7 +76,7 @@
         <input id="og-oidc-redirect-uri" :value="oidcStatus && oidcStatus.redirect_uri_default || ''" readonly
                class="w-full mono fs-sm flex-1 bg-[var(--surface-2)]">
         <button @click="copyRedirectUri()" type="button"
-                class="btn btn-soft fs-sm whitespace-nowrap"
+                class="btn btn-ghost fs-xs whitespace-nowrap"
                 :title="t('settings.oidc.copy_title')" x-text="t('settings.oidc.copy')"></button>
       </div>
       <p class="fs-xs text-[var(--text-faint)] mt-1" x-text="t('settings.oidc.redirect_uri_hint')"></p>
@@ -210,31 +210,6 @@
         <span x-show="!oidcSaving" x-text="t('actions.save')"></span>
         <span x-show="oidcSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
       </button>
-      <!--
-        Disabled gate uses strict-equality on `pending` so the
-        button NEVER stays disabled after a failed test (the
-        result object stamps `pending: false` on every outcome
-        branch, but defence-in-depth here means even a regression
-        that omits the field can't visually wedge the button —
-        `undefined === true` is always false). Pre-fix the gate
-        was `(oidcTestResult && oidcTestResult.pending)` which
-        evaluated to `undefined` (also falsy) but read
-        ambiguously to anyone reviewing the markup AND would
-        still wedge if any reactive proxy ever surfaced `true`
-        for a missing property.
-      -->
-      <button type="button" @click="testOidcConnection()"
-              :disabled="!oidcForm.enabled || (oidcTestResult && oidcTestResult.pending === true)"
-              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="(oidcTestResult && oidcTestResult.pending === true) ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-        </svg>
-        <span x-show="!(oidcTestResult && oidcTestResult.pending === true)" x-text="t('settings.oidc.test_button')"></span>
-        <span x-show="oidcTestResult && oidcTestResult.pending === true" x-text="t('actions.testing')"></span>
-      </button>
-      <span x-show="lastTestSuccessLabel('oidc')"
-            class="fs-xs text-[var(--text-faint)]"
-            x-text="lastTestSuccessLabel('oidc')"></span>
       <span x-show="oidcDirty()"
             class="fs-xs text-[var(--warning)] flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
@@ -244,17 +219,14 @@
     <div x-show="oidcForm.enabled && !canSaveOidc()"
          class="fs-xs text-[var(--text-faint)] -mt-1"
          x-text="t('settings.oidc.save_requires_test')"></div>
-    <div x-show="oidcTestResult" class="fs-sm rounded-md px-3 py-2"
-         :class="(oidcTestResult && oidcTestResult.pending) ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]' : (oidcTestResult && oidcTestResult.ok ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]' : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')">
-      <template x-if="oidcTestResult && oidcTestResult.pending">
-        <span x-text="t('loading.testing')"></span>
-      </template>
-      <template x-if="oidcTestResult && !oidcTestResult.pending">
-              <span>
-                <span x-text="oidcTestResult.ok ? '✓' : '✗'"></span>
-                <span class="ms-1" x-text="oidcTestResult.detail"></span>
-              </span>
-      </template>
+    <!-- Shared Test-connection component — Test button + pending /
+         success / error result box. tcRun is the real
+         testOidcConnection() (which stamps _oidcLastPassedTest +
+         recordTestSuccess on success), so the Test-before-Save gate
+         (canSaveOidc) keeps working unchanged. -->
+    <div x-show="isAdmin()"
+         x-data="{ tcRun: () => testOidcConnection(), tcResult: () => oidcTestResult, tcDisabled: () => !oidcForm.enabled, tcLabel: 'settings.oidc.test_button', tcSuccessKey: 'oidc' }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
   </div>
 </section>
