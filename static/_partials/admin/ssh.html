@@ -429,14 +429,8 @@
     <h4 class="font-semibold fs-sm mb-1" x-text="t('admin_ssh.test_widget_title')"></h4>
     <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('admin_ssh.test_widget_hint')"></p>
     <div class="flex items-center gap-2 flex-wrap">
-      <label class="fs-xs text-[var(--text-faint)]" for="ssh-testhost" x-text="t('admin_ssh.test_host_label')"></label>
-      <select x-model="sshTestOnHost.host_id" id="ssh-testhost"
-              class="fs-sm py-1 min-w-[240px]">
-        <option value="">—</option>
-        <template x-for="h in hostsConfig" :key="h.id">
-          <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>
-        </template>
-      </select>
+      <!-- Test button FIRST (then the host dropdown) to match the SNMP /
+           Beszel / Pulse provider test rows. -->
       <button type="button" x-show="isAdmin()" @click="runSshAdminTest()"
               :disabled="sshTestOnHost.pending || !sshTestOnHost.host_id"
               class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
@@ -446,6 +440,14 @@
         <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
         <span x-show="sshTestOnHost.pending" x-text="t('admin_ssh.testing')"></span>
       </button>
+      <label class="fs-xs text-[var(--text-faint)]" for="ssh-testhost" x-text="t('admin_ssh.test_host_label')"></label>
+      <select x-model="sshTestOnHost.host_id" id="ssh-testhost"
+              class="fs-sm py-1 min-w-[240px]">
+        <option value="">—</option>
+        <template x-for="h in hostsConfig" :key="h.id">
+          <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>
+        </template>
+      </select>
     </div>
     <div x-show="sshTestOnHost.result || sshTestOnHost.pending"
          class="mt-2 fs-sm rounded-md px-3 py-2"

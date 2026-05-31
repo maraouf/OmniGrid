@@ -232,13 +232,25 @@
           </template>
         </div>
       </details>
-      <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-        <!-- Save is GATED on a successful Test when the service
-             is enabled — admins can't ship a typo'd URL / API key
-             without proving the round-trip works first. When the
-             master switch is OFF the gate releases (no probe
-             will fire either way). The :title surfaces the
-             reason via tooltip when Save is locked. -->
+      <!-- Shared Test-connection component — Test button + pending /
+           success / error result box, on its OWN line ABOVE the Save row
+           (test first, then Save unlocks). The last-connected chip sits
+           beside the button (tcSuccessKey). tcRun is the real
+           testPortainerConnection() (stamps _portainerLastPassedTest +
+           recordTestSuccess on success), so the Test-before-Save gate
+           (canSavePortainer) keeps working unchanged. Label uses the
+           shared default actions.test_connection so every panel's button
+           reads identically. -->
+      <div x-show="isAdmin()" class="pt-3 border-t border-[var(--border)]"
+           x-data="{ tcRun: () => testPortainerConnection(), tcResult: () => portainerTestResult, tcDisabled: () => !settings.portainer_enabled, tcSuccessKey: 'portainer' }">
+        <!-- INCLUDE: _components/og-test-connection.html -->
+      </div>
+      <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap">
+        <!-- Save is GATED on a successful Test when the service is
+             enabled — admins can't ship a typo'd URL / API key without
+             proving the round-trip works first. Master switch OFF
+             releases the gate. The :title surfaces the reason when
+             Save is locked. -->
         <button type="button" @click="savePortainerSettings()"
                 :disabled="portainerSaving || !canSavePortainer()"
                 :class="portainerDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
@@ -253,24 +265,12 @@
                 <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
               </span>
       </div>
-      <!-- Inline reminder when Save is locked because the
-           service is enabled but no successful Test has run
-           against the CURRENT form values. Hoisted onto its own
-           row (was inside the button row previously, cramped on
-           narrow viewports). Mirrors the Authentik OIDC layout
-           — both reminders now wrap consistently. -->
+      <!-- Inline reminder when Save is locked because the service is
+           enabled but no successful Test has run against the CURRENT
+           form values. -->
       <div x-show="settings.portainer_enabled && !canSavePortainer()"
            class="fs-xs text-[var(--text-faint)] -mt-1"
            x-text="t('settings.portainer.save_requires_test')"></div>
-      <!-- Shared Test-connection component — Test button + pending /
-           success / error result box. tcRun is the real
-           testPortainerConnection() (which stamps _portainerLastPassedTest
-           + recordTestSuccess on success), so the Test-before-Save gate
-           (canSavePortainer) keeps working unchanged. -->
-      <div x-show="isAdmin()"
-           x-data="{ tcRun: () => testPortainerConnection(), tcResult: () => portainerTestResult, tcDisabled: () => !settings.portainer_enabled, tcLabel: 'settings.portainer.test_button', tcSuccessKey: 'portainer' }">
-        <!-- INCLUDE: _components/og-test-connection.html -->
-      </div>
     </div>
   </section>
 </div>

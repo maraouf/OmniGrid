@@ -143,29 +143,18 @@
        was a removed legacy class that left the button unstyled
        on light theme). -->
   <div class="mb-4">
-    <div class="flex items-center gap-2 flex-wrap mb-2">
-      <button type="button"
-              @click="testWeather()"
-              :disabled="isReadonly() || !settings.weather_enabled || weatherTesting"
-              class="btn btn-soft fs-sm inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="weatherTesting ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-        </svg>
-        <span x-show="!weatherTesting" x-text="t('actions.test_connection')"></span>
-        <span x-show="weatherTesting" x-text="t('actions.testing')"></span>
-      </button>
-      <span x-show="settings.weather_enabled && !canSaveWeather()"
-            class="fs-xs text-[var(--text-faint)]"
-            x-text="t('admin.weather.save_requires_test')"></span>
+    <!-- Shared Test-connection component — unified Test button + result
+         box. Adapter synthesises {pending,ok,detail} from the
+         weatherTesting flag + weatherTestResult {ok,detail}. The
+         save_requires_test hint stays below (weather's Save gate is
+         canSaveWeather). -->
+    <div class="mb-2"
+         x-data="{ tcRun: () => testWeather(), tcResult: () => (weatherTesting ? { pending: true } : ((weatherTestResult && weatherTestResult.detail) ? { pending: false, ok: weatherTestResult.ok, detail: weatherTestResult.detail } : null)), tcDisabled: () => (isReadonly() || !settings.weather_enabled) }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
-    <div x-show="weatherTestResult && weatherTestResult.detail"
-         class="fs-sm rounded-md px-3 py-2"
-         :class="(weatherTestResult && weatherTestResult.ok)
-           ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-           : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
-      <span x-text="(weatherTestResult && weatherTestResult.ok) ? '✓' : '✗'"></span>
-      <span class="ms-1" x-text="weatherTestResult && weatherTestResult.detail"></span>
-    </div>
+    <div x-show="settings.weather_enabled && !canSaveWeather()"
+         class="fs-xs text-[var(--text-faint)] mb-2"
+         x-text="t('admin.weather.save_requires_test')"></div>
   </div>
 
   <!-- Moon-data availability badge — visible affordance so the

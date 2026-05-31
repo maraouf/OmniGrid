@@ -4564,6 +4564,15 @@ details summary::-webkit-details-marker {
   animation: og-test-result-in 0.18s ease-out;
 }
 
+/* The detail string preserves its own line breaks (a provider that
+   returns a multi-line body — e.g. the public-IP lookup's pretty-printed
+   JSON — renders readably) and breaks long unbroken tokens (IPs / URLs)
+   instead of overflowing the box. Single-line details are unaffected. */
+.og-test-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @keyframes og-test-result-in {
   from {
     opacity: 0;
@@ -11033,12 +11042,17 @@ select.field-invalid {
    generic hero's display-lg + nowrap. `break-all` lets a long IPv6 wrap
    onto a second line instead of ellipsis-truncating. */
 .apps-widget-pubip-ip {
-  /* Scales with the card's smaller dimension (cqmin) so the IP is the
-     clear focal point + uses the empty space above/around it: a
-     comfortable floor on a narrow card, growing toward display-2xl on a
-     wide / tall card. Still wraps (break-all) so a long IPv6 never
-     ellipsis-truncates. cqmin (not cqi) so a TALL card also grows it. */
-  font-size: clamp(var(--fs-display-base), 13cqmin, var(--fs-display-lg));
+  /* Scales with the card's WIDTH (cqi), not cqmin — a public IP is a
+     horizontal string, so the binding constraint is width. cqmin tied
+     the font to the smaller dimension, so on a near-square 2x2 tile the
+     hero grew tall enough that a 15-char IPv4 (e.g. 156.214.144.117)
+     overflowed the width and wrapped mid-number to a second line. The
+     10cqi coefficient keeps a full IPv4 on ONE line from the smallest
+     pubip tile (half width ~180px, where 10cqi floors at display-base
+     18px) up through the display-lg cap, while word-break:break-all
+     still lets a genuinely-long IPv6 wrap rather than ellipsis-truncate
+     or clip. */
+  font-size: clamp(var(--fs-display-base), 10cqi, var(--fs-display-lg));
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -11491,19 +11505,22 @@ select.field-invalid {
   margin-top: 0;
 }
 
-/* 4x2 analog clock (xlarge WIDTH + tall HEIGHT) — the roomy 2-row tile
-   gets a LARGER dial with the date + timezone stacked BELOW it (column)
-   instead of beside it, filling the vertical space. Keyed on the explicit
-   size-xlarge + height-tall preset combo so every other size (1x1 / 2x1 /
-   3x1 / 4x1) keeps the centred side-by-side / wrap row untouched. The CSS
-   width/height override the SVG's 120px geometry attributes (CSS wins for
-   <svg> sizing); the viewBox scales the dial content to fill. */
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog-wrap {
+/* Tall analog clock (DOUBLE or XLARGE width + tall HEIGHT) — a roomy
+   2-row tile gets a LARGER dial with the date + timezone stacked BELOW it
+   (column) instead of beside it, filling the vertical space. Both tall
+   widths qualify (a double-width 2-row tile is just as roomy as xlarge —
+   gating on xlarge ALONE left a double-tall tile with the small
+   side-by-side dial + date floating to the right, which read as a
+   regression). The 1-row short tiles (1x1 / 2x1 / 3x1 / 4x1) and the
+   narrower half/normal widths keep the centred side-by-side / wrap row.
+   The CSS width/height override the SVG's 120px geometry attributes (CSS
+   wins for <svg> sizing); the viewBox scales the dial content to fill. */
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog-wrap {
   flex-direction: column;
   flex-wrap: nowrap;
   gap: var(--s-2);
 }
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
   width: 190px;
   height: 190px;
 }

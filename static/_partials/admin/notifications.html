@@ -179,7 +179,7 @@
          recordTestSuccess on success) so the notifications Save gate
          (canSaveApprise) keeps working unchanged. -->
     <div x-show="isAdmin()" class="mt-4"
-         x-data="{ tcRun: () => testApprise(), tcResult: () => appriseTestResult, tcDisabled: () => !settings.apprise_enabled, tcLabel: 'actions.send_test', tcSuccessKey: 'apprise' }">
+         x-data="{ tcRun: () => testApprise(), tcResult: () => appriseTestResult, tcDisabled: () => !settings.apprise_enabled, tcSuccessKey: 'apprise' }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
   </div>
@@ -335,7 +335,7 @@
          success) so the notifications Save gate (canSaveTelegram) keeps
          working unchanged. -->
     <div x-show="isAdmin()" class="mt-4"
-         x-data="{ tcRun: () => testTelegramConnection(), tcResult: () => telegramTestResult, tcDisabled: () => !settings.notify_medium_telegram, tcLabel: 'actions.send_test', tcSuccessKey: 'telegram' }">
+         x-data="{ tcRun: () => testTelegramConnection(), tcResult: () => telegramTestResult, tcDisabled: () => !settings.notify_medium_telegram, tcSuccessKey: 'telegram' }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
 

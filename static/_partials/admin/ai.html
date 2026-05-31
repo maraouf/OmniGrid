@@ -926,40 +926,16 @@
                  a successful Save without re-pasting the secret).
                  Result chip stays inline so the toast doesn't
                  have to carry per-provider error text. -->
-            <div class="flex items-center gap-2 flex-wrap pt-1">
-              <button type="button"
-                      @click="testAiProvider(name)"
-                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set) || aiTestState[name].loading"
-                      class="btn btn-ghost fs-xs">
-                      <span x-show="!aiTestState[name].loading"
-                            class="flex items-center gap-1">
-                        <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
-                        <span x-text="t('admin.ai.test_button')"></span>
-                      </span>
-                <span x-show="aiTestState[name].loading"
-                      class="flex items-center gap-1">
-                        <span class="spin"></span>
-                        <span x-text="t('admin.ai.testing')"></span>
-                      </span>
-              </button>
-              <span x-show="aiTestState[name].result"
-                    class="chip fs-2xs flex items-center gap-1 max-w-full truncate"
-                    :class="aiTestState[name].result?.ok ? 'pill-ok' : 'pill-error'"
-                    :title="aiTestState[name].result?.detail || ''">
-                      <span x-text="aiTestState[name].result?.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed')"></span>
-                <!-- Optional chaining everywhere — Alpine evaluates
-                     x-text on render even when the parent is hidden
-                     via x-show (the element stays in the DOM with
-                     display:none), so a null `result` would throw
-                     on `result.response_time_ms` without `?.`. -->
-                      <span x-show="aiTestState[name].result?.response_time_ms !== undefined"
-                            class="text-[var(--text-faint)] mono"
-                            x-text="'(' + (Number(aiTestState[name].result?.response_time_ms ?? 0)).toLocaleString() + ' ms)'"></span>
-                    </span>
+            <!-- Shared Test-connection component (unified Test connection +
+                 play icon + result box), one per provider card. The adapter
+                 maps this provider's aiTestState[name] {loading, result}
+                 onto the component's {pending, ok, detail} shape, folding
+                 the response-time into the detail so the "(N ms)" hint
+                 survives the migration. -->
+            <div class="pt-1"
+                 x-data="{ tcRun: () => testAiProvider(name), tcResult: () => { const s = aiTestState[name]; if (!s) return null; if (s.loading) return { pending: true }; const rr = s.result; if (!rr) return null; const ms = (rr.response_time_ms !== undefined) ? ' (' + Number(rr.response_time_ms || 0).toLocaleString() + ' ms)' : ''; return { pending: false, ok: !!rr.ok, detail: (rr.detail || (rr.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed'))) + ms }; }, tcDisabled: () => (isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set)) }">
+              <!-- INCLUDE: _components/og-test-connection.html -->
             </div>
-            <p x-show="aiTestState[name].result && !aiTestState[name].result?.ok"
-               class="fs-2xs text-[var(--danger)] mono break-words"
-               x-text="aiTestState[name].result?.detail || ''"></p>
           </div>
         </div>
       </template>
