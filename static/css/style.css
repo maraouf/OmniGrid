@@ -6631,10 +6631,16 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   letter-spacing: 0.04em;
 }
 
+/* List rendering: the enclosing `.swal2-html-container li::before` already
+   supplies a single blue `• ` bullet + indent for every <li>, so this list
+   MUST NOT add its own marker — `list-style: disc` + `padding-inline-start`
+   here stacked a SECOND (white) disc and a second indent on top of the
+   swal bullet (operator saw "2 dots, 1 white 1 blue, 2 indentation").
+   list-style:none + zero padding leaves exactly the one swal bullet. */
 .release-notes-rendered .release-notes-list {
   margin: var(--s-1) 0;
-  padding-inline-start: var(--s-4);
-  list-style: disc;
+  padding-inline-start: 0;
+  list-style: none;
 }
 
 .release-notes-rendered .release-notes-li {
@@ -6643,7 +6649,48 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 
 .release-notes-rendered .release-notes-li--nested {
   margin-inline-start: var(--s-4);
-  list-style: circle;
+  list-style: none;
+}
+
+/* GitHub-style alert callout (`> [!WARNING]` / [!NOTE] / [!TIP] /
+   [!IMPORTANT] / [!CAUTION]) + plain blockquotes. Left accent bar + tinted
+   background keyed to the alert type; a bold label row above the body. */
+.release-notes-rendered .release-notes-alert {
+  margin: var(--s-2) 0;
+  padding: var(--s-2) var(--s-3);
+  border-inline-start: 3px solid var(--text-faint);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.release-notes-rendered .release-notes-alert--warning {
+  border-inline-start-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface-2));
+}
+
+.release-notes-rendered .release-notes-alert--caution {
+  border-inline-start-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-2));
+}
+
+.release-notes-rendered .release-notes-alert--note,
+.release-notes-rendered .release-notes-alert--important {
+  border-inline-start-color: var(--info);
+  background: color-mix(in srgb, var(--info) 10%, var(--surface-2));
+}
+
+.release-notes-rendered .release-notes-alert--tip {
+  border-inline-start-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--surface-2));
+}
+
+.release-notes-rendered .release-notes-alert-label {
+  font-weight: 700;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+  color: var(--text);
 }
 
 .release-notes-rendered .release-notes-p {
@@ -9546,77 +9593,80 @@ select.field-invalid {
 }
 
 /* Vertical card layout (opt-in per app via extender.verticalLayout — APC),
-   applied ONLY on TALL tiles (height-tall) where there's vertical room to
-   stack. The generic card is a logo-left / content-right flex ROW; here we
-   flip the article to a flex COLUMN and `order` the three blocks so the data
-   gets the room: title row (1) on top, logo (2) centered + smaller below it,
-   then the body — host / ports / UPS extras — (3) filling the rest.
+   applied ONLY on TALL tiles where there's vertical room to stack. The
+   generic card is a logo-left / content-right flex ROW; here we flip the
+   article to a flex COLUMN and `order` the three blocks so the data gets the
+   room: title row (1) on top, logo (2) centered + smaller below it, then the
+   body — host / ports / UPS extras — (3) filling the rest.
+
+   CRITICAL selector note: `apps-card--height-tall` / `apps-card--size-half`
+   live on the `.apps-custom-cell` PARENT, while `apps-card--vertical` lives
+   on the `.apps-card` ARTICLE child. Earlier rounds wrote
+   `.apps-card.apps-card--vertical.apps-card--height-tall` (all three on ONE
+   element) which matched NOTHING — so the layout never changed. These rules
+   use a DESCENDANT combinator (cell-class ancestor → article-class
+   descendant) so they actually apply.
 
    WHY flex-column (not grid): the article already has Tailwind's `flex`
-   (display:flex) + `items-start`. Changing `display` to grid lost to the
-   Tailwind utility (same specificity, injection-order-dependent) — which is
-   why the first attempt never visibly applied. `flex-direction: column` has
-   NO competing utility on the element, and the base rule is bumped to
-   `.apps-card.apps-card--vertical.apps-card--height-tall` (0,3,0) so its
-   `align-items: stretch` also beats Tailwind's `items-start` (0,1,0).
-   `.flex-1` is display:contents so its <header> + body-region hoist up to
-   become flex items alongside the logo, which `order` then sequences.
+   (display:flex). `flex-direction: column` has no competing utility on the
+   element; `align-items: stretch` at (0,2,0) beats Tailwind's `items-start`
+   (0,1,0). `.flex-1` is display:contents so its <header> + body-region hoist
+   up to become flex items alongside the logo, which `order` then sequences.
 
-   SHORT tiles (1x1..4x1) deliberately keep the generic horizontal layout —
-   a vertical stack would waste their wide-but-short geometry (the logo would
-   eat the limited height). They only get the smaller-logo tweak below. */
-.apps-card.apps-card--vertical.apps-card--height-tall {
+   SHORT tiles (1x1..4x1) keep the generic horizontal layout — a vertical
+   stack would waste their wide-but-short geometry. */
+.apps-card--height-tall .apps-card--vertical {
   flex-direction: column;
   align-items: stretch;
   gap: var(--s-2);
 }
 
-.apps-card--vertical.apps-card--height-tall > .flex-1 {
+.apps-card--height-tall .apps-card--vertical > .flex-1 {
   display: contents;
 }
 
-.apps-card--vertical.apps-card--height-tall > .flex-1 > header {
+.apps-card--height-tall .apps-card--vertical > .flex-1 > header {
   order: 1;
   margin-bottom: 0;
 }
 
-.apps-card--vertical.apps-card--height-tall > .apps-card-logo {
+.apps-card--height-tall .apps-card--vertical > .apps-card-logo {
   order: 2;
   margin-inline: auto;
   width: 52px;
   height: 52px;
 }
 
-.apps-card--vertical.apps-card--height-tall > .apps-card-logo img {
+.apps-card--height-tall .apps-card--vertical > .apps-card-logo img {
   width: 40px;
   height: 40px;
 }
 
-.apps-card--vertical.apps-card--height-tall > .flex-1 > .apps-card-body-region {
+.apps-card--height-tall .apps-card--vertical > .flex-1 > .apps-card-body-region {
   order: 3;
 }
 
 /* Ports fill the width under the logo; UPS extras pack tighter (88px min vs
    110px) so more stats fit per row in the stacked column — maximise the data
    shown in the given space. */
-.apps-card--vertical.apps-card--height-tall .apps-port-grid {
+.apps-card--height-tall .apps-card--vertical .apps-port-grid {
   justify-content: flex-start;
 }
 
-.apps-card--vertical.apps-card--height-tall .apps-card-ups-grid {
+.apps-card--height-tall .apps-card--vertical .apps-card-ups-grid {
   grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
 }
 
 /* Smaller logo on the compact half-width tiles (1x1 short + 1x2 tall) — the
-   user flagged the logo eats those tiles. Placed AFTER the height-tall logo
-   rule so it wins the (0,3,0) tie for 1x2. Applies in both layouts (the logo
-   is a direct article child either way). */
-.apps-card--vertical.apps-card--size-half > .apps-card-logo {
+   logo was eating those tiles. Placed AFTER the height-tall logo rule so it
+   wins the (0,2,0) tie for 1x2. Same cell-ancestor / article-descendant
+   pattern as above (size-half is on the cell). */
+.apps-card--size-half .apps-card--vertical > .apps-card-logo {
   width: 38px;
   height: 38px;
 }
 
-.apps-card--vertical.apps-card--size-half > .apps-card-logo img {
+.apps-card--size-half .apps-card--vertical > .apps-card-logo img {
   width: 28px;
   height: 28px;
 }

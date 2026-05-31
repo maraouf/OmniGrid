@@ -677,16 +677,18 @@ export default {
   _tuningSnapshot() {
     // Build every call — reading each tuningForm[key] is what subscribes the
     // calling reactive effect to the form (no cache-hit early-return; see the
-    // caveat-6 note at the top of this module). `key=value;` framing is
-    // collision-free: keys are lowercase alpha+underscore, values numeric, so
-    // neither contains `=` or `;`. Baseline + live use the same format so the
-    // string compare in tuningDirty() is exact.
+    // caveat-6 note at the top of this module). MUST return a JSON object
+    // string: `_tuningBaselineMap()` does `JSON.parse(this._tuningBaseline)`
+    // so the per-section dirty trackers can diff their own keys against the
+    // baseline. (An earlier `key=value;` concat broke that parse → {} → every
+    // section read as dirty on load.) Baseline + live use the same format so
+    // the string compare in tuningDirty() is exact.
     const f = this.tuningForm || {};
-    let out = '';
+    const out = {};
     for (const k of this._allTuningKeys()) {
-      out += k + '=' + (f[k] == null ? '' : String(f[k]).trim()) + ';';
+      out[k] = (f[k] == null ? '' : String(f[k]).trim());
     }
-    return out;
+    return JSON.stringify(out);
   },
   tuningDirty() {
     return this._tuningBaseline !== this._tuningSnapshot();
