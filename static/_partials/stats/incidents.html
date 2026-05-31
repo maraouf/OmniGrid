@@ -3,7 +3,7 @@
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_incidents === true ? 'true' : 'false'">
     <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
-      <div>
+      <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 mb-2">
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
@@ -12,7 +12,7 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.incidents.hint')"></p>
       </div>
-      <div class="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap shrink-0">
         <!-- Window picker — 1h / 24h / 7d / 30d / 90d. Delegates
              to the shared `og-range-picker` component template
              under `_partials/_components/`. Single source of

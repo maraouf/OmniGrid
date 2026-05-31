@@ -3,7 +3,7 @@
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_network === true ? 'true' : 'false'">
     <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
-      <div>
+      <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 mb-2">
           <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
@@ -12,7 +12,7 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.network.hint')"></p>
       </div>
-      <div class="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap shrink-0">
         <!-- Range chips route through `_runWithBusy` so the spinner
              on the Reload button next door reflects in-flight
              refetches triggered by chip click. Range pickers
