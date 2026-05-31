@@ -726,6 +726,10 @@ export default {
         h.failure_window_started_at = 0;
         h.consecutive_failures = 0;
         h.last_error = '';
+        // Mark the post-resume "re-probing, collecting data" window so the
+        // row shows the distinct blue resuming badge (not red) until the
+        // host recovers or the window elapses — see hostResuming().
+        h._resumePending = Date.now();
         this.showToast(this.t('hosts_extra.permanent_fail.resumed_toast', {host: this.hostDisplayName(h) || h.id}), 'success');
         // — whole-host pause supersedes per-provider pause. When
         // the operator clicks Resume on the whole-host banner, also
@@ -1329,6 +1333,29 @@ export default {
       return 'var(--danger)';
     }
     return 'var(--text-faint)';
+  },
+
+  // True while a host is in the post-Resume "re-probing, collecting
+  // data" window — distinct from the paused-in-error (red) state so the
+  // operator can tell, with the drawer CLOSED, "I just resumed this and
+  // it's pending fresh probe data" apart from "this is still paused /
+  // down". `resumeHostSampling` / `resumeProvider` stamp `_resumePending`
+  // (epoch ms) at resume time; the flag is meaningful only until the host
+  // recovers (status === 'up' → cleared signal) or the window elapses
+  // (the sampler has had time to re-probe + either recover or re-pause).
+  // Window is generous enough for a couple of probe cycles but bounded so
+  // a host that never recovers falls back to its real red state. The
+  // badge re-evaluates on every reactive flush (15s Hosts poll + SSE
+  // failure-state events), so it clears within one poll cadence of the
+  // window elapsing — no dedicated ticker needed for a 2-minute badge.
+  hostResuming(h) {
+    if (!h || !h._resumePending) {
+      return false;
+    }
+    if (h.status === 'up') {
+      return false;
+    }
+    return (Date.now() - h._resumePending) < 120000;
   },
 
   // Stacks/Services row status indicator — drives the small dot

@@ -484,6 +484,12 @@ function app() {
     // each id settles.
     bulkAppliedSummary: null,
     _bulkAppliedTimer: null,
+    // In-flight bulk-action marker — holds the action path
+    // ('resume' / 'pause' / 'snmp_vendors' / 'snmp_tunables') while a
+    // `/api/hosts/bulk/<path>` POST is running, else null. Drives the
+    // spinner + disabled state on the bulk-bar buttons so a multi-host
+    // Resume / Pause gives visible feedback instead of looking inert.
+    hostsBulkBusy: null,
     // ---- Host timeline state ----------------------------------------
     // Per-host timeline cache. Shape: hostTimeline[host_id] = {events,
     // counts, loading, error, loadedAt, hours}. The drawer's Timeline
@@ -2064,6 +2070,14 @@ function app() {
       // location) without an extra round-trip per row-expand. Silent
       // failure is fine (asset inventory is optional).
       this.loadAssetCache();
+      // Prime the curated-host skeleton once on boot so the Hosts
+      // top-nav down-count badge is populated from cold start (parity
+      // with the always-polled Services offline badge), WITHOUT waiting
+      // for the operator to open the Hosts view. /api/hosts/list is the
+      // cheap snapshot-first skeleton; the expensive per-host fan-out is
+      // IntersectionObserver-gated on rendered rows, so nothing heavy
+      // fires while the view isn't visible. Fire-and-forget.
+      this.loadHosts().catch(() => undefined);
       this.startVersionWatcher();
       this.startHeaderClock();
       this.startHeaderWeather();

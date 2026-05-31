@@ -49,7 +49,7 @@
        the component expects from the publicIpTesting / publicIpTestOk /
        publicIpTestResult state fields. -->
   <div class="mt-3" x-show="isAdmin()"
-       x-data="{ tcRun: () => testPublicIpLookup(), tcResult: () => (publicIpTesting ? { pending: true } : (publicIpTestResult ? { pending: false, ok: publicIpTestOk, detail: publicIpTestResult } : null)), tcDisabled: () => !(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) }">
+       x-data="{ tcRun: () => testPublicIpLookup(), tcResult: () => (publicIpTesting ? { pending: true } : (publicIpTestResult ? { pending: false, ok: publicIpTestOk, detail: publicIpTestResult } : null)), tcDisabled: () => !(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1), tcSuccessKey: 'public_ip' }">
     <!-- INCLUDE: _components/og-test-connection.html -->
   </div>
 

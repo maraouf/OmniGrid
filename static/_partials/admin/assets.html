@@ -217,18 +217,22 @@
        upstream-API actions / status. Save sits on its own row
        below, separated by an HR. -->
   <!-- Shared Test-connection component (Test connection + play icon +
-       result box) on the left; the shared reload button right-floated on
-       the same row. testAssetConnection() owns the recordTestSuccess +
-       _assetLastPassedTest bookkeeping, so the last-connected chip
+       result box). The component is a FULL-WIDTH block so its result box
+       spans the full width like every other provider (it was previously a
+       flex item beside the reload, which constrained the box to the button
+       column). The shared reload button is absolutely floated top-right so
+       it stays on the test-button row without stealing the result box's
+       width. testAssetConnection() owns the recordTestSuccess +
+       _assetLastPassedTest bookkeeping, so the last-tested chip
        (tcSuccessKey) and Save gate keep working. -->
-  <div class="mt-3 flex items-start gap-2 flex-wrap">
+  <div class="mt-3 relative">
+    <div class="absolute end-0 top-0 z-10" x-show="isAdmin()"
+         x-data="{ rbKey: 'asset_refresh', rbOnClick: () => _runWithBusy('asset_refresh', () => refreshAssetCache()), get rbDisabled() { return !settings.asset_inventory_enabled; } }">
+      <!-- INCLUDE: _components/og-reload-button.html -->
+    </div>
     <div x-show="isAdmin()"
          x-data="{ tcRun: () => testAssetConnection(), tcResult: () => assetTestResult, tcSuccessKey: 'asset_inventory' }">
       <!-- INCLUDE: _components/og-test-connection.html -->
-    </div>
-    <div class="ms-auto" x-show="isAdmin()"
-         x-data="{ rbKey: 'asset_refresh', rbOnClick: () => _runWithBusy('asset_refresh', () => refreshAssetCache()), get rbDisabled() { return !settings.asset_inventory_enabled; } }">
-      <!-- INCLUDE: _components/og-reload-button.html -->
     </div>
   </div>
 

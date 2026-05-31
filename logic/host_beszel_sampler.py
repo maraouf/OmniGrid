@@ -713,6 +713,41 @@ def services_for_host(host_id: str) -> list[dict]:
     return out
 
 
+async def refresh_services_now(host_id: str) -> list[dict]:
+    """On-demand LIVE re-probe of one host's Beszel systemd services.
+
+    Runs a single ``probe_hub()`` fetch, persists the matched host's
+    per-unit service rows into ``host_beszel_services``, then returns the
+    fresh ``services_for_host(host_id)``. Backs the drawer's "refresh
+    services" action so an operator who just fixed a failed unit sees it
+    flip to active WITHOUT waiting for the next sampler tick (the table is
+    otherwise only as fresh as the last tick, which can be minutes old).
+
+    A hub probe covers EVERY host in one call, so this also refreshes the
+    other hosts' rows as a side-effect — cheap + harmless. Best-effort:
+    any probe failure falls back to the cached table read (never raises).
+    """
+    hid = (host_id or "").strip()
+    if not hid:
+        return []
+    try:
+        if "beszel" in _active_providers():
+            row = next((h for h in _curated_beszel_hosts() if h.get("id") == hid), None)
+            bname = (row or {}).get("beszel_name") or ""
+            if bname:
+                hub_map = await _probe_one_tick()
+                stats = _beszel.lookup(hub_map, bname) if hub_map else None
+                if isinstance(stats, dict):
+                    services_raw = stats.get("host_services_raw")
+                    if isinstance(services_raw, list) and services_raw:
+                        await _persist_services(hid, services_raw, time.time())
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[host_beszel_sampler] refresh_services_now({hid!r}) failed: {e}")
+    return services_for_host(hid)
+
+
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     """Newest-first recent rows for the debug endpoint. Mirrors
     ``host_pulse_sampler.last_samples``'s contract.

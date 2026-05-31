@@ -933,7 +933,7 @@
                  the response-time into the detail so the "(N ms)" hint
                  survives the migration. -->
             <div class="pt-1"
-                 x-data="{ tcRun: () => testAiProvider(name), tcResult: () => { const s = aiTestState[name]; if (!s) return null; if (s.loading) return { pending: true }; const rr = s.result; if (!rr) return null; const ms = (rr.response_time_ms !== undefined) ? ' (' + Number(rr.response_time_ms || 0).toLocaleString() + ' ms)' : ''; return { pending: false, ok: !!rr.ok, detail: (rr.detail || (rr.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed'))) + ms }; }, tcDisabled: () => (isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set)) }">
+                 x-data="{ tcRun: () => testAiProvider(name), tcResult: () => { const s = aiTestState[name]; if (!s) return null; if (s.loading) return { pending: true }; const rr = s.result; if (!rr) return null; const ms = (rr.response_time_ms !== undefined) ? ' (' + Number(rr.response_time_ms || 0).toLocaleString() + ' ms)' : ''; return { pending: false, ok: !!rr.ok, detail: (rr.detail || (rr.ok ? t('admin.ai.test_ok') : t('admin.ai.test_failed'))) + ms }; }, tcDisabled: () => (isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled || (!aiForm.providers[name].api_key && !aiForm.providers[name].api_key_set)), tcSuccessKey: 'ai_' + name }">
               <!-- INCLUDE: _components/og-test-connection.html -->
             </div>
           </div>

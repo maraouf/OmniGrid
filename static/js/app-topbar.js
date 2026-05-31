@@ -200,7 +200,11 @@ export default {
     this.publicIpTestResult = '';
     this.publicIpTestOk = false;
     try {
-      const r = await fetch('/api/public-ip', {credentials: 'same-origin'});
+      // `?test=1` tells the backend this is an explicit Test action so it
+      // stamps last_test_success_public_ip (the widget's own background
+      // fetches omit it, so the "Last tested" label only advances on a
+      // real operator test — not on every widget refresh).
+      const r = await fetch('/api/public-ip?test=1', {credentials: 'same-origin'});
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         this.publicIpTestOk = false;
@@ -215,6 +219,11 @@ export default {
       } else {
         this.publicIpTestOk = true;
         this.publicIpTestResult = JSON.stringify(j, null, 2);
+        // Optimistic last-tested stamp so the "Last tested" label appears
+        // immediately; the backend (?test=1) also persists it for reload.
+        if (this.recordTestSuccess) {
+          this.recordTestSuccess('public_ip');
+        }
       }
     } catch (e) {
       this.publicIpTestOk = false;
@@ -707,6 +716,11 @@ export default {
           // Only meaningful for WeatherAPI — Open-Meteo path bypasses
           // the gate via canSaveWeather()'s provider check.
           this._weatherLastPassedTest = this._weatherSnapshot();
+          // Optimistic last-tested stamp (backend /api/weather/test also
+          // persists it via _stamp_test_success for cross-reload).
+          if (this.recordTestSuccess) {
+            this.recordTestSuccess('weather');
+          }
         }
       }
     } catch (e) {

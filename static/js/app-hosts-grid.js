@@ -1230,7 +1230,7 @@ export default {
   // snapshot in `hostsBeszelServices[host_id]`. Used by the AI
   // palette pre-fetch (when the question contains service-related
   // keywords) and by the host-drawer per-service pane.
-  async loadHostBeszelServices(hostId) {
+  async loadHostBeszelServices(hostId, force = false) {
     if (!hostId) {
       return;
     }
@@ -1238,8 +1238,12 @@ export default {
       ...this.hostsBeszelServicesLoading, [hostId]: true,
     };
     try {
+      // `force` → `?refresh=1` triggers a LIVE Beszel hub re-probe +
+      // table upsert before the read, so the operator sees a just-fixed
+      // unit flip to active without waiting for the next sampler tick.
       const r = await fetch(
         '/api/hosts/' + encodeURIComponent(hostId) + '/beszel/services'
+        + (force ? '?refresh=1' : '')
       );
       if (!r.ok) {
         this.hostsBeszelServices = {
@@ -2020,6 +2024,9 @@ export default {
     if (ids.length === 0) {
       return;
     }
+    // Mark the in-flight action so the bulk-bar button shows a spinner +
+    // disabled state until the POST settles (cleared in finally below).
+    this.hostsBulkBusy = path;
     const body = {host_ids: ids, ...(payload || {})};
     const headers = {'Content-Type': 'application/json'};
     // Caller may have minted a reauth token via `_mintReauthToken`
@@ -2074,6 +2081,13 @@ export default {
         for (const row of this.hosts) {
           if (row && appliedSet.has(String(row.id))) {
             row._bulkApplied = true;
+            // Bulk Resume → mark the post-resume re-probe window so the
+            // row shows the blue resuming badge (not red) until fresh
+            // data lands — parity with the per-host / per-provider
+            // resume paths. See hostResuming().
+            if (path === 'resume') {
+              row._resumePending = Date.now();
+            }
           }
         }
       }
@@ -2113,6 +2127,8 @@ export default {
         || 'Bulk action failed',
         'error',
       );
+    } finally {
+      this.hostsBulkBusy = null;
     }
   },
   // Segmented-bar helper — percent-full of a single mount, used as
