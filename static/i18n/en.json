@@ -1528,11 +1528,6 @@
       "test_failed": "Test failed",
       "dashboard_title": "Usage dashboard",
       "dashboard_loading": "Loading…",
-      "range_label": "Range:",
-      "range_1h": "1h",
-      "range_24h": "24h",
-      "range_7d": "7d",
-      "range_30d": "30d",
       "no_data": "No AI calls recorded yet — the dashboard fills in once Stage 2+ wires the call wrapper.",
       "by_provider_heading": "Per-provider breakdown",
       "tile": {

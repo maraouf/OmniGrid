@@ -90,17 +90,14 @@
               x-show="configBackupSaved.length"
               x-text="configBackupSaved.length"></span>
       </div>
-      <button type="button"
-              @click="_runWithBusy('config_backup_saved', () => loadConfigBackupSaved())"
-              :disabled="configBackupBusy || _loadBusy.config_backup_saved === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.config_backup_saved === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. config_backup_saved
+           is pre-declared in app-admin.js _loadBusy. rbDisabled (getter, stays
+           reactive) preserves the old `configBackupBusy ||` extra gate so the
+           reload can't fire while a save/restore/import is in flight. -->
+      <div x-data="{ rbKey: 'config_backup_saved', rbOnClick: () => _runWithBusy('config_backup_saved', () => loadConfigBackupSaved()), get rbDisabled() { return configBackupBusy; } }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
     <p class="fs-xs text-[var(--text-faint)] mb-3"
        x-text="t('admin.config_backup.saved_desc')"></p>

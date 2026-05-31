@@ -27,17 +27,12 @@
       <input type="search" x-model.debounce.200ms="logFilter"
              :placeholder="t('admin.logs.filter_placeholder')"
              class="fs-sm min-w-[180px]">
-      <button type="button"
-              @click="_runWithBusy('logs', () => loadLogs(true))"
-              :disabled="_loadBusy.logs === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.logs === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. logs is
+           pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'logs', rbOnClick: () => _runWithBusy('logs', () => loadLogs(true)) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
       <!-- Copy the currently VISIBLE (filtered) log lines to the
            clipboard as plain text — ts + stream + body, one per
            line. Respects both the search filter AND any future
@@ -237,17 +232,12 @@
             x-text="t('admin.logs.files_count', { n: logFiles.length })"></span>
       <span class="flex-1"></span>
       <span class="fs-2xs text-[var(--text-faint)] mono" x-text="logFilesDir"></span>
-      <button type="button"
-              @click="_runWithBusy('log_files', () => loadLogFiles())"
-              :disabled="_loadBusy.log_files === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.log_files === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. log_files is
+           pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'log_files', rbOnClick: () => _runWithBusy('log_files', () => loadLogFiles()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
 
     <!-- Loading indicator (parity with Users / Schedules /

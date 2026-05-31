@@ -38,17 +38,13 @@
                    }">
           <!-- INCLUDE: _components/og-range-picker.html -->
         </div>
-        <button type="button"
-                @click="_runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours))"
-                :disabled="_loadBusy.stats_incidents === true"
-                :title="t('actions.reload')"
-                :aria-label="t('actions.reload')"
-                class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto">
-          <svg width="13" height="13" :class="_loadBusy.stats_incidents === true ? 'spin-md' : ''" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-          </svg>
-          <span x-text="t('actions.reload')"></span>
-        </button>
+        <!-- Reload via the shared og-reload-button component — single
+             source of truth for text / icon / spinner / busy wiring.
+             rbExtraClass ms-auto right-floats it after the range picker.
+             stats_incidents is pre-declared in app-admin.js _loadBusy. -->
+        <div x-data="{ rbKey: 'stats_incidents', rbExtraClass: 'ms-auto', rbOnClick: () => _runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours)) }">
+          <!-- INCLUDE: _components/og-reload-button.html -->
+        </div>
       </div>
     </div>
 

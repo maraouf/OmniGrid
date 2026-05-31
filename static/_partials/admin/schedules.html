@@ -166,17 +166,12 @@
           <span class="text-[var(--text-faint)] font-normal" x-text="'(' + schedules.length + ')'"></span>
         </h3>
       </div>
-      <button type="button"
-              @click="_runWithBusy('schedules', () => loadSchedules())"
-              :disabled="_loadBusy.schedules === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.schedules === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. schedules is
+           pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'schedules', rbOnClick: () => _runWithBusy('schedules', () => loadSchedules()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
     <!-- Loading indicator — same pattern as Users / Backups /
          Logs / Snapshots so every admin table communicates
@@ -331,17 +326,12 @@
                 :title="t('hosts_extra.empty.clear_filter')"
                 :aria-label="t('hosts_extra.empty.clear_filter') || 'Clear filter'">✕
         </button>
-        <button type="button"
-                @click="_runWithBusy('schedule_queue', () => loadScheduleQueue())"
-                :disabled="_loadBusy.schedule_queue === true"
-                :title="t('actions.reload')"
-                :aria-label="t('actions.reload')"
-                class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-          <svg width="13" height="13" :class="_loadBusy.schedule_queue === true ? 'spin-md' : ''" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-          </svg>
-          <span x-text="t('actions.reload')"></span>
-        </button>
+        <!-- Reload via the shared og-reload-button component — single source
+             of truth for text / icon / spinner / busy wiring. schedule_queue
+             is pre-declared in app-admin.js _loadBusy. -->
+        <div x-data="{ rbKey: 'schedule_queue', rbOnClick: () => _runWithBusy('schedule_queue', () => loadScheduleQueue()) }">
+          <!-- INCLUDE: _components/og-reload-button.html -->
+        </div>
       </div>
     </div>
     <div class="overflow-x-auto scrollbar">

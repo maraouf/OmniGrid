@@ -640,14 +640,21 @@
               x-text="t('admin.ai.dashboard_loading')"></span>
       </div>
       <div class="flex items-center gap-2 fs-xs">
-        <span class="text-[var(--text-faint)]" x-text="t('admin.ai.range_label')"></span>
-        <template x-for="opt in [[1,'range_1h'], [24,'range_24h'], [168,'range_7d'], [720,'range_30d']]" :key="opt[0]">
-          <button type="button"
-                  @click="setAiRange(opt[0])"
-                  class="btn btn-ghost fs-xs px-2 py-0.5"
-                  :class="aiRange === opt[0] ? 'btn-soft' : ''"
-                  x-text="t('admin.ai.' + opt[1])"></button>
-        </template>
+        <!-- Time-range picker via the shared og-range-picker component —
+             unified with the Stats → AI Cost picker: same component, same
+             radiogroup ARIA, same chip labels (stats.range.range_*), and the
+             same 90d option. Values are integer HOURS (the backend takes
+             ?hours=N): 1 / 24 / 168 / 720 / 2160 → 1h / 24h / 7d / 30d / 90d.
+             rpCurrent / rpOnChange chain up to aiRange / setAiRange on the
+             parent app() scope. -->
+        <div x-data="{
+               rpOptions: [[1,'1h'],[24,'24h'],[168,'7d'],[720,'30d'],[2160,'90d']].map(o => ({ value: o[0], label: t('stats.range.range_' + o[1]) })),
+               get rpCurrent() { return aiRange; },
+               rpOnChange: (v) => setAiRange(v),
+               rpAriaLabel: t('stats.range.aria_label')
+             }">
+          <!-- INCLUDE: _components/og-range-picker.html -->
+        </div>
         <span class="flex-1"></span>
         <!-- Reload via the shared og-reload-button component (same
              INCLUDE-partial pattern as og-range-picker) — the AI dashboard
