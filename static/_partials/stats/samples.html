@@ -198,9 +198,11 @@
           </div>
           <!-- Reload via the shared og-reload-button component — single
                source of truth for text / icon / spinner / busy wiring.
-               rbExtraClass ms-auto right-floats it after the range picker.
+               class ms-auto on the WRAPPER (the flex child) right-floats it
+               after the range picker — rbExtraClass would land on the inner
+               button, which is inert as the wrapper's only child.
                stats_samples is pre-declared in app-admin.js _loadBusy. -->
-          <div x-data="{ rbKey: 'stats_samples', rbExtraClass: 'ms-auto', rbOnClick: () => _runWithBusy('stats_samples', () => loadStatsSamples(statsSamples.range || statsSamplesRange)) }">
+          <div class="ms-auto" x-data="{ rbKey: 'stats_samples', rbOnClick: () => _runWithBusy('stats_samples', () => loadStatsSamples(statsSamples.range || statsSamplesRange)) }">
             <!-- INCLUDE: _components/og-reload-button.html -->
           </div>
         </div>

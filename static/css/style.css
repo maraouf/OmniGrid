@@ -11300,12 +11300,17 @@ select.field-invalid {
   flex: 1 1 auto;
   flex-direction: row;
   flex-wrap: nowrap;
+  /* Centre the box row vertically within the space between the
+     humidity/wind detail above and the freshness footer below, so the
+     boxes sit in the MIDDLE of the available area instead of hugging the
+     top with a dead gap underneath (flagged on the 4x2 tile). */
+  align-items: center;
   width: 100%;
   max-width: 100%;
   /* Roomy gap between the humidity/wind detail row above and the
      forecast boxes — the tall card has the vertical space, and the
      extra breathing room makes the boxes read as a distinct section
-     (operator-flagged: boxes felt cramped against humidity/wind). */
+     (flagged: the boxes felt cramped against humidity/wind). */
   margin-top: var(--s-4);
   gap: var(--s-2);
 }
@@ -11319,35 +11324,44 @@ select.field-invalid {
   border-radius: var(--r-sm);
 }
 
-/* 4x1 weather (xlarge WIDTH + short HEIGHT) — flip the cramped right-side
-   forecast column into a ROW of vertical BOXES spread across the wide
-   tile, exactly like the 4x2 boxed-below layout, so the wide-but-short
-   tile uses its empty horizontal space instead of a narrow right column.
-   Keyed on the EXPLICIT size-xlarge + height-short preset combo so the
-   narrower short tiles (half/normal/double = 1x1 / 2x1 / 3x1) keep their
-   right-column layout UNTOUCHED. Tighter margin + padding than 4x2 since
-   the single-row height is limited; compact day fonts come from the
-   @container (max-height:175px) block, and that block's nth-child(n+5)
-   cap still bounds it to 4 boxes. */
+/* 4x1 weather (xlarge WIDTH + short HEIGHT) — the wide-but-short tile has
+   abundant HORIZONTAL room and very little vertical room, so keep the hero
+   on the LEFT and spread the forecast as a ROW of boxes filling the empty
+   space to its RIGHT (vertically centred). The earlier approach stacked the
+   forecast in a COLUMN BELOW the hero, but that fought the short height: the
+   hero + location + humidity/wind ate the vertical budget and the forecast
+   row collapsed to ~0px under overflow:hidden, so the forecast vanished
+   entirely (flagged: "4x1 hides the forecast"). The left/right split uses
+   the wide geometry instead of fighting the short one. Keyed on the EXPLICIT
+   size-xlarge + height-short combo so the narrower short tiles
+   (half/normal/double = 1x1 / 2x1 / 3x1) keep their default right-column
+   layout UNTOUCHED. Compact day fonts come from the @container
+   (max-height:175px) block, whose nth-child(n+5) cap still bounds it to
+   4 boxes. */
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-weather-body {
-  flex-direction: column;
+  flex-direction: row;
   flex-wrap: nowrap;
+  align-items: center;
 }
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-weather-main {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
 }
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col {
   flex: 1 1 auto;
   flex-direction: row;
   flex-wrap: nowrap;
-  width: 100%;
-  max-width: 100%;
-  margin-top: var(--s-2);
+  align-items: center;
+  justify-content: flex-end;
+  width: auto;
+  max-width: none;
+  margin-top: 0;
+  margin-inline-start: var(--s-3);
   gap: var(--s-1);
   overflow: hidden;
 }
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
   flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   justify-content: center;
   gap: 1px;

@@ -40,9 +40,11 @@
         </div>
         <!-- Reload via the shared og-reload-button component — single
              source of truth for text / icon / spinner / busy wiring.
-             rbExtraClass ms-auto right-floats it after the range picker.
+             class ms-auto on the WRAPPER (the flex child) right-floats it
+             after the range picker — rbExtraClass would land on the inner
+             button, which is inert as the wrapper's only child.
              stats_incidents is pre-declared in app-admin.js _loadBusy. -->
-        <div x-data="{ rbKey: 'stats_incidents', rbExtraClass: 'ms-auto', rbOnClick: () => _runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours)) }">
+        <div class="ms-auto" x-data="{ rbKey: 'stats_incidents', rbOnClick: () => _runWithBusy('stats_incidents', () => loadStatsIncidents(statsIncidentsHours)) }">
           <!-- INCLUDE: _components/og-reload-button.html -->
         </div>
       </div>
