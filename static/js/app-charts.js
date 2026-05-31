@@ -705,22 +705,37 @@ export default {
     svg += '</svg>';
     return svg;
   },
-  _renderDbProjectionChart(points) {
+  _renderDbProjectionChart(points, actual) {
     if (!Array.isArray(points) || points.length < 2) {
       return '';
     }
+    // `actual` (measured past samples, [{ts, bytes}]) draws the -30..0
+    // region as a SOLID line in a distinct colour; `points` (the
+    // projection, [{ts, bytes, low, high}]) draws 0..+90 DASHED + a
+    // confidence band. The X domain is fixed at now-30d .. now+90d so
+    // the axis always reads -30 / Today / +30 / +60 / +90 even before a
+    // full 30 days of history has accrued (the actual line simply starts
+    // wherever the data begins).
+    const past = Array.isArray(actual) ? actual.filter(p => p && p.ts != null) : [];
     const W = 720, H = 220;
     const PAD_L = 64, PAD_R = 16, PAD_T = 12, PAD_B = 24;
     const plotW = W - PAD_L - PAD_R;
     const plotH = H - PAD_T - PAD_B;
-    const tsMin = points[0].ts;
-    const tsMax = points[points.length - 1].ts;
+    const now = points[0].ts;
+    const tsMin = now - 30 * 86400;
+    const tsMax = now + 90 * 86400;
     const tsRange = Math.max(1, tsMax - tsMin);
     let dataMax = 0;
     for (const p of points) {
       const hi = Number(p.high || p.bytes || 0);
       if (hi > dataMax) {
         dataMax = hi;
+      }
+    }
+    for (const p of past) {
+      const b = Number(p.bytes || 0);
+      if (b > dataMax) {
+        dataMax = b;
       }
     }
     // Pick a Y-axis with EVERY tick a multiple of 100 in whatever
@@ -781,10 +796,16 @@ export default {
       bandBot += ' L' + X(p.ts).toFixed(1) + ',' + Y(p.low).toFixed(1);
     }
     const bandPath = bandTop + bandBot + ' Z';
-    // Central line.
+    // Central line (projection).
     let linePath = '';
     for (const p of points) {
       linePath += (linePath ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(p.bytes).toFixed(1);
+    }
+    // Actual (measured past) line — solid, distinct colour. Built from
+    // the `past` samples that fall in the -30..0 region.
+    let actualPath = '';
+    for (const p of past) {
+      actualPath += (actualPath ? ' L' : 'M') + X(p.ts).toFixed(1) + ',' + Y(Number(p.bytes || 0)).toFixed(1);
     }
     // Y-axis labels — every tick is a multiple-of-100 in the chosen
     // unit (computed above). `fmtBytesAt(v, yMax)` formats each tick
@@ -794,18 +815,20 @@ export default {
     const yTicks = yTicksValues.map(v => ({
       v, y: Y(v).toFixed(1), label: fmtB(v),
     }));
-    // X-axis labels: Today / +30 / +60 / +90 — relative day offsets
-    // read cleanly for a 90-day projection where the axis itself
-    // tells you "this is days from now". Absolute dates would
-    // require operators to do mental arithmetic to gauge the
-    // projection horizon.
-    const xTicks = [0, 30, 60, 90].map(d => {
-      const idx = Math.min(points.length - 1, Math.round((d / 90) * (points.length - 1)));
-      const p = points[idx];
+    // X-axis labels: -30 / Today / +30 / +60 / +90 — relative day
+    // offsets read cleanly for a window that spans 30 days of measured
+    // history plus a 90-day forecast; the axis itself tells you "this is
+    // days from now", so the left half is the recorded past and the
+    // right half the projection. Mapped by day-offset from `now` (not
+    // by array index) so the -30 tick lands at the true left edge of the
+    // fixed domain regardless of how many actual samples exist yet.
+    const xTickDays = [-30, 0, 30, 60, 90];
+    const xTicks = xTickDays.map(d => {
+      const ts = now + d * 86400;
       const label = d === 0
         ? (this.t('stats.database.projection.today') || 'Today')
-        : '+' + d + 'd';
-      return {x: X(p.ts).toFixed(1), label};
+        : (d > 0 ? '+' + d + 'd' : d + 'd');
+      return {x: X(ts).toFixed(1), label};
     });
     const esc = (s) => this._logEscape(String(s));
     let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block;">';
@@ -824,14 +847,35 @@ export default {
       svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
         + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
     }
-    // Band.
+    // Confidence band (projection only).
     svg += '<path d="' + bandPath + '" fill="var(--primary)" fill-opacity="0.12" stroke="none"></path>';
-    // Central line (dashed for projection feel).
+    // "Today" divider — vertical line at day 0, splitting measured past
+    // (left) from forecast (right).
+    const xNow = X(now).toFixed(1);
+    svg += '<line x1="' + xNow + '" y1="' + PAD_T + '" x2="' + xNow + '" y2="' + (H - PAD_B)
+      + '" stroke="var(--text-faint)" stroke-width="1" stroke-dasharray="2,3" opacity="0.7"></line>';
+    // Projection line — dashed, primary accent (future / estimated).
     svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></path>';
+    // Actual line — solid, success accent (real measured history). Drawn
+    // after the projection so the authoritative series reads on top.
+    if (actualPath) {
+      svg += '<path d="' + actualPath + '" fill="none" stroke="var(--success)" stroke-width="1.75"></path>';
+    }
     // X-axis tick labels.
     for (const t of xTicks) {
       svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" class="stats-chart-axis">' + esc(t.label) + '</text>';
     }
+    // Two-tone legend (top-left, inside the plot): solid success = the
+    // measured actual series, dashed primary = the projection.
+    const legActual = esc(this.t('stats.database.projection.actual_label') || 'Actual');
+    const legFcast = esc(this.t('stats.database.projection.forecast_label') || 'Projection');
+    const lx = PAD_L + 6;
+    const ly = PAD_T + 9;
+    const lx2 = PAD_L + 130;
+    svg += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 16) + '" y2="' + ly + '" stroke="var(--success)" stroke-width="1.75"></line>';
+    svg += '<text x="' + (lx + 21) + '" y="' + (ly + 3.5) + '" fill="var(--text-faint)" class="stats-chart-axis">' + legActual + '</text>';
+    svg += '<line x1="' + lx2 + '" y1="' + ly + '" x2="' + (lx2 + 16) + '" y2="' + ly + '" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></line>';
+    svg += '<text x="' + (lx2 + 21) + '" y="' + (ly + 3.5) + '" fill="var(--text-faint)" class="stats-chart-axis">' + legFcast + '</text>';
     svg += '</svg>';
     return svg;
   },

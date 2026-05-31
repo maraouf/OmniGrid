@@ -196,6 +196,8 @@ class Tunable(str, Enum):
     STATS_CONCURRENCY = "tuning_stats_concurrency"
     STATS_HISTORY_DAYS = "tuning_stats_history_days"
     STATS_SAMPLE_INTERVAL_SECONDS = "tuning_stats_sample_interval_seconds"
+    DB_SIZE_SAMPLE_INTERVAL_SECONDS = "tuning_db_size_sample_interval_seconds"
+    DB_SIZE_HISTORY_DAYS = "tuning_db_size_history_days"
     STATS_TARGETED_TIMEOUT_SECONDS = "tuning_stats_targeted_timeout_seconds"
     STATS_UNTARGETED_TIMEOUT_SECONDS = "tuning_stats_untargeted_timeout_seconds"
     SWARM_AGENT_UNHEALTHY_THRESHOLD = "tuning_swarm_agent_unhealthy_threshold"
@@ -315,6 +317,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_telegram_bulk_update_concurrency": ("TELEGRAM_BULK_UPDATE_CONCURRENCY", 4, 1, 16),
     "tuning_stats_history_days": ("STATS_HISTORY_DAYS", 7, 1, 365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30, 3600),
+    # Stats -> Database growth projection: how often a DB file-size sample
+    # is recorded (default daily — growth is a multi-day timescale) and how
+    # long the size history is retained. Retention floor is 30 days because
+    # the 90-day forward projection is fit over the trailing 30-day window;
+    # a longer retention just gives the regression more points + a longer
+    # actual-history tail on the chart.
+    "tuning_db_size_sample_interval_seconds": ("DB_SIZE_SAMPLE_INTERVAL_SECONDS", 86400, 3600, 604800),
+    "tuning_db_size_history_days": ("DB_SIZE_HISTORY_DAYS", 120, 30, 730),
     # host_baseline_sampler cadence — controls how often the lifespan
     # task recomputes per-host rolling baselines for drift detection.
     # Baselines move slowly (30-day rolling window) so hourly is the

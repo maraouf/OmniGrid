@@ -10215,14 +10215,21 @@ select.field-invalid {
 .apps-card-ups-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: var(--s-2);
+  gap: var(--s-1) var(--s-2);
 }
 
+/* Each UPS stat is a subtle accent-tinted chip so the panel reads as a
+   tidy set of equal cells at EVERY size variant (the chip background +
+   uniform padding give consistent spacing whether the grid is one wide
+   row on a 4x1 or a 2-3 col block on a tall tile). */
 .apps-card-ups-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  padding: var(--s-1) var(--s-2);
+  background: color-mix(in srgb, var(--apps-card-accent) 7%, var(--surface));
+  border-radius: var(--r-sm);
 }
 
 .apps-card-ups-label {
@@ -10306,6 +10313,34 @@ select.field-invalid {
   line-height: 1.2;
   letter-spacing: -0.01em;
   color: var(--text);
+}
+
+/* Widget-style accent eyebrow variant — opt-in per app via
+   `extender.eyebrowTitle` (APC). Mirrors `.apps-widget-tile-title` /
+   `.apps-widget-tile-title-dot` so a telemetry app card reads as cohesive
+   with the weather / moon / pubip widget tiles beside it: small uppercase
+   label + status-accent dot. Ties to the card's STATUS accent
+   (`--apps-card-accent`, the app-card analogue of the widgets'
+   `--widget-accent`) so an up card glows green, a down card red. */
+.apps-card-name--eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-3xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  color: var(--apps-card-accent);
+}
+
+.apps-card-name--eyebrow .apps-card-name-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--apps-card-accent);
+  box-shadow: 0 0 6px var(--apps-card-accent-glow);
+  flex-shrink: 0;
 }
 
 /* Meta row under the name — "N / M up · K hosts" style breakdown
@@ -11825,6 +11860,19 @@ select.field-invalid {
    rule). The forecast column clips days past the card height (the tile
    body is `overflow: hidden`) so it shows "as many as fit" without growing
    the card. */
+/* The x-init carrier div that wraps the weather body (it triggers the
+   per-card weather fetch). `display: contents` makes it layout-transparent
+   so `.apps-widget-weather-body` is a DIRECT flex child of the flex-column
+   `.apps-widget-tile-body` and inherits its fillable height. WITHOUT this,
+   the wrapper was a plain content-height block that capped weather-body's
+   height at its own content — so the tall forecast col had no free space to
+   grow into and the forecast row could never vertically centre (the bug that
+   survived four forecast-col rewrites; moon / pubip / clock have no such
+   wrapper, which is why only weather was affected). */
+.apps-widget-weather-wrap {
+  display: contents;
+}
+
 .apps-widget-weather-body {
   display: flex;
   flex-wrap: wrap;
@@ -12307,15 +12355,26 @@ a.apps-drawer-tile-name {
   border-color: var(--border);
 }
 
-/* Typographic hierarchy: the port NUMBER is the signal (bold, full
-   text), the /proto suffix is supporting detail (dimmed). */
+/* Typographic hierarchy: the port NUMBER is the signal (bold tabular so
+   columns of pills align), the /proto suffix is a small uppercase badge —
+   dimmed + tucked into its own faint inset so it reads as a label chip
+   riding alongside the number rather than competing with it. */
 .apps-port-num {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 .apps-port-proto {
   color: var(--text-faint);
+  text-transform: uppercase;
+  font-size: 0.82em;
+  letter-spacing: 0.04em;
+  padding: 0 3px;
+  margin-inline-start: 1px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--text-faint) 12%, transparent);
 }
 
 /* Smaller status dot inside the dense pill than the 9px instance-row

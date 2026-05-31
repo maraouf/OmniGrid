@@ -131,6 +131,18 @@ STATS_HISTORY_DAYS=7
 # host_metrics_samples.
 STATS_SAMPLE_INTERVAL_SECONDS=300
 
+# Stats -> Database growth projection. How often the SQLite database
+# size is recorded into db_size_samples (the history the 90-day forward
+# projection is fit over) — default daily; the sampler self-throttles so
+# leaving the stats sampler on its 5-min tick is fine. Range 3600..604800.
+DB_SIZE_SAMPLE_INTERVAL_SECONDS=86400
+
+# How long DB-size samples are retained AND the window the projection's
+# regression + the chart's actual-history tail (-30..0) is fit over.
+# Floor 30 days (the projection needs at least a month of points). Each
+# sample is one tiny row. Range 30..730.
+DB_SIZE_HISTORY_DAYS=120
+
 # Permanent-fail window for the host_metrics_sampler. After this many
 # seconds of consecutive probe failures the sampler auto-pauses the host;
 # an admin clears it via POST /api/hosts/{id}/resume-sampling.
@@ -937,6 +949,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `STATS_CONCURRENCY`                        | Runtime     | `16`                    | Parallel `/stats` calls.                                                                                                                                                                                                                                                                                          |
 | `STATS_HISTORY_DAYS`                       | Runtime     | `7`                     | Retention window for `stats_samples`.                                                                                                                                                                                                                                                                             |
 | `STATS_SAMPLE_INTERVAL_SECONDS`            | Runtime     | `300`                   | Sampler cadence.                                                                                                                                                                                                                                                                                                  |
+| `DB_SIZE_SAMPLE_INTERVAL_SECONDS`          | Runtime     | `86400`                 | How often the SQLite DB size is recorded into `db_size_samples` (self-throttled); history for the Stats → Database projection.                                                                                                                                                                                     |
+| `DB_SIZE_HISTORY_DAYS`                     | Runtime     | `120`                   | Retention + fit window for the DB growth projection (floor 30).                                                                                                                                                                                                                                                   |
 | `STATS_TARGETED_TIMEOUT_SECONDS`           | Runtime     | `12`                    | Per-container `/stats` timeout WITH `X-PortainerAgent-Target`. Range 1..60.                                                                                                                                                                                                                                       |
 | `STATS_UNTARGETED_TIMEOUT_SECONDS`         | Runtime     | `10`                    | Per-container `/stats` timeout for the manager-local fallback path. Range 1..60.                                                                                                                                                                                                                                  |
 | `SWARM_AGENT_UNHEALTHY_THRESHOLD`          | Runtime     | `3`                     | Consecutive failed gather cycles before the unhealthy banner fires. Range 1..20.                                                                                                                                                                                                                                  |

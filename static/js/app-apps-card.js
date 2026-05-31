@@ -489,6 +489,32 @@ export default {
     return 1;
   },
 
+  // Whether this app's card header should render as a widget-style
+  // accent eyebrow (dot + uppercase + status-accent colour) instead
+  // of the plain bold app name. Registry-driven: a per-app SPA module
+  // (static/js/apps/<slug>.js) opts in via `extender.eyebrowTitle =
+  // true` (APC does, so its telemetry card reads as cohesive with the
+  // weather / moon / pubip widget tiles it sits beside). The first
+  // matching extender wins; absent extenders fall through to false
+  // (the default plain bold heading).
+  appsCardEyebrowTitle(app) {
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && e.eyebrowTitle && typeof e.cardSpan === 'function') {
+        // Reuse cardSpan(app) > 0 as the "does this extender match this
+        // app" probe — every per-app extender's cardSpan returns its
+        // wide span for a matching app and 1 otherwise, but we only
+        // need the eyebrow flag gated by the extender that OWNS this
+        // app. Match via the same slug/name logic the extender uses by
+        // asking it for a span; >1 means it claimed this app.
+        if (e.cardSpan(app) > 1) {
+          return true;
+        }
+      }
+    }
+    return false;
+  },
+
   // Whether a given app TEMPLATE supports an extras panel — drives
   // the visibility of the per-template + per-instance "Show extras"
   // checkboxes in the Admin → Apps editors. Registry-driven via
@@ -561,20 +587,14 @@ export default {
     if (cat && typeof cat.show_extras === 'boolean') {
       return cat.show_extras;
     }
-    // A per-app module that declares a wide cardSpan (Speedtest / APC span
-    // 2) is implicitly asking for the rich extras view — show it whenever
-    // the card is physically wide, INDEPENDENT of the user's size preset.
-    // This is the path that actually fires for them: the extras partial
-    // calls appsShowExtras(app, inst) with NO `item`, so the opts branch
-    // below can never see a preset and would always return false. The
-    // matching .apps-card-ready--has-extras 2-col grid only kicks in past
-    // the ogcard min-width, so a genuinely narrow card still stacks safely.
-    if (this.appsCardSpan(app) >= 2) {
-      return true;
-    }
-    // No explicit flag: AUTO-SHOW at the large presets (double / x-large
-    // width OR tall height) — sizing a card up is an implicit request for
-    // the rich view. `item` is only passed on the Custom dashboard.
+    // On the Custom dashboard the size PRESET decides — checked BEFORE the
+    // cardSpan fallback below so a wide-span per-app module (APC / Speedtest)
+    // still honours the operator's chosen footprint. Sizing a card up to
+    // double / x-large WIDTH or tall HEIGHT is an implicit "give me the rich
+    // view" request; a narrow-short card (half / normal width + short height)
+    // HIDES extras so they don't clip the fixed footprint. `item` is only in
+    // scope on the Custom dashboard (the per-app extras partial passes it when
+    // defined); the by-app grid passes nothing and falls through below.
     const opts = (item && item.opts) || null;
     if (opts) {
       if (opts.size === 'double' || opts.size === 'xlarge') {
@@ -583,6 +603,15 @@ export default {
       if (opts.height === 'tall') {
         return true;
       }
+      // Narrow-short preset (half / normal width + short height): extras
+      // would clip the fixed footprint, so hide them — the operator
+      // explicitly omitted 1x1 / 2x1 from the show-list.
+      return false;
+    }
+    // No preset in scope (by-app grid): a wide-span per-app module
+    // (cardSpan >= 2, e.g. APC / Speedtest) implicitly wants the rich view.
+    if (this.appsCardSpan(app) >= 2) {
+      return true;
     }
     // Default OFF on a compact card — extras are opt-in via the flag.
     return false;

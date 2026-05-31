@@ -172,6 +172,72 @@ def _prune_old_samples() -> int:
         return cur.rowcount or 0
 
 
+def _snapshot_db_size_to_db() -> bool:
+    """Record the current SQLite database size into ``db_size_samples`` —
+    but at most once per ``DB_SIZE_SAMPLE_INTERVAL_SECONDS`` (default daily).
+
+    DB-size growth is a multi-day timescale, so writing on every 5-minute
+    stats tick would bloat the table with near-identical rows. We throttle
+    by checking the newest existing sample's age: only write when the table
+    is empty OR the last row is older than the interval. Size is measured
+    via ``PRAGMA page_count * page_size`` (the logical DB size — path-free,
+    O(1) header read) rather than stat()-ing the file, so the sampler
+    doesn't need the on-disk path. Returns True when a row was written.
+    """
+    interval = tuning.tuning_int(Tunable.DB_SIZE_SAMPLE_INTERVAL_SECONDS)
+    now = int(time.time())
+    with db_conn() as c:
+        row = c.execute(
+            "SELECT ts FROM db_size_samples ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            last_ts = int(row["ts"] if hasattr(row, "keys") else row[0])
+            if (now - last_ts) < interval:
+                return False
+        page_count = c.execute("PRAGMA page_count").fetchone()[0]
+        page_size = c.execute("PRAGMA page_size").fetchone()[0]
+        size_bytes = int(page_count or 0) * int(page_size or 0)
+        # INSERT OR REPLACE on the ts PK is defensive against a same-second
+        # double-write (the throttle makes that practically impossible, but
+        # the PK keeps it idempotent regardless).
+        c.execute(
+            "INSERT OR REPLACE INTO db_size_samples (ts, bytes) VALUES (?, ?)",
+            (now, size_bytes),
+        )
+    return True
+
+
+def _prune_db_size_samples() -> int:
+    """Delete db_size_samples rows older than DB_SIZE_HISTORY_DAYS. Returns rows removed.
+    Tiny table (one row/day, capped at the retention window) so a direct
+    DELETE is cheap — no worker-thread offload needed (unlike the per-tick
+    sample tables)."""
+    days = tuning.tuning_int(Tunable.DB_SIZE_HISTORY_DAYS)
+    cutoff = int(time.time()) - days * 86400
+    with db_conn() as c:
+        cur = c.execute("DELETE FROM db_size_samples WHERE ts < ?", (cutoff,))
+        return cur.rowcount or 0
+
+
+def db_size_history(days: int) -> list[dict]:
+    """Return ``[{ts, bytes}, ...]`` DB-size samples within the last ``days``,
+    oldest-first. Drives the actual (past) portion + the regression fit of the
+    Stats -> Database growth projection."""
+    cutoff = int(time.time()) - max(1, int(days)) * 86400
+    with db_conn() as c:
+        rows = c.execute(
+            "SELECT ts, bytes FROM db_size_samples WHERE ts >= ? ORDER BY ts ASC",
+            (cutoff,),
+        ).fetchall()
+    return [
+        {
+            "ts": int(r["ts"] if hasattr(r, "keys") else r[0]),
+            "bytes": int(r["bytes"] if hasattr(r, "keys") else r[1]),
+        }
+        for r in rows
+    ]
+
+
 async def stats_sampler_loop() -> None:
     """Lifespan-managed loop that snapshots `_stats_cache` into `stats_samples` + prunes hourly."""
     # Wait a beat so the first gather_stats() has a chance to populate
@@ -186,6 +252,13 @@ async def stats_sampler_loop() -> None:
         _tick_err = ""
         try:
             n = _snapshot_stats_to_db()
+            # Record a DB-size sample (self-throttled to ~daily) so the
+            # Stats -> Database growth projection is fit on real history.
+            try:
+                if _snapshot_db_size_to_db():
+                    print("[sampler] recorded db-size sample")
+            except Exception as db_e:
+                print(f"[sampler] db-size sample skipped: {db_e}")
             interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
             # Prune hourly rather than every tick — single cheap DELETE,
@@ -199,6 +272,15 @@ async def stats_sampler_loop() -> None:
                 pruned = await prune_with_metrics("stats_sampler", _prune_old_samples)
                 if pruned:
                     print(f"[sampler] pruned {pruned} rows older than {days}d")
+                # db_size_samples is tiny (one row/day, capped at the
+                # retention window) so prune it inline — no worker-thread
+                # offload needed (unlike the per-tick sample tables).
+                try:
+                    db_pruned = _prune_db_size_samples()
+                    if db_pruned:
+                        print(f"[sampler] pruned {db_pruned} db-size sample(s)")
+                except Exception as dbp_e:
+                    print(f"[sampler] db-size prune skipped: {dbp_e}")
             if n:
                 print(f"[sampler] wrote {n} samples")
         except Exception as e:

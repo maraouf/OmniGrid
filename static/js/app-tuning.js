@@ -49,6 +49,11 @@ export default {
     // sample tables. 0 disables pruning entirely.
     'tuning_incidents_retention_days',
     'tuning_stats_sample_interval_seconds',
+    // Stats -> Database growth projection: DB-size sample cadence
+    // (default daily) + retention window the 90-day projection is fit
+    // over (floor 30 days).
+    'tuning_db_size_sample_interval_seconds',
+    'tuning_db_size_history_days',
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',

@@ -155,6 +155,13 @@ function upsRuntimeLabel(s) {
 export const extender = {
   slugs: ['apc'],
   requiresApiKey: false,
+  // Render the card header as a widget-style accent eyebrow (dot +
+  // uppercase + status-accent colour) instead of the plain bold app
+  // name — APC is a telemetry card, so a widget-tile-style title reads
+  // as cohesive with the weather / moon / pubip widget tiles it sits
+  // beside. The generic `appsCardEyebrowTitle(app)` helper walks the
+  // registered extenders for this flag.
+  eyebrowTitle: true,
   cardSpan(app) {
     return isApcApp(app) ? 2 : 1;
   },

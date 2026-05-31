@@ -543,10 +543,12 @@
         "empty": "No query stats available."
       },
       "projection": {
-        "title": "90-day growth projection",
-        "hint": "Central line is the linear extrapolation from the current size; the band widens with extrapolation distance to convey forecast uncertainty.",
-        "empty": "Not enough history to project growth yet.",
-        "today": "Today"
+        "title": "Database growth — 30-day history + 90-day projection",
+        "hint": "Solid line is the measured database size over the last 30 days; the dashed line extends it 90 days forward as a linear fit over that history, and the band widens with distance to convey forecast uncertainty. The dotted divider marks today.",
+        "empty": "Not enough history to project growth yet — the size is sampled daily; the projection grounds itself in real data once a couple of days have accrued.",
+        "today": "Today",
+        "actual_label": "Actual",
+        "forecast_label": "Projection"
       }
     },
     "dashboard": {
@@ -1773,6 +1775,14 @@
         "tuning_stats_sample_interval_seconds": {
           "label": "Sampler interval (seconds)",
           "help": "Cadence for every lifespan-managed sampler: container stats → stats_samples, node-exporter network counters → host_net_samples, full host metrics → host_metrics_samples. Lower it for finer-grained sparklines + faster response in the Net I/O fallback chart (cost: N× more rows in SQLite for the same retention window — re-tune `tuning_stats_history_days` together if you halve this). Raise it on a Pi / underpowered host to reduce sampler CPU. Default 300s (5 min). Takes effect on the NEXT tick after Save (current sleep finishes first)."
+        },
+        "tuning_db_size_sample_interval_seconds": {
+          "label": "Database size sample interval (seconds)",
+          "help": "How often the lifespan stats sampler records the SQLite database size into db_size_samples — the history the Stats → Database growth projection is fit over. Database growth is a multi-day timescale, so the default is daily (86400s); the sampler self-throttles (writes only when the newest sample is older than this), so it's safe to leave the stats sampler ticking every 5 minutes. Lower it for a denser growth curve, raise it to keep the table tiny. Range 3600..604800 (1h..7d). Default 86400 (daily)."
+        },
+        "tuning_db_size_history_days": {
+          "label": "Database size history retention (days)",
+          "help": "How long DB-size samples are kept, and the window the 90-day forward projection is fit over. Floor is 30 days because the projection's regression + the chart's actual-history tail (the -30..0 portion) need at least a month of points to be meaningful; a longer retention gives the regression more data and a longer measured tail. Each sample is one tiny row, so even 730 days is negligible. Range 30..730. Default 120."
         },
         "tuning_host_baseline_recompute_interval_seconds": {
           "label": "Host baseline recompute interval (seconds)",
