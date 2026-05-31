@@ -1063,11 +1063,14 @@
 
     <!-- ===== STACKS GROUPED VIEW ===== -->
     <div x-show="view==='stacks'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-      <!-- Hide the header-only table when the filter matches nothing — the
-           empty-state message below (filteredStacks.length===0) carries the
-           "no match + reset" affordance instead of a confusing bare header. -->
-      <div class="overflow-x-auto scrollbar" x-show="filteredStacks.length > 0">
-        <table class="ptable">
+      <!-- Empty header-only table is hidden via the CSS `.ptable:not(:has(tbody tr))`
+           rule (no-empty-table) — NOT an x-show on this wrapper. An x-show
+           reading the MEMOIZED `filteredStacks` getter added a third
+           lightweight consumer that stole the per-flush memo subscription
+           from the row x-for (caveat-6), freezing the table empty. CSS
+           `:has()` hides the bare header with zero JS reactivity. -->
+      <div class="overflow-x-auto scrollbar">
+        <table class="ptable ptable-fleet">
           <thead>
           <tr>
             <th class="col-checkbox"></th>
@@ -1381,11 +1384,11 @@
 
     <!-- ===== SERVICES FLAT LIST ===== -->
     <div x-show="view==='services'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-      <!-- Hide the header-only table when the filter matches nothing — the
-           empty-state message below (filteredItems.length===0) carries the
-           "no match + reset" affordance instead of a confusing bare header. -->
-      <div class="overflow-x-auto scrollbar" x-show="filteredItems.length > 0">
-        <table class="ptable">
+      <!-- Empty header-only table hidden via the CSS `.ptable:not(:has(tbody tr))`
+           rule (no-empty-table), NOT an x-show on the memoized filteredItems
+           getter (that froze the rows — caveat-6, same as Stacks above). -->
+      <div class="overflow-x-auto scrollbar">
+        <table class="ptable ptable-fleet">
           <thead>
           <tr>
             <th class="col-checkbox">
