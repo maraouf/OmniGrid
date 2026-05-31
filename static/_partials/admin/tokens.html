@@ -28,17 +28,12 @@
         </svg>
         <h3 class="font-semibold fs-md"><span x-text="t('admin.tokens.list_title')"></span> <span class="text-[var(--text-faint)] font-normal" x-text="'(' + tokens.length + ')'"></span></h3>
       </div>
-      <button type="button"
-              @click="_runWithBusy('tokens', () => loadTokens())"
-              :disabled="_loadBusy.tokens === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.tokens === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. tokens is
+           pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'tokens', rbOnClick: () => _runWithBusy('tokens', () => loadTokens()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
     <div x-show="!tokensLoaded" class="loading-state">
       <span class="spin-lg" aria-hidden="true"></span>

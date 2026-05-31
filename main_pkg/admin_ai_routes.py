@@ -350,7 +350,9 @@ async def api_admin_ai_dashboard(
     _admin: AdminUser,
 ):
     """Dashboard aggregates for the AI tab. Default window is 24h —
-    the SPA passes ``?hours=N`` for 1 / 24 / 168 / 720 ranges. Computes
+    the SPA passes ``?hours=N`` for 1 / 24 / 168 / 720 / 2160 ranges
+    (1h / 24h / 7d / 30d / 90d, unified with the Stats → AI Cost picker).
+    Computes
     everything in one round-trip so the SPA's tile grid renders in a
     single fetch:
 
@@ -368,7 +370,7 @@ async def api_admin_ai_dashboard(
     on a fresh deploy with no recorded jobs yet.
     """
     try:
-        hours = max(1, min(int(hours or 24), 24 * 30))
+        hours = max(1, min(int(hours or 24), 24 * 90))
     except (TypeError, ValueError):
         hours = 24
     # Late import — `_ai_supported_providers` lives in
@@ -558,7 +560,7 @@ async def api_admin_ai_jobs(
     Caps `limit` at 500 to keep the response payload bounded.
     """
     try:
-        hours = max(1, min(int(hours or 168), 24 * 30))
+        hours = max(1, min(int(hours or 168), 24 * 90))
     except (TypeError, ValueError):
         hours = 168
     try:

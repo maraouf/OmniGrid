@@ -12,17 +12,12 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.samples.hint')"></p>
       </div>
-      <button type="button"
-              @click="_runWithBusy('stats_samples', () => loadStatsSamples())"
-              :disabled="_loadBusy.stats_samples === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. stats_samples
+           is pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'stats_samples', rbOnClick: () => _runWithBusy('stats_samples', () => loadStatsSamples()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
 
     <div x-show="!statsSamplesLoaded" class="loading-state">
@@ -201,17 +196,13 @@
                      }">
             <!-- INCLUDE: _components/og-range-picker.html -->
           </div>
-          <button type="button"
-                  @click="_runWithBusy('stats_samples', () => loadStatsSamples(statsSamples.range || statsSamplesRange))"
-                  :disabled="_loadBusy.stats_samples === true"
-                  :title="t('actions.reload')"
-                  :aria-label="t('actions.reload')"
-                  class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto">
-            <svg width="13" height="13" :class="_loadBusy.stats_samples === true ? 'spin-md' : ''" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-            </svg>
-            <span x-text="t('actions.reload')"></span>
-          </button>
+          <!-- Reload via the shared og-reload-button component — single
+               source of truth for text / icon / spinner / busy wiring.
+               rbExtraClass ms-auto right-floats it after the range picker.
+               stats_samples is pre-declared in app-admin.js _loadBusy. -->
+          <div x-data="{ rbKey: 'stats_samples', rbExtraClass: 'ms-auto', rbOnClick: () => _runWithBusy('stats_samples', () => loadStatsSamples(statsSamples.range || statsSamplesRange)) }">
+            <!-- INCLUDE: _components/og-reload-button.html -->
+          </div>
         </div>
 
         <div x-show="!(statsSamples.bucket_totals || statsSamples.daily_totals || []).length"

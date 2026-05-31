@@ -173,7 +173,7 @@ export default {
   aiMemories: [],
   aiMemoryAddText: '',
   aiMemoryBusy: false,
-  aiRange: 24,                     // 1 / 24 / 168 / 720 hours
+  aiRange: 24,                     // hours: 1 / 24 / 168 / 720 / 2160 (1h / 24h / 7d / 30d / 90d)
   aiModalKey: null,                 // 'jobs' / 'cost' / 'tokens' / 'response_time' / 'accuracy' / 'passrate'
   aiJobs: null,                     // { total, jobs: [...] }
   // Canonical `*Loaded` flag for the jobs table — see the matching

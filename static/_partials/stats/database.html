@@ -12,17 +12,12 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.database.hint')"></p>
       </div>
-      <button type="button"
-              @click="_runWithBusy('stats_database', () => loadStatsDatabase())"
-              :disabled="_loadBusy.stats_database === true"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5">
-        <svg width="13" height="13" :class="_loadBusy.stats_database === true ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component — single source
+           of truth for text / icon / spinner / busy wiring. stats_database
+           is pre-declared in app-admin.js _loadBusy. -->
+      <div x-data="{ rbKey: 'stats_database', rbOnClick: () => _runWithBusy('stats_database', () => loadStatsDatabase()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </div>
     </div>
 
     <div x-show="!statsDatabaseLoaded" class="loading-state">
