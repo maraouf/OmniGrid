@@ -9599,7 +9599,14 @@ select.field-invalid {
    half-width card simply doesn't have, so it stays hidden there. Edit
    mode shows everything. NEVER hide the whole body (that blanked the
    card — an earlier bug). */
-.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-widget-forecast {
+.apps-custom-cell.apps-card--size-half:not(.apps-card--editing):not(.apps-card--height-tall) .apps-widget-forecast {
+  display: none;
+}
+/* …BUT a half-width TALL tile (1x2) HAS the vertical room for a couple of
+   forecast days (the height-tall layout flips them to a boxed row below
+   the hero), so show them there — capped to the 2 that fit the narrow
+   width. Operator-flagged: 1x2 showed no forecast though space allowed 2. */
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast-day:nth-child(n+3) {
   display: none;
 }
 
@@ -11060,6 +11067,18 @@ select.field-invalid {
   line-height: 1.15;
 }
 
+/* WIDE-but-SHORT pubip tile (3x1 / 4x1 = double / xlarge + short height):
+   the width-based 10cqi above pins the IP at its 48px cap, which on a
+   1-row-tall tile is too TALL — it shoves the ISP / country·ASN / changed
+   rows past the bottom (clipped), so only the IP + ISP show (operator-
+   flagged). Bind the IP to the tile HEIGHT (cqh) here so it stays modest
+   and the full detail stack fits; a 15-char IPv4 still sits on one line at
+   this size on a wide tile. Narrow short tiles (1x1 / 2x1) already fit via
+   the width-based 10cqi and are left untouched. */
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-widget-pubip-ip {
+  font-size: clamp(var(--fs-display-md), 20cqh, var(--fs-display-lg));
+}
+
 /* Public-IP face fills the tile-body + vertically CENTERS its stack (IP
    hero + ISP + country/ASN + changed row) so the content USES the empty
    vertical space instead of clumping at the top with a gap below
@@ -11163,6 +11182,23 @@ select.field-invalid {
   font-size: clamp(var(--fs-md), 9cqmin, var(--fs-display-md));
   line-height: 1.15;
   font-weight: 600;
+}
+
+/* Moon widget at 1x2 (half-tall) + 2x2 (normal-tall): the big ring sits
+   in a ROW beside the phase name, leaving too little width so "Full Moon"
+   cropped to "Fu…" / "Full …" (the phase div carries .apps-widget-hero =
+   nowrap + ellipsis). Stack the ring ABOVE the phase + illumination
+   (full-width, centred) and let the phase name WRAP instead of ellipsing
+   so the status + % both show. Wider tall tiles (3x2 / 4x2) keep the
+   side-by-side row — they have the horizontal room. (operator-flagged) */
+.apps-custom-cell:is(.apps-card--size-half, .apps-card--size-normal).apps-card--height-tall:not(.apps-card--editing) .apps-widget-moon-fill {
+  flex-direction: column;
+  text-align: center;
+}
+.apps-custom-cell:is(.apps-card--size-half, .apps-card--size-normal).apps-card--height-tall:not(.apps-card--editing) .apps-widget-moon-phase {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* ============================================================
@@ -11353,8 +11389,12 @@ select.field-invalid {
   /* Roomy gap between the humidity/wind detail row above and the
      forecast boxes — the tall card has the vertical space, and the
      extra breathing room makes the boxes read as a distinct section
-     (flagged: the boxes felt cramped against humidity/wind). */
-  margin-top: var(--s-4);
+     (flagged: the boxes felt cramped against humidity/wind). EQUAL top
+     + bottom margin so the gap BEFORE the forecast row matches the gap
+     AFTER it (before the freshness footer) — the row reads as centred /
+     balanced rather than top- or bottom-heavy (operator-flagged on
+     2x2 / 3x2 / 4x2). */
+  margin-block: var(--s-4);
   gap: var(--s-2);
 }
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {

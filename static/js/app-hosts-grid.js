@@ -321,8 +321,25 @@ export default {
   groupedHosts() {
     const hosts = this.filteredHosts();
     const groups = this.hostGroups || [];
+    // Cache key MUST capture every input that changes which hosts land
+    // in which bucket — that's the filtered-host COUNT plus the full
+    // FILTER state, not just the count. Pre-fix the key read two
+    // nonexistent props (`hostsFilter` / `hideUnconfiguredHosts`) — the
+    // real ones are `hostsSearch` / `hostsHideUnconfigured` — and omitted
+    // the provider + problem filters entirely, so the key varied ONLY by
+    // `hosts.length`. Two bugs followed: (1) toggling a filter that left
+    // the count unchanged returned stale buckets; (2) because this getter
+    // (the table's x-for source) never READ `hostsProviderFilter`, the
+    // x-for effect didn't subscribe to it, so after the `filteredHosts`
+    // memo landed a pill click no longer re-ran the table. Reading the
+    // real filter props here both invalidates correctly AND re-subscribes
+    // the effect.
+    const provFilt = (this.hostsProviderFilter && this.hostsProviderFilter.size)
+      ? [...this.hostsProviderFilter].sort().join(',')
+      : '';
     const cacheKey = hosts.length + '|' + groups.length + '|' + (this.hostGroupsRevision || 0)
-      + '|' + (this.hostsFilter || '') + '|' + (this.hideUnconfiguredHosts ? '1' : '0');
+      + '|' + (this.hostsSearch || '') + '|' + (this.hostsHideUnconfigured ? '1' : '0')
+      + '|' + provFilt + '|' + (this.hostsProblemFilter ? '1' : '0');
     const cached = this._groupedHostsCache;
     if (cached.key === cacheKey && cached.value) {
       return cached.value;

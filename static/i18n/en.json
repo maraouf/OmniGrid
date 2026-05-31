@@ -4989,6 +4989,7 @@
       "view_default_name": "My Dashboard",
       "view_copy_suffix": "{name} (copy)",
       "view_picker_label": "Custom view",
+      "view_loading": "Loading…",
       "view_new": "New view",
       "view_new_title": "New view",
       "view_name_placeholder": "View name",

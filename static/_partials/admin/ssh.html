@@ -441,10 +441,10 @@
         <span x-show="!sshTestOnHost.pending" x-text="t('admin_ssh.test_button')"></span>
         <span x-show="sshTestOnHost.pending" x-text="t('admin_ssh.testing')"></span>
       </button>
-      <div>
+      <div class="flex-1 min-w-[240px]">
         <label class="block fs-xs text-[var(--text-faint)] mb-1" for="ssh-testhost" x-text="t('admin_ssh.test_host_label')"></label>
         <select x-model="sshTestOnHost.host_id" id="ssh-testhost"
-                class="fs-sm py-1 min-w-[240px]">
+                class="fs-sm py-1 w-full">
           <option value="">—</option>
           <template x-for="h in hostsConfig" :key="h.id">
             <option :value="h.id" x-text="hostDisplayName(h) + ' (' + h.id + ')'"></option>

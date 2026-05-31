@@ -208,6 +208,9 @@
          x-data="{ tcRun: () => testOidcConnection(), tcResult: () => oidcTestResult, tcDisabled: () => !oidcForm.enabled, tcSuccessKey: 'oidc' }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
+    <!-- Divider between the test-connection result box and the Save
+         button so the two areas read as distinct. -->
+    <hr x-show="isAdmin()" class="border-t border-[var(--border)] my-3">
     <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap">
       <!-- Save-gating: when OIDC is enabled, Save is locked until a Test
            connection has succeeded against the CURRENT form values; any
