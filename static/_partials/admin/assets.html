@@ -231,16 +231,15 @@
     <span x-show="lastTestSuccessLabel('asset_inventory')"
           class="fs-xs text-[var(--text-faint)]"
           x-text="lastTestSuccessLabel('asset_inventory')"></span>
-    <button type="button" x-show="isAdmin()" @click="refreshAssetCache()"
-            class="btn btn-ghost fs-sm inline-flex items-center gap-1.5 ms-auto"
-            :disabled="assetRefreshing || !settings.asset_inventory_enabled"
-            :title="!settings.asset_inventory_enabled ? t('admin_integrations.disabled_hint') : t('admin_assets.refresh')">
-      <svg width="13" height="13" :class="assetRefreshing ? 'spin-md' : ''" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-      </svg>
-      <span x-show="!assetRefreshing" x-text="t('admin_assets.refresh')"></span>
-      <span x-show="assetRefreshing" x-text="t('admin_assets.refreshing')"></span>
-    </button>
+    <!-- Reload via the shared og-reload-button component (same component
+         the Stats / AI-dashboard / Telegram reloads use). rbDisabled gates
+         it off when the Asset Inventory master toggle is off (mirrors the
+         old !settings.asset_inventory_enabled guard). The wrapper carries
+         ms-auto to right-float in the row. -->
+    <div class="ms-auto" x-show="isAdmin()"
+         x-data="{ rbKey: 'asset_refresh', rbOnClick: () => _runWithBusy('asset_refresh', () => refreshAssetCache()), get rbDisabled() { return !settings.asset_inventory_enabled; } }">
+      <!-- INCLUDE: _components/og-reload-button.html -->
+    </div>
   </div>
 
   <!-- Test result chip — lives directly under the Test button row

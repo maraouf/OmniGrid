@@ -1,0 +1,43 @@
+<!--
+  Shared reload button — the canonical "Reload" affordance for every
+  Admin + Stats panel. Single source of truth for the reload-button
+  shape so panels can't drift on text / icon / spinner / busy wiring
+  (the reload-button consistency review found inline copies had drifted
+  on label key, icon glyph, spinner gate, and busy machinery). Same
+  INCLUDE-partial pattern as og-range-picker.html — the consumer wraps
+  it in an Alpine scope that supplies the props below.
+
+  Surrounding Alpine scope MUST define:
+    - rbKey     : the _loadBusy key (string) this button gates on. MUST be
+                  pre-declared in app-admin.js _loadBusy (the stale-binding
+                  -race guard documented at the top of that object).
+    - rbOnClick : function `() => void|Promise` fired on click. Wrap the
+                  panel's reload fn in `_runWithBusy(rbKey, fn)` so the
+                  spinner + disabled state track the in-flight load and get
+                  the double-fire guard + watchdog. Mirror og-range-picker's
+                  arrow style, e.g.:
+                    rbOnClick: () => _runWithBusy('ai_dashboard',
+                                       () => loadAiDashboard(true))
+
+  Optional (read via $data bracket-notation so an undeclared prop can't
+  throw under Alpine v3 strict expression semantics):
+    - rbExtraClass : extra Tailwind classes on the button (e.g. 'ms-auto'
+                     to right-align when there's no flex spacer before it).
+    - rbDisabled   : extra disable condition OR'd with the busy flag (e.g.
+                     a feature master-toggle being off). Use a GETTER
+                     (`get rbDisabled() { return !settings.foo_enabled; }`)
+                     so it stays reactive.
+-->
+<!--suppress HtmlUnknownAttribute -->
+<button type="button"
+        @click="rbOnClick()"
+        :disabled="_loadBusy[rbKey] === true || !!$data['rbDisabled']"
+        :title="t('actions.reload')"
+        :aria-label="t('actions.reload')"
+        class="btn btn-ghost fs-xs inline-flex items-center gap-1.5"
+        :class="$data['rbExtraClass'] ? $data['rbExtraClass'] : ''">
+  <svg width="13" height="13" :class="_loadBusy[rbKey] === true ? 'spin-md' : ''" aria-hidden="true">
+    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+  </svg>
+  <span x-text="t('actions.reload')"></span>
+</button>

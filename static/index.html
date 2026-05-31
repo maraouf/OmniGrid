@@ -10171,9 +10171,19 @@
                   <span class="pill" :class="'pill-' + (drawerItem.health || 'unknown')" x-text="drawerItem.health || '—'"></span>
                   <span class="pill" :class="'pill-' + statusKey(drawerItem.status)" x-text="drawerItem.status"></span>
                 </div>
-                <h2 class="fs-display-sm font-semibold mt-2 mono break-all" x-text="drawerItem.name"></h2>
-                <div class="mono fs-xs text-[var(--text-dim)] break-all mt-1">
-                  <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
+                <!-- Brand icon (when one resolves) to the LEFT, spanning the
+                     name + image:tag lines stacked to its right. -->
+                <div class="flex items-start gap-3 mt-2">
+                  <img class="drawer-item-icon" :src="itemIconUrl(drawerItem)"
+                       x-show="itemIconUrl(drawerItem)"
+                       :alt="drawerItem.stack || drawerItem.name" loading="lazy"
+                       @error="$el.style.display='none'">
+                  <div class="min-w-0 flex-1">
+                    <h2 class="fs-display-sm font-semibold mono break-all" x-text="drawerItem.name"></h2>
+                    <div class="mono fs-xs text-[var(--text-dim)] break-all mt-1">
+                      <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <button type="button" @click="drawerItem=null" class="btn btn-ghost text-base leading-none"

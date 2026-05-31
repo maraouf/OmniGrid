@@ -6041,6 +6041,22 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   filter: drop-shadow(0 0 0.5px var(--icon-glow));
 }
 
+/* Large brand icon in the item (service / container / orphan) drawer
+   header — sits to the LEFT of the name + image:tag lines, sized to span
+   both. Rounded surface tile + padding so transparent / off-square brand
+   marks (and the dead-orphan icons recovered by the suffix-stripping
+   resolver) read cleanly against the drawer surface. */
+.drawer-item-icon {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 6px;
+}
+
 /* ---------------------------------------------------------------------------
    Dense grouped table (primary layout)
    --------------------------------------------------------------------------- */
@@ -11286,7 +11302,11 @@ select.field-invalid {
   flex-wrap: nowrap;
   width: 100%;
   max-width: 100%;
-  margin-top: var(--s-2);
+  /* Roomy gap between the humidity/wind detail row above and the
+     forecast boxes — the tall card has the vertical space, and the
+     extra breathing room makes the boxes read as a distinct section
+     (operator-flagged: boxes felt cramped against humidity/wind). */
+  margin-top: var(--s-4);
   gap: var(--s-2);
 }
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
@@ -11295,6 +11315,43 @@ select.field-invalid {
   justify-content: center;
   gap: var(--s-1);
   padding: var(--s-2) var(--s-1);
+  background: color-mix(in srgb, var(--widget-accent) 10%, transparent);
+  border-radius: var(--r-sm);
+}
+
+/* 4x1 weather (xlarge WIDTH + short HEIGHT) — flip the cramped right-side
+   forecast column into a ROW of vertical BOXES spread across the wide
+   tile, exactly like the 4x2 boxed-below layout, so the wide-but-short
+   tile uses its empty horizontal space instead of a narrow right column.
+   Keyed on the EXPLICIT size-xlarge + height-short preset combo so the
+   narrower short tiles (half/normal/double = 1x1 / 2x1 / 3x1) keep their
+   right-column layout UNTOUCHED. Tighter margin + padding than 4x2 since
+   the single-row height is limited; compact day fonts come from the
+   @container (max-height:175px) block, and that block's nth-child(n+5)
+   cap still bounds it to 4 boxes. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-weather-body {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-weather-main {
+  flex: 0 0 auto;
+}
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col {
+  flex: 1 1 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 100%;
+  max-width: 100%;
+  margin-top: var(--s-2);
+  gap: var(--s-1);
+  overflow: hidden;
+}
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: var(--s-1);
   background: color-mix(in srgb, var(--widget-accent) 10%, transparent);
   border-radius: var(--r-sm);
 }
@@ -11377,6 +11434,23 @@ select.field-invalid {
    row so the column centres against the dial. */
 .apps-widget-clock-analog-meta .apps-widget-clock-tz {
   margin-top: 0;
+}
+
+/* 4x2 analog clock (xlarge WIDTH + tall HEIGHT) — the roomy 2-row tile
+   gets a LARGER dial with the date + timezone stacked BELOW it (column)
+   instead of beside it, filling the vertical space. Keyed on the explicit
+   size-xlarge + height-tall preset combo so every other size (1x1 / 2x1 /
+   3x1 / 4x1) keeps the centred side-by-side / wrap row untouched. The CSS
+   width/height override the SVG's 120px geometry attributes (CSS wins for
+   <svg> sizing); the viewBox scales the dial content to fill. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog-wrap {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: var(--s-2);
+}
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
+  width: 190px;
+  height: 190px;
 }
 
 /* Bottom detail row — humidity + wind / country + city / degraded

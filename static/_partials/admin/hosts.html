@@ -67,17 +67,16 @@
     <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
            class="hidden"
            @change="importHostsConfig($event)">
-    <button x-show="isAdmin()" type="button"
-            @click="_runWithBusy('hosts_config', () => loadHostsConfig())"
-            :disabled="hostsConfigLoading || _loadBusy.hosts_config === true"
-            :title="t('actions.reload')"
-            :aria-label="t('actions.reload')"
-            class="btn btn-ghost fs-sm inline-flex items-center gap-1.5">
-      <svg width="13" height="13" :class="(hostsConfigLoading || _loadBusy.hosts_config) ? 'spin-md' : ''" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-      </svg>
-      <span x-text="t('actions.reload')"></span>
-    </button>
+    <!-- Reload via the shared og-reload-button component — gates PURELY on
+         _loadBusy.hosts_config (drops the old extra hostsConfigLoading OR
+         that could leave the button spinning after the watchdog cleared
+         _loadBusy, and the fs-sm height drift). hostsConfigLoading stays
+         for the body loading skeleton below; it just no longer drives this
+         button. -->
+    <div x-show="isAdmin()"
+         x-data="{ rbKey: 'hosts_config', rbOnClick: () => _runWithBusy('hosts_config', () => loadHostsConfig()) }">
+      <!-- INCLUDE: _components/og-reload-button.html -->
+    </div>
     <!-- Top-of-card Save shortcut — saves operators from
          scrolling past 20-50 rows to reach the bottom bar
          when they just tweaked one field near the top. Same

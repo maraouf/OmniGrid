@@ -266,12 +266,21 @@ export default {
     return stack ? this.iconUrlFor(stack.name) : '';
   },
   itemIconUrl(item) {
-    // Use the parent stack's name for items inside a stack; otherwise the
-    // item's own name (for standalone containers / services without stack).
     if (!item) {
       return '';
     }
-    return this.iconUrlFor(item.stack || item.name);
+    // Swarm task containers (dead / exited orphans, and running task
+    // containers) are named `<service>.<slot|nodeid>.<taskid>` — e.g.
+    // `portainer_agent.ygxkipmo2xw4djl667lwtw1vw.hh3yb3epwk6j6mxuuqlcksyi3`.
+    // Resolving that full name never matches a brand slug, so dead/orphan
+    // rows showed no icon. Strip the dynamic `.slot.taskid` suffix (the
+    // task-id is always a 20+ char base-32 hash, so this can't false-strip
+    // an ordinary container name like `redis.7.foo`) to recover the
+    // service name. Prefer the parent stack's icon (so stack-managed items
+    // share the stack brand), then fall back to the suffix-stripped item
+    // name so standalone + orphaned containers still get their brand mark.
+    const serviceName = (item.name || '').replace(/\.[a-z0-9]+\.[a-z0-9]{20,}$/i, '');
+    return this.iconUrlFor(item.stack || '') || this.iconUrlFor(serviceName);
   },
   // Resolve a curated host to an icon URL. Priority:
   // 1. explicit ``h.icon`` override (admin-supplied).

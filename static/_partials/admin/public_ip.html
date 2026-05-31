@@ -76,66 +76,70 @@
        effective-label shape every Admin → Config row uses. -->
   <details x-show="isAdmin()" class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
     <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+      </svg>
       <span x-text="t('common.tunables')"></span>
     </summary>
     <div class="mt-3 space-y-3">
-    <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-       x-text="t('admin_public_ip.tunables_intro') || 'In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.'"></p>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('admin_public_ip.tunables_intro') || 'In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.'"></p>
       <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-    <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-      <span class="spin" aria-hidden="true"></span>
-      <span x-text="t('common.loading')"></span>
-    </div>
-    <template x-for="key in (tuningLoaded ? ['tuning_public_ip_cache_ttl_seconds',
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
+      <template x-for="key in (tuningLoaded ? ['tuning_public_ip_cache_ttl_seconds',
                                     'tuning_public_ip_fetch_timeout_seconds',
                                     'tuning_public_ip_sample_interval_seconds'] : [])"
-              :key="key">
-      <div>
-        <label class="block fs-xs font-medium mb-1"
-               :for="'pubip-' + key"
-               x-text="t('admin.config.fields.' + key + '.label')"></label>
-        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-           x-text="t('admin.config.fields.' + key + '.help')"></p>
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="contents">
-            <input type="number"
-                   :id="'pubip-' + key"
-                   :aria-label="t('admin.config.fields.' + key + '.label')"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="!isAdmin() || publicIpSaving"
-                   class="w-44 mono fs-sm py-1">
-          </label>
-          <div class="bounds-chips" role="group"
-               :aria-label="t('admin.config.bounds.group_label')">
+                :key="key">
+        <div>
+          <label class="block fs-xs font-medium mb-1"
+                 :for="'pubip-' + key"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="contents">
+              <input type="number"
+                     :id="'pubip-' + key"
+                     :aria-label="t('admin.config.fields.' + key + '.label')"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="!isAdmin() || publicIpSaving"
+                     class="w-44 mono fs-sm py-1">
+            </label>
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                   <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).min"></span>
                   </span>
-            <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).max"></span>
                   </span>
-            <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).default"></span>
                   </span>
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                x-text="tuningEffectiveLabel(key)"></span>
         </div>
-      </div>
-    </template>
+      </template>
     </div>
   </details>
 
@@ -165,23 +169,25 @@
   <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
            @toggle="if ($event.target.open) { loadPublicIpHistory(); }">
     <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/></svg>
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+      </svg>
       <span x-text="t('admin_public_ip.history_label') || 'Recent IP changes'"></span>
       <span class="fs-2xs text-[var(--text-faint)]"
             x-show="publicIpHistory && publicIpHistory.length"
             x-text="'(' + publicIpHistory.length + ')'"></span>
-      <button type="button"
-              class="btn btn-ghost fs-xs inline-flex items-center gap-1.5 ms-auto"
-              @click.stop="loadPublicIpHistory()"
-              :disabled="publicIpHistoryLoading"
-              :title="t('actions.reload')"
-              :aria-label="t('actions.reload')">
-        <svg width="13" height="13" :class="publicIpHistoryLoading ? 'spin-md' : ''" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-        </svg>
-        <span x-text="t('actions.reload')"></span>
-      </button>
+      <!-- Reload via the shared og-reload-button component. A <span>
+           (NOT a div — <summary> only allows phrasing content, a div is
+           invalid here) carries ms-auto to right-float as a flex item +
+           @click.stop to catch the button's bubbling click before the
+           <summary> toggles the <details>. -->
+      <span class="ms-auto" @click.stop
+            x-data="{ rbKey: 'public_ip_history', rbOnClick: () => _runWithBusy('public_ip_history', () => loadPublicIpHistory()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </span>
     </summary>
     <div class="mt-3">
       <div x-show="publicIpHistoryLoading" class="fs-xs text-[var(--text-faint)] flex items-center gap-1.5">
@@ -194,22 +200,22 @@
       <table x-show="!publicIpHistoryLoading && publicIpHistory && publicIpHistory.length"
              class="w-full fs-xs">
         <thead>
-          <tr class="text-[var(--text-faint)] text-start">
-            <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_ts') || 'When'"></th>
-            <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_ip') || 'IP'"></th>
-            <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_isp') || 'ISP'"></th>
-            <th class="text-start py-1" x-text="t('admin_public_ip.history_col_loc') || 'Location'"></th>
-          </tr>
+        <tr class="text-[var(--text-faint)] text-start">
+          <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_ts') || 'When'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_ip') || 'IP'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_public_ip.history_col_isp') || 'ISP'"></th>
+          <th class="text-start py-1" x-text="t('admin_public_ip.history_col_loc') || 'Location'"></th>
+        </tr>
         </thead>
         <tbody>
-          <template x-for="row in publicIpHistory" :key="row.ts + '-' + (row.ip || '')">
-            <tr class="border-t border-[var(--border)]">
-              <td class="py-1 pe-2 mono" x-text="fmtDate(row.ts)"></td>
-              <td class="py-1 pe-2 mono" x-text="row.ip || '—'"></td>
-              <td class="py-1 pe-2" x-text="row.isp || '—'"></td>
-              <td class="py-1" x-text="[row.city, row.country].filter(Boolean).join(', ') || '—'"></td>
-            </tr>
-          </template>
+        <template x-for="row in publicIpHistory" :key="row.ts + '-' + (row.ip || '')">
+          <tr class="border-t border-[var(--border)]">
+            <td class="py-1 pe-2 mono" x-text="fmtDate(row.ts)"></td>
+            <td class="py-1 pe-2 mono" x-text="row.ip || '—'"></td>
+            <td class="py-1 pe-2" x-text="row.isp || '—'"></td>
+            <td class="py-1" x-text="[row.city, row.country].filter(Boolean).join(', ') || '—'"></td>
+          </tr>
+        </template>
         </tbody>
       </table>
     </div>
