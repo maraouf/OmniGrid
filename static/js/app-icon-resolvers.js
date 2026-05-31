@@ -216,6 +216,15 @@ export default {
       // so item / stack contexts get the same forgiveness.
       'mint': 'linuxmint',
       'linux-mint': 'linuxmint',
+      // Operator's custom WebsiteMonitoring container — EXACT full-name
+      // match ONLY. Both the raw underscore form (`website_monitoring`,
+      // the container name) and the hyphen-slug form the resolver
+      // derives (`website-monitoring`) map to the local brand mark.
+      // Deliberately NOT a keyword token for 'website' or 'monitoring'
+      // (far too generic — that would hijack the icon for any item
+      // whose name merely contains either word).
+      'website_monitoring': '/img/icons/website-monitoring.svg',
+      'website-monitoring': '/img/icons/website-monitoring.svg',
     };
     // Prefix patterns — one entry covers all siblings of a product
     // (authentik outposts: ak-outpost-authentik-ldap-outpost, etc.).

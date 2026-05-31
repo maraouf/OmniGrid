@@ -216,10 +216,10 @@
         <span class="apps-card-settings-label">
           <span x-text="t('apps.custom.settings.weather.forecast_label') || 'Forecast days'"></span>
           <span class="text-[var(--text-faint)]"
-                x-text="' (' + ((item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 3) + ')'"></span>
+                x-text="' (' + ((item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 4) + ')'"></span>
         </span>
         <input type="range" min="0" max="7" step="1"
-               :value="(item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 3"
+               :value="(item.opts && typeof item.opts.weather_forecast_days === 'number') ? item.opts.weather_forecast_days : 4"
                @change.stop="setAppsItemOpt(item.uid, 'weather_forecast_days', parseInt($event.target.value, 10))">
       </label>
 

@@ -203,7 +203,7 @@ export default {
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
         + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
-      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis">' + esc(t.label) + '</text>';
     }
     for (const t of xTicks) {
       svg += '<line x1="' + t.x + '" y1="' + PAD_T + '" x2="' + t.x + '" y2="' + (H - PAD_B)
@@ -216,10 +216,10 @@ export default {
     for (const t of xTicks) {
       if (rotateXLabels) {
         const ly = (H - PAD_B + 16).toFixed(1);
-        svg += '<text x="' + t.x + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+        svg += '<text x="' + t.x + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis"'
           + ' transform="rotate(-45 ' + t.x + ' ' + ly + ')">' + esc(t.label) + '</text>';
       } else {
-        svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+        svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" class="stats-chart-axis">' + esc(t.label) + '</text>';
       }
     }
     svg += '</svg>';
@@ -664,7 +664,7 @@ export default {
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
         + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
-      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">'
+      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis">'
         + esc(t.label) + '</text>';
     }
     // Bars — primary tint with darker hover-state via a per-bar
@@ -694,11 +694,11 @@ export default {
       const cx = (X(i) + barW / 2).toFixed(1);
       if (rotateXLabels) {
         const ly = (H - PAD_B + 16).toFixed(1);
-        svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+        svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis"'
           + ' transform="rotate(-45 ' + cx + ' ' + ly + ')">'
           + esc(fmtXLabel(p.date)) + '</text>';
       } else {
-        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" class="stats-chart-axis">'
           + esc(fmtXLabel(p.date)) + '</text>';
       }
     }
@@ -817,7 +817,7 @@ export default {
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
         + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
-      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis">' + esc(t.label) + '</text>';
     }
     // Vertical gridlines — same `--chart-grid` per-theme tone.
     for (const t of xTicks) {
@@ -830,7 +830,7 @@ export default {
     svg += '<path d="' + linePath + '" fill="none" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></path>';
     // X-axis tick labels.
     for (const t of xTicks) {
-      svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">' + esc(t.label) + '</text>';
+      svg += '<text x="' + t.x + '" y="' + (H - 6) + '" text-anchor="middle" fill="var(--text-faint)" class="stats-chart-axis">' + esc(t.label) + '</text>';
     }
     svg += '</svg>';
     return svg;

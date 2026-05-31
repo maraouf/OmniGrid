@@ -296,7 +296,7 @@ export default {
     for (const t of yTicks) {
       svg += '<line x1="' + PAD_L + '" y1="' + t.y + '" x2="' + (W - PAD_R) + '" y2="' + t.y
         + '" stroke="var(--chart-grid)" stroke-width="0.5" stroke-dasharray="2,2"></line>';
-      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" font-size="10">'
+      svg += '<text x="' + (PAD_L - 6) + '" y="' + (Number(t.y) + 4) + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis">'
         + esc(t.label) + '</text>';
     }
     const totalBarW = Math.max(1, barW - 1);
@@ -306,7 +306,11 @@ export default {
       const bx = X(i).toFixed(2);
       const by = Y(v).toFixed(2);
       const bh = (PAD_T + plotH - Y(v)).toFixed(2);
-      const tip = fmtXLabel(p.bucket_ts) + ': ' + Math.round(v).toLocaleString() + ' ms · ' + Number(p.jobs || 0).toLocaleString() + ' job(s)';
+      const tip = this.t('stats.ai_cost.rt_trend.bar_tooltip', {
+        date: fmtXLabel(p.bucket_ts),
+        ms: Math.round(v).toLocaleString(),
+        jobs: Number(p.jobs || 0).toLocaleString(),
+      });
       svg += '<rect x="' + bx + '" y="' + by + '" width="' + totalBarW.toFixed(2)
         + '" height="' + bh + '" fill="var(--primary)" fill-opacity="0.7">'
         + '<title>' + esc(tip) + '</title>'
@@ -320,11 +324,11 @@ export default {
       const cx = (X(i) + barW / 2).toFixed(1);
       if (rotateXLabels) {
         const ly = (H - PAD_B + 16).toFixed(1);
-        svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" font-size="10"'
+        svg += '<text x="' + cx + '" y="' + ly + '" text-anchor="end" fill="var(--text-faint)" class="stats-chart-axis"'
           + ' transform="rotate(-45 ' + cx + ' ' + ly + ')">'
           + esc(fmtXLabel(p.bucket_ts)) + '</text>';
       } else {
-        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" font-size="10">'
+        svg += '<text x="' + cx + '" y="' + (H - 8) + '" text-anchor="middle" fill="var(--text-faint)" class="stats-chart-axis">'
           + esc(fmtXLabel(p.bucket_ts)) + '</text>';
       }
     }

@@ -1425,7 +1425,7 @@ export default {
   },
 
   // N-day rollup for the weather widget's forecast strip. Cap N from
-  // the per-card override (`weather_forecast_days`, default 3, range
+  // the per-card override (`weather_forecast_days`, default 4, range
   // 0-7). N=0 → empty array → markup hides the forecast strip
   // entirely. The forecast source is `effectiveWeather(item).forecast`
   // so override-mode cards see THEIR location's forecast.
@@ -1436,7 +1436,7 @@ export default {
       return [];
     }
     const opts = item ? this.effectiveWeatherOpts(item) : null;
-    const cap = opts ? opts.forecast_days : 3;
+    const cap = opts ? opts.forecast_days : 4;
     if (cap <= 0) {
       return [];
     }
@@ -3155,7 +3155,7 @@ export default {
     const lng = (!follow && typeof opts.weather_lng === 'number') ? opts.weather_lng : null;
     const label = (!follow && opts.weather_label) || '';
     const fcdRaw = (typeof opts.weather_forecast_days === 'number')
-      ? opts.weather_forecast_days : 3;  // default = 3 days
+      ? opts.weather_forecast_days : 4;  // default = 4 days
     const showCond = (opts.weather_show_conditions !== false);  // default = show
     return {
       follow,

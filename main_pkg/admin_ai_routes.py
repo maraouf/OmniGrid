@@ -238,44 +238,56 @@ async def api_admin_stats_samples_by_host(
                 }
         except (TypeError, KeyError, AttributeError):
             pass
-    try:
-        with db_conn() as c:
-            # Table + host-col are validated against the canonical
-            # whitelist above; safe to embed in the SQL string.
-            # Fresh outer count first — same connection, same
-            # transaction, so the per-host sum + outer total snapshot
-            # at the same wall-clock instant. Eliminates the spurious
-            # "TOTAL MISMATCH" warning operators saw when samplers
-            # wrote rows between the page-load fetch and the drill-
-            # down click.
-            outer_row = c.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
-            out["outer_count"] = int(outer_row[0] or 0) if outer_row else 0
-            rows = c.execute(
-                f'SELECT "{host_col}" AS host_id, COUNT(*) AS rows '
-                f'  FROM "{table}" '
-                f' GROUP BY "{host_col}" '
-                f' ORDER BY COUNT(*) DESC, "{host_col}" ASC'
-            ).fetchall()
-            shaped = []
-            for r in rows:
-                hid = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
-                cnt = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
-                meta = curated_meta.get(hid) or {}
-                shaped.append({
-                    "host_id": hid,
-                    "rows": cnt,
-                    "label": meta.get("label"),
-                    "address": meta.get("address"),
-                    "beszel_name": meta.get("beszel_name"),
-                    "pulse_name": meta.get("pulse_name"),
-                    "snmp_name": meta.get("snmp_name"),
-                    "webmin_name": meta.get("webmin_name"),
-                    "curated": bool(meta),
-                })
-            out["rows"] = shaped
-            out["total"] = sum(r["rows"] for r in shaped)
-    except Exception as e:
-        out["error"] = str(e)
+    # Offload the COUNT(*) + GROUP BY to a worker thread. On a long-lived
+    # fleet the sample tables are millions of rows and this whole-table
+    # scan (no WHERE ts predicate, so no index can seek it) is the
+    # heaviest query in the Stats surface, fired on every drill-down
+    # click — running it inline blocked the event loop + the SSE
+    # heartbeat / healthz (the documented 502-flap class). Mirrors the
+    # _compute_admin_stats_samples / _run_net_queries offload pattern.
+    # The closure mutates the enclosing `out` dict in place + reads the
+    # already-built curated_meta / table / host_col. The _gather() await
+    # above deliberately stays on the loop (it's async).
+    def _compute_by_host():
+        try:
+            with db_conn() as c:
+                # Table + host-col are validated against the canonical
+                # whitelist above; safe to embed in the SQL string.
+                # Fresh outer count first — same connection, same
+                # transaction, so the per-host sum + outer total snapshot
+                # at the same wall-clock instant. Eliminates the spurious
+                # "TOTAL MISMATCH" warning operators saw when samplers
+                # wrote rows between the page-load fetch and the drill-
+                # down click.
+                outer_row = c.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+                out["outer_count"] = int(outer_row[0] or 0) if outer_row else 0
+                rows = c.execute(
+                    f'SELECT "{host_col}" AS host_id, COUNT(*) AS rows '
+                    f'  FROM "{table}" '
+                    f' GROUP BY "{host_col}" '
+                    f' ORDER BY COUNT(*) DESC, "{host_col}" ASC'
+                ).fetchall()
+                shaped = []
+                for r in rows:
+                    hid = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
+                    cnt = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
+                    meta = curated_meta.get(hid) or {}
+                    shaped.append({
+                        "host_id": hid,
+                        "rows": cnt,
+                        "label": meta.get("label"),
+                        "address": meta.get("address"),
+                        "beszel_name": meta.get("beszel_name"),
+                        "pulse_name": meta.get("pulse_name"),
+                        "snmp_name": meta.get("snmp_name"),
+                        "webmin_name": meta.get("webmin_name"),
+                        "curated": bool(meta),
+                    })
+                out["rows"] = shaped
+                out["total"] = sum(r["rows"] for r in shaped)
+        except Exception as e:
+            out["error"] = str(e)
+    await asyncio.to_thread(_compute_by_host)
     return out
 
 

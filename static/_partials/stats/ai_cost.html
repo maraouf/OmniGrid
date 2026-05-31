@@ -30,6 +30,12 @@
       <span x-text="t('loading.section')"></span>
     </div>
 
+    <!-- Result tables below are SERVER-SORTED (backend ORDER BY) and are
+         intentionally NOT client-sortable: small fixed breakdowns
+         (tokens-by-provider/model, top-10 expensive), unlike the
+         variable-length Samples table which ships the interactive sort +
+         aria-sort pattern. No aria-sort here — it would advertise
+         interactivity these static server-ordered tables don't have. -->
     <div x-show="statsAiCostLoaded" class="p-5 space-y-5">
 
       <!-- MTD headline row: cost + jobs + pass rate + tokens + avg RT + accuracy. -->
@@ -176,7 +182,7 @@
                 <td class="px-4 py-2 fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
-                                x-text="t('settings.host_stats.source_' + row.provider) || row.provider"></span>
+                                x-text="tOr('settings.host_stats.source_' + row.provider, row.provider)"></span>
                 </td>
                 <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="row.model"></td>
                 <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.tokens || 0).toLocaleString()"></td>
@@ -323,10 +329,10 @@
                 <td class="px-4 py-2 fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
-                                x-text="t('settings.host_stats.source_' + row.provider) || row.provider"></span>
+                                x-text="tOr('settings.host_stats.source_' + row.provider, row.provider)"></span>
                 </td>
                 <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]" x-text="row.model"></td>
-                <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="t('op_types.' + row.kind) || row.kind"></td>
+                <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
                 <td class="px-4 py-2 mono text-end" x-text="Number(row.total_tokens || 0).toLocaleString()"></td>
                 <td class="px-4 py-2 mono text-end font-semibold" x-text="'$' + (Number(row.cost_usd || 0)).toFixed(4)"></td>
                 <td class="px-4 py-2 mono text-end" x-text="row.response_time_ms ? (row.response_time_ms.toLocaleString() + ' ms') : '—'"></td>
