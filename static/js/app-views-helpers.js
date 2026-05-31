@@ -2537,10 +2537,19 @@ export default {
   },
   // Convenience: clear the provider filter ("All" pill click).
   clearHostsProviderFilter() {
+    // "Show all" clears EVERY active host filter — the provider set AND
+    // the Problem filter — so one click returns to the full list (pre-fix
+    // it only cleared the provider set, so with the Problem pill active
+    // "Show all" appeared to do nothing and the operator had to re-press
+    // Problem to toggle it off). Deliberately does NOT touch
+    // `hostsHideUnconfigured` — that's a separate persistent preference,
+    // not a filter "Show all" should override.
     this.hostsProviderFilter = new Set();
+    this.hostsProblemFilter = false;
     try {
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.removeItem('hostsProviderFilter');
+        sessionStorage.removeItem('hostsProblemFilter');
       }
     } catch { /* ignore */
     }

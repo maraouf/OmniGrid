@@ -1063,7 +1063,10 @@
 
     <!-- ===== STACKS GROUPED VIEW ===== -->
     <div x-show="view==='stacks'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-      <div class="overflow-x-auto scrollbar">
+      <!-- Hide the header-only table when the filter matches nothing — the
+           empty-state message below (filteredStacks.length===0) carries the
+           "no match + reset" affordance instead of a confusing bare header. -->
+      <div class="overflow-x-auto scrollbar" x-show="filteredStacks.length > 0">
         <table class="ptable">
           <thead>
           <tr>
@@ -1378,7 +1381,10 @@
 
     <!-- ===== SERVICES FLAT LIST ===== -->
     <div x-show="view==='services'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden">
-      <div class="overflow-x-auto scrollbar">
+      <!-- Hide the header-only table when the filter matches nothing — the
+           empty-state message below (filteredItems.length===0) carries the
+           "no match + reset" affordance instead of a confusing bare header. -->
+      <div class="overflow-x-auto scrollbar" x-show="filteredItems.length > 0">
         <table class="ptable">
           <thead>
           <tr>
@@ -1590,7 +1596,9 @@
                   x-text="t('empty.portainer_not_configured.cta')"></button>
         </div>
       </div>
-      <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm" x-text="t('empty.no_match')">
+      <div x-show="filteredItems.length===0 && !loading && items.length > 0" class="text-center py-16 text-[var(--text-faint)] text-sm">
+        <span x-text="t('empty.no_match_filters')"></span>
+        <button type="button" @click="search='';statusFilter='';healthFilter=''" class="ms-2 text-[var(--primary)] hover:underline" x-text="t('empty.clear')"></button>
       </div>
     </div>
 
@@ -2187,14 +2195,15 @@
             <button type="button"
                     @click="clearHostsProviderFilter()"
                     class="chip fs-2xs cursor-pointer"
-                    :class="(hostsProviderFilter && hostsProviderFilter.size === 0) ? 'pill-primary' : 'pill-muted'"
+                    :class="(hostsProviderFilter && hostsProviderFilter.size === 0 && !hostsProblemFilter) ? 'pill-primary' : 'pill-muted'"
                     :title="t('hosts_extra.provider_filter.all_title')"
-                    :aria-pressed="!!(hostsProviderFilter && hostsProviderFilter.size === 0)">
+                    :aria-pressed="!!(hostsProviderFilter && hostsProviderFilter.size === 0 && !hostsProblemFilter)">
               <span x-text="t('hosts_extra.provider_filter.show_all')"></span>
-              <!-- NIT-UX — small reset glyph appears only when at
-                   least one chip is currently active, signalling that
-                   "All" is a clear-all rather than a separate filter. -->
-              <span x-show="hostsProviderFilter && hostsProviderFilter.size > 0" class="ms-1">↻</span>
+              <!-- NIT-UX — small reset glyph appears only when at least one
+                   filter is currently active (a provider chip OR the
+                   Problem filter), signalling that "All" is a clear-all
+                   rather than a separate filter. -->
+              <span x-show="(hostsProviderFilter && hostsProviderFilter.size > 0) || hostsProblemFilter" class="ms-1">↻</span>
             </button>
             <template x-for="p in ['beszel','pulse','node_exporter','webmin','ping','snmp','http_probe']" :key="p">
               <!-- Nested x-if so chips for providers that aren't

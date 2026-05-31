@@ -694,7 +694,8 @@ export default {
       if (Number.isFinite(b) && b >= 1) {
         batch = b;
       }
-    } catch (_e) { /* keep default */ }
+    } catch (_e) { /* keep default */
+    }
     let processed = 0;
     while (_appsTileQueue.length > 0 && processed < batch) {
       const gid = _appsTileQueue.shift();
@@ -2396,15 +2397,21 @@ export default {
         // user settings when a key is absent.
         const opts = it.opts || {};
         if (it.kind === 'app') {
-          if (assignedRefs.has(it.ref)) {
-            continue;  // dedup: a ref may only live in one section (first wins)
-          }
+          // Duplicate-app-card feature: the SAME app ref may now live in
+          // multiple sections (or the same section more than once). The
+          // FIRST occurrence of a ref in document order is the "main"
+          // copy; every later one is a "shadow" (is_shadow) — the render
+          // layer shows a remove pill on shadows only (the main is removed
+          // by dragging it back to Unsectioned). `assignedRefs` still
+          // tracks "has at least one placement" so an app drops back to
+          // Unsectioned only when EVERY copy is gone.
+          const isShadow = assignedRefs.has(it.ref);
           assignedRefs.add(it.ref);
           const app = byId[it.ref];
           if (!app) {
             continue;  // filtered out this pass (search / status) — stays assigned
           }
-          items.push({uid: it.uid, kind: 'app', ref: it.ref, app, opts});
+          items.push({uid: it.uid, kind: 'app', ref: it.ref, app, opts, is_shadow: isShadow});
         } else if (it.kind === 'widget') {
           if (q) {
             continue;  // hide info widgets while searching
@@ -3297,6 +3304,84 @@ export default {
         this.appsViewSwitching = false;
       }));
     }, 0);
+  },
+  // ── Duplicate / remove app-card copies (custom dashboard) ──────────
+  // Duplicate-app feature: an app card can be copied into the same
+  // section (then dragged elsewhere) so one service shows on multiple
+  // dashboards / sections. The first placement of a ref is the "main"
+  // copy; duplicates are "shadows". Each copy carries its OWN opts
+  // (size / height), so shadows can be sized independently.
+
+  // Add a shadow copy of the app item `uid` right after it in the SAME
+  // section. The copy gets a fresh uid + a clone of the source opts (so
+  // it starts at the same size, then resizes independently). The user
+  // drags it to another section afterwards. App items only.
+  appsDuplicateAppItem(uid) {
+    this._hydrateAppsCustomLayout();
+    const secs = (this.appsCustomLayout && this.appsCustomLayout.sections) || [];
+    for (const s of secs) {
+      const items = s.items || [];
+      const idx = items.findIndex(it => it && it.uid === uid);
+      if (idx < 0) {
+        continue;
+      }
+      const src = items[idx];
+      if (!src || src.kind !== 'app') {
+        return;  // only app cards are duplicable
+      }
+      const copy = {
+        uid: this._newId('it-'),
+        kind: 'app',
+        ref: src.ref,
+        opts: {...(src.opts || {})},
+      };
+      items.splice(idx + 1, 0, copy);
+      _appsCustomBuildCache = null;
+      this._persistAppsCustomLayout();
+      return;
+    }
+  },
+  // Remove the app-card copy `uid`. Guarded: refuses to remove the MAIN
+  // (first-in-document-order occurrence of the ref) — the main is removed
+  // only by dragging it back to Unsectioned. Shadows are freely
+  // removable; when the last copy is gone the app returns to Unsectioned
+  // automatically (see _buildAppsCustom's assignedRefs).
+  appsRemoveAppItem(uid) {
+    this._hydrateAppsCustomLayout();
+    const secs = (this.appsCustomLayout && this.appsCustomLayout.sections) || [];
+    let target = null, targetSec = null, targetIdx = -1;
+    for (const s of secs) {
+      const idx = (s.items || []).findIndex(it => it && it.uid === uid);
+      if (idx >= 0) {
+        target = s.items[idx];
+        targetSec = s;
+        targetIdx = idx;
+        break;
+      }
+    }
+    if (!target || !targetSec || target.kind !== 'app') {
+      return;
+    }
+    // Main-guard: the FIRST occurrence of this ref in document order is
+    // the main copy and can't be deleted here.
+    let firstUid = null;
+    for (const s of secs) {
+      for (const it of (s.items || [])) {
+        if (it && it.kind === 'app' && it.ref === target.ref) {
+          firstUid = it.uid;
+          break;
+        }
+      }
+      if (firstUid) {
+        break;
+      }
+    }
+    if (firstUid === uid) {
+      return;  // can't remove the main copy
+    }
+    targetSec.items.splice(targetIdx, 1);
+    _appsCustomBuildCache = null;
+    this._persistAppsCustomLayout();
   },
   appsCreateView(name) {
     this._hydrateAppsCustomLayout();
