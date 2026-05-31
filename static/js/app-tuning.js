@@ -11,6 +11,24 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Config — the tunables editor.
 
+// Per-flush memo for _tuningSnapshot() — the 172-key JSON serialization that
+// tuningDirty() runs. tuningDirty() is bound in :class / x-show on the Config
+// tab (x2) AND the AI tab (x5), so Alpine re-evaluated it ~7x per flush, each
+// rebuilding the full snapshot. The snapshot only changes when the operator
+// edits a tunable input (which itself triggers a flush), so memoize it for the
+// flush + clear on the next microtask — the 7 reads collapse to one build,
+// and a real edit rebuilds on the flush it triggers. loadTuning() busts the
+// memo before stamping the baseline so the baseline never reads a stale build.
+let _tuningSnapshotMemo = null;
+let _tuningSnapshotScheduled = false;
+
+// Cross-flush memo for sortedTuningKeys() — the Config x-for source re-sorted
+// 41 keys via localeCompare with ~2 t() lookups per comparison on EVERY flush,
+// even though the sort order only changes on a language switch. Cache keyed on
+// (active lang + key count); keying on this.lang auto-invalidates on setLang
+// (no manual bust needed). (ADMIN-PERF-05.)
+let _sortedTuningKeysMemo = {lang: null, len: -1, value: []};
+
 export default {
   // Admin → Config. DB-overridable process tunables. `tuningForm`
   // holds string values (blank = clear / fall back to env). `tuningEffective`
@@ -630,6 +648,7 @@ export default {
         form[k] = v;
       }
       this.tuningForm = form;
+      _tuningSnapshotMemo = null;  // bust the per-flush memo so the baseline reflects the just-loaded form
       this._tuningBaseline = this._tuningSnapshot();
       this.tuningLoaded = true;
     } catch (e) {
@@ -637,12 +656,25 @@ export default {
     }
   },
   _tuningSnapshot() {
+    // Per-flush memo (see _tuningSnapshotMemo decl): the ~7 tuningDirty() reads
+    // per flush share ONE 172-key serialization; cleared on the next microtask.
+    if (_tuningSnapshotMemo !== null) {
+      return _tuningSnapshotMemo;
+    }
     const f = this.tuningForm || {};
     const out = {};
     for (const k of this._allTuningKeys()) {
       out[k] = (f[k] == null ? '' : String(f[k]).trim());
     }
-    return JSON.stringify(out);
+    _tuningSnapshotMemo = JSON.stringify(out);
+    if (!_tuningSnapshotScheduled) {
+      _tuningSnapshotScheduled = true;
+      queueMicrotask(() => {
+        _tuningSnapshotMemo = null;
+        _tuningSnapshotScheduled = false;
+      });
+    }
+    return _tuningSnapshotMemo;
   },
   tuningDirty() {
     return this._tuningBaseline !== this._tuningSnapshot();
@@ -657,6 +689,12 @@ export default {
   // still renders deterministically.
   sortedTuningKeys() {
     const keys = (this.tuningKeys || []).slice();
+    // Cross-flush memo (see _sortedTuningKeysMemo decl): the sorted order only
+    // changes on a language switch, so reuse the cached array until this.lang
+    // (or the key count) changes instead of re-sorting + re-t()-ing per flush.
+    if (_sortedTuningKeysMemo.lang === this.lang && _sortedTuningKeysMemo.len === keys.length) {
+      return _sortedTuningKeysMemo.value;
+    }
     const labelOf = (k) => {
       const lbl = this.t('admin.config.fields.' + k + '.label');
       // Missing-key fallback returns the path itself (per the i18n
@@ -664,7 +702,9 @@ export default {
       // the sort doesn't bunch every untranslated row at the top.
       return (lbl && lbl !== 'admin.config.fields.' + k + '.label') ? lbl : k;
     };
-    return keys.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    keys.sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
+    _sortedTuningKeysMemo = {lang: this.lang, len: keys.length, value: keys};
+    return keys;
   },
   tuningPlaceholder(key) {
     const row = (this.tuningEffective || {})[key] || {};

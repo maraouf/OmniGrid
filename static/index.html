@@ -3366,7 +3366,7 @@
            layout shift on swap. aria-hidden — the load state is conveyed by
            the visible shimmer, not announced. -->
       <div x-show="!appsListLoaded && !appsListError"
-           class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+           class="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
            aria-hidden="true">
         <template x-for="i in 8" :key="'apps-skel-' + i">
           <div class="apps-card border border-[var(--border)] rounded-md p-3 flex items-start gap-3">
@@ -3397,7 +3397,7 @@
            running on every flush (2-3x mount work). Caveat-6 N/A: these are
            container gates, not memoized getters feeding a count badge. -->
       <template x-if="appsListLoaded && appsViewGroupBy === 'app' && filteredApps().length">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div class="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           <template x-for="app in filteredApps()" :key="app.group_id">
             <!-- INCLUDE: _components/apps-card.html -->
           </template>
@@ -3410,7 +3410,7 @@
            opens the host-app drawer; clicking a tile jumps straight to
            that app's drawer. -->
       <template x-if="appsListLoaded && appsViewGroupBy === 'host' && appsHostGroups().length">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div class="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         <template x-for="grp in appsHostGroups()" :key="grp.host_id">
           <article class="apps-card border border-[var(--border)] bg-[var(--surface)] rounded-md p-3"
                    :class="'apps-card--' + grp.status">
@@ -3474,6 +3474,46 @@
            group_id, section headers carry the section id). -->
       <template x-if="appsListLoaded && appsViewGroupBy === 'custom'">
         <div class="space-y-3">
+        <!-- Named-view picker — switch / create / rename / duplicate / delete
+             the user's custom dashboards. Each view holds its own sections +
+             layout (persisted per-user in ui_prefs.apps_custom_views). The
+             active view's layout is what every section / drag / collapse
+             control below operates on. -->
+        <div class="flex items-center gap-1.5 flex-wrap px-1">
+          <svg width="14" height="14" class="text-[var(--text-dim)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+          <select class="fs-sm py-1 max-w-[180px]"
+                  :value="appsActiveViewId()"
+                  @change="appsSwitchView($event.target.value)"
+                  :aria-label="t('apps.custom.view_picker_label') || 'Custom view'">
+            <template x-for="v in appsViews()" :key="v.id">
+              <option :value="v.id" x-text="v.name"></option>
+            </template>
+          </select>
+          <button type="button" class="user-action-btn" @click="appsPromptCreateView()"
+                  :title="t('apps.custom.view_new') || 'New view'"
+                  :aria-label="t('apps.custom.view_new') || 'New view'">
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/></svg>
+          </button>
+          <button type="button" class="user-action-btn" @click="appsPromptRenameView(appsActiveViewId())"
+                  :title="t('apps.custom.view_rename') || 'Rename view'"
+                  :aria-label="t('apps.custom.view_rename') || 'Rename view'">
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/></svg>
+          </button>
+          <button type="button" class="user-action-btn" @click="appsDuplicateView(appsActiveViewId())"
+                  :title="t('apps.custom.view_duplicate') || 'Duplicate view'"
+                  :aria-label="t('apps.custom.view_duplicate') || 'Duplicate view'">
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>
+          </button>
+          <button type="button" class="user-action-btn user-action-btn--danger"
+                  @click="appsConfirmDeleteView(appsActiveViewId())"
+                  :disabled="appsViews().length <= 1"
+                  :title="t('apps.custom.view_delete') || 'Delete view'"
+                  :aria-label="t('apps.custom.view_delete') || 'Delete view'">
+            <svg width="14" height="14" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/></svg>
+          </button>
+        </div>
         <div class="flex items-center justify-between gap-2 px-1">
           <p class="fs-xs text-[var(--text-faint)]"
              x-text="appsCustomEditMode
@@ -3786,7 +3826,7 @@
             <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
           </header>
           <div x-show="!appsUnsectionedCollapsed()"
-               :class="appsCustomEditMode ? 'apps-section-grid' : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+               :class="appsCustomEditMode ? 'apps-section-grid' : 'grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
                @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop('__unsectioned', null) : null">
             <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
               <div class="apps-custom-cell min-w-0">
@@ -4104,7 +4144,17 @@
     </div>
 
     <!-- ===== ADMIN VIEW (admin role only) ===== -->
-    <div x-show="view==='admin'" class="page-layout">
+    <!-- x-if (not x-show) so the ENTIRE admin DOM (sub-nav + all 23 admin
+         sub-tab partials, ~4,463 Alpine bindings) is torn out of the reactive
+         graph whenever the user is on any non-admin view (Stacks / Hosts /
+         Services / Nodes / Apps / History). x-show only toggles display, so
+         pre-fix every reactive flush on the day-to-day views still re-evaluated
+         all 23 admin tab subtrees. The whole block is a single page-layout root,
+         so it wraps cleanly; adminTab state persists in the Alpine component, so
+         re-entering admin re-mounts to the correct tab and openAdminTab's loaders
+         repopulate. (ADMIN-PERF-01: biggest single click/tab-switch win.) -->
+    <template x-if="view==='admin'">
+    <div class="page-layout">
       <!-- mobile sidebar replacement. Below 768px the
            full-width button list eats half the viewport; a single
            <select> is denser and matches platform conventions for
@@ -4183,6 +4233,7 @@
         <!-- INCLUDE: admin/debug.html -->
       </div>
     </div>
+    </template>
 
     <!-- ================== STATS VIEW ================== -->
     <!-- Admin-only quick-insight dashboard. Mirrors the admin page-layout

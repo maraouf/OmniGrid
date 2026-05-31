@@ -39,6 +39,18 @@
 // SPA Logs admin (Admin → Logs) — live in-memory buffer + persistent
 // log files browser.
 
+// Per-flush memo for the Live-tab derived state. filteredLogLines() is the
+// x-for source AND is read 3 more times in the same template, and the
+// severity (x4) + pattern (x8) chip counts each walked logLines independently
+// — up to ~16 passes over the ring buffer per reactive flush (the 2s poll
+// append + any interaction). _logLiveStats() computes the filtered list + ALL
+// chip counts in ONE pass, keyed on a cheap signature of the inputs (logLines
+// length + last-row identity + filter text + severity snapshot + active
+// patterns). Cleared on the next microtask (= next flush) like the other
+// per-flush memos; the signature also busts mid-flush if a poll appended rows.
+let _logLiveMemo = null;
+let _logLiveMemoScheduled = false;
+
 export default {
   // App-logs viewer state. Polled when the Logs tab is visible.
   // `logLines` is append-only during a session; clear() wipes both
@@ -166,14 +178,20 @@ export default {
         this.logLines = lines;
       } else {
         if (lines.length) {
-          this.logLines = [...this.logLines, ...lines];
+          // In-place push (NOT `this.logLines = [...old, ...new]`) so the
+          // array identity is preserved — a wholesale reassign makes Alpine
+          // re-evaluate every row + re-run colorizeLogText() per row each
+          // 2s poll. The `since` delta is small so the spread is bounded.
+          // (ADMIN-PERF-11.)
+          this.logLines.push(...lines);
         }
       }
       // Cap the client-side buffer at 2× server MAX so the UI doesn't
       // grow forever even if the session stays on the tab for hours.
+      // Trim in place (splice from the front) so the array identity survives.
       const cap = (d.max || 2000) * 2;
       if (this.logLines.length > cap) {
-        this.logLines = this.logLines.slice(-cap);
+        this.logLines.splice(0, this.logLines.length - cap);
       }
       if (this.logLines.length) {
         this.logSinceTs = this.logLines[this.logLines.length - 1].ts;
@@ -219,25 +237,76 @@ export default {
   },
 
   filteredLogLines() {
+    return this._logLiveStats().filtered;
+  },
+  // Single-pass per-flush computation of the Live-tab derived state:
+  // {filtered, sevCounts, patCounts}. Memoized on a cheap input signature so
+  // the x-for source + the 4 severity chips + the 8 pattern chips all read
+  // ONE walk of logLines per flush instead of ~16. (ADMIN-PERF-03.)
+  _logLiveStats() {
+    const lines = this.logLines || [];
     const q = (this.logFilter || '').toLowerCase();
     const sev = this.logSeverityFilter || {};
-    const allSevOn = this.logSeverityLevels.every(k => sev[k]);
+    const levels = this.logSeverityLevels || [];
+    const allSevOn = levels.every(k => sev[k]);
     const activePats = this._activeLogPatterns();
-    if (!q && allSevOn && !activePats.length) {
-      return this.logLines;
+    const last = lines.length ? lines[lines.length - 1] : null;
+    const sig = lines.length + '|'
+      + (last ? (last.ts + ':' + ((last.text || '') + '').length) : '') + '|'
+      + q + '|'
+      + levels.map(k => (sev[k] ? '1' : '0')).join('') + '|'
+      + activePats.join(',');
+    if (_logLiveMemo && _logLiveMemo.sig === sig) {
+      return _logLiveMemo;
     }
-    return this.logLines.filter(l => {
-      if (!allSevOn && !sev[this.logSeverity(l)]) {
-        return false;
+    const patDefs = this.logPatternDefs || [];
+    const patRe = {};
+    const patCounts = {};
+    for (const def of patDefs) {
+      const re = this._getLogPatternRegex(def.id);
+      if (re) {
+        patRe[def.id] = re;
       }
-      if (q && !l.text.toLowerCase().includes(q)) {
-        return false;
+      patCounts[def.id] = 0;
+    }
+    const sevCounts = {};
+    for (const k of levels) {
+      sevCounts[k] = 0;
+    }
+    const filtered = [];
+    for (const l of lines) {
+      const s = this.logSeverity(l);
+      if (sevCounts[s] != null) {
+        sevCounts[s]++;
+      }
+      const text = (l && (l.text || l.body || l.msg || '')) + '';
+      for (const def of patDefs) {
+        const re = patRe[def.id];
+        if (re && re.test(text)) {
+          patCounts[def.id]++;
+        }
+      }
+      // Apply the active filter (same predicate the old filteredLogLines used).
+      if (!allSevOn && !sev[s]) {
+        continue;
+      }
+      if (q && !text.toLowerCase().includes(q)) {
+        continue;
       }
       if (activePats.length && !this._lineMatchesAnyPattern(l, activePats)) {
-        return false;
+        continue;
       }
-      return true;
-    });
+      filtered.push(l);
+    }
+    _logLiveMemo = {sig, filtered, sevCounts, patCounts};
+    if (!_logLiveMemoScheduled) {
+      _logLiveMemoScheduled = true;
+      queueMicrotask(() => {
+        _logLiveMemo = null;
+        _logLiveMemoScheduled = false;
+      });
+    }
+    return _logLiveMemo;
   },
   // ---- Log pattern chip filter ---------------------------------
   // Resolve the set of currently-active pattern IDs (those whose
@@ -310,18 +379,10 @@ export default {
   // this chip surface if you click it" rather than "how many lines
   // are visible right now".
   logPatternCount(id) {
-    const re = this._getLogPatternRegex(id);
-    if (!re) {
-      return 0;
-    }
-    let n = 0;
-    for (const l of (this.logLines || [])) {
-      const text = (l && (l.text || l.body || l.msg || '')) + '';
-      if (re.test(text)) {
-        n++;
-      }
-    }
-    return n;
+    // Reads the per-flush single-pass memo (ADMIN-PERF-03) instead of walking
+    // logLines per chip. Falls back to 0 for an unknown id.
+    const c = this._logLiveStats().patCounts;
+    return (c && c[id]) || 0;
   },
   // Same shape for the Files tab — counts parsed file rows
   // matching the pattern.
@@ -376,13 +437,9 @@ export default {
   // in the per-pill counter chips). Walks logLines once per call —
   // the list is small (capped ring buffer) so this is cheap.
   logSeverityCount(level) {
-    let n = 0;
-    for (const l of (this.logLines || [])) {
-      if (this.logSeverity(l) === level) {
-        n++;
-      }
-    }
-    return n;
+    // Reads the per-flush single-pass memo (ADMIN-PERF-03).
+    const c = this._logLiveStats().sevCounts;
+    return (c && c[level]) || 0;
   },
   setAllLogSeverity(on) {
     for (const k of this.logSeverityLevels) {

@@ -60,6 +60,19 @@ function _clearHostEnabledAgentsFlushCache() {
   _hostEnabledAgentsFlushScheduled = false;
 }
 
+// Per-flush memo for curatedHostProviderChips() — the Admin → Hosts editor
+// reads it twice per (paginated) row each flush (the chip x-for + the
+// empty-state .length check), each walking _PROVIDER_DEFS + def.curatedGate.
+// Cached on the stable row ref (rows reconcile in place), cleared on the next
+// microtask. Same shape as _hostEnabledAgentsFlushCache. (ADMIN-PERF-08.)
+let _curatedChipsFlushCache = null;
+let _curatedChipsFlushScheduled = false;
+
+function _clearCuratedChipsFlushCache() {
+  _curatedChipsFlushCache = null;
+  _curatedChipsFlushScheduled = false;
+}
+
 export default {
   // ----- Stacks / Services / Nodes drawer debug panel ----------
   // Shared helpers keyed by `kind:id`. `kind` is 'item' (covers
@@ -660,12 +673,27 @@ export default {
     if (!row) {
       return [];
     }
+    // Per-flush memo keyed on the row ref (see _curatedChipsFlushCache decl) —
+    // collapses the 2 reads/row/flush (chip x-for + empty-state .length) to one
+    // _PROVIDER_DEFS walk per row per flush.
+    if (_curatedChipsFlushCache === null) {
+      _curatedChipsFlushCache = new Map();
+      if (!_curatedChipsFlushScheduled) {
+        _curatedChipsFlushScheduled = true;
+        queueMicrotask(_clearCuratedChipsFlushCache);
+      }
+    }
+    const hit = _curatedChipsFlushCache.get(row);
+    if (hit !== undefined) {
+      return hit;
+    }
     const out = [];
     for (const def of this._PROVIDER_DEFS) {
       if (def.curatedGate(row)) {
         out.push({name: def.name, label: this._providerLabel(def)});
       }
     }
+    _curatedChipsFlushCache.set(row, out);
     return out;
   },
   // Resolve a provider def's display label via i18n. The canonical

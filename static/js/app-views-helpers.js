@@ -40,6 +40,15 @@ const _topologyGroupsMemo = new WeakMap();
 // (no freeze). WeakMap auto-GCs when a host's apps array is replaced/dropped.
 const _sortedHostAppsMemo = new WeakMap();
 
+// Per-flush memo for _sortRows() — the admin tables (sortedUsers/Sessions/
+// Tokens) + backups/schedules call it as their x-for source every flush,
+// re-allocating + re-sorting a copy each time. Keyed on the rows array ref
+// (sub-checked by col+dir); rows reconcile in place so the ref is stable
+// within a flush and busts on wholesale reload. Cleared on the next
+// microtask. (ADMIN-PERF-10.)
+let _sortRowsFlushCache = null;
+let _sortRowsFlushScheduled = false;
+
 export default {
   itemSubline(item) {
     // Node hostname is rendered by the topology chip strip below,
@@ -189,6 +198,22 @@ export default {
     }
     const col = sortObj.col;
     const dir = (sortObj.dir === 'asc') ? 1 : -1;
+    // Per-flush memo (see _sortRowsFlushCache decl): reuse the sorted copy
+    // while the rows ref + sort spec are unchanged within the flush.
+    if (_sortRowsFlushCache === null) {
+      _sortRowsFlushCache = new Map();
+      if (!_sortRowsFlushScheduled) {
+        _sortRowsFlushScheduled = true;
+        queueMicrotask(() => {
+          _sortRowsFlushCache = null;
+          _sortRowsFlushScheduled = false;
+        });
+      }
+    }
+    const cached = _sortRowsFlushCache.get(rows);
+    if (cached && cached.col === col && cached.dir === dir) {
+      return cached.result;
+    }
     const out = rows.slice();
     out.sort((a, b) => {
       const av = this._sortValue(a, col);
@@ -210,6 +235,7 @@ export default {
       }
       return 0;
     });
+    _sortRowsFlushCache.set(rows, {col, dir, result: out});
     return out;
   },
   toggleStack(name) {

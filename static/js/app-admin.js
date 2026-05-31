@@ -45,6 +45,23 @@
 // live inside the Stacks/Services x-for, which re-renders on the sparks poll.
 const _sparkPointsMemo = new WeakMap();
 
+// Identity-memo for the Logs Files-tab parse. parsedLogFileLines() is read
+// ~15x per reactive flush (the x-for source + the severity/pattern count
+// helpers x12 + the length checks) and re-split + regex-parsed the whole file
+// body from scratch each time. logFileBody only changes on a file load / tail
+// poll — NOT on every flush — so key the parsed array on the body STRING
+// identity: a cache hit returns the prior array instantly, a miss (new body)
+// re-parses once. Same shape as the in-tree _filteredHostsConfigCache. Plain
+// object (not WeakMap) because the key is a string, not an object ref.
+let _parsedLogFileCache = {key: null, value: []};
+
+// Identity-cache for the parsed host_stats_source CSV. hasHostStatsSource() is
+// called ~77x per flush across the Providers tab's :checked/:disabled/:class
+// bindings; pre-fix each split the CSV + allocated arrays. Rebuild the Set only
+// when the CSV string itself changes (a Save / settings:updated), so the 77
+// calls become O(1) Set.has lookups. (ADMIN-PERF-06.)
+let _hostStatsSourceCache = {key: null, set: new Set()};
+
 export default {
 
   // -----------------------------------------------------------------
@@ -804,7 +821,12 @@ export default {
       return !!this.settings.service_probe_enabled;
     }
     const raw = this.settings.host_stats_source || '';
-    return raw.split(',').map(s => s.trim()).includes(name);
+    // Rebuild the parsed Set only when the CSV string changes (see
+    // _hostStatsSourceCache decl) — the ~77 calls/flush then hit a cached Set.
+    if (_hostStatsSourceCache.key !== raw) {
+      _hostStatsSourceCache = {key: raw, set: new Set(raw.split(',').map(s => s.trim()).filter(Boolean))};
+    }
+    return _hostStatsSourceCache.set.has(name);
   },
   // single source of truth for the disabled gate
   // shared by every per-provider admin panel's tuning-knob inputs.
@@ -1111,6 +1133,12 @@ export default {
     if (!body) {
       return [];
     }
+    // Identity-memo: return the cached parse while logFileBody is unchanged
+    // (it only changes on file load / tail poll). Collapses the ~15 calls per
+    // flush to one parse per actual body change. See _parsedLogFileCache decl.
+    if (_parsedLogFileCache.key === body) {
+      return _parsedLogFileCache.value;
+    }
     const lines = body.split('\n');
     // ISO ts + 1 or more spaces + LEVEL token + space + rest.
     // Named capture groups (`?<name>`) — JSHint's E016 rule predates
@@ -1138,6 +1166,7 @@ export default {
         out.push({ts: 0, stream: 'file', level: 'info', text: raw});
       }
     }
+    _parsedLogFileCache = {key: body, value: out};
     return out;
   },
   // Same severity filter applied to the Files-tab parsed lines. Uses
@@ -1973,7 +2002,7 @@ export default {
     try {
       const r = await fetch('/api/settings');
       const d = await r.json();
-      this.settings = {
+      const _nextSettings = {
         apprise_url: d.apprise_url || '',
         apprise_tag: d.apprise_tag || '',
         swarm_autoheal_action: (d.swarm_autoheal_action === 'restart') ? 'restart' : 'notify',
@@ -2133,6 +2162,19 @@ export default {
         ai_active_provider: (d.ai && d.ai.active_provider) || 'claude',
         ai_max_tokens: (d.ai && Number.isFinite(+d.ai.max_tokens) && +d.ai.max_tokens > 0) ? +d.ai.max_tokens : 1024,
       };
+      // In-place reconcile (NOT `this.settings = {...}`) so the object identity
+      // is preserved. A wholesale reassignment makes Alpine re-evaluate EVERY
+      // settings-bound binding across all admin tabs on each settings-tab open
+      // AND on each cross-tab settings:updated SSE; field-by-field assignment
+      // keeps the proxy identity so only the keys that actually changed flush.
+      // (ADMIN-PERF-07 + ADMIN-PERF-18.)
+      if (!this.settings || typeof this.settings !== 'object') {
+        this.settings = _nextSettings;
+      } else {
+        for (const _k of Object.keys(_nextSettings)) {
+          this.settings[_k] = _nextSettings[_k];
+        }
+      }
       // Hydrate per-event notification toggles from the GET response.
       // The api_get_settings handler resolves each through
       // get_setting_bool (default true) so we get clean booleans
