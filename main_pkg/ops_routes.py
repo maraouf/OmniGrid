@@ -1546,6 +1546,19 @@ class SettingsIn(BaseModel):
     swarm_autoheal_bootstrap_enabled: Optional[str] = None
     tuning_stats_history_days: Optional[str] = None
     tuning_stats_sample_interval_seconds: Optional[str] = None
+    # Stats -> Database growth projection knobs. WITHOUT these SettingsIn
+    # fields, a POST /api/settings carrying them is silently dropped by
+    # Pydantic's extra="ignore" — the green toast lies and the custom
+    # value never persists (the documented green-toast-lie drift class).
+    tuning_db_size_sample_interval_seconds: Optional[str] = None
+    tuning_db_size_history_days: Optional[str] = None
+    # Service-probe (8th host-stats provider) knobs — these were rendered
+    # in the Config form + dirty-tracked but missing here, so saving them
+    # was a silent no-op until this was backfilled.
+    tuning_service_probe_sample_interval_seconds: Optional[str] = None
+    tuning_service_probe_concurrency: Optional[str] = None
+    tuning_service_probe_timeout_seconds: Optional[str] = None
+    tuning_service_probe_failure_pause_rounds: Optional[str] = None
     tuning_host_baseline_recompute_interval_seconds: Optional[str] = None
     tuning_host_baseline_first_tick_delay_seconds: Optional[str] = None
     tuning_kick_gather_timeout_seconds: Optional[str] = None
