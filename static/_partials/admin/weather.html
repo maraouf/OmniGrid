@@ -149,7 +149,7 @@
          save_requires_test hint stays below (weather's Save gate is
          canSaveWeather). -->
     <div class="mb-2"
-         x-data="{ tcRun: () => testWeather(), tcResult: () => (weatherTesting ? { pending: true } : ((weatherTestResult && weatherTestResult.detail) ? { pending: false, ok: weatherTestResult.ok, detail: weatherTestResult.detail } : null)), tcDisabled: () => (isReadonly() || !settings.weather_enabled) }">
+         x-data="{ tcRun: () => testWeather(), tcResult: () => (weatherTesting ? { pending: true } : ((weatherTestResult && weatherTestResult.detail) ? { pending: false, ok: weatherTestResult.ok, detail: weatherTestResult.detail } : null)), tcDisabled: () => (isReadonly() || !settings.weather_enabled), tcSuccessKey: 'weather' }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
     <div x-show="settings.weather_enabled && !canSaveWeather()"

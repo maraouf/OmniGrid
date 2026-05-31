@@ -286,6 +286,16 @@
                   class="nav-offline-badge"
                   :title="t('nav.offline_title', { count: counts.offline }) || (counts.offline + ' offline service(s)')"
                   x-text="counts.offline"></span>
+            <!-- Down-host counter — the Hosts-nav twin of the Services
+                 offline badge. Counts curated hosts in a RED status
+                 (down / unknown) via hostsDownCount(); same red footprint
+                 so actionable host failures land at a glance. The count is
+                 primed once on boot + kept live by the Hosts poll / SSE
+                 failure-state events. -->
+            <span x-show="nav[0]==='hosts' && hostsDownCount() > 0"
+                  class="nav-offline-badge"
+                  :title="t('nav.hosts_down_title', { count: hostsDownCount() }) || (hostsDownCount() + ' host(s) down')"
+                  x-text="hostsDownCount()"></span>
           </button>
         </template>
       </nav>
@@ -1934,21 +1944,23 @@
         <span class="hosts-bulk-bar-count"
               x-text="t('hosts_extra.bulk.selected', { count: selectedHosts.size }) || (selectedHosts.size + ' selected')"></span>
         <button type="button" @click="bulkResumeHosts()"
+                :disabled="hostsBulkBusy !== null"
                 class="btn btn-soft fs-sm"
                 :title="t('hosts_extra.bulk.resume_title') || 'Resume sampling on selected hosts'">
-          <svg width="11" height="11" aria-hidden="true">
+          <svg width="11" height="11" :class="hostsBulkBusy === 'resume' ? 'spin-md' : ''" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/>
           </svg>
-          <span x-text="t('hosts_extra.bulk.resume') || 'Resume'"></span>
+          <span x-text="hostsBulkBusy === 'resume' ? (t('hosts_extra.bulk.resuming') || 'Resuming…') : (t('hosts_extra.bulk.resume') || 'Resume')"></span>
         </button>
         <button type="button" @click="bulkPauseHosts()"
+                :disabled="hostsBulkBusy !== null"
                 class="btn btn-warning fs-sm"
                 :title="t('hosts_extra.bulk.pause_title') || 'Pause sampling on selected hosts'">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+          <svg width="11" height="11" :class="hostsBulkBusy === 'pause' ? 'spin-md' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
             <rect x="6" y="4" width="4" height="16"/>
             <rect x="14" y="4" width="4" height="16"/>
           </svg>
-          <span x-text="t('hosts_extra.bulk.pause') || 'Pause'"></span>
+          <span x-text="hostsBulkBusy === 'pause' ? (t('hosts_extra.bulk.pausing') || 'Pausing…') : (t('hosts_extra.bulk.pause') || 'Pause')"></span>
         </button>
         <!-- Visual separator between sampler-state actions (Resume /
              Pause — affect runtime sampling) and SNMP-config actions
@@ -2541,7 +2553,21 @@
                          class="text-[var(--danger)]"
                          aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
                   </span>
-                        <span x-show="!h.sampling_paused && h._probe_timeout"
+                        <!-- Resuming (blue, spinning) — post-Resume re-probe
+                             window. Distinct from the red paused badge so a
+                             just-resumed host reads as "collecting data",
+                             not "still down". Ranks below paused, above the
+                             transient probe-timeout / stale badges. -->
+                        <span x-show="!h.sampling_paused && hostResuming(h)"
+                              role="img"
+                              class="inline-flex flex-shrink-0 cursor-help"
+                              :title="t('hosts_extra.resuming.badge_title')"
+                              :aria-label="t('hosts_extra.resuming.badge_title')">
+                    <svg width="12" height="12"
+                         class="text-[var(--info)] spin-md"
+                         aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
+                  </span>
+                        <span x-show="!h.sampling_paused && !hostResuming(h) && h._probe_timeout"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
                               :title="t('hosts_extra.probe_timeout.badge_title_full')"
@@ -2550,7 +2576,7 @@
                          class="text-[var(--warning)]"
                          aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/></svg>
                   </span>
-                        <span x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
+                        <span x-show="!h.sampling_paused && !hostResuming(h) && !h._probe_timeout && isStale(h)"
                               role="img"
                               class="inline-flex flex-shrink-0 cursor-help"
                               :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
@@ -2877,6 +2903,21 @@
                            class="text-[var(--danger)]"
                            aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/></svg>
                     </span>
+                          <!-- Resuming badge (blue, spinning) — the
+                         post-Resume re-probe window. Distinct from the
+                         red paused badge so a just-resumed host reads as
+                         "collecting probe data", not "still down". Ranks
+                         below paused, above the transient probe-timeout /
+                         stale badges. See hostResuming(). -->
+                          <span x-show="!h.sampling_paused && hostResuming(h)"
+                                role="img"
+                                class="inline-flex flex-shrink-0 cursor-help"
+                                :title="t('hosts_extra.resuming.badge_title')"
+                                :aria-label="t('hosts_extra.resuming.badge_title')">
+                      <svg width="13" height="13"
+                           class="text-[var(--info)] spin-md"
+                           aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/></svg>
+                    </span>
                           <!-- Probe-timeout badge — fires when the SPA's
                          per-host /api/hosts/one/{id} call returned
                          HTTP 504 (per-host probe budget exceeded).
@@ -2886,7 +2927,7 @@
                          stale (warning) in priority, with its own
                          hourglass glyph so the operator sees a
                          distinct "actively timing out" signal. -->
-                          <span x-show="!h.sampling_paused && h._probe_timeout"
+                          <span x-show="!h.sampling_paused && !hostResuming(h) && h._probe_timeout"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
                                 :title="t('hosts_extra.probe_timeout.badge_title_full')"
@@ -2903,7 +2944,7 @@
                          (paused = --danger red) — so a host that's
                          BOTH paused and stale leads with the more
                          severe state. -->
-                          <span x-show="!h.sampling_paused && !h._probe_timeout && isStale(h)"
+                          <span x-show="!h.sampling_paused && !hostResuming(h) && !h._probe_timeout && isStale(h)"
                                 role="img"
                                 class="inline-flex flex-shrink-0 cursor-help"
                                 :title="t('hosts_extra.stale_marker.badge_title_full', { age: staleAge(h), fields: ((h._stale_fields || []).join(', ') || '—') })"
@@ -5715,6 +5756,22 @@
                               :aria-expanded="!!hostBeszelServicesOpen[h.id]">
                         <span x-text="hostBeszelServicesOpen[h.id] ? t('host_drawer.beszel_services.hide') : t('host_drawer.beszel_services.show')"></span>
                       </button>
+                      <!-- Live re-probe — fetches /beszel/services?refresh=1
+                           so the Beszel hub is queried fresh + the per-unit
+                           table upserted before the read. Lets an operator
+                           who just fixed a failed unit confirm it's back
+                           without waiting for the next sampler tick. Shown
+                           only while the pane is open. -->
+                      <button type="button"
+                              x-show="hostBeszelServicesOpen[h.id]"
+                              @click.stop="loadHostBeszelServices(h.id, true)"
+                              :disabled="hostsBeszelServicesLoading[h.id]"
+                              class="btn btn-ghost btn-xs fs-2xs ms-1 mt-1 inline-flex items-center gap-1"
+                              :title="t('host_drawer.beszel_services.refresh_title')"
+                              :aria-label="t('host_drawer.beszel_services.refresh_title')">
+                        <svg width="11" height="11" :class="hostsBeszelServicesLoading[h.id] ? 'spin-md' : ''" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/></svg>
+                        <span x-text="t('host_drawer.beszel_services.refresh')"></span>
+                      </button>
                     </dd>
                   </template>
                 </dl>
@@ -5944,20 +6001,36 @@
                       x-text="t('host_drawer.apps.title') || 'Apps'"></h3>
                   <span class="chip pill-info fs-3xs ms-2"
                         x-text="t('host_drawer.apps.up_count', { up: (h.apps || []).filter(a => a.status === 'up').length, total: (h.apps || []).length })"></span>
-                  <!-- Probe all — always-visible, clearly-labelled control to
-                       probe every app on this host in one click (the per-tile
-                       refresh icons are compact + easy to miss). Admin-only;
-                       spins + disables only while its own batch runs. -->
-                  <button type="button" x-show="isAdmin()"
-                          class="btn btn-soft fs-2xs inline-flex items-center gap-1 ms-auto"
-                          :disabled="hostAppsProbingAll(h)"
-                          @click.stop="probeAllHostApps(h)"
-                          :title="t('host_drawer.apps.probe_all_title') || 'Probe every app on this host now'">
-                    <svg width="12" height="12" :class="hostAppsProbingAll(h) ? 'spin-md' : ''" aria-hidden="true">
-                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                    </svg>
-                    <span x-text="t('host_drawer.apps.probe_all', { n: (h.apps || []).length }) || ('Probe all (' + (h.apps || []).length + ')')"></span>
-                  </button>
+                  <!-- Probe controls — grouped + right-aligned. "Probe
+                       failed" (shown only when ≥1 app is down) re-probes
+                       ONLY the non-up services — the common "I fixed the
+                       down ones, are they back?" case without re-probing
+                       the whole mostly-up list. "Probe all" hits every app.
+                       Admin-only; both share the per-host probing flag so
+                       they spin + disable together while a batch runs. -->
+                  <div class="ms-auto flex items-center gap-2" x-show="isAdmin()">
+                    <button type="button"
+                            x-show="(h.apps || []).some(a => a && a.status && a.status !== 'up')"
+                            class="btn btn-warning fs-2xs inline-flex items-center gap-1"
+                            :disabled="hostAppsProbingAll(h)"
+                            @click.stop="probeFailedHostApps(h)"
+                            :title="t('host_drawer.apps.probe_failed_title') || 'Re-probe only the down services on this host'">
+                      <svg width="12" height="12" :class="hostAppsProbingAll(h) ? 'spin-md' : ''" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                      </svg>
+                      <span x-text="t('host_drawer.apps.probe_failed_btn', { n: (h.apps || []).filter(a => a && a.status && a.status !== 'up').length }) || ('Probe failed (' + (h.apps || []).filter(a => a && a.status && a.status !== 'up').length + ')')"></span>
+                    </button>
+                    <button type="button"
+                            class="btn btn-soft fs-2xs inline-flex items-center gap-1"
+                            :disabled="hostAppsProbingAll(h)"
+                            @click.stop="probeAllHostApps(h)"
+                            :title="t('host_drawer.apps.probe_all_title') || 'Probe every app on this host now'">
+                      <svg width="12" height="12" :class="hostAppsProbingAll(h) ? 'spin-md' : ''" aria-hidden="true">
+                        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                      </svg>
+                      <span x-text="t('host_drawer.apps.probe_all', { n: (h.apps || []).length }) || ('Probe all (' + (h.apps || []).length + ')')"></span>
+                    </button>
+                  </div>
                 </header>
                 <!-- Compact wrapping tiles — each app is one inline tile that
                      flows + wraps (multiple per row) instead of taking a full

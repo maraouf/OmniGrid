@@ -1190,6 +1190,11 @@ export default {
       if (host.provider_pause_state && host.provider_pause_state[name]) {
         host.provider_pause_state[name].paused = false;
       }
+      // Mark the post-resume re-probing window so the row shows the
+      // distinct blue resuming badge (not red) until fresh data lands —
+      // see hostResuming(). Covers resumeAllProviders too (it fans out
+      // resumeProvider per paused provider).
+      host._resumePending = Date.now();
       this.showToast(this.t('hosts_extra.provider_resumed', {
         provider: name,
         host: this.hostDisplayName(host) || host.id,

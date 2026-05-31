@@ -79,6 +79,29 @@ export default {
       ['history', this.t('nav.history')],
     ];
   },
+  // Count of curated hosts in a RED (actionable-failure) status — `down`
+  // (a provider reported the host unreachable) or `unknown` (providers ARE
+  // mapped but every probe came back empty). Mirrors the Services nav's
+  // `counts.offline` red badge so the Hosts nav surfaces actionable
+  // failures at a glance. `paused` (amber — operator/auto-paused, not a
+  // live failure) and `loading` / `unconfigured` (grey) are NOT counted.
+  // One O(hosts) pass per flush; the nav is always rendered so keep it
+  // cheap (no per-host work, just a status read). `this.hosts` is primed
+  // once on boot + kept live by the 15s poll / SSE failure-state events.
+  hostsDownCount() {
+    const hs = this.hosts;
+    if (!Array.isArray(hs)) {
+      return 0;
+    }
+    let n = 0;
+    for (const h of hs) {
+      const s = h && h.status;
+      if (s === 'down' || s === 'unknown') {
+        n++;
+      }
+    }
+    return n;
+  },
   // Inner-SVG markup for each top-nav icon. Returned as an HTML
   // string rendered via `x-html` on a shared <svg> wrapper so the
   // stroke / viewBox / size stay consistent. Lucide-derived shapes —
@@ -2516,7 +2539,7 @@ export default {
         }
       }
     }
-    return this.t('admin.last_connected_label', {rel: rel}) || `Last connected ${rel}`;
+    return this.t('admin.last_connected_label', {rel: rel}) || `Last tested ${rel}`;
   },
 
   // list of curated hosts that have ping enabled. Pulled from

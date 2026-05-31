@@ -2155,6 +2155,14 @@ export default {
     if (size === 'half' || size === 'normal' || size === 'double' || size === 'xlarge') {
       out.size = size;
     }
+    // HEIGHT preset (short / tall) — must be whitelisted here or it's
+    // stripped on every normalize pass, so a card's height reverted on
+    // reload while its width (size, above) persisted. This sanitizer is
+    // the single choke point for opts on BOTH load and save.
+    const height = String(raw.height || '').toLowerCase();
+    if (height === 'short' || height === 'tall') {
+      out.height = height;
+    }
     if (typeof raw.follow_user === 'boolean') {
       out.follow_user = raw.follow_user;
     }

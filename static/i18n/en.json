@@ -88,6 +88,7 @@
     "stats": "Stats",
     "stacks_updates_title": "{count} pending update(s)",
     "offline_title": "{count} offline service(s)",
+    "hosts_down_title": "{count} host(s) down",
     "apps": "Apps"
   },
   "avatar": {
@@ -1389,7 +1390,7 @@
   },
   "admin": {
     "intro": "User accounts, active sessions, and API tokens. Destructive actions prompt for confirmation.",
-    "last_connected_label": "Last connected: {rel}",
+    "last_connected_label": "Last tested: {rel}",
     "nodes": {
       "prune_prompt_title": "Prune {host}?",
       "prune_prompt_html": "<div style=\"text-align:left\"><p>Run <code>docker system prune -af --volumes</code> on <strong>{host}</strong>?</p><p>This deletes all stopped containers, unused networks, dangling images, and unreferenced volumes. Active services are not affected.</p></div>"
@@ -3423,6 +3424,7 @@
       "selected": "{count} selected",
       "row_select_aria": "Select host {name}",
       "pause": "Pause",
+      "pausing": "Pausing…",
       "pause_title": "Pause sampling on selected hosts (sampler skips them until resumed)",
       "pause_confirm_title": "Pause sampling?",
       "pause_confirm_body": "Pause sampling on {count} host(s)? The lifespan-managed sampler will skip every selected host until you Resume.",
@@ -3430,6 +3432,7 @@
       "pause_confirm_ok": "Pause",
       "pause_success": "Sampling paused on {applied} host(s)",
       "resume": "Resume",
+      "resuming": "Resuming…",
       "resume_title": "Resume sampling on selected hosts (clears auto-pause + per-provider markers)",
       "resume_success": "Sampling resumed on {applied} host(s)",
       "snmp_vendors": "SNMP vendors",
@@ -3480,6 +3483,9 @@
     "probe_timeout": {
       "badge_title": "Per-host probe budget exceeded (HTTP 504) — backed off for ~60s before the next attempt",
       "badge_title_full": "Probe took longer than the 30s budget (HTTP 504). Common cause: slow SNMP walk against a chassis with a long iface table, or a Webmin / Beszel hub mid-restart. Auto-retries in ~60s; click row to force a refresh."
+    },
+    "resuming": {
+      "badge_title": "Resuming — sampling was just resumed, collecting fresh probe data. The status will settle to up or down once the next probe lands."
     },
     "health": {
       "chip_title": "Health score: {score}/100. Worst axis: {worst}. Click to expand the breakdown.",
@@ -3771,6 +3777,8 @@
     "beszel_services": {
       "show": "Show services",
       "hide": "Hide services",
+      "refresh": "Refresh",
+      "refresh_title": "Re-probe the Beszel hub now for fresh per-unit status (e.g. to confirm a unit you just fixed is back up)",
       "loading": "Loading services…",
       "error": "Failed to load services: {error}",
       "empty": "No tracked systemd units for this host yet.",
@@ -4097,6 +4105,10 @@
       "probe_all": "Probe all ({n})",
       "probe_all_title": "Probe every app on this host now",
       "probe_all_done": "Probed {total} apps — {up} up",
+      "probe_failed_btn": "Probe failed ({n})",
+      "probe_failed_title": "Re-probe only the down services on this host (to check if they recovered)",
+      "probe_failed_done": "Re-probed {total} down — {up} now up",
+      "probe_failed_none": "No down services to re-probe",
       "last_seen": "seen {ago} ago",
       "down_suffix": "down",
       "degraded_suffix": "degraded",

@@ -323,6 +323,7 @@ async def api_hosts_http_probe_test_row(
 async def api_hosts_beszel_services(
     host_id: str,
     _admin: AdminUser,
+    refresh: bool = False,
 ):
     """Per-unit Beszel systemd-services snapshot for one curated host.
 
@@ -351,7 +352,15 @@ async def api_hosts_beszel_services(
         raise HTTPException(400, "host_id required")
     from logic import host_beszel_sampler as _hbs
     try:
-        services = _hbs.services_for_host(hid)
+        # `?refresh=1` → live re-probe the Beszel hub + persist this
+        # host's per-unit rows before reading, so an operator who just
+        # fixed a failed unit sees it flip to active immediately instead
+        # of waiting for the next sampler tick. Default reads the cached
+        # (sampler-written) table.
+        if refresh:
+            services = await _hbs.refresh_services_now(hid)
+        else:
+            services = _hbs.services_for_host(hid)
     except Exception as e:  # noqa: BLE001
         return {"services": [], "error": f"host_beszel_services: {e}"}
     return {"services": services, "error": None}

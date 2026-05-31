@@ -1365,6 +1365,8 @@ async def api_me(request: Request):
                 for key in (
                     "portainer", "oidc", "beszel", "pulse",
                     "webmin", "snmp", "ping", "asset_inventory",
+                    "apprise", "telegram", "weather", "public_ip",
+                    "ai_claude", "ai_gemini", "ai_chatgpt", "ai_deepseek",
                 )
             },
             # Scheduler-tz state so the admin Schedules tab can badge

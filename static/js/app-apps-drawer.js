@@ -508,6 +508,53 @@ export default {
     }
   },
 
+  // Probe ONLY the failed / down apps on a host — the common case is
+  // "I just fixed the down ones, are they back up?" without re-probing
+  // the whole (mostly-up) list. Filters to apps whose status is set and
+  // not 'up' (down / unknown / degraded); otherwise identical to
+  // probeAllHostApps (silent per-app + one refresh + one summary toast).
+  // Shares the `_hostAppsProbingAll[h.id]` busy flag so it can't overlap
+  // a probe-all run.
+  async probeFailedHostApps(h) {
+    if (!h || !Array.isArray(h.apps) || !h.apps.length) {
+      return;
+    }
+    if (!this._hostAppsProbingAll) {
+      this._hostAppsProbingAll = {};
+    }
+    if (this._hostAppsProbingAll[h.id]) {
+      return;
+    }
+    const failedIdxs = h.apps
+      .filter((a) => a && a.status && a.status !== 'up' && a.service_idx != null)
+      .map((a) => a.service_idx);
+    if (!failedIdxs.length) {
+      if (typeof this.toast === 'function') {
+        this.toast(this.t('host_drawer.apps.probe_failed_none') || 'No down services to re-probe', 'success');
+      }
+      return;
+    }
+    this._hostAppsProbingAll[h.id] = true;
+    try {
+      for (const idx of failedIdxs) {
+        await this.probeAppNow(h, idx, {silent: true, skipRefresh: true});
+      }
+      if (typeof this.refreshHostRow === 'function') {
+        await this.refreshHostRow(h.id, {force: true}).catch(() => undefined);
+      }
+      if (typeof this.toast === 'function') {
+        const apps = Array.isArray(h.apps) ? h.apps : [];
+        const probed = failedIdxs.length;
+        const up = apps.filter((a) => a && failedIdxs.includes(a.service_idx) && a.status === 'up').length;
+        const msg = this.t('host_drawer.apps.probe_failed_done', {up: up, total: probed})
+          || ('Re-probed ' + probed + ' down — ' + up + ' now up');
+        this.toast(msg, 'success');
+      }
+    } finally {
+      this._hostAppsProbingAll[h.id] = false;
+    }
+  },
+
   // ----------------------------------------------------------------
   // Apps-VIEW per-app bulk actions — "Probe all (N)" + "Open all".
   // These live on the top-level Apps card (one card = one catalog

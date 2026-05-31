@@ -782,6 +782,11 @@ export default {
       // Toast a one-line summary so the operator sees the outcome
       // even without scrolling to the per-card chip.
       if (this.aiTestState[name].result.ok) {
+        // Optimistic last-tested stamp (the backend /api/admin/ai/{name}/test
+        // also persists last_test_success_ai_<name> for cross-reload).
+        if (this.recordTestSuccess) {
+          this.recordTestSuccess('ai_' + name);
+        }
         this.showToast(this.t('admin.ai.test_ok') + ' · ' + this.aiProviderDisplayName(name), 'success');
       } else {
         this.showToast(

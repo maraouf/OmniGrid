@@ -670,12 +670,17 @@ async def api_admin_ai_test(
         (body.get("base_url") or "").strip()
         or (get_setting(ai_provider_base_url_key(p)) or "").strip()
     )
-    return await _ai.test_provider(
+    result = await _ai.test_provider(
         p,
         api_key=api_key,
         model=model,
         base_url=base_url,
     )
+    # Stamp last_test_success_ai_<provider> on ok so the per-provider
+    # "Last tested" label persists cross-reload (surfaced via /api/me's
+    # client_config.last_test_success). Key matches the SPA's
+    # tcSuccessKey 'ai_' + name.
+    return _stamp_test_success("ai_" + p, result, target=p)
 
 
 class AiPaletteIn(BaseModel):

@@ -1825,7 +1825,7 @@ _WMO_CODES: dict[int, tuple[str, str]] = {
 
 
 @app.get("/api/public-ip")
-async def api_public_ip(_admin: AdminUser, force: bool = False):
+async def api_public_ip(_admin: AdminUser, force: bool = False, test: bool = False):
     """Admin-only public-IP + ISP / ASN lookup. Standalone subsystem
     (NOT AI-related). The AI palette + Telegram /ip command both
     consume it but the feature owns its own Admin → Public IP section.
@@ -1879,6 +1879,16 @@ async def api_public_ip(_admin: AdminUser, force: bool = False):
             }
         return {"enabled": True, "error": "lookup failed — see Admin → Logs",
                 "last_change": last_change}
+    # Explicit operator Test action (?test=1) → stamp
+    # last_test_success_public_ip so the "Last tested" label persists
+    # cross-reload (surfaced via /api/me's client_config.last_test_success).
+    # The widget's own background fetches omit ?test so the label only
+    # advances on a real test, not on every refresh. Stamp via
+    # _stamp_test_success for its side-effect; the data return is unchanged.
+    if test:
+        _stamp_test_success("public_ip",
+                            {"ok": True, "detail": "public IP lookup ok", "status": 200},
+                            target="public_ip")
     return {"enabled": True, **data, "last_change": last_change}
 
 

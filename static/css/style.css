@@ -11505,22 +11505,24 @@ select.field-invalid {
   margin-top: 0;
 }
 
-/* Tall analog clock (DOUBLE or XLARGE width + tall HEIGHT) — a roomy
-   2-row tile gets a LARGER dial with the date + timezone stacked BELOW it
-   (column) instead of beside it, filling the vertical space. Both tall
-   widths qualify (a double-width 2-row tile is just as roomy as xlarge —
-   gating on xlarge ALONE left a double-tall tile with the small
-   side-by-side dial + date floating to the right, which read as a
-   regression). The 1-row short tiles (1x1 / 2x1 / 3x1 / 4x1) and the
-   narrower half/normal widths keep the centred side-by-side / wrap row.
-   The CSS width/height override the SVG's 120px geometry attributes (CSS
-   wins for <svg> sizing); the viewBox scales the dial content to fill. */
-.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog-wrap {
+/* Tall analog clock (NORMAL, DOUBLE or XLARGE width + tall HEIGHT) — a
+   roomy 2-row tile gets a LARGER 190px dial with the date + timezone
+   stacked BELOW it (column) instead of beside it, filling the vertical
+   space. All three roomy tall widths get the IDENTICAL experience so a
+   2x2 (normal-tall) and 3x2 (double-tall) clock look the same as the 4x2
+   (xlarge-tall) reference — gating on the wider sizes ALONE left the
+   normal-tall + double-tall tiles with the small side-by-side dial + date
+   floating to the right. The 1-row short tiles (1x1 / 2x1 / 3x1 / 4x1)
+   keep the centred side-by-side row; the narrowest half width (1x2) keeps
+   the default wrap-column (a 190px dial won't fit its ~180px width). The
+   CSS width/height override the SVG's 120px geometry attributes (CSS wins
+   for <svg> sizing); the viewBox scales the dial content to fill. */
+.apps-custom-cell:is(.apps-card--size-normal, .apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog-wrap {
   flex-direction: column;
   flex-wrap: nowrap;
   gap: var(--s-2);
 }
-.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
+.apps-custom-cell:is(.apps-card--size-normal, .apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-analog {
   width: 190px;
   height: 190px;
 }
