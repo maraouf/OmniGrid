@@ -17,17 +17,20 @@
 // Data source
 //   APC chips render a 5-stat panel (battery / output load /
 //   runtime / battery temperature / battery state) sourced from
-//   the curated host row's SNMP-derived fields:
-//     host.host_battery_percent       (0..100)
-//     host.host_load_percent          (0..100)
-//     host.host_battery_runtime_s     (seconds)
-//     host.host_battery_temp_c        (Celsius)
-//     host.host_ups_status            ('On Line' / 'On Battery' / ...)
-//     host.host_battery_status        ('Normal' / 'Low' / ...)
-//   No backend module needs to fetch anything -- the data is
-//   already on the merged host row by the time the Apps card
-//   renders. The companion `logic/apps/apc.py` is a SLUGS-only
-//   stub for the same reason.
+//   the `host_snmp_samples` DB table -- NOT the live host row.
+//   The card reads the per-app data the generic dispatcher
+//   fetched via `logic/apps/apc.py:fetch_data` (latest sample
+//   row for the pinned host), so it never triggers a per-card
+//   SNMP round-trip on the hot path. The fetch_data payload:
+//     available          (bool -- false on non-UPS / no row yet)
+//     battery_percent    (0..100)
+//     load_percent       (0..100)
+//     battery_runtime_s  (seconds)
+//     battery_temp_c     (Celsius)
+//     ups_status         ('On Line' / 'On Battery' / ...)
+//     battery_status     ('Normal' / 'Low' / ...)
+//   `hostUpsData(inst)` reads it via the generic, cache-backed
+//   `this.appsAppData(inst)` helper (same path Speedtest uses).
 //
 // Extender shape
 //   {slugs, cardSpan(app)} -- consumed by generic helpers
@@ -48,16 +51,6 @@ function isApcApp(app) {
     return true;
   }
   return (String(app.name || '').toLowerCase().indexOf('apc') !== -1);
-}
-
-// Predicate factory consumed by `Array.find` in `hostUpsData`.
-// Closes over the target host_id so the `find` callback stays
-// O(1) per element. Module scope keeps PyCharm's nested-function
-// inspection quiet.
-function _hostMatcher(targetId) {
-  return function _match(h) {
-    return Boolean(h) && h.id === targetId;
-  };
 }
 
 // Returns true when ANY UPS field is populated. Extracted from
@@ -82,92 +75,54 @@ function _hasAnyUpsData(batt, load, rt, temp, status) {
   return Boolean(status);
 }
 
-// Per-instance UPS data lookup -- finds the host the chip is
-// pinned to via `inst.host_id` against the SPA's `hosts` array,
-// pulls the six SNMP-populated UPS fields, returns null when
-// none are present (so the panel gate hides cleanly for
-// non-SNMP / non-UPS hosts that happen to be pinned to the APC
-// template by mistake).
+// Per-instance UPS data lookup -- reads the per-app data the
+// generic dispatcher fetched from the `host_snmp_samples` table
+// (via `logic/apps/apc.py:fetch_data`), NOT the live host row.
+// The card therefore renders from the DB sample and never
+// triggers a per-card SNMP round-trip on the hot path (the
+// operator's explicit requirement). Returns null when the
+// fetch is idle / pending / errored OR when the sample carries
+// no UPS field (a plain SNMP host pinned to the APC template by
+// mistake) so the panel gate hides cleanly.
 //
-// Cached per-(host_id) via a flush-memo so the O(N) host-array
-// walk runs once per render flush instead of N times per chip
-// instance. Memo clears on the next microtask (matches the
-// `filteredHosts` / `providerStates` memo pattern documented in
-// the project conventions).
-//
-// CRITICAL — the memo MUST live in MODULE SCOPE, never on the Alpine
-// component (`this._appsUpsCache`). `hostUpsData` is called from the
-// extras partial's `x-text` bindings, i.e. DURING a render. Writing a
-// reactive `this.*` property mid-render mutates tracked state, which
-// schedules another render, which re-runs `hostUpsData`, which writes
-// again — an infinite render loop that FROZE the entire UI the moment
-// the APC card mounted (the operator's "3rd app freezes everything").
-// Module-scope vars are NOT reactive, so the same populate-now /
-// clear-on-next-microtask memo is safe. This mirrors how
-// `filteredHosts` / `providerStates` keep their caches at module
-// scope for exactly this reason.
-let _upsCache = null;
-let _upsCachePending = false;
-
+// No module-scope memo is needed here: `this.appsAppData(inst)`
+// is itself cache-backed (per-(host_id, service_idx) in
+// `_appsDataCache`) and only READS from it during render — the
+// async `loadAppData` fetch it kicks on a cache-miss resolves
+// LATER (off the render path), so there's no mid-render reactive
+// write to loop on. Same contract Speedtest's extras partial
+// already relies on.
 function hostUpsData(inst) {
-  // `this` is the Alpine component (the function gets merged in via
-  // `appsHelpers`) — only READ from it (`this.hosts`), never write,
-  // so no reactive mutation happens during render. JSHint can't infer
-  // the bind so opt into `validthis` at function scope.
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  // JSHint can't infer the bind so opt into `validthis`.
   /* jshint validthis: true */
-  if (!inst || !inst.host_id) {
+  if (!inst || !this.appsAppData) {
     return null;
   }
-  if (!_upsCache) {
-    _upsCache = Object.create(null);
-    if (!_upsCachePending) {
-      _upsCachePending = true;
-      queueMicrotask(() => {
-        _upsCache = null;
-        _upsCachePending = false;
-      });
-    }
-  }
-  if (inst.host_id in _upsCache) {
-    return _upsCache[inst.host_id];
-  }
-  // `Array.find` replaces the for/break lookup so PyCharm's
-  // BreakStatementJS inspection stays quiet AND the intent
-  // reads more clearly ("find this host by id").
-  const hosts = Array.isArray(this.hosts) ? this.hosts : [];
-  const host = hosts.find(_hostMatcher(inst.host_id)) || null;
-  if (!host) {
-    _upsCache[inst.host_id] = null;
+  // appsAppData returns null while idle / pending / errored
+  // (sentinels filtered), else the fetch_data payload.
+  const d = this.appsAppData(inst);
+  if (!d || !d.available) {
     return null;
   }
-  // Gate: at least ONE UPS field must be populated. Otherwise
-  // the host is just an SNMP-probed non-UPS device pinned to
-  // the APC template by mistake -- render nothing rather than
-  // an empty panel of dashes. The multi-clause null-check is
-  // extracted to `_hasAnyUpsData` so PyCharm's
-  // OverlyComplexBooleanExpressionJS inspection stays quiet.
-  const batt = host.host_battery_percent;
-  const load = host.host_load_percent;
-  const rt = host.host_battery_runtime_s;
-  const temp = host.host_battery_temp_c;
-  const status = host.host_ups_status || host.host_battery_status || '';
+  const batt = d.battery_percent;
+  const load = d.load_percent;
+  const rt = d.battery_runtime_s;
+  const temp = d.battery_temp_c;
+  // Prefer output-status (On Line / On Battery) since it answers
+  // "is the UPS doing its job right now" better than the binary
+  // battery-status (Normal / Low); fall back to battery_status.
+  const status = String(d.ups_status || d.battery_status || '').trim();
   if (!_hasAnyUpsData(batt, load, rt, temp, status)) {
-    _upsCache[inst.host_id] = null;
     return null;
   }
-  const data = {
+  return {
     battery_percent: (batt == null) ? null : Number(batt),
     load_percent: (load == null) ? null : Number(load),
     runtime_s: (rt == null) ? null : Number(rt),
     battery_temp_c: (temp == null) ? null : Number(temp),
-    // Prefer output-status (On Line / On Battery) since it
-    // answers the "is the UPS doing its job right now" question
-    // better than the binary battery-status (Normal / Low).
-    // Fall back to battery_status if output is empty.
-    status: (host.host_ups_status || host.host_battery_status || '').trim(),
+    status: status,
   };
-  _upsCache[inst.host_id] = data;
-  return data;
 }
 
 // Format a runtime in seconds as "Nh Mm" / "Mm Ss" / "Ss" --

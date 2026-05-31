@@ -110,7 +110,7 @@
             <input type="checkbox"
                    x-model="tuningForm['tuning_ai_retry_enabled']"
                    true-value="1" false-value="0"
-                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   :disabled="!isAdmin() || aiSaving || !settings.ai_enabled"
                    class="cursor-pointer">
             <span x-text="t('admin.config.fields.tuning_ai_retry_enabled.label')"></span>
           </label>
@@ -131,7 +131,7 @@
             <input type="checkbox"
                    x-model="tuningForm['tuning_ai_conversation_export_enabled']"
                    true-value="1" false-value="0"
-                   :disabled="!isAdmin() || tuningSaving">
+                   :disabled="!isAdmin() || aiSaving">
             <span x-text="t('admin.config.fields.tuning_ai_conversation_export_enabled.label')"></span>
           </label>
           <div class="fs-2xs text-[var(--text-faint)] mt-1"
@@ -156,7 +156,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_max_tokens')"
                    :min="(tuningEffective['tuning_ai_max_tokens'] || {}).min"
                    :max="(tuningEffective['tuning_ai_max_tokens'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   :disabled="!isAdmin() || aiSaving || !settings.ai_enabled"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -192,7 +192,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_retry_backoff_ms')"
                    :min="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).min"
                    :max="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   :disabled="!isAdmin() || aiSaving || !settings.ai_enabled"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -228,7 +228,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_retry_first_attempt_max_ms')"
                    :min="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).min"
                    :max="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving || !settings.ai_enabled"
+                   :disabled="!isAdmin() || aiSaving || !settings.ai_enabled"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -269,7 +269,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_sidebar_width_px')"
                    :min="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).min"
                    :max="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
+                   :disabled="!isAdmin() || aiSaving"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -307,7 +307,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_conversation_persist_interval_ms')"
                    :min="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"
                    :max="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
+                   :disabled="!isAdmin() || aiSaving"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -348,7 +348,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_log_context_hours')"
                    :min="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"
                    :max="(tuningEffective['tuning_ai_log_context_hours'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
+                   :disabled="!isAdmin() || aiSaving"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -386,7 +386,7 @@
                    :placeholder="tuningPlaceholder('tuning_ai_log_context_lines')"
                    :min="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"
                    :max="(tuningEffective['tuning_ai_log_context_lines'] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
+                   :disabled="!isAdmin() || aiSaving"
                    class="w-44 mono fs-sm py-1">
             <div class="bounds-chips" role="group"
                  :aria-label="t('admin.config.bounds.group_label')">
@@ -429,7 +429,7 @@
                      :placeholder="tuningPlaceholder(key)"
                      :min="(tuningEffective[key] || {}).min"
                      :max="(tuningEffective[key] || {}).max"
-                     :disabled="!isAdmin() || tuningSaving"
+                     :disabled="!isAdmin() || aiSaving"
                      class="w-44 mono fs-sm py-1">
               <div class="bounds-chips" role="group"
                    :aria-label="t('admin.config.bounds.group_label')">
@@ -597,20 +597,22 @@
              x-text="t('admin.ai.fallback.chain_hint')"></p>
         </div>
       </div>
-      <!-- Single Save row — saves both the AI master settings
-           (toggle / active provider / max_tokens) AND the retry
-           tunables in one click. Disabled gate fires when EITHER
-           form is mid-save OR neither is dirty. The amber-ring
-           dirty-cue lights up on EITHER side dirty. -->
+      <!-- Single Save row — section-owned: saveAiSettings() persists
+           the AI master settings (toggle / active provider) AND the
+           AI-section tunables, which aiFormDirty() already folds in
+           via _aiSectionTuningKeys. Disabled + amber-ring + "Unsaved"
+           are ALL keyed purely on aiFormDirty(); the global
+           saveTuning() / tuningDirty() are NOT referenced here (they
+           belong only to Admin → Config). -->
       <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
         <button type="button" @click="saveAiSettings()"
                 :disabled="isReadonly() || aiSaving || !aiFormDirty()"
                 class="btn btn-primary fs-sm"
                 :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
-          <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
-          <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+          <span x-show="!aiSaving" x-text="t('actions.save')"></span>
+          <span x-show="aiSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
         </button>
-        <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
+        <span x-show="aiFormDirty() && !aiSaving"
               class="fs-2xs text-[var(--warning)] flex items-center gap-1">
                 <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
@@ -959,26 +961,24 @@
 
     <!-- Mirror Save button at the END of the page so admins
          configuring multiple provider cards don't have to scroll
-         back to the top section after every edit. Same handler,
-         same dirty cue, same disabled gate as the top Save —
-         whichever the operator clicks does the same write. -->
-    <!-- Mirror Save button at the END of the page so admins
-         configuring multiple provider cards don't have to scroll
-         back to the top section after every edit. Same handler
-         shape as the top Save: commits BOTH AI settings AND
-         tuning when EITHER is dirty. Pre-fix this only called
-         saveAiSettings(), so an admin who edited a retry-tunable
-         input then scrolled to the bottom Save would persist
-         the AI cards but silently drop the tunable change. -->
+         back to the top section after every edit. Calls ONLY
+         saveAiSettings() — which is section-owned and already
+         persists the AI-section tunables (aiFormDirty() folds
+         them in via _aiSectionTuningKeys). It deliberately does
+         NOT chain the GLOBAL saveTuning(): that would persist
+         unrelated tunables the operator edited in another tab
+         but never saved. The global saveTuning() belongs only to
+         Admin → Config. Same handler + dirty cue + disabled gate
+         as the top Save, all keyed purely on aiFormDirty(). -->
     <div class="mt-4 pt-4 border-t border-[var(--border)] flex items-center gap-2 flex-wrap">
-      <button type="button" @click="if (aiFormDirty()) saveAiSettings(); if (tuningDirty()) saveTuning();"
-              :disabled="isReadonly() || aiSaving || tuningSaving || (!aiFormDirty() && !tuningDirty())"
+      <button type="button" @click="saveAiSettings()"
+              :disabled="isReadonly() || aiSaving || !aiFormDirty()"
               class="btn btn-primary fs-sm"
-              :class="(aiFormDirty() || tuningDirty()) ? 'ring-2 ring-[var(--warning)]' : ''">
-        <span x-show="!aiSaving && !tuningSaving" x-text="t('actions.save')"></span>
-        <span x-show="aiSaving || tuningSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
+              :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
+        <span x-show="!aiSaving" x-text="t('actions.save')"></span>
+        <span x-show="aiSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
       </button>
-      <span x-show="(aiFormDirty() || tuningDirty()) && !aiSaving && !tuningSaving"
+      <span x-show="aiFormDirty() && !aiSaving"
             class="fs-2xs text-[var(--warning)] flex items-center gap-1">
               <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
               <span class="unsaved-flash" x-text="t('common.unsaved')"></span>

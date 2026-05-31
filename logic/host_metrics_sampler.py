@@ -1405,6 +1405,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     ups_load_pct = _float_or_none(stats.get("host_load_percent"))
                     ups_batt_pct = _float_or_none(stats.get("host_battery_percent"))
                     ups_batt_temp = _float_or_none(stats.get("host_battery_temp_c"))
+                    # APC UPS label strings + runtime so the Apps APC card
+                    # renders its full panel straight from the sample row
+                    # (never a live host probe). NULL for non-UPS hosts.
+                    ups_status_lbl = stats.get("host_ups_status") or None
+                    ups_batt_status_lbl = stats.get("host_battery_status") or None
+                    ups_runtime_s = _int_or_none(stats.get("host_battery_runtime_s"))
                     # Aggregate disk totals — capture so SNMP-only
                     # hosts can render the inline disk sparkline. The
                     # extractor's `host_disk_total` / `host_disk_used`
@@ -1423,8 +1429,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                             "mem_total, mem_used, mem_buffers, mem_cached, mem_free, "
                             "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
                             "printer_page_count, load_percent, battery_percent, "
-                            "battery_temp_c, disk_total, disk_used) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "battery_temp_c, disk_total, disk_used, "
+                            "ups_status, battery_status, battery_runtime_s) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -1446,6 +1453,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 ups_batt_temp,
                                 disk_total_b,
                                 disk_used_b,
+                                ups_status_lbl,
+                                ups_batt_status_lbl,
+                                ups_runtime_s,
                             ),
                         )
                         # per-interface counter snapshot for the

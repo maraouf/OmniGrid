@@ -1856,6 +1856,27 @@ async def api_public_ip(_admin: AdminUser, force: bool = False):
     except Exception:  # noqa: BLE001
         last_change = None
     if data is None:
+        # Live lookup failed (transient network blip or an active
+        # negative-cache window). Fall back to the last-known recorded
+        # value from `public_ip_history` so the widget / AI / Telegram
+        # surface the last good IP (flagged `_stale`) instead of an
+        # empty "no data" card — `last_change` already carries the
+        # current row's ip / isp / asn / country / city. The history
+        # table doesn't persist country_code, so the flag silently
+        # falls back to the globe icon on the stale path.
+        if last_change and last_change.get("ip"):
+            return {
+                "enabled": True,
+                "ip": last_change.get("ip", ""),
+                "isp": last_change.get("isp", ""),
+                "asn": last_change.get("asn", ""),
+                "country": last_change.get("country", ""),
+                "city": last_change.get("city", ""),
+                "country_code": last_change.get("country_code", ""),
+                "_stale": True,
+                "error": "live lookup failed — showing last recorded value",
+                "last_change": last_change,
+            }
         return {"enabled": True, "error": "lookup failed — see Admin → Logs",
                 "last_change": last_change}
     return {"enabled": True, **data, "last_change": last_change}
@@ -1881,7 +1902,7 @@ async def api_public_ip_history(_admin: AdminUser, limit: int = 100):
     try:
         with db_conn() as c:
             for r in c.execute(
-                "SELECT ts, ip, isp, asn, country, city "
+                "SELECT ts, ip, isp, asn, country, city, country_code "
                 "FROM public_ip_history ORDER BY ts DESC LIMIT ?",
                 (n,),
             ).fetchall():
@@ -1892,6 +1913,7 @@ async def api_public_ip_history(_admin: AdminUser, limit: int = 100):
                     "asn": r[3] or "",
                     "country": r[4] or "",
                     "city": r[5] or "",
+                    "country_code": (r[6] or "") if len(r) > 6 else "",
                 })
     except Exception as e:  # noqa: BLE001
         return {"history": [], "error": str(e)}

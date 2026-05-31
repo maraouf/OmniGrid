@@ -190,13 +190,15 @@ def _record_ip_change(ts: int, ip: str, payload: dict) -> None:
             return
         c.execute(
             "INSERT OR REPLACE INTO public_ip_history "
-            "(ts, ip, isp, asn, country, city) VALUES (?, ?, ?, ?, ?, ?)",
+            "(ts, ip, isp, asn, country, city, country_code) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 ts, ip,
                 (payload.get("isp") or "") or None,
                 (payload.get("asn") or "") or None,
                 (payload.get("country") or "") or None,
                 (payload.get("city") or "") or None,
+                (payload.get("country_code") or "") or None,
             ),
         )
         print(f"[public_ip] recorded IP change: {prev_ip or '(first)'} -> {ip}")
@@ -217,7 +219,7 @@ def last_change() -> Optional[dict]:
         from logic.db import db_conn
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, ip, isp, asn, country, city "
+                "SELECT ts, ip, isp, asn, country, city, country_code "
                 "FROM public_ip_history ORDER BY ts DESC LIMIT 2"
             ).fetchall()
     except Exception:  # noqa: BLE001 — history is a nicety, never fatal
@@ -232,6 +234,7 @@ def last_change() -> Optional[dict]:
         "asn": cur[3] or "",
         "country": cur[4] or "",
         "city": cur[5] or "",
+        "country_code": (cur[6] or "") if len(cur) > 6 else "",
         "prev_ip": "",
         "prev_ts": 0,
     }

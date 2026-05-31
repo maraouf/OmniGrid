@@ -965,9 +965,10 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             pass
     if s.portainer_public_url is not None:
         set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)
-    if s.backup_retention_count is not None:
-        n = max(0, int(s.backup_retention_count))
-        set_setting(Settings.BACKUP_RETENTION_COUNT, str(n))
+    # backup_retention_count migrated to tuning_backup_retention_count —
+    # the SettingsIn field + this write path were removed (the consumer +
+    # GET both read the tunable; the plain row was dead). The tunable is
+    # persisted by the generic tuning-write loop below.
     if s.scheduler_timezone is not None:
         # Validate the IANA name up-front so a typo doesn't silently
         # fall back to UTC on every tick. Blank is accepted = reset.

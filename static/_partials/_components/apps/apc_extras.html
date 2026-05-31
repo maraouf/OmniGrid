@@ -3,13 +3,17 @@
      Renders inside `apps-card.html` as the per-instance host row
      when the chip is the APC catalog template AND the operator
      hasn't explicitly hidden extras via the per-instance
-     `show_extras` toggle. The data comes from the curated host
-     row's SNMP-populated fields (no upstream fetch needed --
-     standard host-stats pipeline already stamps them on the
-     host object); `apcHostUpsData(inst)` (from
-     `static/js/apps/apc.js`) reads them + returns null when
-     none are present so the panel gates cleanly for non-UPS
-     hosts that happen to be pinned to the APC template.
+     `show_extras` toggle. The data comes from the
+     `host_snmp_samples` DB table (NOT the live host row): the
+     gate's `apcHostUpsData(inst)` call reads the generic,
+     cache-backed `appsAppData(inst)`, which fetches the latest
+     sample for the pinned host via the per-app dispatcher
+     (`logic/apps/apc.py:fetch_data`). Evaluating the gate kicks
+     the DB-backed fetch on first mount and re-renders when it
+     lands -- no per-card live SNMP probe. Returns null while
+     idle / pending / errored OR when the sample carries no UPS
+     field, so the panel gates cleanly for non-UPS hosts pinned
+     to the APC template by mistake.
 
      Helpers used (all from `static/js/apps/apc.js`):
        apcIsApp(app)             -- gate "is this an APC chip"

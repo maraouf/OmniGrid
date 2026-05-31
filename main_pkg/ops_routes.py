@@ -1203,10 +1203,12 @@ class SettingsIn(BaseModel):
     # case-insensitive admin-group claim match. Default
     # True preserves the legacy exact-match contract.
     oidc_group_case_sensitive: Optional[bool] = None
-    # Backup retention: keep the N newest .zip files in /app/data/backups;
-    # 0 disables retention (keep everything). Applied after every successful
-    # create, whether user-triggered or scheduled.
-    backup_retention_count: Optional[int] = None
+    # NOTE: the legacy plain `backup_retention_count` field was removed —
+    # the value migrated to TUNABLES (tuning_backup_retention_count). The
+    # prune consumer (logic/schedules.py) + the GET both read the tunable;
+    # nothing reads the plain settings row, so the field + its write path
+    # were dead. Per CLAUDE.md "Legacy SettingsIn fields MUST be deleted
+    # when their value migrates to TUNABLES".
     # Host-stats integration via node-exporter. When enabled, OmniGrid
     # scrapes each node's /metrics endpoint during gather to surface real
     # host disk / memory / uptime (vs. the Docker-only numbers Portainer

@@ -62,6 +62,21 @@ async def sampler_loop() -> None:
     container.
     """
     await asyncio.sleep(_FIRST_TICK_DELAY_SECONDS)
+    # Startup confirmation so an operator triaging "IP changes aren't
+    # recorded" can verify in Admin → Logs that the sampler is actually
+    # armed (vs. silently never started). Logged once.
+    print(
+        f"[public_ip_sampler] armed: interval={_sampler_interval_seconds()}s "
+        f"enabled={_public_ip.is_enabled()}"
+    )
+    # Per-tick diagnostic state. `_prev_ip` is the IP the LAST successful
+    # tick observed (process-local, NOT the DB's latest row — fetch()'s
+    # _record_ip_change owns the persistent dedup). `_prev_enabled` tracks
+    # the master-toggle state so we log only on a transition rather than
+    # spamming a "disabled" line every tick. The steady state (enabled +
+    # unchanged IP) stays silent.
+    _prev_ip = None
+    _prev_enabled = None
     while True:
         interval = _sampler_interval_seconds()
         if interval <= 0:
@@ -72,7 +87,15 @@ async def sampler_loop() -> None:
         # Master-gate each tick — operator may flip the public-IP toggle
         # off without restart, and a disabled fetch() must not make an
         # outbound call to the third-party lookup service.
-        if not _public_ip.is_enabled():
+        enabled = _public_ip.is_enabled()
+        if enabled != _prev_enabled:
+            # Log ONLY the transition so the operator sees WHY no probes
+            # happen when the feature is off — the most common "not
+            # recording" cause is the master toggle being off.
+            print(f"[public_ip_sampler] feature {'enabled' if enabled else 'disabled'} "
+                  f"(tuning_public_ip_enabled={'1' if enabled else '0'})")
+            _prev_enabled = enabled
+        if not enabled:
             await asyncio.sleep(interval)
             continue
         try:
@@ -81,7 +104,30 @@ async def sampler_loop() -> None:
             # short flaps from the incidental callers). The negative cache
             # still applies, so a sustained upstream outage doesn't hammer
             # ifconfig.co. fetch() records any change via _record_ip_change.
-            await _public_ip.fetch(force=True)
+            result = await _public_ip.fetch(force=True)
+            # Diagnostic: surface which of the "not recording" modes this
+            # tick hit, so the operator can pinpoint without DB access:
+            #   (a) no data  -> upstream error / negative-cache window
+            #   (b) empty ip -> partial upstream payload
+            #   (c) IP differs from last tick -> fetch() should have
+            #       recorded it; if no "[public_ip] recorded IP change"
+            #       line follows, the record path is the bug. If this line
+            #       NEVER fires across a known WAN change, the egress IP the
+            #       container reaches ifconfig.co with simply isn't changing
+            #       (NAT / tunnel / VPN egress) — not a code defect.
+            # The steady state (enabled + same IP as last tick) stays silent.
+            cur_ip = (result.get("ip") if isinstance(result, dict) else "") or ""
+            if result is None:
+                print("[public_ip_sampler] tick: probe returned no data "
+                      "(upstream error or negative-cache window) — skipped")
+            elif not cur_ip:
+                print("[public_ip_sampler] tick: probe returned empty IP "
+                      "(partial upstream payload) — skipped")
+            elif _prev_ip is not None and cur_ip != _prev_ip:
+                print("[public_ip_sampler] tick: observed a different egress IP "
+                      "than the previous tick — fetch() handles the history record")
+            if cur_ip:
+                _prev_ip = cur_ip
         except Exception as e:  # noqa: BLE001
             if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
                 raise

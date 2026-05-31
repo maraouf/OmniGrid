@@ -33,6 +33,11 @@ export default {
   },
   portainerTestResult: null,
   _portainerBaseline: '',
+  // Separate baseline for the SPA-side policy fields (public URL + autoheal
+  // action + autoheal-bootstrap). Kept apart from _portainerBaseline so the
+  // Test-gate (canSavePortainer / _portainerSnapshot) stays connection-only,
+  // while the dirty CUE still observes these owned controls. (PANEL-04.)
+  _portainerPolicyBaseline: '',
   // Snapshot of the form values that successfully passed a Test
   // probe. Set to the current `_portainerSnapshot()` value on
   // every successful `testPortainerConnection()`; cleared when the
@@ -211,8 +216,26 @@ export default {
       api_key: f.api_key ? '<set>' : '',
     });
   },
+  // Policy-field snapshot — public URL + the two Swarm-autoheal controls.
+  // These are saved by _savePortainerSettingsImpl but deliberately excluded
+  // from the Test-gate snapshot above; portainerDirty() diffs this so editing
+  // them flips the amber Save ring. (PANEL-04.)
+  _portainerPolicySnapshot() {
+    const s = this.settings || {};
+    return JSON.stringify({
+      public_url: (s.portainer_public_url || '').trim(),
+      autoheal_action: (s.swarm_autoheal_action === 'restart') ? 'restart' : 'notify',
+      autoheal_bootstrap: !!s.swarm_autoheal_bootstrap_enabled,
+    });
+  },
   portainerDirty() {
     if (this._portainerBaseline !== this._portainerSnapshot()) {
+      return true;
+    }
+    // Policy fields (public_url / autoheal action / autoheal bootstrap) — owned
+    // by this section's Save, so an edit must show dirty even though they're
+    // outside the connection Test-gate snapshot. (PANEL-04.)
+    if (this._portainerPolicyBaseline !== this._portainerPolicySnapshot()) {
       return true;
     }
     // Portainer-scoped tunables wired into THIS section's Save so

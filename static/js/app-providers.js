@@ -1947,14 +1947,13 @@ export default {
         'tuning_notification_retention_days',
         'tuning_notification_page_size',
         'tuning_notifications_poll_interval_seconds',
-        // Telegram listener long-poll + outer-HTTP timeouts. Live
-        // alongside the Telegram section UI in this same partial; an
-        // edit lands through the Providers Save click rather than
-        // requiring a round-trip to Admin → Config.
-        'tuning_telegram_long_poll_timeout_seconds',
-        'tuning_telegram_http_timeout_seconds',
-        'tuning_telegram_ai_calls_per_minute',
-        'tuning_telegram_bulk_update_concurrency',
+        // Telegram-section tunables — rendered in this same partial's
+        // Telegram tab, so an edit lands through the Providers Save click
+        // rather than a round-trip to Admin → Config. Sourced from the
+        // single _telegramSectionTuningKeys() list so render + save + dirty
+        // stay in lock-step (long-poll / http timeout / ai-calls-per-min /
+        // bulk-update concurrency / destructive cooldown).
+        ...this._telegramSectionTuningKeys(),
       ]) {
         if (tf[k] != null && String(tf[k]).trim() !== '') {
           payload[k] = String(tf[k]).trim();
@@ -1972,7 +1971,6 @@ export default {
       // Reload for fresh baselines + tuningForm reset.
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       this._providersBaseline = this._providersSnapshot();
-      this._appriseBaseline = this._appriseSnapshot();
       this.providersSaveResult = {
         ok: true,
         detail: this.t('admin.notifications.providers_save_success') || 'Channels saved',
