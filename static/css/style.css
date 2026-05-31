@@ -6104,6 +6104,20 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-size: var(--fs-md);
 }
 
+/* Hide a fleet table (Stacks / Services) that has NO data rows — when a
+   filter matches nothing the bare header-only table reads as confusing,
+   so collapse it and let the sibling empty-state message ("No resources
+   match your filters" + Clear) stand alone. `:has(tbody tr)` is DOM-
+   reactive (re-evaluates as the row x-for adds/removes <tr>s) so it needs
+   ZERO JS reactivity — deliberately NOT an Alpine x-show on the memoized
+   filteredStacks / filteredItems getters, which (as a lightweight extra
+   consumer) stole the per-flush memo subscription from the row x-for and
+   froze the table empty (caveat-6). Scoped to `.ptable-fleet` so other
+   .ptable tables are untouched. */
+.ptable-fleet:not(:has(tbody tr)) {
+  display: none;
+}
+
 .ptable thead th {
   position: sticky;
   top: 0;
@@ -11430,27 +11444,40 @@ select.field-invalid {
 }
 
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col {
-  /* Content-height row + `margin-block: auto` is the reliable flex-column
-     centring technique: the auto top + bottom margins split ALL the free
-     space below the humidity/wind detail equally, so the gap BEFORE the
-     forecast row exactly matches the gap AFTER it (before the freshness
-     footer) — the row sits dead-centre in the leftover area instead of
-     bottom-hugging. The earlier `flex: 1 1 auto; align-items: center`
-     made the col FILL the space but the box row still bottom-aligned in
-     practice (operator-flagged: "spacing still wrong, top gap >> bottom
-     gap" on 2x2 / 3x2 / 4x2). */
-  flex: 0 0 auto;
+  /* GROW the forecast col to fill ALL the space below the hero / humidity
+     block, then VERTICALLY CENTRE the box-row inside that filled space via
+     `align-items: center` (the col is flex-direction:row here, so the cross
+     axis is vertical). Result: equal gap above the box-row and below it
+     (before the freshness footer) — balanced regardless of how tall the
+     hero block is or how much free space the preset leaves.
+
+     Why NOT `margin-block: auto`: auto-margin centring only works when the
+     flex container has POSITIVE free space, and it silently collapses to 0
+     on the cramped 2x2 (content ≈ body height) — so the row top-hugged or
+     bottom-hugged unpredictably across the presets (operator-flagged "top
+     gap >> bottom gap" / "spacing not adjusted" repeatedly). flex-grow +
+     align-items:center degrades gracefully: when space is tight the gaps
+     just shrink toward 0 symmetrically instead of jumping to one edge. */
+  flex: 1 1 auto;
   flex-direction: row;
   flex-wrap: nowrap;
-  align-items: stretch;
+  align-items: center;
+  justify-content: stretch;
   width: 100%;
   max-width: 100%;
-  margin-block: auto;
+  margin-block: 0;
   gap: var(--s-2);
+  min-height: 0;
 }
 
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
+  /* `align-self: center` keeps each box at CONTENT height (not stretched to
+     the grown col's full height) so the parent's align-items:center has free
+     space to centre into — without it the boxes would fill the col top-to-
+     bottom and there'd be no visible gap above / below. flex:1 1 0 still
+     shares the WIDTH equally across the row. */
   flex: 1 1 0;
+  align-self: center;
   flex-direction: column;
   justify-content: center;
   gap: var(--s-1);
