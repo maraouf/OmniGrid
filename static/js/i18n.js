@@ -101,6 +101,18 @@ const I18N = {
 window.I18N = I18N;
 window.t = I18N.t.bind(I18N);
 
+// Translate-or-fallback. `t()` returns the key STRING verbatim on a miss
+// (see the `s = key` branch in t()), so the common `t(k) || raw` idiom is
+// BROKEN — the key-path string is always truthy, so the `|| raw` branch is
+// dead and the literal key path renders on screen. `tOr(key, fallback)`
+// returns the translation when the key actually resolves, else the raw
+// fallback value — mirroring the `tr && tr !== key` shape the label-helpers
+// in app-*.js already use. Prefer this anywhere a value may have no key.
+window.tOr = function (key, fallback) {
+  const tr = window.t(key);
+  return (tr && tr !== key) ? tr : fallback;
+};
+
 // Boot sequence — always preload English (so the missing-key fallback
 // has a dict) before applying the user's preferred language.
 window.__i18nReady = (async function () {

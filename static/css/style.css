@@ -2606,6 +2606,16 @@ details summary::-webkit-details-marker {
   margin-top: var(--s-4);
 }
 
+/* Axis-tick labels on the JS-rendered stats SVG charts (fleet-net /
+   samples-bucket / db-projection / ai-cost-trend). SVG presentation
+   attributes can't reference CSS custom properties, so the renderers
+   tag each <text> with this class and the size comes from the token
+   here (--fs-3xs = 10px, the prior hardcoded literal) — keeps the
+   chart axis font in the token system instead of inline `font-size="10"`. */
+.stats-chart-axis {
+  font-size: var(--fs-3xs);
+}
+
 .ai-resp-chart {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -11143,15 +11153,21 @@ select.field-invalid {
   .apps-widget-forecast-day {
     gap: 1px;
   }
-  /* Short (Nx1) tiles use the right-side --col forecast — compact each day row
-     (tight padding + smaller text + 13px icon) so all THREE days fit the
-     single-row height instead of the 3rd being clipped by the col's
-     overflow:hidden (operator-flagged: 2x1 showed only 2 of 3). */
+  /* Short (Nx1) tiles use the right-side --col forecast. Each day row is
+     flex:1 so the (up to FOUR) rows SHARE the column's stretched height
+     equally instead of sizing to content and overflowing — that's what
+     guarantees four fit the single-row height without the bottom row being
+     clipped by the col's overflow:hidden (the earlier content-sized rows
+     overflowed, so only 2 of the capped 3 actually showed). Compact text +
+     13px icon keep each ~quarter-height row readable. */
   .apps-widget-forecast--col {
     gap: 1px;
+    justify-content: flex-start;
   }
   .apps-widget-forecast--col .apps-widget-forecast-day {
     padding: 0 var(--s-1);
+    flex: 1 1 0;
+    min-height: 0;
   }
   .apps-widget-forecast--col .apps-widget-forecast-name,
   .apps-widget-forecast--col .apps-widget-forecast-temp {
@@ -11161,9 +11177,9 @@ select.field-invalid {
     width: 13px;
     height: 13px;
   }
-  /* Cap the rendered forecast to 3 days on a single-row tile so the row never
+  /* Cap the rendered forecast to 4 days on a single-row tile so the row never
      shows a clipped half-box, regardless of how many days the user selected. */
-  .apps-widget-forecast-day:nth-child(n+4) {
+  .apps-widget-forecast-day:nth-child(n+5) {
     display: none;
   }
   .apps-widget-tile-freshness {

@@ -30,6 +30,12 @@
       <span x-text="t('loading.section')"></span>
     </div>
 
+    <!-- Result tables below are SERVER-SORTED (backend ORDER BY) and are
+         intentionally NOT client-sortable: small fixed breakdowns (table
+         list), unlike the variable-length Samples table which ships the
+         interactive sort + aria-sort pattern. No aria-sort here — it would
+         advertise interactivity these static server-ordered tables don't
+         have. -->
     <div x-show="statsDatabaseLoaded" class="p-5 space-y-5">
 
       <!-- DB size card -->

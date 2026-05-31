@@ -442,7 +442,8 @@
         "col_jobs": "Calls",
         "empty": "Not enough response-time data yet.",
         "range_label": "Trend window",
-        "col_bucket": "Bucket"
+        "col_bucket": "Bucket",
+        "bar_tooltip": "{date}: {ms} ms · {jobs} jobs"
       },
       "top_expensive": {
         "title": "Top 10 most expensive single calls (last 90 days)",

@@ -1484,6 +1484,7 @@ export default {
     logs: false, log_files: false,
     stats_overview: false, stats_database: false, stats_samples: false,
     stats_incidents: false, stats_network: false, stats_ai_cost: false,
+    stats_samplers: false,
     history: false, hosts_config: false,
   },
   // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared

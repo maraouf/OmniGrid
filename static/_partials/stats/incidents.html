@@ -2,17 +2,20 @@
 <div x-show="statsTab==='incidents'" class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
            :aria-busy="_loadBusy.stats_incidents === true ? 'true' : 'false'">
-    <div class="p-5 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-3">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-2">
-          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
-          </svg>
-          <h3 class="font-semibold fs-md" x-text="t('stats.incidents.title')"></h3>
-        </div>
-        <p class="fs-xs text-[var(--text-faint)]" x-text="t('stats.incidents.hint')"></p>
+    <div class="p-5 border-b border-[var(--border)]">
+      <div class="flex items-center gap-2 mb-2">
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+        </svg>
+        <h3 class="font-semibold fs-md" x-text="t('stats.incidents.title')"></h3>
       </div>
-      <div class="flex items-center gap-2 flex-wrap shrink-0">
+      <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('stats.incidents.hint')"></p>
+      <!-- Range picker + Reload paired in their OWN row BELOW the heading +
+           hint — the canonical stats sub-section layout (matches AI Cost
+           response-time-trend + Samples per-bucket). The picker never
+           clips off-screen regardless of hint length because it's on its
+           own full-width row, not sharing the heading row. -->
+      <div class="flex items-center gap-2 flex-wrap">
         <!-- Window picker — 1h / 24h / 7d / 30d / 90d. Delegates
              to the shared `og-range-picker` component template
              under `_partials/_components/`. Single source of
@@ -54,6 +57,12 @@
       <span x-text="t('loading.section')"></span>
     </div>
 
+    <!-- Result tables below are SERVER-SORTED (backend ORDER BY) and are
+         intentionally NOT client-sortable: small fixed breakdowns
+         (per-provider, top-5 hosts), unlike the variable-length Samples
+         table which ships the interactive sort + aria-sort pattern. No
+         aria-sort here — it would advertise interactivity these static
+         server-ordered tables don't have. -->
     <div x-show="statsIncidentsLoaded" class="p-5 space-y-5">
 
       <!-- Headline cards row. Total failures / recoveries /
@@ -131,7 +140,7 @@
                 <td class="px-4 py-2 fs-xs">
                           <span class="chip pill-custom fs-3xs uppercase"
                                 :style="providerChipStyle(row.provider)"
-                                x-text="t('settings.host_stats.source_' + row.provider) || row.provider"></span>
+                                x-text="tOr('settings.host_stats.source_' + row.provider, row.provider)"></span>
                 </td>
                 <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.failures || 0).toLocaleString()"></td>
                 <td class="px-4 py-2 mono text-end" x-text="Number(row.recoveries || 0).toLocaleString()"></td>
