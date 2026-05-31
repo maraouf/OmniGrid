@@ -1,9 +1,9 @@
 """SQLite database helpers.
 
 Just the infrastructure: a connection context manager and KV helpers for
-the ``settings`` table. Table creation (``init_db()``) stays in main.py
-as the boot orchestrator — each logic module that owns tables exposes
-its own ``init_schema(conn)`` hook there.
+the ``settings`` table. Table creation (``init_db()``) lives in
+``logic/schema.py`` as the boot orchestrator — each logic module that
+owns tables exposes its own ``init_schema(conn)`` hook called from there.
 
 The path is read from ``DB_PATH`` at import time; parent directory is
 created on import so callers don't have to. ``DB_PATH`` is REQUIRED —
@@ -18,7 +18,8 @@ still raises loudly, so silent-default drift is not possible.
 ``DB_TYPE`` selects the backend; today only ``sqlite`` is supported.
 Adding a new adapter means: extend ``_SUPPORTED_DB_TYPES``, branch on
 ``DB_TYPE`` in ``db_conn``, and (likely) split the table-create
-statements in main.py:init_db() to handle dialect differences.
+statements in ``logic/schema.py``'s ``init_db()`` to handle dialect
+differences.
 """
 import json
 import os

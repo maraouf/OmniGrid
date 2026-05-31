@@ -11143,10 +11143,26 @@ select.field-invalid {
   .apps-widget-forecast-day {
     gap: 1px;
   }
-  /* Nx1 (single-row) tiles crop the 4th+ forecast box for lack of vertical /
-     horizontal room — cap the rendered forecast to 3 days so the row never
-     shows a clipped half-box, regardless of how many days the user selected
-     (operator-flagged: the 4th was being cut off). */
+  /* Short (Nx1) tiles use the right-side --col forecast — compact each day row
+     (tight padding + smaller text + 13px icon) so all THREE days fit the
+     single-row height instead of the 3rd being clipped by the col's
+     overflow:hidden (operator-flagged: 2x1 showed only 2 of 3). */
+  .apps-widget-forecast--col {
+    gap: 1px;
+  }
+  .apps-widget-forecast--col .apps-widget-forecast-day {
+    padding: 0 var(--s-1);
+  }
+  .apps-widget-forecast--col .apps-widget-forecast-name,
+  .apps-widget-forecast--col .apps-widget-forecast-temp {
+    font-size: var(--fs-3xs);
+  }
+  .apps-widget-forecast--col .apps-widget-forecast-day svg {
+    width: 13px;
+    height: 13px;
+  }
+  /* Cap the rendered forecast to 3 days on a single-row tile so the row never
+     shows a clipped half-box, regardless of how many days the user selected. */
   .apps-widget-forecast-day:nth-child(n+4) {
     display: none;
   }
@@ -11230,37 +11246,41 @@ select.field-invalid {
   }
 }
 
-/* Weather forecast on the LARGEST (4x2 / wide+tall) tile — move the forecast
-   from the right-hand vertical column to a full-width ROW OF BOXES BELOW the
-   hero + humidity/wind row, so it uses the generous vertical space like the
-   earlier boxed design (operator-flagged on the 4x2 preset). Smaller tiles
-   keep the right-side `--col` layout (this gate doesn't match them). Gated on
-   width AND height so only a genuinely large tile reflows; a wide-but-short
-   (Nx1) tile keeps the right-side column + the 3-box cap above. */
-@container ogtile (min-width: 440px) and (min-height: 280px) {
-  .apps-widget-weather-body {
-    flex-direction: column;
-    flex-wrap: nowrap;
-  }
-  .apps-widget-weather-main {
-    flex: 0 0 auto;
-  }
-  .apps-widget-forecast--col {
-    flex: 1 1 auto;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    width: 100%;
-    max-width: 100%;
-    margin-top: var(--s-2);
-    gap: var(--s-2);
-  }
-  .apps-widget-forecast--col .apps-widget-forecast-day {
-    flex: 1 1 0;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--s-1);
-    padding: var(--s-2) var(--s-1);
-  }
+/* Weather forecast on a TALL tile (the height-tall preset — 4x2 / 3x2 / 2x2):
+   move the forecast from the right-hand vertical column to a full-width ROW OF
+   real BOXES BELOW the hero + humidity/wind, using the vertical space like the
+   earlier boxed design. Keyed on the EXPLICIT .apps-card--height-tall preset
+   class rather than an @container px threshold — the container-query gate
+   (min-height:280) didn't reliably match the rendered tile, so the boxes never
+   engaged and the forecast stayed as flat right-column rows (operator-flagged
+   "you just moved them, didn't make boxes"). The preset class engages
+   dependably. Each day becomes a vertical card (name / icon / hi-lo stacked)
+   with the accent-tinted box background + radius so it reads as a box. Short
+   tiles keep the right-side --col column + the 3-box cap. */
+.apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-weather-body {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-weather-main {
+  flex: 0 0 auto;
+}
+.apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col {
+  flex: 1 1 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 100%;
+  max-width: 100%;
+  margin-top: var(--s-2);
+  gap: var(--s-2);
+}
+.apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-widget-forecast--col .apps-widget-forecast-day {
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-1);
+  background: color-mix(in srgb, var(--widget-accent) 10%, transparent);
+  border-radius: var(--r-sm);
 }
 
 .apps-widget-hero-icon {

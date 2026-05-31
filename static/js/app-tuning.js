@@ -157,6 +157,21 @@ export default {
   // form-seed + dirty-track + POST — caught after shipping the
   // Log-retention card relocation (the card was reading empty and
   // Save was a no-op until the relocated key was added here).
+  // Single source of truth for the Telegram-section tunables — same
+  // role as `_perProviderTuneKeys.<provider>` but for the Admin →
+  // Notifications → Telegram tab. The Telegram tunables <details> x-for
+  // renders from this, saveProviders() POSTs from this, and the channel
+  // dirty snapshot (_providersSnapshot) diffs from this, so render + save
+  // + dirty stay in lock-step (adding a knob is one entry here).
+  _telegramSectionTuningKeys() {
+    return [
+      'tuning_telegram_long_poll_timeout_seconds',
+      'tuning_telegram_http_timeout_seconds',
+      'tuning_telegram_ai_calls_per_minute',
+      'tuning_telegram_bulk_update_concurrency',
+      'tuning_telegram_destructive_cooldown_seconds',
+    ];
+  },
   // Per-provider knob lists (partial DRY). Single source
   // of truth for which tunables render in each provider's admin panel
   // — adding a new knob is one entry here instead of editing each

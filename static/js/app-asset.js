@@ -103,6 +103,14 @@ export default {
     if ((f.auth_mode || 'oauth2') !== baseAuth) {
       return true;
     }
+    // verify_tls — tracked by _assetSnapshot() (the test gate) + POSTed,
+    // so the dirty cue MUST observe it too. Pre-fix, toggling ONLY
+    // verify_tls flipped no amber ring (looked clean) yet locked Save
+    // (the test-passed snapshot no longer matched). Baseline default is
+    // "verify on" (true) when the server hasn't explicitly set it false.
+    if (!!f.verify_tls !== (s.verify_tls !== false)) {
+      return true;
+    }
     const fields = [
       'base_url', 'token_url', 'client_id', 'scope',
       'service', 'action', 'edit_url_template',

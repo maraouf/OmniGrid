@@ -2275,7 +2275,6 @@ export default {
       this._portainerPublicBaseline = (this.settings || {}).portainer_public_url || '';
       // Capture all 5 unified-pattern baselines AFTER the form/settings
       // are fully populated. Subsequent edits compare against these.
-      this._appriseBaseline = this._appriseSnapshot();
       // Split-Save baselines — providers + per-event have their
       // own dirty trackers + Save handlers so functionality stays
       // separated (see saveProviders / savePerEvent).
@@ -2322,9 +2321,13 @@ export default {
       } catch (_) {
       }
       this._portainerBaseline = this._portainerSnapshot();
+      this._portainerPolicyBaseline = this._portainerPolicySnapshot();
       this._oidcBaseline = this._oidcSnapshot();
       this._debugBaseline = this._debugSnapshot();
       this._totpPolicyBaseline = this._totpPolicySnapshot();
+      // Scheduler-timezone dirty baseline (schedulerSettingsDirty() in
+      // app-schedules.js diffs against this; re-stamped on save success).
+      this._schedulerTzBaseline = ((this.settings || {}).scheduler_timezone || '').trim();
       // AI integration — hydrate the per-provider form state +
       // capture its baseline. Mirrors the pattern above for the
       // other admin-tab forms.
@@ -2679,6 +2682,8 @@ export default {
       telegram_listener_enabled: !!s.telegram_listener_enabled,
       telegram_allow_destructive: !!s.telegram_allow_destructive,
       telegram_authorized_user_ids: (s.telegram_authorized_user_ids || '').trim(),
+      // Telegram API base override (blank = official upstream).
+      telegram_api_base: (s.telegram_api_base || '').trim(),
       // Per-medium fan-out toggles
       medium_app: !!s.notify_medium_app,
       medium_apprise: !!s.notify_medium_apprise,
@@ -2687,6 +2692,12 @@ export default {
       tuning_retention: (tf.tuning_notification_retention_days ?? '').toString(),
       tuning_page: (tf.tuning_notification_page_size ?? '').toString(),
       tuning_poll: (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
+      // Telegram tunables (rendered in the Telegram tab body) — saveProviders()
+      // POSTs all of them, so they MUST participate in the channel-Save dirty
+      // cue. Derived from the single _telegramSectionTuningKeys() list (joined
+      // into one field) so render + save + dirty stay in lock-step.
+      telegram_tunables: this._telegramSectionTuningKeys()
+        .map(k => (tf[k] ?? '').toString().trim()).join('|'),
     });
   },
   providersDirty() {
@@ -2728,7 +2739,6 @@ export default {
       }
       await this.loadSettings();
       this._perEventBaseline = this._perEventSnapshot();
-      this._appriseBaseline = this._appriseSnapshot();
       this.perEventSaveResult = {
         ok: true,
         detail: this.t('admin.notifications.per_event_save_success') || 'Per-event toggles saved',

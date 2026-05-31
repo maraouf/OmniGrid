@@ -51,7 +51,6 @@ export default {
   // existing Profile / Asset Inventory / Providers tabs. Replaces
   // the older "set true on input, reset on save" boolean toggle
   // pattern that couldn't detect a revert.
-  _appriseBaseline: '',
   // Admin → Notifications tab strip (In-app / Apprise / Telegram).
   // Mirrors the host-stats provider-tab pattern. Persists to
   // localStorage so the operator returns to the same tab.
@@ -208,7 +207,6 @@ export default {
       // save path; single-section saves (savePortainerSettings,
       // saveOidcSettings) call loadSettings which re-captures via the
       // central baseline-update block.
-      this._appriseBaseline = this._appriseSnapshot();
       this._openMeteoBaseline = this._openMeteoSnapshot();
       // Refresh `/api/me` so the per-user notification panel
       // immediately reflects any admin-side `notify_event_<name>`
@@ -699,73 +697,6 @@ export default {
       next[c.id] = v;
     }
     this.notifyCategoryExpanded = next;
-  },
-  _appriseSnapshot() {
-    const s = this.settings || {};
-    const events = {};
-    for (const k of this.notifyEventKeys) {
-      events[k] = !!s[k];
-    }
-    const mediums = {};
-    for (const k of (this.notifyMediumKeys || [])) {
-      mediums[k] = !!s[k];
-    }
-    // Notifications-panel-scoped tunables. Pre-fix these were edited
-    // through their own auto-rendered Admin → Config form which had
-    // its own Save flow; the operator wants them flush against the
-    // Notifications panel's Save button so toggling
-    // `tuning_notification_retention_days` /
-    // `tuning_notification_page_size` flips the same amber ring as
-    // the per-event toggles. Reading from `tuningForm` keeps the
-    // shape consistent with the auto-rendered Config form;
-    // saveSettings POSTs both the per-event keys AND the tunables
-    // through SettingsIn so the round-trip stays clean.
-    const tf = this.tuningForm || {};
-    const notifTunables = {
-      retention: (tf.tuning_notification_retention_days ?? '').toString(),
-      page_size: (tf.tuning_notification_page_size ?? '').toString(),
-      poll_seconds: (tf.tuning_notifications_poll_interval_seconds ?? '').toString(),
-    };
-    // Telegram tab state. Bot token is write-only — any non-empty
-    // value in the in-form input flags dirty (operator typed a new
-    // secret); the saved-state baseline shows `<set>` when a token
-    // already exists in DB. Chat / thread IDs and Verify TLS are
-    // plain settings the operator can edit freely.
-    const telegram = {
-      chat_id: (s.telegram_chat_id || '').trim(),
-      thread_id: (s.telegram_thread_id || '').trim(),
-      verify_tls: !!s.telegram_verify_tls,
-      // Operator-tunable Bot API base URL — blank = upstream default.
-      api_base: (s.telegram_api_base || '').trim(),
-      // Listener long-poll + outer-HTTP timeouts (TUNABLES). Read
-      // from tuningForm so an edit in the Telegram tab flips the
-      // same amber Save ring as the per-medium toggles.
-      long_poll: (tf.tuning_telegram_long_poll_timeout_seconds ?? '').toString(),
-      http_to: (tf.tuning_telegram_http_timeout_seconds ?? '').toString(),
-      // Pending secret: any operator-typed value in the in-form
-      // input is dirty. The DB-saved baseline never carries the raw
-      // token (write-only), only the _set flag — so an empty form
-      // field with a previously-saved token is NOT dirty (snapshot
-      // emits empty); a non-empty form field IS dirty (snapshot
-      // emits a marker that won't match the empty baseline).
-      token_pending: (s.telegram_bot_token || '').trim() ? 'pending' : '',
-      // Phase 2 — listener config flags.
-      listener_enabled: !!s.telegram_listener_enabled,
-      allow_destructive: !!s.telegram_allow_destructive,
-      authorized_user_ids: (s.telegram_authorized_user_ids || '').trim(),
-    };
-    return JSON.stringify({
-      enabled: !!s.apprise_enabled,
-      url: s.apprise_url || '',
-      tag: s.apprise_tag || '',
-      events,
-      mediums,
-      notifTunables,
-      telegram,
-    });
-  },
-  appriseDirty() {
-    return this._appriseBaseline !== this._appriseSnapshot();
   },
   // Convenience-button handlers for the per-event grid. They mutate
   // settings in-place; the smart-getter dirty pattern picks the

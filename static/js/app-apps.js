@@ -1009,6 +1009,15 @@ export default {
   // when the provider can't supply this data.
   appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats'],
 
+  // Reactive ms timestamp driving the clock widget's live time.
+  // Ticked every second by an Apps-view-gated interval armed in
+  // init() (see app.js). Declared here so Alpine tracks it as a
+  // reactive dependency — `_clockDateForItem` reads it so the clock
+  // re-renders each tick. Must NOT reuse the drawer-scoped
+  // `hostHistoryNow` (that ticker stops when no drawer is open, which
+  // froze the displayed time while the CSS colon kept pulsing).
+  appsClockNow: 0,
+
   // i18n label for a widget kind (picker + tile heading).
   appsWidgetLabel(kind) {
     return this.t('apps.custom.widget_' + kind) || kind;
@@ -1046,7 +1055,7 @@ export default {
     // empty fragment (which would produce a broken sprite ref).
     return 'icon-clock';
   },
-  // Live HH:MM for the clock widget — reads the 1s-ticked `hostHistoryNow`
+  // Live HH:MM for the clock widget — reads the 1s-ticked `appsClockNow`
   // so it updates reactively. Routes through `_applyDateTimeFormat` +
   // `_userTimeOnlyFormat` so the operator's Settings → Profile → Formats
   // preference applies (single source of truth for time rendering across
@@ -1063,7 +1072,11 @@ export default {
   // `d.getHours()` etc.) renders in the override TZ without each
   // formatter having to know about timezones.
   _clockDateForItem(item) {
-    const ms = this.hostHistoryNow || Date.now();
+    // `appsClockNow` is the Apps-view-gated 1s ticker (NOT the
+    // drawer-scoped hostHistoryNow, which froze the clock at the
+    // last value whenever no drawer was open). `|| Date.now()`
+    // covers the brief window before the ticker's first tick.
+    const ms = this.appsClockNow || Date.now();
     const opts = item ? this.effectiveClockOpts(item) : null;
     const d = new Date(ms);
     if (!opts || opts.follow || !opts.tz) {

@@ -239,223 +239,231 @@ async def api_admin_stats_overview(
     curated-host total, and the cached asset-inventory size. Designed
     to be a single fast call so the dashboard paints in one fetch.
     """
-    from logic.host_metrics_sampler import PROVIDER_PREFIXES as _PROVIDER_PREFIXES
-    out: dict = {
-        "users": {"total": 0, "active": 0, "admins": 0},
-        "sessions": {"total": 0},
-        "providers": {"total": 0, "enabled": [], "disabled": []},
-        "hosts": {"total": 0, "enabled": 0},
-        "host_groups": {"total": 0},
-        "assets": {"total": 0},
-        "nodes": {"total": 0},
-        "services": {"total": 0},
-        "stacks": {"total": 0},
-        "containers": {"total": 0},
-        "backups": {"total": 0},
-        "config_backups": {"total": 0},
-        "schedules": {"total": 0, "enabled": 0},
-        "tunables": {"total": 0, "overridden": 0},
-        # Apps feature — cross-host instance roll-up. Mirrors the
-        # `list_apps()` aggregator shape: instances are per-(host, chip)
-        # rows; apps are the catalog/name groups they cluster into.
-        # Status counts let the operator see at a glance how many
-        # services are live across the fleet.
-        "apps": {
-            "templates": 0,
-            "instances": 0,
-            "apps": 0,
-            "up": 0, "down": 0, "degraded": 0, "unknown": 0,
-        },
-    }
-    try:
-        with db_conn() as c:
-            users = auth.list_users(c)
-            sessions = auth.list_sessions(c)
-        active_users = [u for u in users if u.get("disabled") in (0, False, None)]
-        admin_users = [u for u in active_users if (u.get("role") or "") == "admin"]
-        out["users"] = {
-            "total": len(users),
-            "active": len(active_users),
-            "admins": len(admin_users),
+
+    def _compute():
+        from logic.host_metrics_sampler import PROVIDER_PREFIXES as _PROVIDER_PREFIXES
+        out: dict = {
+            "users": {"total": 0, "active": 0, "admins": 0},
+            "sessions": {"total": 0},
+            "providers": {"total": 0, "enabled": [], "disabled": []},
+            "hosts": {"total": 0, "enabled": 0},
+            "host_groups": {"total": 0},
+            "assets": {"total": 0},
+            "nodes": {"total": 0},
+            "services": {"total": 0},
+            "stacks": {"total": 0},
+            "containers": {"total": 0},
+            "backups": {"total": 0},
+            "config_backups": {"total": 0},
+            "schedules": {"total": 0, "enabled": 0},
+            "tunables": {"total": 0, "overridden": 0},
+            # Apps feature — cross-host instance roll-up. Mirrors the
+            # `list_apps()` aggregator shape: instances are per-(host, chip)
+            # rows; apps are the catalog/name groups they cluster into.
+            # Status counts let the operator see at a glance how many
+            # services are live across the fleet.
+            "apps": {
+                "templates": 0,
+                "instances": 0,
+                "apps": 0,
+                "up": 0, "down": 0, "degraded": 0, "unknown": 0,
+            },
         }
-        out["sessions"] = {"total": len(sessions)}
-    except Exception as e:
-        out["users_error"] = str(e)
-    # Per-provider enabled/disabled split. Truth source for the four
-    # CSV-controlled providers is ``active_host_stats_providers()``;
-    # snmp + ping are per-host opt-in so they're "enabled" iff at least
-    # one curated row has them turned on.
-    try:
-        csv_enabled = active_host_stats_providers()
-        curated = _load_hosts_config()
-        per_host_enabled = {"snmp": False, "ping": False, "service_probe": False}
-        for h in curated:
-            for key in ("snmp", "ping"):
-                sub = h.get(key) or {}
-                if isinstance(sub, dict) and sub.get("enabled"):
-                    per_host_enabled[key] = True
-            # service_probe is per-CHIP on `services[]` rather than a
-            # `hosts_config[].service_probe = {enabled: true}` flag —
-            # any curated row with at least one service entry that
-            # carries a probe URL counts as opting that host into
-            # service_probe. Mirrors how the live path treats the
-            # provider (a host opts in whenever ANY services[] chip has
-            # a probe URL), so the Stats Dashboard card agrees with reality.
-            svcs = h.get("services")
-            if isinstance(svcs, list):
-                for svc in svcs:
-                    if isinstance(svc, dict) and (svc.get("url") or "").strip():
-                        per_host_enabled["service_probe"] = True
-                        break
-        # Master-toggle-controlled providers — not part of the
-        # `host_stats_source` CSV. Each owns its own boolean setting
-        # in the `settings` table. http_probe stays purely master-
-        # toggle-driven because its URLs live under `http_probe.urls`
-        # rather than the service catalog. Pre-fix the Stats Dashboard
-        # providers card always reported them as `disabled` regardless
-        # of operator state because the loop below only consulted
-        # `csv_enabled` + the snmp/ping per-host pool.
-        master_enabled: dict[str, bool] = {
-            "http_probe": get_setting_bool(Settings.HTTP_PROBE_ENABLED),
-            "service_probe": get_setting_bool(Settings.SERVICE_PROBE_ENABLED),
-        }
-        enabled_set: set[str] = set()
-        for p in _PROVIDER_PREFIXES:
-            if p in csv_enabled:
-                enabled_set.add(p)
-            if p in per_host_enabled and per_host_enabled[p]:
-                enabled_set.add(p)
-            if master_enabled.get(p):
-                enabled_set.add(p)
-        all_providers = sorted(_PROVIDER_PREFIXES)
-        out["providers"] = {
-            "total": len(all_providers),
-            "enabled": sorted(enabled_set),
-            "disabled": sorted(p for p in all_providers if p not in enabled_set),
-        }
-        out["hosts"] = {
-            "total": len(curated),
-            "enabled": sum(1 for h in curated if h.get("enabled", True)),
-        }
-    except Exception as e:
-        out["providers_error"] = str(e)
-    # Host groups — JSON setting array, count meaningful entries only.
-    try:
-        raw = get_setting(Settings.HOST_GROUPS) or ""
-        groups = json.loads(raw) if raw.strip() else []
-        if not isinstance(groups, list):
-            groups = []
-        out["host_groups"] = {
-            "total": sum(1 for g in groups if isinstance(g, dict)),
-        }
-    except Exception as e:
-        out["host_groups_error"] = str(e)
-    try:
-        from logic import asset_inventory as _ai
-        cache = _ai.load_cache() if _is_asset_inventory_enabled() else {}
-        out["assets"] = {"total": int(cache.get("count") or 0)}
-    except Exception as e:
-        out["assets_error"] = str(e)
-    # Fleet counts — read from the existing in-memory cache so we don't
-    # trigger a Portainer round-trip on every dashboard open. The SPA's
-    # auto-refresh keeps `_cache` warm; if it happens to be cold (fresh
-    # process boot, never visited Stacks yet) the counts gracefully
-    # report 0 rather than blocking on a refresh.
-    try:
-        items = _cache.get("items") or []
-        stacks = _cache.get("stacks") or []
-        nodes = _cache.get("nodes") or []
-        out["nodes"] = {"total": len(nodes)}
-        out["stacks"] = {"total": len(stacks)}
-        svc_count = sum(1 for it in items if (it.get("type") or "") == "service")
-        ctn_count = sum(1 for it in items if (it.get("type") or "") in ("container", "orphan"))
-        # Containers-in-stacks = service replicas (each service is N running
-        # containers behind it) plus standalone containers that belong to a
-        # stack via the `stack` field. Pure service-item count would
-        # under-report a fleet that scales horizontally; pure item count
-        # over-reports nothing for the orphan / standalone case.
-        repl_total = 0
-        for it in items:
-            if (it.get("type") or "") == "service":
-                rep = it.get("replicas") or {}
-                # Prefer running (actual on-the-wire count); fall back to
-                # desired for services where no task is currently running
-                # but the deploy spec still defines N.
-                repl_total += int(rep.get("running") or rep.get("desired") or 0)
-        out["services"] = {"total": svc_count}
-        out["containers"] = {
-            "total": repl_total + ctn_count,
-            "replicas": repl_total,
-            "standalone": ctn_count,
-        }
-    except Exception as e:
-        out["fleet_error"] = str(e)
-    # Backups + config backups — file-system snapshots produced by the
-    # backup / config_backup schedule kinds and admin Save-now buttons.
-    try:
-        from logic import backups as _b
-        out["backups"] = {"total": len(_b.list_backups())}
-    except Exception as e:
-        out["backups_error"] = str(e)
-    try:
-        from logic import config_export as _ce
-        out["config_backups"] = {"total": len(_ce.list_snapshots())}
-    except Exception as e:
-        out["config_backups_error"] = str(e)
-    # Schedules — DB-stored cron-style jobs. Report total + enabled split.
-    try:
-        from logic import schedules as _s
-        with db_conn() as c:
-            sched_rows = _s.list_schedules(c)
-        out["schedules"] = {
-            "total": len(sched_rows),
-            "enabled": sum(1 for r in sched_rows if r.get("enabled")),
-        }
-    except Exception as e:
-        out["schedules_error"] = str(e)
-    # Apps feature — catalog template count + cross-host instance roll-up
-    # via `list_apps()` (same source the top-level Apps view consumes).
-    try:
-        from logic import service_catalog as _sc
-        catalog_rows = _sc.list_catalog()
-        apps_list = _sc.list_apps()
-        instance_total = sum(int(a.get("instance_count") or 0) for a in apps_list)
-        up = sum(int(a.get("up_count") or 0) for a in apps_list)
-        down = sum(int(a.get("down_count") or 0) for a in apps_list)
-        unknown_total = sum(int(a.get("unknown_count") or 0) for a in apps_list)
-        # Degraded = instances that are part of a degraded app group
-        # (some-up, some-down) — not exposed per-instance by list_apps,
-        # so derive by subtracting up+down+unknown from total.
-        degraded = max(0, instance_total - up - down - unknown_total)
-        out["apps"] = {
-            "templates": len(catalog_rows),
-            "instances": instance_total,
-            "apps": len(apps_list),
-            "up": up,
-            "down": down,
-            "degraded": degraded,
-            "unknown": unknown_total,
-        }
-    except Exception as e:
-        out["apps_error"] = str(e)
-    # Tunables — process-level knobs declared in logic/tuning.py:TUNABLES.
-    # `total` is the canonical count (every knob the app exposes via the
-    # three-tier resolver); `overridden` is how many currently have a
-    # non-default DB value (operator has explicitly customised them).
-    try:
-        from logic.tuning import TUNABLES, tuning_int
-        total = len(TUNABLES)
-        overridden = 0
-        for key, (_env, default, _lo, _hi) in TUNABLES.items():
-            try:
-                if int(tuning_int(key)) != int(default):
-                    overridden += 1
-            except (ValueError, TypeError, KeyError):
-                pass
-        out["tunables"] = {"total": total, "overridden": overridden}
-    except Exception as e:
-        out["tunables_error"] = str(e)
-    return out
+        try:
+            with db_conn() as c:
+                users = auth.list_users(c)
+                sessions = auth.list_sessions(c)
+            active_users = [u for u in users if u.get("disabled") in (0, False, None)]
+            admin_users = [u for u in active_users if (u.get("role") or "") == "admin"]
+            out["users"] = {
+                "total": len(users),
+                "active": len(active_users),
+                "admins": len(admin_users),
+            }
+            out["sessions"] = {"total": len(sessions)}
+        except Exception as e:
+            out["users_error"] = str(e)
+        # Per-provider enabled/disabled split. Truth source for the four
+        # CSV-controlled providers is ``active_host_stats_providers()``;
+        # snmp + ping are per-host opt-in so they're "enabled" iff at least
+        # one curated row has them turned on.
+        try:
+            csv_enabled = active_host_stats_providers()
+            curated = _load_hosts_config()
+            per_host_enabled = {"snmp": False, "ping": False, "service_probe": False}
+            for h in curated:
+                for key in ("snmp", "ping"):
+                    sub = h.get(key) or {}
+                    if isinstance(sub, dict) and sub.get("enabled"):
+                        per_host_enabled[key] = True
+                # service_probe is per-CHIP on `services[]` rather than a
+                # `hosts_config[].service_probe = {enabled: true}` flag —
+                # any curated row with at least one service entry that
+                # carries a probe URL counts as opting that host into
+                # service_probe. Mirrors how the live path treats the
+                # provider (a host opts in whenever ANY services[] chip has
+                # a probe URL), so the Stats Dashboard card agrees with reality.
+                svcs = h.get("services")
+                if isinstance(svcs, list):
+                    for svc in svcs:
+                        if isinstance(svc, dict) and (svc.get("url") or "").strip():
+                            per_host_enabled["service_probe"] = True
+                            break
+            # Master-toggle-controlled providers — not part of the
+            # `host_stats_source` CSV. Each owns its own boolean setting
+            # in the `settings` table. http_probe stays purely master-
+            # toggle-driven because its URLs live under `http_probe.urls`
+            # rather than the service catalog. Pre-fix the Stats Dashboard
+            # providers card always reported them as `disabled` regardless
+            # of operator state because the loop below only consulted
+            # `csv_enabled` + the snmp/ping per-host pool.
+            master_enabled: dict[str, bool] = {
+                "http_probe": get_setting_bool(Settings.HTTP_PROBE_ENABLED),
+                "service_probe": get_setting_bool(Settings.SERVICE_PROBE_ENABLED),
+            }
+            enabled_set: set[str] = set()
+            for p in _PROVIDER_PREFIXES:
+                if p in csv_enabled:
+                    enabled_set.add(p)
+                if p in per_host_enabled and per_host_enabled[p]:
+                    enabled_set.add(p)
+                if master_enabled.get(p):
+                    enabled_set.add(p)
+            all_providers = sorted(_PROVIDER_PREFIXES)
+            out["providers"] = {
+                "total": len(all_providers),
+                "enabled": sorted(enabled_set),
+                "disabled": sorted(p for p in all_providers if p not in enabled_set),
+            }
+            out["hosts"] = {
+                "total": len(curated),
+                "enabled": sum(1 for h in curated if h.get("enabled", True)),
+            }
+        except Exception as e:
+            out["providers_error"] = str(e)
+        # Host groups — JSON setting array, count meaningful entries only.
+        try:
+            raw = get_setting(Settings.HOST_GROUPS) or ""
+            groups = json.loads(raw) if raw.strip() else []
+            if not isinstance(groups, list):
+                groups = []
+            out["host_groups"] = {
+                "total": sum(1 for g in groups if isinstance(g, dict)),
+            }
+        except Exception as e:
+            out["host_groups_error"] = str(e)
+        try:
+            from logic import asset_inventory as _ai
+            cache = _ai.load_cache() if _is_asset_inventory_enabled() else {}
+            out["assets"] = {"total": int(cache.get("count") or 0)}
+        except Exception as e:
+            out["assets_error"] = str(e)
+        # Fleet counts — read from the existing in-memory cache so we don't
+        # trigger a Portainer round-trip on every dashboard open. The SPA's
+        # auto-refresh keeps `_cache` warm; if it happens to be cold (fresh
+        # process boot, never visited Stacks yet) the counts gracefully
+        # report 0 rather than blocking on a refresh.
+        try:
+            items = _cache.get("items") or []
+            stacks = _cache.get("stacks") or []
+            nodes = _cache.get("nodes") or []
+            out["nodes"] = {"total": len(nodes)}
+            out["stacks"] = {"total": len(stacks)}
+            svc_count = sum(1 for it in items if (it.get("type") or "") == "service")
+            ctn_count = sum(1 for it in items if (it.get("type") or "") in ("container", "orphan"))
+            # Containers-in-stacks = service replicas (each service is N running
+            # containers behind it) plus standalone containers that belong to a
+            # stack via the `stack` field. Pure service-item count would
+            # under-report a fleet that scales horizontally; pure item count
+            # over-reports nothing for the orphan / standalone case.
+            repl_total = 0
+            for it in items:
+                if (it.get("type") or "") == "service":
+                    rep = it.get("replicas") or {}
+                    # Prefer running (actual on-the-wire count); fall back to
+                    # desired for services where no task is currently running
+                    # but the deploy spec still defines N.
+                    repl_total += int(rep.get("running") or rep.get("desired") or 0)
+            out["services"] = {"total": svc_count}
+            out["containers"] = {
+                "total": repl_total + ctn_count,
+                "replicas": repl_total,
+                "standalone": ctn_count,
+            }
+        except Exception as e:
+            out["fleet_error"] = str(e)
+        # Backups + config backups — file-system snapshots produced by the
+        # backup / config_backup schedule kinds and admin Save-now buttons.
+        try:
+            from logic import backups as _b
+            out["backups"] = {"total": len(_b.list_backups())}
+        except Exception as e:
+            out["backups_error"] = str(e)
+        try:
+            from logic import config_export as _ce
+            out["config_backups"] = {"total": len(_ce.list_snapshots())}
+        except Exception as e:
+            out["config_backups_error"] = str(e)
+        # Schedules — DB-stored cron-style jobs. Report total + enabled split.
+        try:
+            from logic import schedules as _s
+            with db_conn() as c:
+                sched_rows = _s.list_schedules(c)
+            out["schedules"] = {
+                "total": len(sched_rows),
+                "enabled": sum(1 for r in sched_rows if r.get("enabled")),
+            }
+        except Exception as e:
+            out["schedules_error"] = str(e)
+        # Apps feature — catalog template count + cross-host instance roll-up
+        # via `list_apps()` (same source the top-level Apps view consumes).
+        try:
+            from logic import service_catalog as _sc
+            catalog_rows = _sc.list_catalog()
+            apps_list = _sc.list_apps()
+            instance_total = sum(int(a.get("instance_count") or 0) for a in apps_list)
+            up = sum(int(a.get("up_count") or 0) for a in apps_list)
+            down = sum(int(a.get("down_count") or 0) for a in apps_list)
+            unknown_total = sum(int(a.get("unknown_count") or 0) for a in apps_list)
+            # Degraded = instances that are part of a degraded app group
+            # (some-up, some-down) — not exposed per-instance by list_apps,
+            # so derive by subtracting up+down+unknown from total.
+            degraded = max(0, instance_total - up - down - unknown_total)
+            out["apps"] = {
+                "templates": len(catalog_rows),
+                "instances": instance_total,
+                "apps": len(apps_list),
+                "up": up,
+                "down": down,
+                "degraded": degraded,
+                "unknown": unknown_total,
+            }
+        except Exception as e:
+            out["apps_error"] = str(e)
+        # Tunables — process-level knobs declared in logic/tuning.py:TUNABLES.
+        # `total` is the canonical count (every knob the app exposes via the
+        # three-tier resolver); `overridden` is how many currently have a
+        # non-default DB value (operator has explicitly customised them).
+        try:
+            from logic.tuning import TUNABLES, tuning_int
+            total = len(TUNABLES)
+            overridden = 0
+            for key, (_env, default, _lo, _hi) in TUNABLES.items():
+                try:
+                    if int(tuning_int(key)) != int(default):
+                        overridden += 1
+                except (ValueError, TypeError, KeyError):
+                    pass
+            out["tunables"] = {"total": total, "overridden": overridden}
+        except Exception as e:
+            out["tunables_error"] = str(e)
+        return out
+
+    # Read-only aggregation (2 db opens + asset-cache read + backups /
+    # config-backup FS scans + list_apps + the ~170-key tuning loop) -- all
+    # offloaded to a worker thread so the dashboard’s first paint never
+    # blocks the event loop. (ADMIN-PERF-15.)
+    return await asyncio.to_thread(_compute)
 
 
 @app.get("/api/admin/stats/database")
@@ -768,14 +776,14 @@ async def api_admin_stats_network(
                     ).fetchall()
                     deduped: dict[str, dict] = {}
                     for r in rows:
-                        hid = r["host_id"] if hasattr(r, "keys") else r[0]
+                        h_id = r["host_id"] if hasattr(r, "keys") else r[0]
                         rx = float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0)
                         tx = float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0)
-                        key = _canonical(hid)
+                        key = _canonical(h_id)
                         cur: dict | None = deduped.get(key)
                         if cur is None:
                             deduped[key] = {
-                                "host_id": hid,
+                                "host_id": h_id,
                                 "max_rx_bps": rx,
                                 "max_tx_bps": tx,
                                 "aliases": [],
@@ -788,9 +796,9 @@ async def api_admin_stats_network(
                             assert cur is not None  # narrowing for type-checker (else branch)
                             if rx + tx > cur["max_rx_bps"] + cur["max_tx_bps"]:
                                 cur["aliases"].append(cur["host_id"])
-                                cur["host_id"] = hid
+                                cur["host_id"] = h_id
                             else:
-                                cur["aliases"].append(hid)
+                                cur["aliases"].append(h_id)
                             cur["max_rx_bps"] = max(cur["max_rx_bps"], rx)
                             cur["max_tx_bps"] = max(cur["max_tx_bps"], tx)
                     # Sort by combined max + slice to top 10.
@@ -825,13 +833,13 @@ async def api_admin_stats_network(
                 # caught more ticks during the window).
                 ded_chatty: dict[str, dict] = {}
                 for r in rows:
-                    hid, bx, bt = _unpack_net_row(r)
+                    h_id, bx, bt = _unpack_net_row(r)
                     total = bx + bt
-                    key = _canonical(hid)
+                    key = _canonical(h_id)
                     cur: dict | None = ded_chatty.get(key)
                     if cur is None:
                         ded_chatty[key] = {
-                            "host_id": hid,
+                            "host_id": h_id,
                             "bytes_rx": bx,
                             "bytes_tx": bt,
                             "bytes_total": total,
@@ -841,12 +849,12 @@ async def api_admin_stats_network(
                         assert cur is not None  # narrowing for type-checker (else branch)
                         if total > cur["bytes_total"]:
                             cur["aliases"].append(cur["host_id"])
-                            cur["host_id"] = hid
+                            cur["host_id"] = h_id
                             cur["bytes_rx"] = bx
                             cur["bytes_tx"] = bt
                             cur["bytes_total"] = total
                         else:
-                            cur["aliases"].append(hid)
+                            cur["aliases"].append(h_id)
                 out["top_chatty"] = sorted(
                     ded_chatty.values(),
                     key=lambda x: -x["bytes_total"],
@@ -867,8 +875,8 @@ async def api_admin_stats_network(
                 ).fetchall()
                 ded_total: dict = {}
                 for r in rows:
-                    hid, bx, bt = _unpack_net_row(r)
-                    key = _canonical(hid)
+                    h_id, bx, bt = _unpack_net_row(r)
+                    key = _canonical(h_id)
                     cur = ded_total.get(key)
                     if cur is None or (bx + bt) > (cur["bytes_rx"] + cur["bytes_tx"]):
                         ded_total[key] = {"bytes_rx": bx, "bytes_tx": bt}
@@ -923,6 +931,7 @@ async def api_admin_stats_network(
                 ]
         except Exception as e:
             out["error"] = str(e)
+
     # Offload the 5 GROUP-BY scans over host_net_samples to a worker
     # thread -- they run on `WHERE ts >= ?` only (no host_id seek) so on a
     # long-lived fleet each is a sizable scan; on the event loop they block
@@ -981,14 +990,21 @@ async def api_admin_stats_incidents(
     except (ImportError, AttributeError, ValueError):
         tz = None
     try:
-        with db_conn() as c:
-            rows = c.execute(
-                "SELECT ts, host_id, provider, kind "
-                "  FROM host_failure_events "
-                " WHERE ts >= ? "
-                " ORDER BY ts ASC",
-                (cutoff,),
-            ).fetchall()
+        # Offload the host_failure_events scan (WHERE ts>=? returns every row
+        # in the window) to a worker thread so it doesn't block the event loop;
+        # the Python aggregation below is bounded by the incidents retention
+        # window. (ADMIN-PERF-14.)
+        def _q_incidents():
+            with db_conn() as c:
+                return c.execute(
+                    "SELECT ts, host_id, provider, kind "
+                    "  FROM host_failure_events "
+                    " WHERE ts >= ? "
+                    " ORDER BY ts ASC",
+                    (cutoff,),
+                ).fetchall()
+
+        rows = await asyncio.to_thread(_q_incidents)
     except Exception as e:
         out["error"] = str(e)
         return out
@@ -1092,186 +1108,191 @@ async def api_admin_stats_ai_cost(
     """
     import time as _time
     from datetime import datetime as _dt
-    try:
-        from logic.schedules import scheduler_tz as _stz
-        tz = _stz()
-    except (ImportError, AttributeError, ValueError):
-        tz = None
-    now_ts = int(_time.time())
-    now_dt = _dt.fromtimestamp(now_ts, tz=tz) if tz else _dt.fromtimestamp(now_ts)
-    # Start of this calendar month (in scheduler tz).
-    som_dt = now_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    som_ts = int(som_dt.timestamp())
-    # End of this calendar month — day = first day of next month - 1s.
-    if som_dt.month == 12:
-        eom_dt = som_dt.replace(year=som_dt.year + 1, month=1)
-    else:
-        eom_dt = som_dt.replace(month=som_dt.month + 1)
-    eom_ts = int(eom_dt.timestamp()) - 1
-    # Last month window.
-    if som_dt.month == 1:
-        lm_start = som_dt.replace(year=som_dt.year - 1, month=12)
-    else:
-        lm_start = som_dt.replace(month=som_dt.month - 1)
-    lm_start_ts = int(lm_start.timestamp())
-    lm_end_ts = som_ts - 1
-    out: dict = {
-        "month_to_date": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
-        "last_month": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
-        "projected_eom": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
-        # Additional headline metrics over the MTD window — surfaced
-        # as standalone cards next to the cost cards.
-        "mtd_metrics": {
-            "pass_rate": None,  # 0..1, or None when no success/error rows
-            "avg_response_time_ms": None,
-            "avg_accuracy_score": None,
-            "success_jobs": 0,
-            "error_jobs": 0,
-        },
-        "tokens_by_provider_model": [],
-        "avg_response_time_trend": [],
-        "top_expensive": [],
-        "now_ts": now_ts,
-        "som_ts": som_ts,
-        "eom_ts": eom_ts,
-    }
-    try:
-        with db_conn() as c:
-            # Month-to-date.
-            r = c.execute(
-                "SELECT COUNT(*) AS jobs, "
-                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
-                "       COALESCE(SUM(cost_usd), 0.0) AS cost "
-                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
-                (som_ts, now_ts),
-            ).fetchone()
-            out["month_to_date"] = _unpack_jobs_summary(r)
-            # MTD additional metrics — pass rate / avg RT / avg accuracy.
-            # Computed in a single query so the cards land in one fetch.
-            rr = c.execute(
-                "SELECT "
-                "  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok_jobs, "
-                "  SUM(CASE WHEN status = 'error'   THEN 1 ELSE 0 END) AS err_jobs, "
-                "  AVG(CASE WHEN response_time_ms IS NOT NULL THEN response_time_ms END) AS avg_rt, "
-                "  AVG(CASE WHEN accuracy_score   IS NOT NULL THEN accuracy_score   END) AS avg_acc "
-                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
-                (som_ts, now_ts),
-            ).fetchone()
-            ok_jobs = int(rr["ok_jobs"] if hasattr(rr, "keys") else rr[0] or 0)
-            err_jobs = int(rr["err_jobs"] if hasattr(rr, "keys") else rr[1] or 0)
-            denom = ok_jobs + err_jobs
-            avg_rt = rr["avg_rt"] if hasattr(rr, "keys") else rr[2]
-            avg_acc = rr["avg_acc"] if hasattr(rr, "keys") else rr[3]
-            out["mtd_metrics"] = {
-                "pass_rate": (ok_jobs / denom) if denom else None,
-                "avg_response_time_ms": (float(avg_rt) if avg_rt is not None else None),
-                "avg_accuracy_score": (float(avg_acc) if avg_acc is not None else None),
-                "success_jobs": ok_jobs,
-                "error_jobs": err_jobs,
-            }
-            # Last month full window.
-            r = c.execute(
-                "SELECT COUNT(*) AS jobs, "
-                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
-                "       COALESCE(SUM(cost_usd), 0.0) AS cost "
-                "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
-                (lm_start_ts, lm_end_ts),
-            ).fetchone()
-            out["last_month"] = _unpack_jobs_summary(r)
-            # Projection — linear extrapolation from MTD burn rate to EOM.
-            elapsed = max(1, now_ts - som_ts)
-            remaining = max(0, eom_ts - now_ts)
-            scale = (elapsed + remaining) / elapsed
-            mtd = out["month_to_date"]
-            out["projected_eom"] = {
-                "jobs": int(round(mtd["jobs"] * scale)),
-                "tokens": int(round(mtd["tokens"] * scale)),
-                "cost_usd": round(mtd["cost_usd"] * scale, 4),
-            }
-            # Tokens by (provider, model) over the last 30 days. Skip
-            # rows missing model so the table doesn't carry blank rows.
-            cutoff_30d = now_ts - 30 * 86400
-            rows = c.execute(
-                "SELECT provider, model, "
-                "       COALESCE(SUM(total_tokens), 0) AS tokens, "
-                "       COALESCE(SUM(cost_usd), 0.0) AS cost, "
-                "       COUNT(*) AS jobs "
-                "  FROM ai_jobs "
-                " WHERE ts >= ? AND model IS NOT NULL AND model != '' "
-                " GROUP BY provider, model "
-                " ORDER BY tokens DESC",
-                (cutoff_30d,),
-            ).fetchall()
-            out["tokens_by_provider_model"] = [
-                {
-                    "provider": r["provider"] if hasattr(r, "keys") else r[0],
-                    "model": r["model"] if hasattr(r, "keys") else r[1],
-                    "tokens": int(r["tokens"] if hasattr(r, "keys") else r[2]),
-                    "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[3]),
-                    "jobs": int(r["jobs"] if hasattr(r, "keys") else r[4]),
+    def _run_ai_cost():
+        try:
+            from logic.schedules import scheduler_tz as _stz
+            tz = _stz()
+        except (ImportError, AttributeError, ValueError):
+            tz = None
+        now_ts = int(_time.time())
+        now_dt = _dt.fromtimestamp(now_ts, tz=tz) if tz else _dt.fromtimestamp(now_ts)
+        # Start of this calendar month (in scheduler tz).
+        som_dt = now_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        som_ts = int(som_dt.timestamp())
+        # End of this calendar month — day = first day of next month - 1s.
+        if som_dt.month == 12:
+            eom_dt = som_dt.replace(year=som_dt.year + 1, month=1)
+        else:
+            eom_dt = som_dt.replace(month=som_dt.month + 1)
+        eom_ts = int(eom_dt.timestamp()) - 1
+        # Last month window.
+        if som_dt.month == 1:
+            lm_start = som_dt.replace(year=som_dt.year - 1, month=12)
+        else:
+            lm_start = som_dt.replace(month=som_dt.month - 1)
+        lm_start_ts = int(lm_start.timestamp())
+        lm_end_ts = som_ts - 1
+        out: dict = {
+            "month_to_date": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+            "last_month": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+            "projected_eom": {"cost_usd": 0.0, "tokens": 0, "jobs": 0},
+            # Additional headline metrics over the MTD window — surfaced
+            # as standalone cards next to the cost cards.
+            "mtd_metrics": {
+                "pass_rate": None,  # 0..1, or None when no success/error rows
+                "avg_response_time_ms": None,
+                "avg_accuracy_score": None,
+                "success_jobs": 0,
+                "error_jobs": 0,
+            },
+            "tokens_by_provider_model": [],
+            "avg_response_time_trend": [],
+            "top_expensive": [],
+            "now_ts": now_ts,
+            "som_ts": som_ts,
+            "eom_ts": eom_ts,
+        }
+        try:
+            with db_conn() as c:
+                # Month-to-date.
+                r = c.execute(
+                    "SELECT COUNT(*) AS jobs, "
+                    "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                    "       COALESCE(SUM(cost_usd), 0.0) AS cost "
+                    "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                    (som_ts, now_ts),
+                ).fetchone()
+                out["month_to_date"] = _unpack_jobs_summary(r)
+                # MTD additional metrics — pass rate / avg RT / avg accuracy.
+                # Computed in a single query so the cards land in one fetch.
+                rr = c.execute(
+                    "SELECT "
+                    "  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok_jobs, "
+                    "  SUM(CASE WHEN status = 'error'   THEN 1 ELSE 0 END) AS err_jobs, "
+                    "  AVG(CASE WHEN response_time_ms IS NOT NULL THEN response_time_ms END) AS avg_rt, "
+                    "  AVG(CASE WHEN accuracy_score   IS NOT NULL THEN accuracy_score   END) AS avg_acc "
+                    "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                    (som_ts, now_ts),
+                ).fetchone()
+                ok_jobs = int(rr["ok_jobs"] if hasattr(rr, "keys") else rr[0] or 0)
+                err_jobs = int(rr["err_jobs"] if hasattr(rr, "keys") else rr[1] or 0)
+                denom = ok_jobs + err_jobs
+                avg_rt = rr["avg_rt"] if hasattr(rr, "keys") else rr[2]
+                avg_acc = rr["avg_acc"] if hasattr(rr, "keys") else rr[3]
+                out["mtd_metrics"] = {
+                    "pass_rate": (ok_jobs / denom) if denom else None,
+                    "avg_response_time_ms": (float(avg_rt) if avg_rt is not None else None),
+                    "avg_accuracy_score": (float(avg_acc) if avg_acc is not None else None),
+                    "success_jobs": ok_jobs,
+                    "error_jobs": err_jobs,
                 }
-                for r in rows
-            ]
-            # Resolve operator-selected window for the trend chart + top-expensive
-            # table. Other sections (MTD / last month / EOM / tokens-by-PM)
-            # keep their canonical windows above. Bucket size follows the
-            # unified Stats-charts rule (`_stats_bucket_seconds_for_range`):
-            # 1h / 24h → hour buckets, 7d / 30d → day, 90d → week.
-            from logic.tuning import (  # local import to keep main.py top tidy
-                stats_range_seconds as _stats_range_seconds,
-                stats_bucket_seconds_for_range as _stats_bucket_seconds_for_range,
-            )
-            range_key = (range or "30d").strip().lower()
-            if _stats_range_seconds(range_key) is None:
-                range_key = "30d"
-            range_seconds = _stats_range_seconds(range_key) or 0
-            range_cutoff = now_ts - range_seconds
-            bucket_seconds = _stats_bucket_seconds_for_range(range_key)
-            # Avg response time over operator-selected window, bucketed.
-            rows = c.execute(
-                f"SELECT CAST((ts / {bucket_seconds}) AS INTEGER) * {bucket_seconds} AS bucket_ts, "
-                "        AVG(response_time_ms) AS avg_ms, "
-                "        COUNT(*) AS jobs "
-                "  FROM ai_jobs "
-                " WHERE ts >= ? AND response_time_ms IS NOT NULL "
-                " GROUP BY bucket_ts "
-                " ORDER BY bucket_ts ASC",
-                (range_cutoff,),
-            ).fetchall()
-            out["avg_response_time_trend"] = [
-                {
-                    "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
-                    "avg_ms": float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
-                    "jobs": int(r["jobs"] if hasattr(r, "keys") else r[2]),
+                # Last month full window.
+                r = c.execute(
+                    "SELECT COUNT(*) AS jobs, "
+                    "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                    "       COALESCE(SUM(cost_usd), 0.0) AS cost "
+                    "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
+                    (lm_start_ts, lm_end_ts),
+                ).fetchone()
+                out["last_month"] = _unpack_jobs_summary(r)
+                # Projection — linear extrapolation from MTD burn rate to EOM.
+                elapsed = max(1, now_ts - som_ts)
+                remaining = max(0, eom_ts - now_ts)
+                scale = (elapsed + remaining) / elapsed
+                mtd = out["month_to_date"]
+                out["projected_eom"] = {
+                    "jobs": int(round(mtd["jobs"] * scale)),
+                    "tokens": int(round(mtd["tokens"] * scale)),
+                    "cost_usd": round(mtd["cost_usd"] * scale, 4),
                 }
-                for r in rows
-            ]
-            # Top 10 most expensive single calls in the operator-selected window.
-            rows = c.execute(
-                "SELECT id, ts, provider, model, kind, total_tokens, cost_usd, response_time_ms "
-                "  FROM ai_jobs "
-                " WHERE ts >= ? AND cost_usd IS NOT NULL AND cost_usd > 0 "
-                " ORDER BY cost_usd DESC "
-                " LIMIT 10",
-                (range_cutoff,),
-            ).fetchall()
-            out["top_expensive"] = [
-                {
-                    "id": int(r["id"] if hasattr(r, "keys") else r[0]),
-                    "ts": int(r["ts"] if hasattr(r, "keys") else r[1]),
-                    "provider": r["provider"] if hasattr(r, "keys") else r[2],
-                    "model": r["model"] if hasattr(r, "keys") else r[3],
-                    "kind": r["kind"] if hasattr(r, "keys") else r[4],
-                    "total_tokens": int(r["total_tokens"] if hasattr(r, "keys") else r[5] or 0),
-                    "cost_usd": float(r["cost_usd"] if hasattr(r, "keys") else r[6]),
-                    "response_time_ms": int(r["response_time_ms"] if hasattr(r, "keys") else r[7] or 0),
-                }
-                for r in rows
-            ]
-            out["range"] = range_key
-    except Exception as e:
-        out["error"] = str(e)
-    return out
+                # Tokens by (provider, model) over the last 30 days. Skip
+                # rows missing model so the table doesn't carry blank rows.
+                cutoff_30d = now_ts - 30 * 86400
+                rows = c.execute(
+                    "SELECT provider, model, "
+                    "       COALESCE(SUM(total_tokens), 0) AS tokens, "
+                    "       COALESCE(SUM(cost_usd), 0.0) AS cost, "
+                    "       COUNT(*) AS jobs "
+                    "  FROM ai_jobs "
+                    " WHERE ts >= ? AND model IS NOT NULL AND model != '' "
+                    " GROUP BY provider, model "
+                    " ORDER BY tokens DESC",
+                    (cutoff_30d,),
+                ).fetchall()
+                out["tokens_by_provider_model"] = [
+                    {
+                        "provider": r["provider"] if hasattr(r, "keys") else r[0],
+                        "model": r["model"] if hasattr(r, "keys") else r[1],
+                        "tokens": int(r["tokens"] if hasattr(r, "keys") else r[2]),
+                        "cost_usd": float(r["cost"] if hasattr(r, "keys") else r[3]),
+                        "jobs": int(r["jobs"] if hasattr(r, "keys") else r[4]),
+                    }
+                    for r in rows
+                ]
+                # Resolve operator-selected window for the trend chart + top-expensive
+                # table. Other sections (MTD / last month / EOM / tokens-by-PM)
+                # keep their canonical windows above. Bucket size follows the
+                # unified Stats-charts rule (`_stats_bucket_seconds_for_range`):
+                # 1h / 24h → hour buckets, 7d / 30d → day, 90d → week.
+                from logic.tuning import (  # local import to keep main.py top tidy
+                    stats_range_seconds as _stats_range_seconds,
+                    stats_bucket_seconds_for_range as _stats_bucket_seconds_for_range,
+                )
+                range_key = (range or "30d").strip().lower()
+                if _stats_range_seconds(range_key) is None:
+                    range_key = "30d"
+                range_seconds = _stats_range_seconds(range_key) or 0
+                range_cutoff = now_ts - range_seconds
+                bucket_seconds = _stats_bucket_seconds_for_range(range_key)
+                # Avg response time over operator-selected window, bucketed.
+                rows = c.execute(
+                    f"SELECT CAST((ts / {bucket_seconds}) AS INTEGER) * {bucket_seconds} AS bucket_ts, "
+                    "        AVG(response_time_ms) AS avg_ms, "
+                    "        COUNT(*) AS jobs "
+                    "  FROM ai_jobs "
+                    " WHERE ts >= ? AND response_time_ms IS NOT NULL "
+                    " GROUP BY bucket_ts "
+                    " ORDER BY bucket_ts ASC",
+                    (range_cutoff,),
+                ).fetchall()
+                out["avg_response_time_trend"] = [
+                    {
+                        "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
+                        "avg_ms": float(r["avg_ms"] if hasattr(r, "keys") else r[1] or 0),
+                        "jobs": int(r["jobs"] if hasattr(r, "keys") else r[2]),
+                    }
+                    for r in rows
+                ]
+                # Top 10 most expensive single calls in the operator-selected window.
+                rows = c.execute(
+                    "SELECT id, ts, provider, model, kind, total_tokens, cost_usd, response_time_ms "
+                    "  FROM ai_jobs "
+                    " WHERE ts >= ? AND cost_usd IS NOT NULL AND cost_usd > 0 "
+                    " ORDER BY cost_usd DESC "
+                    " LIMIT 10",
+                    (range_cutoff,),
+                ).fetchall()
+                out["top_expensive"] = [
+                    {
+                        "id": int(r["id"] if hasattr(r, "keys") else r[0]),
+                        "ts": int(r["ts"] if hasattr(r, "keys") else r[1]),
+                        "provider": r["provider"] if hasattr(r, "keys") else r[2],
+                        "model": r["model"] if hasattr(r, "keys") else r[3],
+                        "kind": r["kind"] if hasattr(r, "keys") else r[4],
+                        "total_tokens": int(r["total_tokens"] if hasattr(r, "keys") else r[5] or 0),
+                        "cost_usd": float(r["cost_usd"] if hasattr(r, "keys") else r[6]),
+                        "response_time_ms": int(r["response_time_ms"] if hasattr(r, "keys") else r[7] or 0),
+                    }
+                    for r in rows
+                ]
+                out["range"] = range_key
+        except Exception as e:
+            out["error"] = str(e)
+        return out
+
+    # Offload the 4 ai_jobs COUNT/GROUP-BY aggregations to a worker thread
+    # so they don't block the event loop.
+    return await asyncio.to_thread(_run_ai_cost)
 
 
 @app.get("/api/admin/stats/samplers")

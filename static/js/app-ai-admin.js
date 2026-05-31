@@ -375,15 +375,18 @@ export default {
       const body = {
         ai_enabled: !!this.settings.ai_enabled,
         ai_active_provider: this.settings.ai_active_provider || 'claude',
-        ai_max_tokens: (Number.isFinite(+this.settings.ai_max_tokens) && +this.settings.ai_max_tokens > 0) ? +this.settings.ai_max_tokens : 1024,
+        // NOTE: ai_max_tokens / ai_fallback_max_depth are NOT posted here —
+        // they migrated to TUNABLES (tuning_ai_max_tokens /
+        // tuning_ai_fallback_max_depth, ride along via _aiSectionTuningKeys
+        // below). The bare SettingsIn fields + write paths were deleted
+        // server-side; posting them was dead wire traffic that Pydantic v2
+        // extra='ignore' silently dropped.
         // Fallback chain — backend re-validates the CSV against
         // SUPPORTED_PROVIDERS so an unknown id can't slip through.
         ai_fallback_enabled: !!this.settings.ai_fallback_enabled,
         ai_fallback_order: (Array.isArray(this.settings.ai_fallback_order)
           ? this.settings.ai_fallback_order : [])
           .filter(Boolean).join(','),
-        ai_fallback_max_depth: Math.max(1, Math.min(2,
-          +this.settings.ai_fallback_max_depth || 1)),
       };
       // Section-owned tunables ride along in the same POST. The
       // backend's api_set_settings handler processes plain settings

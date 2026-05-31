@@ -300,8 +300,7 @@
         <span class="spin" aria-hidden="true"></span>
         <span x-text="t('common.loading')"></span>
       </div>
-      <template x-for="key in (tuningLoaded ? ['tuning_telegram_long_poll_timeout_seconds',
-                                      'tuning_telegram_http_timeout_seconds'] : [])"
+      <template x-for="key in (tuningLoaded ? _telegramSectionTuningKeys() : [])"
                 :key="key">
         <div>
           <label class="block fs-xs font-medium mb-1"

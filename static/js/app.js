@@ -2183,6 +2183,46 @@ function app() {
         // the ticker unconditionally (original behaviour).
         _startHistoryTicker();
       }
+      // Apps clock-widget ticker. The digital / analog clock widget on
+      // the Apps custom dashboard reads `appsClockNow` for its live
+      // time. It previously read the drawer-scoped `hostHistoryNow`,
+      // which STOPS ticking when no drawer is open — so the clock froze
+      // at the last value (the CSS colon kept pulsing, making it look
+      // live while the minutes were stale). This dedicated ticker runs
+      // every second while the Apps view is active and stops otherwise,
+      // so an idle SPA on another view doesn't burn a flush/second.
+      this.appsClockNow = Date.now();
+      this._appsClockTicker = null;
+      const _startAppsClock = () => {
+        if (this._appsClockTicker) {
+          return;
+        }
+        this._appsClockTicker = setInterval(() => {
+          this.appsClockNow = Date.now();
+        }, 1000);
+      };
+      const _stopAppsClock = () => {
+        if (this._appsClockTicker) {
+          clearInterval(this._appsClockTicker);
+          this._appsClockTicker = null;
+        }
+      };
+      try {
+        if (typeof Alpine !== 'undefined' && typeof Alpine.effect === 'function') {
+          Alpine.effect(() => {
+            if (this.view === 'apps') {
+              _startAppsClock();
+            } else {
+              _stopAppsClock();
+            }
+          });
+        } else {
+          _startAppsClock();
+        }
+      } catch (_) {
+        // Fallback — tick unconditionally if Alpine.effect is missing.
+        _startAppsClock();
+      }
       // Multi-tab activity wiring. Boot-hydrate the
       // sibling-tab map, fire the first heartbeat so OTHER tabs see us,
       // then arm a 30s tick + cleanup hooks. Cross-tab focus channel

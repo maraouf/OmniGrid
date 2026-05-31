@@ -487,6 +487,20 @@ export default {
     return 'pill pill-unknown';
   },
 
+  // Dirty cue for the scheduler-timezone card — the canonical
+  // quartet dirty-half every other settings-bearing section has.
+  // Compares the trimmed live value to `_schedulerTzBaseline`
+  // (captured in loadSettings + re-stamped on save success). Pre-fix
+  // this card had NO dirty getter at all: the Save button gated only
+  // on the in-flight `schedulerSaving` flag, so the operator got zero
+  // feedback (no amber ring, no Unsaved pulse) that an edit was
+  // pending.
+  schedulerSettingsDirty() {
+    const cur = ((this.settings && this.settings.scheduler_timezone) || '').trim();
+    const base = (this._schedulerTzBaseline || '').trim();
+    return cur !== base;
+  },
+
   async saveSchedulerSettings() {
     if (this.schedulerSaving) {
       return;
@@ -501,6 +515,8 @@ export default {
       });
       if (r.ok) {
         this.settings.scheduler_timezone = tz;
+        // Re-baseline so the amber ring + Unsaved pulse clear on save.
+        this._schedulerTzBaseline = tz;
         this.showToast(tz
             ? this.t('scheduler_settings.saved_set', {tz})
             : this.t('scheduler_settings.saved_cleared'),

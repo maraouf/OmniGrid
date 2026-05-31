@@ -340,7 +340,16 @@
              We wrap in a single x-show on the outer div so the
              existing grid/spacing rules apply unchanged when
              the row is expanded. -->
-        <div x-show="isHostConfigExpanded(row)" class="space-y-3">
+        <!-- x-if (not x-show) so a COLLAPSED row's full nested editor
+             (per-host SNMP / SSH / HTTP-probe / ping forms — dozens of
+             inputs) is torn out of the reactive graph entirely; only the
+             actually-expanded row instantiates it. Safe re-mount: the two
+             selects inside (ping transport / snmp version) use STATIC option
+             lists, not <template x-for> options, so the documented Alpine
+             select-mount race doesn't apply (the :value binding resolves
+             against options that exist immediately). (ADMIN-PERF-16.) -->
+        <template x-if="isHostConfigExpanded(row)">
+        <div class="space-y-3">
           <!-- Row 1 — identity (custom # / id / label / enabled).
                Row-level actions (↑ ↓ duplicate / Remove) used to
                live here on the right of this same row, but per
@@ -1104,6 +1113,7 @@
             </div>
           </div>
         </div><!-- /expanded field grid -->
+        </template>
       </div>
     </template>
 

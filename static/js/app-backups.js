@@ -396,16 +396,16 @@ export default {
       return;
     }
     this.retentionSaving = true;
-    // Backups section owns its retention tunable. Per the
-    // section-saves-its-own-tunables convention, this handler
-    // posts BOTH the legacy `backup_retention_count` (back-compat
-    // for any old code path still reading it) AND the canonical
-    // `tuning_backup_retention_count` in one body — no chain to
-    // saveTuning.
+    // Backups section owns its retention tunable. Posts ONLY the
+    // canonical `tuning_backup_retention_count` — the legacy plain
+    // `backup_retention_count` row is dead (the prune consumer +
+    // the GET both read the TUNABLE, not the plain row), so posting
+    // it was dead wire traffic. The SettingsIn field + write path
+    // were removed server-side too. No chain to saveTuning.
     const tuningV = (this.tuningForm || {})['tuning_backup_retention_count'];
     const n = Math.max(0, parseInt(this.settings.backup_retention_count, 10) || 0);
     try {
-      const body = {backup_retention_count: n};
+      const body = {};
       body['tuning_backup_retention_count'] = (tuningV == null ? '' : String(tuningV).trim());
       const r = await fetch('/api/settings', {
         method: 'POST',
