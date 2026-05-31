@@ -1947,6 +1947,25 @@ export default {
   // Offset = circumference * (1 - illumination/100) so a New Moon
   // (0%) shows the full dim track and a Full Moon (100%) shows
   // the full bright arc.
+  // Character-length bucket for the moon-phase label so the font can be
+  // sized to FIT the phrase. Short names ("New" / "Full") get the big
+  // cqmin ceiling; the long two-word phases ("Waning Gibbous" / "Waxing
+  // Crescent" = 14-15 chars) overflowed / ellipsed at that ceiling on the
+  // tall tiles, so they drop to a smaller ceiling. Returns '' for short
+  // names (no class -> default large sizing).
+  moonPhaseLenClass(phase) {
+    const n = String(phase == null ? '' : phase).trim().length;
+    if (n >= 14) {
+      return 'apps-widget-moon-phase--xs';
+    }
+    if (n >= 11) {
+      return 'apps-widget-moon-phase--sm';
+    }
+    if (n >= 8) {
+      return 'apps-widget-moon-phase--md';
+    }
+    return '';
+  },
   appsWidgetMoonPhase() {
     const w = this.weather;
     if (!w || !w.supports_moon) {

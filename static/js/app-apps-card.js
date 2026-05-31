@@ -497,6 +497,22 @@ export default {
   // weather / moon / pubip widget tiles it sits beside). The first
   // matching extender wins; absent extenders fall through to false
   // (the default plain bold heading).
+  // Whether this app's card uses the VERTICAL layout (title row on top,
+  // logo below + smaller, then ports + extras filling the tile) instead
+  // of the generic logo-left row. Registry-driven via
+  // `extender.verticalLayout = true` (APC). Same match probe as the
+  // eyebrow helper (cardSpan(app) > 1 means the extender owns this app).
+  appsCardVerticalLayout(app) {
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && e.verticalLayout && typeof e.cardSpan === 'function') {
+        if (e.cardSpan(app) > 1) {
+          return true;
+        }
+      }
+    }
+    return false;
+  },
   appsCardEyebrowTitle(app) {
     const ext = (window.OG_APPS_EXTENDERS || []);
     for (const e of ext) {

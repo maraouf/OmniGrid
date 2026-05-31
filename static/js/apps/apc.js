@@ -162,6 +162,15 @@ export const extender = {
   // beside. The generic `appsCardEyebrowTitle(app)` helper walks the
   // registered extenders for this flag.
   eyebrowTitle: true,
+  // Vertical card layout (title row on TOP, logo below it + smaller,
+  // then the per-host ports + the UPS extras filling the rest) instead
+  // of the generic logo-left / content-right row. Makes far better use
+  // of the tile for a telemetry card whose body is a stat panel rather
+  // than a long instance list. The generic `appsCardVerticalLayout(app)`
+  // helper walks the registered extenders for this flag; CSS does the
+  // reflow via `.apps-card--vertical` (display:contents on the content
+  // wrapper hoists header + body so the article grid can stack them).
+  verticalLayout: true,
   cardSpan(app) {
     return isApcApp(app) ? 2 : 1;
   },
