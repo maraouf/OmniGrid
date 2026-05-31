@@ -996,6 +996,11 @@ export default {
   // named dashboards + switch between them; appsCustomLayout always points at
   // the active view's layout so every existing board mutator keeps working.
   appsCustomViews: null,
+  // True while switching custom dashboards via the picker — drives a
+  // loading indicator. Some dashboards are heavy (many tiles) + take a
+  // couple seconds to rebuild + mount, so the switch yields to paint the
+  // spinner first, then clears it after the new board's first paint.
+  appsViewSwitching: false,
   // Bound to the rename input in the view-picker (null = not renaming).
   appsViewRenaming: null,
 
@@ -3272,11 +3277,26 @@ export default {
     if (!target) {
       return;
     }
-    this.appsCustomViews.active_id = id;
-    this.appsCustomLayout = target.layout;
-    _appsCustomBuildCache = null;  // force rebuild for the new active layout
-    this.appsViewRenaming = null;
-    this._persistAppsCustomLayout();
+    // Show the loading indicator FIRST, then yield (setTimeout 0) so the
+    // browser paints the spinner BEFORE the heavy layout swap + tile
+    // re-mount runs (a synchronous rebuild would otherwise block the
+    // thread and the spinner would never appear). Alpine flushes the
+    // flag on a microtask + the browser paints before the macrotask
+    // fires, so the spinner is on-screen when the heavy work starts.
+    this.appsViewSwitching = true;
+    setTimeout(() => {
+      this.appsCustomViews.active_id = id;
+      this.appsCustomLayout = target.layout;
+      _appsCustomBuildCache = null;  // force rebuild for the new active layout
+      this.appsViewRenaming = null;
+      this._persistAppsCustomLayout();
+      // Drop the spinner after the new board has had a frame to paint
+      // its first tiles (the per-tile lazy-mount queue handles the rest
+      // with its own skeletons).
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        this.appsViewSwitching = false;
+      }));
+    }, 0);
   },
   appsCreateView(name) {
     this._hydrateAppsCustomLayout();

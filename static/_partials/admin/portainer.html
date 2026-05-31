@@ -245,6 +245,9 @@
            x-data="{ tcRun: () => testPortainerConnection(), tcResult: () => portainerTestResult, tcDisabled: () => !settings.portainer_enabled, tcSuccessKey: 'portainer' }">
         <!-- INCLUDE: _components/og-test-connection.html -->
       </div>
+      <!-- Divider between the test-connection result box and the Save
+           button so the two areas read as distinct. -->
+      <hr x-show="isAdmin()" class="border-t border-[var(--border)] my-3">
       <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap">
         <!-- Save is GATED on a successful Test when the service is
              enabled — admins can't ship a typo'd URL / API key without

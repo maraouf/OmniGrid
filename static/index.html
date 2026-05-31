@@ -3524,14 +3524,28 @@
           <svg width="14" height="14" class="text-[var(--text-dim)] flex-shrink-0" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
           </svg>
+          <!-- Selected option is set via `:selected` on each <option>, NOT
+               `:value` on the <select> — the latter hits the Alpine
+               select-mount race (the select commits its value BEFORE the
+               x-for options exist, so it falls back to the first option
+               and the dropdown shows the wrong view vs the one actually
+               displayed). Each option self-selects when it renders, and
+               re-evaluates when appsActiveViewId() changes (create /
+               duplicate / delete), so it stays in sync both ways. -->
           <select class="fs-sm py-1 max-w-[180px]"
-                  :value="appsActiveViewId()"
                   @change="appsSwitchView($event.target.value)"
                   :aria-label="t('apps.custom.view_picker_label') || 'Custom view'">
             <template x-for="v in appsViews()" :key="v.id">
-              <option :value="v.id" x-text="v.name"></option>
+              <option :value="v.id" :selected="v.id === appsActiveViewId()" x-text="v.name"></option>
             </template>
           </select>
+          <!-- Dashboard-switch loading indicator — heavy dashboards take a
+               couple seconds to rebuild + mount; appsSwitchView yields so
+               this paints before the work starts. -->
+          <span x-show="appsViewSwitching" class="inline-flex items-center gap-1 fs-xs text-[var(--text-faint)]">
+            <span class="spin" aria-hidden="true"></span>
+            <span x-text="t('apps.custom.view_loading') || 'Loading…'"></span>
+          </span>
           <button type="button" class="user-action-btn" @click="appsPromptCreateView()"
                   :title="t('apps.custom.view_new') || 'New view'"
                   :aria-label="t('apps.custom.view_new') || 'New view'">
