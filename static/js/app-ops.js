@@ -468,17 +468,23 @@ export default {
       if (item.image) {
         this._replaceReleaseNotesAsync(item.image);
       }
+      // Brand logo for the confirm header (replaces the generic warning
+      // glyph). Resolves the stack/container's icon the same way the cards
+      // do; SweetAlert renders it above the title.
+      const confirmImg = this.iconUrlFor(item.icon || item.stack || item.name);
       const ok = item.stack_id
         ? await this.confirmDialog({
           title: this.t('dialogs.update_stack_title'),
           html: html,
-          icon: 'warning', confirmText: this.t('actions.update_stack'),
+          imageUrl: confirmImg, imageWidth: 64, imageAlt: item.stack || item.name || '',
+          confirmText: this.t('actions.update_stack'),
           focusConfirm: true,
         })
         : await this.confirmDialog({
           title: this.t('dialogs.recreate_container_title'),
           html: html,
-          icon: 'warning', confirmText: this.t('actions.recreate'),
+          imageUrl: confirmImg, imageWidth: 64, imageAlt: item.name || '',
+          confirmText: this.t('actions.recreate'),
           focusConfirm: true,
         });
       if (!ok) {

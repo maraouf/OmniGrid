@@ -272,11 +272,15 @@ async def stats_sampler_loop() -> None:
                 pruned = await prune_with_metrics("stats_sampler", _prune_old_samples)
                 if pruned:
                     print(f"[sampler] pruned {pruned} rows older than {days}d")
-                # db_size_samples is tiny (one row/day, capped at the
-                # retention window) so prune it inline — no worker-thread
-                # offload needed (unlike the per-tick sample tables).
+                # db_size_samples is tiny (one row/day) so the DELETE itself
+                # is trivial — BUT it's still a WRITER, and under SQLite
+                # write-lock contention (a sampler mid-commit) the busy_timeout
+                # can make it block for hundreds of ms. Run it via to_thread so
+                # that wait happens OFF the event loop (a 640ms inline DELETE
+                # was blocking the SSE heartbeat + /api/healthz — the same
+                # event-loop-stall class the other sampler prunes avoid).
                 try:
-                    db_pruned = _prune_db_size_samples()
+                    db_pruned = await asyncio.to_thread(_prune_db_size_samples)
                     if db_pruned:
                         print(f"[sampler] pruned {db_pruned} db-size sample(s)")
                 except Exception as dbp_e:

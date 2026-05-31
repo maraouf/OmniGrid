@@ -6394,6 +6394,31 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-size: var(--fs-sm);
 }
 
+/* Update / recreate confirm popup body — centered name chip + action list,
+   sitting under the SweetAlert image header (the stack's brand logo) + the
+   centered title. The action <ul> inherits the generic `.swal2-html-container
+   ul` (inline-block + the blue `li::before` bullet); centering it just needs
+   `text-align: center` on the wrapper, so the chip + list read as one centred
+   unit with the title instead of the old left-floating chip beside a
+   right-drifting list. */
+.swal2-html-container .update-confirm {
+  text-align: center;
+}
+
+.swal2-html-container .update-confirm-chip-row {
+  margin-bottom: var(--s-2);
+}
+
+.swal2-html-container .update-confirm-list {
+  margin-top: 0;
+}
+
+.swal2-html-container .update-confirm-note {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  margin-top: var(--s-1);
+}
+
 /* Release-notes block in single-update popups. Injected by
  * `_fetchReleaseNotesHtml`. Scrollable body so long GitHub release
  * notes don't push the popup off-screen — operator scrolls within
