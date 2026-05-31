@@ -11,16 +11,16 @@
 /* jshint esversion: 11, browser: true, devel: true, strict: implied, curly: false, bitwise: false, laxbreak: true, eqeqeq: false, forin: false, -W069 */
 // SPA Admin → Config — the tunables editor.
 
-// Per-flush memo for _tuningSnapshot() — the 172-key JSON serialization that
-// tuningDirty() runs. tuningDirty() is bound in :class / x-show on the Config
-// tab (x2) AND the AI tab (x5), so Alpine re-evaluated it ~7x per flush, each
-// rebuilding the full snapshot. The snapshot only changes when the operator
-// edits a tunable input (which itself triggers a flush), so memoize it for the
-// flush + clear on the next microtask — the 7 reads collapse to one build,
-// and a real edit rebuilds on the flush it triggers. loadTuning() busts the
-// memo before stamping the baseline so the baseline never reads a stale build.
-let _tuningSnapshotMemo = null;
-let _tuningSnapshotScheduled = false;
+// NOTE: _tuningSnapshot() deliberately has NO cache-hit early-return memo.
+// tuningDirty() is bound in :class / x-show on the Config tab (x2) AND the AI
+// tab (x5) — all LIGHTWEIGHT consumers (none iterate the snapshot via x-for).
+// A per-flush memo that returned early on a cache-hit would let whichever
+// consumer hit the cache skip reading `tuningForm`, so its reactive effect
+// never subscribed to the form and never re-fired on an edit — the dirty cue
+// froze (operator-reported: editing 'Database size sample interval' didn't
+// flip dirty). That's the caveat-6 memo-subscription trap. The snapshot now
+// reads every tuningForm[key] on every call (a ~150-key string concat,
+// sub-millisecond, only on the Config / AI tabs) so every consumer subscribes.
 
 // Cross-flush memo for sortedTuningKeys() — the Config x-for source re-sorted
 // 41 keys via localeCompare with ~2 t() lookups per comparison on EVERY flush,
@@ -668,7 +668,6 @@ export default {
         form[k] = v;
       }
       this.tuningForm = form;
-      _tuningSnapshotMemo = null;  // bust the per-flush memo so the baseline reflects the just-loaded form
       this._tuningBaseline = this._tuningSnapshot();
       this.tuningLoaded = true;
     } catch (e) {
@@ -676,25 +675,18 @@ export default {
     }
   },
   _tuningSnapshot() {
-    // Per-flush memo (see _tuningSnapshotMemo decl): the ~7 tuningDirty() reads
-    // per flush share ONE 172-key serialization; cleared on the next microtask.
-    if (_tuningSnapshotMemo !== null) {
-      return _tuningSnapshotMemo;
-    }
+    // Build every call — reading each tuningForm[key] is what subscribes the
+    // calling reactive effect to the form (no cache-hit early-return; see the
+    // caveat-6 note at the top of this module). `key=value;` framing is
+    // collision-free: keys are lowercase alpha+underscore, values numeric, so
+    // neither contains `=` or `;`. Baseline + live use the same format so the
+    // string compare in tuningDirty() is exact.
     const f = this.tuningForm || {};
-    const out = {};
+    let out = '';
     for (const k of this._allTuningKeys()) {
-      out[k] = (f[k] == null ? '' : String(f[k]).trim());
+      out += k + '=' + (f[k] == null ? '' : String(f[k]).trim()) + ';';
     }
-    _tuningSnapshotMemo = JSON.stringify(out);
-    if (!_tuningSnapshotScheduled) {
-      _tuningSnapshotScheduled = true;
-      queueMicrotask(() => {
-        _tuningSnapshotMemo = null;
-        _tuningSnapshotScheduled = false;
-      });
-    }
-    return _tuningSnapshotMemo;
+    return out;
   },
   tuningDirty() {
     return this._tuningBaseline !== this._tuningSnapshot();

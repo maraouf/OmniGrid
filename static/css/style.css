@@ -9545,6 +9545,66 @@ select.field-invalid {
   grid-column: span 2;
 }
 
+/* Vertical card layout (opt-in per app via extender.verticalLayout — APC).
+   The generic card is a logo-left / content-right flex row; this reflows it
+   into a stack — title row on TOP, logo CENTERED + smaller below it, then the
+   per-host ports + the extras panel filling the rest of the tile. Far better
+   use of space for a telemetry card whose body is a stat panel, not a long
+   instance list. Mechanism: the article becomes a single-column grid, and the
+   `.flex-1` content wrapper is `display: contents` so its children (the
+   <header> + the body region) hoist up to become grid items ALONGSIDE the
+   logo — then `order` stacks them title(1) / logo(2) / body(3). (Unlayered
+   custom rule beats the Tailwind `flex` / `gap-3` utilities on the article.) */
+.apps-card--vertical {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-2);
+  align-items: stretch;
+}
+
+.apps-card--vertical > .flex-1 {
+  display: contents;
+}
+
+.apps-card--vertical > .flex-1 > header {
+  order: 1;
+  margin-bottom: 0;
+}
+
+.apps-card--vertical > .apps-card-logo {
+  order: 2;
+  margin-inline: auto;
+  width: 56px;
+  height: 56px;
+}
+
+.apps-card--vertical > .apps-card-logo img {
+  width: 44px;
+  height: 44px;
+}
+
+.apps-card--vertical > .flex-1 > .apps-card-body-region {
+  order: 3;
+}
+
+/* Smaller logo on the compact 1x1 / 1x2 (size-half) tiles — the user
+   flagged the logo eats the tile there. The wider presets keep the 56px. */
+.apps-card--vertical.apps-card--size-half > .apps-card-logo {
+  width: 38px;
+  height: 38px;
+}
+
+.apps-card--vertical.apps-card--size-half > .apps-card-logo img {
+  width: 28px;
+  height: 28px;
+}
+
+/* Ports span the full width under the logo (the per-host port grid is the
+   instance row's child; in the stacked body it gets the whole tile width). */
+.apps-card--vertical .apps-port-grid {
+  justify-content: flex-start;
+}
+
 /* Per-card size classes for the Apps Custom dashboard — three
    templates (half / normal / double) drive grid-column-span +
    body-density rules. Operator picks the size via the per-card
@@ -11450,6 +11510,32 @@ select.field-invalid {
   .apps-widget-moon-phase {
     font-size: clamp(var(--fs-display-base), 14cqmin, var(--fs-display-lg));
   }
+}
+
+/* Character-length-aware moon-phase sizing. The big cqmin ceiling above fits
+   short names ("New" / "Full") but the long two-word phases ("Waning Gibbous"
+   / "Waxing Crescent" = 14-15 chars) overflowed the tile (2x2 wrapped + spilled
+   past the bottom) or ellipsed ("Waning Gibbo…" on 3x2's side-by-side row).
+   These buckets (set by moonPhaseLenClass()) cap the ceiling + ease the cqmin
+   coefficient so longer phrases shrink to fit, and allow wrapping so the
+   side-by-side layout no longer ellipses. Placed AFTER the @container size
+   rule above so the (0,1,0) tie resolves in their favour on tall tiles. */
+.apps-widget-moon-phase--md {
+  font-size: clamp(var(--fs-md), 10cqmin, var(--fs-display-md));
+}
+
+.apps-widget-moon-phase--sm {
+  font-size: clamp(var(--fs-md), 8cqmin, var(--fs-display-base));
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.apps-widget-moon-phase--xs {
+  font-size: clamp(var(--fs-md), 7cqmin, var(--fs-display-base));
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* Wide cards — the detail row gets generous horizontal room, so spread
