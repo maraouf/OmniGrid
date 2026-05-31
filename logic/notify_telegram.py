@@ -310,8 +310,8 @@ async def probe(
     from Admin → Notifications.
     """
     return await send(
-        title="OmniGrid",
-        body="Telegram test message — if you see this, the integration is wired correctly.",
+        title="OmniGrid · Telegram test",
+        body="Telegram test message — if you see this, the Telegram integration is wired correctly.",
         severity="info",
         event="telegram_test",
         bot_token=bot_token,

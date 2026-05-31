@@ -216,47 +216,21 @@
        Refresh. These three live together because they're all
        upstream-API actions / status. Save sits on its own row
        below, separated by an HR. -->
-  <div class="mt-3 flex items-center gap-2 flex-wrap">
-    <button type="button" x-show="isAdmin()" @click="testAssetConnection()"
-            class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
-            :disabled="assetTestResult && assetTestResult.pending">
-      <svg width="13" height="13" :class="(assetTestResult && assetTestResult.pending) ? 'spin-md' : ''" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-      </svg>
-      <span x-show="!(assetTestResult && assetTestResult.pending)"
-            x-text="t('admin_assets.test')"></span>
-      <span x-show="assetTestResult && assetTestResult.pending"
-            x-text="t('admin_assets.testing')"></span>
-    </button>
-    <span x-show="lastTestSuccessLabel('asset_inventory')"
-          class="fs-xs text-[var(--text-faint)]"
-          x-text="lastTestSuccessLabel('asset_inventory')"></span>
-    <!-- Reload via the shared og-reload-button component (same component
-         the Stats / AI-dashboard / Telegram reloads use). rbDisabled gates
-         it off when the Asset Inventory master toggle is off (mirrors the
-         old !settings.asset_inventory_enabled guard). The wrapper carries
-         ms-auto to right-float in the row. -->
+  <!-- Shared Test-connection component (Test connection + play icon +
+       result box) on the left; the shared reload button right-floated on
+       the same row. testAssetConnection() owns the recordTestSuccess +
+       _assetLastPassedTest bookkeeping, so the last-connected chip
+       (tcSuccessKey) and Save gate keep working. -->
+  <div class="mt-3 flex items-start gap-2 flex-wrap">
+    <div x-show="isAdmin()"
+         x-data="{ tcRun: () => testAssetConnection(), tcResult: () => assetTestResult, tcSuccessKey: 'asset_inventory' }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
     <div class="ms-auto" x-show="isAdmin()"
          x-data="{ rbKey: 'asset_refresh', rbOnClick: () => _runWithBusy('asset_refresh', () => refreshAssetCache()), get rbDisabled() { return !settings.asset_inventory_enabled; } }">
       <!-- INCLUDE: _components/og-reload-button.html -->
     </div>
   </div>
-
-  <!-- Test result chip — lives directly under the Test button row
-       (before the Save HR) so the operator sees pending / ok /
-       error feedback adjacent to the action that produced it.
-       Pre-fix this chip sat AFTER the Save row, which felt
-       detached from the action. -->
-  <div x-show="assetTestResult"
-       class="mt-3 rounded-md px-3 py-2 fs-sm"
-       :class="assetTestResult && assetTestResult.pending
-                     ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'
-                     : (assetTestResult && assetTestResult.ok
-                       ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                       : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]')"
-       x-text="assetTestResult && assetTestResult.pending
-                     ? t('admin_assets.testing')
-                     : ((assetTestResult && assetTestResult.detail) || '')"></div>
 
   <!-- Asset-inventory-scoped tunables — operator-tunable
        outbound HTTP wall-clocks for the OAuth2 token probe +

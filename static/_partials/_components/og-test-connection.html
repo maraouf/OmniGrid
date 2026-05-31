@@ -74,7 +74,7 @@
     <template x-if="tcResult() && tcResult().pending !== true">
       <span>
         <span aria-hidden="true" x-text="tcResult().ok ? '✓' : '✗'"></span>
-        <span class="ms-1" x-text="tcResult().detail"></span>
+        <span class="ms-1 og-test-detail" x-text="tcResult().detail"></span>
       </span>
     </template>
   </div>

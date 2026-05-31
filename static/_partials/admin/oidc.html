@@ -195,13 +195,24 @@
       </template>
       </div>
     </details>
-    <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap pt-3 border-t border-[var(--border)]">
-      <!-- Same Save-gating as Admin → Portainer: when OIDC is
-           enabled, Save is locked until a Test connection has
-           succeeded against the CURRENT form values; any edit
-           after a passing Test re-locks Save. When the master
-           toggle is OFF the gate releases (no IdP probe will
-           fire either way). -->
+    <!-- Shared Test-connection component — Test button + pending /
+         success / error result box, on its OWN line ABOVE the Save row
+         (test first, then Save unlocks). The last-connected chip sits
+         beside the button (tcSuccessKey). tcRun is the real
+         testOidcConnection() (stamps _oidcLastPassedTest +
+         recordTestSuccess on success), so the Test-before-Save gate
+         (canSaveOidc) keeps working unchanged. Label uses the shared
+         default actions.test_connection so every panel's button reads
+         identically. -->
+    <div x-show="isAdmin()" class="pt-3 border-t border-[var(--border)]"
+         x-data="{ tcRun: () => testOidcConnection(), tcResult: () => oidcTestResult, tcDisabled: () => !oidcForm.enabled, tcSuccessKey: 'oidc' }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+    <div x-show="isAdmin()" class="flex items-center gap-3 flex-wrap">
+      <!-- Save-gating: when OIDC is enabled, Save is locked until a Test
+           connection has succeeded against the CURRENT form values; any
+           edit after a passing Test re-locks Save. Master toggle OFF
+           releases the gate. -->
       <button type="button" @click="saveOidcSettings()"
               :disabled="oidcSaving || !canSaveOidc()"
               :class="oidcDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
@@ -219,15 +230,6 @@
     <div x-show="oidcForm.enabled && !canSaveOidc()"
          class="fs-xs text-[var(--text-faint)] -mt-1"
          x-text="t('settings.oidc.save_requires_test')"></div>
-    <!-- Shared Test-connection component — Test button + pending /
-         success / error result box. tcRun is the real
-         testOidcConnection() (which stamps _oidcLastPassedTest +
-         recordTestSuccess on success), so the Test-before-Save gate
-         (canSaveOidc) keeps working unchanged. -->
-    <div x-show="isAdmin()"
-         x-data="{ tcRun: () => testOidcConnection(), tcResult: () => oidcTestResult, tcDisabled: () => !oidcForm.enabled, tcLabel: 'settings.oidc.test_button', tcSuccessKey: 'oidc' }">
-      <!-- INCLUDE: _components/og-test-connection.html -->
-    </div>
   </div>
 </section>
 

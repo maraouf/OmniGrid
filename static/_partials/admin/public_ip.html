@@ -41,31 +41,16 @@
           x-text="!tuningLoaded ? (t('common.loading') || 'Loading…') : ((tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint'))"></span>
   </label>
 
-  <!-- Action row 1: Test lookup button + last-result chip.
-       Mirrors the Asset Inventory pattern (Test up top, Save
-       below on its own row separated by HR). Test still works
-       when disabled? — NO, ifconfig.co outbound is gated on
-       the tunable; disabling the gate disables the test. -->
-  <div class="mt-3 flex items-center gap-2 flex-wrap">
-    <button type="button" x-show="isAdmin()" @click="testPublicIpLookup()"
-            class="btn btn-soft fs-sm inline-flex items-center gap-1.5"
-            :disabled="publicIpTesting || !(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1)">
-      <svg width="13" height="13" :class="publicIpTesting ? 'spin-md' : ''" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-      </svg>
-      <span x-show="!publicIpTesting" x-text="t('admin_public_ip.test_button') || 'Test lookup'"></span>
-      <span x-show="publicIpTesting" x-text="t('admin_public_ip.testing') || 'Testing…'"></span>
-    </button>
-  </div>
-
-  <!-- Test result chip — same shape as Asset Inventory's chip.
-       Pending / OK / error tones via the canonical pill tokens. -->
-  <div x-show="publicIpTestResult"
-       class="mt-3 rounded-md px-3 py-2 fs-sm"
-       :class="publicIpTestOk
-                     ? 'bg-[var(--pill-ok-bg)] text-[var(--pill-ok-fg)] border border-[var(--pill-ok-br)]'
-                     : 'bg-[var(--pill-error-bg)] text-[var(--pill-error-fg)] border border-[var(--pill-error-br)]'">
-    <pre class="mono fs-xs whitespace-pre-wrap break-all" x-text="publicIpTestResult"></pre>
+  <!-- Shared Test-connection component — unified Test button (Test
+       connection + play icon) + pending/success/error result box. The
+       lookup returns the canonical /api/public-ip payload; the
+       multi-line pretty-JSON renders in the box via .og-test-detail
+       (pre-wrap). The adapter synthesises the {pending,ok,detail} shape
+       the component expects from the publicIpTesting / publicIpTestOk /
+       publicIpTestResult state fields. -->
+  <div class="mt-3" x-show="isAdmin()"
+       x-data="{ tcRun: () => testPublicIpLookup(), tcResult: () => (publicIpTesting ? { pending: true } : (publicIpTestResult ? { pending: false, ok: publicIpTestOk, detail: publicIpTestResult } : null)), tcDisabled: () => !(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) }">
+    <!-- INCLUDE: _components/og-test-connection.html -->
   </div>
 
   <!-- Public-IP-scoped tunables — operator-tunable cache TTL +

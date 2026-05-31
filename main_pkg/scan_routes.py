@@ -1157,8 +1157,8 @@ async def api_apprise_test(_admin: AdminUser):
     _apprise_target = (_get_setting_local(_Settings_local.APPRISE_URL) or "").strip() or "(unset)"
     _log_provider_test_start("apprise", target=_apprise_target)
     result = await _ops_mod.notify_medium_apprise(
-        title="🔔 OmniGrid test",
-        body="Apprise channel test — if you see this, the integration is wired correctly.",
+        title="🔔 OmniGrid · Apprise test",
+        body="Apprise channel test — if you see this, the Apprise integration is wired correctly.",
         severity="success",
         event="apprise_test",
         actor_username=_admin.username,
