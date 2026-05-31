@@ -3204,7 +3204,12 @@
     "release_notes_label": "What's new",
     "release_notes_view_on_source": "View on source",
     "release_notes_copy": "Copy",
-    "release_notes_loading": "Loading release notes…"
+    "release_notes_loading": "Loading release notes…",
+    "release_alert_warning": "Warning",
+    "release_alert_note": "Note",
+    "release_alert_tip": "Tip",
+    "release_alert_important": "Important",
+    "release_alert_caution": "Caution"
   },
   "password": {
     "strength": {

@@ -1909,6 +1909,52 @@ async def _run_port_scan_refresh(
                 Tunable.PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY
             )
 
+            # Resolve the schedule's OWN cadence (fire-time injection from
+            # `fire_schedule`). This is the load-bearing fix for the
+            # starvation bug: the per-tick cap (`max_hosts`, default 5) is
+            # only correct for a FREQUENT ticker that fires many times per
+            # rotation. When the schedule fires once a day, capping at 5
+            # means a fleet of N>5 enabled hosts takes ceil(N/5) DAYS to
+            # rotate — and any host not in the oldest-5 each day is starved
+            # arbitrarily long. We must instead size the per-fire workload
+            # against the schedule's own interval so EVERY due host gets
+            # scanned within ~one interval.
+            sched_interval = int(_params.get("_schedule_interval_seconds") or 0)
+            sched_cadence = str(_params.get("_schedule_cadence_mode") or "interval")
+            # Non-`interval` cadences carry `interval_seconds` only as a
+            # legal fallback; their TRUE rotation period is the named mode.
+            # Map to an effective interval so a "daily" port-scan refresh
+            # threshold lands at ~1 day, not whatever stale interval_seconds
+            # the row happens to keep.
+            _CADENCE_PERIOD = {
+                "daily": 86400, "weekly": 604800, "monthly": 2592000,
+            }
+            effective_interval = _CADENCE_PERIOD.get(sched_cadence, sched_interval)
+
+            # A host is "due" when its last scan is older than the schedule
+            # cadence (clamped to never be tighter than min_age, so a
+            # mis-set sub-min_age interval can't hammer the fleet). Whichever
+            # is larger wins: a daily schedule with min_age=1800 uses 86400.
+            # `min_age` remains the existing too-recent guard below; this
+            # threshold is only used to decide whether to lift the per-fire
+            # cap (the eligibility test below still uses `min_age`).
+            due_threshold = max(min_age, effective_interval) if effective_interval else min_age
+
+            # Per-fire cap decision. The schedule fires roughly every
+            # `effective_interval` seconds. If it fires NO MORE OFTEN than the
+            # too-recent window (`effective_interval >= min_age` — the
+            # once-a-day / weekly / monthly case the operator hit), then each
+            # fire IS a full rotation: we MUST scan the entire eligible set in
+            # this single fire or hosts past the oldest-`max_hosts` are starved
+            # for whole intervals. If it fires MORE often than `min_age` (a
+            # frequent ticker, e.g. every 2 minutes with a 30-minute min_age),
+            # keep `max_hosts` so work spreads across ticks and one fire never
+            # thunders the whole fleet. `effective_cap` is finalised below once
+            # the eligible-set size is known.
+            spreads_across_ticks = bool(
+                effective_interval and effective_interval < min_age
+            )
+
             # 1. Read curated host list — source of truth for "which
             #    hosts are eligible for scanning right now".
             # noinspection PyProtectedMember
@@ -2012,7 +2058,21 @@ async def _run_port_scan_refresh(
             # tick so operators can verify the picked set matches
             # their expectation.
             eligible.sort(key=lambda t: t[0])  # oldest-first
-            picks_with_ts = eligible[:max_hosts]
+
+            # Finalise the per-fire cap now that we know the eligible-set
+            # size. When the schedule fires more often than min_age, the
+            # small `max_hosts` cap spreads load across the many ticks that
+            # occur within one rotation. Otherwise (the once-a-day case)
+            # lift the cap to the whole eligible set so every due host is
+            # scanned in THIS fire — `max_hosts` then acts as a floor, never
+            # a starvation ceiling. The number of in-flight scans is still
+            # bounded by `per_host_conc` (the asyncio.Semaphore below), so a
+            # large eligible set does NOT mean a large simultaneous fan-out.
+            if spreads_across_ticks:
+                effective_cap = max_hosts
+            else:
+                effective_cap = max(max_hosts, len(eligible))
+            picks_with_ts = eligible[:effective_cap]
             picks = [h for _ts, h in picks_with_ts]
 
             # Eligible-but-not-picked queue depth — the rotation tail.
@@ -2025,14 +2085,31 @@ async def _run_port_scan_refresh(
             # actual skip-condition silent drop. Surface the QUEUE
             # tail count + the oldest-waiting host's age so an
             # operator can see "next 3 ticks will get hosts X, Y, Z".
-            queue_tail = eligible[max_hosts:]
+            queue_tail = eligible[effective_cap:]
             oldest_waiting_age_s = (
                 (now_ts - queue_tail[0][0]) if queue_tail and queue_tail[0][0] else 0
             )
+            oldest_picked_age_s = (
+                (now_ts - picks_with_ts[0][0])
+                if picks_with_ts and picks_with_ts[0][0] else 0
+            )
+            # Verb "fire" keeps this out of the ERROR/fail log classifier on
+            # the normal path. Surfaces the full rotation accounting so an
+            # operator can SEE every due host being cleared in one fire (the
+            # fix) vs the old behaviour where only the oldest `max_hosts`
+            # were scanned per fire. `cap` is the lifted-or-floored per-fire
+            # cap; on the once-a-day config `eligible == selected` and
+            # `queue_tail=0` confirms no host is left starving.
             print(
                 f"[scheduler] port_scan_refresh fire — selected={len(picks)} "
+                f"eligible={len(eligible)} cap={effective_cap} "
                 f"queue_tail={len(queue_tail)} "
+                f"oldest_picked_s={oldest_picked_age_s} "
                 f"oldest_waiting_s={oldest_waiting_age_s} "
+                f"sched_cadence={sched_cadence} "
+                f"sched_interval_s={effective_interval} "
+                f"due_threshold_s={due_threshold} "
+                f"spread_mode={spreads_across_ticks} "
                 f"max_per_tick={max_hosts} min_age_s={min_age} "
                 f"per_host_conc={per_host_conc} "
                 f"skipped_disabled={len(skipped['disabled'])} "
@@ -2612,7 +2689,15 @@ async def fire_schedule(schedule: dict) -> str:
     runner = SCHEDULE_KINDS.get(kind or "")
     if runner is None:
         raise ValueError(f"unknown schedule kind: {kind!r}")
-    params = schedule.get("params") or {}
+    params = dict(schedule.get("params") or {})
+    # Inject fire-time-only schedule cadence so a kind runner can size its
+    # per-fire workload against the schedule's OWN interval (e.g. a once-a-day
+    # port_scan_refresh must clear its whole due-set in one fire, while a
+    # 2-minute ticker can spread the same set across many fires). Underscore-
+    # prefixed keys are fire-time injections — they live only on this in-memory
+    # copy and are never persisted back to the schedules row.
+    params["_schedule_interval_seconds"] = int(schedule.get("interval_seconds") or 0)
+    params["_schedule_cadence_mode"] = str(schedule.get("cadence_mode") or "interval")
     op_id, done_awaitable = await runner(params)
 
     # Stamp the fire time + op_id right now so the next tick doesn't

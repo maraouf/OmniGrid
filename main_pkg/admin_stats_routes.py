@@ -1253,8 +1253,16 @@ async def api_admin_stats_ai_cost(
                     "  FROM ai_jobs WHERE ts >= ? AND ts <= ?",
                     (som_ts, now_ts),
                 ).fetchone()
-                ok_jobs = int(rr["ok_jobs"] if hasattr(rr, "keys") else rr[0] or 0)
-                err_jobs = int(rr["err_jobs"] if hasattr(rr, "keys") else rr[1] or 0)
+                # `or 0` MUST wrap the whole branch: SUM(CASE ...) returns
+                # NULL when the MTD window has ZERO rows (e.g. month start,
+                # no current-month jobs yet), and `int(None)` would raise
+                # TypeError — which the outer try swallows, zeroing every
+                # section computed AFTER this point (last_month / tokens /
+                # trend / top_expensive). The bug was that `or 0` bound only
+                # to the tuple-fallback branch, leaving the Row branch
+                # `int(rr["ok_jobs"])` = int(None) on a zero-row month.
+                ok_jobs = int((rr["ok_jobs"] if hasattr(rr, "keys") else rr[0]) or 0)
+                err_jobs = int((rr["err_jobs"] if hasattr(rr, "keys") else rr[1]) or 0)
                 denom = ok_jobs + err_jobs
                 avg_rt = rr["avg_rt"] if hasattr(rr, "keys") else rr[2]
                 avg_acc = rr["avg_acc"] if hasattr(rr, "keys") else rr[3]

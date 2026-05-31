@@ -1806,6 +1806,19 @@ export default {
     // Named capture group (?<txt>...) is ES2018 — JSHint's E016 predates it. // jshint ignore:line
     // noinspection HtmlUnknownTag
     out = out.replace(/<a\s+href=["'][^"']*["'][^>]*>(?<txt>[\s\S]*?)<\/a>/gi, '$<txt>'); // jshint ignore:line
+    // Strip the layout HTML GitHub release bodies wrap content in — images
+    // (badge rows like `<p align=center><img ...></p>`), <picture>/<source>,
+    // <br>, and <p>/<div> wrappers — BEFORE the escape pass, otherwise they
+    // render as literal `<img src=...>` / `<p>` text in the notes. Drop
+    // <img> entirely (we don't render remote images inline); unwrap block
+    // tags to newlines; strip inline layout tags but keep their text. Leave
+    // <samp> alone — `_renderReleaseNotesMd` turns it into a commit chip.
+    out = out.replace(/<img\b[^>]*>/gi, '');
+    out = out.replace(/<\/?(?:picture|source|figure|figcaption)\b[^>]*>/gi, '');
+    out = out.replace(/<br\s*\/?>/gi, '\n');
+    out = out.replace(/<\/(?:p|div)>/gi, '\n');
+    out = out.replace(/<(?:p|div)\b[^>]*>/gi, '');
+    out = out.replace(/<\/?(?:span|small|sub|sup|kbd|b|i|em|strong|details|summary|h[1-6])\b[^>]*>/gi, '');
     // Markdown image refs (rare in release notes but worth handling
     // before the generic link rule so we don't keep `![alt]` orphans).
     // `![alt](url)` → `alt`. Named capturing group `(?<alt>...)` over
@@ -1886,8 +1899,47 @@ export default {
         inList = false;
       }
     };
+    // Blockquote / GitHub-alert accumulator. `> [!WARNING]` (also NOTE / TIP
+    // / IMPORTANT / CAUTION) opens a typed callout; subsequent `>` lines are
+    // its body. A plain `>` block (no marker) renders as a neutral callout.
+    let quoteBuf = [];
+    let quoteType = '';
+    const ALERT_TYPES = new Set(['warning', 'note', 'tip', 'important', 'caution']);
+    const flushQuote = () => {
+      if (!quoteBuf.length && !quoteType) {
+        return;
+      }
+      const mod = quoteType ? (' release-notes-alert--' + quoteType) : '';
+      let block = `<div class="release-notes-alert${mod}">`;
+      if (quoteType) {
+        const lbl = esc(this.t('dialogs.release_alert_' + quoteType)
+          || (quoteType.charAt(0).toUpperCase() + quoteType.slice(1)));
+        block += `<div class="release-notes-alert-label">${lbl}</div>`;
+      }
+      block += quoteBuf.map((q) => inline(q)).join('<br>');
+      block += '</div>';
+      out.push(block);
+      quoteBuf = [];
+      quoteType = '';
+    };
     for (const raw of lines) {
       const line = raw.replace(/\s+$/, '');
+      // Blockquote / GitHub alert lines.
+      const bq = line.match(/^\s*>\s?(.*)$/);
+      if (bq) {
+        closeList();
+        const inner = bq[1];
+        const alert = inner.match(/^\[!(\w+)\]\s*$/);
+        if (alert && ALERT_TYPES.has(alert[1].toLowerCase())) {
+          flushQuote();
+          quoteType = alert[1].toLowerCase();
+        } else {
+          quoteBuf.push(inner);
+        }
+        continue;
+      }
+      // Any non-blockquote line ends an open quote block.
+      flushQuote();
       // A line that is only &nbsp;/space is blank for layout purposes.
       if (!line.replace(/&nbsp;|\s/g, '').trim()) {
         closeList();
@@ -1914,6 +1966,7 @@ export default {
       out.push(`<p class="release-notes-p">${inline(line)}</p>`);
     }
     closeList();
+    flushQuote();
     return `<div class="release-notes-rendered scrollbar">${out.join('')}</div>`;
   },
   // Render the resolved release-notes block from one /api/registry/
