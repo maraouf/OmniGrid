@@ -102,17 +102,20 @@
          (Portainer / AI / SSH / Logs / Asset Inventory /
          Notifications). All edits commit through the NE-section
          Save alongside the URL template + per-host overrides. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_node_exporter')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -126,7 +129,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.node_exporter" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.node_exporter : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -164,6 +167,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Per-provider chip colour — operator-customisable
          override that flows into the row-chip + drawer-chip
          render via `providerChipStyle`. Empty means "use the
@@ -305,17 +309,20 @@
          NE / SSH). Covers probe timeout, sampler interval (0 =
          inherit global), and the auto-pause threshold. All edits
          commit through the Beszel section's Save button. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_beszel')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -329,7 +336,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.beszel" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.beszel : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -367,6 +374,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
       <label class="fs-xs flex items-center gap-2">
@@ -496,17 +504,20 @@
          interval (0 = inherit global), and the auto-pause
          threshold. All edits commit through the Pulse section's
          Save button. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_pulse')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -520,7 +531,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.pulse" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.pulse : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -558,6 +569,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
       <label class="fs-xs flex items-center gap-2">
@@ -691,17 +703,20 @@
          + failure cache TTLs, and per-(provider, host) auto-pause
          threshold. All edits commit through the Webmin section's
          Save button. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_webmin')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -715,7 +730,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.webmin" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.webmin : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -753,6 +768,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
       <label class="fs-xs flex items-center gap-2">
@@ -891,17 +907,20 @@
          out concurrency, probe timeout, cooldown, ICMP packet
          spacing, and per-(provider, host) auto-pause threshold.
          All edits commit through the Ping section's Save button. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_ping')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_ping')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -915,7 +934,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.ping" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.ping : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -953,6 +972,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
       <label class="fs-xs flex items-center gap-2">
@@ -1170,17 +1190,20 @@
          + failure cache TTLs, unreachable cooldown, and per-
          (provider, host) auto-pause threshold. All edits commit
          through the SNMP section's Save button. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_snmp')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -1194,7 +1217,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in _perProviderTuneKeys.snmp" :key="key">
+      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.snmp : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -1232,6 +1255,7 @@
         </div>
       </template>
     </div>
+    </details>
 
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -1354,17 +1378,20 @@
          Bounds-chips renderer iterates the _perProviderTuneKeys.http_probe
          array so adding a knob to that array surfaces a row here
          automatically. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_http_probe')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_http_probe')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -1378,7 +1405,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in (_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []" :key="key">
+      <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []) : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -1416,6 +1443,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Chip colour picker (matches the SNMP / Ping pattern). -->
     <div x-show="settings.http_probe_enabled" class="flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-[var(--border)]">
       <label class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
@@ -1502,17 +1530,20 @@
          as every other provider sub-tab. The renderer iterates
          _perProviderTuneKeys.service_probe so adding a knob to that
          array surfaces a row here automatically. -->
-    <div class="mt-3 pt-3 border-t border-[var(--border)] space-y-3"
-         x-show="tuningLoaded">
-      <div class="flex items-center gap-2 mb-1">
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
-        </svg>
-        <h3 class="font-semibold fs-sm"
-            x-text="t('settings.host_stats.tunables_heading_service_probe')"></h3>
-      </div>
+    <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
+      <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <span x-text="t('common.tunables')"></span>
+      </summary>
+      <div class="mt-3 space-y-3">
       <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
          x-text="t('settings.host_stats.tunables_intro_service_probe')"></p>
+      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
       <!-- Per-tab tunable search — fuzzy-matches against
            key, localised label, and help text. Shared
            `tunableSearch` state persists across tab switches. -->
@@ -1526,7 +1557,7 @@
                 :title="t('admin.config.search_clear')"
                 x-text="t('admin.config.search_clear')"></button>
       </div>
-      <template x-for="key in (_perProviderTuneKeys && _perProviderTuneKeys.service_probe) || []" :key="key">
+      <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.service_probe) || []) : [])" :key="key">
         <div x-show="tunableMatchesSearch(key)" class="space-y-1">
           <label class="block fs-xs font-medium"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
@@ -1564,6 +1595,7 @@
         </div>
       </template>
     </div>
+    </details>
     <!-- Chip colour picker (matches the HTTP probe / SNMP / Ping pattern).
          Gate on the master toggle directly (service_probe has only one
          enable knob — see header comment above). -->

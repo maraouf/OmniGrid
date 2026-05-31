@@ -2236,7 +2236,13 @@ async def api_admin_logs_file_view(
     # it and return the message as the body so the operator sees WHAT
     # failed instead of a blank 500.
     try:
-        body = _logs.read_persistent_log(name, tail_lines=tail if tail > 0 else None)
+        # Offload the synchronous whole-file read to a worker thread — the
+        # "All lines" path (tail<=0) slurps the entire daily log file, and a
+        # multi-MB file read on the event loop blocks the SSE heartbeat +
+        # /api/healthz (the 502-flap class). (ADMIN-PERF-09.)
+        body = await asyncio.to_thread(
+            _logs.read_persistent_log, name, tail if tail > 0 else None,
+        )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001

@@ -988,7 +988,16 @@ export default {
   // in a trailing "Unsectioned" bucket; newly-pinned apps land there
   // automatically until the user drags them into a section.
   // -------------------------------------------------------------------
-  appsCustomLayout: null,  // hydrated lazily from me.ui_prefs
+  appsCustomLayout: null,  // hydrated lazily from me.ui_prefs — a live REFERENCE
+                           // to the ACTIVE view's layout (see appsCustomViews)
+  // Named custom views collection: { active_id, views: [{id, name, layout}] }.
+  // Hydrated by _hydrateAppsCustomViews() (migrates the legacy single
+  // apps_custom_layout into one view on first load). The user can keep several
+  // named dashboards + switch between them; appsCustomLayout always points at
+  // the active view's layout so every existing board mutator keeps working.
+  appsCustomViews: null,
+  // Bound to the rename input in the view-picker (null = not renaming).
+  appsViewRenaming: null,
 
   // Stable widget kinds the user can drop into a section (Phase-1 info
   // tiles, all pure-frontend / reuse existing endpoints). Adding a kind
@@ -2198,75 +2207,118 @@ export default {
     return null;
   },
 
-  _hydrateAppsCustomLayout() {
-    // Once me.ui_prefs has landed we can cache forever (the first
-    // hydration after /api/me populates is the canonical state). But
-    // when hydration runs BEFORE /api/me lands, this.me may be null
-    // OR this.me.ui_prefs may be empty — caching the empty result
-    // permanently strands every operator's saved layout in the DB
-    // (operator drags tiles → SPA persists → backend stores → reload
-    // → SPA never re-reads because `Array.isArray(sections)` was set
-    // to [] in the empty-me window). Re-check on every call until
-    // EITHER me.ui_prefs is populated OR the layout has at least one
-    // section: any subsequent call after me has loaded re-hydrates
-    // from the real prefs; any operator-driven mutation flips the
-    // sections array non-empty which then sticks via the early-return.
-    let saved;
-    try {
-      saved = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
-    } catch (_) {
-      saved = null;
+  // ── Multiple named custom views ────────────────────────────────
+  // The custom dashboard is no longer a single layout: the user keeps SEVERAL
+  // named views and switches between them. Persistence (free-form ui_prefs,
+  // NO backend change):
+  //   ui_prefs.apps_custom_views = { active_id, views: [{id, name, layout}] }
+  // where `layout` is the same {sections, unsectioned_collapsed} object the
+  // board mutators already operate on. `appsCustomLayout` stays a live
+  // REFERENCE to the ACTIVE view's layout, so every existing section / drag /
+  // collapse mutator + _persistAppsCustomLayout keep working unchanged — they
+  // just act on whichever view is active. Legacy single-layout installs
+  // (ui_prefs.apps_custom_layout with sections) migrate into one view on first
+  // hydrate; the legacy key keeps being written (= active view) for back-compat
+  // with an older client / rollback.
+
+  // Normalise a raw saved layout blob into {sections, unsectioned_collapsed}.
+  // Heterogeneous items[] is canonical; legacy `app_ids:[gid]` (pre-widget
+  // schema) converts to app items so existing saved boards survive untouched.
+  _normAppsLayout(saved) {
+    const src = (saved && typeof saved === 'object') ? saved : {};
+    const sections = (Array.isArray(src.sections) ? src.sections : [])
+      .filter(s => s && typeof s === 'object' && s.id)
+      .map(s => {
+        let items;
+        if (Array.isArray(s.items)) {
+          items = s.items.map(it => this._normAppsItem(it)).filter(Boolean);
+        } else if (Array.isArray(s.app_ids)) {
+          items = s.app_ids.map(gid => ({uid: this._newId('it-'), kind: 'app', ref: String(gid), opts: {}}));
+        } else {
+          items = [];
+        }
+        return {
+          id: String(s.id),
+          name: typeof s.name === 'string' ? s.name : '',
+          collapsed: s.collapsed === true,
+          items,
+        };
+      });
+    return {sections, unsectioned_collapsed: !!src.unsectioned_collapsed};
+  },
+
+  _appsViewDefaultName() {
+    return (this.t && this.t('apps.custom.view_default_name')) || 'My Dashboard';
+  },
+
+  _appsActiveViewObj() {
+    const c = this.appsCustomViews;
+    if (!c || !Array.isArray(c.views) || !c.views.length) {
+      return null;
     }
-    const me_ready = !!(this.me && this.me.ui_prefs);
-    const already_hydrated = (
-      this.appsCustomLayout
-      && Array.isArray(this.appsCustomLayout.sections)
-      && (
-        // Have content — operator-driven mutation, don't re-hydrate.
-        this.appsCustomLayout.sections.length > 0
-        // OR me.ui_prefs has landed AND has nothing for us — settled
-        // empty state (operator just hasn't saved a layout yet).
-        || (me_ready && !saved)
-        // OR we already pulled from a real saved blob — re-hydrating
-        // would clobber drag/drop made AFTER the initial pull.
-        || (this.appsCustomLayout._hydrated_from_saved === true)
-      )
-    );
-    if (already_hydrated) {
+    return c.views.find(v => v && v.id === c.active_id) || c.views[0];
+  },
+
+  // Build the views collection once me.ui_prefs has landed (migrate legacy /
+  // seed a default) and point appsCustomLayout at the active view's layout.
+  // Re-callable: once built (≥1 view) it only re-points appsCustomLayout and
+  // returns, so it never clobbers an in-flight drag.
+  _hydrateAppsCustomViews() {
+    if (this.appsCustomViews && Array.isArray(this.appsCustomViews.views) && this.appsCustomViews.views.length) {
+      const av = this._appsActiveViewObj();
+      if (av) {
+        this.appsCustomLayout = av.layout;
+      }
       return;
     }
-    const sections = (saved && Array.isArray(saved.sections)) ? saved.sections : [];
-    this.appsCustomLayout = {
-      sections: sections
-        .filter(s => s && typeof s === 'object' && s.id)
-        .map(s => {
-          // Heterogeneous items[] is canonical; legacy `app_ids:[gid]`
-          // (pre-widget schema) converts to app items so existing saved
-          // boards survive the upgrade untouched.
-          let items;
-          if (Array.isArray(s.items)) {
-            items = s.items.map(it => this._normAppsItem(it)).filter(Boolean);
-          } else if (Array.isArray(s.app_ids)) {
-            items = s.app_ids.map(gid => ({uid: this._newId('it-'), kind: 'app', ref: String(gid)}));
-          } else {
-            items = [];
-          }
-          return {
-            id: String(s.id),
-            name: typeof s.name === 'string' ? s.name : '',
-            collapsed: s.collapsed === true,
-            items,
-          };
-        }),
-      // Collapse state for the synthetic "Unsectioned" bucket — it's not a
-      // real section so it needs its own persisted flag (mirrors a section's
-      // `collapsed`).
-      unsectioned_collapsed: !!(saved && saved.unsectioned_collapsed),
-      // Stamp so subsequent `_hydrateAppsCustomLayout` calls short-
-      // circuit instead of re-clobbering an in-flight drag. The
-      // early-return gate above checks this.
-      _hydrated_from_saved: !!saved,
-    };
+    let savedViews = null, savedLegacy = null;
+    try {
+      savedViews = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_views) || null;
+      savedLegacy = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
+    } catch (_) { /* both already default to null */
+    }
+    const me_ready = !!(this.me && this.me.ui_prefs);
+    let views;
+    let activeId;
+    if (savedViews && Array.isArray(savedViews.views) && savedViews.views.length) {
+      views = savedViews.views
+        .filter(v => v && typeof v === 'object' && v.id)
+        .map(v => ({
+          id: String(v.id),
+          name: (typeof v.name === 'string' && v.name.trim()) ? v.name : this._appsViewDefaultName(),
+          layout: this._normAppsLayout(v.layout || {}),
+        }));
+      activeId = (savedViews.active_id && views.some(v => v.id === savedViews.active_id))
+        ? String(savedViews.active_id)
+        : (views[0] && views[0].id);
+    } else if (savedLegacy && Array.isArray(savedLegacy.sections) && savedLegacy.sections.length) {
+      // Migrate the legacy single layout into one named view.
+      const id = this._newId('view-');
+      views = [{id, name: this._appsViewDefaultName(), layout: this._normAppsLayout(savedLegacy)}];
+      activeId = id;
+    } else if (me_ready) {
+      // Settled empty (no saved views, no legacy content) — seed one default.
+      const id = this._newId('view-');
+      views = [{id, name: this._appsViewDefaultName(), layout: this._normAppsLayout({})}];
+      activeId = id;
+    } else {
+      // me.ui_prefs not landed yet — leave unbuilt; a later call re-hydrates.
+      return;
+    }
+    this.appsCustomViews = {active_id: activeId, views};
+    const av = this._appsActiveViewObj();
+    this.appsCustomLayout = av ? av.layout : this._normAppsLayout({});
+  },
+
+  // Lazy entry point kept for every existing caller. Ensures the views
+  // collection is built + appsCustomLayout points at the active view, and
+  // ALWAYS leaves appsCustomLayout a valid {sections,...} object (even in the
+  // brief pre-/api/me window) so consumers never hit null.
+  _hydrateAppsCustomLayout() {
+    this._hydrateAppsCustomViews();
+    if (!this.appsCustomLayout || !Array.isArray(this.appsCustomLayout.sections)) {
+      this.appsCustomLayout = this._normAppsLayout({});
+    }
   },
 
   appsUnsectionedCollapsed() {
@@ -3128,24 +3180,226 @@ export default {
   // reads the fresh layout without waiting for the round-trip.
   _persistAppsCustomLayout() {
     this._hydrateAppsCustomLayout();
-    const payload = {
+    // appsCustomLayout is a live reference to the active view's layout, so it's
+    // already current — sync it back onto the active view object, then serialize
+    // the WHOLE views collection. Also keep writing the legacy single
+    // apps_custom_layout key (= active view's layout) so an older client / a
+    // rollback still shows the active board.
+    const activeLayout = {
       sections: this.appsCustomLayout.sections,
       unsectioned_collapsed: !!this.appsCustomLayout.unsectioned_collapsed,
+    };
+    const av = this._appsActiveViewObj();
+    if (av) {
+      av.layout = this.appsCustomLayout;
+    }
+    const viewsPayload = {
+      active_id: this.appsCustomViews ? this.appsCustomViews.active_id : null,
+      views: (this.appsCustomViews && Array.isArray(this.appsCustomViews.views) ? this.appsCustomViews.views : [])
+        .map(v => ({
+          id: v.id,
+          name: v.name,
+          layout: {
+            sections: (v.layout && v.layout.sections) || [],
+            unsectioned_collapsed: !!(v.layout && v.layout.unsectioned_collapsed),
+          },
+        })),
     };
     if (this.me) {
       if (!this.me.ui_prefs) {
         this.me.ui_prefs = {};
       }
-      this.me.ui_prefs.apps_custom_layout = payload;
+      this.me.ui_prefs.apps_custom_views = viewsPayload;
+      this.me.ui_prefs.apps_custom_layout = activeLayout;
     }
     try {
       fetch('/api/me/ui-prefs', {
         method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({prefs: {apps_custom_layout: payload}}),
+        body: JSON.stringify({prefs: {apps_custom_views: viewsPayload, apps_custom_layout: activeLayout}}),
       }).catch(() => { /* silent — me.ui_prefs already updated in-memory */
       });
     } catch (_) { /* ignore */
+    }
+  },
+
+  // ── View-management API (Apps custom dashboard) ────────────────
+  // The picker UI binds to these. All mutate appsCustomViews + persist via
+  // _persistAppsCustomLayout (which serializes the whole collection). After a
+  // structural change that affects the rendered board (switch / delete) the
+  // per-flush build memo is cleared so the next render rebuilds for the new
+  // active layout.
+  appsViews() {
+    this._hydrateAppsCustomLayout();
+    return (this.appsCustomViews && Array.isArray(this.appsCustomViews.views)) ? this.appsCustomViews.views : [];
+  },
+  appsActiveViewId() {
+    this._hydrateAppsCustomLayout();
+    return this.appsCustomViews ? this.appsCustomViews.active_id : null;
+  },
+  appsActiveViewName() {
+    this._hydrateAppsCustomLayout();
+    const av = this._appsActiveViewObj();
+    return av ? av.name : '';
+  },
+  appsSwitchView(id) {
+    this._hydrateAppsCustomLayout();
+    if (!this.appsCustomViews || !id || id === this.appsCustomViews.active_id) {
+      return;
+    }
+    const target = this.appsCustomViews.views.find(v => v && v.id === id);
+    if (!target) {
+      return;
+    }
+    this.appsCustomViews.active_id = id;
+    this.appsCustomLayout = target.layout;
+    _appsCustomBuildCache = null;  // force rebuild for the new active layout
+    this.appsViewRenaming = null;
+    this._persistAppsCustomLayout();
+  },
+  appsCreateView(name) {
+    this._hydrateAppsCustomLayout();
+    if (!this.appsCustomViews) {
+      this.appsCustomViews = {active_id: null, views: []};
+    }
+    const id = this._newId('view-');
+    const nm = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : this._appsViewDefaultName();
+    const layout = this._normAppsLayout({});
+    this.appsCustomViews.views.push({id, name: nm, layout});
+    this.appsCustomViews.active_id = id;
+    this.appsCustomLayout = layout;
+    _appsCustomBuildCache = null;
+    this._persistAppsCustomLayout();
+    return id;
+  },
+  appsRenameView(id, name) {
+    this._hydrateAppsCustomLayout();
+    const v = this.appsCustomViews && this.appsCustomViews.views.find(x => x && x.id === id);
+    if (!v) {
+      return;
+    }
+    v.name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : v.name;
+    this.appsViewRenaming = null;
+    this._persistAppsCustomLayout();
+  },
+  appsDeleteView(id) {
+    this._hydrateAppsCustomLayout();
+    if (!this.appsCustomViews || this.appsCustomViews.views.length <= 1) {
+      return;  // always keep at least one view
+    }
+    const i = this.appsCustomViews.views.findIndex(v => v && v.id === id);
+    if (i < 0) {
+      return;
+    }
+    const wasActive = this.appsCustomViews.active_id === id;
+    this.appsCustomViews.views.splice(i, 1);
+    if (wasActive) {
+      // Switch to the neighbour (prefer the previous, else the new first).
+      const next = this.appsCustomViews.views[Math.max(0, i - 1)];
+      this.appsCustomViews.active_id = next.id;
+      this.appsCustomLayout = next.layout;
+      _appsCustomBuildCache = null;
+    }
+    this.appsViewRenaming = null;
+    this._persistAppsCustomLayout();
+  },
+  appsDuplicateView(id) {
+    this._hydrateAppsCustomLayout();
+    const src = this.appsCustomViews && this.appsCustomViews.views.find(v => v && v.id === id);
+    if (!src) {
+      return;
+    }
+    // Deep-clone the layout through the normaliser, re-minting section + item
+    // uids so the copy is fully independent (no shared :key collisions).
+    const cloneSrc = {
+      sections: (src.layout.sections || []).map(s => ({
+        id: this._newId('sec-'),
+        name: s.name,
+        collapsed: s.collapsed,
+        items: (s.items || []).map(it => Object.assign({}, it, {uid: this._newId('it-')})),
+      })),
+      unsectioned_collapsed: !!src.layout.unsectioned_collapsed,
+    };
+    const newId = this._newId('view-');
+    const copyName = ((this.t && this.t('apps.custom.view_copy_suffix', {name: src.name})) || (src.name + ' (copy)')).slice(0, 64);
+    this.appsCustomViews.views.push({id: newId, name: copyName, layout: cloneSrc});
+    this.appsCustomViews.active_id = newId;
+    this.appsCustomLayout = cloneSrc;
+    _appsCustomBuildCache = null;
+    this._persistAppsCustomLayout();
+    return newId;
+  },
+
+  // UI handlers — themed Swal prompt / confirm wrappers the picker binds to.
+  async appsPromptCreateView() {
+    const result = await Swal.fire({
+      title: this.t('apps.custom.view_new_title') || 'New view',
+      input: 'text',
+      inputPlaceholder: this.t('apps.custom.view_name_placeholder') || 'View name',
+      inputAttributes: {maxlength: '64', autocapitalize: 'words'},
+      showCancelButton: true,
+      confirmButtonText: this.t('actions.create') || 'Create',
+      cancelButtonText: this.t('actions.cancel') || 'Cancel',
+      background: this._cssVar('--surface'),
+      color: this._cssVar('--text'),
+      confirmButtonColor: this._cssVar('--primary'),
+      cancelButtonColor: this._cssVar('--btn-cancel-bg'),
+    });
+    if (!result.isConfirmed) {
+      return;
+    }
+    this.appsCreateView(result.value || '');
+  },
+  async appsPromptRenameView(id) {
+    const v = this.appsViews().find(x => x && x.id === id);
+    if (!v) {
+      return;
+    }
+    const result = await Swal.fire({
+      title: this.t('apps.custom.view_rename_title') || 'Rename view',
+      input: 'text',
+      inputValue: v.name || '',
+      inputPlaceholder: this.t('apps.custom.view_name_placeholder') || 'View name',
+      inputAttributes: {maxlength: '64', autocapitalize: 'words'},
+      showCancelButton: true,
+      confirmButtonText: this.t('actions.save') || 'Save',
+      cancelButtonText: this.t('actions.cancel') || 'Cancel',
+      background: this._cssVar('--surface'),
+      color: this._cssVar('--text'),
+      confirmButtonColor: this._cssVar('--primary'),
+      cancelButtonColor: this._cssVar('--btn-cancel-bg'),
+    });
+    if (!result.isConfirmed) {
+      return;
+    }
+    this.appsRenameView(id, result.value || '');
+  },
+  async appsConfirmDeleteView(id) {
+    const v = this.appsViews().find(x => x && x.id === id);
+    if (!v) {
+      return;
+    }
+    if (this.appsViews().length <= 1) {
+      await Swal.fire({
+        title: this.t('apps.custom.view_min_one_title') || 'Cannot delete',
+        text: this.t('apps.custom.view_min_one') || 'You must keep at least one custom view.',
+        icon: 'info',
+        confirmButtonText: this.t('actions.ok') || 'OK',
+        background: this._cssVar('--surface'),
+        color: this._cssVar('--text'),
+        confirmButtonColor: this._cssVar('--primary'),
+      });
+      return;
+    }
+    const ok = await this.confirmDialog({
+      title: this.t('apps.custom.view_delete_title') || 'Delete view',
+      html: (this.t('apps.custom.view_delete_confirm', {name: v.name}) || ('Delete the "' + v.name + '" view? Its layout will be lost.')),
+      icon: 'warning',
+      confirmText: this.t('actions.delete') || 'Delete',
+      confirmColor: this._cssVar('--danger'),
+    });
+    if (ok) {
+      this.appsDeleteView(id);
     }
   },
 

@@ -6499,6 +6499,108 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   overflow-wrap: break-word;
 }
 
+/* Rendered release-notes body — replaces the raw <pre> with structured,
+ * styled markdown (headings / lists / bold / commit chips / mentions) so the
+ * GitHub-flavoured notes read cleanly instead of showing raw ### / ** / <samp>
+ * annotations. Same scroll-capped surface as .release-notes-body. */
+.release-notes-rendered {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--s-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text);
+  text-align: start;
+}
+
+.release-notes-rendered .release-notes-h {
+  font-weight: 700;
+  color: var(--text);
+  margin: var(--s-3) 0 var(--s-1);
+}
+
+.release-notes-rendered .release-notes-h:first-child {
+  margin-top: 0;
+}
+
+.release-notes-rendered .release-notes-h3 {
+  font-size: var(--fs-md);
+}
+
+.release-notes-rendered .release-notes-h4,
+.release-notes-rendered .release-notes-h5,
+.release-notes-rendered .release-notes-h6 {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.release-notes-rendered .release-notes-list {
+  margin: var(--s-1) 0;
+  padding-inline-start: var(--s-4);
+  list-style: disc;
+}
+
+.release-notes-rendered .release-notes-li {
+  margin: 2px 0;
+}
+
+.release-notes-rendered .release-notes-li--nested {
+  margin-inline-start: var(--s-4);
+  list-style: circle;
+}
+
+.release-notes-rendered .release-notes-p {
+  margin: var(--s-1) 0;
+}
+
+.release-notes-rendered strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.release-notes-rendered .release-notes-commit,
+.release-notes-rendered .release-notes-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+.release-notes-rendered .release-notes-mention {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Copy button in the release-notes head — ghost pill matching the
+ * dense-toolbar buttons; sits after the source link on the right. */
+.release-notes-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 2px var(--s-2);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.release-notes-copy:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-bright);
+}
+
 .swal2-confirm,
 .swal2-cancel {
   border-radius: var(--r-lg) !important;
@@ -10557,6 +10659,22 @@ select.field-invalid {
 
 .apps-custom-cell.apps-card-flip.apps-card--height-tall {
   height: var(--apps-card-h-tall);
+}
+
+/* Custom dashboard on mobile (single column, below `sm`) — APP / BOOKMARK
+   cards size to CONTENT instead of the fixed desktop size preset. The fixed
+   height is a desktop-board tidiness concept; on a phone's single column it
+   leaves a big empty gap below a short-content card (e.g. a single-instance
+   app like AdGuardHome), with the accent rail running through the void —
+   operator-flagged as confusing. Scoped via :has(.apps-card) so WIDGET tiles
+   (clock / weather / moon) KEEP their fixed height — their container-query
+   hero sizing needs a real box to fill. Excludes edit mode, which wants a
+   stable drag-footprint. Specificity (0,4,0) beats the --height-tall preset
+   rule (0,3,0) so it wins on mobile regardless of the chosen preset. */
+@media (max-width: 639px) {
+  .apps-custom-cell.apps-card-flip:not(.apps-card--editing):has(.apps-card) {
+    height: auto;
+  }
 }
 
 /* ============================================================

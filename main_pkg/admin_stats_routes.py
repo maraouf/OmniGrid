@@ -741,187 +741,193 @@ async def api_admin_stats_network(
         else fall back to the host_id itself (host stands alone)."""
         return canonical_map.get(canon_hid) or canon_hid
 
-    try:
-        with db_conn() as c:
-            # Top-N hosts by max rate — two windows. UNION so we can
-            # render the "burst rate" KPI cards without a second round-
-            # trip per range. Fetch WITHOUT LIMIT, dedupe by canonical
-            # host:port (so two curated rows scraping the same exporter
-            # collapse to one entry — see `canonical_map` above),
-            # then slice to top 10.
-            # `top_range` uses the operator-selected window from the
-            # page's range chip (passed as `?hours=`); `top_24h` /
-            # `top_7d` kept for back-compat with any historical callers
-            # but the SPA now renders the dynamic `top_range` table.
-            for label, hrs in (("top_24h", 24), ("top_7d", 168), ("top_range", hours)):
-                since = now_ts - hrs * 3600
+    def _run_net_queries():
+        try:
+            with db_conn() as c:
+                # Top-N hosts by max rate — two windows. UNION so we can
+                # render the "burst rate" KPI cards without a second round-
+                # trip per range. Fetch WITHOUT LIMIT, dedupe by canonical
+                # host:port (so two curated rows scraping the same exporter
+                # collapse to one entry — see `canonical_map` above),
+                # then slice to top 10.
+                # `top_range` uses the operator-selected window from the
+                # page's range chip (passed as `?hours=`); `top_24h` /
+                # `top_7d` kept for back-compat with any historical callers
+                # but the SPA now renders the dynamic `top_range` table.
+                for label, hrs in (("top_24h", 24), ("top_7d", 168), ("top_range", hours)):
+                    since = now_ts - hrs * 3600
+                    rows = c.execute(
+                        "SELECT host_id, "
+                        "       MAX(rx_bytes_per_s) AS max_rx, "
+                        "       MAX(tx_bytes_per_s) AS max_tx "
+                        "  FROM host_net_samples "
+                        " WHERE ts >= ? "
+                        " GROUP BY host_id "
+                        " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC",
+                        (since,),
+                    ).fetchall()
+                    deduped: dict[str, dict] = {}
+                    for r in rows:
+                        hid = r["host_id"] if hasattr(r, "keys") else r[0]
+                        rx = float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0)
+                        tx = float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0)
+                        key = _canonical(hid)
+                        cur: dict | None = deduped.get(key)
+                        if cur is None:
+                            deduped[key] = {
+                                "host_id": hid,
+                                "max_rx_bps": rx,
+                                "max_tx_bps": tx,
+                                "aliases": [],
+                            }
+                        else:
+                            # MAX across duplicates — they're sampling the
+                            # same exporter at different moments, so the
+                            # higher peak captured by either is the real
+                            # burst rate for the physical box.
+                            assert cur is not None  # narrowing for type-checker (else branch)
+                            if rx + tx > cur["max_rx_bps"] + cur["max_tx_bps"]:
+                                cur["aliases"].append(cur["host_id"])
+                                cur["host_id"] = hid
+                            else:
+                                cur["aliases"].append(hid)
+                            cur["max_rx_bps"] = max(cur["max_rx_bps"], rx)
+                            cur["max_tx_bps"] = max(cur["max_tx_bps"], tx)
+                    # Sort by combined max + slice to top 10.
+                    merged = sorted(
+                        deduped.values(),
+                        key=lambda x: -(x["max_rx_bps"] + x["max_tx_bps"]),
+                    )[:10]
+                    out[label] = merged
+                # Per-host integrated bytes over the requested window.
+                # rate × cadence per row, summed. Simple + bounded enough
+                # given the sample cadence is operator-controlled. Long
+                # gaps (host paused) inflate slightly because we still
+                # treat each row as `cadence` seconds — accepted given the
+                # bound; the alternative (compute interval between rows)
+                # is more code for a marginal accuracy win.
                 rows = c.execute(
                     "SELECT host_id, "
-                    "       MAX(rx_bytes_per_s) AS max_rx, "
-                    "       MAX(tx_bytes_per_s) AS max_tx "
+                    "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
+                    "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
                     "  FROM host_net_samples "
                     " WHERE ts >= ? "
                     " GROUP BY host_id "
-                    " ORDER BY MAX(rx_bytes_per_s + tx_bytes_per_s) DESC",
-                    (since,),
+                    " ORDER BY SUM(rx_bytes_per_s + tx_bytes_per_s) DESC",
+                    (cadence, cadence, cutoff),
                 ).fetchall()
-                deduped: dict[str, dict] = {}
+                # Dedupe by canonical host:port. Two curated rows scraping
+                # the SAME exporter at separate ticks effectively double-
+                # count the box (each sample is independently inserted). We
+                # MAX the per-key bytes rather than SUM — summing two rows
+                # of the same exporter inflates the total artificially;
+                # MAX picks the more accurate side (whichever sampler
+                # caught more ticks during the window).
+                ded_chatty: dict[str, dict] = {}
                 for r in rows:
-                    hid = r["host_id"] if hasattr(r, "keys") else r[0]
-                    rx = float(r["max_rx"] if hasattr(r, "keys") else r[1] or 0)
-                    tx = float(r["max_tx"] if hasattr(r, "keys") else r[2] or 0)
+                    hid, bx, bt = _unpack_net_row(r)
+                    total = bx + bt
                     key = _canonical(hid)
-                    cur: dict | None = deduped.get(key)
+                    cur: dict | None = ded_chatty.get(key)
                     if cur is None:
-                        deduped[key] = {
+                        ded_chatty[key] = {
                             "host_id": hid,
-                            "max_rx_bps": rx,
-                            "max_tx_bps": tx,
+                            "bytes_rx": bx,
+                            "bytes_tx": bt,
+                            "bytes_total": total,
                             "aliases": [],
                         }
                     else:
-                        # MAX across duplicates — they're sampling the
-                        # same exporter at different moments, so the
-                        # higher peak captured by either is the real
-                        # burst rate for the physical box.
                         assert cur is not None  # narrowing for type-checker (else branch)
-                        if rx + tx > cur["max_rx_bps"] + cur["max_tx_bps"]:
+                        if total > cur["bytes_total"]:
                             cur["aliases"].append(cur["host_id"])
                             cur["host_id"] = hid
+                            cur["bytes_rx"] = bx
+                            cur["bytes_tx"] = bt
+                            cur["bytes_total"] = total
                         else:
                             cur["aliases"].append(hid)
-                        cur["max_rx_bps"] = max(cur["max_rx_bps"], rx)
-                        cur["max_tx_bps"] = max(cur["max_tx_bps"], tx)
-                # Sort by combined max + slice to top 10.
-                merged = sorted(
-                    deduped.values(),
-                    key=lambda x: -(x["max_rx_bps"] + x["max_tx_bps"]),
+                out["top_chatty"] = sorted(
+                    ded_chatty.values(),
+                    key=lambda x: -x["bytes_total"],
                 )[:10]
-                out[label] = merged
-            # Per-host integrated bytes over the requested window.
-            # rate × cadence per row, summed. Simple + bounded enough
-            # given the sample cadence is operator-controlled. Long
-            # gaps (host paused) inflate slightly because we still
-            # treat each row as `cadence` seconds — accepted given the
-            # bound; the alternative (compute interval between rows)
-            # is more code for a marginal accuracy win.
-            rows = c.execute(
-                "SELECT host_id, "
-                "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
-                "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
-                "  FROM host_net_samples "
-                " WHERE ts >= ? "
-                " GROUP BY host_id "
-                " ORDER BY SUM(rx_bytes_per_s + tx_bytes_per_s) DESC",
-                (cadence, cadence, cutoff),
-            ).fetchall()
-            # Dedupe by canonical host:port. Two curated rows scraping
-            # the SAME exporter at separate ticks effectively double-
-            # count the box (each sample is independently inserted). We
-            # MAX the per-key bytes rather than SUM — summing two rows
-            # of the same exporter inflates the total artificially;
-            # MAX picks the more accurate side (whichever sampler
-            # caught more ticks during the window).
-            ded_chatty: dict[str, dict] = {}
-            for r in rows:
-                hid, bx, bt = _unpack_net_row(r)
-                total = bx + bt
-                key = _canonical(hid)
-                cur: dict | None = ded_chatty.get(key)
-                if cur is None:
-                    ded_chatty[key] = {
-                        "host_id": hid,
-                        "bytes_rx": bx,
-                        "bytes_tx": bt,
-                        "bytes_total": total,
-                        "aliases": [],
-                    }
-                else:
-                    assert cur is not None  # narrowing for type-checker (else branch)
-                    if total > cur["bytes_total"]:
-                        cur["aliases"].append(cur["host_id"])
-                        cur["host_id"] = hid
-                        cur["bytes_rx"] = bx
-                        cur["bytes_tx"] = bt
-                        cur["bytes_total"] = total
-                    else:
-                        cur["aliases"].append(hid)
-            out["top_chatty"] = sorted(
-                ded_chatty.values(),
-                key=lambda x: -x["bytes_total"],
-            )[:10]
-            # Fleet-wide totals. Aggregate per host_id first, then
-            # dedupe by canonical key (MAX across duplicates, same
-            # reasoning as the chatty list), then sum the deduped
-            # rows. Bare SUM across all rows would double-count any
-            # physical box represented by two curated entries.
-            rows = c.execute(
-                "SELECT host_id, "
-                "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
-                "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
-                "  FROM host_net_samples "
-                " WHERE ts >= ? "
-                " GROUP BY host_id",
-                (cadence, cadence, cutoff),
-            ).fetchall()
-            ded_total: dict = {}
-            for r in rows:
-                hid, bx, bt = _unpack_net_row(r)
-                key = _canonical(hid)
-                cur = ded_total.get(key)
-                if cur is None or (bx + bt) > (cur["bytes_rx"] + cur["bytes_tx"]):
-                    ded_total[key] = {"bytes_rx": bx, "bytes_tx": bt}
-            out["total"] = {
-                "bytes_rx": sum(v["bytes_rx"] for v in ded_total.values()),
-                "bytes_tx": sum(v["bytes_tx"] for v in ded_total.values()),
-            }
-            # Fleet-wide stacked-area time-series. Bucket size follows
-            # the unified Stats-charts rule
-            # (`logic.tuning.STATS_BUCKET_SECONDS`): 1h / 24h → hour
-            # buckets, 7d / 30d → day, 90d → week. For arbitrary `hours`
-            # values that don't snap to a canonical range, fall back to
-            # the legacy ~96-bucket adaptive scheme so the chart still
-            # renders sensibly.
-            from logic.tuning import stats_bucket_seconds_for_range as _stats_bucket
-            _hours_to_range = {1: "1h", 24: "24h", 168: "7d", 720: "30d", 2160: "90d"}
-            _range_key = _hours_to_range.get(int(hours))
-            if _range_key:
-                bucket = max(cadence, _stats_bucket(_range_key))
-            else:
-                target = 96
-                bucket = max(cadence, int(hours * 3600 / target))
-            # Per-bucket fleet rate is SUM (not AVG) across hosts —
-            # the chart shows total inbound/outbound across the fleet,
-            # not the per-host average. A previous AVG-based query
-            # immediately discarded its result before falling back to
-            # this SUM query; lint-flagged as dead code, removed.
-            rows = c.execute(
-                "SELECT (ts / ?) * ? AS bucket_ts, "
-                "       SUM(rx_bytes_per_s) AS rx, "
-                "       SUM(tx_bytes_per_s) AS tx "
-                "  FROM host_net_samples "
-                " WHERE ts >= ? "
-                " GROUP BY bucket_ts "
-                " ORDER BY bucket_ts ASC",
-                (bucket, bucket, cutoff),
-            ).fetchall()
-            # Each bucket may aggregate multiple ticks per host
-            # (cadence < bucket size). Average across ticks within the
-            # bucket so the value reflects the bucket's mean throughput
-            # rather than the sum-of-rates-by-tick (which would scale
-            # linearly with bucket size). Computed in Python so the
-            # division stays clean across SQLite versions.
-            ticks_per_bucket = max(1, bucket // cadence)
-            out["timeseries"] = [
-                {
-                    "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
-                    "rx_bps": float((r["rx"] if hasattr(r, "keys") else r[1] or 0) / ticks_per_bucket),
-                    "tx_bps": float((r["tx"] if hasattr(r, "keys") else r[2] or 0) / ticks_per_bucket),
+                # Fleet-wide totals. Aggregate per host_id first, then
+                # dedupe by canonical key (MAX across duplicates, same
+                # reasoning as the chatty list), then sum the deduped
+                # rows. Bare SUM across all rows would double-count any
+                # physical box represented by two curated entries.
+                rows = c.execute(
+                    "SELECT host_id, "
+                    "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
+                    "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
+                    "  FROM host_net_samples "
+                    " WHERE ts >= ? "
+                    " GROUP BY host_id",
+                    (cadence, cadence, cutoff),
+                ).fetchall()
+                ded_total: dict = {}
+                for r in rows:
+                    hid, bx, bt = _unpack_net_row(r)
+                    key = _canonical(hid)
+                    cur = ded_total.get(key)
+                    if cur is None or (bx + bt) > (cur["bytes_rx"] + cur["bytes_tx"]):
+                        ded_total[key] = {"bytes_rx": bx, "bytes_tx": bt}
+                out["total"] = {
+                    "bytes_rx": sum(v["bytes_rx"] for v in ded_total.values()),
+                    "bytes_tx": sum(v["bytes_tx"] for v in ded_total.values()),
                 }
-                for r in rows
-            ]
-    except Exception as e:
-        out["error"] = str(e)
+                # Fleet-wide stacked-area time-series. Bucket size follows
+                # the unified Stats-charts rule
+                # (`logic.tuning.STATS_BUCKET_SECONDS`): 1h / 24h → hour
+                # buckets, 7d / 30d → day, 90d → week. For arbitrary `hours`
+                # values that don't snap to a canonical range, fall back to
+                # the legacy ~96-bucket adaptive scheme so the chart still
+                # renders sensibly.
+                from logic.tuning import stats_bucket_seconds_for_range as _stats_bucket
+                _hours_to_range = {1: "1h", 24: "24h", 168: "7d", 720: "30d", 2160: "90d"}
+                _range_key = _hours_to_range.get(int(hours))
+                if _range_key:
+                    bucket = max(cadence, _stats_bucket(_range_key))
+                else:
+                    target = 96
+                    bucket = max(cadence, int(hours * 3600 / target))
+                # Per-bucket fleet rate is SUM (not AVG) across hosts —
+                # the chart shows total inbound/outbound across the fleet,
+                # not the per-host average. A previous AVG-based query
+                # immediately discarded its result before falling back to
+                # this SUM query; lint-flagged as dead code, removed.
+                rows = c.execute(
+                    "SELECT (ts / ?) * ? AS bucket_ts, "
+                    "       SUM(rx_bytes_per_s) AS rx, "
+                    "       SUM(tx_bytes_per_s) AS tx "
+                    "  FROM host_net_samples "
+                    " WHERE ts >= ? "
+                    " GROUP BY bucket_ts "
+                    " ORDER BY bucket_ts ASC",
+                    (bucket, bucket, cutoff),
+                ).fetchall()
+                # Each bucket may aggregate multiple ticks per host
+                # (cadence < bucket size). Average across ticks within the
+                # bucket so the value reflects the bucket's mean throughput
+                # rather than the sum-of-rates-by-tick (which would scale
+                # linearly with bucket size). Computed in Python so the
+                # division stays clean across SQLite versions.
+                ticks_per_bucket = max(1, bucket // cadence)
+                out["timeseries"] = [
+                    {
+                        "bucket_ts": int(r["bucket_ts"] if hasattr(r, "keys") else r[0]),
+                        "rx_bps": float((r["rx"] if hasattr(r, "keys") else r[1] or 0) / ticks_per_bucket),
+                        "tx_bps": float((r["tx"] if hasattr(r, "keys") else r[2] or 0) / ticks_per_bucket),
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            out["error"] = str(e)
+    # Offload the 5 GROUP-BY scans over host_net_samples to a worker
+    # thread -- they run on `WHERE ts >= ?` only (no host_id seek) so on a
+    # long-lived fleet each is a sizable scan; on the event loop they block
+    # the SSE heartbeat + /api/healthz. (ADMIN-PERF-13.)
+    await asyncio.to_thread(_run_net_queries)
     return out
 
 

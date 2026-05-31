@@ -1824,6 +1824,71 @@ export default {
       '</div>',
     ].join('');
   },
+  // Render the (already-scrubbed) GitHub-flavoured release-notes body into
+  // safe, styled HTML instead of dumping it as an escaped <pre> (which left
+  // the ### headings / **bold** / <samp> commit hashes / &nbsp; separators /
+  // @mentions / list bullets showing as raw markup). XSS-safe by construction:
+  // escape EVERYTHING first, then re-introduce a small whitelist of inline
+  // formatting on the escaped text. The body comes from a remote registry, so
+  // no raw tag from upstream ever reaches innerHTML — only our own spans do.
+  _renderReleaseNotesMd(body) {
+    const esc = this._escapeReleaseHtml.bind(this);
+    // Inline formatting applied to a RAW line: escape, then re-style.
+    const inline = (s) => {
+      let e = esc(String(s));
+      // GitHub uses literal &nbsp; entities as spacers — after escaping they
+      // are &amp;nbsp;; restore to a real non-breaking space.
+      e = e.replace(/&amp;nbsp;/g, ' ');
+      // <samp>(hash)</samp> (escaped to &lt;samp&gt;…&lt;/samp&gt;) → commit chip.
+      e = e.replace(/&lt;samp&gt;([\s\S]*?)&lt;\/samp&gt;/g, '<code class="release-notes-commit">$1</code>');
+      // `code` → <code>
+      e = e.replace(/`([^`]+)`/g, '<code class="release-notes-code">$1</code>');
+      // **bold** → <strong>
+      e = e.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+      // @mention → styled (non-link) span. Leading char kept so we don't
+      // match an email-ish "a@b".
+      e = e.replace(/(^|[\s(])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/g, '$1<span class="release-notes-mention">@$2</span>');
+      return e;
+    };
+    const lines = String(body || '').split('\n');
+    const out = [];
+    let inList = false;
+    const closeList = () => {
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
+    };
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, '');
+      // A line that is only &nbsp;/space is blank for layout purposes.
+      if (!line.replace(/&nbsp;|\s/g, '').trim()) {
+        closeList();
+        continue;
+      }
+      const h = line.match(/^\s*(#{1,6})\s+(.*)$/);
+      if (h) {
+        closeList();
+        const lvl = Math.min(6, h[1].length);
+        out.push(`<div class="release-notes-h release-notes-h${lvl}">${inline(h[2])}</div>`);
+        continue;
+      }
+      const li = line.match(/^(\s*)[-*]\s+(.*)$/);
+      if (li) {
+        if (!inList) {
+          out.push('<ul class="release-notes-list">');
+          inList = true;
+        }
+        const nested = li[1].length >= 1 ? ' release-notes-li--nested' : '';
+        out.push(`<li class="release-notes-li${nested}">${inline(li[2])}</li>`);
+        continue;
+      }
+      closeList();
+      out.push(`<p class="release-notes-p">${inline(line)}</p>`);
+    }
+    closeList();
+    return `<div class="release-notes-rendered scrollbar">${out.join('')}</div>`;
+  },
   // Render the resolved release-notes block from one /api/registry/
   // release-notes response payload. Returns the final HTML string the
   // async filler injects in place of the placeholder. Empty string
@@ -1840,14 +1905,27 @@ export default {
       const linkOut = d.html_url
         ? `<a href="${esc(d.html_url)}" target="_blank" rel="noopener" class="release-notes-link">${esc(this.t('dialogs.release_notes_view_on_source') || 'View on source')}</a>`
         : '';
+      // Stash the cleaned text for the Copy button (wired via addEventListener
+      // in _replaceReleaseNotesAsync — the popup HTML is injected raw, not
+      // Alpine-reactive, so @click wouldn't bind). SwAl shows one popup at a
+      // time, so a single field is safe.
+      this._lastReleaseNotesText = scrubbed;
+      const copyLbl = esc(this.t('dialogs.release_notes_copy') || 'Copy');
+      const copyBtn = [
+        `<button type="button" class="release-notes-copy" title="${copyLbl}" aria-label="${copyLbl}">`,
+        '<svg width="13" height="13" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/></svg>',
+        `<span>${copyLbl}</span>`,
+        '</button>',
+      ].join('');
       return [
         `<div id="${this._RELEASE_NOTES_ASYNC_ID}" class="release-notes-block">`,
         `<div class="release-notes-head">`,
         `<span class="release-notes-label">${lbl}</span>`,
         `<span class="release-notes-tag mono">${esc(d.tag || '')}</span>`,
         linkOut,
+        copyBtn,
         '</div>',
-        `<pre class="release-notes-body scrollbar">${esc(scrubbed)}</pre>`,
+        this._renderReleaseNotesMd(scrubbed),
         '</div>',
       ].join('');
     }
@@ -1898,6 +1976,13 @@ export default {
         return;
       }
       el.outerHTML = html;
+      // Wire the Copy button — the block was injected via outerHTML (raw DOM,
+      // not Alpine), so bind the click here. Copies the cleaned notes text
+      // through the shared clipboard helper (toast on success/fail).
+      const cp = document.querySelector('.release-notes-copy');
+      if (cp) {
+        cp.addEventListener('click', () => this.copyToClipboard(this._lastReleaseNotesText || ''));
+      }
     } catch {
       // Silent — placeholder removed so popup doesn't carry a
       // stuck spinner. Operator still gets the actual update path.
