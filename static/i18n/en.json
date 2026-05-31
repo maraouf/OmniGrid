@@ -1159,6 +1159,12 @@
         "enabled_hint": "Master toggle. When OFF the sampler stays dormant. When ON, every host's services[].probe entries with enabled=true get sampled at the cadence below."
       },
       "source_port_scan": "Port Scan",
+      "source_db_size": "DB Size",
+      "source_weather": "Weather",
+      "source_public_ip": "Public IP",
+      "source_portainer": "Portainer",
+      "source_events": "Events",
+      "source_(whole-host)": "Whole host",
       "port_scan": {
         "section_title": "Port Scan",
         "section_desc": "On-demand TCP-connect scanner. Unlike the other providers, port scan does NOT poll continuously — it runs only when triggered from the host drawer (\"Scan ports\" button) or asked via the AI palette. Discovers what's actually listening on the host vs the operator-curated services chip strip; new opens fire a notification so unexpected ports surface without per-scan noise. Per-host opt-in via Admin → Hosts.",

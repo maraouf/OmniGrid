@@ -9545,50 +9545,72 @@ select.field-invalid {
   grid-column: span 2;
 }
 
-/* Vertical card layout (opt-in per app via extender.verticalLayout — APC).
-   The generic card is a logo-left / content-right flex row; this reflows it
-   into a stack — title row on TOP, logo CENTERED + smaller below it, then the
-   per-host ports + the extras panel filling the rest of the tile. Far better
-   use of space for a telemetry card whose body is a stat panel, not a long
-   instance list. Mechanism: the article becomes a single-column grid, and the
-   `.flex-1` content wrapper is `display: contents` so its children (the
-   <header> + the body region) hoist up to become grid items ALONGSIDE the
-   logo — then `order` stacks them title(1) / logo(2) / body(3). (Unlayered
-   custom rule beats the Tailwind `flex` / `gap-3` utilities on the article.) */
-.apps-card--vertical {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--s-2);
+/* Vertical card layout (opt-in per app via extender.verticalLayout — APC),
+   applied ONLY on TALL tiles (height-tall) where there's vertical room to
+   stack. The generic card is a logo-left / content-right flex ROW; here we
+   flip the article to a flex COLUMN and `order` the three blocks so the data
+   gets the room: title row (1) on top, logo (2) centered + smaller below it,
+   then the body — host / ports / UPS extras — (3) filling the rest.
+
+   WHY flex-column (not grid): the article already has Tailwind's `flex`
+   (display:flex) + `items-start`. Changing `display` to grid lost to the
+   Tailwind utility (same specificity, injection-order-dependent) — which is
+   why the first attempt never visibly applied. `flex-direction: column` has
+   NO competing utility on the element, and the base rule is bumped to
+   `.apps-card.apps-card--vertical.apps-card--height-tall` (0,3,0) so its
+   `align-items: stretch` also beats Tailwind's `items-start` (0,1,0).
+   `.flex-1` is display:contents so its <header> + body-region hoist up to
+   become flex items alongside the logo, which `order` then sequences.
+
+   SHORT tiles (1x1..4x1) deliberately keep the generic horizontal layout —
+   a vertical stack would waste their wide-but-short geometry (the logo would
+   eat the limited height). They only get the smaller-logo tweak below. */
+.apps-card.apps-card--vertical.apps-card--height-tall {
+  flex-direction: column;
   align-items: stretch;
+  gap: var(--s-2);
 }
 
-.apps-card--vertical > .flex-1 {
+.apps-card--vertical.apps-card--height-tall > .flex-1 {
   display: contents;
 }
 
-.apps-card--vertical > .flex-1 > header {
+.apps-card--vertical.apps-card--height-tall > .flex-1 > header {
   order: 1;
   margin-bottom: 0;
 }
 
-.apps-card--vertical > .apps-card-logo {
+.apps-card--vertical.apps-card--height-tall > .apps-card-logo {
   order: 2;
   margin-inline: auto;
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
 }
 
-.apps-card--vertical > .apps-card-logo img {
-  width: 44px;
-  height: 44px;
+.apps-card--vertical.apps-card--height-tall > .apps-card-logo img {
+  width: 40px;
+  height: 40px;
 }
 
-.apps-card--vertical > .flex-1 > .apps-card-body-region {
+.apps-card--vertical.apps-card--height-tall > .flex-1 > .apps-card-body-region {
   order: 3;
 }
 
-/* Smaller logo on the compact 1x1 / 1x2 (size-half) tiles — the user
-   flagged the logo eats the tile there. The wider presets keep the 56px. */
+/* Ports fill the width under the logo; UPS extras pack tighter (88px min vs
+   110px) so more stats fit per row in the stacked column — maximise the data
+   shown in the given space. */
+.apps-card--vertical.apps-card--height-tall .apps-port-grid {
+  justify-content: flex-start;
+}
+
+.apps-card--vertical.apps-card--height-tall .apps-card-ups-grid {
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+/* Smaller logo on the compact half-width tiles (1x1 short + 1x2 tall) — the
+   user flagged the logo eats those tiles. Placed AFTER the height-tall logo
+   rule so it wins the (0,3,0) tie for 1x2. Applies in both layouts (the logo
+   is a direct article child either way). */
 .apps-card--vertical.apps-card--size-half > .apps-card-logo {
   width: 38px;
   height: 38px;
@@ -9597,12 +9619,6 @@ select.field-invalid {
 .apps-card--vertical.apps-card--size-half > .apps-card-logo img {
   width: 28px;
   height: 28px;
-}
-
-/* Ports span the full width under the logo (the per-host port grid is the
-   instance row's child; in the stacked body it gets the whole tile width). */
-.apps-card--vertical .apps-port-grid {
-  justify-content: flex-start;
 }
 
 /* Per-card size classes for the Apps Custom dashboard — three
@@ -11538,6 +11554,21 @@ select.field-invalid {
   text-overflow: clip;
 }
 
+/* 3x2 / 4x2 (size-double / xlarge + height-tall): these wide-tall tiles keep
+   the side-by-side ring+phase row and have plenty of horizontal room, so the
+   length caps above (tuned for the narrow 1x2 / 2x2 stack) leave the phase
+   text too small. Re-raise the ceiling here (up to display-lg) + ease the
+   cqmin coefficient so the phase fills the available space; wrapping stays on
+   so even the long names ('Waning Gibbous') grow without ellipsing. Higher
+   specificity (0,4,0) than the length classes (0,1,0) so it wins regardless
+   of which bucket the phrase landed in. */
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-moon-phase {
+  font-size: clamp(var(--fs-display-base), 13cqmin, var(--fs-display-lg));
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 /* Wide cards — the detail row gets generous horizontal room, so spread
    the humidity/wind / ISP/ASN/country kv pairs out instead of cramping. */
 @container ogtile (min-width: 360px) {
@@ -12037,6 +12068,22 @@ select.field-invalid {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 1.0;
+}
+
+/* 3x2 / 4x2 (size-double / xlarge + height-tall): the digital clock has a lot
+   of unused space at the default ceiling, so scale the HH:MM hero up to the
+   big display tokens (cqmin-driven) and grow the date + location lines with
+   it, using the room the operator gave the tile. */
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock {
+  font-size: clamp(var(--fs-display-lg), 34cqmin, var(--fs-display-4xl));
+}
+
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-center .apps-widget-subtitle {
+  font-size: clamp(var(--fs-md), 5cqmin, var(--fs-display-md));
+}
+
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-tall:not(.apps-card--editing) .apps-widget-clock-tz {
+  font-size: clamp(var(--fs-sm), 4cqmin, var(--fs-xl));
 }
 
 /* AM/PM segment — smaller, dimmed, baseline-aligned next to the big

@@ -32,9 +32,11 @@ changes are low-volume + high-value; operators want a long history).
 from __future__ import annotations
 
 import asyncio
+import time
 
 from logic.tuning import Tunable, tuning_int
 from logic import public_ip as _public_ip
+from logic.sampler_metrics import record_tick as _record_tick
 
 
 # Give boot-time schema migrations time to land before the first probe,
@@ -98,6 +100,12 @@ async def sampler_loop() -> None:
         if not enabled:
             await asyncio.sleep(interval)
             continue
+        # Per-tick health metric (Stats → Samplers). Timed around the
+        # actual force-probe; the gate / idle short-circuits above don't
+        # count as ticks. `ok=False` when the probe raises.
+        _tick_t0 = time.perf_counter()
+        _tick_ok = True
+        _tick_err = ""
         try:
             # force=True bypasses the positive cache so every tick is a
             # real re-probe (the whole point — the cache TTL is what hides
@@ -131,5 +139,14 @@ async def sampler_loop() -> None:
         except Exception as e:  # noqa: BLE001
             if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
                 raise
+            _tick_ok = False
+            _tick_err = type(e).__name__
             print(f"[public_ip_sampler] tick failed: {e}")
+        finally:
+            _record_tick(
+                "public_ip_sampler",
+                (time.perf_counter() - _tick_t0) * 1000.0,
+                ok=_tick_ok,
+                error=_tick_err,
+            )
         await asyncio.sleep(interval)
