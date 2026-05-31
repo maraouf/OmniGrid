@@ -1611,7 +1611,7 @@ export default {
     navigator.clipboard?.writeText(text);
     this.showToast(this.t('toasts.copied'));
   },
-  async confirmDialog({title, html, icon = 'warning', confirmText, confirmColor, focusConfirm = false}) {
+  async confirmDialog({title, html, icon = 'warning', confirmText, confirmColor, focusConfirm = false, imageUrl, imageWidth, imageAlt}) {
     // No hex fallbacks — every token below is declared in BOTH :root
     // blocks. If `_cssVar` returns "" something is genuinely broken
     // at the token level and we want it to surface visibly rather
@@ -1629,8 +1629,15 @@ export default {
     // confirm dialog now activates Confirm, matching the
     // operator's typing rhythm. Defaults preserve every other
     // call site's existing safety.
+    // When an imageUrl is supplied (e.g. the stack's brand logo on the
+    // update-stack confirm), SweetAlert shows the image header INSTEAD of the
+    // `icon` glyph — so we drop the icon to avoid stacking both. Falls back to
+    // the icon when no image is given.
     const r = await Swal.fire({
-      title, html, icon,
+      title, html,
+      ...(imageUrl
+        ? {imageUrl, imageWidth: imageWidth || 64, imageHeight: imageWidth || 64, imageAlt: imageAlt || ''}
+        : {icon}),
       showCancelButton: true,
       confirmButtonText: confirmText || this.t('actions.confirm'),
       cancelButtonText: this.t('actions.cancel'),
