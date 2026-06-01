@@ -10381,6 +10381,50 @@ select.field-invalid {
   }
 }
 
+/* ----------------------------------------------------------------
+   Speedtest extras — per-size tuning on the Custom dashboard. The
+   stat values + trend chart need smaller type / less chrome on the
+   narrower tall tiles so they don't overflow the fixed height, and
+   the chart is dropped where it can't render at a useful size.
+   ---------------------------------------------------------------- */
+
+/* 1x2 / narrow-tall (size-half + tall): shrink the latest + average value
+   type + labels + tighten the stat grids so all six stats fit the narrow
+   column. (Covers the narrow-tall speedtest tile that overflowed.) */
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest .fs-md,
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest .fs-sm {
+  font-size: var(--fs-xs);
+}
+
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest .fs-2xs {
+  font-size: var(--fs-3xs);
+}
+
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-statgrid {
+  gap: var(--s-1);
+}
+
+/* 2x2 (size-normal + tall): the trend chart can't render at a useful size in
+   this footprint — hide it; the two stat grids stay. Values also stepped down
+   one size so the grids sit comfortably. */
+.apps-custom-cell.apps-card--size-normal.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+.apps-custom-cell.apps-card--size-normal.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest .fs-md {
+  font-size: var(--fs-sm);
+}
+
+/* 3x2 (size-double + tall) AND 4x2 (size-xlarge + tall): pull the speedtest
+   section UP — the markup's mt-3 + pt-3 top divider pushed the trend chart
+   past the fixed card height so it clipped. Tighter top margin / padding gives
+   the chart room to display in full. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest {
+  margin-top: var(--s-1);
+  padding-top: var(--s-1);
+}
+
 /* The card-settings back face is a CONTROLS panel (size radios, clock
    options), never selectable prose — turn off text selection so its
    labels never show the text I-beam cursor. Operator-flagged: choosing

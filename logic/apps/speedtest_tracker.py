@@ -192,18 +192,26 @@ async def fetch_data(host_row: dict, chip: dict, *,
     #              "data": {"download": {"bandwidth": <bytes/s>},
     #                       "upload":   {"bandwidth": <bytes/s>},
     #                       "ping":     {"latency": <ms>}}}, ...]}
-    # Older builds expose flat `download` / `upload` / `ping` Mbps floats
-    # straight on the row. `_metric()` reads BOTH so the parser is
-    # version-agnostic; bandwidth (bytes/s) is converted to Mbps.
+    # Older builds expose flat `download` / `upload` / `ping` straight on the
+    # row. The flat download/upload fields are in Kbps (operator-confirmed from
+    # the deployment — the rendered value read 1000× too large until divided),
+    # so `_metric()` normalises BOTH schemas to Mbps: flat Kbps ÷ 1000, nested
+    # Ookla bandwidth (bytes/s) × 8 ÷ 1e6. `ping` stays in ms in both schemas.
     rows = body.get("data") if isinstance(body, dict) else None
     if not isinstance(rows, list):
         rows = []
 
+    # download / upload are bandwidth metrics that get unit-normalised to Mbps;
+    # ping is a latency metric left in ms.
+    _BANDWIDTH_KEYS = ("download", "upload")
+
     def _metric(row: dict, key: str) -> float:
-        # Flat float (older builds) wins when present + numeric.
+        # Flat number (older builds) wins when present + numeric. The flat
+        # bandwidth fields are Kbps → ÷1000 for Mbps; ping is already ms.
         flat = row.get(key)
         if isinstance(flat, (int, float)):
-            return float(flat)
+            val = float(flat)
+            return val / 1000.0 if key in _BANDWIDTH_KEYS else val
         # Nested Ookla shape under the row's own `data` object.
         nested = row.get("data")
         if isinstance(nested, dict):
@@ -219,9 +227,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # Flat string that parses (some builds stringify the metric).
         if isinstance(flat, str) and flat.strip():
             try:
-                return float(flat)
+                val = float(flat)
             except (TypeError, ValueError):
                 return 0.0
+            return val / 1000.0 if key in _BANDWIDTH_KEYS else val
         return 0.0
 
     series: list[dict[str, Any]] = []
