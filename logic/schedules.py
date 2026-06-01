@@ -1878,6 +1878,10 @@ async def _run_port_scan_refresh(
         skipped: dict[str, list[str]] = {
             "disabled": [], "no_address": [],
             "paused": [], "too_recent": [],
+            # Not a skip — hosts with no `address` that fall back to
+            # scanning their host_id. Tracked only so the summary log can
+            # surface the count ("scanning N via host_id, no address set").
+            "addr_fallback_hostid": [],
         }
         first_skip_reason = ""
 
@@ -2026,16 +2030,24 @@ async def _run_port_scan_refresh(
                 if "enabled" in ps_cfg and not ps_cfg.get("enabled"):
                     skipped["disabled"].append(hid)
                     continue
-                # Address check — the schedule only scans hosts with an
-                # explicit address set, since scanning a bare host_id
-                # against an unresolvable alias produces misleading
-                # results (the user might think the firewall blocked
-                # everything when actually DNS failed). The on-demand
-                # path falls through to the host_id as a last-resort
-                # target, but the schedule is more conservative.
-                if not (h.get("address") or "").strip():
+                # Target resolution = explicit `address`, else fall back to
+                # the host_id (which IS the scan target in _scan_one below,
+                # and matches the on-demand /port-scan route). Pre-fix the
+                # schedule REQUIRED `address` and skipped every host without
+                # it — so a fleet whose hosts are addressed only by their
+                # host_id (a real hostname / FQDN like `opc.home.lan`) had the
+                # schedule silently skip ALL of them (0 eligible, 0 selected,
+                # 0m "success") while the on-demand drawer button worked fine.
+                # Only skip when there is genuinely NO target (neither address
+                # nor host_id) — which never happens here since hid is
+                # required above; track the host_id-fallback count for the
+                # summary log so the operator can see when no address is set.
+                _has_addr = bool((h.get("address") or "").strip())
+                if not (_has_addr or hid):
                     skipped["no_address"].append(hid)
                     continue
+                if not _has_addr:
+                    skipped["addr_fallback_hostid"].append(hid)
                 if hid in paused_ids:
                     skipped["paused"].append(hid)
                     continue
@@ -2115,7 +2127,8 @@ async def _run_port_scan_refresh(
                 f"skipped_disabled={len(skipped['disabled'])} "
                 f"skipped_no_address={len(skipped['no_address'])} "
                 f"skipped_paused={len(skipped['paused'])} "
-                f"skipped_too_recent={len(skipped['too_recent'])}"
+                f"skipped_too_recent={len(skipped['too_recent'])} "
+                f"addr_fallback_hostid={len(skipped['addr_fallback_hostid'])}"
             )
 
             # Per-skip-reason host lists — only emit when the bucket is
@@ -2272,6 +2285,16 @@ async def _run_port_scan_refresh(
                 )
                 import uuid as _uuid
                 scan_id = str(_uuid.uuid4())
+                # Per-host visibility so the operator can monitor exactly what
+                # the scheduled scan is doing (the START line names the target
+                # actually probed + the port count; the DONE line reports the
+                # wall-clock). Verb choice avoids the ERROR/fail log classifier;
+                # the gather() wrapper below logs the failed path separately.
+                _scan_t0 = time.time()
+                print(
+                    f"[scheduler] port_scan_refresh scan START "
+                    f"host_id={scan_hid!r} target={target!r} ports={len(ports_list)}"
+                )
                 async with sem:
                     # noinspection PyProtectedMember
                     await _main._run_port_scan_async(
@@ -2292,6 +2315,11 @@ async def _run_port_scan_refresh(
                         h=scan_host,
                         actor=SCHEDULER_ACTOR,
                     )
+                print(
+                    f"[scheduler] port_scan_refresh scan DONE "
+                    f"host_id={scan_hid!r} target={target!r} "
+                    f"took={int((time.time() - _scan_t0) * 1000)}ms scan_id={scan_id}"
+                )
                 return scan_hid
 
             scan_results = await asyncio.gather(

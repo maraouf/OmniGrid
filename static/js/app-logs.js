@@ -575,6 +575,22 @@ export default {
     }
     const raw = l.text || '';
     const text = raw.toLowerCase();
+    // EARLY-POSITION marker guard — mirrors the backend `_severity_for`
+    // head-scan (logic/logs.py): an explicit `warning:` / `success` /
+    // `ok —` marker in the line's first ~120 chars (right after the
+    // `[tag]` prefix) WINS over body-keyword matches. Without this, a
+    // slow-query line `[slow_query] warning: ... sql=SELECT ... s.error
+    // ...` was coloured ERROR because the SQL body contains the word
+    // "error" — even though the line is explicitly a warning. Operators
+    // control the bucket by the marker word; the body scans below still
+    // win when no early marker is present.
+    const head = raw.slice(0, 120);
+    if (/\bsuccess\b|\bok —|→ ok\b/i.test(head)) {
+      return 'ok';
+    }
+    if (/\bwarn(?:ing)?\b|deprecat/i.test(head)) {
+      return 'warn';
+    }
     // stderr AND a tell-tale tag beats "happy-looking" body — but
     // a stderr line with no negative keywords stays at 'info' (our
     // own noisy prints go to stderr all the time).
