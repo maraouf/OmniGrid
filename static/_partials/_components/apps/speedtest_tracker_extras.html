@@ -19,7 +19,8 @@
 <template x-if="speedtestIsApp && speedtestIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <div class="apps-card-speedtest mt-3 pt-3 border-t border-[var(--border)] space-y-2">
     <template x-if="appsAppData(inst)">
-      <div class="space-y-2 apps-speedtest-grid">
+      <div class="space-y-2">
+        <div class="apps-speedtest-grid">
         <div class="apps-speedtest-statgrid">
           <div class="apps-card-stat">
             <div class="fs-2xs text-[var(--text-faint)]"
@@ -93,6 +94,7 @@
             </div>
           </div>
         </template>
+        </div>
         <!-- Axed trend chart — shown ONLY on the wide-tall tiles (3x2 / 4x2)
              via CSS (.apps-speedtest-axchart hidden elsewhere; the simple
              .apps-speedtest-trend above is hidden at those two sizes). Puts
@@ -115,7 +117,7 @@
                      pTicks 2 / xTicks 2) so we index them directly. cm is
                      guaranteed non-null here — the outer x-if gates on
                      series.length >= 2. -->
-                <svg :viewBox="'0 0 ' + cm.w + ' ' + cm.h"
+                <svg :viewBox="'0 0 ' + cm.w + ' ' + cm.h" preserveAspectRatio="none"
                      class="w-full apps-card-speedtest-axchart-svg" role="img"
                      :aria-label="t('apps.speedtest.chart_aria') || 'Speedtest trend: download and upload in Mbps, ping in ms, over time'">
                   <!-- Mbps gridlines + left y-axis ticks (0 / half / max) -->
@@ -133,9 +135,9 @@
                   <text :x="cm.xTicks[0].x" :y="cm.h - 4" class="apps-axchart-tick apps-axchart-tick--start" x-text="cm.xTicks[0].label"></text>
                   <text :x="cm.xTicks[1].x" :y="cm.h - 4" class="apps-axchart-tick apps-axchart-tick--end" x-text="cm.xTicks[1].label"></text>
                   <!-- data lines: download + upload (Mbps, left), ping (ms, right, dashed) -->
-                  <path :d="cm.downPath" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                  <path :d="cm.upPath" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                  <path :d="cm.pingPath" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
+                  <path :d="cm.downPath" fill="none" stroke="var(--success)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                  <path :d="cm.upPath" fill="none" stroke="var(--info)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+                  <path :d="cm.pingPath" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/>
                 </svg>
                 <div class="flex items-center justify-between fs-3xs text-[var(--text-faint)]">
                   <span x-text="t('apps.speedtest.axis_mbps') || 'Mbps (down / up)'"></span>

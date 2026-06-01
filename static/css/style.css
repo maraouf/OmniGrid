@@ -10532,10 +10532,15 @@ select.field-invalid {
   grid-column: 1 / -1;
 }
 
+/* Fixed height (matching the viewBox H) + preserveAspectRatio="none" on the
+   SVG: the chart ALWAYS fills the full block width and is exactly this tall —
+   no letterbox band (which read as a big gap above the legend) and no
+   auto-height ambiguity. The data-line + axis strokes use non-scaling-stroke
+   so the horizontal stretch doesn't thin / fatten them. */
 .apps-card-speedtest-axchart-svg {
   display: block;
   width: 100%;
-  height: auto;
+  height: 92px;
 }
 
 /* Axis chrome — gridlines / axis baseline / tick text. Stroke + fill use theme
@@ -10544,11 +10549,13 @@ select.field-invalid {
 .apps-axchart-grid {
   stroke: var(--border);
   stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
 }
 
 .apps-axchart-axis {
   stroke: var(--border-bright);
   stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
 }
 
 .apps-axchart-tick {
