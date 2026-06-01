@@ -10503,10 +10503,27 @@ select.field-invalid {
 .apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-axchart,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-axchart {
   display: block;
+  /* When the extras reformat to a 2-col grid (@container), the chart must span
+     BOTH columns so it fills the tile width — set on the high-specificity
+     size rule so it beats the @container 2-col grid placement. */
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+/* App-drawer extras (no size class — not a .apps-custom-cell): show the SAME
+   axed chart as the card and hide the simple sparkline so the drawer chart is
+   unified with the card chart. The drawer extras box is a flat block (not a
+   grid), so the axed chart is naturally full width. */
+.apps-drawer-extras-box .apps-speedtest-axchart {
+  display: block;
+}
+
+.apps-drawer-extras-box .apps-speedtest-trend {
   display: none;
 }
 
