@@ -497,38 +497,24 @@ export default {
   // weather / moon / pubip widget tiles it sits beside). The first
   // matching extender wins; absent extenders fall through to false
   // (the default plain bold heading).
-  // Whether this app's card uses the VERTICAL layout (title row on top,
-  // logo below + smaller, then ports + extras filling the tile) instead
-  // of the generic logo-left row. Registry-driven via
-  // `extender.verticalLayout = true` (APC). Same match probe as the
-  // eyebrow helper (cardSpan(app) > 1 means the extender owns this app).
-  appsCardVerticalLayout(app) {
-    const ext = (window.OG_APPS_EXTENDERS || []);
-    for (const e of ext) {
-      if (e && e.verticalLayout && typeof e.cardSpan === 'function') {
-        if (e.cardSpan(app) > 1) {
-          return true;
-        }
-      }
-    }
-    return false;
+  // Whether this app's card uses the title-over-logo GRID layout (title on
+  // top of the logo in a left column, the grey description to their right,
+  // ports + UPS-style extras starting at the card's left edge below). This
+  // is now the UNIVERSAL app-card layout -- it applies to EVERY app card, not
+  // just the per-app modules that requested it. Widgets (clock / weather /
+  // moon / public-ip) are a SEPARATE surface (`apps-widget-*`, not
+  // `apps-card`) and are unaffected. Call sites still pass `app`; a future
+  // per-app opt-OUT re-introduces the arg + a branch when we review apps one
+  // by one.
+  appsCardVerticalLayout() {
+    return true;
   },
-  appsCardEyebrowTitle(app) {
-    const ext = (window.OG_APPS_EXTENDERS || []);
-    for (const e of ext) {
-      if (e && e.eyebrowTitle && typeof e.cardSpan === 'function') {
-        // Reuse cardSpan(app) > 0 as the "does this extender match this
-        // app" probe — every per-app extender's cardSpan returns its
-        // wide span for a matching app and 1 otherwise, but we only
-        // need the eyebrow flag gated by the extender that OWNS this
-        // app. Match via the same slug/name logic the extender uses by
-        // asking it for a span; >1 means it claimed this app.
-        if (e.cardSpan(app) > 1) {
-          return true;
-        }
-      }
-    }
-    return false;
+  // Whether the card title renders as the widget-style accent eyebrow (status
+  // dot + uppercase) instead of a plain bold heading. Also UNIVERSAL now --
+  // the operator asked for the APC title style fleet-wide across every app
+  // card. Widgets are unaffected (separate surface).
+  appsCardEyebrowTitle() {
+    return true;
   },
 
   // Whether a given app TEMPLATE supports an extras panel — drives
