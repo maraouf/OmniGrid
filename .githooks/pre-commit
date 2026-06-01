@@ -31,7 +31,31 @@ else
   exit 0
 fi
 
-# --staged is the default; --severity warn blocks the commit on any
-# WARNING or ERROR finding (info-level prints but doesn't block). Full
-# audit on demand: python scripts/lint.py --all
-exec "$py" "$lint" --staged --severity warn
+# Capture the staged text-file set BEFORE normalising so we can re-stage
+# the CRLF-fixed bytes below. NUL-delimited for path-with-space safety.
+# diff-filter ACMR = Added / Copied / Modified / Renamed (skip Deletes).
+staged="$(git diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null || true)"
+
+# --fix-crlf auto-normalises staged files to CRLF FIRST (the harness's
+# Edit/Write tools silently re-save edited files as LF on every edit, so
+# without this the commit would fail the lone-LF rule on every touched
+# file). --severity warn then blocks the commit on any remaining WARNING
+# or ERROR finding (info-level prints but doesn't block). The CRLF rule
+# passes because the fix already ran. set +e so a non-zero lint exit is
+# captured rather than aborting this shim before we re-stage.
+set +e
+"$py" "$lint" --staged --fix-crlf --severity warn
+rc=$?
+set -e
+
+# Re-stage the normalised bytes so the CRLF fix lands in THIS commit
+# instead of being left as an unstaged working-tree change that re-fails
+# the next commit. Caveat: a partially-staged file (git add -p) gets its
+# FULL working-tree version re-staged here — acceptable for this
+# single-operator repo; use --no-verify if you need a partial stage to
+# survive verbatim. Full audit on demand: python scripts/lint.py --all
+if [ -n "$staged" ]; then
+  printf '%s' "$staged" | xargs -0 git add -- 2>/dev/null || true
+fi
+
+exit "$rc"
