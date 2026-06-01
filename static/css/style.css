@@ -9887,11 +9887,8 @@ select.field-invalid {
 }
 
 /* 2x1 (size-normal + short): split the body so the per-app extras sit to the
-   RIGHT of the instance list + ports rather than stacked below. The card is
-   narrow, so the extras column uses an auto-fit grid (2-3 stats fit the freed
-   width) and the nth-child cap drops the tail so the short footprint isn't
-   over-filled. The remaining stats stay in the DOM + re-appear at larger
-   presets. 5 classes beats the generic short `display: block` rule above. */
+   RIGHT of the instance list + ports rather than stacked below. 5 classes
+   beats the generic short `display: block` rule above. */
 .apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ready--has-extras {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -9903,14 +9900,21 @@ select.field-invalid {
   margin-top: 0;
 }
 
+/* Clean compact table cut to what fits the narrow short column: a single-
+   column stack of the first 2 stats (Battery + Output load) with smaller value
+   type, so it reads as a tidy mini table rather than a cropped auto-fit grid.
+   The remaining stats stay in the DOM + re-appear at larger presets. */
 .apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
-  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
 }
 
-/* Cap to the first 3 stats (Battery / Output load / Runtime) so the narrow
-   extras column doesn't overflow the short height. */
-.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-stat:nth-child(n+4) {
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-stat:nth-child(n+3) {
   display: none;
+}
+
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+  font-size: var(--fs-sm);
 }
 
 /* 3x1 (size-double + short): the card is wide enough to split the body into
@@ -9933,30 +9937,70 @@ select.field-invalid {
   margin-top: 0;
 }
 
-/* Wider extras column at 3x1 — auto-fit packs as many stats per row as fit, so
-   the panel uses the extra horizontal room instead of a fixed 2-across cap. */
+/* 3x1 ports show the NUMBER ONLY (drop the /tcp proto badge) to reclaim
+   horizontal room on the left column. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-port-proto {
+  display: none;
+}
+
+/* Denser extras table at 3x1 — smaller value type + tighter cell padding +
+   a finer auto-fit track so more stats fit per row without cropping. */
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 2px var(--s-1);
 }
 
-/* 4x1 (size-xlarge + short): same 2-column body split as 3x1, but the card is
-   the widest preset (span 7) so hand the extras an even larger share
-   (instances 0.55fr | extras 1.45fr) and a roomier auto-fit grid so all five
-   UPS stats line up beside the ports. Sparkline relocates below the ports via
-   the relocation block lower down (xlarge+short added there too). */
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-ready--has-extras {
-  display: grid;
-  grid-template-columns: minmax(0, 0.55fr) minmax(0, 1.45fr);
-  gap: var(--s-2) var(--s-3);
-  align-items: start;
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-stat {
+  padding: 2px var(--s-1);
 }
 
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-extras-col {
-  margin-top: 0;
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+  font-size: var(--fs-sm);
 }
 
+/* 4x1 (size-xlarge + short): the widest short tile. Hoist the host + ports OUT
+   of the body so they sit HORIZONTALLY to the RIGHT of the logo (top region),
+   and let the per-app extras take over the bottom row — starting at the tile's
+   LEFT edge across the full width, so the UPS table gets the most room. The
+   body-region + .apps-card-ready drop to display:contents (same promotion trick
+   the header wrappers use above) so the instance <ul> + extras column become
+   grid items the area template places. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical {
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  grid-template-areas:
+    "logo  title ports pills"
+    "logo  desc  ports pills"
+    "extras extras extras extras";
+  column-gap: var(--s-3);
+}
+
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-body-region,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-ready {
+  display: contents;
+}
+
+/* Host + ports ride up beside the logo, vertically centred against the
+   two-row title/description block. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-ready > ul {
+  grid-area: ports;
+  align-self: center;
+  min-width: 0;
+}
+
+/* Extras span the full width on the bottom row, from the left edge. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-extras-col {
+  grid-area: extras;
+  margin-top: var(--s-1);
+}
+
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-ready > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+/* Extras as a wide single-row table — all five stats across the full tile. */
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
 }
 
 /* 4x2 (size-xlarge + tall): roomy tall tile — split the body so the per-app
@@ -12723,28 +12767,28 @@ a.apps-drawer-tile-name {
   display: none;
 }
 
-/* 3x1 (size-double + short) AND 4x1 (size-xlarge + short): same sparkline
-   relocation as 3x2 — move it BELOW the ports in the left column and hide the
-   inline (in-row) copy, so the two-column body (ports | extras) keeps the
-   spark beneath its ports. */
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row,
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row {
+/* 3x1 (size-double + short): same sparkline relocation as 3x2 — move it BELOW
+   the ports in the left column and hide the inline (in-row) copy, so the two-
+   column body (ports | extras) keeps the spark beneath its ports. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row {
   display: flex;
 }
 
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency,
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency {
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency {
   display: none;
 }
 
-/* 2x1 (size-normal + short): HIDE the sparkline entirely — both the inline
-   (in-row) copy AND the below-ports row — so the freed vertical space shows
-   the first 2 per-app extras instead (see the 2x1 extras block higher up). */
+/* 2x1 (size-normal + short) AND 4x1 (size-xlarge + short): HIDE the sparkline
+   entirely — both the inline (in-row) copy AND the below-ports row. 2x1 frees
+   the vertical space for the extras; 4x1 keeps the host + ports compact beside
+   the logo so the full-width extras table below gets the room. */
 .apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
 .apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency,
-.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row {
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-spark-row {
   display: none;
 }
 
