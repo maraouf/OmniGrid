@@ -254,20 +254,15 @@
                 <span class="apps-card-instance-host"
                       :title="appsInstanceHostTitle(inst)"
                       x-text="inst.host_address || inst.host_id"></span>
+                <!-- Inline latency + sparkline — the DEFAULT placement for most
+                     sizes. Specific sizes (e.g. 3x2) hide these via CSS and show
+                     the full-width .apps-card-spark-row below the ports instead;
+                     keeping BOTH in the DOM (size-gated by CSS) means the
+                     relocation never touches the sizes the user didn't ask for.
+                     appsInstanceSpark is WeakMap-memoized so the duplicate
+                     single-element x-for is a cheap lookup, not a recompute. -->
                 <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="apps-card-latency"
                       x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
-                <!-- Per-instance uptime sparkline (last N rollup probes from
-                     service_samples): a flat top line reads as healthy, a dip to
-                     the baseline as an outage. appsInstanceSpark memoizes the
-                     points / title / colour against inst.status_history so they
-                     don't rebuild per flush. The x-if gate (>= 2 points) keeps an
-                     unprobed chip spark-less. aria-hidden — the status dot +
-                     reason line carry the accessible status; the title adds the
-                     uptime %. -->
-                <!-- appsInstanceSpark(inst) computed ONCE via a single-element
-                     x-for (was read 6x across :title / :class / :points). The
-                     helper is WeakMap-memoized so each was a cheap hit, but one
-                     lookup + a local `sp` is tidier. -->
                 <template x-if="(inst.status_history || []).length > 1">
                   <template x-for="sp in [appsInstanceSpark(inst)]" :key="'spark'">
                     <span class="apps-spark-wrap"
@@ -331,6 +326,34 @@
                     </a>
                   </template>
                 </template>
+              </div>
+              <!-- Uptime sparkline + latency — full-width row BELOW the ports
+                   (moved out of the instance-row; applies to every app card).
+                   The spark stretches to the port-row width
+                   (preserveAspectRatio="none" lets the fixed viewBox scale
+                   horizontally) with the ms reading beside it. appsInstanceSpark
+                   is WeakMap-memoized so the single-element x-for is cheap.
+                   Hidden when there's neither a latency reading nor >1 history
+                   point. -->
+              <div class="apps-card-spark-row ps-4"
+                   x-show="(inst.last_probe && inst.last_probe.rtt_ms) || (inst.status_history || []).length > 1">
+                <template x-if="(inst.status_history || []).length > 1">
+                  <template x-for="sp in [appsInstanceSpark(inst)]" :key="'sparkrow'">
+                    <span class="apps-spark-wrap apps-spark-wrap--wide"
+                          :title="sp ? t('apps.spark_title', { pct: sp.pct, n: sp.n }) : ''">
+                      <svg class="apps-spark"
+                           :class="(sp && sp.allUp) ? 'apps-spark--up' : 'apps-spark--mixed'"
+                           height="14" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true">
+                        <polyline :points="sp ? sp.points : ''"
+                                  fill="none" stroke="currentColor" stroke-width="1.25"
+                                  vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+                      </svg>
+                    </span>
+                  </template>
+                </template>
+                <span x-show="inst.last_probe && inst.last_probe.rtt_ms"
+                      class="apps-card-latency apps-card-latency--spark"
+                      x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
               </div>
             </li>
           </template>
