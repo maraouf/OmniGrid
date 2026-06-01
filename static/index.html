@@ -10166,6 +10166,21 @@
                         </template>
                       </div>
                     </template>
+                    <!-- Per-app extras box (APC UPS stats / Speedtest data / …) —
+                         renders when the app has a per-app extras module AND
+                         extras are enabled for this instance. `app` is bound to
+                         drawerApp via a single-element x-for so the per-app
+                         partials (which gate on `app` + `inst` via
+                         anyAppExtrasMatch / appsShowExtras) resolve in the drawer
+                         scope too; each partial's own border-t wrapper is the box.
+                         Same gating + data path the app CARD uses. -->
+                    <template x-for="app in [drawerApp]" :key="'extras:' + inst.host_id + ':' + inst.service_idx">
+                      <template x-if="anyAppExtrasMatch(app)">
+                        <div>
+                          <!-- INCLUDE: _components/apps/_all_extras.html -->
+                        </div>
+                      </template>
+                    </template>
                   </div>
                 </template>
               </div>

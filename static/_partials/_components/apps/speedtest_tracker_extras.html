@@ -15,7 +15,7 @@
        speedtestMbpsLabel(v)         -- format download/upload Mbps
        speedtestPingLabel(v)         -- format ping ms
        speedtestSparkPath(series, k) -- SVG `d` attr for the chart -->
-<!--suppress HtmlUnknownAttribute -->
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
 <template x-if="speedtestIsApp && speedtestIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <div class="apps-card-speedtest mt-3 pt-3 border-t border-[var(--border)] space-y-2">
     <template x-if="appsAppData(inst)">
@@ -91,6 +91,62 @@
                           style="background: var(--warning);"></span><span
                 x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
             </div>
+          </div>
+        </template>
+        <!-- Axed trend chart — shown ONLY on the wide-tall tiles (3x2 / 4x2)
+             via CSS (.apps-speedtest-axchart hidden elsewhere; the simple
+             .apps-speedtest-trend above is hidden at those two sizes). Puts
+             download + upload on a SHARED Mbps left axis + ping on a ms right
+             axis over a time x-axis with tick labels so the operator can read
+             absolute values + see the lines relative to one another. The model
+             (paths + ticks) is built once via a single-element x-for over
+             speedtestChartModel(series). preserveAspectRatio is left at the
+             default (meet) so the tick TEXT isn't horizontally stretched. -->
+        <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
+          <div class="apps-speedtest-axchart space-y-1">
+            <template x-for="cm in [speedtestChartModel(appsAppData(inst).series)]" :key="'axc'">
+              <div x-show="cm">
+                <svg :viewBox="cm ? ('0 0 ' + cm.w + ' ' + cm.h) : '0 0 320 132'"
+                     class="w-full apps-card-speedtest-axchart-svg" role="img"
+                     :aria-label="t('apps.speedtest.chart_aria') || 'Speedtest trend: download and upload in Mbps, ping in ms, over time'">
+                  <template x-for="yt in (cm ? cm.yTicks : [])" :key="'y' + yt.label">
+                    <g>
+                      <line :x1="cm.axisX0" :y1="yt.y" :x2="cm.axisX1" :y2="yt.y" class="apps-axchart-grid"/>
+                      <text :x="cm.axisX0 - 3" :y="yt.y" text-anchor="end" dominant-baseline="middle"
+                            class="apps-axchart-tick" x-text="yt.label"></text>
+                    </g>
+                  </template>
+                  <template x-for="pt in (cm ? cm.pTicks : [])" :key="'p' + pt.label">
+                    <text :x="cm.axisX1 + 3" :y="pt.y" text-anchor="start" dominant-baseline="middle"
+                          class="apps-axchart-tick apps-axchart-tick--ping" x-text="pt.label"></text>
+                  </template>
+                  <line :x1="cm.axisX0" :y1="cm.axisY1" :x2="cm.axisX1" :y2="cm.axisY1" class="apps-axchart-axis"/>
+                  <template x-for="xt in (cm ? cm.xTicks : [])" :key="'x' + xt.x">
+                    <text :x="xt.x" :y="cm.h - 5"
+                          :class="'apps-axchart-tick apps-axchart-tick--' + (xt.anchor === 'end' ? 'end' : 'start')"
+                          x-text="xt.label"></text>
+                  </template>
+                  <path :d="cm ? cm.downPath : ''" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  <path :d="cm ? cm.upPath : ''" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="cm ? cm.pingPath : ''" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
+                </svg>
+                <div class="flex items-center justify-between fs-3xs text-[var(--text-faint)]">
+                  <span x-text="t('apps.speedtest.axis_mbps') || 'Mbps (down / up)'"></span>
+                  <span x-text="t('apps.speedtest.axis_ms') || 'ms (ping)'"></span>
+                </div>
+                <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+                  <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                              style="background: var(--success);"></span><span
+                    x-text="t('apps.speedtest.legend_download') || 'down'"></span></span>
+                  <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                              style="background: var(--info);"></span><span
+                    x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>
+                  <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                              style="background: var(--warning);"></span><span
+                    x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
+                </div>
+              </div>
+            </template>
           </div>
         </template>
       </div>

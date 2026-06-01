@@ -71,9 +71,10 @@ function _isFiniteNumber(value) {
 }
 
 // Format download / upload. The backend normalises every Speedtest Tracker
-// schema to Mbps (flat Kbps / 1000, nested Ookla bytes/s * 8 / 1e6), so the
-// value here is ALREADY Mbps. Always render Mbps with thousand separators
-// (never Gbps) per the operator's request, up to 2 decimals.
+// schema to Mbps (Ookla bytes/s × 8 ÷ 1e6 — both the nested `data.*.bandwidth`
+// and the flat download/upload fields are bytes/s), so the value here is
+// ALREADY Mbps. Always render Mbps with thousand separators (never Gbps) per
+// the operator's request, up to 2 decimals.
 function fmtBits(v) {
   if (v == null) {
     return '—';
@@ -132,6 +133,93 @@ function sparkPath(series, key) {
   return d.trim();
 }
 
+// Round a positive max UP to a friendly 1 / 2 / 5 x 10^n step so axis tick
+// labels read cleanly (187 -> 200, 53 -> 60, 4200 -> 5000). Returns 1 for
+// non-positive / non-finite input so the axis never divides by zero.
+function _niceMax(v) {
+  if (!isFinite(v) || v <= 0) {
+    return 1;
+  }
+  const exp = Math.floor(Math.log10(v));
+  const base = Math.pow(10, exp);
+  const f = v / base;
+  let nice;
+  if (f <= 1) {
+    nice = 1;
+  } else if (f <= 2) {
+    nice = 2;
+  } else if (f <= 5) {
+    nice = 5;
+  } else {
+    nice = 10;
+  }
+  return nice * base;
+}
+
+// Short local time label for an x-axis tick from an ISO `created_at` string.
+// Browser locale owns the HH:MM format; '' when unparseable.
+function _fmtChartTs(ts) {
+  if (!ts) {
+    return '';
+  }
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) {
+    return '';
+  }
+  return d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+// Build the AXED chart model for the wide-tall tiles (3x2 / 4x2). The simple
+// `sparkPath` chart has no axes + normalises each line independently; here we
+// put download + upload on a SHARED Mbps scale (left y-axis) so their relative
+// magnitudes read true, ping on its own ms scale (right y-axis), over a time
+// x-axis, with tick labels. Coordinates live in a fixed viewBox; the partial
+// draws the axis lines / gridlines / tick text / polylines from this model.
+// Returns null when < 2 points (caller hides the chart).
+function speedtestChartModel(series) {
+  if (!Array.isArray(series) || series.length < 2) {
+    return null;
+  }
+  const W = 320, H = 132, padL = 40, padR = 34, padT = 8, padB = 20;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const dl = series.map(function (p) { return Number(p && p.download) || 0; });
+  const ul = series.map(function (p) { return Number(p && p.upload) || 0; });
+  const pg = series.map(function (p) { return Number(p && p.ping) || 0; });
+  const mbpsMax = _niceMax(Math.max(1, Math.max.apply(null, dl), Math.max.apply(null, ul)));
+  const pingMax = _niceMax(Math.max(1, Math.max.apply(null, pg)));
+  const n = series.length;
+  const stepX = plotW / Math.max(1, n - 1);
+  function xAt(i) { return padL + i * stepX; }
+  function yMbps(v) { return padT + plotH - (Math.min(v, mbpsMax) / mbpsMax) * plotH; }
+  function yPing(v) { return padT + plotH - (Math.min(v, pingMax) / pingMax) * plotH; }
+  function path(vals, yf) {
+    let d = '';
+    for (let i = 0; i < vals.length; i++) {
+      d += (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yf(vals[i]).toFixed(1) + ' ';
+    }
+    return d.trim();
+  }
+  const yTicks = [0, mbpsMax / 2, mbpsMax].map(function (v) {
+    return {y: yMbps(v).toFixed(1), label: (Math.round(v * 10) / 10).toLocaleString()};
+  });
+  const pTicks = [0, pingMax].map(function (v) {
+    return {y: yPing(v).toFixed(1), label: String(Math.round(v))};
+  });
+  const xTicks = [
+    {x: xAt(0).toFixed(1), label: _fmtChartTs(series[0].ts), anchor: 'start'},
+    {x: xAt(n - 1).toFixed(1), label: _fmtChartTs(series[n - 1].ts), anchor: 'end'},
+  ];
+  return {
+    w: W, h: H,
+    axisX0: padL, axisX1: (W - padR), axisY0: padT, axisY1: (padT + plotH),
+    downPath: path(dl, yMbps),
+    upPath: path(ul, yMbps),
+    pingPath: path(pg, yPing),
+    yTicks: yTicks, pTicks: pTicks, xTicks: xTicks,
+  };
+}
+
 // True when `app` is a Speedtest Tracker catalog template
 // (matched via slug; falls back to a substring check on
 // `app.name` so an operator-edited chip that dropped the
@@ -171,4 +259,5 @@ export const helpers = {
   speedtestMbpsLabel: fmtBits,
   speedtestPingLabel: fmtPing,
   speedtestSparkPath: sparkPath,
+  speedtestChartModel: speedtestChartModel,
 };

@@ -5167,7 +5167,10 @@
       "trend": "Trend (last tests)",
       "legend_download": "↓",
       "legend_upload": "↑",
-      "legend_ping": "ping"
+      "legend_ping": "ping",
+      "axis_mbps": "Mbps (down / up)",
+      "axis_ms": "ms (ping)",
+      "chart_aria": "Speedtest trend: download and upload in Mbps, ping in ms, over time"
     },
     "open_all_title": "Open every instance URL in a new tab",
     "open_all_aria": "Open all URLs for {name}",
