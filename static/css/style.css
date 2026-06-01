@@ -10415,6 +10415,26 @@ select.field-invalid {
   font-size: var(--fs-sm);
 }
 
+/* 2x1 (size-normal + short): shrink the stat type + tighten the grids so the
+   six values fit the short footprint, and drop the chart (no vertical room —
+   the trend lives only on the wide-tall 3x2 / 4x2 tiles). */
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-md,
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-sm {
+  font-size: var(--fs-xs);
+}
+
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-2xs {
+  font-size: var(--fs-3xs);
+}
+
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-statgrid {
+  gap: var(--s-1);
+}
+
 /* 1x2 (size-half + tall): the narrow column has no width for the trend chart
    — drop it (the stats already shrink above). The trend lives only on the
    wide-tall tiles (3x2 / 4x2). */
@@ -10533,6 +10553,17 @@ select.field-invalid {
 
 .apps-axchart-tick--end {
   text-anchor: end;
+}
+
+/* App-drawer per-app extras render as their OWN bordered card
+   (.apps-drawer-extras-box) BELOW the instance box — neutralise the partial's
+   built-in top divider (the speedtest panel's mt-3 / pt-3 / border-t) so the
+   card border is the only frame, not an hr stacked inside the instance box. */
+.apps-drawer-extras-box .apps-card-speedtest,
+.apps-drawer-extras-box .apps-card-ups {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 /* The card-settings back face is a CONTROLS panel (size radios, clock

@@ -105,30 +105,37 @@
         <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
           <div class="apps-speedtest-axchart space-y-1">
             <template x-for="cm in [speedtestChartModel(appsAppData(inst).series)]" :key="'axc'">
-              <div x-show="cm">
-                <svg :viewBox="cm ? ('0 0 ' + cm.w + ' ' + cm.h) : '0 0 320 132'"
+              <div>
+                <!-- Axes are rendered as EXPLICIT (non-x-for) SVG children: an
+                     Alpine x-for template nested inside an SVG element
+                     instantiates its clones in the HTML namespace, so the
+                     line / text it produces don't render as SVG shapes (the bug
+                     that made the axes vanish while the direct path data lines
+                     drew fine). The tick arrays are fixed-length (yTicks 3 /
+                     pTicks 2 / xTicks 2) so we index them directly. cm is
+                     guaranteed non-null here — the outer x-if gates on
+                     series.length >= 2. -->
+                <svg :viewBox="'0 0 ' + cm.w + ' ' + cm.h"
                      class="w-full apps-card-speedtest-axchart-svg" role="img"
                      :aria-label="t('apps.speedtest.chart_aria') || 'Speedtest trend: download and upload in Mbps, ping in ms, over time'">
-                  <template x-for="yt in (cm ? cm.yTicks : [])" :key="'y' + yt.label">
-                    <g>
-                      <line :x1="cm.axisX0" :y1="yt.y" :x2="cm.axisX1" :y2="yt.y" class="apps-axchart-grid"/>
-                      <text :x="cm.axisX0 - 3" :y="yt.y" text-anchor="end" dominant-baseline="middle"
-                            class="apps-axchart-tick" x-text="yt.label"></text>
-                    </g>
-                  </template>
-                  <template x-for="pt in (cm ? cm.pTicks : [])" :key="'p' + pt.label">
-                    <text :x="cm.axisX1 + 3" :y="pt.y" text-anchor="start" dominant-baseline="middle"
-                          class="apps-axchart-tick apps-axchart-tick--ping" x-text="pt.label"></text>
-                  </template>
+                  <!-- Mbps gridlines + left y-axis ticks (0 / half / max) -->
+                  <line :x1="cm.axisX0" :y1="cm.yTicks[0].y" :x2="cm.axisX1" :y2="cm.yTicks[0].y" class="apps-axchart-grid"/>
+                  <line :x1="cm.axisX0" :y1="cm.yTicks[1].y" :x2="cm.axisX1" :y2="cm.yTicks[1].y" class="apps-axchart-grid"/>
+                  <line :x1="cm.axisX0" :y1="cm.yTicks[2].y" :x2="cm.axisX1" :y2="cm.yTicks[2].y" class="apps-axchart-grid"/>
+                  <text :x="cm.axisX0 - 3" :y="cm.yTicks[0].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="cm.yTicks[0].label"></text>
+                  <text :x="cm.axisX0 - 3" :y="cm.yTicks[1].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="cm.yTicks[1].label"></text>
+                  <text :x="cm.axisX0 - 3" :y="cm.yTicks[2].y" text-anchor="end" dominant-baseline="middle" class="apps-axchart-tick" x-text="cm.yTicks[2].label"></text>
+                  <!-- ping right y-axis ticks (0 / max), ms -->
+                  <text :x="cm.axisX1 + 3" :y="cm.pTicks[0].y" text-anchor="start" dominant-baseline="middle" class="apps-axchart-tick apps-axchart-tick--ping" x-text="cm.pTicks[0].label"></text>
+                  <text :x="cm.axisX1 + 3" :y="cm.pTicks[1].y" text-anchor="start" dominant-baseline="middle" class="apps-axchart-tick apps-axchart-tick--ping" x-text="cm.pTicks[1].label"></text>
+                  <!-- x-axis baseline + first/last time labels -->
                   <line :x1="cm.axisX0" :y1="cm.axisY1" :x2="cm.axisX1" :y2="cm.axisY1" class="apps-axchart-axis"/>
-                  <template x-for="xt in (cm ? cm.xTicks : [])" :key="'x' + xt.x">
-                    <text :x="xt.x" :y="cm.h - 5"
-                          :class="'apps-axchart-tick apps-axchart-tick--' + (xt.anchor === 'end' ? 'end' : 'start')"
-                          x-text="xt.label"></text>
-                  </template>
-                  <path :d="cm ? cm.downPath : ''" fill="none" stroke="var(--success)" stroke-width="1.5"/>
-                  <path :d="cm ? cm.upPath : ''" fill="none" stroke="var(--info)" stroke-width="1.5"/>
-                  <path :d="cm ? cm.pingPath : ''" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
+                  <text :x="cm.xTicks[0].x" :y="cm.h - 4" class="apps-axchart-tick apps-axchart-tick--start" x-text="cm.xTicks[0].label"></text>
+                  <text :x="cm.xTicks[1].x" :y="cm.h - 4" class="apps-axchart-tick apps-axchart-tick--end" x-text="cm.xTicks[1].label"></text>
+                  <!-- data lines: download + upload (Mbps, left), ping (ms, right, dashed) -->
+                  <path :d="cm.downPath" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                  <path :d="cm.upPath" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="cm.pingPath" fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
                 </svg>
                 <div class="flex items-center justify-between fs-3xs text-[var(--text-faint)]">
                   <span x-text="t('apps.speedtest.axis_mbps') || 'Mbps (down / up)'"></span>
