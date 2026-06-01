@@ -47,8 +47,8 @@
   </div>
   <div class="flex-1 min-w-0">
     <header class="mb-3">
-      <div class="flex items-start justify-between gap-2">
-        <div class="flex-1 min-w-0">
+      <div class="flex items-start justify-between gap-2 apps-card-headrow">
+        <div class="flex-1 min-w-0 apps-card-titleblock">
           <!-- Title: a per-app module can opt into a widget-style accent
                eyebrow (dot + uppercase, like the weather / moon / pubip
                widget tiles) via `extender.eyebrowTitle`; the generic
@@ -93,7 +93,7 @@
              the requested equal-width cluster. Action pills are
              icon-only; the status pill carries the dot + label that
              sets the shared width. -->
-        <div class="flex flex-col items-stretch gap-1 flex-shrink-0">
+        <div class="flex flex-col items-stretch gap-1 flex-shrink-0 apps-card-pills">
           <!-- Settings (gear) pill — FIRST in the stack, above the
                status pill, per the operator's requested order
                (settings → status → refresh → open). Only renders in the
