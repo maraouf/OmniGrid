@@ -9617,81 +9617,120 @@ select.field-invalid {
   grid-column: span 2;
 }
 
-/* Vertical card layout (opt-in per app via extender.verticalLayout — APC),
-   applied ONLY on TALL tiles where there's vertical room to stack. The
-   generic card is a logo-left / content-right flex ROW; here we flip the
-   article to a flex COLUMN and `order` the three blocks so the data gets the
-   room: title row (1) on top, logo (2) centered + smaller below it, then the
-   body — host / ports / UPS extras — (3) filling the rest.
+/* Vertical card layout (opt-in per app via extender.verticalLayout — APC).
+   The generic card is a logo-left / content-right flex ROW; here we flip the
+   article to a flex COLUMN and lay the blocks out in the requested visual
+   order: TITLE (centered eyebrow) on top → LOGO (smaller, centered) below it
+   → BODY (host / ports / UPS extras) filling the rest. The action/status
+   pills are lifted OUT of flow (absolute, top-end corner) so they can never
+   crowd or overlap the centered title.
 
-   CRITICAL selector note: `apps-card--height-tall` / `apps-card--size-half`
-   live on the `.apps-custom-cell` PARENT, while `apps-card--vertical` lives
-   on the `.apps-card` ARTICLE child. Earlier rounds wrote
-   `.apps-card.apps-card--vertical.apps-card--height-tall` (all three on ONE
-   element) which matched NOTHING — so the layout never changed. These rules
-   use a DESCENDANT combinator (cell-class ancestor → article-class
-   descendant) so they actually apply.
+   CRITICAL selector note: the layout is driven off `.apps-card--vertical`
+   ALONE — a class that lives ON the `.apps-card` article itself. Earlier
+   rounds scoped these rules under a `.apps-card--height-tall` ANCESTOR (a
+   class on the `.apps-custom-cell` parent), so they only matched tall
+   custom-dashboard tiles and never the by-app grid or short tiles — which is
+   why the card stayed horizontal everywhere. Binding to the article's own
+   class makes the vertical layout apply wherever APC renders, any size.
 
    WHY flex-column (not grid): the article already has Tailwind's `flex`
-   (display:flex). `flex-direction: column` has no competing utility on the
-   element; `align-items: stretch` at (0,2,0) beats Tailwind's `items-start`
-   (0,1,0). `.flex-1` is display:contents so its <header> + body-region hoist
-   up to become flex items alongside the logo, which `order` then sequences.
-
-   SHORT tiles (1x1..4x1) keep the generic horizontal layout — a vertical
-   stack would waste their wide-but-short geometry. */
-.apps-card--height-tall .apps-card--vertical {
+   (display:flex). `flex-direction: column` has no competing utility; the
+   `.apps-card.apps-card--vertical` prefix is (0,2,0) so `align-items: stretch`
+   beats Tailwind's `items-start` (0,1,0). `.flex-1` is display:contents so its
+   <header> + body-region hoist up to become flex items alongside the logo,
+   which `order` then sequences. */
+.apps-card.apps-card--vertical {
   flex-direction: column;
   align-items: stretch;
   gap: var(--s-2);
+  position: relative;
+  text-align: center;
 }
 
-.apps-card--height-tall .apps-card--vertical > .flex-1 {
+.apps-card.apps-card--vertical > .flex-1 {
   display: contents;
 }
 
-.apps-card--height-tall .apps-card--vertical > .flex-1 > header {
+/* Title row (order 1). The generic header is a justify-between flex with the
+   title-block + the pill cluster; in vertical mode we drop it to a block so
+   the title-block spans full width, and center the eyebrow over the logo. The
+   pills are pulled out of this row (absolute, below) so the title centers
+   cleanly with nothing to push against. */
+.apps-card.apps-card--vertical > .flex-1 > header {
   order: 1;
   margin-bottom: 0;
+  width: 100%;
 }
 
-.apps-card--height-tall .apps-card--vertical > .apps-card-logo {
+.apps-card.apps-card--vertical .apps-card-headrow {
+  display: block;
+}
+
+.apps-card.apps-card--vertical .apps-card-titleblock {
+  text-align: center;
+}
+
+.apps-card.apps-card--vertical .apps-card-name--eyebrow,
+.apps-card.apps-card--vertical .apps-card-meta {
+  justify-content: center;
+}
+
+/* Pills lifted out of flow into the top-end corner — never overlaps the
+   centered title. inset-inline-end keeps it RTL-correct. */
+.apps-card.apps-card--vertical .apps-card-pills {
+  position: absolute;
+  top: var(--s-2);
+  inset-inline-end: var(--s-2);
+  z-index: 2;
+}
+
+.apps-card.apps-card--vertical > .apps-card-logo {
   order: 2;
   margin-inline: auto;
   width: 52px;
   height: 52px;
 }
 
-.apps-card--height-tall .apps-card--vertical > .apps-card-logo img {
+.apps-card.apps-card--vertical > .apps-card-logo img {
   width: 40px;
   height: 40px;
 }
 
-.apps-card--height-tall .apps-card--vertical > .flex-1 > .apps-card-body-region {
+/* Body (order 3) grows to fill the remaining height so the UPS extras spread
+   into the empty space below the ports rather than hugging the logo. */
+.apps-card.apps-card--vertical > .flex-1 > .apps-card-body-region {
   order: 3;
+  flex: 1 1 auto;
+  width: 100%;
 }
 
-/* Ports fill the width under the logo; UPS extras pack tighter (88px min vs
-   110px) so more stats fit per row in the stacked column — maximise the data
-   shown in the given space. */
-.apps-card--height-tall .apps-card--vertical .apps-port-grid {
-  justify-content: flex-start;
+/* Ports centered under the logo; UPS extras pack tighter (88px min vs 110px)
+   so more stats fit per row in the stacked column. */
+.apps-card.apps-card--vertical .apps-port-grid {
+  justify-content: center;
+  padding-inline-start: 0;
 }
 
-.apps-card--height-tall .apps-card--vertical .apps-card-ups-grid {
+.apps-card.apps-card--vertical .apps-card-ups-grid {
   grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
 }
 
+/* Instance rows go full-width + centered in the vertical column (the generic
+   layout left-aligns them beside the logo). */
+.apps-card.apps-card--vertical .apps-card-instance-row {
+  justify-content: center;
+}
+
 /* Smaller logo on the compact half-width tiles (1x1 short + 1x2 tall) — the
-   logo was eating those tiles. Placed AFTER the height-tall logo rule so it
-   wins the (0,2,0) tie for 1x2. Same cell-ancestor / article-descendant
-   pattern as above (size-half is on the cell). */
-.apps-card--size-half .apps-card--vertical > .apps-card-logo {
+   logo was eating those tiles. size-half is on the cell PARENT, vertical on
+   the article, so this stays a descendant combinator. Placed AFTER the base
+   logo rule so it wins the size tie. */
+.apps-card--size-half .apps-card.apps-card--vertical > .apps-card-logo {
   width: 38px;
   height: 38px;
 }
 
-.apps-card--size-half .apps-card--vertical > .apps-card-logo img {
+.apps-card--size-half .apps-card.apps-card--vertical > .apps-card-logo img {
   width: 28px;
   height: 28px;
 }
