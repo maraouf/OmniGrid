@@ -9913,8 +9913,14 @@ select.field-invalid {
   display: none;
 }
 
+/* Downsize the two cells so the clean 2-row table sits comfortably in the
+   narrow short column. */
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-stat {
+  padding: 1px var(--s-1);
+}
+
 .apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
 }
 
 /* 3x1 (size-double + short): the card is wide enough to split the body into
@@ -9943,19 +9949,20 @@ select.field-invalid {
   display: none;
 }
 
-/* Denser extras table at 3x1 — smaller value type + tighter cell padding +
-   a finer auto-fit track so more stats fit per row without cropping. */
+/* Denser extras table at 3x1 — smaller value + label type + tighter cell
+   padding + a finer auto-fit track so the full stat set fits the tile without
+   cropping. */
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-grid {
-  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
   gap: 2px var(--s-1);
 }
 
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-stat {
-  padding: 2px var(--s-1);
+  padding: 1px var(--s-1);
 }
 
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
 }
 
 /* 4x1 (size-xlarge + short): the widest short tile. Hoist the host + ports OUT
@@ -10003,25 +10010,18 @@ select.field-invalid {
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
 }
 
-/* 4x2 (size-xlarge + tall): roomy tall tile — split the body so the per-app
-   extras sit to the RIGHT (instances 1fr | extras 1.4fr) and lay the UPS stats
-   as a compact DOUBLE-ROW table: a 3-column grid flows the five cells into two
-   rows (3 + 2), reading left-to-right. Higher specificity than the
-   @container ogcard 2-col rule, so it wins regardless of card width. */
+/* 4x2 (size-xlarge + tall): match the 3x2 (size-double + tall) style — a
+   SINGLE-COLUMN body so the ports sit on their own line, the sparkline + ms
+   relocate to a full-width line BELOW the ports (relocation block lower down,
+   xlarge+tall added there), and the per-app extras table spans the FULL width
+   below the ports. The card is wide, so the UPS grid auto-fits all five stats
+   across one row. 5-class specificity beats the @container ogcard 2-col rule. */
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-ready--has-extras {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: var(--s-2) var(--s-3);
-  align-items: start;
-}
-
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-extras-col {
-  margin-top: 0;
+  display: block;
 }
 
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-ups-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
 }
 
 /* ----------------------------------------------------------------
@@ -12754,16 +12754,19 @@ a.apps-drawer-tile-name {
   flex-shrink: 0;
 }
 
-/* 3x2 (size-double + height-tall): the user asked for the sparkline + ms to
+/* 3x2 (size-double + tall) AND 4x2 (size-xlarge + tall): the sparkline + ms
    move BELOW the ports, full-width, with the ms beside it. Show the below-ports
-   row and hide the inline copy ONLY at this size — every other size keeps its
-   inline sparkline untouched. Applies to every app card at 3x2. */
-.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-spark-row {
+   row and hide the inline copy at these sizes — every other size keeps its
+   inline sparkline untouched. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-spark-row,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-spark-row {
   display: flex;
 }
 
 .apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
-.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency {
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-instance-row .apps-spark-wrap,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-instance-row .apps-card-latency {
   display: none;
 }
 
