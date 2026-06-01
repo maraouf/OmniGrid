@@ -180,9 +180,12 @@ function speedtestChartModel(series) {
   if (!Array.isArray(series) || series.length < 2) {
     return null;
   }
-  // Wide + SHORT viewBox so the chart stretches to the tile width but stays
-  // low enough to fit the wide-tall tile without clipping the x-axis labels.
-  const W = 360, H = 96, padL = 40, padR = 34, padT = 8, padB = 18;
+  // Wide + SHORT viewBox. The SVG is rendered with preserveAspectRatio="none"
+  // + a fixed CSS height equal to H, so it ALWAYS fills the tile width and is
+  // exactly H px tall (no letterbox gap, no auto-height ambiguity). W is set
+  // near a typical wide-tile width so the horizontal stretch stays ~1.0; the
+  // data-line strokes use vector-effect="non-scaling-stroke" to stay crisp.
+  const W = 460, H = 92, padL = 42, padR = 36, padT = 8, padB = 16;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const dl = series.map(function (p) { return Number(p && p.download) || 0; });
