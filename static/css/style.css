@@ -9617,120 +9617,144 @@ select.field-invalid {
   grid-column: span 2;
 }
 
-/* APC card layout. The `apps-card--vertical` class is the APC marker only --
-   the name is legacy; APC does NOT use a centered flex-column stack (that was
-   rejected at every size). The card keeps the generic LOGO-LEFT, LEFT-ALIGNED
-   layout: logo on the left, eyebrow title + grey meta label + body to its
-   right, status / action pills in the generic top-right cluster. The per-size
-   rules below adapt only CONTENT (what shows + how the extras / label pack) --
-   never the logo / title alignment. Size + height presets (size-half / normal
-   / double / xlarge x height-short / tall) live on the `.apps-custom-cell`
-   PARENT, so size-specific rules reach the article via a descendant combinator
-   down to `.apps-card--vertical`. */
+/* ============================================================
+   UNIVERSAL app-card layout. Every app card now carries the
+   .apps-card--vertical marker (appsCardVerticalLayout() returns true for all
+   apps; widgets are a separate `apps-widget-*` surface and unaffected -- a
+   per-app opt-out can branch in that helper when apps are reviewed one by one).
+   ONE grid at every size:
+     - TITLE on TOP of the LOGO in a left column (title row 1, logo row 2).
+     - the grey DESCRIPTION to their RIGHT, wrapping then clamping (hidden on
+       the half-width tiles that have no room for it).
+     - the status / action PILLS in a right column.
+     - the BODY (host / ports / UPS extras) spanning the full width BELOW, every
+       part starting at the card's LEFT edge, ports line then extras line.
+   The article already has Tailwind `flex`; `.apps-card.apps-card--vertical` is
+   (0,2,0) so `display: grid` wins. The .flex-1 / header / headrow / titleblock
+   wrappers are display:contents so their leaf nodes (title h3, meta, pills,
+   body-region) + the top-level logo all promote to GRID ITEMS the
+   grid-template-areas then place. Per-size overrides follow. */
+.apps-card.apps-card--vertical {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title desc  pills"
+    "logo  desc  pills"
+    "body  body  body";
+  align-items: start;
+  align-content: start;
+  column-gap: var(--s-2);
+  row-gap: 2px;
+  position: relative;
+}
 
-/* No scrollbars on APC cards at any size -- content clips instead of scrolling
-   (the (0,5,0) selector beats the short-card body-region `overflow-y: auto`
-   declared later in the file). */
+.apps-card.apps-card--vertical > .flex-1,
+.apps-card.apps-card--vertical > .flex-1 > header,
+.apps-card.apps-card--vertical .apps-card-headrow,
+.apps-card.apps-card--vertical .apps-card-titleblock {
+  display: contents;
+}
+
+.apps-card.apps-card--vertical .apps-card-name {
+  grid-area: title;
+  margin: 0;
+}
+
+.apps-card.apps-card--vertical > .apps-card-logo {
+  grid-area: logo;
+  margin: 0;
+  width: 44px;
+  height: 44px;
+}
+
+.apps-card.apps-card--vertical > .apps-card-logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.apps-card.apps-card--vertical .apps-card-meta {
+  grid-area: desc;
+  align-self: start;
+  margin: 0;
+}
+
+/* The grey description wraps then clamps to a few lines (it carries Tailwind
+   `truncate` = nowrap by default). */
+.apps-card.apps-card--vertical .apps-card-meta .truncate {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.apps-card.apps-card--vertical .apps-card-pills {
+  grid-area: pills;
+}
+
+.apps-card.apps-card--vertical .apps-card-body-region {
+  grid-area: body;
+  width: 100%;
+}
+
+/* The rare probe-all aria-live summary (the lone <span> child of <header>)
+   spans the full width on its own row. */
+.apps-card.apps-card--vertical > .flex-1 > header > span {
+  grid-column: 1 / -1;
+}
+
+/* Body content -- the host row, ports + their green status dots, and the UPS
+   extras table -- all start at the card's LEFT edge (drop the generic ps-4
+   indent + any centring) and stack single-column (ports line, then extras line
+   under it; this is the 4x2 "ports on a line, extras on a line under" shape,
+   and it reads cleanly at every other size too). */
+.apps-card.apps-card--vertical .apps-card-ready--has-extras {
+  display: block;
+}
+
+.apps-card.apps-card--vertical .apps-port-grid,
+.apps-card.apps-card--vertical .apps-card-extras-col,
+.apps-card.apps-card--vertical .apps-card-instance-row {
+  justify-content: flex-start;
+}
+
+.apps-card.apps-card--vertical .apps-port-grid,
+.apps-card.apps-card--vertical .ps-4 {
+  padding-inline-start: 0;
+}
+
+/* No scrollbars on APC cards at any size -- content clips, never scrolls
+   (beats the short-card body-region overflow-y:auto declared later). */
 .apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card--vertical .apps-card-body-region,
 .apps-custom-cell.apps-card--height-tall:not(.apps-card--editing) .apps-card--vertical .apps-card-body-region {
   overflow: hidden;
 }
 
-/* Modest logo shrink on the half-width tiles (1x1 / 1x2) so the logo doesn't
-   eat the narrow tile. Stays LEFT-aligned (the generic logo slot is already on
-   the left); only the size changes. */
-.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-card--vertical .apps-card-logo {
-  width: 44px;
-  height: 44px;
+/* HALF-WIDTH tiles (1x1 / 1x2): no horizontal room for the description column,
+   so drop to a 2-col grid (title+logo | pills) and hide the grey description.
+   Ports + extras still start at the left edge (body spans both columns). */
+.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title pills"
+    "logo  pills"
+    "body  body";
 }
 
-.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-card--vertical .apps-card-logo img {
-  width: 32px;
-  height: 32px;
-}
-
-/* 1x1 (half + short): only room for the ports -- hide the UPS extras AND the
-   per-instance sparkline so the single port row reads cleanly. */
-.apps-custom-cell.apps-card--size-half.apps-card--height-short:not(.apps-card--editing) .apps-card--vertical .apps-card-extras-col,
-.apps-custom-cell.apps-card--size-half.apps-card--height-short:not(.apps-card--editing) .apps-card--vertical .apps-spark-wrap {
+.apps-custom-cell.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta {
   display: none;
 }
 
-/* 1x2 (half + tall): narrow but tall -- the auto-fit wide UPS grid can't fit,
-   so force a 2-column table so all five stats sit two-per-row. */
+/* 1x2 (half + tall): pack the UPS extras 2-per-row to fit the narrow tile
+   (still left-aligned with the ports). */
 .apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-card--vertical .apps-card-ups-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-/* 2x2 / 3x2 / 4x2 (non-half + tall): wide enough to sit the grey meta label to
-   the RIGHT of the eyebrow title instead of stacked below it. */
-.apps-custom-cell.apps-card--height-tall:not(.apps-card--size-half, .apps-card--editing) .apps-card--vertical .apps-card-titleblock {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 2px var(--s-2);
-}
-
-/* 1x1 (half + short) and 2x1 (normal + short): too narrow for a logo-left
-   header, so STACK the card LEFT-ALIGNED -- title row on TOP, logo below it
-   (left, not centered), then the body (host / ports) starting from the LEFT
-   edge of the card. The .flex-1 content wrapper is display:contents so its
-   <header> + body-region hoist up to become flex items of the article
-   alongside the logo; `order` sequences them title(1) / logo(2) / body(3). */
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--s-1);
-}
-
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 {
-  display: contents;
-}
-
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > header,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > header {
-  order: 1;
-  width: 100%;
-  margin-bottom: 0;
-}
-
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo {
-  order: 2;
-  margin-inline: 0;
-  width: 44px;
-  height: 44px;
-}
-
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo img,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo img {
-  width: 32px;
-  height: 32px;
-}
-
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > .apps-card-body-region,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > .apps-card-body-region {
-  order: 3;
-  width: 100%;
-}
-
-/* Ports + their green status dots start from the LEFT edge below the logo
-   (drop the generic ps-4 indent + the centred justify). */
-.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-port-grid,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-port-grid {
-  justify-content: flex-start;
-  padding-inline-start: 0;
-}
-
-/* 2x1: the grey description label WRAPS to show in full instead of truncating
-   to one line (it has Tailwind `truncate` by default). */
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta,
-.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta .truncate {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+/* 1x1 (half + short): only the ports -- hide the UPS extras AND the sparkline. */
+.apps-custom-cell.apps-card--size-half.apps-card--height-short:not(.apps-card--editing) .apps-card--vertical .apps-card-extras-col,
+.apps-custom-cell.apps-card--size-half.apps-card--height-short:not(.apps-card--editing) .apps-card--vertical .apps-spark-wrap {
+  display: none;
 }
 
 /* Per-card size classes for the Apps Custom dashboard — three
