@@ -180,7 +180,9 @@ function speedtestChartModel(series) {
   if (!Array.isArray(series) || series.length < 2) {
     return null;
   }
-  const W = 320, H = 132, padL = 40, padR = 34, padT = 8, padB = 20;
+  // Wide + SHORT viewBox so the chart stretches to the tile width but stays
+  // low enough to fit the wide-tall tile without clipping the x-axis labels.
+  const W = 360, H = 96, padL = 40, padR = 34, padT = 8, padB = 18;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const dl = series.map(function (p) { return Number(p && p.download) || 0; });

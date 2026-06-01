@@ -9964,8 +9964,8 @@
             <!-- Header -->
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1 flex items-start gap-2">
-                <img :src="iconUrlFor(drawerApp.icon || drawerApp.name)" alt="" width="32" height="32"
-                     class="rounded mt-0.5" @error="$event.target.style.visibility='hidden'">
+                <img :src="iconUrlFor(drawerApp.icon || drawerApp.name)" alt=""
+                     class="drawer-item-icon" @error="$event.target.style.display='none'">
                 <div class="min-w-0">
                   <h2 class="fs-display-sm font-semibold break-all" x-text="drawerApp.name"></h2>
                   <div class="flex items-center gap-1.5 flex-wrap mt-1">
@@ -10004,6 +10004,7 @@
                    x-text="t('apps.drawer.instances') || 'Instances'"></div>
               <div class="space-y-2">
                 <template x-for="inst in (drawerApp.instances || [])" :key="inst.host_id + ':' + inst.service_idx">
+                  <div class="space-y-2">
                   <div class="rounded-md border border-[var(--border)] p-3">
                     <div class="flex items-center gap-2">
                       <span class="apps-card-dot" :class="'apps-card-dot--' + inst.status" aria-hidden="true"></span>
@@ -10166,21 +10167,22 @@
                         </template>
                       </div>
                     </template>
-                    <!-- Per-app extras box (APC UPS stats / Speedtest data / …) —
-                         renders when the app has a per-app extras module AND
-                         extras are enabled for this instance. `app` is bound to
-                         drawerApp via a single-element x-for so the per-app
-                         partials (which gate on `app` + `inst` via
-                         anyAppExtrasMatch / appsShowExtras) resolve in the drawer
-                         scope too; each partial's own border-t wrapper is the box.
-                         Same gating + data path the app CARD uses. -->
-                    <template x-for="app in [drawerApp]" :key="'extras:' + inst.host_id + ':' + inst.service_idx">
-                      <template x-if="anyAppExtrasMatch(app)">
-                        <div>
-                          <!-- INCLUDE: _components/apps/_all_extras.html -->
-                        </div>
-                      </template>
+                  </div>
+                  <!-- Per-app extras as a SEPARATE boxed card BELOW the instance
+                       box (not an hr divider under the action buttons). `app` is
+                       bound to drawerApp via a single-element x-for so the per-app
+                       partials (which gate on `app` + `inst` via anyAppExtrasMatch
+                       / appsShowExtras) resolve in the drawer scope;
+                       .apps-drawer-extras-box neutralises the partial's own top
+                       divider (mt-3 / pt-3 / border-t) so the card border is the
+                       only frame. Same gating + data path the app CARD uses. -->
+                  <template x-for="app in [drawerApp]" :key="'extras:' + inst.host_id + ':' + inst.service_idx">
+                    <template x-if="anyAppExtrasMatch(app)">
+                      <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box">
+                        <!-- INCLUDE: _components/apps/_all_extras.html -->
+                      </div>
                     </template>
+                  </template>
                   </div>
                 </template>
               </div>
