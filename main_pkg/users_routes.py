@@ -1847,6 +1847,46 @@ async def serve_app_js_module(name: str = FastApiPath(...)):
 app.add_api_route("/js/{name}", serve_app_js_module, methods=["GET"])
 
 
+async def serve_app_js_apps_module(name: str = FastApiPath(...)):
+    """Serve a per-app SPA module (`static/js/apps/*.js`) with
+    `__APP_VERSION__` substitution + no-cache revalidation.
+
+    Why this exists separate from `serve_app_js_module`: the per-app
+    modules live in the `apps/` SUBDIRECTORY, so `/js/{name}` (single
+    path segment) never matches `/js/apps/<file>` — those requests fell
+    through to raw StaticFiles, which does NOT substitute. The result:
+    `apps/_registry.js`'s `import './apc.js?v=__APP_VERSION__'` shipped
+    the LITERAL token, the browser cached `apc.js?v=__APP_VERSION__` once
+    under that constant URL, and EVERY subsequent edit to a per-app module
+    (apc.js / speedtest_tracker.js / _registry.js) was invisible to the
+    client — frozen in cache forever. Substituting here means each deploy's
+    version bump rewrites the import URLs, busting the cache the same way
+    the top-level `app-*.js` modules already do. Path-traversal guarded;
+    `.js` only.
+    """
+    js_apps_dir = os.path.join("static", "js", "apps")
+    file_path = os.path.realpath(os.path.join(js_apps_dir, name))
+    js_apps_root = os.path.realpath(js_apps_dir)
+    if file_path != js_apps_root and not file_path.startswith(js_apps_root + os.sep):
+        raise HTTPException(404, "Not found")
+    if not name.endswith(".js") or not os.path.isfile(file_path):
+        raise HTTPException(404, "Not found")
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            body = f.read()
+    except OSError:
+        raise HTTPException(404, "Not found")
+    body = body.replace("__APP_VERSION__", read_version())
+    return Response(
+        content=body,
+        media_type="application/javascript; charset=utf-8",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
+app.add_api_route("/js/apps/{name}", serve_app_js_apps_module, methods=["GET"])
+
+
 # noinspection DuplicatedCode
 def __getattr__(name):
     """Module-level resolver for cross-module underscore-prefixed leaks.
