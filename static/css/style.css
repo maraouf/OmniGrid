@@ -9671,6 +9671,68 @@ select.field-invalid {
   gap: 2px var(--s-2);
 }
 
+/* 1x1 (half + short) and 2x1 (normal + short): too narrow for a logo-left
+   header, so STACK the card LEFT-ALIGNED -- title row on TOP, logo below it
+   (left, not centered), then the body (host / ports) starting from the LEFT
+   edge of the card. The .flex-1 content wrapper is display:contents so its
+   <header> + body-region hoist up to become flex items of the article
+   alongside the logo; `order` sequences them title(1) / logo(2) / body(3). */
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+}
+
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 {
+  display: contents;
+}
+
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > header,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > header {
+  order: 1;
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo {
+  order: 2;
+  margin-inline: 0;
+  width: 44px;
+  height: 44px;
+}
+
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo img,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .apps-card-logo img {
+  width: 32px;
+  height: 32px;
+}
+
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > .apps-card-body-region,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical > .flex-1 > .apps-card-body-region {
+  order: 3;
+  width: 100%;
+}
+
+/* Ports + their green status dots start from the LEFT edge below the logo
+   (drop the generic ps-4 indent + the centred justify). */
+.apps-custom-cell.apps-card--height-short.apps-card--size-half:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-port-grid,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-port-grid {
+  justify-content: flex-start;
+  padding-inline-start: 0;
+}
+
+/* 2x1: the grey description label WRAPS to show in full instead of truncating
+   to one line (it has Tailwind `truncate` by default). */
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta,
+.apps-custom-cell.apps-card--height-short.apps-card--size-normal:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta .truncate {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 /* Per-card size classes for the Apps Custom dashboard — three
    templates (half / normal / double) drive grid-column-span +
    body-density rules. Operator picks the size via the per-card
