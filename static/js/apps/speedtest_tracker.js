@@ -70,9 +70,10 @@ function _isFiniteNumber(value) {
   return isFinite(value);
 }
 
-// Format download / upload as Mbps / Gbps / Kbps depending on
-// magnitude. The upstream returns Mbps directly so the conversion
-// is straight: n >= 1000 -> Gbps, n >= 1 -> Mbps, else Kbps.
+// Format download / upload. The backend normalises every Speedtest Tracker
+// schema to Mbps (flat Kbps / 1000, nested Ookla bytes/s * 8 / 1e6), so the
+// value here is ALREADY Mbps. Always render Mbps with thousand separators
+// (never Gbps) per the operator's request, up to 2 decimals.
 function fmtBits(v) {
   if (v == null) {
     return '—';
@@ -81,13 +82,7 @@ function fmtBits(v) {
   if (!isFinite(n) || n < 0) {
     return '—';
   }
-  if (n >= 1000) {
-    return (n / 1000).toFixed(2) + ' Gbps';
-  }
-  if (n >= 1) {
-    return n.toFixed(1) + ' Mbps';
-  }
-  return (n * 1000).toFixed(0) + ' Kbps';
+  return n.toLocaleString(undefined, {maximumFractionDigits: 2}) + ' Mbps';
 }
 
 // Format ping ms -- operator-readable, 1 decimal under 100ms,

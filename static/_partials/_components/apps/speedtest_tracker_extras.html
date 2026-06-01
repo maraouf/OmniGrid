@@ -65,18 +65,11 @@
         </div>
         <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
           <div class="space-y-1 apps-speedtest-trend">
-            <div class="flex items-center justify-between">
-              <span class="fs-2xs text-[var(--text-faint)]"
-                    x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
-              <button type="button"
-                      class="btn btn-ghost fs-2xs"
-                      @click="loadAppData(inst, true)"
-                      :title="t('actions.reload') || 'Reload'">
-                <svg width="11" height="11" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
-                </svg>
-              </button>
-            </div>
+            <!-- No per-chart reload button — the card header already carries a
+                 refresh pill, so a second reload affordance here is redundant
+                 (operator-flagged). -->
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
             <svg viewBox="0 0 200 32" preserveAspectRatio="none"
                  class="w-full h-8 apps-card-speedtest-chart">
               <path :d="speedtestSparkPath(appsAppData(inst).series, 'download')"
