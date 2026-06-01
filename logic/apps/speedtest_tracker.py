@@ -185,52 +185,59 @@ async def fetch_data(host_row: dict, chip: dict, *,
         body = r.json()
     except (ValueError, TypeError):  # noqa: BLE001
         raise RuntimeError("upstream returned non-JSON")
-    # Speedtest Tracker `/api/v1/results` response shape varies by
-    # version. Newest builds nest the metrics under a per-row `data`
-    # object using Ookla's schema:
+    # Speedtest Tracker `/api/v1/results` response shape varies by version.
+    # Modern builds nest the metrics under a per-row `data` object carrying
+    # Ookla's raw result schema:
     #   {"data": [{"id", "service", "server_name", "created_at",
     #              "data": {"download": {"bandwidth": <bytes/s>},
     #                       "upload":   {"bandwidth": <bytes/s>},
     #                       "ping":     {"latency": <ms>}}}, ...]}
     # Older builds expose flat `download` / `upload` / `ping` straight on the
-    # row. The flat download/upload fields are in Kbps (operator-confirmed from
-    # the deployment — the rendered value read 1000× too large until divided),
-    # so `_metric()` normalises BOTH schemas to Mbps: flat Kbps ÷ 1000, nested
-    # Ookla bandwidth (bytes/s) × 8 ÷ 1e6. `ping` stays in ms in both schemas.
+    # row.
+    #
+    # UNITS — Ookla (and Speedtest Tracker's OWN UI) store bandwidth in BYTES
+    # per second and convert to Mbps via ×8÷1e6. BOTH the nested `bandwidth`
+    # AND the flat `download`/`upload` are bytes/s, so they normalise the same
+    # way. A previous build of this module divided the FLAT field by 1000
+    # (assuming Kbps); that read ~125× too large and produced the "23,153 Mbps"
+    # bug. The nested Ookla shape is the version-stable source of truth, so it
+    # is now tried FIRST; the flat field is the fallback and is treated as
+    # bytes/s too. `ping` is milliseconds in both schemas.
     rows = body.get("data") if isinstance(body, dict) else None
     if not isinstance(rows, list):
         rows = []
 
-    # download / upload are bandwidth metrics that get unit-normalised to Mbps;
-    # ping is a latency metric left in ms.
-    _BANDWIDTH_KEYS = ("download", "upload")
+    def _bytes_per_s_to_mbps(v: float) -> float:
+        # Ookla bandwidth is bytes/s; Mbps = bytes/s × 8 bits ÷ 1e6.
+        return float(v) * 8.0 / 1_000_000.0
 
     def _metric(row: dict, key: str) -> float:
-        # Flat number (older builds) wins when present + numeric. The flat
-        # bandwidth fields are Kbps → ÷1000 for Mbps; ping is already ms.
-        flat = row.get(key)
-        if isinstance(flat, (int, float)):
-            val = float(flat)
-            return val / 1000.0 if key in _BANDWIDTH_KEYS else val
-        # Nested Ookla shape under the row's own `data` object.
+        # 1) NESTED Ookla shape first — units are unambiguous here
+        #    (bandwidth bytes/s, ping latency ms).
         nested = row.get("data")
         if isinstance(nested, dict):
             sub = nested.get(key)
             if isinstance(sub, dict):
                 if key == "ping":
                     lat = sub.get("latency")
-                    return float(lat) if isinstance(lat, (int, float)) else 0.0
-                bw = sub.get("bandwidth")
-                if isinstance(bw, (int, float)):
-                    # bandwidth is bytes/s → Mbps (×8 bits, ÷1e6).
-                    return float(bw) * 8.0 / 1_000_000.0
-        # Flat string that parses (some builds stringify the metric).
+                    if isinstance(lat, (int, float)):
+                        return float(lat)
+                else:
+                    bw = sub.get("bandwidth")
+                    if isinstance(bw, (int, float)):
+                        return _bytes_per_s_to_mbps(bw)
+        # 2) FLAT fallback (older builds expose the metric on the row).
+        #    Coerce a stringified number too (some builds stringify).
+        flat = row.get(key)
         if isinstance(flat, str) and flat.strip():
             try:
-                val = float(flat)
+                flat = float(flat)
             except (TypeError, ValueError):
-                return 0.0
-            return val / 1000.0 if key in _BANDWIDTH_KEYS else val
+                flat = None
+        if isinstance(flat, (int, float)):
+            if key == "ping":
+                return float(flat)  # already ms
+            return _bytes_per_s_to_mbps(flat)  # bytes/s → Mbps
         return 0.0
 
     series: list[dict[str, Any]] = []
@@ -251,6 +258,20 @@ async def fetch_data(host_row: dict, chip: dict, *,
         })
     # Latest = first row (Speedtest Tracker returns newest-first).
     latest: Optional[dict[str, Any]] = series[0] if series else None
+    # Diagnostic: log the RAW upstream metrics of the newest row alongside
+    # the normalised Mbps / ms so a unit mismatch is visible in Admin -> Logs
+    # WITHOUT exposing the api_key. If the rendered Mbps ever looks off again
+    # this line shows exactly what the upstream sent (flat field + whether the
+    # nested Ookla `data` block was present) vs what we computed.
+    if rows and isinstance(rows[0], dict) and latest is not None:
+        _r0 = rows[0]
+        _has_nested = isinstance(_r0.get("data"), dict)
+        print(
+            f"[speedtest] INFO normalise host={host_id} nested={'yes' if _has_nested else 'no'} "
+            f"raw_download={_r0.get('download')} raw_upload={_r0.get('upload')} "
+            f"raw_ping={_r0.get('ping')} -> download_mbps={round(latest['download'], 2)} "
+            f"upload_mbps={round(latest['upload'], 2)} ping_ms={round(latest['ping'], 1)}"
+        )
     # Averages over the last 10 points — windowed so a single
     # anomalous spike doesn't dominate the badge.
     sample = series[:10]

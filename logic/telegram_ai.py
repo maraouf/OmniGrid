@@ -81,7 +81,7 @@ def _listener() -> Any:
 # AI in this phase — slash-commands are the only path that can
 # trigger side effects.
 _AI_DIRECTIVE_LINE = _re.compile(
-    r"^\s*(?:ACTION|ACTION_HOSTS|MEMORY|MEMORY-FORGET|CHART_KIND)\s*:.*$",
+    r"^\s*(?:ACTION(?:_HOSTS|_ITEM|_TAG|_DATA)?|MEMORY|MEMORY-FORGET|CHART_KIND|TOOL|TOOL_ARGS)\s*:.*$",
     flags=_re.IGNORECASE | _re.MULTILINE,
 )
 
@@ -946,6 +946,22 @@ async def _ai_reply(
           "the operator asks you to DO something (restart, pause, "
           "configure), tell them to use the matching slash command "
           "(/restart <target>, /cleanup, etc.) or the SPA. "
+          "**NO TOOL CALLING ON TELEGRAM.** Unlike the web app, this "
+          "Telegram surface does NOT execute TOOL: / TOOL_ARGS: "
+          "directives — there is no second round here, so NEVER emit "
+          "them, and NEVER promise to 'fetch', 'check the logs', 'run "
+          "diagnostics', or 'get back to you'. Answer in ONE reply "
+          "using ONLY the context already provided (hosts / items / "
+          "weather / recent history). Answer the SPECIFIC question the "
+          "operator asked — do NOT pad a focused question (e.g. 'what "
+          "is wrong with the plex service') with an unrelated full-fleet "
+          "summary; only give a fleet overview when they actually ask "
+          "for one. When a question genuinely needs live host inspection "
+          "that the context doesn't carry (systemd unit state, container "
+          "disk usage, journald logs), say so in one sentence and point "
+          "the operator to the SPA — open the host drawer for that host "
+          "and run the read-only SSH diagnostics there. Never pretend to "
+          "have run anything. "
           "**FORMATTING — Telegram HTML, NOT Markdown.** This bot "
           "sends every message with `parse_mode=HTML`. Use ONLY these "
           "tags for formatting: `<b>bold</b>` (NEVER `**bold**` or "
@@ -992,10 +1008,13 @@ async def _ai_reply(
           "redirect them to the SPA (where the action probably "
           "exists). **Render each slash command wrapped in `<code>...</code>` "
           "tags** when citing it in your reply — e.g. "
-          "`<code>/host &lt;target&gt;</code>` — so the angle-bracket "
-          "argument placeholders render as monospace literal text "
-          "inside Telegram's HTML formatter instead of being escaped "
-          "to literal `&lt;` / `&gt;` entities in prose. Render the "
+          "`<code>/host <target></code>` — and write any angle-bracket "
+          "argument placeholders RAW (`<target>`, NOT the pre-escaped "
+          "`&lt;target&gt;`). The bot's renderer escapes the inner text "
+          "of every `<code>` block EXACTLY ONCE, so a raw `<target>` "
+          "displays as monospace `<target>`; a pre-escaped "
+          "`&lt;target&gt;` would be double-escaped and show the literal "
+          "entities to the operator. Render the "
           "roster in your reply using the SAME groupings the /help "
           "command uses (📖 Getting started / 🖥️ Fleet / ⚙️ Operations "
           "/ 🔗 Account / ℹ️ Info & weather) when the user asks for "

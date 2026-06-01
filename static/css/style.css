@@ -10415,14 +10415,124 @@ select.field-invalid {
   font-size: var(--fs-sm);
 }
 
+/* 1x2 (size-half + tall): the narrow column has no width for the trend chart
+   — drop it (the stats already shrink above). The trend lives only on the
+   wide-tall tiles (3x2 / 4x2). */
+.apps-custom-cell.apps-card--size-half.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+/* 3x1 (size-double + short): the short height can't fit the stats AND the
+   chart — drop the chart + shrink the stat type so the six values read
+   cleanly within the short footprint. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-md,
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-sm {
+  font-size: var(--fs-xs);
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-2xs {
+  font-size: var(--fs-3xs);
+}
+
+/* 4x1 (size-xlarge + short): the widest short tile — lay ALL SIX values on ONE
+   line. The two stat grids (latest 3-up + average 3-up) flow side by side as a
+   flex row so the row reads d/u/p · d/u/p across; the chart is dropped (no
+   vertical room) and the type shrinks so all six fit. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-grid {
+  display: flex;
+  gap: var(--s-4);
+  align-items: start;
+}
+
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-speedtest-statgrid {
+  flex: 1 1 0;
+}
+
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-md,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card-speedtest .fs-sm {
+  font-size: var(--fs-xs);
+}
+
 /* 3x2 (size-double + tall) AND 4x2 (size-xlarge + tall): pull the speedtest
    section UP — the markup's mt-3 + pt-3 top divider pushed the trend chart
    past the fixed card height so it clipped. Tighter top margin / padding gives
-   the chart room to display in full. */
+   the chart room to display in full. These are the ONLY two sizes that show
+   the trend chart (with axes — see the .apps-speedtest-axchart block). */
 .apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest {
   margin-top: var(--s-1);
   padding-top: var(--s-1);
+}
+
+/* Axed trend chart (speedtestChartModel) — hidden by default; shown ONLY on
+   the wide-tall tiles (3x2 / 4x2) where there is room for axis labels. The
+   simple sparkline (.apps-speedtest-trend) is hidden at those two sizes so
+   exactly one chart renders. */
+.apps-speedtest-axchart {
+  display: none;
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-axchart,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-axchart {
+  display: block;
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-speedtest-trend {
+  display: none;
+}
+
+/* Span the full width when the extras reformat to 2 columns (@container). */
+.apps-speedtest-grid > .apps-speedtest-axchart {
+  grid-column: 1 / -1;
+}
+
+.apps-card-speedtest-axchart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Axis chrome — gridlines / axis baseline / tick text. Stroke + fill use theme
+   tokens; the small tick font-size is an SVG-COORDINATE value (scaled by the
+   viewBox), not a UI typography token, so a literal is correct here. */
+.apps-axchart-grid {
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.apps-axchart-axis {
+  stroke: var(--border-bright);
+  stroke-width: 0.75;
+}
+
+.apps-axchart-tick {
+  fill: var(--text-faint);
+  font-size: 7px;
+}
+
+.apps-axchart-tick--ping {
+  fill: var(--warning);
+}
+
+/* x-axis time-tick anchoring via CSS (not a dynamic :text-anchor SVG attr —
+   binding a non-literal value to that enum attribute trips the HTML
+   validator). First tick anchors start, last tick anchors end so the edge
+   labels stay inside the plot. */
+.apps-axchart-tick--start {
+  text-anchor: start;
+}
+
+.apps-axchart-tick--end {
+  text-anchor: end;
 }
 
 /* The card-settings back face is a CONTROLS panel (size radios, clock
