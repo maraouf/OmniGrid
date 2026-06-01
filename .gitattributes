@@ -1,3 +1,13 @@
+# Repo-wide line-ending policy. This Windows-authored repo expects CRLF in
+# every working tree; scripts/lint.py enforces it. Without an explicit rule
+# here the working-copy endings depend on each machine's `core.autocrlf`
+# (Windows `true` -> CRLF, macOS/Linux `input` -> LF), so the same commit
+# lints clean on one box and fails on another. `text=auto` keeps the repo
+# blobs normalized to LF (clean diffs); `eol=crlf` forces CRLF on checkout
+# on EVERY OS regardless of `core.autocrlf`. The more specific rules below
+# come AFTER this line so they override it (last match wins per path).
+* text=auto eol=crlf
+
 # Vendored minified bundles — keep byte-identical across OS checkouts so
 # SHA256 in static/vendor/VERSIONS.txt stays meaningful. Without these
 # rules Git would apply its CRLF-conversion heuristic on Windows, which

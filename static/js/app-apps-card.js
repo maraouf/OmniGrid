@@ -605,9 +605,13 @@ export default {
       if (opts.height === 'tall') {
         return true;
       }
-      // Narrow-short preset (half / normal width + short height): extras
-      // would clip the fixed footprint, so hide them — the operator
-      // explicitly omitted 1x1 / 2x1 from the show-list.
+      // normal + short (2x1): extras DO render, but the size-gated CSS
+      // hides the sparkline and caps the per-app stat grid to the first
+      // 2 cells so they fit the short footprint in the freed space.
+      if (opts.size === 'normal') {
+        return true;
+      }
+      // half + short (1x1): ports only — no room for any extras.
       return false;
     }
     // No preset in scope (by-app grid): a wide-span per-app module

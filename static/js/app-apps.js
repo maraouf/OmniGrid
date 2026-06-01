@@ -1693,9 +1693,13 @@ export default {
       if (opts.height === 'tall') {
         return true;
       }
-      // Narrow-short preset (half / normal width + short height): extras
-      // would clip the fixed footprint, so hide them — the operator
-      // explicitly omitted 1x1 / 2x1 from the show-list.
+      // normal + short (2x1): extras DO render, but the size-gated CSS
+      // hides the sparkline and caps the per-app stat grid to the first
+      // 2 cells so they fit the short footprint in the freed space.
+      if (opts.size === 'normal') {
+        return true;
+      }
+      // half + short (1x1): ports only — no room for any extras.
       return false;
     }
     // No preset in scope (by-app grid): a wide-span per-app module
@@ -2719,32 +2723,32 @@ export default {
     }
     this._hydrateAppsCustomLayout();
     const secs = this.appsCustomLayout.sections || [];
-    for (const s of secs) {
-      const i = (s.items || []).findIndex(it => it.uid === uid);
-      if (i < 0) {
-        continue;
-      }
-      const j = i + dir;
-      if (j < 0 || j >= s.items.length) {
-        return false;
-      }
-      const tmp = s.items[i];
-      s.items[i] = s.items[j];
-      s.items[j] = tmp;
-      this._persistAppsCustomLayout();
-      // Restore focus to the moved tile after Alpine re-renders the list.
-      this.$nextTick(() => {
-        try {
-          const el = document.querySelector('[data-apps-tile-uid="' + uid + '"]');
-          if (el && typeof el.focus === 'function') {
-            el.focus();
-          }
-        } catch (_e) { /* ignore */
-        }
-      });
-      return true;
+    // Resolve the owning section WITHOUT an explicit loop so the findIndex /
+    // $nextTick closures aren't declared inside a for-body (JSHint W083).
+    const s = secs.find(sec => (sec.items || []).some(it => it.uid === uid));
+    if (!s) {
+      return false;
     }
-    return false;
+    const i = s.items.findIndex(it => it.uid === uid);
+    const j = i + dir;
+    if (j < 0 || j >= s.items.length) {
+      return false;
+    }
+    const tmp = s.items[i];
+    s.items[i] = s.items[j];
+    s.items[j] = tmp;
+    this._persistAppsCustomLayout();
+    // Restore focus to the moved tile after Alpine re-renders the list.
+    this.$nextTick(() => {
+      try {
+        const el = document.querySelector('[data-apps-tile-uid="' + uid + '"]');
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+        }
+      } catch (_e) { /* ignore */
+      }
+    });
+    return true;
   },
 
   // Arrow-key handler for a focused edit-mode tile → appsItemMove. Bound on
@@ -3339,27 +3343,27 @@ export default {
   appsDuplicateAppItem(uid) {
     this._hydrateAppsCustomLayout();
     const secs = (this.appsCustomLayout && this.appsCustomLayout.sections) || [];
-    for (const s of secs) {
-      const items = s.items || [];
-      const idx = items.findIndex(it => it && it.uid === uid);
-      if (idx < 0) {
-        continue;
-      }
-      const src = items[idx];
-      if (!src || src.kind !== 'app') {
-        return;  // only app cards are duplicable
-      }
-      const copy = {
-        uid: this._newId('it-'),
-        kind: 'app',
-        ref: src.ref,
-        opts: {...(src.opts || {})},
-      };
-      items.splice(idx + 1, 0, copy);
-      _appsCustomBuildCache = null;
-      this._persistAppsCustomLayout();
+    // Find the owning section without an explicit loop so the findIndex
+    // closure isn't declared inside a for-body (JSHint W083).
+    const s = secs.find(sec => (sec.items || []).some(it => it && it.uid === uid));
+    if (!s) {
       return;
     }
+    const items = s.items || [];
+    const idx = items.findIndex(it => it && it.uid === uid);
+    const src = items[idx];
+    if (!src || src.kind !== 'app') {
+      return;  // only app cards are duplicable
+    }
+    const copy = {
+      uid: this._newId('it-'),
+      kind: 'app',
+      ref: src.ref,
+      opts: {...(src.opts || {})},
+    };
+    items.splice(idx + 1, 0, copy);
+    _appsCustomBuildCache = null;
+    this._persistAppsCustomLayout();
   },
   // Remove the app-card copy `uid`. Guarded: refuses to remove the MAIN
   // (first-in-document-order occurrence of the ref) — the main is removed
@@ -3369,17 +3373,12 @@ export default {
   appsRemoveAppItem(uid) {
     this._hydrateAppsCustomLayout();
     const secs = (this.appsCustomLayout && this.appsCustomLayout.sections) || [];
-    let target = null, targetSec = null, targetIdx = -1;
-    for (const s of secs) {
-      const idx = (s.items || []).findIndex(it => it && it.uid === uid);
-      if (idx >= 0) {
-        target = s.items[idx];
-        targetSec = s;
-        targetIdx = idx;
-        break;
-      }
-    }
-    if (!target || !targetSec || target.kind !== 'app') {
+    // Locate the owning section without an explicit loop so the findIndex
+    // closure isn't declared inside a for-body (JSHint W083).
+    const targetSec = secs.find(sec => (sec.items || []).some(it => it && it.uid === uid));
+    const targetIdx = targetSec ? targetSec.items.findIndex(it => it && it.uid === uid) : -1;
+    const target = targetSec ? targetSec.items[targetIdx] : null;
+    if (!target || target.kind !== 'app') {
       return;
     }
     // Main-guard: the FIRST occurrence of this ref in document order is

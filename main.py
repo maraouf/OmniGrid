@@ -1031,7 +1031,6 @@ metrics.register_events_collectors(
 
 from logic.schema import init_db  # noqa: E402,F401  (schema bootstrap extracted to logic/schema.py)
 
-
 # ============================================================================
 # Portainer client moved to logic/portainer.py. Local aliases keep the old
 # underscore-prefixed names as call-site shortcuts so the rest of this
@@ -1741,7 +1740,7 @@ from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
 # Adding a new cross-module bare reference: add the entry here OR add
 # an explicit late-import at the call site (same effect).
 #
-# Audit script: `tmp/audit_underscore_leaks.py` walks every function in
+# Audit script: walks every function in
 # main + main_pkg/* via AST + cross-references the resulting LOAD_GLOBAL
 # refs against each module's runtime __dict__ to surface every leak.
 # Re-run after refactors that move underscore helpers between modules.
