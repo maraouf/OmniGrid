@@ -241,6 +241,20 @@ export default {
     }
     closeList();
     let html = parts.join('').replace(/<br>$/, '');
+    // Inline-image rendering: a standalone image URL on its own line (e.g.
+    // the Speedtest result PNG the AI appends per the palette prompt) becomes
+    // a clickable <img> preview instead of a bare text URL. Runs on the
+    // already-escaped html, so the matched URL cannot contain a literal " <
+    // or > (those were escaped to entities) — no attribute breakout. The
+    // strict pattern (anchored https?:// + a known image extension, bounded
+    // to its own line) means only a real image URL is ever wrapped; the
+    // trailing line break is matched via lookahead so adjacent image lines
+    // both convert.
+    const AI_IMG_RE = /(^|<br>)\s*(https?:\/\/[^\s<>"']+\.(?:png|jpe?g|gif|webp|svg)(?:\?[^\s<>"']*)?)(?=\s*(?:<br>|$))/gi;
+    html = html.replace(AI_IMG_RE, (_m, pre, url) =>
+      pre
+      + '<a href="' + url + '" target="_blank" rel="noopener" class="ai-resp-img-link">'
+      + '<img src="' + url + '" alt="" loading="lazy" class="ai-resp-img"/></a>');
     // Substitute fenced-block placeholders back. Body is escaped here
     // (NOT in pass 1 — escaping pre-replace would corrupt the
     // placeholder regex match). The block element carries
