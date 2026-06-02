@@ -23,6 +23,7 @@ differences.
 """
 import json
 import os
+import re
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -199,6 +200,57 @@ def db_conn():
         conn.commit()
     finally:
         conn.close()
+
+
+# Conservative SQL identifier pattern for the chunked-prune helper. Table /
+# column names passed to `prune_rows_older_than` MUST be trusted literals
+# (never user input) — this is belt-and-braces so a future caller bug can't
+# smuggle an injection through the interpolated DELETE.
+_SQL_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def prune_rows_older_than(table: str, cutoff_ts: int, *,
+                          chunk: int = 4000, ts_col: str = "ts",
+                          max_iters: int = 100_000) -> int:
+    """Delete rows with ``<ts_col> < cutoff_ts`` in bounded CHUNKS, committing
+    after each chunk so a large retention prune never holds the single SQLite
+    writer lock for seconds.
+
+    A plain ``DELETE FROM t WHERE ts < ?`` is ONE transaction: under WAL the
+    writer lock is held for the whole delete, queueing every other writer
+    (samplers, per-request session writes, the tiny db_size prune) behind it —
+    which is exactly the cascade that surfaces as a storm of multi-hundred-ms
+    ``[slow_query]`` warnings (the db_size prune "taking 2s" is really 2s of
+    lock-WAIT behind a big sample-table delete, not 2s of work). Chunking +
+    per-chunk commit caps the contiguous lock-hold to one chunk's worth of
+    rows, letting queued writers interleave between chunks.
+
+    Uses ``DELETE ... WHERE rowid IN (SELECT rowid ... WHERE ts < ? LIMIT ?)``
+    so it works without SQLite's optional ``DELETE ... LIMIT`` compile flag;
+    the inner SELECT seeks the table's ``(ts)`` index. Returns the total rows
+    deleted. ``table`` / ``ts_col`` MUST be trusted literals (validated against
+    a conservative identifier pattern; never pass user input).
+    """
+    if not _SQL_IDENT_RE.fullmatch(table):
+        raise ValueError(f"prune_rows_older_than: unsafe table name {table!r}")
+    if not _SQL_IDENT_RE.fullmatch(ts_col):
+        raise ValueError(f"prune_rows_older_than: unsafe ts column {ts_col!r}")
+    chunk = max(1, int(chunk))
+    sql = (f"DELETE FROM {table} WHERE rowid IN "
+           f"(SELECT rowid FROM {table} WHERE {ts_col} < ? LIMIT ?)")
+    total = 0
+    with db_conn() as c:
+        for _ in range(max_iters):
+            cur = c.execute(sql, (cutoff_ts, chunk))
+            n = cur.rowcount or 0
+            # Commit each chunk so the writer lock is released between
+            # chunks (other writers can interleave); the next execute starts
+            # a fresh implicit transaction.
+            c.commit()
+            total += n
+            if n < chunk:
+                break
+    return total
 
 
 # Frames in the stack that are infrastructure (sqlite3 internals +
