@@ -385,8 +385,8 @@ def _check_slow_query(sql: str, t0: float) -> None:
                 _slow_query_streak.pop(oldest_sig, None)
             _slow_query_streak[sig] = {"streak": 1, "first_ts": now_mono}
             print(
-                f"[slow_query] warning: {elapsed_ms:.1f}ms "
-                f"(threshold {threshold}ms) site={site} sql={sql_short}"
+                f"[slow_query] warning: {elapsed_ms:,.1f}ms "
+                f"(threshold {threshold:,}ms) site={site} sql={sql_short}"
             )
         else:
             prev["streak"] += 1
@@ -399,8 +399,8 @@ def _check_slow_query(sql: str, t0: float) -> None:
                 age_s = int(now_mono - prev["first_ts"])
                 print(
                     f"[slow_query] warning: streak={streak} "
-                    f"first_hit {age_s}s ago, latest {elapsed_ms:.1f}ms "
-                    f"(threshold {threshold}ms) site={site} sql={sql_short}"
+                    f"first_hit {age_s}s ago, latest {elapsed_ms:,.1f}ms "
+                    f"(threshold {threshold:,}ms) site={site} sql={sql_short}"
                 )
     except (ImportError, KeyError, RuntimeError, TypeError,
             AttributeError, sqlite3.Error, OSError, ValueError):

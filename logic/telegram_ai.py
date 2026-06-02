@@ -1272,7 +1272,13 @@ async def _ai_reply(
             from logic.apps.registry import resolve_chip, run_app_skill
             host_row, chip, slug = (resolve_chip(sk_host, sk_idx)
                                     if (sk_host and sk_idx >= 0) else (None, None, ""))
+            print(f"[app_skill] INFO telegram skill request host={sk_host!r} "
+                  f"svc_idx={sk_idx} skill={sk_id!r} slug={slug!r} "
+                  f"chip_found={isinstance(chip, dict)} actor={omnigrid_username or 'telegram'}")
             if not (sk_host and sk_id and sk_idx >= 0 and isinstance(chip, dict) and slug):
+                print(f"[app_skill] warning: telegram skill skipped — unresolved app "
+                      f"instance (host={sk_host!r} svc_idx={sk_idx} skill={sk_id!r} "
+                      f"slug={slug!r} chip_found={isinstance(chip, dict)})")
                 action_outcome_line = ("\n\n⚠️ <i>Couldn't run that skill — missing or "
                                        "unknown app instance.</i>")
             else:
