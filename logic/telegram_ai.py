@@ -727,6 +727,18 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     except Exception as e:
         print(f"[telegram_listener] context tunables build failed: {e}")
         ctx["tunables"] = {}
+    # ---- App skills the AI may invoke (run_app_skill) -------------
+    # Every pinned app chip whose app declares SKILLS + (when required)
+    # has its api_key set — so the model only offers / runs runnable
+    # skills (e.g. Speedtest's run_speedtest) + can read each entry's
+    # `last` cached result for "show last speed test".
+    try:
+        from logic.apps.registry import available_app_skills_context
+        ctx["app_skills"] = available_app_skills_context()
+    # noinspection PyBroadException
+    except Exception as e:
+        print(f"[telegram_listener] context app_skills build failed: {e}")
+        ctx["app_skills"] = []
     return ctx
 
 
@@ -1239,6 +1251,44 @@ async def _ai_reply(
                     "\n\n⚠️ <i>send_notification action emitted without a "
                     "valid medium + body — nothing dispatched.</i>"
                 )
+        elif "run_app_skill" in actions and isinstance(action_data, dict):
+            # Per-app SKILL invocation from Telegram (e.g. Speedtest's
+            # run_speedtest). Resolve the chip server-side + dispatch via the
+            # registry; the operator's typed request IS the intent (same role
+            # the web inline-confirm chip plays). The api_key / skill-declared
+            # gate is re-enforced inside run_app_skill / the module.
+            sk_host = str(action_data.get("host_id") or "").strip()
+            sk_id = str(action_data.get("skill_id") or "").strip()
+            _raw_idx = action_data.get("service_idx")
+            try:
+                sk_idx = int(_raw_idx) if isinstance(_raw_idx, (int, str)) else -1
+            except (TypeError, ValueError):
+                sk_idx = -1
+            from logic.apps.registry import resolve_chip, run_app_skill
+            host_row, chip, slug = (resolve_chip(sk_host, sk_idx)
+                                    if (sk_host and sk_idx >= 0) else (None, None, ""))
+            if not (sk_host and sk_id and sk_idx >= 0 and isinstance(chip, dict) and slug):
+                action_outcome_line = ("\n\n⚠️ <i>Couldn't run that skill — missing or "
+                                       "unknown app instance.</i>")
+            else:
+                try:
+                    sk_result = await run_app_skill(slug, sk_id, host_row, chip,
+                                                    host_id=sk_host, service_idx=sk_idx)
+                except ValueError as _ve:
+                    sk_result = {"ok": False, "detail": str(_ve)}
+                if isinstance(sk_result, dict) and sk_result.get("ok"):
+                    _d = sk_result.get("detail")
+                    action_outcome_line = (
+                        f"\n\n✅ Ran <b>{_listener()._escape(sk_id)}</b> on "
+                        f"<code>{_listener()._escape(sk_host)}</code>"
+                        + (f" — {_listener()._escape(str(_d))}" if _d else "")
+                    )
+                else:
+                    _d = (sk_result or {}).get("detail") or "failed"
+                    action_outcome_line = (
+                        f"\n\n❌ Skill <b>{_listener()._escape(sk_id)}</b> failed: "
+                        f"<code>{_listener()._escape(str(_d))}</code>"
+                    )
     # noinspection PyBroadException
     except Exception as _act_err:  # noqa: BLE001
         print(f"[telegram_listener] ai action dispatch failed: {_act_err}")

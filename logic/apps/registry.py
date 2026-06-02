@@ -21,11 +21,10 @@ custom logic.
 from __future__ import annotations
 
 from types import ModuleType
-from typing import Optional
+from typing import Any, Optional
 
 from . import apc
 from . import speedtest_tracker
-
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
 # templates it handles; we explode that here so a single dict
@@ -64,3 +63,164 @@ def all_slugs() -> tuple[str, ...]:
     dispatch in JS. Currently consumed via ``/api/me``'s
     ``client_config`` block (future enhancement)."""
     return tuple(sorted(_APPS.keys()))
+
+
+# ---------------------------------------------------------------------------
+# App SKILLS — the extensible "AI skill" surface. A per-app module exposes a
+# ``SKILLS`` tuple of dicts ``{id, name, ai_phrases?, destructive?}`` and an
+# ``async run_skill(skill_id, host_row, chip, *, host_id, service_idx) -> dict``
+# coroutine. Each skill is BOTH an app-drawer button AND an AI / Telegram-AI
+# action the model can invoke — but ONLY when the app's extras are enabled and
+# its api_key is set (the route + the prompt-injection layer enforce that gate;
+# the registry just enumerates what a slug CAN do). This is the first of a
+# per-app skill pattern: enabling a new app with extra functionality adds its
+# skills here automatically via its module's SKILLS tuple — no registry edit.
+# ---------------------------------------------------------------------------
+def skills_for_slug(slug: str) -> tuple[dict, ...]:
+    """Return the validated ``SKILLS`` a per-app module declares for a slug,
+    or ``()`` when the module declares none / isn't registered. Each entry is
+    a dict carrying at least an ``id``."""
+    mod = module_for_slug(slug)
+    if mod is None:
+        return ()
+    skills = getattr(mod, "SKILLS", ())
+    return tuple(s for s in skills if isinstance(s, dict) and s.get("id"))
+
+
+def all_app_skills() -> dict[str, list[dict]]:
+    """Map every registered slug that declares skills to its skill list —
+    surfaced on ``/api/me``'s ``client_config.app_skills`` so the SPA (drawer
+    buttons) + the AI context (available-skill prompt injection) can enumerate
+    skills without re-implementing the per-module dispatch in JS."""
+    out: dict[str, list[dict]] = {}
+    for slug in _APPS:
+        skills = skills_for_slug(slug)
+        if skills:
+            out[slug] = [dict(s) for s in skills]
+    return out
+
+
+def resolve_chip(host_id: str, service_idx: int):
+    """Resolve ``(host_row, chip, slug)`` for a pinned app chip from
+    hosts_config — the server-side counterpart to the route's
+    ``_resolve_chip_app_module`` (no Request needed; used by the Telegram-AI
+    skill dispatch). Returns ``(None, None, "")`` when not found. Never raises.
+    """
+    # hosts_config blob / DB read must yield "not found", never propagate.
+    # defensive "never raises" boundary: a bad
+    # noinspection PyBroadException
+    try:
+        import json as _json  # noqa: PLC0415
+        from logic.db import get_setting  # noqa: PLC0415
+        from logic.settings_keys import Settings  # noqa: PLC0415
+        raw = get_setting(Settings.HOSTS_CONFIG) or ""
+        hosts = _json.loads(raw) if raw.strip() else []
+    except Exception:  # noqa: BLE001
+        return None, None, ""
+    if not isinstance(hosts, list):
+        return None, None, ""
+    hid = str(host_id or "").strip()
+    for h in hosts:
+        if isinstance(h, dict) and str(h.get("id") or "").strip() == hid:
+            svcs = h.get("services") or []
+            if (isinstance(svcs, list) and isinstance(service_idx, int)
+                and 0 <= service_idx < len(svcs) and isinstance(svcs[service_idx], dict)):
+                chip = svcs[service_idx]
+                _cat = chip.get("catalog")
+                cat = _cat if isinstance(_cat, dict) else {}
+                slug = str(chip.get("catalog_slug") or cat.get("slug") or "").strip().lower()
+                return h, chip, slug
+            return h, None, ""
+    return None, None, ""
+
+
+def available_app_skills_context() -> list:
+    """Build the AI / Telegram-AI ``app_skills`` context list: every pinned
+    app chip whose app declares SKILLS AND (when the app requires it) has its
+    api_key set. Each entry is
+    ``{host_id, host, service_idx, slug, app, skills:[{id,name}], last?}`` so
+    the model can ONLY invoke skills that are actually runnable. NO upstream
+    calls — ``last`` is a cache-only peek. Never raises (returns [] on any
+    failure so context assembly is safe)."""
+    out: list = []
+    # assembly must stay safe regardless of a bad hosts_config blob / DB error.
+    # Defensive "never raises" boundary: context
+    # noinspection PyBroadException
+    try:
+        import json as _json  # noqa: PLC0415
+        from logic.db import get_setting  # noqa: PLC0415
+        from logic.settings_keys import Settings  # noqa: PLC0415
+        raw = get_setting(Settings.HOSTS_CONFIG) or ""
+        hosts = _json.loads(raw) if raw.strip() else []
+    except Exception:  # noqa: BLE001
+        return out
+    if not isinstance(hosts, list):
+        return out
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        host_id = str(h.get("id") or "").strip()
+        host_label = str(h.get("label") or host_id)
+        services = h.get("services") or []
+        if not isinstance(services, list):
+            continue
+        for idx, chip in enumerate(services):
+            if not isinstance(chip, dict):
+                continue
+            _cat = chip.get("catalog")
+            cat = _cat if isinstance(_cat, dict) else {}
+            slug = str(chip.get("catalog_slug") or cat.get("slug") or "").strip().lower()
+            if not slug:
+                continue
+            skills = skills_for_slug(slug)
+            if not skills:
+                continue
+            mod = module_for_slug(slug)
+            _req = getattr(mod, "requires_api_key", None)
+            if callable(_req) and _req() and not str(chip.get("api_key") or "").strip():
+                continue  # gated: app needs an api_key and none is set
+            entry: dict[str, Any] = {
+                "host_id": host_id,
+                "host": host_label,
+                "service_idx": idx,
+                "slug": slug,
+                "app": str(chip.get("name") or cat.get("name") or slug),
+                "skills": [{"id": s.get("id"), "name": s.get("name")} for s in skills],
+            }
+            last = peek_skill_data(slug, host_id, idx)
+            if last:
+                entry["last"] = last
+            out.append(entry)
+    return out
+
+
+def peek_skill_data(slug: str, host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort, NO-upstream-call peek at a per-app module's latest cached
+    data for the AI context's ``app_skills[].last`` field. Returns ``None``
+    when the module has no ``peek_latest`` hook or nothing is cached. Never
+    raises (a peek failure must not break context assembly)."""
+    mod = module_for_slug(slug)
+    if mod is None or not hasattr(mod, "peek_latest"):
+        return None
+
+    # code; a peek failure must never break AI-context assembly.
+    # per-app peek_latest is arbitrary module
+    # noinspection PyBroadException
+    try:
+        return mod.peek_latest(host_id, service_idx)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def run_app_skill(slug: str, skill_id: str, host_row: dict, chip: dict,
+                        **kwargs) -> dict:
+    """Dispatch one skill to its per-app module's ``run_skill`` coroutine.
+    Raises ``ValueError`` when the slug has no module / no ``run_skill`` / an
+    unknown ``skill_id`` so the caller can map it to an HTTP 400 / 404."""
+    mod = module_for_slug(slug)
+    if mod is None or not hasattr(mod, "run_skill"):
+        raise ValueError(f"no skills for app slug: {slug!r}")
+    valid = {s.get("id") for s in skills_for_slug(slug)}
+    if skill_id not in valid:
+        raise ValueError(f"unknown skill {skill_id!r} for app {slug!r}")
+    return await mod.run_skill(skill_id, host_row, chip, **kwargs)

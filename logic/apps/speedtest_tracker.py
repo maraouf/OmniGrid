@@ -20,7 +20,7 @@ NOT ``speedtests``; the older ``/api/v1/speedtests`` path 404s on
 current builds, operator-flagged from the deploy at
 ``docker.home.lan:5050``):
     GET /api/v1/results/latest  — test-credential probe
-    GET /api/v1/results?perPage=30 — data fetch (latest + series + avg)
+    GET /api/v1/results?perPage=60 — data fetch (latest + series + avg)
 """
 from __future__ import annotations
 
@@ -34,6 +34,23 @@ import httpx
 # each slug to this module's exports; adding an alias slug here is
 # enough to wire a second template (e.g. a community fork).
 SLUGS: tuple[str, ...] = ("speedtest-tracker", "speedtest")
+
+
+# AI / drawer SKILLS this app exposes (see logic/apps/registry.py for the
+# framework). Each is rendered as an app-drawer button AND offered to the AI
+# (sidebar + Telegram) as an invokable action — but ONLY when the app's extras
+# are enabled AND its api_key is set (the skill route + the prompt-injection
+# layer enforce that gate). `ai_phrases` seeds the model's intent matching;
+# `destructive` is False because triggering a test is a safe, idempotent queue.
+SKILLS: tuple[dict, ...] = (
+    {
+        "id": "run_speedtest",
+        "name": "Run speed test",
+        "ai_phrases": ("run a speed test, run speedtest, test my internet speed, "
+                       "check connection speed, start a speedtest"),
+        "destructive": False,
+    },
+)
 
 
 # Bounded per-(host_id, service_idx) cache so repeat reads within
@@ -157,7 +174,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     print(f"[speedtest] INFO fetch host={host_id} svc_idx={service_idx} url={list_url}")
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0) as cli:
-            r = await cli.get(list_url, headers=headers, params={"perPage": 30})
+            r = await cli.get(list_url, headers=headers, params={"perPage": 60})
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[speedtest] error: fetch host={host_id} url={list_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -295,3 +312,79 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     _data_cache[ck] = (now, out)
     return out
+
+
+def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
+    """Return the LATEST cached speed-test result for a chip WITHOUT an
+    upstream fetch (reads ``_data_cache`` only) — so the AI context can show
+    "last result" cheaply without a per-query upstream round-trip. Returns a
+    small ``{download, upload, ping, ts}`` dict (Mbps / Mbps / ms) or ``None``
+    when nothing is cached yet (then the AI offers to run a fresh test)."""
+    cached = _data_cache.get(_cache_key(host_id, service_idx))
+    if not cached:
+        return None
+    latest = (cached[1] or {}).get("latest")
+    if not isinstance(latest, dict):
+        return None
+    return {
+        "download": round(float(latest.get("download") or 0), 2),
+        "upload": round(float(latest.get("upload") or 0), 2),
+        "ping": round(float(latest.get("ping") or 0), 1),
+        "ts": latest.get("ts") or "",
+    }
+
+
+async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
+                    host_id: Optional[str] = None,
+                    service_idx: Optional[int] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``
+    shaped for direct SPA / AI consumption. Raises ValueError on an unknown
+    skill id (the route maps that to HTTP 404)."""
+    if skill_id == "run_speedtest":
+        return await _trigger_speedtest(host_row, chip, host_id=host_id, service_idx=service_idx)
+    raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+async def _trigger_speedtest(host_row: dict, chip: dict, *,
+                             host_id: Optional[str] = None,
+                             service_idx: Optional[int] = None) -> dict:
+    """Trigger an on-demand speed test on the Speedtest Tracker instance.
+
+    Speedtest Tracker queues a background test and lands the result in
+    ``/api/v1/results`` ~10-60s later (it does NOT return the result inline).
+    The exact ondemand trigger verb varies by version, so we try GET then POST
+    on ``/api/v1/speedtests/run`` and treat any 2xx as "queued". On success we
+    drop the per-chip data cache so the next app-data fetch re-pulls once the
+    queued test completes (the SPA / AI then shows the new latest result).
+    """
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "detail": "api_key not set for this instance", "status": 0}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "detail": "no upstream URL configured for this instance", "status": 0}
+    url = base + "/api/v1/speedtests/run"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    print(f"[speedtest] INFO run_speedtest host={host_id} svc_idx={service_idx} url={url}")
+    last_status = 0
+    last_detail = ""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0) as cli:
+            for method in ("GET", "POST"):
+                r = await cli.request(method, url, headers=headers)
+                last_status = r.status_code
+                if r.status_code in (200, 201, 202, 204):
+                    if host_id is not None and service_idx is not None:
+                        _data_cache.pop(_cache_key(host_id, service_idx), None)
+                    return {"ok": True, "detail": "Speed test queued", "status": r.status_code}
+                if r.status_code in (401, 403):
+                    return {"ok": False, "detail": "auth failed (check api_key)", "status": r.status_code}
+                last_detail = f"HTTP {r.status_code}"
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[speedtest] error: run_speedtest host={host_id} url={url} "
+              f"failed — {type(e).__name__}: {e}")
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
+    print(f"[speedtest] warning: run_speedtest host={host_id} url={url} returned "
+          f"{last_status} — the ondemand trigger endpoint may differ on this "
+          f"Speedtest Tracker version")
+    return {"ok": False, "detail": last_detail or f"HTTP {last_status}", "status": last_status}

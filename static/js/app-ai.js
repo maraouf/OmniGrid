@@ -2466,6 +2466,40 @@ export default {
     if (weatherCtx) {
       ctx.weather = weatherCtx;
     }
+    // App skills the AI may invoke (run_app_skill) — instance-level
+    // availability built from the pinned apps + the per-slug skill defs on
+    // /api/me's client_config.app_skills. Only chips whose api_key is set are
+    // offered (the backend re-enforces). No upstream fetch here; the AI runs
+    // the skill, and the freshly-queued result shows on the card.
+    try {
+      const skillDefs = (this.me && this.me.client_config && this.me.client_config.app_skills) || {};
+      const appSkills = [];
+      (this.appsList || []).forEach((app) => {
+        const slug = String((app && app.catalog && app.catalog.slug) || '').toLowerCase();
+        const defs = slug && skillDefs[slug];
+        if (!defs || !defs.length) {
+          return;
+        }
+        (app.instances || []).forEach((inst) => {
+          if (!inst || !inst.api_key_set) {
+            return;
+          }
+          appSkills.push({
+            host_id: inst.host_id,
+            service_idx: inst.service_idx,
+            host: inst.host_address || inst.host_id,
+            slug,
+            app: app.name || slug,
+            skills: defs.map((s) => ({id: s.id, name: s.name})),
+          });
+        });
+      });
+      if (appSkills.length) {
+        ctx.app_skills = appSkills;
+      }
+    } catch (_skillErr) {
+      // Context assembly must never break on the skills block.
+    }
     // Public IP + ISP / ASN — operator-opt-in via the
     // `tuning_public_ip_enabled` tunable. The SPA caches the last
     // /api/public-ip response on `this.publicIp` so repeated AI

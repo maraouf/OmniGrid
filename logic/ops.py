@@ -254,6 +254,12 @@ OP_TYPES: frozenset[str] = frozenset({
     # which chip was tested + the result so operators can
     # trace credential rotations through History.
     "services_test",
+    # Per-app SKILL invocation (an app-drawer button OR an AI /
+    # Telegram-AI action — e.g. Speedtest's run_speedtest). Routed via
+    # `/api/services/{host_id}/{service_idx}/skill/{skill_id}` which
+    # forwards to the per-app module's `run_skill(...)` coroutine. The
+    # audit row records which skill was run on which chip + the outcome.
+    "services_skill",
     # Per-(table, host_id) sample-row prune. Drives the
     # Stats → Samples drill-down "Delete orphan rows" button so
     # operators can clean up rows left behind when a curated host
