@@ -10246,7 +10246,14 @@
                                   <template x-for="(segs, li) in appSkillResultLines(appSkillResult(inst, sk.id))" :key="li">
                                     <div class="apps-skill-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 fs-xs">
                                       <template x-for="(seg, si) in segs" :key="si">
-                                        <span class="whitespace-nowrap" x-text="seg"></span>
+                                        <template x-for="p in [appSkillSegParts(seg)]" :key="'p'">
+                                          <span class="whitespace-nowrap">
+                                            <span x-show="p.icon" class="font-semibold"
+                                                  :style="p.color ? ('color: ' + p.color) : ''"
+                                                  x-text="p.icon"></span><span
+                                            x-text="p.icon ? (' ' + p.text) : p.text"></span>
+                                          </span>
+                                        </template>
                                       </template>
                                     </div>
                                   </template>

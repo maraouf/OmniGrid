@@ -108,6 +108,155 @@ async def _gate_destructive(
 
 
 # noinspection PyProtectedMember
+async def _try_dispatch_skill_command(
+    client: httpx.AsyncClient, head: str, args: list, msg: dict,
+) -> bool:
+    """Dynamic per-app SKILL slash command (``/run_speedtest`` /
+    ``/adguard_status`` / ``/adguard_disable_5m`` / …).
+
+    These commands are NOT registered in ``_COMMANDS`` — that keeps them
+    OUT of the Telegram ``setMyCommands`` autocomplete menu (which would
+    balloon with dozens of per-app skill verbs) while STILL being routed
+    here and listed in ``/help``. The command name IS the skill ``id``
+    (skill ids are app-prefixed + unique, e.g. ``adguard_status``), so a
+    new skill auto-gets a command with no extra wiring — the routing is
+    derived per skill from ``available_app_skills_context()``.
+
+    Returns ``True`` when ``head`` matched a skill command (handled —
+    including every error / disambiguation reply); ``False`` when it's
+    not a skill command at all (the caller falls through to its generic
+    "Unknown command" reply).
+    """
+    cmd = head.lstrip("/").strip().lower()
+    if not cmd:
+        return False
+    from logic.apps.registry import (  # noqa: PLC0415
+        available_app_skills_context, skills_for_slug, resolve_chip, run_app_skill,
+    )
+    esc = _listener()._escape
+    ctx = available_app_skills_context()
+    # Every pinned chip whose app declares a skill with id == cmd.
+    matches = [
+        ent for ent in ctx
+        if any(isinstance(sk, dict) and str(sk.get("id") or "").lower() == cmd
+               for sk in (ent.get("skills") or []))
+    ]
+    if not matches:
+        return False  # not a skill command — let the caller 404 it
+
+    # Skill commands dispatch real actions — require the sender be linked
+    # (mirrors the non-open _COMMANDS gate + the AI dispatch path).
+    sender_id = (msg.get("from") or {}).get("id")
+    mapped = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not mapped:
+        await _listener()._send_reply(
+            client,
+            "🔒 Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>.",
+        )
+        return True
+
+    # Resolve the target chip. A trailing `confirm` arg (destructive
+    # two-step) is NOT a host token, so strip it before host matching.
+    host_args = [a for a in args if str(a).strip().lower() != "confirm"]
+    target = str(host_args[0]).strip().lower() if host_args else ""
+    chosen = None
+    if target:
+        for ent in matches:
+            if target in (str(ent.get("host") or "").lower(),
+                          str(ent.get("host_id") or "").lower()):
+                chosen = ent
+                break
+        if chosen is None:
+            hosts = ", ".join(
+                f"<code>{esc(str(e.get('host') or e.get('host_id')))}</code>"
+                for e in matches)
+            await _listener()._send_reply(
+                client,
+                f"<code>/{esc(cmd)}</code> isn't available on "
+                f"<code>{esc(target)}</code>. Available on: {hosts}.",
+            )
+            return True
+    elif len(matches) == 1:
+        chosen = matches[0]
+    else:
+        hosts = ", ".join(
+            f"<code>{esc(str(e.get('host') or e.get('host_id')))}</code>"
+            for e in matches)
+        await _listener()._send_reply(
+            client,
+            f"<code>/{esc(cmd)}</code> runs on multiple hosts: {hosts}. "
+            f"Specify one — e.g. <code>/{esc(cmd)} "
+            f"{esc(str(matches[0].get('host') or matches[0].get('host_id')))}</code>.",
+        )
+        return True
+
+    # Every branch above either set `chosen` to a dict or returned; this
+    # guard makes that invariant explicit (and narrows `chosen` from
+    # Any|None to dict for the .get() calls below).
+    if not isinstance(chosen, dict):
+        return True
+    slug = str(chosen.get("slug") or "")
+    host_id = str(chosen.get("host_id") or "")
+    host_label = str(chosen.get("host") or host_id)
+    svc_idx = chosen.get("service_idx")
+    # Pull the FULL skill dict (available_app_skills_context only carries
+    # {id, name}) so we can read the `destructive` flag for the gate.
+    full_skill = next(
+        (s for s in skills_for_slug(slug)
+         if str(s.get("id") or "").lower() == cmd),
+        {},
+    )
+    skill_name = str(full_skill.get("name") or cmd)
+
+    # Destructive skills ride the same typed-confirm + cooldown gate as
+    # /restart etc. The confirm reply appends `confirm`; for multi-host
+    # apps the host token stays in the confirm command.
+    if bool(full_skill.get("destructive")):
+        is_confirm = any(str(a).strip().lower() == "confirm" for a in args)
+        host_seg = f" {host_label}" if (target or len(matches) > 1) else ""
+        abort = await _gate_destructive(
+            client, msg,
+            command=cmd,
+            confirm_command=f"/{cmd}{host_seg} confirm",
+            confirm_action_html=(f"run <b>{esc(skill_name)}</b> on "
+                                 f"<b>{esc(host_label)}</b>"),
+            is_confirm=is_confirm,
+        )
+        if abort:
+            return True
+
+    host_row, chip, rslug = resolve_chip(
+        host_id, svc_idx if isinstance(svc_idx, int) else -1)
+    if not (isinstance(chip, dict) and rslug):
+        await _listener()._send_reply(
+            client,
+            f"Couldn't resolve the app instance for "
+            f"<code>/{esc(cmd)}</code> on <code>{esc(host_label)}</code>.",
+        )
+        return True
+    try:
+        result = await run_app_skill(
+            rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx)
+    except ValueError as ve:
+        result = {"ok": False, "detail": str(ve)}
+    if isinstance(result, dict) and result.get("ok"):
+        detail = result.get("detail")
+        await _listener()._send_reply(
+            client,
+            f"✅ Ran <b>{esc(skill_name)}</b> on <code>{esc(host_label)}</code>"
+            + (f" — {esc(str(detail))}" if detail else ""),
+        )
+    else:
+        detail = (result or {}).get("detail") or "failed"
+        await _listener()._send_reply(
+            client,
+            f"❌ <b>{esc(skill_name)}</b> failed: <code>{esc(str(detail))}</code>",
+        )
+    return True
+
+
+# noinspection PyProtectedMember
 async def _resolve_telegram_sender_id_int(client: httpx.AsyncClient, msg: dict) -> Optional[int]:
     """Pull `msg.from.id` out of an incoming Telegram update + coerce
     to int. Returns the int on success. On failure, sends the matching
@@ -455,22 +604,51 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         _skill_ctx = available_app_skills_context()
         if _skill_ctx:
             esc = _listener()._escape
-            lines.append(
-                "<b>🧠 App skills</b> <i>(ask in plain text — I'll run these)</i>"
-            )
+            # Aggregate per app: the skill SET is identical across every host
+            # running the same app, so list it ONCE with the hosts it's
+            # available on, instead of repeating the whole skill list per
+            # chip (e.g. AdGuard on adguard1 + adguard2 was shown twice). The
+            # AI dispatch context stays per-chip so the model still resolves
+            # which host_id / service_idx to target.
+            _by_app: dict[str, dict[str, Any]] = {}
+            _order: list = []
             for _ent in _skill_ctx:
-                _app = esc(str(_ent.get("app") or _ent.get("slug") or "app"))
-                _host = esc(str(_ent.get("host") or _ent.get("host_id") or ""))
-                _names = ", ".join(
-                    esc(str(_s.get("name") or _s.get("id")))
-                    for _s in (_ent.get("skills") or [])
-                    if isinstance(_s, dict) and (_s.get("name") or _s.get("id"))
-                )
-                if not _names:
+                _skills = [(str(_s.get("id") or ""),
+                            str(_s.get("name") or _s.get("id") or ""))
+                           for _s in (_ent.get("skills") or [])
+                           if isinstance(_s, dict) and _s.get("id")]
+                if not _skills:
                     continue
-                _loc = f" @ {_host}" if _host else ""
-                lines.append(f"  • <b>{_app}</b>{_loc}: {_names}")
-            lines.append("")
+                _key = str(_ent.get("slug") or _ent.get("app") or "")
+                _host = str(_ent.get("host") or _ent.get("host_id") or "").strip()
+                _g = _by_app.get(_key)
+                if _g is None:
+                    _g = {"app": str(_ent.get("app") or _ent.get("slug") or "app"),
+                          "skills": _skills, "hosts": []}
+                    _by_app[_key] = _g
+                    _order.append(_key)
+                if _host and _host not in _g["hosts"]:
+                    _g["hosts"].append(_host)
+            if _order:
+                # Each skill carries a slash command (= its skill id) the
+                # operator can type directly; these are NOT in the
+                # setMyCommands menu (see _try_dispatch_skill_command). For
+                # an app on >1 host the command needs a `<host>` arg to pick
+                # the instance; single-host apps omit it.
+                lines.append(
+                    "<b>🧠 App skills</b> <i>(type the command, or just ask — "
+                    "I'll run these)</i>"
+                )
+                for _key in _order:
+                    _g = _by_app[_key]
+                    _loc = (" @ " + ", ".join(esc(h) for h in _g["hosts"])) if _g["hosts"] else ""
+                    lines.append(f"  • <b>{esc(_g['app'])}</b>{_loc}")
+                    _hostarg = " &lt;host&gt;" if len(_g["hosts"]) > 1 else ""
+                    for _sid, _sname in _g["skills"]:
+                        lines.append(
+                            f"    <code>/{esc(_sid)}{_hostarg}</code> — {esc(_sname)}"
+                        )
+                lines.append("")
 
     # Trailing legend — the 🔓 paragraph is for unmapped senders
     # ONLY (linked users already know they have access). Linked

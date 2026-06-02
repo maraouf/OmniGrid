@@ -28,7 +28,7 @@
       next to `.apps-card`.
 -->
 <article class="apps-card border border-[var(--border)] rounded-md p-3 cursor-pointer flex items-start gap-3"
-         :class="('apps-card--' + app.status) + (appsCardSpan(app) === 2 ? ' apps-card--span-2' : '') + (appsCardVerticalLayout(app) ? ' apps-card--vertical' : '')"
+         :class="('apps-card--' + app.status) + (appsCardSpan(app) === 2 ? ' apps-card--span-2' : '') + (appsCardVerticalLayout(app) ? ' apps-card--vertical' : '') + (((app.instance_count || (app.instances || []).length) > 1) ? ' apps-card--multihost' : '')"
          :data-apps-group-id="app.group_id"
          x-init="_observeAppCard($el, app.group_id)"
          tabindex="0"
