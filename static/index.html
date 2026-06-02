@@ -10204,7 +10204,12 @@
                          (appInstanceSkillsEnabled); the backend re-enforces both. The
                          icon spins while a run is in flight; the same skills are
                          offered to the AI / Telegram. -->
-                    <template x-if="isAdmin() && appInstanceSkillsEnabled(inst)">
+                    <!-- Per-instance skill card — hidden for apps that render
+                         APP-LEVEL aggregated extras (e.g. AdGuard), whose actions
+                         are fleet-wide and live in ONE app-level card below the
+                         instance loop. Without this gate the skill buttons
+                         duplicated once per host. -->
+                    <template x-if="isAdmin() && appInstanceSkillsEnabled(inst) && !anyAppAggExtrasMatch(drawerApp)">
                       <div class="rounded-md border border-[var(--border)] p-3">
                         <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-2"
                              x-text="t('apps.drawer.skills_title') || 'App skills'"></div>
@@ -10265,6 +10270,20 @@
                       </div>
                     </template>
                   </div>
+                </template>
+                <!-- App-LEVEL aggregated extras + fleet actions — rendered
+                     ONCE for the whole app (NOT per host): e.g. AdGuard's
+                     combined stats (blocked / queries / clients / …) + fleet
+                     Enable / Disable / Disable-for / Refresh. Same app-level
+                     slot the Apps grid card uses, so a fleet app shows its
+                     stats AND actions in ONE card here instead of a skill
+                     card duplicated per instance. -->
+                <template x-for="app in [drawerApp]" :key="'aggext'">
+                  <template x-if="anyAppAggExtrasMatch(app)">
+                    <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box mt-2">
+                      <!-- INCLUDE: _components/apps/_all_extras_app.html -->
+                    </div>
+                  </template>
                 </template>
               </div>
             </div>
