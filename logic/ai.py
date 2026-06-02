@@ -271,7 +271,7 @@ async def _with_retry(call_factory, *, provider: str, model: str) -> dict:
               f"HTTP={status} first-attempt-{elapsed_ms:.0f}ms >= threshold-{first_max_ms}ms "
               f"(upstream slow, retry would only double wait)")
         return out
-    print(f"[ai] retrying-after-{backoff_ms}ms warning — provider={provider} model={model} "
+    print(f"[ai] retrying-after-{backoff_ms:,}ms warning — provider={provider} model={model} "
           f"HTTP={status} upstream-overloaded (transient)")
     if backoff_ms > 0:
         await asyncio.sleep(backoff_ms / 1000.0)

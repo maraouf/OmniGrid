@@ -713,25 +713,41 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
     AI / Telegram-AI skill action route through here. Audited via the
     ``services_skill`` op_type so the operator can trace every skill run in
     History."""
+    # Visibility: log the request up front + every gate decision so a
+    # "the skill didn't run" report is never silent in stdout / Admin → Logs.
+    print(f"[app_skill] INFO web skill request host={host_id} svc_idx={service_idx} "
+          f"skill={skill_id} actor={_actor_from(request)}")
     host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
     if mod is None or not hasattr(mod, "run_skill"):
+        print(f"[app_skill] warning: web skill skipped — no skills for app at "
+              f"host={host_id} svc_idx={service_idx} (skill={skill_id})")
         raise HTTPException(400, "no skills for this app")
     skills = getattr(mod, "SKILLS", ())
     skill = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
     if skill is None:
+        print(f"[app_skill] warning: web skill skipped — unknown skill {skill_id!r} "
+              f"at host={host_id} svc_idx={service_idx}")
         raise HTTPException(404, f"unknown skill: {skill_id}")
     _req_key = getattr(mod, "requires_api_key", None)
     if callable(_req_key) and _req_key() and not (chip.get("api_key") or "").strip():
+        print(f"[app_skill] warning: web skill skipped — api_key not set for "
+              f"skill={skill_id} at host={host_id} svc_idx={service_idx}")
         raise HTTPException(400, "api_key not set for this app")
     try:
         result = await mod.run_skill(skill_id, host_row, chip,
                                      host_id=host_id, service_idx=service_idx)
     except ValueError as e:  # unknown skill id reaching the module
+        print(f"[app_skill] warning: web skill {skill_id!r} rejected by module at "
+              f"host={host_id} svc_idx={service_idx} — {e}")
         raise HTTPException(404, str(e))
     except RuntimeError as e:  # upstream / dispatch failure
+        print(f"[app_skill] error: web skill {skill_id!r} dispatch failed at "
+              f"host={host_id} svc_idx={service_idx} — {e}")
         result = {"ok": False, "detail": str(e)}
     if not isinstance(result, dict):
         result = {"ok": True}
+    print(f"[app_skill] INFO web skill {skill_id!r} host={host_id} svc_idx={service_idx} "
+          f"-> ok={result.get('ok')} detail={result.get('detail')}")
     with db_conn() as _c:
         _ops_mod.write_admin_audit(
             _c, "services_skill",

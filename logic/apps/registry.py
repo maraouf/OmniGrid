@@ -279,10 +279,27 @@ async def run_app_skill(slug: str, skill_id: str, host_row: dict, chip: dict,
     """Dispatch one skill to its per-app module's ``run_skill`` coroutine.
     Raises ``ValueError`` when the slug has no module / no ``run_skill`` / an
     unknown ``skill_id`` so the caller can map it to an HTTP 400 / 404."""
+    _hid = kwargs.get("host_id")
+    _sidx = kwargs.get("service_idx")
     mod = module_for_slug(slug)
     if mod is None or not hasattr(mod, "run_skill"):
+        print(f"[app_skill] warning: run skipped — no run_skill module for "
+              f"slug={slug!r} (skill={skill_id!r} host={_hid} svc_idx={_sidx})")
         raise ValueError(f"no skills for app slug: {slug!r}")
     valid = {s.get("id") for s in skills_for_slug(slug)}
     if skill_id not in valid:
+        print(f"[app_skill] warning: run skipped — unknown skill {skill_id!r} for "
+              f"slug={slug!r} (valid={sorted(str(v) for v in valid if v)} host={_hid} svc_idx={_sidx})")
         raise ValueError(f"unknown skill {skill_id!r} for app {slug!r}")
-    return await mod.run_skill(skill_id, host_row, chip, **kwargs)
+    print(f"[app_skill] INFO run start slug={slug!r} skill={skill_id!r} "
+          f"host={_hid} svc_idx={_sidx}")
+    result = await mod.run_skill(skill_id, host_row, chip, **kwargs)
+    _ok = isinstance(result, dict) and result.get("ok")
+    _detail = (result or {}).get("detail") if isinstance(result, dict) else None
+    if _ok:
+        print(f"[app_skill] INFO run done slug={slug!r} skill={skill_id!r} "
+              f"host={_hid} -> ok ({_detail})")
+    else:
+        print(f"[app_skill] warning: run did not succeed slug={slug!r} "
+              f"skill={skill_id!r} host={_hid} -> {_detail}")
+    return result

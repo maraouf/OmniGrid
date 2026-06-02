@@ -420,6 +420,10 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
         return {"ok": False, "detail": "no upstream URL configured for this instance", "status": 0}
     url = base + "/api/v1/speedtests/run"
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    # Visibility: log the attempt up front (host + resolved URL, NEVER the
+    # api_key) so a "the speed test didn't run" report is traceable in stdout /
+    # Admin → Logs to this exact host + endpoint. Each GET/POST attempt below
+    # logs its own status so a 404/405/auth failure is never silent.
     print(f"[speedtest] INFO run_speedtest host={host_id} svc_idx={service_idx} url={url}")
     last_status = 0
     last_detail = ""
@@ -429,17 +433,27 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
                 r = await cli.request(method, url, headers=headers)
                 last_status = r.status_code
                 if r.status_code in (200, 201, 202, 204):
+                    print(f"[speedtest] INFO run_speedtest host={host_id} "
+                          f"{method} {url} -> {r.status_code} (queued)")
                     if host_id is not None and service_idx is not None:
                         _data_cache.pop(_cache_key(host_id, service_idx), None)
                     return {"ok": True, "detail": "Speed test queued", "status": r.status_code}
                 if r.status_code in (401, 403):
+                    print(f"[speedtest] warning: run_speedtest host={host_id} "
+                          f"{method} {url} -> {r.status_code} auth rejected (check api_key)")
                     return {"ok": False, "detail": "auth failed (check api_key)", "status": r.status_code}
+                # Non-2xx, non-auth (typically 404/405): log the attempt and
+                # keep trying the other verb.
+                print(f"[speedtest] warning: run_speedtest host={host_id} "
+                      f"{method} {url} -> {r.status_code} (trying next verb)")
                 last_detail = f"HTTP {r.status_code}"
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[speedtest] error: run_speedtest host={host_id} url={url} "
               f"failed — {type(e).__name__}: {e}")
         return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
-    print(f"[speedtest] warning: run_speedtest host={host_id} url={url} returned "
-          f"{last_status} — the ondemand trigger endpoint may differ on this "
-          f"Speedtest Tracker version")
+    print(f"[speedtest] error: run_speedtest host={host_id} url={url} — both GET "
+          f"and POST failed (last={last_status}); the on-demand trigger endpoint "
+          f"differs on this Speedtest Tracker version (this build's results "
+          f"resource is /api/v1/results). Run the test from the Speedtest "
+          f"Tracker UI / its scheduler, or confirm the correct trigger path.")
     return {"ok": False, "detail": last_detail or f"HTTP {last_status}", "status": last_status}

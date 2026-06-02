@@ -1049,14 +1049,15 @@ def latest_for_hosts(host_ids: list[str]) -> dict:
     in_clause, params = _hostid_in_clause(host_ids)
     try:
         with db_conn() as c:
+            # Latest row per (host_id, service_idx) — same GROUP BY + MAX(ts)
+            # index-seek pattern as latest_per_port_all_for_hosts (uses
+            # idx_service_samples_host_idx_ts; no window-function sort). Bare
+            # columns take the MAX(ts) row's values; trailing MAX(ts) read is
+            # discarded (columns 0-5 consumed below).
             rows = c.execute(
-                "SELECT host_id, service_idx, ts, alive, rtt_ms, error FROM ("
-                "  SELECT host_id, service_idx, ts, alive, rtt_ms, error, "
-                "         ROW_NUMBER() OVER ("
-                "             PARTITION BY host_id, service_idx ORDER BY ts DESC"
-                "         ) AS rn "
-                f"  FROM service_samples WHERE {in_clause} AND port = 0"
-                ") WHERE rn = 1",
+                "SELECT host_id, service_idx, ts, alive, rtt_ms, error, MAX(ts) "
+                f"FROM service_samples WHERE {in_clause} AND port = 0 "
+                "GROUP BY host_id, service_idx",
                 params,
             ).fetchall()
     except (sqlite3.Error, OSError) as e:
@@ -1089,14 +1090,21 @@ def latest_per_port_all_for_hosts(host_ids: list[str]) -> dict:
     in_clause, params = _hostid_in_clause(host_ids)
     try:
         with db_conn() as c:
+            # Latest row per (host_id, service_idx, port). Uses SQLite's
+            # "bare columns take the value from the MAX() row" behaviour so a
+            # single GROUP BY + MAX(ts) returns each group's newest sample —
+            # this collapses to ONE index range-scan over
+            # `idx_service_samples_chip_port_ts (host_id, service_idx, port,
+            # ts DESC)` (EXPLAIN: SEARCH USING INDEX, no sort). The previous
+            # ROW_NUMBER() window form materialised + sorted every matching
+            # row (SQLite window functions always sort, even with a perfect
+            # index) — a multi-second slow_query on a multi-million-row
+            # sample table. The trailing MAX(ts) column is only there to
+            # trigger the bare-column behaviour; we read columns 0-6.
             rows = c.execute(
-                "SELECT host_id, service_idx, port, ts, alive, rtt_ms, error FROM ("
-                "  SELECT host_id, service_idx, port, ts, alive, rtt_ms, error, "
-                "         ROW_NUMBER() OVER ("
-                "             PARTITION BY host_id, service_idx, port ORDER BY ts DESC"
-                "         ) AS rn "
-                f"  FROM service_samples WHERE {in_clause} AND port > 0"
-                ") WHERE rn = 1 "
+                "SELECT host_id, service_idx, port, ts, alive, rtt_ms, error, MAX(ts) "
+                f"FROM service_samples WHERE {in_clause} AND port > 0 "
+                "GROUP BY host_id, service_idx, port "
                 "ORDER BY host_id ASC, service_idx ASC, port ASC",
                 params,
             ).fetchall()
