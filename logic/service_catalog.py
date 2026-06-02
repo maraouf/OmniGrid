@@ -1599,6 +1599,10 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 "ports": probe_cfg.get("ports") or [],
                 "show_extras": inst_show_extras,
                 "api_key_set": inst_api_key_set,
+                # Non-secret username half of a Basic-auth credential pair
+                # (e.g. AdGuard Home). Returned in the clear so the editor
+                # can show/edit it; the password stays in `api_key`.
+                "username": (svc.get("username") or ""),
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1728,6 +1732,8 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                     isinstance(svc.get("api_key"), str)
                     and svc.get("api_key", "").strip()
                 ),
+                # Non-secret Basic-auth username half (e.g. AdGuard Home).
+                "username": (svc.get("username") or ""),
                 # Per-instance show_extras tri-state.
                 "show_extras": (svc.get("show_extras")
                                 if isinstance(svc.get("show_extras"), bool)

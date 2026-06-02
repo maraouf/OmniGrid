@@ -1,0 +1,17 @@
+<!-- Aggregator -- every APP-LEVEL (aggregated) expanded-card extras partial.
+
+     Included ONCE inside `apps-card.html`'s app-level extras slot
+     (`anyAppAggExtrasMatch(app)` gate). Unlike `_all_extras.html` (the
+     per-INSTANCE aggregator), this renders ONCE per app card with `app`
+     in scope (no `inst`) — for apps that aggregate their N instances
+     into a single block (e.g. AdGuard Home). Each per-app partial below
+     self-gates via its own `<template x-if="...IsApp(app)...">`.
+
+     Adding a new app-level extras partial
+       1. Create `static/_partials/_components/apps/[slug]_extras.html`
+          gating on the app's `...IsApp(app)` helper (NO `inst`).
+       2. Add ONE INCLUDE marker line below.
+       3. Set `appLevelExtras: true` (and usually `instanceExtras: false`)
+          on the app's extender in `static/js/apps/[slug].js`.
+     The generic `apps-card.html` does NOT need to change. -->
+<!-- INCLUDE: _components/apps/adguardhome_extras.html -->

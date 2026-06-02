@@ -706,6 +706,10 @@ export default {
       // pattern from the global-secrets convention).
       api_key: '',
       api_key_set: !!inst.api_key_set,
+      // Non-secret Basic-auth username half (e.g. AdGuard Home). Unlike
+      // api_key, the backend returns this in the clear, so it seeds the
+      // input directly and round-trips on save.
+      username: inst.username || '',
     };
     this.appsInstanceEditError = '';
     // Seed the Link-to-Docker combobox input with the current link's label
@@ -739,6 +743,7 @@ export default {
       docker_host: f.docker_host || '',
       show_extras: (f.show_extras === true || f.show_extras === false) ? f.show_extras : null,
       api_key: (typeof f.api_key === 'string') ? f.api_key : '',
+      username: f.username || '',
       ports,
     });
   },
@@ -1074,6 +1079,11 @@ export default {
           // returns `api_key_set: bool` so the SPA can render the
           // "Saved" indicator without round-tripping the secret.
           api_key: (typeof f.api_key === 'string') ? f.api_key : '',
+          // Non-secret Basic-auth username half — surfaced ONLY by the
+          // apps whose editor partial declares it (e.g. AdGuard Home);
+          // empty for single-secret apps (Speedtest), so the backend
+          // simply drops it. Each app owns its own auth fields.
+          username: (typeof f.username === 'string') ? f.username : '',
         }),
       });
       if (!r.ok) {

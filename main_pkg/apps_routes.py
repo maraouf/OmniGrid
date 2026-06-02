@@ -541,6 +541,17 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["api_key"] = v[:512]
         # blank → keep current (no chip.pop — the existing
         # value carries forward).
+    # Per-instance username — the NON-secret half of a Basic-auth pair
+    # (e.g. AdGuard Home). Returned in the clear, so the SPA round-trips
+    # it: a non-empty value overwrites, an explicit blank CLEARS it (no
+    # keep-current — that contract is for secrets only). Only the apps
+    # whose editor declares a username input ever send a non-empty value.
+    if "username" in payload:
+        v = (payload.get("username") or "").strip()
+        if v:
+            chip["username"] = v[:128]
+        else:
+            chip.pop("username", None)
     _probe_raw = chip.get("probe")
     probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:
@@ -640,7 +651,10 @@ async def api_service_test_credential(host_id: str, service_idx: int,
         raise HTTPException(400, "no test path for this app")
     candidate_key = (payload.get("api_key") or "").strip()
     try:
-        result = await mod.test_credential(host_row, chip, candidate_key)
+        # Forward the full payload so apps with multi-field credentials
+        # (e.g. AdGuard's username + password) can validate them together
+        # pre-save. Single-secret apps ignore it (they read candidate_key).
+        result = await mod.test_credential(host_row, chip, candidate_key, payload=payload)
     except (RuntimeError, ValueError) as e:  # noqa: BLE001
         result = {"ok": False, "detail": str(e), "status": 0}
     with db_conn() as _c:

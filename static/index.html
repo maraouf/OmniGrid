@@ -10228,13 +10228,27 @@
                              skill returns one) shows as a clickable preview. -->
                         <template x-for="sk in appInstanceSkills(inst)" :key="'skres:' + sk.id">
                           <template x-if="appSkillResult(inst, sk.id)">
-                            <div class="mt-2 rounded-md border px-2.5 py-2 fs-xs"
+                            <div class="apps-skill-result mt-2 rounded-md border px-2.5 py-2"
                                  :class="appSkillResult(inst, sk.id).ok ? 'border-[var(--border)] bg-[var(--surface-2)]' : 'border-[var(--danger)]'">
-                              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
+                              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1.5"
                                    x-text="appSkillLabel(sk)"></div>
-                              <div class="whitespace-pre-wrap break-words"
-                                   :class="appSkillResult(inst, sk.id).ok ? '' : 'text-[var(--danger)]'"
-                                   x-text="appSkillResult(inst, sk.id).detail"></div>
+                              <!-- OK: render each detail line as a wrapping row of
+                                   stat chips (non-stacked). ERROR: plain text. -->
+                              <template x-if="appSkillResult(inst, sk.id).ok">
+                                <div class="flex flex-col gap-1.5">
+                                  <template x-for="(segs, li) in appSkillResultLines(appSkillResult(inst, sk.id))" :key="li">
+                                    <div class="flex flex-wrap items-center gap-1.5">
+                                      <template x-for="(seg, si) in segs" :key="si">
+                                        <span class="apps-skill-stat" x-text="seg"></span>
+                                      </template>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
+                              <template x-if="!appSkillResult(inst, sk.id).ok">
+                                <div class="fs-xs break-words text-[var(--danger)]"
+                                     x-text="appSkillResult(inst, sk.id).detail"></div>
+                              </template>
                               <template x-if="appSkillResult(inst, sk.id).image_url">
                                 <a :href="appSkillResult(inst, sk.id).image_url" target="_blank" rel="noopener"
                                    class="block mt-2">

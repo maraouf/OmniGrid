@@ -1,0 +1,155 @@
+<!-- App-LEVEL aggregated extras -- AdGuard Home.
+
+     Rendered ONCE per app card (via apps-card.html's app-level slot +
+     `_all_extras_app.html`), with `app` in scope (NO `inst`). The
+     operator runs N AdGuard hosts; this block aggregates them into ONE
+     summary instead of a row per host (operator decision). The
+     aggregation + fleet-action dispatch live in
+     `static/js/apps/adguardhome.js`:
+       adguardIsApp(app)           -- gate "is this an AdGuard chip"
+       adguardAggregate(app)       -- {ready, loading, queries, blocked,
+                                       pct, rules, clients, avgMs,
+                                       topBlocked, protOn, protTotal,
+                                       protOffHosts, failedHosts, okN, n}
+       adguardInt/Pct/Ms           -- formatters
+       adguardDisablePresets()     -- [{label, skill}]
+       adguardFleetSkill(app, id)  -- dispatch a fleet skill
+       adguardSkillBusy(app, id)   -- in-flight gate
+
+     Actions are FLEET-wide (all hosts at once) and admin-only; the
+     backend skill route + run_skill fan-out enforce both. -->
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
+<template x-if="adguardIsApp && adguardIsApp(app)">
+  <div class="apps-card-adguard mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+    <!-- Compute the aggregate ONCE per render via a single-element x-for. -->
+    <template x-for="agg in [adguardAggregate(app)]" :key="'agg'">
+      <div class="space-y-2">
+        <!-- Stats grid (aggregated across every reachable host). -->
+        <template x-if="agg.ready">
+          <div class="space-y-2">
+            <div class="apps-adguard-statgrid">
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.blocked_today') || 'Blocked today'"></div>
+                <div class="fs-md font-semibold">
+                  <span x-text="adguardInt(agg.blocked)"></span>
+                  <span class="fs-2xs text-[var(--text-faint)]"
+                        x-text="'(' + adguardPct(agg.pct) + ')'"></span>
+                </div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.queries_today') || 'Queries today'"></div>
+                <div class="fs-md font-semibold" x-text="adguardInt(agg.queries)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.blocklist') || 'Blocklist domains'"></div>
+                <div class="fs-md font-semibold" x-text="adguardInt(agg.rules)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.clients') || 'Active clients'"></div>
+                <div class="fs-sm" x-text="adguardInt(agg.clients)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.avg_processing') || 'Avg processing'"></div>
+                <div class="fs-sm" x-text="adguardMs(agg.avgMs)"></div>
+              </div>
+              <div class="apps-card-stat" x-show="agg.topBlocked">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.adguard.top_blocked') || 'Top blocked'"></div>
+                <div class="fs-sm truncate"
+                     :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + adguardInt(agg.topBlocked.count) + ')') : ''"
+                     x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
+              </div>
+            </div>
+            <!-- Protection status — green when every host is ON, amber when
+                 some are OFF (the actionable warning). -->
+            <div class="flex items-center gap-1.5 fs-2xs">
+              <span class="apps-adguard-dot"
+                    :class="agg.protOn === agg.protTotal ? 'apps-adguard-dot--on' : 'apps-adguard-dot--off'"
+                    aria-hidden="true"></span>
+              <span x-show="agg.protOn === agg.protTotal" class="text-[var(--text-faint)]"
+                    x-text="t('apps.adguard.protection_on') || 'Protection on'"></span>
+              <span x-show="agg.protOn !== agg.protTotal" class="text-[var(--warning)]"
+                    x-text="(t('apps.adguard.protection_partial') || 'Protection OFF on') + ' ' + agg.protOffHosts.join(', ')"></span>
+            </div>
+          </div>
+        </template>
+        <!-- Loading / error states. -->
+        <template x-if="!agg.ready && agg.loading">
+          <p class="fs-xs text-[var(--text-faint)] italic"
+             x-text="t('apps.adguard.loading') || 'Loading AdGuard stats…'"></p>
+        </template>
+        <template x-if="!agg.ready && !agg.loading">
+          <p class="fs-xs text-[var(--danger)] italic"
+             x-text="(t('apps.adguard.all_unreachable') || 'No AdGuard host reachable')
+               + (agg.failedHosts.length ? ' — ' + agg.failedHosts.join(', ') : '')"></p>
+        </template>
+        <!-- Partial-failure footnote (some hosts down but totals shown). -->
+        <template x-if="agg.ready && agg.failedHosts.length">
+          <p class="fs-2xs text-[var(--warning)]"
+             x-text="(t('apps.adguard.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></p>
+        </template>
+
+        <!-- Fleet actions (admin-only; need at least one credentialed host). -->
+        <template x-if="isAdmin() && (app.instances || []).some((i) => i.api_key_set)">
+          <div class="apps-adguard-actions pt-2 mt-1 border-t border-[var(--border)] space-y-1.5">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="adguardSkillBusy(app, 'adguard_enable')"
+                      @click.stop="adguardFleetSkill(app, 'adguard_enable')"
+                      :title="t('apps.adguard.action_enable_title') || 'Enable protection on every host'">
+                <svg width="11" height="11" :class="adguardSkillBusy(app, 'adguard_enable') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+                </svg>
+                <span x-text="t('apps.adguard.action_enable') || 'Enable'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill apps-card-action-pill--danger whitespace-nowrap"
+                      :disabled="adguardSkillBusy(app, 'adguard_disable')"
+                      @click.stop="adguardFleetSkill(app, 'adguard_disable')"
+                      :title="t('apps.adguard.action_disable_title') || 'Disable protection on every host (indefinitely)'">
+                <svg width="11" height="11" :class="adguardSkillBusy(app, 'adguard_disable') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pause"/>
+                </svg>
+                <span x-text="t('apps.adguard.action_disable') || 'Disable'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="adguardSkillBusy(app, 'adguard_refresh')"
+                      @click.stop="adguardFleetSkill(app, 'adguard_refresh')"
+                      :title="t('apps.adguard.action_refresh_title') || 'Re-download blocklists on every host'">
+                <svg width="11" height="11" :class="adguardSkillBusy(app, 'adguard_refresh') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('apps.adguard.action_refresh') || 'Refresh lists'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="adguardSkillBusy(app, 'adguard_status')"
+                      @click.stop="adguardFleetSkill(app, 'adguard_status')"
+                      :title="t('apps.adguard.action_status_title') || 'Refresh the aggregated stats'">
+                <svg width="11" height="11" :class="adguardSkillBusy(app, 'adguard_status') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+                </svg>
+                <span x-text="t('apps.adguard.action_status') || 'Refresh'"></span>
+              </button>
+            </div>
+            <!-- Timed-disable presets. -->
+            <div class="flex items-center gap-1 flex-wrap">
+              <span class="fs-2xs text-[var(--text-faint)] me-1"
+                    x-text="(t('apps.adguard.disable_for') || 'Disable for') + ':'"></span>
+              <template x-for="ds in adguardDisablePresets()" :key="ds.skill">
+                <button type="button"
+                        class="apps-adguard-preset"
+                        :disabled="adguardSkillBusy(app, ds.skill)"
+                        @click.stop="adguardFleetSkill(app, ds.skill)"
+                        x-text="ds.label"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</template>

@@ -317,6 +317,13 @@ export default {
       if (!e || !Array.isArray(e.slugs)) {
         continue;
       }
+      // App-level-only apps (e.g. AdGuard: aggregated extras rendered ONCE
+      // per card) opt OUT of the per-instance extras loop via
+      // `instanceExtras: false`. They render through `anyAppAggExtrasMatch`
+      // instead.
+      if (e.instanceExtras === false) {
+        continue;
+      }
       for (const s of e.slugs) {
         const needle = String(s).toLowerCase();
         if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
@@ -330,6 +337,35 @@ export default {
     }
     _anyAppExtrasMatchCache.set(app, matched);
     return matched;
+  },
+
+  // App-LEVEL aggregated extras gate. True when ANY registered per-app
+  // extender flags `appLevelExtras: true` AND matches this app (slug or
+  // name). Drives the single app-level extras slot in `apps-card.html`
+  // (rendered ONCE per card with `app` in scope) — distinct from
+  // `anyAppExtrasMatch`, which drives the per-INSTANCE extras loop. An
+  // app uses exactly one of the two (AdGuard = app-level; Speedtest /
+  // APC = per-instance), so the two gates never both fire for one app.
+  anyAppAggExtrasMatch(app) {
+    if (!app) {
+      return false;
+    }
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    const cat = app.catalog || {};
+    const slug = String(cat.slug || '').trim().toLowerCase();
+    const name = String(app.name || '').toLowerCase();
+    for (const e of ext) {
+      if (!e || e.appLevelExtras !== true || !Array.isArray(e.slugs)) {
+        continue;
+      }
+      for (const s of e.slugs) {
+        const needle = String(s).toLowerCase();
+        if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
+          return true;
+        }
+      }
+    }
+    return false;
   },
 
   appsInstancesCollapsible(app) {
