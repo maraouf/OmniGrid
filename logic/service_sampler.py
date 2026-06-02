@@ -48,6 +48,7 @@ from logic.db import (
     db_conn,
     get_setting_bool,
     iter_curated_hosts,
+    prune_rows_older_than,
 )
 from logic.settings_keys import Settings
 # Coercion helpers — shared logic.coerce leaf module, aliased to the
@@ -329,9 +330,10 @@ def _prune_old_samples() -> int:
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
-        with db_conn() as c:
-            cur = c.execute("DELETE FROM service_samples WHERE ts < ?", (cutoff,))
-            return cur.rowcount or 0
+        # Chunked delete (see logic.db.prune_rows_older_than) so a large
+        # retention sweep doesn't hold the writer lock for the whole delete
+        # and cascade slow_query warnings onto every other writer.
+        return prune_rows_older_than("service_samples", cutoff)
     except (sqlite3.Error, OSError) as e:
         print(f"[service_sampler] prune skipped: {e}")
         return 0
@@ -742,19 +744,19 @@ def bulk_latest_per_port_for_hosts(host_ids: list) -> dict:
     try:
         with db_conn() as c:
             ph = ",".join(["?"] * len(ids))
+            # Latest row per (host_id, service_idx, port) via SQLite's
+            # bare-columns-take-the-MAX()-row behaviour — ONE ordered index
+            # scan over idx_service_samples_chip_port_ts (host_id, service_idx,
+            # port, ts DESC), with the ORDER BY satisfied by the index (no temp
+            # b-tree). Replaces the prior self-JOIN against a MAX(ts) subquery
+            # (co-routine + per-row join search + TEMP B-TREE for ORDER BY) that
+            # showed up as a 225-534ms slow_query. Trailing MAX(ts) is only the
+            # aggregate trigger; columns 0-6 are consumed below.
             rows = c.execute(
-                f"SELECT s.host_id, s.service_idx, s.port, s.ts, s.alive, s.rtt_ms, s.error "
-                f"FROM service_samples s "
-                f"INNER JOIN (SELECT host_id, service_idx, port, MAX(ts) AS mts "
-                f"            FROM service_samples "
-                f"            WHERE host_id IN ({ph}) AND port > 0 "
-                f"            GROUP BY host_id, service_idx, port) m "
-                f"  ON s.host_id = m.host_id "
-                f" AND s.service_idx = m.service_idx "
-                f" AND s.port = m.port "
-                f" AND s.ts = m.mts "
-                f"WHERE s.port > 0 "
-                f"ORDER BY s.host_id, s.service_idx, s.port ASC",
+                f"SELECT host_id, service_idx, port, ts, alive, rtt_ms, error, MAX(ts) "
+                f"FROM service_samples WHERE host_id IN ({ph}) AND port > 0 "
+                f"GROUP BY host_id, service_idx, port "
+                f"ORDER BY host_id, service_idx, port ASC",
                 ids,
             ).fetchall()
     except (sqlite3.Error, OSError) as e:

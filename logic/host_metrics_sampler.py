@@ -99,6 +99,7 @@ from logic.db import (  # noqa: E402
     curated_snmp_hosts as _load_curated_snmp_hosts,
     get_setting as _get_setting,
     iter_curated_hosts,
+    prune_rows_older_than,
 )
 from logic.settings_keys import Settings  # noqa: E402
 
@@ -1543,40 +1544,31 @@ def _prune_old_samples() -> int:
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
-        with db_conn() as c:
-            cur = c.execute("DELETE FROM host_metrics_samples WHERE ts < ?", (cutoff,))
-            removed = cur.rowcount or 0
-            # prune host_snmp_samples on the same cadence /
-            # window. SNMP sample rows are denser than host_metrics
-            # rows (they're written every successful tick) so the
-            # retention budget gets eaten faster otherwise.
-            cur2 = c.execute("DELETE FROM host_snmp_samples WHERE ts < ?", (cutoff,))
-            removed += cur2.rowcount or 0
-            # per-iface SNMP rows are denser still (one row per
-            # active interface per tick); same retention window.
-            cur3 = c.execute("DELETE FROM host_snmp_iface_samples WHERE ts < ?", (cutoff,))
-            removed += cur3.rowcount or 0
-            # Per-temperature-probe rows on Dell server hosts. Multi-row-per-tick (typically 4-12 probes per
-            # iDRAC) so the retention budget gets consumed quickly on a
-            # fleet of servers; same window as the rest.
-            cur4 = c.execute("DELETE FROM host_snmp_temp_samples WHERE ts < ?", (cutoff,))
-            removed += cur4.rowcount or 0
-            # host_failure_events — independently tunable retention via
-            # ``tuning_incidents_retention_days`` (default 90; 0 disables
-            # pruning entirely, restoring the previous "keep every
-            # incident forever" behaviour for deployments that want
-            # the full audit trail). Default landed at 90 days — a
-            # quarter's worth of post-mortem learning material without
-            # the table growing unbounded over years.
-            incidents_days = tuning.tuning_int(Tunable.INCIDENTS_RETENTION_DAYS)
-            if incidents_days > 0:
-                incidents_cutoff = int(time.time() - incidents_days * 86400)
-                cur5 = c.execute(
-                    "DELETE FROM host_failure_events WHERE ts < ?",
-                    (incidents_cutoff,),
-                )
-                removed += cur5.rowcount or 0
-            return removed
+        # Each table is pruned via the chunked helper (logic.db.
+        # prune_rows_older_than) — bounded lock-hold per chunk AND a separate
+        # transaction per table, so this 5-table sweep no longer holds the
+        # single writer lock across ALL deletes in one transaction (the old
+        # shape queued every other writer behind it for the full duration —
+        # the contention that surfaced as the db_size prune "taking 2s").
+        # Densities differ (host_metrics 1 row/tick, host_snmp denser,
+        # host_snmp_iface one row per active iface/tick, host_snmp_temp
+        # 4-12 probes/tick on Dell servers) — all share the same retention
+        # window.
+        removed = 0
+        for tbl in ("host_metrics_samples", "host_snmp_samples",
+                    "host_snmp_iface_samples", "host_snmp_temp_samples"):
+            removed += prune_rows_older_than(tbl, cutoff)
+        # host_failure_events — independently tunable retention via
+        # ``tuning_incidents_retention_days`` (default 90; 0 disables
+        # pruning entirely, restoring the previous "keep every incident
+        # forever" behaviour for deployments that want the full audit
+        # trail). Default landed at 90 days — a quarter's worth of
+        # post-mortem learning material without unbounded growth.
+        incidents_days = tuning.tuning_int(Tunable.INCIDENTS_RETENTION_DAYS)
+        if incidents_days > 0:
+            incidents_cutoff = int(time.time() - incidents_days * 86400)
+            removed += prune_rows_older_than("host_failure_events", incidents_cutoff)
+        return removed
     # noinspection PyBroadException
     except Exception as e:
         print(f"[host_metrics_sampler] prune failed: {e}")
