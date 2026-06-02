@@ -10670,7 +10670,8 @@ select.field-invalid {
    built-in top divider (the speedtest panel's mt-3 / pt-3 / border-t) so the
    card border is the only frame, not an hr stacked inside the instance box. */
 .apps-drawer-extras-box .apps-card-speedtest,
-.apps-drawer-extras-box .apps-card-ups {
+.apps-drawer-extras-box .apps-card-ups,
+.apps-drawer-extras-box .apps-card-adguard {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;

@@ -156,12 +156,24 @@ async def _try_dispatch_skill_command(
         )
         return True
 
+    # Fleet skills aggregate across EVERY instance (run_skill ignores the
+    # targeted chip), so they run HOST-LESS — no per-host arg, no "specify
+    # a host" disambiguation. Per-instance skills (e.g. Speedtest) keep the
+    # host resolution below.
+    is_fleet = any(
+        isinstance(sk, dict) and str(sk.get("id") or "").lower() == cmd
+        and bool(sk.get("fleet"))
+        for ent in matches for sk in (ent.get("skills") or []))
+
     # Resolve the target chip. A trailing `confirm` arg (destructive
     # two-step) is NOT a host token, so strip it before host matching.
     host_args = [a for a in args if str(a).strip().lower() != "confirm"]
     target = str(host_args[0]).strip().lower() if host_args else ""
     chosen = None
-    if target:
+    if is_fleet:
+        # Any instance — run_skill fans the action out across the fleet.
+        chosen = matches[0]
+    elif target:
         for ent in matches:
             if target in (str(ent.get("host") or "").lower(),
                           str(ent.get("host_id") or "").lower()):
@@ -198,8 +210,14 @@ async def _try_dispatch_skill_command(
         return True
     slug = str(chosen.get("slug") or "")
     host_id = str(chosen.get("host_id") or "")
-    host_label = str(chosen.get("host") or host_id)
     svc_idx = chosen.get("service_idx")
+    # Action-target label: a fleet skill acts on EVERY instance, so name
+    # the fleet ("all N hosts") rather than the single (arbitrary) chip we
+    # dispatch against; a per-instance skill names its one host.
+    if is_fleet and len(matches) > 1:
+        host_label = f"all {len(matches)} hosts"
+    else:
+        host_label = str(chosen.get("host") or host_id)
     # Pull the FULL skill dict (available_app_skills_context only carries
     # {id, name}) so we can read the `destructive` flag for the gate.
     full_skill = next(
@@ -214,7 +232,9 @@ async def _try_dispatch_skill_command(
     # apps the host token stays in the confirm command.
     if bool(full_skill.get("destructive")):
         is_confirm = any(str(a).strip().lower() == "confirm" for a in args)
-        host_seg = f" {host_label}" if (target or len(matches) > 1) else ""
+        # Fleet skills are host-less, so the confirm reply is just
+        # `/<cmd> confirm` (no host token).
+        host_seg = "" if is_fleet else (f" {host_label}" if (target or len(matches) > 1) else "")
         abort = await _gate_destructive(
             client, msg,
             command=cmd,
@@ -241,12 +261,25 @@ async def _try_dispatch_skill_command(
     except ValueError as ve:
         result = {"ok": False, "detail": str(ve)}
     if isinstance(result, dict) and result.get("ok"):
-        detail = result.get("detail")
-        await _listener()._send_reply(
-            client,
-            f"✅ Ran <b>{esc(skill_name)}</b> on <code>{esc(host_label)}</code>"
-            + (f" — {esc(str(detail))}" if detail else ""),
-        )
+        detail = str(result.get("detail") or "").strip()
+        image_url = str(result.get("image_url") or "").strip()
+        # Drop the image URL out of the TEXT body (the speedtest detail
+        # appends it) — text replies set disable_web_page_preview so a bare
+        # URL wouldn't render as a preview anyway. We send the image itself
+        # inline via _send_photo below (same path the AI reply uses).
+        if image_url and detail:
+            detail = "\n".join(
+                ln for ln in detail.split("\n") if ln.strip() != image_url
+            ).strip()
+        # Header on its OWN line, then the detail block on the lines below
+        # (NOT inline after "—", which crammed the first stat row onto the
+        # "Ran …" line and wrapped badly).
+        body = f"✅ Ran <b>{esc(skill_name)}</b> on <code>{esc(host_label)}</code>"
+        if detail:
+            body += "\n" + esc(detail)
+        await _listener()._send_reply(client, body)
+        if image_url:
+            await _listener()._send_photo(client, image_url)
     else:
         detail = (result or {}).get("detail") or "failed"
         await _listener()._send_reply(
@@ -614,7 +647,8 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             _order: list = []
             for _ent in _skill_ctx:
                 _skills = [(str(_s.get("id") or ""),
-                            str(_s.get("name") or _s.get("id") or ""))
+                            str(_s.get("name") or _s.get("id") or ""),
+                            bool(_s.get("fleet")))
                            for _s in (_ent.get("skills") or [])
                            if isinstance(_s, dict) and _s.get("id")]
                 if not _skills:
@@ -643,8 +677,12 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                     _g = _by_app[_key]
                     _loc = (" @ " + ", ".join(esc(h) for h in _g["hosts"])) if _g["hosts"] else ""
                     lines.append(f"  • <b>{esc(_g['app'])}</b>{_loc}")
-                    _hostarg = " &lt;host&gt;" if len(_g["hosts"]) > 1 else ""
-                    for _sid, _sname in _g["skills"]:
+                    _multi = len(_g["hosts"]) > 1
+                    for _sid, _sname, _sfleet in _g["skills"]:
+                        # Fleet skills run host-less (they aggregate across
+                        # every instance); a per-instance skill on a multi-host
+                        # app needs a <host> arg to pick which instance.
+                        _hostarg = "" if _sfleet else (" &lt;host&gt;" if _multi else "")
                         lines.append(
                             f"    <code>/{esc(_sid)}{_hostarg}</code> — {esc(_sname)}"
                         )
@@ -720,11 +758,13 @@ def _load_host_paused_set() -> set[str]:
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
-    """``/hosts`` — split the curated fleet into two grouped lists:
-    Active (enabled + no failure-state markers) and Down (disabled OR
-    has at least one failure-state row, whole-host or per-provider).
-    Each group caps at 50 rows with a `…and N more` overflow line so
-    a large fleet still fits inside Telegram's 4096-char message cap.
+    """``/hosts`` — split the curated fleet into three grouped lists:
+    Active (enabled + no failure-state markers), Down (enabled but has
+    at least one failure-state row — whole-host or per-provider — i.e.
+    actually failing), and Disabled (turned off by config; this wins
+    over a failure marker). Each group caps at 50 rows with a
+    `…and N more` overflow line so a large fleet still fits inside
+    Telegram's 4096-char message cap.
     """
     hosts = _listener()._load_hosts_config()
     if not hosts:
@@ -733,10 +773,16 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
     paused_set = _load_host_paused_set()
     active: list[dict] = []
     down: list[dict] = []
+    disabled: list[dict] = []
     for h in hosts:
         enabled = h.get("enabled", True)
         hid = h.get("id") or ""
-        if not enabled or hid in paused_set:
+        # Disabled-by-config wins over a failure marker: an operator who
+        # turned a host OFF cares that it's disabled, not that it stopped
+        # answering. Enabled-but-failing => down; everything else active.
+        if not enabled:
+            disabled.append(h)
+        elif hid in paused_set:
             down.append(h)
         else:
             active.append(h)
@@ -750,40 +796,34 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
                 + (f" ({_listener()._escape(addr)})" if addr else ""))
 
     out_lines: list[str] = [
-        f"<b>Curated hosts</b> — {len(active)} active, {len(down)} down/disabled",
+        f"<b>Curated hosts</b> — {len(active)} active, {len(down)} down, "
+        f"{len(disabled)} disabled",
     ]
 
-    # Active group — only render the heading + list when non-empty.
-    if active:
+    # Three groups, each rendered only when non-empty. Active first, then
+    # Down (enabled but failing — actionable), then Disabled (turned off
+    # by config — informational). Each capped at 50 with an overflow line.
+    # noinspection PyProtectedMember
+    def _render_group(rows: list[dict], heading: str, emoji: str) -> None:
+        if not rows:
+            return
         out_lines.append("")
-        out_lines.append(f"🟢 <b>Active</b> ({len(active)})")
-        for h in active[:50]:
-            out_lines.append(_render_row(h, "🟢"))
-        if len(active) > 50:
-            out_lines.append(f"<i>…and {len(active) - 50} more.</i>")
+        out_lines.append(f"{emoji} <b>{heading}</b> ({len(rows)})")
+        for host_row in rows[:50]:
+            out_lines.append(_render_row(host_row, emoji))
+        if len(rows) > 50:
+            out_lines.append(f"<i>…and {len(rows) - 50} more.</i>")
 
-    # Down / disabled group.
-    if down:
-        out_lines.append("")
-        out_lines.append(f"🔴 <b>Down / disabled</b> ({len(down)})")
-        for h in down[:50]:
-            # Per-host emoji disambiguation: ⚪ for disabled-by-config,
-            # 🔴 for actually-failing. Matches the original
-            # `_listener()._host_status_emoji` semantics so operators reading the
-            # reply can distinguish "we turned this off" vs "this is
-            # broken".
-            emoji = "⚪" if not h.get("enabled", True) else "🔴"
-            out_lines.append(_render_row(h, emoji))
-        if len(down) > 50:
-            out_lines.append(f"<i>…and {len(down) - 50} more.</i>")
+    _render_group(active, "Active", "🟢")
+    _render_group(down, "Down", "🔴")
+    _render_group(disabled, "Disabled", "⚪")
 
-    # Footer — disclose the cap dimension so operators understand
-    # WHY 50. Telegram caps a single message at 4096 chars and the
-    # bot's `_listener()._send_reply` would HTTP-400 above that. Surfacing the
-    # SPA's Hosts view as the alternative gives operators a clear
-    # path to the full list. Only fires when at least one group was
-    # truncated; otherwise the reply already fits.
-    if len(active) > 50 or len(down) > 50:
+    # Footer — disclose the cap dimension so operators understand WHY 50.
+    # Telegram caps a single message at 4096 chars and the bot's
+    # `_listener()._send_reply` would HTTP-400 above that. Surfacing the
+    # SPA's Hosts view as the alternative gives operators a clear path to
+    # the full list. Only fires when at least one group was truncated.
+    if len(active) > 50 or len(down) > 50 or len(disabled) > 50:
         out_lines.append("")
         out_lines.append(
             "<i>Cap is 50 per group to fit Telegram's 4096-char message "

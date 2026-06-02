@@ -132,6 +132,16 @@ SKILLS: tuple[dict, ...] = (
     },
 )
 
+# Every skill above is FLEET-wide — `run_skill` ignores the targeted chip
+# and fans out across all AdGuard instances (status aggregates; the
+# actions apply to every host). The registry stamps `fleet: True` onto
+# each skill entry from this module flag so the Telegram slash command +
+# AI dispatch run host-less (no per-host arg / "specify a host" prompt)
+# and the /help listing omits the `<host>` hint. A future app with MIXED
+# fleet / per-instance skills can instead set `"fleet": True` on the
+# individual skill dicts (the registry honours either).
+FLEET_SKILLS: bool = True
+
 # Per-app modules intentionally share the cache + requires_api_key +
 # resolve_base_url shape — duplication is the documented price of full
 # per-app encapsulation (PyCharm flags it Info-level; not suppressible).
