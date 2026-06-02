@@ -28,8 +28,12 @@
        hydrate, matching every other admin Tunables collapsible. -->
   <details x-show="isAdmin()" class="mb-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
     <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+      </svg>
       <span x-text="t('common.tunables')"></span>
     </summary>
     <div class="mt-3 space-y-3">
@@ -547,124 +551,124 @@
        @keydown.escape.window="closeAppCatalogEditor()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeAppCatalogEditor()"></div>
     <div data-apps-editor-anchor class="relative bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 shadow-lg max-w-[640px] w-full mx-4 max-h-[85vh] overflow-y-auto scrollbar space-y-3">
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
-        <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
-        </svg>
-        <!-- App brand icon in the title bar — matches the instance-edit
-             modal so both editors read the same. Resolves from the
-             editor's icon slug → name; hidden until one is set. -->
-        <img x-show="appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name"
-             :src="iconUrlFor(appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name)"
-             alt="" width="20" height="20" class="rounded flex-shrink-0"
-             @error="$event.target.style.display='none'">
-        <span class="truncate" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></span>
-      </h3>
-      <button type="button" class="user-action-btn"
-              :aria-label="t('actions.close') || 'Close'"
-              :title="t('actions.close') || 'Close'"
-              @click="closeAppCatalogEditor()">
-        <svg width="14" height="14" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
-        </svg>
-      </button>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div>
-        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_name') || 'Name'"></label>
-        <input type="text" class="w-full" maxlength="128" x-model="appsCatalogEdit.name">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold fs-md truncate inline-flex items-center gap-1.5 min-w-0">
+          <svg width="16" height="16" class="text-[var(--primary)] flex-shrink-0" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+          </svg>
+          <!-- App brand icon in the title bar — matches the instance-edit
+               modal so both editors read the same. Resolves from the
+               editor's icon slug → name; hidden until one is set. -->
+          <img x-show="appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name"
+               :src="iconUrlFor(appsCatalogEdit.icon || appsCatalogEdit.slug || appsCatalogEdit.name)"
+               alt="" width="20" height="20" class="rounded flex-shrink-0"
+               @error="$event.target.style.display='none'">
+          <span class="truncate" x-text="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"></span>
+        </h3>
+        <button type="button" class="user-action-btn"
+                :aria-label="t('actions.close') || 'Close'"
+                :title="t('actions.close') || 'Close'"
+                @click="closeAppCatalogEditor()">
+          <svg width="14" height="14" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+          </svg>
+        </button>
       </div>
-      <div>
-        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_slug') || 'Slug'"></label>
-        <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.slug"
-               :placeholder="t('admin_apps.field_slug_placeholder') || 'auto from name'">
-      </div>
-      <div>
-        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_icon') || 'Icon slug'"></label>
-        <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.icon"
-               :placeholder="t('admin_apps.field_icon_placeholder') || 'defaults to slug'">
-      </div>
-      <div>
-        <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_description') || 'Description'"></label>
-        <input type="text" class="w-full" maxlength="512" x-model="appsCatalogEdit.description">
-      </div>
-    </div>
-
-    <!-- Template-level "Show extras" — applies to every instance pinned
-         to this template unless a per-instance override is set. Gated
-         on `appsTemplateSupportsExtras(...)` — registry-driven via
-         `window.OG_APPS_EXTENDERS`; any template whose slug matches
-         a registered per-app SPA module (under `static/js/apps/`)
-         qualifies. The checkbox renders only where there's something
-         to opt out of. -->
-    <div x-show="appsTemplateSupportsExtras(appsCatalogEdit.slug || appsCatalogEdit.name)">
-      <label class="inline-flex items-center gap-2 fs-sm">
-        <input type="checkbox" x-model="appsCatalogEdit.show_extras">
-        <span x-text="t('admin_apps.template_show_extras') || 'Show extras (UPS stats etc.) on app cards by default'"></span>
-      </label>
-      <p class="fs-2xs text-[var(--text-faint)] mt-1"
-         x-text="t('admin_apps.template_show_extras_hint') || 'Per-instance overrides take precedence. Uncheck here to hide by default but allow individual hosts to opt in.'"></p>
-    </div>
-
-    <div>
-      <div class="flex items-center justify-between mb-1">
-        <label class="block fs-xs font-medium" x-text="t('admin_apps.field_ports') || 'Default ports'"></label>
-        <button type="button" class="btn btn-soft fs-2xs" @click="addAppCatalogPort()"
-                x-text="(t('admin_apps.add_port') || 'Add port')"></button>
-      </div>
-      <template x-for="(p, idx) in (appsCatalogEdit.default_ports || [])" :key="idx">
-        <!-- Single flex-wrap row matching the instance-edit modal's port
-             editor so both read the same and the URL toggle stays on the
-             SAME line as the port fields (captions become placeholders,
-             exactly as the instance editor does). One root element — a
-             <template x-for> renders only its first root child. -->
-        <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
-          <input type="number" class="w-[78px] fs-xs" min="1" max="65535" x-model.number="p.port"
-                 :placeholder="t('admin_apps.port_port') || 'Port'">
-          <select class="fs-xs" x-model="p.protocol">
-            <option value="tcp">tcp</option>
-            <option value="udp">udp</option>
-            <option value="http">http</option>
-            <option value="https">https</option>
-          </select>
-          <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="64" x-model="p.label"
-                 :placeholder="t('admin_apps.port_label') || 'Label'">
-          <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="256" x-model="p.probe_path"
-                 :placeholder="t('admin_apps.port_path') || 'Probe path'">
-          <input type="number" class="w-[64px] fs-xs" min="0" max="599" x-model.number="p.probe_status"
-                 :placeholder="t('admin_apps.port_status') || 'Status'">
-          <!-- URL toggle — when ticked, this port renders as a clickable link
-               (<scheme>://<host>:<port><path>) in the Apps view + host drawer,
-               on ANY protocol. Cloned onto the chip when the template is pinned.
-               Compact "URL" checkbox matching the instance-edit modal's per-port
-               toggle so both editors read the same. -->
-          <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap cursor-pointer"
-                 :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
-            <input type="checkbox" x-model="p.open_url">
-            <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
-          </label>
-          <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
-                  :aria-label="t('admin_apps.remove_port') || 'Remove port'">
-            <svg width="13" height="13" aria-hidden="true">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
-            </svg>
-          </button>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_name') || 'Name'"></label>
+          <input type="text" class="w-full" maxlength="128" x-model="appsCatalogEdit.name">
         </div>
-      </template>
-    </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_slug') || 'Slug'"></label>
+          <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.slug"
+                 :placeholder="t('admin_apps.field_slug_placeholder') || 'auto from name'">
+        </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_icon') || 'Icon slug'"></label>
+          <input type="text" class="w-full" maxlength="64" x-model="appsCatalogEdit.icon"
+                 :placeholder="t('admin_apps.field_icon_placeholder') || 'defaults to slug'">
+        </div>
+        <div>
+          <label class="block fs-xs font-medium mb-1" x-text="t('admin_apps.field_description') || 'Description'"></label>
+          <input type="text" class="w-full" maxlength="512" x-model="appsCatalogEdit.description">
+        </div>
+      </div>
 
-    <div class="flex items-center gap-2 pt-2">
-      <button type="button" class="btn btn-primary fs-sm" @click="saveAppCatalogEntry()"
-              :disabled="appsCatalogSaving || !appsCatalogDirty()"
-              :title="!appsCatalogDirty() ? (t('apps.no_changes') || 'No changes to save') : ''">
-        <span x-text="t('actions.save') || 'Save'"></span>
-      </button>
-      <button type="button" class="btn btn-soft fs-sm" @click="closeAppCatalogEditor()" :disabled="appsCatalogSaving">
-        <span x-text="t('actions.cancel') || 'Cancel'"></span>
-      </button>
-      <span x-show="appsCatalogEditError" class="fs-xs text-[var(--danger)]" x-text="appsCatalogEditError"></span>
-    </div>
+      <!-- Template-level "Show extras" — applies to every instance pinned
+           to this template unless a per-instance override is set. Gated
+           on `appsTemplateSupportsExtras(...)` — registry-driven via
+           `window.OG_APPS_EXTENDERS`; any template whose slug matches
+           a registered per-app SPA module (under `static/js/apps/`)
+           qualifies. The checkbox renders only where there's something
+           to opt out of. -->
+      <div x-show="appsTemplateSupportsExtras(appsCatalogEdit.slug || appsCatalogEdit.name)">
+        <label class="inline-flex items-center gap-2 fs-sm">
+          <input type="checkbox" x-model="appsCatalogEdit.show_extras">
+          <span x-text="t('admin_apps.template_show_extras') || 'Show extras on app cards by default'"></span>
+        </label>
+        <p class="fs-2xs text-[var(--text-faint)] mt-1"
+           x-text="t('admin_apps.template_show_extras_hint') || 'Per-instance overrides take precedence. Uncheck here to hide by default but allow individual hosts to opt in.'"></p>
+      </div>
+
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <label class="block fs-xs font-medium" x-text="t('admin_apps.field_ports') || 'Default ports'"></label>
+          <button type="button" class="btn btn-soft fs-2xs" @click="addAppCatalogPort()"
+                  x-text="(t('admin_apps.add_port') || 'Add port')"></button>
+        </div>
+        <template x-for="(p, idx) in (appsCatalogEdit.default_ports || [])" :key="idx">
+          <!-- Single flex-wrap row matching the instance-edit modal's port
+               editor so both read the same and the URL toggle stays on the
+               SAME line as the port fields (captions become placeholders,
+               exactly as the instance editor does). One root element — a
+               <template x-for> renders only its first root child. -->
+          <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+            <input type="number" class="w-[78px] fs-xs" min="1" max="65535" x-model.number="p.port"
+                   :placeholder="t('admin_apps.port_port') || 'Port'">
+            <select class="fs-xs" x-model="p.protocol">
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+            <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="64" x-model="p.label"
+                   :placeholder="t('admin_apps.port_label') || 'Label'">
+            <input type="text" class="flex-1 min-w-[90px] fs-xs" maxlength="256" x-model="p.probe_path"
+                   :placeholder="t('admin_apps.port_path') || 'Probe path'">
+            <input type="number" class="w-[64px] fs-xs" min="0" max="599" x-model.number="p.probe_status"
+                   :placeholder="t('admin_apps.port_status') || 'Status'">
+            <!-- URL toggle — when ticked, this port renders as a clickable link
+                 (<scheme>://<host>:<port><path>) in the Apps view + host drawer,
+                 on ANY protocol. Cloned onto the chip when the template is pinned.
+                 Compact "URL" checkbox matching the instance-edit modal's per-port
+                 toggle so both editors read the same. -->
+            <label class="flex items-center gap-1 fs-3xs text-[var(--text-faint)] whitespace-nowrap cursor-pointer"
+                   :title="t('admin_apps.port_open_url_title') || 'Open as URL — makes the port pill a clickable link (any protocol)'">
+              <input type="checkbox" x-model="p.open_url">
+              <span x-text="t('admin_apps.port_open_url_short') || 'URL'"></span>
+            </label>
+            <button type="button" class="user-action-btn user-action-btn--danger" @click="removeAppCatalogPort(idx)"
+                    :aria-label="t('admin_apps.remove_port') || 'Remove port'">
+              <svg width="13" height="13" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
+              </svg>
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button type="button" class="btn btn-primary fs-sm" @click="saveAppCatalogEntry()"
+                :disabled="appsCatalogSaving || !appsCatalogDirty()"
+                :title="!appsCatalogDirty() ? (t('apps.no_changes') || 'No changes to save') : ''">
+          <span x-text="t('actions.save') || 'Save'"></span>
+        </button>
+        <button type="button" class="btn btn-soft fs-sm" @click="closeAppCatalogEditor()" :disabled="appsCatalogSaving">
+          <span x-text="t('actions.cancel') || 'Cancel'"></span>
+        </button>
+        <span x-show="appsCatalogEditError" class="fs-xs text-[var(--danger)]" x-text="appsCatalogEditError"></span>
+      </div>
     </div>
   </div>
 
@@ -1033,7 +1037,7 @@
           <input type="text" class="w-full" maxlength="64" x-model="appsInstanceEditForm.icon"
                  :placeholder="appsInstanceEditForm.catalog_name || ''">
         </div>
-        <label class="inline-flex items-center gap-2 fs-sm">
+        <label class="flex items-center gap-2 fs-sm">
           <input type="checkbox" x-model="appsInstanceEditForm.probe_enabled">
           <span x-text="t('admin_apps.instance_edit_probe_enabled') || 'Probe this app for reachability'"></span>
         </label>
@@ -1050,12 +1054,12 @@
              only for templates whose slug matches a registered
              per-app module. -->
         <label x-show="appsTemplateSupportsExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)"
-               class="inline-flex items-center gap-2 fs-sm">
+               class="flex items-center gap-2 fs-sm">
           <input type="checkbox"
                  :indeterminate="appsInstanceEditForm.show_extras === null"
                  :checked="appsInstanceEditForm.show_extras === true"
                  @change="appsInstanceEditForm.show_extras = $event.target.checked">
-          <span x-text="t('admin_apps.instance_edit_show_extras') || 'Show extras (UPS stats etc.) on the app card'"></span>
+          <span x-text="t('admin_apps.instance_edit_show_extras') || 'Show extras on the app card'"></span>
         </label>
         <!-- Per-app editor-fields hook — every per-app partial under
              `_components/apps/` self-gates via its own

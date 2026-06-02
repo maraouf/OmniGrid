@@ -181,7 +181,11 @@ export default {
       return;
     }
     this.appsInstanceTestBusy = true;
-    this.appsInstanceTestResult = null;
+    // {pending, ok, status, detail} shape so the SHARED og-test-connection
+    // component (used by Portainer / OIDC / etc.) drives the per-app editor
+    // button + result box identically — pending=true shows the spinner +
+    // loading box, then the real outcome replaces it.
+    this.appsInstanceTestResult = {pending: true};
     try {
       const r = await fetch('/api/services/'
         + encodeURIComponent(f.host_id) + '/'
@@ -196,12 +200,16 @@ export default {
       });
       const j = await r.json().catch(() => ({}));
       this.appsInstanceTestResult = {
+        pending: false,
         ok: !!(r.ok && j && j.ok),
+        status: (j && j.status) || r.status,
         detail: (j && (j.detail || j.error)) || (r.ok ? 'OK' : 'HTTP ' + r.status),
       };
     } catch (err) {
       this.appsInstanceTestResult = {
+        pending: false,
         ok: false,
+        status: 0,
         detail: (err && err.message) ? err.message : String(err),
       };
     } finally {
