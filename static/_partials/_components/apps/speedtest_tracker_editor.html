@@ -26,21 +26,12 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.speedtest.api_key_hint') || 'Required for the expanded card to fetch latest/average/graph data. Leave blank to keep the stored key.'"></p>
     </div>
-    <div class="flex items-center gap-2">
-      <button type="button"
-              class="btn btn-secondary fs-xs"
-              :disabled="appsInstanceTestBusy"
-              @click="testInstanceCredential()">
-        <span x-show="!appsInstanceTestBusy"
-              x-text="t('actions.test_connection') || 'Test connection'"></span>
-        <span x-show="appsInstanceTestBusy"
-              x-text="t('common.testing') || 'Testing...'"></span>
-      </button>
-      <span x-show="appsInstanceTestResult"
-            :class="(appsInstanceTestResult && appsInstanceTestResult.ok)
-              ? 'fs-xs text-[var(--success)]'
-              : 'fs-xs text-[var(--danger)]'"
-            x-text="appsInstanceTestResult ? appsInstanceTestResult.detail : ''"></span>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
   </div>
 </template>

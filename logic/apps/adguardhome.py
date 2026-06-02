@@ -172,13 +172,24 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "detail": "no upstream URL configured", "status": 0}
+    url = base + "/control/status"
     try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0,
+        # follow_redirects=True: AdGuard (or a reverse proxy in front of it)
+        # commonly 307/308-redirects /control/status (http->https, or a
+        # trailing-slash / sub-path normalisation). Without following, the
+        # redirect surfaced to the operator as a bare "HTTP 307".
+        async with httpx.AsyncClient(verify=False, timeout=10.0, follow_redirects=True,
                                      auth=httpx.BasicAuth(username, password)) as cli:
-            r = await cli.get(base + "/control/status",
-                              headers={"Accept": "application/json"})
+            r = await cli.get(url, headers={"Accept": "application/json"})
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[adguard] warning: test-connection {url} failed — {type(e).__name__}: {e}")
         return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
+    # Log the resolved URL + final status (+ the redirect chain when the
+    # upstream bounced) so a failed test is diagnosable from Admin -> Logs
+    # without exposing the password.
+    redirects = " <- ".join(str(h.url) for h in r.history) if r.history else ""
+    print(f"[adguard] INFO test-connection url={url} -> HTTP {r.status_code} "
+          f"final={r.url}{(' via ' + redirects) if redirects else ''}")
     if r.status_code == 200:
         ver = ""
         try:
@@ -188,6 +199,12 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
         return {"ok": True, "detail": f"OK{(' — ' + ver) if ver else ''}", "status": 200}
     if r.status_code in (401, 403):
         return {"ok": False, "detail": "auth failed (check username / password)",
+                "status": r.status_code}
+    if r.status_code in (301, 302, 307, 308):
+        loc = r.headers.get("location") or "?"
+        return {"ok": False,
+                "detail": f"HTTP {r.status_code} redirect to {loc} — check the URL "
+                          f"scheme (http vs https) / port",
                 "status": r.status_code}
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
@@ -230,7 +247,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
 
     async def _get(path: str) -> Optional[dict]:
         try:
-            async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth) as cli:
+            async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth, follow_redirects=True) as cli:
                 r = await cli.get(base + path, headers=headers)
         except (httpx.HTTPError, OSError) as exc:  # noqa: BLE001
             raise RuntimeError(f"{type(exc).__name__}: {exc}")
@@ -339,7 +356,7 @@ async def _set_protection(base: str, auth: httpx.BasicAuth, enabled: bool,
     if not enabled and duration_ms > 0:
         body["duration"] = int(duration_ms)
     try:
-        async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth) as cli:
+        async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth, follow_redirects=True) as cli:
             r = await cli.post(base + "/control/protection", json=body)
             if r.status_code in (404, 405):
                 # Older AdGuard — no /control/protection; dns_config has no
@@ -357,7 +374,7 @@ async def _set_protection(base: str, auth: httpx.BasicAuth, enabled: bool,
 async def _refresh_filters(base: str, auth: httpx.BasicAuth) -> None:
     """POST /control/filtering/refresh {whitelist:false}. Raises on failure."""
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30.0, auth=auth) as cli:
+        async with httpx.AsyncClient(verify=False, timeout=30.0, auth=auth, follow_redirects=True) as cli:
             r = await cli.post(base + "/control/filtering/refresh",
                                json={"whitelist": False})
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001

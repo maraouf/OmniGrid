@@ -10232,14 +10232,16 @@
                                  :class="appSkillResult(inst, sk.id).ok ? 'border-[var(--border)] bg-[var(--surface-2)]' : 'border-[var(--danger)]'">
                               <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1.5"
                                    x-text="appSkillLabel(sk)"></div>
-                              <!-- OK: render each detail line as a wrapping row of
-                                   stat chips (non-stacked). ERROR: plain text. -->
+                              <!-- OK: render each detail line as ONE inline row —
+                                   the stats flow together (plain text, not wide
+                                   per-stat chips) so ⬇️/⬆️/🏓 stay on a single line
+                                   in the narrow drawer instead of stacking. -->
                               <template x-if="appSkillResult(inst, sk.id).ok">
-                                <div class="flex flex-col gap-1.5">
+                                <div class="flex flex-col gap-1">
                                   <template x-for="(segs, li) in appSkillResultLines(appSkillResult(inst, sk.id))" :key="li">
-                                    <div class="flex flex-wrap items-center gap-1.5">
+                                    <div class="apps-skill-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 fs-xs">
                                       <template x-for="(seg, si) in segs" :key="si">
-                                        <span class="apps-skill-stat" x-text="seg"></span>
+                                        <span class="whitespace-nowrap" x-text="seg"></span>
                                       </template>
                                     </div>
                                   </template>
