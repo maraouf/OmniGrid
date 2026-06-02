@@ -103,14 +103,14 @@ SKILLS: tuple[dict, ...] = (
     },
     {
         "id": "adguard_enable",
-        "name": "Enable protection (fleet)",
+        "name": "Enable protection",
         "ai_phrases": ("enable adguard, turn on protection, enable dns blocking, "
                        "turn adguard on, start blocking ads"),
         "destructive": False,
     },
     {
         "id": "adguard_disable",
-        "name": "Disable protection (fleet)",
+        "name": "Disable protection",
         "ai_phrases": ("disable adguard, turn off protection, pause ad blocking, "
                        "stop blocking, turn adguard off indefinitely"),
         "destructive": True,
@@ -118,14 +118,14 @@ SKILLS: tuple[dict, ...] = (
     *(_disable_skill(lbl, sec) for lbl, sec in DISABLE_PRESETS),
     {
         "id": "adguard_refresh",
-        "name": "Refresh blocklists (fleet)",
+        "name": "Refresh blocklists",
         "ai_phrases": ("refresh adguard blocklists, update filter lists, "
                        "refresh dns filters, update adguard lists"),
         "destructive": False,
     },
     {
         "id": "adguard_reenable",
-        "name": "Re-enable (cancel timed disable, fleet)",
+        "name": "Re-enable (cancel timed disable)",
         "ai_phrases": ("cancel timed disable, re-enable adguard now, "
                        "turn protection back on, undo disable"),
         "destructive": False,
