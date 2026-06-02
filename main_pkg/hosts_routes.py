@@ -1300,6 +1300,14 @@ def _clean_host_services(raw: Any) -> list[dict]:
         ak = entry.get("api_key")
         if isinstance(ak, str) and ak.strip():
             cleaned["api_key"] = ak.strip()[:512]
+        # Per-instance username — the NON-secret half of a Basic-auth
+        # credential pair (e.g. AdGuard Home: username here + password in
+        # `api_key`). Plain (returned to the SPA editor verbatim, unlike
+        # the secret `api_key`), bounded. The SPA round-trips it, so no
+        # keep-current preservation pass is needed (only secrets get that).
+        un = entry.get("username")
+        if isinstance(un, str) and un.strip():
+            cleaned["username"] = un.strip()[:128]
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

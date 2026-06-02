@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from logic.coerce import int_or_none
 
+from . import adguardhome
 from . import apc
 from . import speedtest_tracker
 
@@ -44,6 +45,7 @@ def _register(module: ModuleType) -> None:
             _APPS[s] = module
 
 
+_register(adguardhome)
 _register(apc)
 _register(speedtest_tracker)
 
@@ -165,6 +167,58 @@ def resolve_chip(host_id: str, service_idx: int):
     return None, None, ""
 
 
+def _load_hosts_and_catmap() -> "tuple[list, dict[int, dict[str, Any]]]":
+    """Load ``hosts_config`` + the catalog id->row map ONCE. Shared by
+    ``instances_for_slug`` + ``available_app_skills_context`` so the
+    hosts-config decode + catalog map build live in one place. Returns
+    ``([], {})`` on any failure (defensive — callers stay safe / never
+    raise). No upstream calls."""
+    # noinspection PyBroadException
+    try:
+        import json as _json  # noqa: PLC0415
+        from logic.db import get_setting  # noqa: PLC0415
+        from logic.settings_keys import Settings  # noqa: PLC0415
+        raw = get_setting(Settings.HOSTS_CONFIG) or ""
+        hosts = _json.loads(raw) if raw.strip() else []
+    except Exception:  # noqa: BLE001
+        return [], {}
+    if not isinstance(hosts, list):
+        return [], {}
+    from logic.service_catalog import list_catalog  # noqa: PLC0415
+    cat_by_id: dict[int, dict[str, Any]] = {}
+    for r in list_catalog():
+        _rid = int_or_none(r.get("id"))
+        if _rid is not None:
+            cat_by_id[_rid] = r
+    return hosts, cat_by_id
+
+
+def instances_for_slug(slug: str) -> list:
+    """Enumerate every pinned chip whose catalog slug matches ``slug`` as
+    ``[(host_id, service_idx, host_row, chip)]`` — the server-side fleet
+    enumerator for apps whose skills act across ALL their instances (e.g.
+    AdGuard's fleet enable/disable). Never raises (returns [] on any
+    failure). No upstream calls — pure hosts_config walk."""
+    want = str(slug or "").strip().lower()
+    if not want:
+        return []
+    out: list = []
+    hosts, cat_by_id = _load_hosts_and_catmap()
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        host_id = str(h.get("id") or "").strip()
+        services = h.get("services") or []
+        if not isinstance(services, list):
+            continue
+        for idx, chip in enumerate(services):
+            if not isinstance(chip, dict):
+                continue
+            if _chip_slug(chip, cat_by_id) == want:
+                out.append((host_id, idx, h, chip))
+    return out
+
+
 def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
     """Build the AI / Telegram-AI ``app_skills`` context list: every pinned
     app chip whose app declares SKILLS AND (when the app requires it) has its
@@ -180,29 +234,10 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
     timezone — so the AI reply shows the timestamp the way the operator
     set it under Settings → Profile → Formats."""
     out: list = []
-    # defensive "never raises" boundary: context assembly must stay safe
-    # regardless of a bad hosts_config blob / DB error.
-    # noinspection PyBroadException
-    try:
-        import json as _json  # noqa: PLC0415
-        from logic.db import get_setting  # noqa: PLC0415
-        from logic.settings_keys import Settings  # noqa: PLC0415
-        raw = get_setting(Settings.HOSTS_CONFIG) or ""
-        hosts = _json.loads(raw) if raw.strip() else []
-    except Exception:  # noqa: BLE001
-        return out
-    if not isinstance(hosts, list):
-        return out
-    # Build the catalog id->row map ONCE so per-chip slug + display-name
-    # resolution is O(1) (no per-chip DB read inside the host/chip loop).
-    # list_catalog() already swallows DB errors + returns [], so no guard
-    # needed here.
-    from logic.service_catalog import list_catalog  # noqa: PLC0415
-    cat_by_id: dict[int, dict[str, Any]] = {}
-    for r in list_catalog():
-        _rid = int_or_none(r.get("id"))
-        if _rid is not None:
-            cat_by_id[_rid] = r
+    # Shared hosts_config decode + catalog id->row map (defensive — returns
+    # [], {} on any failure so context assembly stays safe). The map makes
+    # per-chip slug + display-name resolution O(1) inside the loop.
+    hosts, cat_by_id = _load_hosts_and_catmap()
     for h in hosts:
         if not isinstance(h, dict):
             continue

@@ -206,65 +206,65 @@
          icon + title + control pills. CSS: `.apps-card--editing
          .apps-card-body-region { display: none }`. -->
     <div class="apps-card-body-region">
-    <template x-if="!appsCardVisible(app.group_id)">
-      <div class="fs-2xs text-[var(--text-faint)] italic mt-1"
-           x-text="(app.instance_count || 0) + ' ' + (t('apps.counts.up_suffix') || 'instance(s)')"></div>
-    </template>
-    <template x-if="appsCardVisible(app.group_id) && !appsCardReady(app.group_id)">
-      <!-- Body-shape skeleton — mirrors the real chip-list height so
-           swapping in the body once ready doesn't visibly shift the
-           grid row. Three pseudo-rows + a port-pill row, all using
-           the same shimmer animation as the Stacks / Services
-           initial-paint skeletons (see `.skeleton-cell` in
-           static/css/style.css). aria-hidden — the loading state is
-           announced by the parent card's status pill. -->
-      <div class="space-y-1 mt-1" aria-hidden="true">
-        <div class="skeleton-cell short" style="width: 70%;"></div>
-        <div class="skeleton-cell short" style="width: 55%;"></div>
-        <div class="skeleton-cell bar" style="width: 80%;"></div>
-      </div>
-    </template>
-    <template x-if="appsCardReady(app.group_id)">
-      <!-- `apps-card-ready--has-extras` flips the body into a 2-column grid
-           at WIDE card widths (instance list LEFT, per-app extras RIGHT) so
-           Speedtest / APC extras fit BESIDE the instances within the fixed
-           height preset instead of stacking below + clipping — the card
-           never grows past its preset. Only applied when extras actually
-           match, so plain apps keep full-width instance rows. -->
-      <div class="apps-card-ready"
-           :class="anyAppExtrasMatch(app) ? 'apps-card-ready--has-extras' : ''">
-        <!-- Per-host instance list — each row in a subtle row-card with
-             hover background so operators get a precise hit-target signal
-             (clicking the host name / sparkline opens the parent app
-             drawer via the article's @click; only the per-port pills +
-             external link short-circuit propagation). -->
-        <ul class="space-y-0.5 fs-xs">
-          <template x-for="inst in appsVisibleInstances(app)" :key="inst.host_id + ':' + inst.service_idx">
-            <li class="apps-card-instance">
-              <div class="apps-card-instance-row">
+      <template x-if="!appsCardVisible(app.group_id)">
+        <div class="fs-2xs text-[var(--text-faint)] italic mt-1"
+             x-text="(app.instance_count || 0) + ' ' + (t('apps.counts.up_suffix') || 'instance(s)')"></div>
+      </template>
+      <template x-if="appsCardVisible(app.group_id) && !appsCardReady(app.group_id)">
+        <!-- Body-shape skeleton — mirrors the real chip-list height so
+             swapping in the body once ready doesn't visibly shift the
+             grid row. Three pseudo-rows + a port-pill row, all using
+             the same shimmer animation as the Stacks / Services
+             initial-paint skeletons (see `.skeleton-cell` in
+             static/css/style.css). aria-hidden — the loading state is
+             announced by the parent card's status pill. -->
+        <div class="space-y-1 mt-1" aria-hidden="true">
+          <div class="skeleton-cell short" style="width: 70%;"></div>
+          <div class="skeleton-cell short" style="width: 55%;"></div>
+          <div class="skeleton-cell bar" style="width: 80%;"></div>
+        </div>
+      </template>
+      <template x-if="appsCardReady(app.group_id)">
+        <!-- `apps-card-ready--has-extras` flips the body into a 2-column grid
+             at WIDE card widths (instance list LEFT, per-app extras RIGHT) so
+             Speedtest / APC extras fit BESIDE the instances within the fixed
+             height preset instead of stacking below + clipping — the card
+             never grows past its preset. Only applied when extras actually
+             match, so plain apps keep full-width instance rows. -->
+        <div class="apps-card-ready"
+             :class="anyAppExtrasMatch(app) ? 'apps-card-ready--has-extras' : ''">
+          <!-- Per-host instance list — each row in a subtle row-card with
+               hover background so operators get a precise hit-target signal
+               (clicking the host name / sparkline opens the parent app
+               drawer via the article's @click; only the per-port pills +
+               external link short-circuit propagation). -->
+          <ul class="space-y-0.5 fs-xs">
+            <template x-for="inst in appsVisibleInstances(app)" :key="inst.host_id + ':' + inst.service_idx">
+              <li class="apps-card-instance">
+                <div class="apps-card-instance-row">
             <span class="apps-card-dot"
                   :class="'apps-card-dot--' + inst.status"
                   :title="t('apps.status_' + inst.status) || inst.status"
                   aria-hidden="true"></span>
-                <!-- Visually-hidden status so a screen reader announces every
-                     instance's state (the colour dot is aria-hidden; an "up"
-                     instance otherwise had no announced status — only the
-                     gated reason line carries it for degraded/down). -->
-                <span class="sr-only" x-text="t('apps.status_' + inst.status) || inst.status"></span>
-                <span class="apps-card-instance-host"
-                      :title="appsInstanceHostTitle(inst)"
-                      x-text="inst.host_address || inst.host_id"></span>
-                <!-- Inline latency + sparkline — the DEFAULT placement for most
-                     sizes. Specific sizes (e.g. 3x2) hide these via CSS and show
-                     the full-width .apps-card-spark-row below the ports instead;
-                     keeping BOTH in the DOM (size-gated by CSS) means the
-                     relocation never touches the sizes the user didn't ask for.
-                     appsInstanceSpark is WeakMap-memoized so the duplicate
-                     single-element x-for is a cheap lookup, not a recompute. -->
-                <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="apps-card-latency"
-                      x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
-                <template x-if="(inst.status_history || []).length > 1">
-                  <template x-for="sp in [appsInstanceSpark(inst)]" :key="'spark'">
+                  <!-- Visually-hidden status so a screen reader announces every
+                       instance's state (the colour dot is aria-hidden; an "up"
+                       instance otherwise had no announced status — only the
+                       gated reason line carries it for degraded/down). -->
+                  <span class="sr-only" x-text="t('apps.status_' + inst.status) || inst.status"></span>
+                  <span class="apps-card-instance-host"
+                        :title="appsInstanceHostTitle(inst)"
+                        x-text="inst.host_address || inst.host_id"></span>
+                  <!-- Inline latency + sparkline — the DEFAULT placement for most
+                       sizes. Specific sizes (e.g. 3x2) hide these via CSS and show
+                       the full-width .apps-card-spark-row below the ports instead;
+                       keeping BOTH in the DOM (size-gated by CSS) means the
+                       relocation never touches the sizes the user didn't ask for.
+                       appsInstanceSpark is WeakMap-memoized so the duplicate
+                       single-element x-for is a cheap lookup, not a recompute. -->
+                  <span x-show="inst.last_probe && inst.last_probe.rtt_ms" class="apps-card-latency"
+                        x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
+                  <template x-if="(inst.status_history || []).length > 1">
+                    <template x-for="sp in [appsInstanceSpark(inst)]" :key="'spark'">
                     <span class="apps-spark-wrap"
                           :title="sp ? t('apps.spark_title', { pct: sp.pct, n: sp.n }) : ''">
                       <svg class="apps-spark"
@@ -275,70 +275,70 @@
                                   vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
                       </svg>
                     </span>
+                    </template>
                   </template>
+                  <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
+                     class="apps-card-instance-link" :aria-label="t('apps.open_link') || 'Open service URL'"
+                     @click.stop>
+                    <svg width="12" height="12" aria-hidden="true">
+                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
+                    </svg>
+                  </a>
+                </div>
+                <!-- Diagnosis: WHY this instance is degraded / down. Shows the
+                     failing port's error (multi-port) or the chip-level probe
+                     error so operators don't have to guess. Hidden for up. -->
+                <!-- appsInstanceReason(inst) computed ONCE via a single-element
+                     x-for (was read 3x: x-show + :title + x-text, each doing a
+                     .find() + 2 t() calls). -->
+                <template x-for="rsn in [appsInstanceReason(inst)]" :key="'reason'">
+                  <div x-show="rsn"
+                       class="ps-4 fs-3xs truncate"
+                       :class="inst.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
+                       :title="rsn"
+                       x-text="rsn"></div>
                 </template>
-                <a x-show="inst.url" :href="inst.url" target="_blank" rel="noopener"
-                   class="apps-card-instance-link" :aria-label="t('apps.open_link') || 'Open service URL'"
-                   @click.stop>
-                  <svg width="12" height="12" aria-hidden="true">
-                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-external-link"/>
-                  </svg>
-                </a>
-              </div>
-              <!-- Diagnosis: WHY this instance is degraded / down. Shows the
-                   failing port's error (multi-port) or the chip-level probe
-                   error so operators don't have to guess. Hidden for up. -->
-              <!-- appsInstanceReason(inst) computed ONCE via a single-element
-                   x-for (was read 3x: x-show + :title + x-text, each doing a
-                   .find() + 2 t() calls). -->
-              <template x-for="rsn in [appsInstanceReason(inst)]" :key="'reason'">
-                <div x-show="rsn"
-                     class="ps-4 fs-3xs truncate"
-                     :class="inst.status === 'down' ? 'text-[var(--danger)]' : 'text-[var(--text-faint)]'"
-                     :title="rsn"
-                     x-text="rsn"></div>
-              </template>
-              <!-- Per-port pills for multi-port chips — which port is up /
-                   down + its rtt + error tooltip. Mirrors the host-drawer
-                   Apps card. Single-port chips skip this (reason line above
-                   already carries their one error). -->
-              <!-- Show the port pill for EVERY app (was multi-port only).
-                   A pill flagged open_url (+ http/https) renders as a
-                   clickable link to <scheme>://<host>:<port>; @click.stop
-                   so it doesn't also open the app drawer. -->
-              <div x-show="(inst.port_results || []).length" class="apps-port-grid ps-4">
-                <template x-for="pr in (inst.port_results || [])" :key="pr.port">
-                  <!-- appsPortHref(pr, inst) computed ONCE via a nested
-                       single-element x-for (was read 3x: :class / :href /
-                       :target) and is NOT memoized (cheap string build, but
-                       3 builds per pill per flush). `hrf` is the resolved
-                       link-or-null. -->
-                  <template x-for="hrf in [appsPortHref(pr, inst)]" :key="'href'">
-                    <a class="apps-port-pill"
-                       :class="'apps-port-pill--' + appsPortState(pr) + (hrf ? ' apps-port-pill--link' : '')"
-                       :href="hrf || null"
-                       :target="hrf ? '_blank' : null"
-                       rel="noopener"
-                       @click.stop
-                       :title="appsPortTitle(pr)">
-                      <span class="apps-card-dot apps-port-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
-                      <span class="apps-port-num mono" x-text="pr.port"></span><span class="apps-port-proto mono" x-text="'/' + (pr.protocol || 'tcp')"></span>
-                    </a>
+                <!-- Per-port pills for multi-port chips — which port is up /
+                     down + its rtt + error tooltip. Mirrors the host-drawer
+                     Apps card. Single-port chips skip this (reason line above
+                     already carries their one error). -->
+                <!-- Show the port pill for EVERY app (was multi-port only).
+                     A pill flagged open_url (+ http/https) renders as a
+                     clickable link to <scheme>://<host>:<port>; @click.stop
+                     so it doesn't also open the app drawer. -->
+                <div x-show="(inst.port_results || []).length" class="apps-port-grid ps-4">
+                  <template x-for="pr in (inst.port_results || [])" :key="pr.port">
+                    <!-- appsPortHref(pr, inst) computed ONCE via a nested
+                         single-element x-for (was read 3x: :class / :href /
+                         :target) and is NOT memoized (cheap string build, but
+                         3 builds per pill per flush). `hrf` is the resolved
+                         link-or-null. -->
+                    <template x-for="hrf in [appsPortHref(pr, inst)]" :key="'href'">
+                      <a class="apps-port-pill"
+                         :class="'apps-port-pill--' + appsPortState(pr) + (hrf ? ' apps-port-pill--link' : '')"
+                         :href="hrf || null"
+                         :target="hrf ? '_blank' : null"
+                         rel="noopener"
+                         @click.stop
+                         :title="appsPortTitle(pr)">
+                        <span class="apps-card-dot apps-port-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
+                        <span class="apps-port-num mono" x-text="pr.port"></span><span class="apps-port-proto mono" x-text="'/' + (pr.protocol || 'tcp')"></span>
+                      </a>
+                    </template>
                   </template>
-                </template>
-              </div>
-              <!-- Uptime sparkline + latency — full-width row BELOW the ports
-                   (moved out of the instance-row; applies to every app card).
-                   The spark stretches to the port-row width
-                   (preserveAspectRatio="none" lets the fixed viewBox scale
-                   horizontally) with the ms reading beside it. appsInstanceSpark
-                   is WeakMap-memoized so the single-element x-for is cheap.
-                   Hidden when there's neither a latency reading nor >1 history
-                   point. -->
-              <div class="apps-card-spark-row ps-4"
-                   x-show="(inst.last_probe && inst.last_probe.rtt_ms) || (inst.status_history || []).length > 1">
-                <template x-if="(inst.status_history || []).length > 1">
-                  <template x-for="sp in [appsInstanceSpark(inst)]" :key="'sparkrow'">
+                </div>
+                <!-- Uptime sparkline + latency — full-width row BELOW the ports
+                     (moved out of the instance-row; applies to every app card).
+                     The spark stretches to the port-row width
+                     (preserveAspectRatio="none" lets the fixed viewBox scale
+                     horizontally) with the ms reading beside it. appsInstanceSpark
+                     is WeakMap-memoized so the single-element x-for is cheap.
+                     Hidden when there's neither a latency reading nor >1 history
+                     point. -->
+                <div class="apps-card-spark-row ps-4"
+                     x-show="(inst.last_probe && inst.last_probe.rtt_ms) || (inst.status_history || []).length > 1">
+                  <template x-if="(inst.status_history || []).length > 1">
+                    <template x-for="sp in [appsInstanceSpark(inst)]" :key="'sparkrow'">
                     <span class="apps-spark-wrap apps-spark-wrap--wide"
                           :title="sp ? t('apps.spark_title', { pct: sp.pct, n: sp.n }) : ''">
                       <svg class="apps-spark"
@@ -349,48 +349,58 @@
                                   vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
                       </svg>
                     </span>
+                    </template>
                   </template>
-                </template>
-                <span x-show="inst.last_probe && inst.last_probe.rtt_ms"
-                      class="apps-card-latency apps-card-latency--spark"
-                      x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
-              </div>
-            </li>
-          </template>
-        </ul>
-        <!-- Per-app expanded-card extras — every per-app partial under
-             `_components/apps/` self-gates via its own
-             `<template x-if="...IsApp(app)...">` so only the chip's
-             matching app renders. Per-instance host loop runs once per
-             visible instance so each host gets its own extras row when
-             the matching per-app partial fires.
-
-             OUTER `<template x-if="anyAppExtrasMatch(app)">` gate skips
-             the entire iteration for apps that don't match ANY
-             registered per-app extras partial — saves N empty wrapper
-             divs per non-matching card. Big win on fleets with many
-             generic apps (Plex / Sonarr / Portainer / etc.) where
-             only ~2 apps (APC / Speedtest) actually need extras.
-
-             Adding a new per-app extras partial does NOT touch this
-             file — drop the partial under `_components/apps/` + add
-             one INCLUDE line in `_components/apps/_all_extras.html`. -->
-        <template x-if="anyAppExtrasMatch(app)">
-          <div class="mt-2 space-y-2 apps-card-extras-col">
-            <template x-for="inst in appsVisibleInstances(app)" :key="'ext:' + inst.host_id + ':' + inst.service_idx">
-              <div>
-                <!-- INCLUDE: _components/apps/_all_extras.html -->
-              </div>
+                  <span x-show="inst.last_probe && inst.last_probe.rtt_ms"
+                        class="apps-card-latency apps-card-latency--spark"
+                        x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
+                </div>
+              </li>
             </template>
-          </div>
-        </template>
-        <!-- Show-all / Show-less toggle so an app on many hosts doesn't
-             grow the card tall + break the grid's uniform rows. -->
-        <button type="button" x-show="appsInstancesCollapsible(app)"
-                class="btn btn-ghost fs-3xs mt-1" @click.stop="toggleAppsInstances(app)"
-                x-text="(appsInstancesExpanded[app.group_id]) ? (t('apps.show_less') || 'Show less') : (t('apps.show_all', { n: (app.instances || []).length }) || ('Show all (' + (app.instances || []).length + ')'))"></button>
-      </div>
-    </template>
+          </ul>
+          <!-- Per-app expanded-card extras — every per-app partial under
+               `_components/apps/` self-gates via its own
+               `<template x-if="...IsApp(app)...">` so only the chip's
+               matching app renders. Per-instance host loop runs once per
+               visible instance so each host gets its own extras row when
+               the matching per-app partial fires.
+
+               OUTER `<template x-if="anyAppExtrasMatch(app)">` gate skips
+               the entire iteration for apps that don't match ANY
+               registered per-app extras partial — saves N empty wrapper
+               divs per non-matching card. Big win on fleets with many
+               generic apps (Plex / Sonarr / Portainer / etc.) where
+               only ~2 apps (APC / Speedtest) actually need extras.
+
+               Adding a new per-app extras partial does NOT touch this
+               file — drop the partial under `_components/apps/` + add
+               one INCLUDE line in `_components/apps/_all_extras.html`. -->
+          <template x-if="anyAppExtrasMatch(app)">
+            <div class="mt-2 space-y-2 apps-card-extras-col">
+              <template x-for="inst in appsVisibleInstances(app)" :key="'ext:' + inst.host_id + ':' + inst.service_idx">
+                <div>
+                  <!-- INCLUDE: _components/apps/_all_extras.html -->
+                </div>
+              </template>
+            </div>
+          </template>
+          <!-- APP-LEVEL aggregated extras — rendered ONCE per card (NOT per
+               instance), with `app` in scope. For apps whose extender sets
+               `appLevelExtras: true` (e.g. AdGuard Home, which aggregates the
+               N hosts' stats into one block rather than a row per host). Each
+               app-level partial self-gates via its own `<template x-if>`. -->
+          <template x-if="anyAppAggExtrasMatch(app)">
+            <div class="mt-2 apps-card-extras-col">
+              <!-- INCLUDE: _components/apps/_all_extras_app.html -->
+            </div>
+          </template>
+          <!-- Show-all / Show-less toggle so an app on many hosts doesn't
+               grow the card tall + break the grid's uniform rows. -->
+          <button type="button" x-show="appsInstancesCollapsible(app)"
+                  class="btn btn-ghost fs-3xs mt-1" @click.stop="toggleAppsInstances(app)"
+                  x-text="(appsInstancesExpanded[app.group_id]) ? (t('apps.show_less') || 'Show less') : (t('apps.show_all', { n: (app.instances || []).length }) || ('Show all (' + (app.instances || []).length + ')'))"></button>
+        </div>
+      </template>
     </div>
     <!-- End lazy-render gate ============================================ -->
   </div>

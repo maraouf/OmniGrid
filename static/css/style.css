@@ -11327,6 +11327,80 @@ select.field-invalid {
   min-width: 0;
 }
 
+/* AdGuard Home aggregated extras (app-level block on the Apps card). The
+   stat grid auto-fits 2-3 columns; each cell reuses `.apps-card-stat`. */
+.apps-adguard-statgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--s-2);
+}
+
+.apps-adguard-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.apps-adguard-dot--on {
+  background: var(--success);
+}
+
+.apps-adguard-dot--off {
+  background: var(--warning);
+}
+
+/* Timed-disable preset chips (1m / 5m / … / 24h). Small mono pills. */
+.apps-adguard-preset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  padding: 2px var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.apps-adguard-preset:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+.apps-adguard-preset:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.apps-adguard-preset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Per-app SKILL result chips in the app drawer (e.g. the Speedtest
+   "Show latest speed test" output). Each metric from the skill's detail
+   string renders as a chip in a wrapping row instead of one run-on
+   pre-wrapped line, so a narrow drawer never stacks the values into an
+   unreadable column. */
+.apps-skill-stat {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .apps-tile:hover {
   box-shadow: 0 1px 6px var(--row-hover);
 }

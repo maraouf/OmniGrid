@@ -29,12 +29,12 @@ from typing import Any, Optional
 
 import httpx
 
+from logic.apps._common import cache_key, fetch_preamble, resolve_base_url
 
 # Catalog template slugs handled by this module. The registry maps
 # each slug to this module's exports; adding an alias slug here is
 # enough to wire a second template (e.g. a community fork).
 SLUGS: tuple[str, ...] = ("speedtest-tracker", "speedtest")
-
 
 # AI / drawer SKILLS this app exposes (see logic/apps/registry.py for the
 # framework). Each is rendered as an app-drawer button AND offered to the AI
@@ -65,7 +65,6 @@ SKILLS: tuple[dict, ...] = (
     },
 )
 
-
 # Bounded per-(host_id, service_idx) cache so repeat reads within
 # the TTL window skip the upstream round-trip. Tunable would be
 # overkill for a single-app cache — 60s matches the typical scan
@@ -82,39 +81,7 @@ def requires_api_key() -> bool:
     return True
 
 
-def resolve_base_url(host_row: dict, chip: dict) -> str:
-    """Resolve the upstream base URL for one Speedtest Tracker chip.
-
-    Priority order:
-      1. Chip's own ``url`` field (operator-set; includes scheme
-         + optional port).
-      2. ``<proto>://<host.address>:<chip.probe.ports[0].port>``
-         when the chip carries a single http/https port.
-
-    Returns the URL with trailing slashes stripped so the caller
-    can append ``/api/v1/...`` directly. Empty string when nothing
-    resolves.
-    """
-    url = (chip.get("url") or "").strip()
-    if url:
-        return url.rstrip("/")
-    address = (host_row.get("address") or "").strip()
-    if not address:
-        return ""
-    probe = chip.get("probe") or {}
-    ports = probe.get("ports") or []
-    if isinstance(ports, list):
-        for p in ports:
-            if not isinstance(p, dict):
-                continue
-            port_n = p.get("port")
-            proto = (p.get("protocol") or "").strip().lower()
-            if isinstance(port_n, int) and 1 <= port_n <= 65535 and proto in ("http", "https"):
-                return f"{proto}://{address}:{port_n}".rstrip("/")
-    return ""
-
-
-async def test_credential(host_row: dict, chip: dict, candidate_key: str) -> dict:
+async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Speedtest Tracker's auth-required endpoint with the
     supplied Bearer key. Returns ``{ok, detail, status}`` shaped
     for direct SPA consumption.
@@ -146,10 +113,6 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str) -> dic
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
-def _cache_key(host_id: str, service_idx: int) -> str:
-    return f"{host_id}:{service_idx}"
-
-
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -163,15 +126,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
     api_key = (chip.get("api_key") or "").strip()
     if not api_key:
         raise ValueError("api_key not set for this instance")
-    base = resolve_base_url(host_row, chip)
-    if not base:
-        raise ValueError("no upstream URL configured for this instance")
-    ck = _cache_key(host_id, service_idx)
     now = time.time()
-    if not force:
-        cached = _data_cache.get(ck)
-        if cached and (now - cached[0]) < CACHE_TTL_S:
-            return cached[1]
+    base, hit = fetch_preamble(host_row, chip, host_id, service_idx,
+                               _data_cache, CACHE_TTL_S, now, force)
+    if hit is not None:
+        return hit
     list_url = base + "/api/v1/results"
     headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     # Diagnostic: every fetch logs the host + resolved upstream URL so a
@@ -288,16 +247,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
             return flat.strip()
         return ""
 
-    def _image_url(result_url: str) -> str:
+    def _image_url(share_url: str) -> str:
         # Append `.png` to the Ookla share URL → the shareable result image.
         # Only for a speedtest.net result page (other URLs aren't image-backed).
-        if not result_url:
+        if not share_url:
             return ""
-        low = result_url.lower()
+        low = share_url.lower()
         if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
-            return result_url
+            return share_url
         if "speedtest.net/result" in low:
-            return result_url.rstrip("/") + ".png"
+            return share_url.rstrip("/") + ".png"
         return ""
 
     series: list[dict[str, Any]] = []
@@ -356,7 +315,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "series": series,
         "fetched_at": int(now),
     }
-    _data_cache[ck] = (now, out)
+    _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
 
@@ -372,7 +331,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     ``available_app_skills_context()[].last`` to answer
     "show me the latest speed test" with latest + averages + the result
     image link, WITHOUT triggering a new test."""
-    cached = _data_cache.get(_cache_key(host_id, service_idx))
+    cached = _data_cache.get(cache_key(host_id, service_idx))
     if not cached:
         return None
     payload = cached[1] or {}
@@ -455,8 +414,9 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
                 "status": 0}
     avg = (data or {}).get("averages") or {}
     # Timestamp in the operator's chosen format (default when no per-user
-    # context is available at the skill layer); scheduler-tz aware.
-    ts_disp = ""
+    # context is available at the skill layer); scheduler-tz aware. Both
+    # branches assign ts_disp, so no dead pre-init is needed.
+    # noinspection PyBroadException
     try:
         from logic.datetime_fmt import format_user_datetime  # noqa: PLC0415
         ts_disp = format_user_datetime(latest.get("ts") or "")
@@ -535,7 +495,7 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
                     print(f"[speedtest] INFO run_speedtest host={host_id} "
                           f"{method} {url} -> {r.status_code} (queued)")
                     if host_id is not None and service_idx is not None:
-                        _data_cache.pop(_cache_key(host_id, service_idx), None)
+                        _data_cache.pop(cache_key(host_id, service_idx), None)
                     return {"ok": True, "detail": "Speed test queued", "status": r.status_code}
                 if r.status_code in (401, 403):
                     print(f"[speedtest] warning: run_speedtest host={host_id} "

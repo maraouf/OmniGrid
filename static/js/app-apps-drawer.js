@@ -191,6 +191,23 @@ export default {
     return this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] || null;
   },
 
+  // Parse a skill result's `detail` into rows of stat chips for a clean,
+  // non-stacked drawer layout. Each newline is a row; within a row, runs of
+  // 2+ spaces split the stats (e.g. "⬇️ 185 Mbps   ⬆️ 57 Mbps   🏓 37 ms" →
+  // three chips) so they wrap gracefully instead of stacking as raw text.
+  // Generic: any skill whose detail uses the same 2-space-separated shape
+  // renders the same way; the image URL line is stripped out at store time.
+  appSkillResultLines(res) {
+    if (!res || !res.detail) {
+      return [];
+    }
+    return String(res.detail)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .map((line) => line.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean));
+  },
+
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.

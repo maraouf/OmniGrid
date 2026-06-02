@@ -63,7 +63,8 @@ export default {
           this._appsDataFetchedAt[key] = Date.now();
           this.loadAppData(inst, true);
         }
-      } catch (_e) { /* SWR is best-effort — stale value still renders */ }
+      } catch (_e) { /* SWR is best-effort — stale value still renders */
+      }
       return v;
     }
     this.loadAppData(inst, false);
@@ -187,7 +188,11 @@ export default {
         + encodeURIComponent(f.service_idx) + '/test-credential', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({api_key: f.api_key || ''}),
+        // `username` is forwarded for apps with multi-field credentials
+        // (e.g. AdGuard Home: username + password). Single-secret apps
+        // (Speedtest) ignore it. The backend reads candidate_key from
+        // `api_key` and any extra fields from the same payload.
+        body: JSON.stringify({api_key: f.api_key || '', username: f.username || ''}),
       });
       const j = await r.json().catch(() => ({}));
       this.appsInstanceTestResult = {
