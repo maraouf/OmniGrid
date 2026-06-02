@@ -396,6 +396,20 @@ export default {
       });
     } catch {
     }
+    // Lazy-load the apps list so the palette's per-app SKILL actions
+    // (e.g. Speedtest "Run speed test") populate even when the operator
+    // hasn't visited the Apps view yet this session. Fire-and-forget +
+    // guarded: only when the user is an admin (skills are admin-gated),
+    // the loader exists, and the list isn't already populated. The
+    // palette's action list re-renders reactively once `appsList` lands.
+    try {
+      if ((typeof this.isAdmin === 'function' && this.isAdmin())
+        && typeof this.loadAppsList === 'function'
+        && !(Array.isArray(this.appsList) && this.appsList.length)) {
+        this.loadAppsList();
+      }
+    } catch {
+    }
   },
   closeCommandPalette() {
     this.commandPaletteOpen = false;

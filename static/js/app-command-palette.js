@@ -308,6 +308,41 @@ export default {
         }
       }] : []),
 
+      // Per-app SKILL actions (e.g. Speedtest "Run speed test"). One
+      // entry per pinned chip whose app declares skills AND has its
+      // api_key set — the SAME `appInstanceSkillsEnabled(inst)` gate the
+      // App drawer's skill buttons use. Admin-only (skills are admin-
+      // gated everywhere). Sourced from `appsList` (lazily loaded on
+      // palette open), so this surfaces every RUNNABLE skill across the
+      // fleet, not just the open drawer. `run` reuses the drawer's
+      // `runAppSkill(inst, id)` so the toast + refresh flow is identical;
+      // `destructive` rides the skill dict's own flag so a destructive
+      // skill still routes through the palette's confirm path.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.runAppSkill === 'function'
+        && typeof this.appInstanceSkillsEnabled === 'function')
+        ? (Array.isArray(this.appsList) ? this.appsList : []).flatMap((group) => {
+          const insts = (group && Array.isArray(group.instances)) ? group.instances : [];
+          return insts.flatMap((inst) => {
+            if (!this.appInstanceSkillsEnabled(inst)) {
+              return [];
+            }
+            const appName = (group && group.name) || inst.app || inst.name || '';
+            const host = inst.host_label || inst.host_address || inst.host_id || '';
+            return this.appInstanceSkills(inst).map((sk) => ({
+              id: 'app-skill:' + inst.host_id + ':' + inst.service_idx + ':' + (sk.id || ''),
+              label: this.appSkillLabel(sk) + (appName ? ' — ' + appName : ''),
+              sub: host,
+              verbs: ['skill', 'run', 'app',
+                (appName || '').toLowerCase(),
+                String(sk.id || '').replace(/_/g, ' ')].filter(Boolean),
+              destructive: !!sk.destructive,
+              run: (opts) => this.runAppSkill(inst, sk.id, opts),
+            }));
+          });
+        })
+        : []),
+
       // Switch image tag — AI-dispatchable wrapper around the same
       // `submitRetagPopover` flow the drawer's inline popover uses.
       // `defer_confirm_to_run: true` means the runner itself decides

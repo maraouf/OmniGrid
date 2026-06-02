@@ -160,8 +160,9 @@ def _persist_host_services(hosts: list, target_idx: int, services: list) -> None
     set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
     # Drop the cached `/api/apps` aggregate so a chip edit shows on the
     # next page load instead of waiting out the short TTL.
-    # noinspection PyBroadException — cache-drop is best-effort; a failure here
-    # must never block the settings write that already committed above.
+    # cache-drop is best-effort; a failure here must never block the settings
+    # write that already committed above.
+    # noinspection PyBroadException
     try:
         from logic import service_catalog as _sc
         _sc.invalidate_list_apps_cache()

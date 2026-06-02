@@ -10065,8 +10065,9 @@
                           </button>
                         </template>
                         <button type="button" x-show="isAdmin()" @click.stop="appDrawerProbeNow(inst)"
+                                :disabled="appProbeBusy(inst)"
                                 class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
-                          <svg width="13" height="13" aria-hidden="true">
+                          <svg width="13" height="13" :class="appProbeBusy(inst) ? 'spin-md' : ''" aria-hidden="true">
                             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
                           </svg>
                           <span x-text="t('apps.drawer.probe_now') || 'Probe now'"></span>

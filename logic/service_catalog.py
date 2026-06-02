@@ -1583,6 +1583,15 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 "host_label": host_label,
                 "host_address": host_address,
                 "service_idx": idx,
+                # Carry the catalog slug onto the instance (not just the
+                # parent group) so the App drawer's per-instance skill
+                # lookup (`appInstanceSkills(inst)`) can resolve which
+                # per-app SKILLS this chip exposes. The drawer iterates
+                # `drawerApp.instances`, so without this the skill button
+                # never renders even when the app declares skills and the
+                # chip's api_key is set. Mirrors `_shape_host_apps`, which
+                # already stamps `catalog_slug` per instance.
+                "catalog_slug": ((grp.get("catalog") or {}).get("slug") or None),
                 "url": (svc.get("url") or "").strip(),
                 "status": inst_status,
                 "last_probe": sample,

@@ -146,31 +146,6 @@ export default {
     }
   },
 
-  // Re-probe one instance from the drawer (reuses the per-chip
-  // probe-now endpoint), then refresh its debug data + the apps list.
-  async appDrawerProbeNow(inst) {
-    const key = this.appInstanceKey(inst);
-    if (!key || !inst) {
-      return;
-    }
-    try {
-      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
-        + '/' + encodeURIComponent(inst.service_idx) + '/probe', {method: 'POST'});
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + (j.detail || ('HTTP ' + r.status)), 'error');
-      }
-    } catch (err) {
-      this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + ((err && err.message) || err), 'error');
-    }
-    if (this.appDebugOpen[key]) {
-      await this.loadAppInstanceDebug(inst);
-    }
-    if (typeof this.loadAppsList === 'function') {
-      await this.loadAppsList(true);
-    }
-  },
-
   // ---- Per-app SKILLS (the AI / drawer skill framework) ----
   // Skills the chip's app exposes, from /api/me's client_config.app_skills
   // (keyed by catalog slug). Each is {id, name, ai_phrases?, destructive?}.
