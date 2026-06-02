@@ -712,6 +712,12 @@ export default {
       username: inst.username || '',
     };
     this.appsInstanceEditError = '';
+    // Clear any Test-connection result from a PREVIOUSLY-edited instance —
+    // the shared og-test-connection box renders whenever appsInstanceTestResult
+    // is truthy, so a stale result would otherwise carry over into the newly
+    // opened instance's editor until the operator re-tests.
+    this.appsInstanceTestResult = null;
+    this.appsInstanceTestBusy = false;
     // Seed the Link-to-Docker combobox input with the current link's label
     // (so it shows what's linked) + start with the dropdown closed.
     this.appsDockerLinkSearch = this.appsInstanceDockerLinkLabel();
@@ -1036,6 +1042,9 @@ export default {
 
   closeInstanceEdit() {
     this.appsInstanceEditOpen = false;
+    // Drop the Test-connection result so reopening any instance starts clean.
+    this.appsInstanceTestResult = null;
+    this.appsInstanceTestBusy = false;
   },
 
   async saveInstanceEdit() {
