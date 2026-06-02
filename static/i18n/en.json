@@ -5176,6 +5176,7 @@
     },
     "skills": {
       "run_speedtest": "Run speed test",
+      "latest_speedtest": "Show latest speed test",
       "ran_ok": "Started",
       "failed": "Skill failed"
     },
