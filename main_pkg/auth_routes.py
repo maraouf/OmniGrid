@@ -108,11 +108,31 @@ def _apps_module_slugs() -> "tuple[str, ...]":
     auth_routes load-time independent of the apps registry; falls
     back to an empty tuple on import failure so the SPA quietly
     behaves as if no per-app modules are registered."""
+    # Import-failure fallback: behave as if no per-app modules are registered
+    # rather than break the /api/me response. ImportError (circular / load
+    # failure) + AttributeError (symbol renamed) are the only realistic raises.
     try:
         from logic.apps.registry import all_slugs  # noqa: PLC0415
         return all_slugs()
-    except Exception:  # noqa: BLE001
+    except (ImportError, AttributeError):
         return ()
+
+
+def _app_skills() -> dict:
+    """Per-app AI / drawer skills keyed by catalog slug — surfaced to the
+    SPA via `/api/me`'s `client_config.app_skills` so the app drawer renders
+    a button per skill AND the AI context enumerates the invokable skills
+    (the actual run is still gated server-side on api_key + the module
+    declaring the skill). Source of truth is
+    `logic.apps.registry.all_app_skills()`. Late-import + empty-dict fallback
+    like `_apps_module_slugs`."""
+    # Import-failure fallback: empty skill map keeps /api/me responding (SPA
+    # behaves as if no app skills exist). ImportError / AttributeError only.
+    try:
+        from logic.apps.registry import all_app_skills  # noqa: PLC0415
+        return all_app_skills()
+    except (ImportError, AttributeError):
+        return {}
 
 
 def _ai_palette_actions() -> "set[str]":
@@ -126,11 +146,14 @@ def _ai_palette_actions() -> "set[str]":
     behaves as if every AI-emitted action is unknown, which is the
     safe failure mode (refuse-to-dispatch is better than dispatching
     a possibly-invalid action)."""
+    # Import-failure fallback: empty set means the SPA refuses every AI-emitted
+    # action (the safe failure mode). ImportError / AttributeError only.
     try:
         from logic.ai import ALLOWED_PALETTE_ACTIONS  # noqa: PLC0415
         return set(ALLOWED_PALETTE_ACTIONS)
-    except Exception:  # noqa: BLE001
+    except (ImportError, AttributeError):
         return set()
+
 
 # Sibling-module names — defined in other main_pkg/* files
 # that end up in main's namespace via the chain.
@@ -1352,6 +1375,7 @@ async def api_me(request: Request):
             # per-app module is ONE file under ``logic/apps/`` + one
             # entry in the registry — no SPA edit required.
             "apps_module_slugs": list(_apps_module_slugs()),
+            "app_skills": _app_skills(),
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every
             # successful test endpoint via `_stamp_test_success`. Surfaced

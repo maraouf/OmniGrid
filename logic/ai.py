@@ -887,6 +887,12 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     "mark_all_notifications_read",
     "refresh",
     "reload",
+    # Per-app SKILL invocation (the app-skill framework — e.g. Speedtest's
+    # run_speedtest). Paired with `ACTION_DATA: {host_id, service_idx,
+    # skill_id}`. The SPA / Telegram dispatch it to POST
+    # /api/services/{host_id}/{service_idx}/skill/{skill_id}; only skills the
+    # context's `app_skills` block lists (app enabled + api_key set) are valid.
+    "run_app_skill",
     "theme_dark",
     "theme_light",
     "theme_auto",
@@ -1437,6 +1443,7 @@ PALETTE_SYSTEM_PROMPT: str = (
     " - sign_out — log out of OmniGrid\n"
     " - scan_ports — run an on-demand TCP-connect port scan. Synonyms: 'scan ports', 'port scan', 'tcp scan', 'discover open ports', 'nmap'. When the operator names a host to scan, emit BOTH `ACTION: scan_ports` AND a SEPARATE `ACTION_HOSTS: <host_id>` line (NOT a `HOSTS:` line — that one is reserved for disk-projection charts and would render an unrelated chart on the response). The SPA resolves the scan target via: (1) ACTION_HOSTS first id, (2) host drawer if open, (3) operator toast. The host drawer does NOT need to be open. Example reply: 'Scanning ports on opnsense.\\nACTION: scan_ports\\nACTION_HOSTS: opnsense'.\n"
     " - discover_apps — open the Apps discovery wizard (admin) to bind catalog templates to a host by matching its open ports. Synonyms: 'discover apps', 'find apps', 'set up apps on this host', 'what apps run here'. Navigates to Admin → Apps and opens the wizard for operator review (it proposes bindings; the operator confirms the pin there). Emit just `ACTION: discover_apps`. Do NOT invent ACTION ids for pinning / unpinning / editing individual app instances or for catalog-template create/update/delete — those are done in the Admin → Apps editor, not via the palette.\n"
+    " - run_app_skill — invoke a per-app SKILL on a specific pinned app instance (the extensible app-skill framework). The skills you MAY invoke are listed in the context's `app_skills` block — each entry carries {host_id, service_idx, slug, app, host, skills:[{id,name}], last?}. ONLY invoke a skill that appears there (its presence means the app is enabled AND its api_key is set); NEVER invent a skill or target that isn't listed. Pair the action with `ACTION_DATA: {\"host_id\":\"<id>\",\"service_idx\":<n>,\"skill_id\":\"<id>\"}`. Example for 'run a speed test': find the speedtest-tracker entry in app_skills and reply 'Starting a speed test on docker.\\nACTION: run_app_skill\\nACTION_DATA: {\"host_id\":\"docker\",\"service_idx\":2,\"skill_id\":\"run_speedtest\"}'. The test is QUEUED upstream and its result lands ~10-60s later — tell the operator it's running and they can re-ask for the latest shortly. To SHOW the LAST speed-test result WITHOUT running a new one, read the values from that entry's `last` field (download / upload / ping in Mbps / ms) when present; if there's no `last`, say so and offer to run a fresh test. If no app_skills entry matches the request, the app isn't enabled or has no api_key — say that instead of inventing output.\n"
     " - test_portainer — re-test the Portainer connection. Navigates to Admin → Portainer and kicks the probe. Synonyms: 'test portainer', 'portainer test', 'check portainer'.\n"
     " - test_oidc — re-test the Authentik OIDC connection. Navigates to Admin → Authentik OIDC and kicks the probe. Synonyms: 'test oidc', 'test authentik', 'test sso'.\n"
     " - test_beszel — re-test the Beszel hub connection. Navigates to Admin → Providers → Beszel and kicks the probe. Synonyms: 'test beszel', 'check beszel'.\n"

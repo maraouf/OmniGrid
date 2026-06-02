@@ -261,7 +261,7 @@ export default {
     const X = (i) => PAD_L + i * barW;
     const yTicks = [0, 1, 2, 3, 4].map(i => {
       const v = (yMax / 4) * i;
-      return {v, y: Y(v).toFixed(1), label: this.t('common.unit_ms_inline', { n: Math.round(v).toLocaleString() })};
+      return {v, y: Y(v).toFixed(1), label: this.t('common.unit_ms_inline', {n: Math.round(v).toLocaleString()})};
     });
     const tickCount = Math.min(6, n);
     const xIdxs = [];
@@ -448,7 +448,7 @@ export default {
       }
       if (j.response_time_ms) {
         metaChips.push('<span class="ai-resp-meta-chip">'
-          + this.t('common.unit_ms_inline', { n: fmtNum(j.response_time_ms) })
+          + this.t('common.unit_ms_inline', {n: fmtNum(j.response_time_ms)})
           + '</span>');
       }
       if (tokens) {
@@ -768,6 +768,28 @@ export default {
   // clear toast instead of a 400. The endpoint enforces the
   // operator-typed-text length cap + per-medium master-switch gate
   // server-side so this dispatcher stays thin.
+  // AI palette / sidebar dispatch for run_app_skill — invoke a per-app SKILL
+  // on a specific pinned chip (e.g. Speedtest's run_speedtest). Reads
+  // ACTION_DATA {host_id, service_idx, skill_id} + reuses runAppSkill (POSTs
+  // the skill endpoint, toasts, refreshes the per-app data). The backend
+  // re-enforces the api_key + skill-declared gate, so a bad/unavailable skill
+  // surfaces as a toast rather than doing anything unsafe.
+  async _aiRunAppSkillDispatch(opts) {
+    const data = (opts && opts.data && typeof opts.data === 'object') ? opts.data : {};
+    const host = (data.host_id || '').toString().trim();
+    const skillId = (data.skill_id || '').toString().trim();
+    let idx = data.service_idx;
+    idx = (typeof idx === 'number') ? idx : parseInt(idx, 10);
+    if (!host || !skillId || isNaN(idx) || idx < 0) {
+      this.showToast((this.t('apps.skills.failed') || 'Skill failed')
+        + ': ACTION_DATA needs host_id + service_idx + skill_id', 'error');
+      return;
+    }
+    if (typeof this.runAppSkill === 'function') {
+      await this.runAppSkill({host_id: host, service_idx: idx}, skillId);
+    }
+  },
+
   async _aiSendNotificationDispatch(opts) {
     const params = opts || {};
     const data = (params.data && typeof params.data === 'object') ? params.data : {};

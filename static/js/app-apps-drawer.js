@@ -171,6 +171,78 @@ export default {
     }
   },
 
+  // ---- Per-app SKILLS (the AI / drawer skill framework) ----
+  // Skills the chip's app exposes, from /api/me's client_config.app_skills
+  // (keyed by catalog slug). Each is {id, name, ai_phrases?, destructive?}.
+  // Returns [] when the app declares none.
+  appInstanceSkills(inst) {
+    const cc = (this.me && this.me.client_config) || {};
+    const map = (cc && cc.app_skills) || {};
+    const slug = String((inst && inst.catalog && inst.catalog.slug)
+      || (inst && inst.catalog_slug) || '').toLowerCase();
+    const list = (slug && map[slug]) || [];
+    return Array.isArray(list) ? list : [];
+  },
+
+  // True when the chip can run skills NOW: it has at least one skill AND its
+  // api_key is set (the upstream action needs auth; the backend re-checks).
+  appInstanceSkillsEnabled(inst) {
+    return !!(inst && inst.api_key_set && this.appInstanceSkills(inst).length);
+  },
+
+  // i18n label for a skill button — prefers apps.skills.<id>, falls back to
+  // the backend-supplied English `name`.
+  appSkillLabel(sk) {
+    const id = (sk && sk.id) || '';
+    const key = 'apps.skills.' + id;
+    const tr = this.t(key);
+    return (tr && tr !== key) ? tr : ((sk && sk.name) || id);
+  },
+
+  // True while a given (chip, skill) run is in flight (disables the button).
+  appSkillBusy(inst, skillId) {
+    return !!(this._appSkillBusy && this._appSkillBusy['skill:' + this.appInstanceKey(inst) + ':' + skillId]);
+  },
+
+  // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
+  // generic skill endpoint, toasts the outcome, and refreshes the per-app
+  // data a few seconds later so a freshly-queued result shows once it lands.
+  async runAppSkill(inst, skillId) {
+    if (!inst || !skillId) {
+      return;
+    }
+    this._appSkillBusy = this._appSkillBusy || {};
+    const busyKey = 'skill:' + this.appInstanceKey(inst) + ':' + skillId;
+    if (this._appSkillBusy[busyKey]) {
+      return;
+    }
+    this._appSkillBusy[busyKey] = true;
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx)
+        + '/skill/' + encodeURIComponent(skillId), {method: 'POST'});
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j && j.ok) {
+        this.showToast((this.t('apps.skills.ran_ok') || 'Skill started')
+          + (j.detail ? ' — ' + j.detail : ''), 'success');
+        // The upstream result lands a little later (a speed test takes
+        // ~10-60s); refresh the per-app data so it shows once ready.
+        if (typeof this.loadAppData === 'function') {
+          setTimeout(() => {
+            this.loadAppData(inst, true);
+          }, 4000);
+        }
+      } else {
+        const detail = (j && j.detail) || ('HTTP ' + r.status);
+        this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
+      }
+    } catch (err) {
+      this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + ((err && err.message) || err), 'error');
+    } finally {
+      this._appSkillBusy[busyKey] = false;
+    }
+  },
+
   // Admin Edit affordance from the App detail drawer — redirect to the
   // Apps instance editor (Admin → Apps → Instances) and open the edit
   // modal for THIS chip. The drawer's per-instance object (from

@@ -2936,7 +2936,9 @@
       "schedule_run_now": "Run schedule now",
       "schedule_run_now_sub": "Fire a named schedule immediately, bypassing its interval",
       "send_notification": "Send notification",
-      "send_notification_sub": "Send a custom message to one notification channel"
+      "send_notification_sub": "Send a custom message to one notification channel",
+      "run_app_skill": "Run app skill",
+      "run_app_skill_sub": "Run a per-app skill (e.g. start a speed test)"
     },
     "bulk": {
       "matched_label": "{matched} match · {selected} selected",
@@ -5171,6 +5173,11 @@
       "axis_mbps": "Mbps (down / up)",
       "axis_ms": "ms (ping)",
       "chart_aria": "Speedtest trend: download and upload in Mbps, ping in ms, over time"
+    },
+    "skills": {
+      "run_speedtest": "Run speed test",
+      "ran_ok": "Started",
+      "failed": "Skill failed"
     },
     "open_all_title": "Open every instance URL in a new tab",
     "open_all_aria": "Open all URLs for {name}",

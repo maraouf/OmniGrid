@@ -511,6 +511,22 @@ export default {
         },
       },
 
+      // Per-app SKILL invocation (the app-skill framework — e.g. Speedtest's
+      // run_speedtest). Pairs with ACTION_DATA {host_id, service_idx,
+      // skill_id}; the AI only emits targets present in the context's
+      // `app_skills` block (app enabled + api_key set). Non-destructive —
+      // run_speedtest just queues a test — so no inline-confirm gate.
+      {
+        id: 'run-app-skill',
+        label: t('command_palette.action.run_app_skill', 'Run app skill'),
+        sub: t('command_palette.action.run_app_skill_sub', 'Run a per-app skill (e.g. start a speed test)'),
+        verbs: ['run', 'speedtest', 'speed', 'skill', 'test'],
+        destructive: false,
+        run: (opts) => {
+          this._aiRunAppSkillDispatch(opts || {});
+        },
+      },
+
       // AI memory CRUD via palette. Create + delete already exposed
       // via MEMORY: / MEMORY-FORGET: directives; snake_case ids
       // here make the cmd-K route consistent so operator phrasing
@@ -1298,6 +1314,8 @@ export default {
       send_apprise: 'send-notification',
       notify_channel: 'send-notification',
       message_channel: 'send-notification',
+      // Per-app skill invocation (run_speedtest etc.).
+      run_app_skill: 'run-app-skill',
     };
     const target = aliasMap[id] || kebab;
     // Backend-allowed-set guard (post-alias) — verify the snake_case

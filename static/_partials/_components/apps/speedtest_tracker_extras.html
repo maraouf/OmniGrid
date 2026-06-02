@@ -21,79 +21,79 @@
     <template x-if="appsAppData(inst)">
       <div class="space-y-2">
         <div class="apps-speedtest-grid">
-        <div class="apps-speedtest-statgrid">
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.latest_download') || 'Latest down'"></div>
-            <div class="fs-md font-semibold"
-                 x-text="appsAppData(inst).latest
+          <div class="apps-speedtest-statgrid">
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.latest_download') || 'Latest down'"></div>
+              <div class="fs-md font-semibold"
+                   x-text="appsAppData(inst).latest
                    ? speedtestMbpsLabel(appsAppData(inst).latest.download) : '--'"></div>
-          </div>
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.latest_upload') || 'Latest up'"></div>
-            <div class="fs-md font-semibold"
-                 x-text="appsAppData(inst).latest
+            </div>
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.latest_upload') || 'Latest up'"></div>
+              <div class="fs-md font-semibold"
+                   x-text="appsAppData(inst).latest
                    ? speedtestMbpsLabel(appsAppData(inst).latest.upload) : '--'"></div>
-          </div>
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.latest_ping') || 'Latest ping'"></div>
-            <div class="fs-md font-semibold"
-                 x-text="appsAppData(inst).latest
+            </div>
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.latest_ping') || 'Latest ping'"></div>
+              <div class="fs-md font-semibold"
+                   x-text="appsAppData(inst).latest
                    ? speedtestPingLabel(appsAppData(inst).latest.ping) : '--'"></div>
+            </div>
           </div>
-        </div>
-        <div class="apps-speedtest-statgrid">
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.avg_download') || 'Avg down (10)'"></div>
-            <div class="fs-sm"
-                 x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
+          <div class="apps-speedtest-statgrid">
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.avg_download') || 'Avg down (10)'"></div>
+              <div class="fs-sm"
+                   x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
+            </div>
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.avg_upload') || 'Avg up (10)'"></div>
+              <div class="fs-sm"
+                   x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
+            </div>
+            <div class="apps-card-stat">
+              <div class="fs-2xs text-[var(--text-faint)]"
+                   x-text="t('apps.speedtest.avg_ping') || 'Avg ping (10)'"></div>
+              <div class="fs-sm"
+                   x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
+            </div>
           </div>
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.avg_upload') || 'Avg up (10)'"></div>
-            <div class="fs-sm"
-                 x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
-          </div>
-          <div class="apps-card-stat">
-            <div class="fs-2xs text-[var(--text-faint)]"
-                 x-text="t('apps.speedtest.avg_ping') || 'Avg ping (10)'"></div>
-            <div class="fs-sm"
-                 x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
-          </div>
-        </div>
-        <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
-          <div class="space-y-1 apps-speedtest-trend">
-            <!-- No per-chart reload button — the card header already carries a
-                 refresh pill, so a second reload affordance here is redundant
-                 (operator-flagged). -->
-            <span class="fs-2xs text-[var(--text-faint)] block"
-                  x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
-            <svg viewBox="0 0 200 32" preserveAspectRatio="none"
-                 class="w-full h-8 apps-card-speedtest-chart">
-              <path :d="speedtestSparkPath(appsAppData(inst).series, 'download')"
-                    fill="none" stroke="var(--success)" stroke-width="1.5"/>
-              <path :d="speedtestSparkPath(appsAppData(inst).series, 'upload')"
-                    fill="none" stroke="var(--info)" stroke-width="1.5"/>
-              <path :d="speedtestSparkPath(appsAppData(inst).series, 'ping')"
-                    fill="none" stroke="var(--warning)" stroke-width="1.5"
-                    stroke-dasharray="2 2"/>
-            </svg>
-            <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+          <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
+            <div class="space-y-1 apps-speedtest-trend">
+              <!-- No per-chart reload button — the card header already carries a
+                   refresh pill, so a second reload affordance here is redundant
+                   (operator-flagged). -->
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.speedtest.trend') || 'Trend (last ' + appsAppData(inst).series.length + ' tests)'"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none"
+                   class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="speedtestSparkPath(appsAppData(inst).series, 'download')"
+                      fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                <path :d="speedtestSparkPath(appsAppData(inst).series, 'upload')"
+                      fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                <path :d="speedtestSparkPath(appsAppData(inst).series, 'ping')"
+                      fill="none" stroke="var(--warning)" stroke-width="1.5"
+                      stroke-dasharray="2 2"/>
+              </svg>
+              <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
               <span><span class="inline-block w-2 h-2 rounded-full mr-1"
                           style="background: var(--success);"></span><span
                 x-text="t('apps.speedtest.legend_download') || 'down'"></span></span>
-              <span><span class="inline-block w-2 h-2 rounded-full mr-1"
-                          style="background: var(--info);"></span><span
-                x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>
-              <span><span class="inline-block w-2 h-2 rounded-full mr-1"
-                          style="background: var(--warning);"></span><span
-                x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
+                <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                            style="background: var(--info);"></span><span
+                  x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>
+                <span><span class="inline-block w-2 h-2 rounded-full mr-1"
+                            style="background: var(--warning);"></span><span
+                  x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
+              </div>
             </div>
-          </div>
-        </template>
+          </template>
         </div>
         <!-- Axed trend chart — shown ONLY on the wide-tall tiles (3x2 / 4x2)
              via CSS (.apps-speedtest-axchart hidden elsewhere; the simple
@@ -117,7 +117,16 @@
                      pTicks 2 / xTicks 2) so we index them directly. cm is
                      guaranteed non-null here — the outer x-if gates on
                      series.length >= 2. -->
-                <svg :viewBox="'0 0 ' + cm.w + ' ' + cm.h" preserveAspectRatio="none"
+                <!-- viewBox is a STATIC attribute (W/H are fixed constants in
+                     speedtestChartModel: 460 x 92). A `:viewBox` Alpine binding
+                     is silently broken on inline SVG: the HTML parser lowercases
+                     the directive name to `:viewbox` (it is NOT in the SVG
+                     attribute-case-adjustment table, unlike a static viewBox), so
+                     Alpine setAttribute('viewbox', ...) which SVG ignores -> no
+                     valid viewBox -> paths render in raw userspace and the chart
+                     fills only the left ~460px of a wide box (the "half width" /
+                     "scattered" symptom). Keeping it static preserves the case. -->
+                <svg viewBox="0 0 460 92" preserveAspectRatio="none" width="100%"
                      class="w-full apps-card-speedtest-axchart-svg" role="img"
                      :aria-label="t('apps.speedtest.chart_aria') || 'Speedtest trend: download and upload in Mbps, ping in ms, over time'">
                   <!-- Mbps gridlines + left y-axis ticks (0 / half / max) -->

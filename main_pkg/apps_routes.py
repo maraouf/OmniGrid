@@ -160,10 +160,12 @@ def _persist_host_services(hosts: list, target_idx: int, services: list) -> None
     set_setting(Settings.HOSTS_CONFIG, json.dumps(hosts))
     # Drop the cached `/api/apps` aggregate so a chip edit shows on the
     # next page load instead of waiting out the short TTL.
+    # noinspection PyBroadException — cache-drop is best-effort; a failure here
+    # must never block the settings write that already committed above.
     try:
         from logic import service_catalog as _sc
         _sc.invalidate_list_apps_cache()
-    except Exception:  # noqa: BLE001 — cache-drop is best-effort
+    except Exception:  # noqa: BLE001
         pass
 
 
@@ -693,6 +695,51 @@ async def api_service_app_data(host_id: str, service_idx: int,
         print(f"[apps] error: app-data fetch failed host={host_id} "
               f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(502, str(e))
+
+
+@app.post("/api/services/{host_id}/{service_idx}/skill/{skill_id}")
+async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
+                                request: Request, _admin: AdminUser):
+    """Admin-only: run one per-app SKILL on a chip (e.g. Speedtest's
+    ``run_speedtest``).
+
+    Generic dispatcher — the chip's catalog slug selects the per-app module;
+    the module's ``run_skill(skill_id, host_row, chip, *, host_id,
+    service_idx)`` coroutine performs the action + returns ``{ok, detail,
+    status?}``. Gated on (a) the module DECLARING the skill in its ``SKILLS``
+    tuple (404 otherwise) and (b) the app's api_key being set when the module
+    ``requires_api_key()`` (400 otherwise). Both the app-drawer button AND the
+    AI / Telegram-AI skill action route through here. Audited via the
+    ``services_skill`` op_type so the operator can trace every skill run in
+    History."""
+    host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
+    if mod is None or not hasattr(mod, "run_skill"):
+        raise HTTPException(400, "no skills for this app")
+    skills = getattr(mod, "SKILLS", ())
+    skill = next((s for s in skills if isinstance(s, dict) and s.get("id") == skill_id), None)
+    if skill is None:
+        raise HTTPException(404, f"unknown skill: {skill_id}")
+    _req_key = getattr(mod, "requires_api_key", None)
+    if callable(_req_key) and _req_key() and not (chip.get("api_key") or "").strip():
+        raise HTTPException(400, "api_key not set for this app")
+    try:
+        result = await mod.run_skill(skill_id, host_row, chip,
+                                     host_id=host_id, service_idx=service_idx)
+    except ValueError as e:  # unknown skill id reaching the module
+        raise HTTPException(404, str(e))
+    except RuntimeError as e:  # upstream / dispatch failure
+        result = {"ok": False, "detail": str(e)}
+    if not isinstance(result, dict):
+        result = {"ok": True}
+    with db_conn() as _c:
+        _ops_mod.write_admin_audit(
+            _c, "services_skill",
+            target_kind="host", target_name=host_id, target_id=host_id,
+            actor=_actor_from(request),
+            message=(f"Ran skill '{skill_id}' on service_idx={service_idx} "
+                     f"of {host_id} (ok={result.get('ok')})"),
+        )
+    return result
 
 
 @app.delete("/api/services/{host_id}/{service_idx}")
