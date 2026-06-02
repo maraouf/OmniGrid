@@ -10540,7 +10540,14 @@ select.field-invalid {
 .apps-card-speedtest-axchart-svg {
   display: block;
   width: 100%;
-  height: 92px;
+  max-width: 100%;
+  height: 84px;
+}
+
+/* 3x2 (size-double + tall) is a bit shorter than 4x2 — drop the chart height
+   so the x-axis time labels aren't clipped by the tile's available height. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card-speedtest-axchart-svg {
+  height: 70px;
 }
 
 /* Axis chrome — gridlines / axis baseline / tick text. Stroke + fill use theme
