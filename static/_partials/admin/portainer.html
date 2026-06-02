@@ -16,7 +16,11 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.portainer.connection_desc')"></p>
       </div>
-      <span x-show="portainerStatus" class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded && portainerStatus" class="chip"
             :class="portainerStatus && portainerStatus.configured ? 'pill-ok' : 'pill-muted'"
             x-text="portainerStatus ? (portainerStatus.configured ? t('settings.portainer.configured') : t('settings.portainer.not_configured')) : ''"></span>
     </div>

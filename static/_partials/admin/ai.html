@@ -14,7 +14,11 @@
         </div>
         <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.ai.intro')"></p>
       </div>
-      <span class="chip" :class="settings.ai_enabled ? 'pill-ok' : 'pill-muted'"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip" :class="settings.ai_enabled ? 'pill-ok' : 'pill-muted'"
             x-text="settings.ai_enabled ? t('admin.ai.enabled_chip') : t('admin.ai.disabled_chip')"></span>
     </div>
 

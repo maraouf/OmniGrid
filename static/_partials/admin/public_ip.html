@@ -14,8 +14,10 @@
          neutral "Loading…" pill instead of the default-falsy "Disabled",
          which flashed Disabled->Enabled on every reload and deceived the
          user into thinking the feature was off. -->
-    <span x-show="!tuningLoaded" class="chip pill-muted"
-          x-text="t('common.loading') || 'Loading…'"></span>
+    <span x-show="!tuningLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
     <span x-show="tuningLoaded" class="chip"
           :class="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? 'pill-ok' : 'pill-muted'"
           x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
@@ -37,8 +39,12 @@
            @change="tuningForm['tuning_public_ip_enabled'] = ($event.target.checked ? '1' : '0')"
            :disabled="isReadonly() || !tuningLoaded">
     <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-    <span class="fs-xs text-[var(--text-faint)]"
-          x-text="!tuningLoaded ? (t('common.loading') || 'Loading…') : ((tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint'))"></span>
+    <span x-show="!tuningLoaded" class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
+    <span x-show="tuningLoaded" class="fs-xs text-[var(--text-faint)]"
+          x-text="(tuningForm['tuning_public_ip_enabled'] === '1' || tuningForm['tuning_public_ip_enabled'] === 1) ? '' : t('admin_integrations.disabled_hint')"></span>
   </label>
 
   <!-- Shared Test-connection component — unified Test button (Test

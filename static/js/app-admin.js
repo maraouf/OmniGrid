@@ -2422,6 +2422,14 @@ export default {
           verify_tls: (this.assetStatus.verify_tls !== false),
         };
       }
+      // Settings hydration complete — drives the consistent
+      // "Loading…" + spinner pill on every master-toggle admin tab
+      // (OIDC / Portainer / Providers / SSH / Weather / Notifications /
+      // AI / Assets). Until this flips true the pills show a neutral
+      // loading state instead of flashing a premature "Disabled" from
+      // the default-falsy settings values. public_ip uses `tuningLoaded`
+      // instead because its master toggle is a tunable.
+      this.settingsLoaded = true;
     } catch (e) {
       console.error(e);
     }

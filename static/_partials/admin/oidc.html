@@ -15,7 +15,11 @@
       </div>
       <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('settings.oidc.description')"></p>
     </div>
-    <span x-show="oidcStatus"
+    <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
+    <span x-show="settingsLoaded && oidcStatus"
           class="chip"
           :class="oidcStatus && oidcStatus.enabled ? 'pill-ok' : 'pill-muted'"
           x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
