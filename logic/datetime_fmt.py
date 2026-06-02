@@ -28,8 +28,8 @@ Everything else passes through (commas / colons / slashes / spaces).
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Callable
+from datetime import datetime, timezone
+from typing import Callable, Optional, Union
 
 # Canonical default — matches the SPA's `DEFAULT_DATETIME_FORMAT` so a
 # user who hasn't set a custom preference gets the same render in both
@@ -127,6 +127,84 @@ def apply_datetime_format(d: datetime, fmt: str | None) -> str:
             out.append(ch)
             i += 1
     return "".join(out)
+
+
+def _scheduler_tz():
+    """Resolve the operator's scheduler timezone (or None = container-local).
+    Lazy import so this leaf module never creates an import cycle."""
+    # noinspection PyBroadException
+    try:
+        from logic.schedules import scheduler_tz  # noqa: PLC0415
+        return scheduler_tz()
+    except Exception:  # noqa: BLE001 — never break formatting on a settings error
+        return None
+
+
+def _to_datetime(value: Union[int, float, str, datetime, None]) -> Optional[datetime]:
+    """Coerce an epoch (int/float) / ISO string / ``datetime`` into a
+    tz-aware ``datetime`` in the operator's scheduler timezone (or
+    container-local when that's unset). Naive / offset-less sources are
+    assumed UTC (Speedtest Tracker / most APIs emit UTC) then converted.
+    Returns None when the value can't be parsed."""
+    if value is None:
+        return None
+    tz = _scheduler_tz()
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=tz)
+        except (OverflowError, OSError, ValueError):
+            return None
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        # Numeric-string epoch ("1730000000" / "1730000000.5").
+        try:
+            return datetime.fromtimestamp(float(s), tz=tz)
+        except (ValueError, OverflowError, OSError):
+            pass
+        # ISO 8601. Python 3.11+ fromisoformat handles a trailing 'Z' and a
+        # space date/time separator; normalise defensively for older shapes.
+        iso = s.replace("Z", "+00:00") if s.endswith("Z") else s
+        try:
+            dt = datetime.fromisoformat(iso)
+        except ValueError:
+            try:
+                dt = datetime.fromisoformat(iso[:19].replace(" ", "T"))
+            except ValueError:
+                return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if tz is not None:
+        try:
+            dt = dt.astimezone(tz)
+        except (ValueError, OSError):
+            pass
+    return dt
+
+
+def format_user_datetime(value: Union[int, float, str, datetime, None],
+                         fmt: Optional[str] = None) -> str:
+    """Render an epoch / ISO string / ``datetime`` against ``fmt`` (the
+    operator's ``datetime_format`` token grammar), converting to the
+    operator's scheduler timezone first. The epoch/ISO-accepting,
+    tz-converting companion to :func:`apply_datetime_format` (which takes a
+    pre-built ``datetime`` and does NO tz conversion — keep using THAT when
+    the caller already holds a location-/tz-specific datetime, e.g. the
+    weather-clock commands). Returns "" when the value can't be parsed so
+    the caller can choose its own placeholder.
+
+    Used by the AI surfaces (Telegram + web sidebar) + notification
+    ``{time}`` placeholder so a server-composed timestamp matches what the
+    operator sees everywhere else in the UI."""
+    dt = _to_datetime(value)
+    if dt is None:
+        return ""
+    return apply_datetime_format(dt, fmt)
 
 
 def strip_time_tokens(fmt: str) -> str:

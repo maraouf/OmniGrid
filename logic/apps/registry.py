@@ -165,14 +165,20 @@ def resolve_chip(host_id: str, service_idx: int):
     return None, None, ""
 
 
-def available_app_skills_context() -> list:
+def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
     """Build the AI / Telegram-AI ``app_skills`` context list: every pinned
     app chip whose app declares SKILLS AND (when the app requires it) has its
     api_key set. Each entry is
     ``{host_id, host, service_idx, slug, app, skills:[{id,name}], last?}`` so
     the model can ONLY invoke skills that are actually runnable. NO upstream
     calls — ``last`` is a cache-only peek. Never raises (returns [] on any
-    failure so context assembly is safe)."""
+    failure so context assembly is safe).
+
+    When ``datetime_format`` is supplied (the requesting operator's
+    ``ui_prefs.datetime_format``), each ``last`` carrying a ``ts`` gains a
+    ``ts_display`` rendered in that format + the operator's scheduler
+    timezone — so the AI reply shows the timestamp the way the operator
+    set it under Settings → Profile → Formats."""
     out: list = []
     # defensive "never raises" boundary: context assembly must stay safe
     # regardless of a bad hosts_config blob / DB error.
@@ -233,6 +239,19 @@ def available_app_skills_context() -> list:
             }
             last = peek_skill_data(slug, host_id, idx)
             if last:
+                # Stamp a human ts_display in the operator's chosen format so
+                # the AI reply renders the timestamp consistently with the
+                # rest of the UI (the raw `ts` ISO string stays for any
+                # caller that wants to reformat).
+                if datetime_format and isinstance(last, dict) and last.get("ts"):
+                    # noinspection PyBroadException
+                    try:
+                        from logic.datetime_fmt import format_user_datetime  # noqa: PLC0415
+                        disp = format_user_datetime(last.get("ts"), datetime_format)
+                        if disp:
+                            last["ts_display"] = disp
+                    except Exception:  # noqa: BLE001
+                        pass
                 entry["last"] = last
             out.append(entry)
     return out

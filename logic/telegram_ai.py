@@ -734,7 +734,12 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # `last` cached result for "show last speed test".
     try:
         from logic.apps.registry import available_app_skills_context
-        ctx["app_skills"] = available_app_skills_context()
+        from logic.datetime_fmt import get_user_datetime_format
+        # Resolve the linked operator's datetime_format so app_skills `last`
+        # timestamps render in THEIR chosen format (Settings → Profile →
+        # Formats) — falls back to the default when the user is unknown.
+        _fmt = get_user_datetime_format(username or "")
+        ctx["app_skills"] = available_app_skills_context(datetime_format=_fmt)
     # noinspection PyBroadException
     except Exception as e:
         print(f"[telegram_listener] context app_skills build failed: {e}")
@@ -1345,3 +1350,20 @@ async def _ai_reply(
     # the parser doesn't HTTP-400 the message. `_listener()._escape` would have
     # escaped EVERY tag, killing all formatting.
     await _deliver(_telegram_safe_escape(clean))
+    # If the reply references a Speedtest result share image, send it as a
+    # PHOTO so it actually displays — text replies set
+    # disable_web_page_preview, so a bare URL would only render as a link.
+    # Extracted from the RAW model text (the image URL line can be truncated
+    # out of `clean`). Fire-and-forget; a photo failure never affects the
+    # already-delivered text reply.
+    try:
+        import re as _re_img
+        m = _re_img.search(
+            r"https?://[^\s<>\"']*speedtest\.net/result/[^\s<>\"']*\.png",
+            raw_text,
+        )
+        if m:
+            await _listener()._send_photo(client, m.group(0))
+    # noinspection PyBroadException
+    except Exception as _photo_err:  # noqa: BLE001
+        print(f"[telegram_listener] speedtest photo send skipped: {_photo_err}")

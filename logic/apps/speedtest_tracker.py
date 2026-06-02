@@ -257,6 +257,36 @@ async def fetch_data(host_row: dict, chip: dict, *,
             return _bytes_per_s_to_mbps(flat)  # bytes/s → Mbps
         return 0.0
 
+    def _result_url(row: dict) -> str:
+        # Ookla stores the public share URL at data.result.url
+        # (e.g. https://www.speedtest.net/result/c/<uuid>). Older / flat
+        # builds expose it straight on the row as `url`. The share page
+        # renders a result image at `<url>.png` — that's what lets a chat
+        # client (Telegram link-preview) display the speed-test card.
+        nested = row.get("data")
+        if isinstance(nested, dict):
+            res = nested.get("result")
+            if isinstance(res, dict):
+                u = res.get("url")
+                if isinstance(u, str) and u.strip():
+                    return u.strip()
+        flat = row.get("url")
+        if isinstance(flat, str) and flat.strip():
+            return flat.strip()
+        return ""
+
+    def _image_url(result_url: str) -> str:
+        # Append `.png` to the Ookla share URL → the shareable result image.
+        # Only for a speedtest.net result page (other URLs aren't image-backed).
+        if not result_url:
+            return ""
+        low = result_url.lower()
+        if low.endswith((".png", ".jpg", ".jpeg", ".webp")):
+            return result_url
+        if "speedtest.net/result" in low:
+            return result_url.rstrip("/") + ".png"
+        return ""
+
     series: list[dict[str, Any]] = []
     for entry in rows:
         if not isinstance(entry, dict):
@@ -265,6 +295,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         upload = _metric(entry, "upload")
         ping = _metric(entry, "ping")
         ts_str = (entry.get("created_at") or entry.get("scheduled") or "").strip()
+        result_url = _result_url(entry)
         series.append({
             "ts": ts_str,
             "download": download,
@@ -272,6 +303,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
             "ping": ping,
             "status": (entry.get("status") or "").strip(),
             "server": (entry.get("server_name") or entry.get("service") or "").strip(),
+            "result_url": result_url,
+            "image_url": _image_url(result_url),
         })
     # Latest = first row (Speedtest Tracker returns newest-first).
     latest: Optional[dict[str, Any]] = series[0] if series else None
@@ -317,21 +350,43 @@ async def fetch_data(host_row: dict, chip: dict, *,
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     """Return the LATEST cached speed-test result for a chip WITHOUT an
     upstream fetch (reads ``_data_cache`` only) — so the AI context can show
-    "last result" cheaply without a per-query upstream round-trip. Returns a
-    small ``{download, upload, ping, ts}`` dict (Mbps / Mbps / ms) or ``None``
-    when nothing is cached yet (then the AI offers to run a fresh test)."""
+    "last result" cheaply without a per-query upstream round-trip. Returns
+    ``{download, upload, ping, ts, result_url, image_url, averages}``
+    (Mbps / Mbps / ms; averages over the cached window) or ``None`` when
+    nothing is cached yet (then the AI offers to run a fresh test).
+
+    The AI surfaces (Telegram + web sidebar) read this via
+    ``available_app_skills_context()[].last`` to answer
+    "show me the latest speed test" with latest + averages + the result
+    image link, WITHOUT triggering a new test."""
     cached = _data_cache.get(_cache_key(host_id, service_idx))
     if not cached:
         return None
-    latest = (cached[1] or {}).get("latest")
+    payload = cached[1] or {}
+    latest = payload.get("latest")
     if not isinstance(latest, dict):
         return None
-    return {
+    out: dict[str, Any] = {
         "download": round(float(latest.get("download") or 0), 2),
         "upload": round(float(latest.get("upload") or 0), 2),
         "ping": round(float(latest.get("ping") or 0), 1),
         "ts": latest.get("ts") or "",
     }
+    result_url = (latest.get("result_url") or "").strip()
+    image_url = (latest.get("image_url") or "").strip()
+    if result_url:
+        out["result_url"] = result_url
+    if image_url:
+        out["image_url"] = image_url
+    avg = payload.get("averages")
+    if isinstance(avg, dict) and avg.get("sample_size"):
+        out["averages"] = {
+            "download": round(float(avg.get("download") or 0), 2),
+            "upload": round(float(avg.get("upload") or 0), 2),
+            "ping": round(float(avg.get("ping") or 0), 1),
+            "sample_size": int(avg.get("sample_size") or 0),
+        }
+    return out
 
 
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,

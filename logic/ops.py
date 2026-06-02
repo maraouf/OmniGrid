@@ -900,19 +900,18 @@ def build_template_values(
     warning). ``message`` is the always-populated counterpart for
     warning / success templates that need a non-empty body.
     """
-    import datetime as _dt
-    from logic.datetime_fmt import apply_datetime_format, get_user_datetime_format
+    from logic.datetime_fmt import format_user_datetime, get_user_datetime_format
 
     ts = when if when is not None else time.time()
     # Render against the actor's `ui_prefs.datetime_format` so the
     # notification `{time}` placeholder matches what they'd see in the
-    # SPA via `fmtDate`. Empty / missing username falls through to
-    # `DEFAULT_DATETIME_FORMAT` ("dd/MM/yyyy, HH:mm:ss").
+    # SPA via `fmtDate` — same token grammar AND the operator's
+    # scheduler timezone (NOT raw UTC), so a notification's `{time}`
+    # agrees with every other operator-facing timestamp. Empty /
+    # missing username falls through to `DEFAULT_DATETIME_FORMAT`
+    # ("dd/MM/yyyy, HH:mm:ss").
     user_fmt = get_user_datetime_format(actor_username or "")
-    rendered_time = apply_datetime_format(
-        _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc),
-        user_fmt,
-    )
+    rendered_time = format_user_datetime(ts, user_fmt)
     err_str = (error or "")
     if len(err_str) > 500:
         err_str = err_str[:500]
