@@ -824,6 +824,7 @@
     "reload": "Reload",
     "reloading": "Reloading…",
     "delete": "Delete",
+    "disable": "Disable",
     "create": "Create",
     "ok": "OK",
     "send_test": "Send test",

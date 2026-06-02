@@ -259,6 +259,11 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
             _req = getattr(mod, "requires_api_key", None)
             if callable(_req) and _req() and not str(chip.get("api_key") or "").strip():
                 continue  # gated: app needs an api_key and none is set
+            # Fleet-ness: a skill aggregates across EVERY instance (run_skill
+            # ignores the chip) when its own `fleet` flag is set OR the module
+            # declares `FLEET_SKILLS = True` (e.g. AdGuard). Surfaced so the
+            # Telegram slash command + /help can run it host-less.
+            _mod_fleet = bool(getattr(mod, "FLEET_SKILLS", False))
             # App display name: chip override -> catalog template name -> slug.
             _cidi = int_or_none(chip.get("catalog_id"))
             _row = cat_by_id.get(_cidi) if _cidi is not None else None
@@ -270,7 +275,9 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
                 "service_idx": idx,
                 "slug": slug,
                 "app": app_name,
-                "skills": [{"id": s.get("id"), "name": s.get("name")} for s in skills],
+                "skills": [{"id": s.get("id"), "name": s.get("name"),
+                            "fleet": bool(s.get("fleet")) or _mod_fleet}
+                           for s in skills],
             }
             last = peek_skill_data(slug, host_id, idx)
             if last:
