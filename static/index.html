@@ -10221,6 +10221,31 @@
                             </button>
                           </template>
                         </div>
+                        <!-- Inline skill output. A read-only skill (e.g.
+                             Speedtest's latest_speedtest) renders its result
+                             HERE — under the button — instead of in a transient
+                             toast the operator can't read. image_url (when the
+                             skill returns one) shows as a clickable preview. -->
+                        <template x-for="sk in appInstanceSkills(inst)" :key="'skres:' + sk.id">
+                          <template x-if="appSkillResult(inst, sk.id)">
+                            <div class="mt-2 rounded-md border px-2.5 py-2 fs-xs"
+                                 :class="appSkillResult(inst, sk.id).ok ? 'border-[var(--border)] bg-[var(--surface-2)]' : 'border-[var(--danger)]'">
+                              <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-1"
+                                   x-text="appSkillLabel(sk)"></div>
+                              <div class="whitespace-pre-wrap break-words"
+                                   :class="appSkillResult(inst, sk.id).ok ? '' : 'text-[var(--danger)]'"
+                                   x-text="appSkillResult(inst, sk.id).detail"></div>
+                              <template x-if="appSkillResult(inst, sk.id).image_url">
+                                <a :href="appSkillResult(inst, sk.id).image_url" target="_blank" rel="noopener"
+                                   class="block mt-2">
+                                  <img :src="appSkillResult(inst, sk.id).image_url" alt=""
+                                       loading="lazy"
+                                       class="max-w-full rounded border border-[var(--border)]"/>
+                                </a>
+                              </template>
+                            </div>
+                          </template>
+                        </template>
                       </div>
                     </template>
                   </div>
