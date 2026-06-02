@@ -179,6 +179,18 @@ export default {
     return !!(this._appSkillBusy && this._appSkillBusy['skill:' + this.appInstanceKey(inst) + ':' + skillId]);
   },
 
+  // Result of the LAST run of a (chip, skill) — {ok, detail, image_url, at}
+  // or null. Rendered INLINE below the skill buttons in the app drawer so a
+  // read-only skill (e.g. Speedtest's `latest_speedtest`) shows its output
+  // in-place instead of a transient toast the operator can't read (the
+  // detail is multi-line: emoji stats + an image URL).
+  appSkillResult(inst, skillId) {
+    if (!this._appSkillResult) {
+      return null;
+    }
+    return this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] || null;
+  },
+
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.
@@ -197,11 +209,24 @@ export default {
         + '/' + encodeURIComponent(inst.service_idx)
         + '/skill/' + encodeURIComponent(skillId), {method: 'POST'});
       const j = await r.json().catch(() => ({}));
+      this._appSkillResult = this._appSkillResult || {};
+      const resKey = 'res:' + this.appInstanceKey(inst) + ':' + skillId;
       if (r.ok && j && j.ok) {
-        this.showToast((this.t('apps.skills.ran_ok') || 'Skill started')
-          + (j.detail ? ' — ' + j.detail : ''), 'success');
-        // The upstream result lands a little later (a speed test takes
-        // ~10-60s); refresh the per-app data so it shows once ready.
+        // Stash the result so it renders INLINE in the drawer (below the
+        // skill buttons) instead of only as a transient toast. The detail
+        // can be multi-line (stats + an image URL); strip the image_url
+        // line out of the text and render it as an <img> preview instead.
+        const img = (j && j.image_url) ? String(j.image_url).trim() : '';
+        let detail = (j && j.detail) ? String(j.detail) : '';
+        if (img && detail) {
+          detail = detail.split('\n').filter((l) => l.trim() !== img).join('\n').trim();
+        }
+        this._appSkillResult[resKey] = {ok: true, detail: detail, image_url: img, at: Date.now()};
+        // Toast stays minimal — the output now lives in the drawer.
+        this.showToast(this.t('apps.skills.ran_ok') || 'Skill started', 'success');
+        // A freshly-QUEUED run (e.g. run_speedtest) lands its result ~10-60s
+        // later; refresh the per-app data so the extras card updates once
+        // ready (also re-syncs the extras after a read-only `latest_*` skill).
         if (typeof this.loadAppData === 'function') {
           setTimeout(() => {
             this.loadAppData(inst, true);
@@ -209,10 +234,15 @@ export default {
         }
       } else {
         const detail = (j && j.detail) || ('HTTP ' + r.status);
+        this._appSkillResult[resKey] = {ok: false, detail: detail, image_url: '', at: Date.now()};
         this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
       }
     } catch (err) {
-      this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + ((err && err.message) || err), 'error');
+      const msg = (err && err.message) || err;
+      this._appSkillResult = this._appSkillResult || {};
+      this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] =
+        {ok: false, detail: String(msg), image_url: '', at: Date.now()};
+      this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
     } finally {
       this._appSkillBusy[busyKey] = false;
     }

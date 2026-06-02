@@ -1022,6 +1022,11 @@ async def api_ai_palette(
     # that only handles single-action responses; new consumers
     # iterate `actions` (list).
     text = (out.get("text") or "") if isinstance(out, dict) else ""
+    # Preserve the ORIGINAL full reply: parse_palette_actions below cuts the
+    # text from the first `ACTION:` line to end-of-text, which also removes the
+    # `ACTION_DATA:` line the AI emits on the NEXT line — so `ACTION_DATA` must
+    # be parsed from this original, not the progressively-cleaned `text`.
+    orig_reply_text = text
     action_ids, cleaned_text = _ai.parse_palette_actions(text)
     if action_ids:
         out["text"] = cleaned_text
@@ -1101,10 +1106,19 @@ async def api_ai_palette(
     # `ACTION_TAG` / `ACTION_HOSTS` / `ACTION_ITEM` channels.
     # Validated as JSON object server-side; invalid → None so the
     # SPA falls back gracefully.
-    action_data, cleaned_text = _ai.parse_palette_action_data(text)
+    # Parse ACTION_DATA from the ORIGINAL full reply — when an `ACTION:`
+    # trailer is present, `parse_palette_actions` already cut the following
+    # `ACTION_DATA:` line out of `text`, so parsing the cleaned text always
+    # missed it (run_app_skill / schedule_* arrived with action_data=null and
+    # failed client-side before any backend log fired).
+    action_data, _ = _ai.parse_palette_action_data(orig_reply_text)
     if action_data is not None:
-        out["text"] = cleaned_text
         out["action_data"] = action_data
+    # Visible-text hygiene: strip a stray ACTION_DATA line still present in the
+    # cleaned text (the no-`ACTION:` case, where nothing removed it above).
+    _vis_data, cleaned_text = _ai.parse_palette_action_data(text)
+    if _vis_data is not None:
+        out["text"] = cleaned_text
     text = cleaned_text
 
     # Synthesise `action_data` for `send_notification` when the AI
