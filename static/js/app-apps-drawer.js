@@ -208,6 +208,29 @@ export default {
       .map((line) => line.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean));
   },
 
+  // Split one stat chip ("⬇️ 185 Mbps") into a CSS-colorable leading glyph
+  // + the remaining text, so download / upload / ping read in DISTINCT
+  // colours in the drawer. Emoji ignore CSS `color`, so the metric emoji
+  // is swapped for a plain arrow glyph (↓ / ↑) that DOES take colour; the
+  // colours match the trend chart (download=success, upload=info,
+  // ping=warning). The Telegram skill output keeps the original emoji —
+  // this transform is SPA-render-only. Unmapped segs (time, "Avg of 10:")
+  // return an empty icon so they render as plain text unchanged.
+  appSkillSegParts(seg) {
+    const s = String(seg || '');
+    const MAP = [
+      ['⬇️', '↓', 'var(--success)'],
+      ['⬆️', '↑', 'var(--info)'],
+      ['🏓', '🏓', 'var(--warning)'],
+    ];
+    for (const row of MAP) {
+      if (s.startsWith(row[0])) {
+        return {icon: row[1], color: row[2], text: s.slice(row[0].length).trim()};
+      }
+    }
+    return {icon: '', color: '', text: s};
+  },
+
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.

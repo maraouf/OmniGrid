@@ -1571,6 +1571,14 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     args = parts[1:]
     meta = _COMMANDS.get(head)
     if meta is None:
+        # Not a static command — it may be a DYNAMIC per-app SKILL command
+        # (/run_speedtest, /adguard_status, …). These are deliberately kept
+        # out of _COMMANDS (so they don't bloat the setMyCommands menu) but
+        # ARE routed here + listed in /help. The dispatcher returns True
+        # when it handled `head` (incl. its own gate / error replies).
+        from logic.telegram_handlers import _try_dispatch_skill_command  # noqa: PLC0415
+        if await _try_dispatch_skill_command(client, head, args, msg):
+            return
         await _send_reply(
             client,
             f"Unknown command <code>{_escape(head)}</code>. Try <code>/help</code>."

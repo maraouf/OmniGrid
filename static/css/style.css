@@ -10009,12 +10009,25 @@ select.field-invalid {
    the header wrappers use above) so the instance <ul> + extras column become
    grid items the area template places. */
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical {
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  /* Title/description column trimmed (0.75fr) + the host/ports column
+     widened (1.85fr) so multi-host port pills get more room; pairs with
+     the title/desc top-align rule below so the grey label sits directly
+     under the title instead of drifting to the two-row block's middle. */
+  grid-template-columns: auto minmax(0, 0.75fr) minmax(0, 1.85fr) auto;
   grid-template-areas:
     "logo  title ports pills"
     "logo  desc  ports pills"
     "extras extras extras extras";
   column-gap: var(--s-3);
+}
+
+/* Top-align the title + grey description so the label reads as
+   "directly under the title", not floated to the vertical centre of
+   the two title/desc rows (the logo spans both, which stretched them). */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-titleblock,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-name,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta {
+  align-self: start;
 }
 
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-body-region,
@@ -10058,6 +10071,36 @@ select.field-invalid {
 
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card-ups-grid {
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+/* ----------------------------------------------------------------
+   Multi-host apps (2+ instances => `.apps-card--multihost` on the
+   card): lay the per-host instance rows SIDE-BY-SIDE instead of
+   stacking them vertically, so the hosts consume less vertical space
+   and leave more room for the per-app extras below. Scoped to
+   `.apps-card--multihost` so single-host apps (e.g. Speedtest pinned
+   on one host) keep the original stacked layout untouched. Applied at
+   3x1 (double+short), 3x2 (double+tall) and 4x2 (xlarge+tall). 4x1
+   keeps its hoisted host+ports row (its own block above). Two columns
+   covers the common 2-host case; 3+ hosts wrap 2-per-row, still
+   tighter than one-per-row.
+   ---------------------------------------------------------------- */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul,
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px var(--s-3);
+  align-items: start;
+}
+
+/* Drop the Tailwind `space-y-0.5` top-margin on the instance <li>s
+   once they're grid items (the grid `gap` owns the spacing now;
+   otherwise wrapped rows get a double gap). */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul > .apps-card-instance,
+.apps-custom-cell.apps-card--size-double.apps-card--height-tall:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul > .apps-card-instance,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-tall:not(.apps-card--editing) .apps-card--multihost .apps-card-ready > ul > .apps-card-instance {
+  margin-top: 0;
 }
 
 /* ----------------------------------------------------------------
