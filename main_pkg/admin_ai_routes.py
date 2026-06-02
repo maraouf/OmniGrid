@@ -826,7 +826,12 @@ async def api_ai_palette(
     # noinspection PyBroadException
     try:
         from logic.apps.registry import available_app_skills_context  # noqa: PLC0415
-        ctx["app_skills"] = available_app_skills_context()
+        from logic.datetime_fmt import get_user_datetime_format  # noqa: PLC0415
+        # Render app_skills `last` timestamps in the requesting admin's chosen
+        # datetime_format (Settings → Profile → Formats) so the sidebar reply
+        # matches the rest of the UI.
+        _fmt = get_user_datetime_format(getattr(_admin, "username", None) or "")
+        ctx["app_skills"] = available_app_skills_context(datetime_format=_fmt)
     except Exception as e:  # noqa: BLE001
         print(f"[ai] palette app_skills inject failed: {e}")
         ctx.setdefault("app_skills", [])

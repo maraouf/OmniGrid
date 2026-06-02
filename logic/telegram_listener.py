@@ -429,6 +429,45 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
         return None
 
 
+async def _send_photo(
+    client: httpx.AsyncClient, photo_url: str, caption: str = "",
+) -> Optional[int]:
+    """Send a photo (by URL) to the reply chat — used when an AI reply
+    references an image the operator should SEE inline (e.g. a Speedtest
+    result share image), since text replies set ``disable_web_page_preview``
+    so a bare URL would not render. Telegram fetches ``photo_url`` itself.
+    Fire-and-forget shape mirroring :func:`_send_reply`: returns the
+    ``message_id`` on success, None on any failure (caller already
+    delivered the text, so a photo failure must never raise)."""
+    from logic.db import get_setting
+    url = (photo_url or "").strip()
+    if not url:
+        return None
+    chat = _reply_destination()
+    thread = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
+    payload: dict = {"chat_id": chat, "photo": url}
+    if caption:
+        # Caption is HTML-parsed + capped at Telegram's 1024-char limit.
+        payload["caption"] = caption[:1024]
+        payload["parse_mode"] = "HTML"
+    if thread:
+        try:
+            payload["message_thread_id"] = int(thread)
+        except (TypeError, ValueError):
+            pass
+    ok, body = await _telegram_post(
+        client, "sendPhoto", payload,
+        log_label="photo", silent_failure=True,
+    )
+    if not ok:
+        return None
+    try:
+        msg_id = ((body.get("result") or {}).get("message_id"))
+        return int(msg_id) if msg_id is not None else None  # type: ignore[arg-type]
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 async def _send_chat_action(
     client: httpx.AsyncClient, action: str = "typing",
 ) -> None:
