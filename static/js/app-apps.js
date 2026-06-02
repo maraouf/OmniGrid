@@ -3746,22 +3746,49 @@ export default {
     if (!key || !inst) {
       return;
     }
+    // Busy state so the button shows a spinner + disables while the
+    // probe POST + appsList reload are in flight. Without it a click
+    // produced NO visible feedback on success (only an error toast on
+    // failure + a silent in-place reconcile), reading as "the button
+    // does nothing". Mirrors the appSkillBusy / _appSkillBusy pattern.
+    this._appProbeBusy = this._appProbeBusy || {};
+    if (this._appProbeBusy[key]) {
+      return;  // already probing this chip — ignore the double-click
+    }
+    this._appProbeBusy[key] = true;
+    let ok = false;
     try {
-      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
-        + '/' + encodeURIComponent(inst.service_idx) + '/probe', {method: 'POST'});
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + (j.detail || ('HTTP ' + r.status)), 'error');
+      try {
+        const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+          + '/' + encodeURIComponent(inst.service_idx) + '/probe', {method: 'POST'});
+        if (r.ok) {
+          ok = true;
+        } else {
+          const detail = await this.fmtResponseError(r);
+          this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + detail, 'error');
+        }
+      } catch (err) {
+        this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + ((err && err.message) || err), 'error');
       }
-    } catch (err) {
-      this.showToast((this.t('apps.drawer.probe_failed') || 'Probe failed: ') + ((err && err.message) || err), 'error');
+      if (this.appDebugOpen[key]) {
+        await this.loadAppInstanceDebug(inst);
+      }
+      if (typeof this.loadAppsList === 'function') {
+        await this.loadAppsList(true);
+      }
+    } finally {
+      this._appProbeBusy[key] = false;
     }
-    if (this.appDebugOpen[key]) {
-      await this.loadAppInstanceDebug(inst);
+    if (ok) {
+      this.showToast(this.t('apps.drawer.probe_done') || 'Probe complete', 'success');
     }
-    if (typeof this.loadAppsList === 'function') {
-      await this.loadAppsList(true);
-    }
+  },
+
+  // True while a "Probe now" run is in flight for a given chip — drives
+  // the drawer button's spinner + disabled state.
+  appProbeBusy(inst) {
+    const key = this.appInstanceKey(inst);
+    return !!(key && this._appProbeBusy && this._appProbeBusy[key]);
   },
 
   // Admin Edit affordance from the App detail drawer — redirect to the

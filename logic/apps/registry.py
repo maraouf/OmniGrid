@@ -23,6 +23,8 @@ from __future__ import annotations
 from types import ModuleType
 from typing import Any, Optional
 
+from logic.coerce import int_or_none
+
 from . import apc
 from . import speedtest_tracker
 
@@ -100,14 +102,46 @@ def all_app_skills() -> dict[str, list[dict]]:
     return out
 
 
+def _chip_slug(chip: dict, cat_by_id: Optional[dict] = None) -> str:
+    """Resolve a chip's catalog slug from any shape a persisted chip can
+    carry: an explicit ``catalog_slug`` string, an embedded ``catalog``
+    block, or -- the dominant case for pinned chips -- a numeric
+    ``catalog_id`` FK that has to be looked up against the catalog table.
+
+    Pinned chips persist ONLY ``catalog_id`` (the slug is derived at
+    shape time by `_shape_host_apps` / `list_apps`), so WITHOUT the id
+    fallback every catalog-linked app is invisible to the per-app skill
+    dispatch AND the AI / Telegram-AI ``app_skills`` context -- the model
+    then reports the app as "not configured" even when its api_key is set
+    and its extras render in the UI. Pass ``cat_by_id`` (an id->row map)
+    to avoid a per-chip DB read inside a loop; omit it for a single-chip
+    lookup. Returns "" when nothing resolves."""
+    if not isinstance(chip, dict):
+        return ""
+    _cat = chip.get("catalog")
+    cat = _cat if isinstance(_cat, dict) else {}
+    slug = str(chip.get("catalog_slug") or cat.get("slug") or "").strip().lower()
+    if slug:
+        return slug
+    cid_int = int_or_none(chip.get("catalog_id"))
+    if cid_int is None:
+        return ""
+    if cat_by_id is not None:
+        row = cat_by_id.get(cid_int)
+    else:
+        from logic.service_catalog import get_catalog_by_id  # noqa: PLC0415
+        row = get_catalog_by_id(cid_int)
+    return str((row or {}).get("slug") or "").strip().lower()
+
+
 def resolve_chip(host_id: str, service_idx: int):
     """Resolve ``(host_row, chip, slug)`` for a pinned app chip from
     hosts_config — the server-side counterpart to the route's
     ``_resolve_chip_app_module`` (no Request needed; used by the Telegram-AI
     skill dispatch). Returns ``(None, None, "")`` when not found. Never raises.
     """
-    # hosts_config blob / DB read must yield "not found", never propagate.
-    # defensive "never raises" boundary: a bad
+    # defensive "never raises" boundary: a bad hosts_config blob / DB read must
+    # yield "not found", never propagate.
     # noinspection PyBroadException
     try:
         import json as _json  # noqa: PLC0415
@@ -126,10 +160,7 @@ def resolve_chip(host_id: str, service_idx: int):
             if (isinstance(svcs, list) and isinstance(service_idx, int)
                 and 0 <= service_idx < len(svcs) and isinstance(svcs[service_idx], dict)):
                 chip = svcs[service_idx]
-                _cat = chip.get("catalog")
-                cat = _cat if isinstance(_cat, dict) else {}
-                slug = str(chip.get("catalog_slug") or cat.get("slug") or "").strip().lower()
-                return h, chip, slug
+                return h, chip, _chip_slug(chip)
             return h, None, ""
     return None, None, ""
 
@@ -143,8 +174,8 @@ def available_app_skills_context() -> list:
     calls — ``last`` is a cache-only peek. Never raises (returns [] on any
     failure so context assembly is safe)."""
     out: list = []
-    # assembly must stay safe regardless of a bad hosts_config blob / DB error.
-    # Defensive "never raises" boundary: context
+    # defensive "never raises" boundary: context assembly must stay safe
+    # regardless of a bad hosts_config blob / DB error.
     # noinspection PyBroadException
     try:
         import json as _json  # noqa: PLC0415
@@ -156,6 +187,16 @@ def available_app_skills_context() -> list:
         return out
     if not isinstance(hosts, list):
         return out
+    # Build the catalog id->row map ONCE so per-chip slug + display-name
+    # resolution is O(1) (no per-chip DB read inside the host/chip loop).
+    # list_catalog() already swallows DB errors + returns [], so no guard
+    # needed here.
+    from logic.service_catalog import list_catalog  # noqa: PLC0415
+    cat_by_id: dict[int, dict[str, Any]] = {}
+    for r in list_catalog():
+        _rid = int_or_none(r.get("id"))
+        if _rid is not None:
+            cat_by_id[_rid] = r
     for h in hosts:
         if not isinstance(h, dict):
             continue
@@ -167,9 +208,7 @@ def available_app_skills_context() -> list:
         for idx, chip in enumerate(services):
             if not isinstance(chip, dict):
                 continue
-            _cat = chip.get("catalog")
-            cat = _cat if isinstance(_cat, dict) else {}
-            slug = str(chip.get("catalog_slug") or cat.get("slug") or "").strip().lower()
+            slug = _chip_slug(chip, cat_by_id)
             if not slug:
                 continue
             skills = skills_for_slug(slug)
@@ -179,12 +218,17 @@ def available_app_skills_context() -> list:
             _req = getattr(mod, "requires_api_key", None)
             if callable(_req) and _req() and not str(chip.get("api_key") or "").strip():
                 continue  # gated: app needs an api_key and none is set
+            # App display name: chip override -> catalog template name -> slug.
+            _cidi = int_or_none(chip.get("catalog_id"))
+            _row = cat_by_id.get(_cidi) if _cidi is not None else None
+            _rname = _row.get("name") if isinstance(_row, dict) else None
+            app_name = str(chip.get("name") or _rname or slug)
             entry: dict[str, Any] = {
                 "host_id": host_id,
                 "host": host_label,
                 "service_idx": idx,
                 "slug": slug,
-                "app": str(chip.get("name") or cat.get("name") or slug),
+                "app": app_name,
                 "skills": [{"id": s.get("id"), "name": s.get("name")} for s in skills],
             }
             last = peek_skill_data(slug, host_id, idx)
@@ -202,9 +246,8 @@ def peek_skill_data(slug: str, host_id: str, service_idx: int) -> Optional[dict]
     mod = module_for_slug(slug)
     if mod is None or not hasattr(mod, "peek_latest"):
         return None
-
-    # code; a peek failure must never break AI-context assembly.
-    # per-app peek_latest is arbitrary module
+    # per-app peek_latest is arbitrary module code; a peek failure must never
+    # break AI-context assembly.
     # noinspection PyBroadException
     try:
         return mod.peek_latest(host_id, service_idx)

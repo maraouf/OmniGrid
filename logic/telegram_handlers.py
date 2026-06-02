@@ -442,6 +442,36 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 lines.append(head)
         lines.append("")  # blank line between categories
 
+    # App skills — every per-app SKILL the AI can actually run for this
+    # fleet (the app declares SKILLS AND its api_key is set on a pinned
+    # chip). Mirrors the exact set the Telegram-AI context builds via
+    # `available_app_skills_context()`, so the menu matches what a plain-
+    # text request can trigger. Linked-only: the AI palette + skill
+    # dispatch are /link-gated, so listing them to an unmapped sender
+    # (who can't invoke them) would be misleading. The helper never
+    # raises (returns [] on any failure), so no guard is needed.
+    if is_linked:
+        from logic.apps.registry import available_app_skills_context
+        _skill_ctx = available_app_skills_context()
+        if _skill_ctx:
+            esc = _listener()._escape
+            lines.append(
+                "<b>🧠 App skills</b> <i>(ask in plain text — I'll run these)</i>"
+            )
+            for _ent in _skill_ctx:
+                _app = esc(str(_ent.get("app") or _ent.get("slug") or "app"))
+                _host = esc(str(_ent.get("host") or _ent.get("host_id") or ""))
+                _names = ", ".join(
+                    esc(str(_s.get("name") or _s.get("id")))
+                    for _s in (_ent.get("skills") or [])
+                    if isinstance(_s, dict) and (_s.get("name") or _s.get("id"))
+                )
+                if not _names:
+                    continue
+                _loc = f" @ {_host}" if _host else ""
+                lines.append(f"  • <b>{_app}</b>{_loc}: {_names}")
+            lines.append("")
+
     # Trailing legend — the 🔓 paragraph is for unmapped senders
     # ONLY (linked users already know they have access). Linked
     # users see a shorter footer covering the rest of the

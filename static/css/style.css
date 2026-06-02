@@ -6368,6 +6368,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 .swal2-html-container ul {
   text-align: start;
   display: inline-block;
+  /* Never exceed the popup width: with `word-break` on the code pills
+     below, a very long single-token container name now wraps INSIDE the
+     dialog instead of forcing the inline-block list wider than the
+     popup. Short lists (e.g. the update-confirm action list) still
+     shrink to content + stay centred. */
+  max-width: 100%;
   margin-top: var(--s-4);
   padding-inline-start: 0;
   list-style: none;
@@ -6376,13 +6382,21 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 .swal2-html-container li {
   padding: var(--s-1) 0;
   color: var(--text);
+  /* Bullet + name as a flex row so the marker hangs to the LEFT of the
+     first line with a tight gap; when a long name wraps, the
+     continuation lines align under the name (hanging indent) instead of
+     drifting back under the bullet. Replaces the old inline `::before`
+     + margin, which left a wide fixed indent before each pill. */
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
 }
 
 .swal2-html-container li::before {
-  content: "• ";
+  content: "•";
   color: var(--primary);
-  margin-inline-end: var(--s-3);
   font-weight: bold;
+  flex: 0 0 auto;
 }
 
 .swal2-html-container code {
@@ -6392,6 +6406,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   color: var(--warning);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
+  /* Long Swarm task-container names are one unbreakable token; allow
+     them to wrap within the pill instead of overflowing / widening the
+     dialog. `min-width: 0` lets the pill shrink inside the flex `li`. */
+  word-break: break-all;
+  white-space: normal;
+  min-width: 0;
 }
 
 /* Update / recreate confirm popup body — centered name chip + action list,

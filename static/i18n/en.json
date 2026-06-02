@@ -5217,6 +5217,7 @@
       "master_probe_enabled": "Service-probe provider (global)",
       "live_probe_blocked": "Live probing not running — reasons:",
       "raw_json": "Raw debug JSON",
+      "probe_done": "Probe complete",
       "probe_failed": "Probe failed: "
     },
     "host_drawer": {
