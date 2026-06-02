@@ -28,6 +28,7 @@ its consumers and those still live in listener.
 """
 from __future__ import annotations
 
+import asyncio
 import re as _re
 import time
 from typing import Any, Optional
@@ -946,22 +947,25 @@ async def _ai_reply(
           "the operator asks you to DO something (restart, pause, "
           "configure), tell them to use the matching slash command "
           "(/restart <target>, /cleanup, etc.) or the SPA. "
-          "**NO TOOL CALLING ON TELEGRAM.** Unlike the web app, this "
-          "Telegram surface does NOT execute TOOL: / TOOL_ARGS: "
-          "directives — there is no second round here, so NEVER emit "
-          "them, and NEVER promise to 'fetch', 'check the logs', 'run "
-          "diagnostics', or 'get back to you'. Answer in ONE reply "
-          "using ONLY the context already provided (hosts / items / "
-          "weather / recent history). Answer the SPECIFIC question the "
-          "operator asked — do NOT pad a focused question (e.g. 'what "
-          "is wrong with the plex service') with an unrelated full-fleet "
-          "summary; only give a fleet overview when they actually ask "
-          "for one. When a question genuinely needs live host inspection "
-          "that the context doesn't carry (systemd unit state, container "
-          "disk usage, journald logs), say so in one sentence and point "
-          "the operator to the SPA — open the host drawer for that host "
-          "and run the read-only SSH diagnostics there. Never pretend to "
-          "have run anything. "
+          "**DIAGNOSTIC TOOLS ARE ENABLED ON TELEGRAM.** When the "
+          "operator asks a 'why is X failing' / 'what's in the logs' / "
+          "'how often does Y happen' question that the supplied context "
+          "doesn't already answer, EMIT the appropriate TOOL: / "
+          "TOOL_ARGS: directives (per the DIAGNOSTIC TOOLS block above). "
+          "The bot runs them and re-invokes you with the results in a "
+          "Tool results block, and your NEXT reply composes a real "
+          "diagnosis from the actual data. Read-only tools "
+          "(get_container_events / get_recent_history / get_recent_logs) "
+          "always run; host-touching tools (ssh_diag / "
+          "docker_container_du) run ONLY when the operator has enabled "
+          "destructive Telegram actions — if such a tool didn't run its "
+          "result is simply ABSENT from the Tool results, so say you "
+          "couldn't reach the host and point the operator to the SPA "
+          "host drawer rather than inventing output. Answer the SPECIFIC "
+          "question the operator asked — do NOT pad a focused question "
+          "(e.g. 'what is wrong with the plex service') with an "
+          "unrelated full-fleet summary. NEVER fabricate tool output — "
+          "cite only values present in the Tool results block. "
           "**FORMATTING — Telegram HTML, NOT Markdown.** This bot "
           "sends every message with `parse_mode=HTML`. Use ONLY these "
           "tags for formatting: `<b>bold</b>` (NEVER `**bold**` or "
@@ -1118,6 +1122,71 @@ async def _ai_reply(
         )
         return
     raw_text = (result.get("text") or "").strip()
+    # ------------------------------------------------------------------
+    # Diagnostic TOOL loop (Telegram) — mirrors the web path's two-round
+    # dispatch. If the first-round reply emits `TOOL:` directives, run them
+    # backend-side + re-invoke the model with the results so its next reply
+    # composes a real diagnosis. Capped at ONE round-trip (bounds latency +
+    # tokens). Read-only tools always run; host-touching tools (ssh_diag /
+    # docker_container_du) run only when telegram_allow_destructive is set —
+    # otherwise dispatch returns a `_pending_confirm` marker (Telegram has no
+    # inline-confirm chip) and the tool is skipped, leaving its result absent
+    # so the second-round reply tells the operator to use the SPA.
+    try:
+        tool_calls, _first_cleaned = ai.parse_palette_tool_calls(raw_text)
+    except (ValueError, TypeError):
+        tool_calls = []
+    if tool_calls and isinstance(ctx, dict):
+        try:
+            from logic.db import get_setting_bool as _get_setting_bool
+            _allow_destructive = _get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
+        except (ImportError, RuntimeError, ValueError, TypeError):
+            _allow_destructive = False
+        ctx["actor"] = omnigrid_username or "telegram"
+        if _allow_destructive:
+            ctx["_tool_confirm_granted"] = True
+        tool_results = ctx.get("tool_results") or {}
+        for _call in tool_calls:
+            _tname = _call.get("name") or ""
+            try:
+                _tres = await ai.dispatch_palette_tool(_call, ctx)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except (RuntimeError, ValueError, TypeError, KeyError, OSError, httpx.HTTPError) as _terr:
+                _tres = {"error": f"{type(_terr).__name__}: {_terr}"}
+            if isinstance(_tres, dict) and _tres.get("_pending_confirm"):
+                # Host-touching tool, not pre-approved on Telegram — skip;
+                # its absence in tool_results signals "couldn't reach host".
+                continue
+            _existing = tool_results.get(_tname)
+            if _existing is None:
+                tool_results[_tname] = _tres
+            elif isinstance(_existing, list):
+                _existing.append(_tres)
+            else:
+                tool_results[_tname] = [_existing, _tres]
+        ctx["tool_results"] = tool_results
+        # Re-invoke with the tool results folded into the prompt.
+        try:
+            _result2 = await ai.ask_provider(
+                provider,
+                api_key=api_key,
+                prompt=ai.build_palette_user_prompt(text, ctx),
+                system_prompt=system_prompt,
+                model=model,
+                base_url=base_url,
+                max_tokens=max_toks,
+            )
+            if isinstance(_result2, dict) and _result2.get("ok"):
+                result = _result2
+                raw_text = (_result2.get("text") or "").strip()
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        # noinspection PyBroadException
+        except Exception as _e2:
+            # The first-round reply already succeeded; a second-round failure
+            # must never sink it — log + fall back to the first-round text.
+            print(f"[telegram_ai] second-round tool dispatch failed: {type(_e2).__name__}: {_e2}")
     # ------------------------------------------------------------------
     # AI-directive dispatch — Telegram side.
     #
