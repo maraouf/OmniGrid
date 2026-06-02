@@ -11296,8 +11296,10 @@ select.field-invalid {
    default to a single 90px track — too narrow for the app name, which
    truncated to a few characters. Span TWO tracks so the staging tile is
    double the width and the name reads in full; height is content-driven
-   and unchanged (operator-flagged). */
-.apps-section--unsectioned .apps-section-grid > .apps-custom-cell {
+   and unchanged (operator-flagged). NB: the wrapping `.apps-custom-cell`
+   is `display: contents` (generates no box), so the real grid item is the
+   `.apps-tile` itself — the span MUST land on it, not on the cell. */
+.apps-section--unsectioned .apps-section-grid .apps-tile {
   grid-column: span 2;
 }
 
