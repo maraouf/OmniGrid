@@ -1851,7 +1851,16 @@ export default {
     out = out.replace(/\(\s*\)/g, '');
     out = out.replace(/[ \t]{2,}/g, ' ');
     out = out.replace(/\n{3,}/g, '\n\n');
-    out = out.split('\n').map(l => l.replace(/[ \t]+$/, '')).join('\n');
+    // git-cliff / conventional-commit changelogs append a trailing commit-hash
+    // artifact to EVERY entry: `subject (PR-ref) - (f093c69)`. Strip the
+    // ` - (<7-40 hex>)` suffix per line — it's pure noise in the rendered view.
+    // The hash-in-parens shape (preceded by ` - `, all-hex, at line end) is
+    // specific enough to never eat a parenthesised PR number or a real
+    // parenthetical aside. Run per-line + alongside the trailing-whitespace
+    // trim so a GitHub-native body (no such suffix) is untouched.
+    out = out.split('\n')
+      .map(l => l.replace(/\s+-\s+\([0-9a-f]{7,40}\)\s*$/i, '').replace(/[ \t]+$/, ''))
+      .join('\n');
     return out.trim();
   },
   // Build the static placeholder block that the popup opens with.
@@ -1890,8 +1899,14 @@ export default {
       e = e.replace(/&lt;samp&gt;([\s\S]*?)&lt;\/samp&gt;/g, '<code class="release-notes-commit">$1</code>');
       // `code` → <code>
       e = e.replace(/`([^`]+)`/g, '<code class="release-notes-code">$1</code>');
-      // **bold** → <strong>
+      // **bold** → <strong> (run BEFORE the single-* italic rule so it
+      // doesn't consume bold markers).
       e = e.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+      // *italic* → <em>. Covers git-cliff's `*(scope)*` entry marker (which
+      // otherwise rendered as a literal `*(db)*`) plus ordinary markdown
+      // emphasis. Runs after bold so any `**` is already gone; the
+      // non-greedy `[^*]+?` won't span across a remaining single `*`.
+      e = e.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
       // @mention → styled (non-link) span. Leading char kept so we don't
       // match an email-ish "a@b".
       e = e.replace(/(^|[\s(])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/g, '$1<span class="release-notes-mention">@$2</span>');

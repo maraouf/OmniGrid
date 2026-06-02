@@ -1359,14 +1359,15 @@ async def _ai_reply(
     # If the reply references a Speedtest result share image, send it as a
     # PHOTO so it actually displays — text replies set
     # disable_web_page_preview, so a bare URL would only render as a link.
-    # Extracted from the RAW model text (the image URL line can be truncated
-    # out of `clean`). Fire-and-forget; a photo failure never affects the
-    # already-delivered text reply.
+    # Scan the RAW model text AND the appended action-outcome line (the
+    # latest_speedtest skill puts the image URL there, not in the model text),
+    # since either can carry the URL and `clean` may have truncated it.
+    # Fire-and-forget; a photo failure never affects the delivered text reply.
     try:
         import re as _re_img
         m = _re_img.search(
             r"https?://[^\s<>\"']*speedtest\.net/result/[^\s<>\"']*\.png",
-            raw_text,
+            raw_text + "\n" + (action_outcome_line or ""),
         )
         if m:
             await _listener()._send_photo(client, m.group(0))

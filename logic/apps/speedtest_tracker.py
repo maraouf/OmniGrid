@@ -50,6 +50,19 @@ SKILLS: tuple[dict, ...] = (
                        "check connection speed, start a speedtest"),
         "destructive": False,
     },
+    {
+        # Read-only: pulls the CURRENT latest result straight from the
+        # Speedtest Tracker app (live fetch, not the in-process cache) so the
+        # AI can answer "show me the latest speed test" even when nothing has
+        # been cached yet (fresh process / Telegram-first usage). Distinct from
+        # run_speedtest, which QUEUES a new test (result lands ~10-60s later).
+        "id": "latest_speedtest",
+        "name": "Show latest speed test",
+        "ai_phrases": ("show latest speed test, latest speedtest, latest speed test "
+                       "result, current internet speed, what is my internet speed, "
+                       "latest download upload ping, speed test result"),
+        "destructive": False,
+    },
 )
 
 
@@ -397,7 +410,82 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     skill id (the route maps that to HTTP 404)."""
     if skill_id == "run_speedtest":
         return await _trigger_speedtest(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if skill_id == "latest_speedtest":
+        return await _fetch_latest_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+def _fmt_mbps(v) -> str:
+    try:
+        return f"{float(v):,.1f} Mbps"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fmt_ms(v) -> str:
+    try:
+        return f"{float(v):,.1f} ms"
+    except (TypeError, ValueError):
+        return "—"
+
+
+async def _fetch_latest_skill(host_row: dict, chip: dict, *,
+                              host_id: Optional[str] = None,
+                              service_idx: Optional[int] = None) -> dict:
+    """Read-only skill: fetch the CURRENT latest result straight from the
+    Speedtest Tracker app (force-bypasses the per-chip cache) and return a
+    formatted ``detail`` summary + structured fields. Used by the AI's
+    "show me the latest speed test" path so it queries the app DIRECTLY
+    rather than refusing on an empty cache. Never raises — upstream / config
+    failures come back as ``{ok: False, detail}``."""
+    print(f"[speedtest] INFO latest_speedtest host={host_id} svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip,
+                                host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0),
+                                force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[speedtest] warning: latest_speedtest host={host_id} "
+              f"could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    latest = (data or {}).get("latest") if isinstance(data, dict) else None
+    if not isinstance(latest, dict) or not latest:
+        return {"ok": False,
+                "detail": "no speed-test results found on the app yet",
+                "status": 0}
+    avg = (data or {}).get("averages") or {}
+    # Timestamp in the operator's chosen format (default when no per-user
+    # context is available at the skill layer); scheduler-tz aware.
+    ts_disp = ""
+    try:
+        from logic.datetime_fmt import format_user_datetime  # noqa: PLC0415
+        ts_disp = format_user_datetime(latest.get("ts") or "")
+    except Exception:  # noqa: BLE001
+        ts_disp = str(latest.get("ts") or "")
+    parts = [
+        f"⬇️ {_fmt_mbps(latest.get('download'))}",
+        f"⬆️ {_fmt_mbps(latest.get('upload'))}",
+        f"🏓 {_fmt_ms(latest.get('ping'))}",
+    ]
+    if ts_disp:
+        parts.append(f"🕒 {ts_disp}")
+    detail = "  ".join(parts)
+    if avg.get("sample_size"):
+        detail += (f" | avg of {int(avg['sample_size'])}: "
+                   f"⬇️ {_fmt_mbps(avg.get('download'))}  "
+                   f"⬆️ {_fmt_mbps(avg.get('upload'))}  "
+                   f"🏓 {_fmt_ms(avg.get('ping'))}")
+    image_url = (latest.get("image_url") or "").strip()
+    if image_url:
+        detail += f"\n{image_url}"
+    return {
+        "ok": True,
+        "detail": detail,
+        "status": 200,
+        "latest": latest,
+        "averages": avg,
+        "image_url": image_url,
+    }
 
 
 async def _trigger_speedtest(host_row: dict, chip: dict, *,
@@ -429,7 +517,13 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
     last_detail = ""
     try:
         async with httpx.AsyncClient(verify=False, timeout=20.0) as cli:
-            for method in ("GET", "POST"):
+            # POST first — Speedtest Tracker's on-demand trigger is POST-only on
+            # current builds (a GET returns 405 Method Not Allowed). GET stays as
+            # a fallback for older forks that accepted it. Intermediate
+            # verb-probing is logged at INFO (not warning) so a successful POST
+            # isn't preceded by a scary "405" warning line; only auth failure or
+            # an all-verbs-failed give-up is WARN/ERROR.
+            for method in ("POST", "GET"):
                 r = await cli.request(method, url, headers=headers)
                 last_status = r.status_code
                 if r.status_code in (200, 201, 202, 204):
@@ -442,17 +536,17 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
                     print(f"[speedtest] warning: run_speedtest host={host_id} "
                           f"{method} {url} -> {r.status_code} auth rejected (check api_key)")
                     return {"ok": False, "detail": "auth failed (check api_key)", "status": r.status_code}
-                # Non-2xx, non-auth (typically 404/405): log the attempt and
-                # keep trying the other verb.
-                print(f"[speedtest] warning: run_speedtest host={host_id} "
-                      f"{method} {url} -> {r.status_code} (trying next verb)")
+                # Non-2xx, non-auth (typically 405 on the non-preferred verb /
+                # 404): expected probing — log at INFO and try the other verb.
+                print(f"[speedtest] INFO run_speedtest host={host_id} "
+                      f"{method} {url} -> {r.status_code} (verb not accepted, trying next)")
                 last_detail = f"HTTP {r.status_code}"
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[speedtest] error: run_speedtest host={host_id} url={url} "
               f"failed — {type(e).__name__}: {e}")
         return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
-    print(f"[speedtest] error: run_speedtest host={host_id} url={url} — both GET "
-          f"and POST failed (last={last_status}); the on-demand trigger endpoint "
+    print(f"[speedtest] error: run_speedtest host={host_id} url={url} — both POST "
+          f"and GET rejected (last={last_status}); the on-demand trigger endpoint "
           f"differs on this Speedtest Tracker version (this build's results "
           f"resource is /api/v1/results). Run the test from the Speedtest "
           f"Tracker UI / its scheduler, or confirm the correct trigger path.")

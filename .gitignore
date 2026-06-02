@@ -10,8 +10,14 @@ data/
 *.db
 *.db-journal
 
-# PyCharm
-.idea/
+# PyCharm — ignore the whole IDE dir EXCEPT the shared project dictionary
+# (custom spell-check words like "tunables" travel with the repo instead of
+# being per-user). `.idea/*` ignores the direct children but not `.idea`
+# itself, so the negation can re-include the subdir — a blanket `.idea/`
+# excludes the directory and gitignore CANNOT re-include a path under an
+# excluded directory.
+.idea/*
+!.idea/dictionaries/
 
 # OS
 .DS_Store
