@@ -70,7 +70,11 @@
                @change="toggleHostStatsSource('node_exporter', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_node_exporter') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('node_exporter') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('node_exporter') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
@@ -222,7 +226,11 @@
                @change="toggleHostStatsSource('beszel', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_beszel') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('beszel') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('beszel') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
@@ -410,7 +418,11 @@
                @change="toggleHostStatsSource('pulse', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_pulse') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('pulse') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('pulse') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
@@ -589,7 +601,11 @@
                @change="toggleHostStatsSource('webmin', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_webmin') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('webmin') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('webmin') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
@@ -786,7 +802,11 @@
                @change="toggleHostStatsSource('ping', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_ping') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('ping') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('ping') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>
@@ -991,7 +1011,11 @@
                @change="toggleHostStatsSource('snmp', $event.target.checked)">
         <span x-text="t('settings.host_stats.tab_enable_label', { provider: t('settings.host_stats.source_snmp') })"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="hasHostStatsSource('snmp') ? 'pill-ok' : 'pill-muted'"
             x-text="hasHostStatsSource('snmp') ? t('settings.host_stats.tab_enabled') : t('settings.host_stats.tab_disabled')"></span>
     </div>

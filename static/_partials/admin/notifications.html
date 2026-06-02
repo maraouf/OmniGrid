@@ -59,7 +59,11 @@
                :disabled="isReadonly()">
         <span x-text="t('admin.notifications.medium_app_enable_label')"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="settings.notify_medium_app ? 'pill-ok' : 'pill-muted'"
             x-text="settings.notify_medium_app
                           ? t('admin_integrations.enabled_pill')
@@ -142,7 +146,11 @@
                :disabled="isReadonly()">
         <span x-text="t('admin.notifications.medium_apprise_enable_label')"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="settings.apprise_enabled ? 'pill-ok' : 'pill-muted'"
             x-text="settings.apprise_enabled
                           ? t('admin_integrations.enabled_pill')
@@ -194,7 +202,11 @@
                :disabled="isReadonly()">
         <span x-text="t('admin.notifications.medium_telegram_enable_label')"></span>
       </label>
-      <span class="chip"
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="settings.notify_medium_telegram ? 'pill-ok' : 'pill-muted'"
             x-text="settings.notify_medium_telegram
                           ? t('admin_integrations.enabled_pill')

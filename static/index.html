@@ -10047,23 +10047,6 @@
                         </template>
                       </div>
                       <div class="flex items-center gap-2 mt-2 flex-wrap">
-                        <!-- Per-app SKILL buttons (e.g. Speedtest "Run speed test").
-                             Rendered only when the chip's app declares skills AND its
-                             api_key is set (appInstanceSkillsEnabled); the backend
-                             re-enforces both. The icon spins while the run is in
-                             flight. The same skills are offered to the AI / Telegram. -->
-                        <template x-for="sk in appInstanceSkills(inst)" :key="sk.id">
-                          <button type="button"
-                                  x-show="isAdmin() && appInstanceSkillsEnabled(inst)"
-                                  @click.stop="runAppSkill(inst, sk.id)"
-                                  :disabled="appSkillBusy(inst, sk.id)"
-                                  class="btn btn-primary fs-xs inline-flex items-center gap-1.5">
-                            <svg width="13" height="13" :class="appSkillBusy(inst, sk.id) ? 'spin-md' : ''" aria-hidden="true">
-                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
-                            </svg>
-                            <span x-text="appSkillLabel(sk)"></span>
-                          </button>
-                        </template>
                         <button type="button" x-show="isAdmin()" @click.stop="appDrawerProbeNow(inst)"
                                 :disabled="appProbeBusy(inst)"
                                 class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
@@ -10212,6 +10195,33 @@
                           <!-- INCLUDE: _components/apps/_all_extras.html -->
                         </div>
                       </template>
+                    </template>
+                    <!-- Per-app SKILL buttons in their OWN boxed card AFTER the
+                         extras box (moved out of the instance action bar so the
+                         app-specific actions read as a distinct section, not mixed
+                         with the generic Probe / Edit / Restart row). Rendered only
+                         when the chip's app declares skills AND its api_key is set
+                         (appInstanceSkillsEnabled); the backend re-enforces both. The
+                         icon spins while a run is in flight; the same skills are
+                         offered to the AI / Telegram. -->
+                    <template x-if="isAdmin() && appInstanceSkillsEnabled(inst)">
+                      <div class="rounded-md border border-[var(--border)] p-3">
+                        <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-2"
+                             x-text="t('apps.drawer.skills_title') || 'App skills'"></div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <template x-for="sk in appInstanceSkills(inst)" :key="sk.id">
+                            <button type="button"
+                                    @click.stop="runAppSkill(inst, sk.id)"
+                                    :disabled="appSkillBusy(inst, sk.id)"
+                                    class="btn btn-primary fs-xs inline-flex items-center gap-1.5">
+                              <svg width="13" height="13" :class="appSkillBusy(inst, sk.id) ? 'spin-md' : ''" aria-hidden="true">
+                                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+                              </svg>
+                              <span x-text="appSkillLabel(sk)"></span>
+                            </button>
+                          </template>
+                        </div>
+                      </div>
                     </template>
                   </div>
                 </template>

@@ -7,7 +7,11 @@
       </svg>
       <h3 class="font-semibold fs-md" x-text="t('admin_assets.title')"></h3>
     </div>
-    <span class="chip"
+    <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
+    <span x-show="settingsLoaded" class="chip"
           :class="settings.asset_inventory_enabled ? 'pill-ok' : 'pill-muted'"
           x-text="settings.asset_inventory_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>

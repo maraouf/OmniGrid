@@ -510,6 +510,13 @@ export default {
   tuningForm: {},
   tuningEffective: {},
   tuningLoaded: false,
+  // Flips true at the end of loadSettings()'s success path. Drives the
+  // consistent "Loading…" + spinner pill on every master-toggle admin
+  // tab (OIDC / Portainer / Providers / SSH / Weather / Notifications /
+  // AI / Assets) so the enabled/disabled pill shows a neutral loading
+  // state on first paint instead of flashing a premature "Disabled".
+  // (public_ip uses `tuningLoaded` — its master toggle is a tunable.)
+  settingsLoaded: false,
   tuningSaving: false,
   _tuningBaseline: '',
   // Per-tab tunable search — workflow-compressor. The 8 provider

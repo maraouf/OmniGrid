@@ -19,11 +19,20 @@
      settings into one POST. Test-before-Save gate only applies to
      WeatherAPI (Open-Meteo has no key to validate). -->
 <section x-show="adminTab==='weather'" class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5">
-  <div class="flex items-center gap-2 mb-2">
-    <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud"/>
-    </svg>
-    <h3 class="font-semibold fs-md" x-text="t('admin.weather.title')"></h3>
+  <div class="flex items-center justify-between gap-2 mb-2">
+    <div class="flex items-center gap-2">
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud"/>
+      </svg>
+      <h3 class="font-semibold fs-md" x-text="t('admin.weather.title')"></h3>
+    </div>
+    <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+      <span class="spin" aria-hidden="true"></span>
+      <span x-text="t('common.loading') || 'Loading…'"></span>
+    </span>
+    <span x-show="settingsLoaded" class="chip"
+          :class="settings.weather_enabled ? 'pill-ok' : 'pill-muted'"
+          x-text="settings.weather_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>
   <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.weather.subtitle')"></p>
 

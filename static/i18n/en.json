@@ -5218,6 +5218,7 @@
       "live_probe_blocked": "Live probing not running — reasons:",
       "raw_json": "Raw debug JSON",
       "probe_done": "Probe complete",
+      "skills_title": "App skills",
       "probe_failed": "Probe failed: "
     },
     "host_drawer": {

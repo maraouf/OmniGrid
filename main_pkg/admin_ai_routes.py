@@ -814,6 +814,23 @@ async def api_ai_palette(
     except (OSError, ValueError, KeyError, AttributeError, ImportError):
         pass
 
+    # Inject the runnable per-app SKILL context server-side. The SPA's
+    # client-built ctx carries only view / hosts / items / weather, so
+    # without this the web AI sidebar never sees an `app_skills` block
+    # and refuses app-skill requests ("integration not configured")
+    # even when a skill IS runnable — exactly the symptom the Telegram
+    # path avoids by injecting the same via its context-builder. This
+    # is the web counterpart. available_app_skills_context() reads
+    # hosts_config + the catalog and never raises (returns [] on any
+    # failure), and build_palette_user_prompt renders the block.
+    # noinspection PyBroadException
+    try:
+        from logic.apps.registry import available_app_skills_context  # noqa: PLC0415
+        ctx["app_skills"] = available_app_skills_context()
+    except Exception as e:  # noqa: BLE001
+        print(f"[ai] palette app_skills inject failed: {e}")
+        ctx.setdefault("app_skills", [])
+
     # AI output-token cap is now a TUNABLE (DB > env > default with
     # bounds clamp). Legacy `ai_max_tokens` plain-settings row still
     # consulted by the writer for form-hydration parity, but the

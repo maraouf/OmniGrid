@@ -1573,6 +1573,55 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     f"timestamped UTC newest-last:\n"
                     + "\n".join(log_lines)
                 )
+        # App skills the AI MAY invoke (the app-skill framework). The
+        # system prompt's `run_app_skill` action + the `MEMORY`/grounding
+        # rules tell the model these are the ONLY runnable per-app skills
+        # (app declares SKILLS + api_key set). WITHOUT rendering them here
+        # the model always saw an EMPTY app_skills block and refused
+        # ("integration not configured") even when a skill WAS runnable —
+        # the context-builders populate `ctx["app_skills"]` but this
+        # builder never serialised it. Each line carries the chip identity
+        # (host_id / service_idx / slug) the model needs for the
+        # `run_app_skill` ACTION_DATA payload, plus the cached `last`
+        # result so "show me the latest speed test" answers from cache
+        # WITHOUT triggering a fresh run.
+        app_skills = _typed_field(ctx, "app_skills", list)
+        if app_skills:
+            import json as _json_sk
+            sk_lines = [
+                "App skills you can run (the ONLY runnable per-app skills — each "
+                "entry's presence means the app IS enabled AND its api_key IS set; "
+                "NEVER invent a skill / target not listed here, and do NOT claim "
+                "the app is 'not configured' when it appears below). Use host_id + "
+                "service_idx + a skill id for the run_app_skill ACTION_DATA. When a "
+                "`last` object is present it is the most recent CACHED result — "
+                "answer 'show me the latest <app>' from it WITHOUT running a new "
+                "skill; if there is no `last`, say so and offer to run a fresh one:"
+            ]
+            for ent in app_skills[:30]:
+                if not isinstance(ent, dict):
+                    continue
+                _sk = ent.get("skills") or []
+                sk_ids = ", ".join(
+                    f"{s.get('id')} ({s.get('name')})"
+                    for s in _sk if isinstance(s, dict) and s.get("id")
+                )
+                seg = (f"  - app={ent.get('app') or ent.get('slug')} "
+                       f"slug={ent.get('slug')} host_id={ent.get('host_id')} "
+                       f"host={ent.get('host')} service_idx={ent.get('service_idx')} "
+                       f"skills=[{sk_ids}]")
+                _last = ent.get("last")
+                if isinstance(_last, dict) and _last:
+                    try:
+                        _enc = _json_sk.dumps(_last, default=str)
+                    except (TypeError, ValueError):
+                        _enc = str(_last)
+                    if len(_enc) > 600:
+                        _enc = _enc[:600] + "…"
+                    seg += f" last={_enc}"
+                sk_lines.append(seg)
+            if len(sk_lines) > 1:
+                parts.append("\n".join(sk_lines))
     return "\n".join(p for p in parts if p)
 
 
