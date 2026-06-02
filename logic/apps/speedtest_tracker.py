@@ -462,19 +462,24 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
         ts_disp = format_user_datetime(latest.get("ts") or "")
     except Exception:  # noqa: BLE001
         ts_disp = str(latest.get("ts") or "")
-    parts = [
-        f"⬇️ {_fmt_mbps(latest.get('download'))}",
-        f"⬆️ {_fmt_mbps(latest.get('upload'))}",
-        f"🏓 {_fmt_ms(latest.get('ping'))}",
+    # Multi-line so the web app-drawer result box (whitespace-pre-wrap) and
+    # the Telegram outcome line both read as a small block instead of one
+    # long run-on line: latest on one line, time on its own, the rolling
+    # average on a third, and the image URL (if any) last.
+    lines = [
+        (f"⬇️ {_fmt_mbps(latest.get('download'))}   "
+         f"⬆️ {_fmt_mbps(latest.get('upload'))}   "
+         f"🏓 {_fmt_ms(latest.get('ping'))}"),
     ]
     if ts_disp:
-        parts.append(f"🕒 {ts_disp}")
-    detail = "  ".join(parts)
+        lines.append(f"🕒 {ts_disp}")
     if avg.get("sample_size"):
-        detail += (f" | avg of {int(avg['sample_size'])}: "
-                   f"⬇️ {_fmt_mbps(avg.get('download'))}  "
-                   f"⬆️ {_fmt_mbps(avg.get('upload'))}  "
-                   f"🏓 {_fmt_ms(avg.get('ping'))}")
+        lines.append(
+            f"Avg of {int(avg['sample_size'])}:   "
+            f"⬇️ {_fmt_mbps(avg.get('download'))}   "
+            f"⬆️ {_fmt_mbps(avg.get('upload'))}   "
+            f"🏓 {_fmt_ms(avg.get('ping'))}")
+    detail = "\n".join(lines)
     image_url = (latest.get("image_url") or "").strip()
     if image_url:
         detail += f"\n{image_url}"

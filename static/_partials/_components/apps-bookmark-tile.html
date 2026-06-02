@@ -77,11 +77,12 @@
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
       </svg>
     </button>
-    <button type="button" x-show="appsCustomEditMode" class="user-action-btn user-action-btn--danger"
+    <button type="button" x-show="appsCustomEditMode"
+            class="apps-card-action-pill apps-card-action-pill--danger whitespace-nowrap"
             @click.stop.prevent="removeAppsItem(sec.id, item.uid)"
             :aria-label="t('apps.custom.remove_tile') || 'Remove tile'"
             :title="t('apps.custom.remove_tile') || 'Remove tile'">
-      <svg width="12" height="12" aria-hidden="true">
+      <svg width="11" height="11" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
       </svg>
     </button>

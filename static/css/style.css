@@ -2514,6 +2514,22 @@ details summary::-webkit-details-marker {
   font-weight: 600;
 }
 
+/* Inline image preview inside an AI response (e.g. the Speedtest result
+   PNG the AI appends on its own line). The wrapping <a> opens the full
+   image in a new tab; the <img> is capped to the bubble width. */
+.ai-resp-img-link {
+  display: block;
+  margin: var(--s-2) 0;
+}
+
+.ai-resp-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
 /* Fenced code blocks (```...```) inside AI responses — both the
    modal palette and the sidebar bubble use the same markdown helper,
    so the styles target the wrapping element (`.ai-resp-code-block`)
@@ -11274,6 +11290,15 @@ select.field-invalid {
   gap: var(--s-2);
   padding: var(--s-2);
   min-height: 56px;
+}
+
+/* Unsectioned staging tiles (edit mode) carry no size class, so they
+   default to a single 90px track — too narrow for the app name, which
+   truncated to a few characters. Span TWO tracks so the staging tile is
+   double the width and the name reads in full; height is content-driven
+   and unchanged (operator-flagged). */
+.apps-section--unsectioned .apps-section-grid > .apps-custom-cell {
+  grid-column: span 2;
 }
 
 .apps-section-empty {
