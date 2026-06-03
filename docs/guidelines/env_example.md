@@ -599,10 +599,12 @@ HOST_BASELINE_WINDOW_DAYS=30
 # Public-IP lookup module — admin-opt-in fetch from ifconfig.co for the
 # AI palette + Telegram /ip context block. Default OFF for privacy:
 # enabling authorises an outbound call to a third-party JSON service
-# (reveals deployment IP / ISP / ASN / geolocation). Cache TTL is the
-# in-process memo window (default 600 s caps upstream at ~144/day even
-# under heavy use). Fetch timeout caps the outbound HTTP call.
-PUBLIC_IP_ENABLED=0
+# (reveals deployment IP / ISP / ASN / geolocation). The master enable
+# toggle is the plain `public_ip_enabled` setting (Admin → Public IP),
+# NOT env — only the cache TTL + fetch timeout + sample interval are
+# env/tunables. Cache TTL is the in-process memo window (default 600 s
+# caps upstream at ~144/day even under heavy use). Fetch timeout caps
+# the outbound HTTP call.
 PUBLIC_IP_CACHE_TTL_SECONDS=600
 PUBLIC_IP_FETCH_TIMEOUT_SECONDS=8
 # Background change-sampler cadence. A lifespan loop force-probes the
@@ -1088,7 +1090,6 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOST_BASELINE_FIRST_TICK_DELAY_SECONDS`   | Runtime     | `60`                    | Delay before the first baseline pass after lifespan start. Range 5..600.                                                                                                                                                                                                                                          |
 | `HOST_BASELINE_MIN_SAMPLES`                | Runtime     | `20`                    | Minimum sample count before a metric gets an IQR baseline (drift chip is hidden below this). Range 5..500.                                                                                                                                                                                                        |
 | `HOST_BASELINE_WINDOW_DAYS`                | Runtime     | `30`                    | Rolling-window lookback (days) for the baseline computation. Range 1..365.                                                                                                                                                                                                                                        |
-| `PUBLIC_IP_ENABLED`                        | Runtime     | `0`                     | Master gate for the Public-IP lookup module (Admin → Public IP). Default OFF — enabling authorises outbound calls to ifconfig.co.                                                                                                                                                                                 |
 | `PUBLIC_IP_CACHE_TTL_SECONDS`              | Runtime     | `600`                   | In-process cache TTL for Public-IP lookups. Range 60..3600.                                                                                                                                                                                                                                                       |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS`          | Runtime     | `8`                     | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60.                                                                                                                                                                                                                                            |
 | `PUBLIC_IP_SAMPLE_INTERVAL_SECONDS`        | Runtime     | `300`                   | Background change-sampler cadence (seconds). A lifespan loop force-probes the public IP so a CHANGE is recorded even when no one views the widget; incidental lookups alone are cache-gated and miss short flaps. `0` disables the sampler. Range 0..86400.                                                          |

@@ -39,7 +39,7 @@ export default {
   currentClock: '',
   weather: null,
   // Public IP + ISP lookup cache for AI palette context.
-  // `publicIp.enabled` is the backend's `tuning_public_ip_enabled`
+  // `publicIp.enabled` is the backend's `public_ip_enabled`
   // gate; `_publicIpFetchedAt` is the local last-fetch ts so we
   // don't re-probe more than once per cache window (matches the
   // backend's `tuning_public_ip_cache_ttl_seconds` TTL).
@@ -102,18 +102,22 @@ export default {
   // refresh button.
   _weatherFetchedAt: 0,
 
-  // Admin → Public IP — section-owned save for the three
-  // public-IP tunables. Master toggle is the
-  // `tuning_public_ip_enabled` int (1/0); cache TTL + fetch
-  // timeout are operator-tunable numerics. No plain settings — the
-  // entire feature config is in TUNABLES so the migration shape is
-  // clean.
+  // Admin → Public IP — section-owned save. The master enable toggle is
+  // the plain `public_ip_enabled` SETTING (like weather_enabled — loads
+  // with settingsLoaded, NOT a tunable); cache TTL + fetch timeout +
+  // sample interval are operator-tunable numerics. One Save POST carries
+  // both groups.
   _publicIpSectionTuningKeys() {
     return [
-      'tuning_public_ip_enabled',
       'tuning_public_ip_cache_ttl_seconds',
       'tuning_public_ip_fetch_timeout_seconds',
       'tuning_public_ip_sample_interval_seconds',
+    ];
+  },
+  // [editable flat settings key, loaded nested key under settings.public_ip].
+  _publicIpSettingFields() {
+    return [
+      ['public_ip_enabled', 'enabled'],
     ];
   },
   publicIpSectionDirty() {
@@ -128,6 +132,15 @@ export default {
         }
       }
     } catch (_) {
+    }
+    const s = this.settings || {};
+    const nested = s.public_ip || {};
+    for (const pair of this._publicIpSettingFields()) {
+      const cur = (s[pair[0]] == null ? '' : String(s[pair[0]]).trim());
+      const base = (nested[pair[1]] == null ? '' : String(nested[pair[1]]).trim());
+      if (cur !== base) {
+        return true;
+      }
     }
     return false;
   },
@@ -171,6 +184,11 @@ export default {
         const v = (this.tuningForm || {})[k];
         body[k] = (v == null ? '' : String(v).trim());
       }
+      const s = this.settings || {};
+      for (const pair of this._publicIpSettingFields()) {
+        const v = s[pair[0]];
+        body[pair[0]] = (v == null ? '' : String(v).trim());
+      }
       const r = await fetch('/api/settings', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -180,8 +198,11 @@ export default {
         const j = await r.json().catch(() => ({}));
         throw new Error(this.fmtApiError(j, r.status));
       }
-      // Re-baseline tunables + invalidate the SPA's public-IP
-      // cache so the next AI palette call sees the new gate state.
+      // Re-baseline settings + tunables + invalidate the SPA's public-IP
+      // cache so the next widget fetch / AI palette call re-probes
+      // /api/public-ip and sees the new gate state. (No /api/me refresh
+      // needed — the public-IP widget self-gates on the /api/public-ip
+      // {enabled:false} response, not on a client_config flag.)
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       try {
         this.publicIp = null;
@@ -219,10 +240,6 @@ export default {
       } else if (j && j.error) {
         this.publicIpTestOk = false;
         this.publicIpTestResult = j.error;
-      } else if (j && j.enabled === false) {
-        this.publicIpTestOk = false;
-        this.publicIpTestResult = (this.t('admin_public_ip.test_disabled_hint')
-          || 'Public-IP lookup is disabled — enable + Save first, then re-test.');
       } else {
         this.publicIpTestOk = true;
         this.publicIpTestResult = JSON.stringify(j, null, 2);
@@ -341,6 +358,21 @@ export default {
         throw new Error(this.fmtApiError(j, r.status));
       }
       await Promise.all([this.loadSettings(), this.loadTuning()]);
+      // Refresh me.client_config so the apps-page prayer widget tile +
+      // topbar widget pick up the new enabled state immediately. The
+      // widget gates on `me.client_config.prayer_times_enabled` (set from
+      // /api/me at page-load); without this re-fetch it stays stale-false
+      // until a full reload, so a just-enabled feature reads as disabled.
+      try {
+        const rm = await fetch('/api/me');
+        if (rm.ok) {
+          const me = await rm.json();
+          if (me && me.client_config) {
+            this.me = me;
+          }
+        }
+      } catch (_) { /* live-apply best-effort; reload still works */
+      }
       // Invalidate the SPA's prayer cache so the widget re-fetches with
       // the new method / school / location on its next mount.
       try {
@@ -707,7 +739,7 @@ export default {
   // + values — observed regression on the AI sidebar before this
   // helper was extracted.
   // Fetch the public-IP block lazily before each AI palette call.
-  // Backend gates on `tuning_public_ip_enabled` (default OFF) and
+  // Backend gates on `public_ip_enabled` (default OFF) and
   // caches per `tuning_public_ip_cache_ttl_seconds` — this SPA-side
   // cache layers on top so a burst of palette calls inside the
   // same cache window doesn't re-fetch even from the warm backend

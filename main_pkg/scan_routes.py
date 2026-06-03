@@ -1830,7 +1830,7 @@ async def api_public_ip(_admin: AdminUser, force: bool = False, test: bool = Fal
     (NOT AI-related). The AI palette + Telegram /ip command both
     consume it but the feature owns its own Admin → Public IP section.
 
-    Gated behind the `tuning_public_ip_enabled` tunable (default OFF
+    Gated behind the `public_ip_enabled` tunable (default OFF
     for privacy — fetching reveals the deploy is reaching ifconfig.co).
     The helper in `logic.public_ip` handles the cache + the gate
     short-circuit; this endpoint just surfaces the result so callers
@@ -1844,9 +1844,15 @@ async def api_public_ip(_admin: AdminUser, force: bool = False, test: bool = Fal
     silently swallowing.
     """
     from logic import public_ip as _public_ip
-    if not _public_ip.is_enabled():
+    # An explicit admin Test (`?test=1`) bypasses the master gate so the
+    # operator can verify the lookup BEFORE enabling + saving (the Test
+    # click authorises this one probe — same as the Weather / prayer_times
+    # tests). Normal calls keep the gate: when off they short-circuit
+    # `{enabled:false}` so the SPA omits the block + the AI doesn't answer
+    # from a refused payload. A test forces a fresh fetch.
+    if not test and not _public_ip.is_enabled():
         return {"enabled": False}
-    data = await _public_ip.fetch(force=force)
+    data = await _public_ip.fetch(force=(force or test), bypass_gate=test)
     # Most-recent change event (current IP first-seen ts + the IP it
     # replaced) so the SPA card can show "changed <when>: <old> → <new>"
     # and the AI palette context can answer "when did my IP last change".
@@ -1904,7 +1910,7 @@ async def api_public_ip_history(_admin: AdminUser, limit: int = 100):
 
     Drives the AI palette's "when did my IP / ISP last change?"
     questions + the Admin → Public IP history table. Always allowed
-    (no `tuning_public_ip_enabled` gate) so the operator can review
+    (no `public_ip_enabled` gate) so the operator can review
     history even after disabling the active fetch.
     """
     try:

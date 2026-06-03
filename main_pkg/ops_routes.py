@@ -1764,9 +1764,10 @@ class SettingsIn(BaseModel):
     tuning_ai_fallback_max_depth: Optional[str] = None
     # Public-IP / ISP / ASN lookup module (standalone — NOT
     # AI-related; the AI palette + Telegram /ip command consume it
-    # but the feature has its own Admin → Public IP section).
-    # Master gate (1 = enabled, 0 = disabled). Default OFF for privacy.
-    tuning_public_ip_enabled: Optional[str] = None
+    # but the feature has its own Admin → Public IP section). The master
+    # enable toggle is the plain `public_ip_enabled` setting (like
+    # `weather_enabled`), NOT a tunable — default OFF for privacy.
+    public_ip_enabled: Optional[bool] = None
     # In-process cache TTL (seconds, default 600).
     tuning_public_ip_cache_ttl_seconds: Optional[str] = None
     # Outbound HTTP wall-clock to ifconfig.co (seconds, default 8).

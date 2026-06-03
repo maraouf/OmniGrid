@@ -823,7 +823,7 @@ async def _lifespan(_app: FastAPI):
     # looking at the widget. Without it, change-detection only fires on
     # incidental fetch() calls (SPA / Telegram / AI), which are cache-gated
     # so a short flap shorter than the cache TTL is missed. Master-gated on
-    # tuning_public_ip_enabled (default OFF); interval 0 disables it.
+    # public_ip_enabled (default OFF); interval 0 disables it.
     from logic import public_ip_sampler as _public_ip_sampler
     public_ip_sampler = asyncio.create_task(
         _public_ip_sampler.sampler_loop(),

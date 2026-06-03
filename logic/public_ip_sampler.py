@@ -18,7 +18,7 @@ though the IP genuinely flapped. A periodic force-probe closes that
 gap — every tick re-probes the live IP and records any change.
 
 Master gate: ``logic.public_ip.is_enabled()`` short-circuits when
-the ``tuning_public_ip_enabled`` toggle is off (default OFF — the
+the ``public_ip_enabled`` toggle is off (default OFF — the
 feature is opt-in for privacy; see logic/public_ip.py). The interval
 tunable = 0 disables the sampler entirely (change-detection falls
 back to incidental fetches only).
@@ -95,7 +95,7 @@ async def sampler_loop() -> None:
             # happen when the feature is off — the most common "not
             # recording" cause is the master toggle being off.
             print(f"[public_ip_sampler] feature {'enabled' if enabled else 'disabled'} "
-                  f"(tuning_public_ip_enabled={'1' if enabled else '0'})")
+                  f"(public_ip_enabled={'1' if enabled else '0'})")
             _prev_enabled = enabled
         if not enabled:
             await asyncio.sleep(interval)

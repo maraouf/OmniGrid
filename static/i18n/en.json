@@ -1824,10 +1824,6 @@
           "label": "Portainer op timeout — long (seconds)",
           "help": "Wall-clock cap for image-pull-heavy Portainer write-ops — stack update, container update, container retag-to-latest. Default 600s. Raise on slow registries / large stacks. Range 60..3600. Takes effect on the next op."
         },
-        "tuning_public_ip_enabled": {
-          "label": "Public-IP lookup enabled",
-          "help": "Master gate for the standalone Public IP / ISP / ASN lookup subsystem. 1 = enabled, 0 = disabled. Default 0 for privacy — flipping to 1 authorises outbound calls to ifconfig.co (third-party JSON service) revealing this deployment's IP / ISP / ASN / city / country. The AI palette and Telegram /ip command both consume the lookup but the toggle owns its own Admin → Public IP section. Range 0..1."
-        },
         "tuning_public_ip_cache_ttl_seconds": {
           "label": "Public-IP cache TTL (seconds)",
           "help": "How long the in-process cache holds the last successful ifconfig.co lookup before re-probing. Default 600 (10 minutes). Lower for fresher geolocation after a WAN failover; raise to reduce outbound traffic. Range 60..3600. Takes effect on the next lookup."
@@ -4751,7 +4747,6 @@
     "fetch_timeout_help": "Outbound HTTP wall-clock for the ifconfig.co request. Raise on slow links / proxy paths. Range 2..60.",
     "test_button": "Test lookup",
     "testing": "Testing…",
-    "test_disabled_hint": "Public-IP lookup is disabled — enable + Save first, then re-test.",
     "test_result_label": "Last lookup",
     "tunables_heading": "Tunables",
     "tunables_intro": "In-process cache TTL + outbound HTTP wall-clock. Per-call reads so an edit takes effect on the next lookup without restart.",

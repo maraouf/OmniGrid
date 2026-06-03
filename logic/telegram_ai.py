@@ -510,7 +510,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         except Exception as e:  # noqa: BLE001
             print(f"[telegram_listener] context prayer build failed: {e}")
     # ---- Public IP / ISP / ASN — operator-opt-in ifconfig.co lookup.
-    # Gated behind `tuning_public_ip_enabled` (default OFF for
+    # Gated behind `public_ip_enabled` (default OFF for
     # privacy); cached in-process via `tuning_public_ip_cache_ttl_seconds`
     # so a burst of AI calls hits the upstream at most once per cache
     # window. Disabled state -> no `public_ip` key in ctx, prompt-

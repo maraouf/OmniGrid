@@ -389,9 +389,12 @@ async def api_get_settings(request: Request):
         # Public-IP lookup block — standalone subsystem (NOT AI). Its
         # own Admin → Public IP section owns the toggle + tunables.
         # The AI palette + Telegram /ip command both consume the
-        # module but the feature is independent.
+        # module but the feature is independent. The master enable toggle
+        # is the plain `public_ip_enabled` setting (returned nested as
+        # public_ip.enabled, mirrors weather.enabled) so the SPA toggle
+        # loads with settingsLoaded — NOT a tunable.
         "public_ip": {
-            "enabled": bool(tuning.tuning_int(Tunable.PUBLIC_IP_ENABLED)),
+            "enabled": get_setting_bool(Settings.PUBLIC_IP_ENABLED, False),
             "cache_ttl_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_CACHE_TTL_SECONDS),
             "fetch_timeout_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_FETCH_TIMEOUT_SECONDS),
         },
@@ -917,6 +920,12 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
     # empty / whitespace / None = no-op; explicit clear via
     # `clear_weather_api_key=true`. Trailing slash on base URL is
     # stripped so the per-endpoint formatter can append cleanly.
+    # Public-IP master enable — plain bool setting (mirrors weather_enabled),
+    # migrated off the old tuning_public_ip_enabled tunable so it loads with
+    # settingsLoaded.
+    if s.public_ip_enabled is not None:
+        set_setting(Settings.PUBLIC_IP_ENABLED,
+                    "true" if s.public_ip_enabled else "false")
     weather_changed = False
     if s.weather_enabled is not None:
         set_setting(Settings.WEATHER_ENABLED, "true" if s.weather_enabled else "false")

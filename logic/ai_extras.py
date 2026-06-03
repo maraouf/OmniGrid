@@ -1359,7 +1359,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 parts.append(f"  Gregorian date: {greg['date']}{gwk}")
         # Public IP + ISP / ASN — when the operator opts in (the
         # context-builders fetch from ifconfig.co and stamp `public_ip`
-        # only if `tuning_public_ip_enabled` is true). Surfacing this lets
+        # only if `public_ip_enabled` is true). Surfacing this lets
         # the AI answer "what's my public IP" / "which ISP is the
         # network on" / "what ASN" without refusing or asking the
         # operator to run a shell command. Privacy gate is the

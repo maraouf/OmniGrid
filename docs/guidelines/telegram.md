@@ -169,7 +169,7 @@ with bold section headers + emoji prefixes:
   - `/time` — Show the local time at your saved weather location
   - `/version` (aliases: `/ver`) — Show the running OmniGrid version
   - `/ip` — Show the deployment's public IP + ISP / ASN / country
-    (requires `tuning_public_ip_enabled` in Admin → Public IP)
+    (requires `public_ip_enabled` in Admin → Public IP)
 
 ### Target resolution
 
@@ -402,6 +402,6 @@ webhook endpoint.
 - [Authentication + WebAuthn + OIDC](auth.md) — the user account that
   Telegram links to is the same one OmniGrid auth manages.
 - [Public IP](env_example.md) — `/ip` command consumes the
-  `tuning_public_ip_enabled` subsystem.
+  `public_ip_enabled` subsystem.
 - [Scheduler](scheduler.md) — schedule kinds can fire Apprise +
   Telegram notifications on completion.

@@ -471,14 +471,14 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     _WEATHER_GATED = {"/weather", "/moon"}
 
     # Public-IP gate: drop /ip from the help when the operator hasn't
-    # enabled `tuning_public_ip_enabled` (Admin → Public IP). The
-    # command itself stays registered so a /ip dispatch when the
-    # gate is off renders a friendly "configure it first" message —
-    # but listing it under /help is misleading when there's nothing
-    # to show.
+    # enabled `public_ip_enabled` (Admin → Public IP). The command itself
+    # stays registered so a /ip dispatch when the gate is off renders a
+    # friendly "configure it first" message — but listing it under /help
+    # is misleading when there's nothing to show.
     try:
-        from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int
-        public_ip_enabled = bool(_tuning_int(_Tunable.PUBLIC_IP_ENABLED))
+        from logic.db import get_setting_bool as _get_setting_bool_pi
+        from logic.settings_keys import Settings as _Settings_pi
+        public_ip_enabled = _get_setting_bool_pi(_Settings_pi.PUBLIC_IP_ENABLED, False)
     except (ImportError, AttributeError, KeyError, ValueError, TypeError):
         public_ip_enabled = False
 
@@ -1519,17 +1519,16 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/ip`` — show the deployment's public IP + ISP / ASN / country
     via the same lookup the AI palette uses (ifconfig.co JSON). Gated
-    on the `tuning_public_ip_enabled` tunable (default OFF for
-    privacy); refuses cleanly with a link to Admin → Public IP when
-    off. Non-sensitive command — works pre-link so unmapped operators
-    can confirm the deploy's external network identity for support
+    on the `public_ip_enabled` setting (default OFF for privacy);
+    refuses cleanly with a link to Admin → Public IP when off.
+    Non-sensitive command — works pre-link so unmapped operators can
+    confirm the deploy's external network identity for support
     purposes."""
     from logic import public_ip as _public_ip
     if not _public_ip.is_enabled():
         await _listener()._send_reply(
             client,
-            "🔒 Public-IP lookup is disabled. Enable "
-            "<code>tuning_public_ip_enabled</code> in OmniGrid → "
+            "🔒 Public-IP lookup is disabled. Enable it in OmniGrid → "
             "Admin → Public IP first (it gates the outbound "
             "ifconfig.co call)."
         )
