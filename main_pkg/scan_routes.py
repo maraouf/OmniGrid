@@ -2269,9 +2269,10 @@ async def api_prayer_times_test(
         else:
             return _stamp_test_success("prayer_times", {
                 "ok": False,
-                "detail": "no default location set — enter a latitude / "
-                          "longitude in Admin → Prayer Times (or save your "
-                          "Weather location), then re-run Test",
+                "detail": "no location to test — set your topbar Weather "
+                          "widget location (Settings → Profile → Topbar "
+                          "widgets), or enter a default latitude / longitude "
+                          "in Admin → Prayer Times, then re-run Test",
             }, target="api.aladhan.com")
     method = body.get("method")
     school = body.get("school")

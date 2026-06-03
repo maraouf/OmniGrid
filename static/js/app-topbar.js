@@ -363,10 +363,20 @@ export default {
     this.prayerTimesTestOk = false;
     try {
       const s = this.settings || {};
+      // Resolve test coords: the Admin global default first, then fall
+      // back to the admin's own saved topbar Weather location (the same
+      // source the widget uses) so a Test works even before a global
+      // default is set — matching the operator's "the data is in the
+      // topbar widget" expectation.
+      const lat = s.prayer_times_default_lat
+        || (this.headerWeatherLat != null ? String(this.headerWeatherLat) : '');
+      const lon = s.prayer_times_default_lon
+        || (this.headerWeatherLon != null ? String(this.headerWeatherLon) : '');
+      const label = s.prayer_times_default_label || this.headerWeatherLabel || '';
       const body = {
-        lat: s.prayer_times_default_lat || '',
-        lon: s.prayer_times_default_lon || '',
-        label: s.prayer_times_default_label || '',
+        lat: lat,
+        lon: lon,
+        label: label,
         method: s.prayer_times_method || '',
         school: s.prayer_times_school || '',
       };
