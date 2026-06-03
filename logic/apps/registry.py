@@ -278,20 +278,31 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
                 "slug": slug,
                 "app": app_name,
                 "skills": [{"id": s.get("id"), "name": s.get("name"),
-                            "fleet": bool(s.get("fleet")) or _mod_fleet}
+                            "fleet": bool(s.get("fleet")) or _mod_fleet,
+                            # ai_phrases = comma-separated example phrasings the
+                            # model matches the operator's request against to
+                            # pick the right skill_id (e.g. 'pause blocking for
+                            # 10 min' → adguard_disable_10m). Rendered by
+                            # ai_extras.build_palette_user_prompt.
+                            "ai_phrases": s.get("ai_phrases") or ""}
                            for s in skills],
             }
             last = peek_skill_data(slug, host_id, idx)
             if last:
                 # Stamp a human ts_display in the operator's chosen format so
                 # the AI reply renders the timestamp consistently with the
-                # rest of the UI (the raw `ts` ISO string stays for any
-                # caller that wants to reformat).
-                if datetime_format and isinstance(last, dict) and last.get("ts"):
+                # rest of the UI. Modules differ on the timestamp field:
+                # Speedtest emits `ts` (ISO from the upstream result), while the
+                # DNS-blocker modules (AdGuard / Pi-hole) emit `fetched_at`
+                # (epoch int = when the cache was filled). Fall back to
+                # `fetched_at` so every module gets a ts_display
+                # (format_user_datetime accepts epoch / ISO / datetime alike).
+                _ts_val = last.get("ts") or last.get("fetched_at") if isinstance(last, dict) else None
+                if datetime_format and _ts_val:
                     # noinspection PyBroadException
                     try:
                         from logic.datetime_fmt import format_user_datetime  # noqa: PLC0415
-                        disp = format_user_datetime(last.get("ts"), datetime_format)
+                        disp = format_user_datetime(_ts_val, datetime_format)
                         if disp:
                             last["ts_display"] = disp
                     except Exception:  # noqa: BLE001

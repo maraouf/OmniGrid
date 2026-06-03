@@ -613,6 +613,22 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["avg_window"] = _awi
         else:
             chip.pop("avg_window", None)
+    # Per-instance data-cache TTL (seconds) — operator override of the app
+    # module's default. Clamp to 5..3600; blank / unparseable clears the
+    # override so the app default applies. Returned in the clear (round-trips
+    # to the editor) — NOT a secret.
+    if "cache_ttl" in payload:
+        _ct_raw = payload.get("cache_ttl")
+        _cti = None
+        if isinstance(_ct_raw, (int, str)) and str(_ct_raw).strip() != "":
+            try:
+                _cti = max(5, min(3600, int(_ct_raw)))
+            except (TypeError, ValueError):
+                _cti = None
+        if _cti is not None:
+            chip["cache_ttl"] = _cti
+        else:
+            chip.pop("cache_ttl", None)
     _probe_raw = chip.get("probe")
     probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:

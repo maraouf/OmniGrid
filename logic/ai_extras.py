@@ -1602,8 +1602,13 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 if not isinstance(ent, dict):
                     continue
                 _sk = ent.get("skills") or []
-                sk_ids = ", ".join(
-                    f"{s.get('id')} ({s.get('name')})"
+                # Each skill renders as `id (name) [matches: phrase, phrase]` —
+                # the ai_phrases give the model disambiguation hints so a
+                # natural request ('pause blocking for 10 min') maps to the
+                # right skill_id without relying on the id/name alone.
+                sk_ids = "; ".join(
+                    (f"{s.get('id')} ({s.get('name')})"
+                     + (f" [matches: {s.get('ai_phrases')}]" if s.get("ai_phrases") else ""))
                     for s in _sk if isinstance(s, dict) and s.get("id")
                 )
                 seg = (f"  - app={ent.get('app') or ent.get('slug')} "

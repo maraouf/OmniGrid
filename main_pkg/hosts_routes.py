@@ -1325,6 +1325,16 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["avg_window"] = max(2, min(60, int(aw)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance data-cache TTL (seconds) — operator override of the
+        # app module's default (resolve_cache_ttl). Clamp to 5..3600;
+        # blank / unparseable omits the field so the app default applies.
+        # Plain int, round-trips to the SPA editor verbatim (NOT a secret).
+        ct = entry.get("cache_ttl")
+        if isinstance(ct, (int, str)) and str(ct).strip() != "":
+            try:
+                cleaned["cache_ttl"] = max(5, min(3600, int(ct)))
+            except (TypeError, ValueError):
+                pass
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

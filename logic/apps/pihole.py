@@ -48,8 +48,9 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import (
-    cache_key, fetch_gate, fleet_action_result, fleet_blocker_status,
-    fleet_disable_skills, fleet_instances, peek_cache, resolve_base_url)
+    cache_key, fetch_gate, fleet_blocker_status, fleet_disable_skills,
+    fleet_fan_out, fleet_instances, fleet_run_skill, peek_cache,
+    resolve_base_url, resolve_cache_ttl)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
@@ -106,7 +107,9 @@ FLEET_SKILLS: bool = True
 # Per-app modules intentionally share the cache + requires_api_key +
 # resolve_base_url shape (PyCharm flags the duplicate Info-level; not
 # suppressible). 30s data cache mirrors AdGuard.
-CACHE_TTL_S = 30
+# Per-instance data-cache TTL DEFAULT — overridable per chip via the
+# editor's `cache_ttl` field (resolve_cache_ttl); NOT a global TUNABLE.
+DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
 # Session-ID cache: base|password-hash -> (sid, expires_at). Pi-hole caps
@@ -236,7 +239,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     password = _password(chip)
     now = time.time()
     base, hit = fetch_gate(host_row, chip, host_id, service_idx,
-                           _data_cache, CACHE_TTL_S, now, force,
+                           _data_cache, resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
                            credential=password, log_tag="pihole")
     if hit is not None:
         return hit
@@ -384,13 +387,11 @@ async def _skill_status() -> dict:
         header="🕳️ Pi-hole", protection_label="Blocking")
 
 
-async def _skill_fleet_action(action: str, timer_s: int = 0) -> dict:
-    """Apply enable / disable / refresh across EVERY instance. Returns
-    ``{ok, detail}`` with an ok/failed tally."""
-    insts = _instances()
-    if not insts:
-        return {"ok": False, "detail": "no Pi-hole instances configured", "status": 0}
-
+async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
+    """Apply enable / disable / refresh across EVERY instance (the shared
+    fan-out shell lives in ``_common.fleet_fan_out``; only the per-host
+    ``_one`` closure is app-specific). ``seconds`` is the timed-disable
+    window — Pi-hole's API takes seconds natively."""
     async def _one(hid, _sidx, hrow, chip):
         password = _password(chip)
         base = resolve_base_url(hrow, chip)
@@ -401,7 +402,7 @@ async def _skill_fleet_action(action: str, timer_s: int = 0) -> dict:
             if action == "enable":
                 await _set_blocking(base, sid, True)
             elif action == "disable":
-                await _set_blocking(base, sid, False, timer_s)
+                await _set_blocking(base, sid, False, seconds)
             elif action == "refresh":
                 await _run_gravity(base, sid)
             else:
@@ -413,14 +414,13 @@ async def _skill_fleet_action(action: str, timer_s: int = 0) -> dict:
             return hid, False, str(e)
         return hid, True, ""
 
-    results = await asyncio.gather(*[_one(*t) for t in insts])
     verb = {"enable": "enabled", "disable": "disabled",
             "refresh": "gravity updated"}.get(action, action)
-    if action == "disable" and timer_s > 0:
-        verb = f"disabled for {timer_s}s"
-    out = fleet_action_result(results, "Pi-hole", verb)
-    print(f"[pihole] INFO fleet action={action} timer_s={timer_s} -> {out.get('detail')}")
-    return out
+    if action == "disable" and seconds > 0:
+        verb = f"disabled for {seconds}s"
+    return await fleet_fan_out(_instances(), _one, app_label="Pi-hole",
+                               verb=verb, log_tag="pihole",
+                               log_extra=f"action={action} seconds={seconds}")
 
 
 # noinspection PyUnusedLocal
@@ -433,20 +433,6 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     route passes are intentionally unused (the registry contract requires
     the signature). ``pihole_status`` is read-only. Raises ValueError on
     an unknown skill id."""
-    if skill_id == "pihole_status":
-        return await _skill_status()
-    if skill_id in ("pihole_enable", "pihole_reenable"):
-        return await _skill_fleet_action("enable")
-    if skill_id == "pihole_disable":
-        return await _skill_fleet_action("disable")
-    if skill_id == "pihole_refresh":
-        return await _skill_fleet_action("refresh")
-    if skill_id.startswith("pihole_disable_"):
-        # Resolve the duration straight from the SKILLS list (each timed
-        # disable carries `disable_seconds`) — no parallel presets tuple.
-        secs = next((safe_int(s.get("disable_seconds")) for s in SKILLS
-                     if s.get("id") == skill_id), 0)
-        if not secs:
-            raise ValueError(f"unknown disable preset: {skill_id!r}")
-        return await _skill_fleet_action("disable", secs)
-    raise ValueError(f"unknown skill: {skill_id!r}")
+    return await fleet_run_skill(skill_id, prefix="pihole",
+                                 status_fn=_skill_status,
+                                 action_fn=_skill_fleet_action, skills=SKILLS)

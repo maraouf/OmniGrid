@@ -43,6 +43,23 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.speedtest.avg_window_hint') || 'How many of the most-recent results to average for &quot;Avg of last N tests&quot; (2–60). Leave blank for the default of 10.'"></p>
     </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (60s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-speedtest-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <input id="apps-instance-speedtest-cache-ttl"
+             type="number" min="5" max="3600" step="1"
+             x-model="appsInstanceEditForm.cache_ttl"
+             @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.cache_ttl_hint') || 'How long fetched results are cached before re-querying Speedtest Tracker (5–3600s). Leave blank for the app default (60s).'"></p>
+    </div>
     <!-- Shared Test-connection unit (same button + result box as the
          Portainer / OIDC admin panels) so the per-app editor never drifts
          on style. tcRun is the per-app test fn; tcResult is its reactive

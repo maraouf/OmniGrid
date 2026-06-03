@@ -25,6 +25,23 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.pihole.creds_hint') || 'Pi-hole v6 uses a password only (no username). Required for the aggregated stats + fleet actions. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one.'"></p>
     </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (30s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-pihole-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <input id="apps-instance-pihole-cache-ttl"
+             type="number" min="5" max="3600" step="1"
+             x-model="appsInstanceEditForm.cache_ttl"
+             @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.cache_ttl_hint') || 'How long fetched stats are cached before re-querying Pi-hole (5–3600s). Leave blank for the app default (30s).'"></p>
+    </div>
     <!-- Shared Test-connection unit (same button + result box as the
          Portainer / OIDC admin panels) so the per-app editor never drifts
          on style. tcRun is the per-app test fn; tcResult is its reactive

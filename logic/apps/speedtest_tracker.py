@@ -9,8 +9,8 @@ layer (``main_pkg/apps_routes.py``) stays generic. Public surface:
     test_credential(host_row, chip, candidate_key) -> dict
     fetch_data(host_row, chip) -> dict
 
-The fetch path memoises results per (host_id, service_idx) for
-``CACHE_TTL_S`` seconds so a busy Apps view doesn't hammer the
+The fetch path memoises results per (host_id, service_idx) for the
+chip's ``cache_ttl`` (default ``DEFAULT_CACHE_TTL_S``) seconds so a busy Apps view doesn't hammer the
 upstream. The cache is process-local; the single-replica deploy
 constraint makes the dict-cache correct.
 
@@ -29,7 +29,8 @@ from typing import Any, Optional
 
 import httpx
 
-from logic.apps._common import cache_key, fetch_preamble, resolve_base_url
+from logic.apps._common import (
+    cache_key, fetch_preamble, resolve_base_url, resolve_cache_ttl)
 from logic.coerce import safe_int
 
 # Catalog template slugs handled by this module. The registry maps
@@ -71,7 +72,9 @@ SKILLS: tuple[dict, ...] = (
 # overkill for a single-app cache — 60s matches the typical scan
 # cadence + is short enough that an operator force-refresh covers
 # any "I just rebuilt the upstream and want fresh data now" case.
-CACHE_TTL_S = 60
+# Per-instance data-cache TTL DEFAULT — overridable per chip via the
+# editor's `cache_ttl` field (resolve_cache_ttl); NOT a global TUNABLE.
+DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -149,7 +152,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         raise ValueError("api_key not set for this instance")
     now = time.time()
     base, hit = fetch_preamble(host_row, chip, host_id, service_idx,
-                               _data_cache, CACHE_TTL_S, now, force)
+                               _data_cache, resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force)
     if hit is not None:
         return hit
     list_url = base + "/api/v1/results"

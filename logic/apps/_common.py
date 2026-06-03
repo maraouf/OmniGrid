@@ -274,6 +274,24 @@ def cache_key(host_id: str, service_idx: int) -> str:
     return f"{host_id}:{service_idx}"
 
 
+# Per-instance data-cache TTL bounds. The TTL is operator-configurable IN
+# THE APP (the per-instance editor's optional `cache_ttl` field) — NOT a
+# global Config TUNABLE, so each app stays self-contained. Each module
+# passes its OWN default (e.g. AdGuard / Pi-hole 30s, Speedtest 60s).
+_CACHE_TTL_MIN = 5
+_CACHE_TTL_MAX = 3600
+
+
+def resolve_cache_ttl(chip: dict, default_ttl: int) -> int:
+    """Resolve a chip's per-instance data-cache TTL (seconds): the operator-
+    set ``chip['cache_ttl']`` clamped to ``[5, 3600]``, or ``default_ttl``
+    (the app's own default) when unset / blank / unparseable. Read per-use
+    inside ``fetch_data`` (NOT cached at import) so an editor change takes
+    effect on the next fetch."""
+    n = safe_int((chip or {}).get("cache_ttl"), default_ttl)
+    return max(_CACHE_TTL_MIN, min(_CACHE_TTL_MAX, n))
+
+
 def cache_get(cache: dict, key: str, ttl_s: float, now: float,
               force: bool = False) -> Optional[dict]:
     """Return the cached value for ``key`` when it's younger than
@@ -322,3 +340,52 @@ def fetch_gate(host_row: dict, chip: dict, host_id: str, service_idx: int,
     if hit is None:
         print(f"[{log_tag}] INFO fetch host={host_id} svc_idx={service_idx} url={base}")
     return base, hit
+
+
+async def fleet_fan_out(insts: list, one_fn, *, app_label: str, verb: str,
+                        log_tag: str, log_extra: str = "") -> dict:
+    """Run a fleet action across every instance: guard empty, fan
+    ``one_fn(*inst_tuple)`` in parallel, tally ok/fail via
+    ``fleet_action_result``, log a ``[<log_tag>] INFO fleet …`` line, return
+    the ``{ok, detail, status}`` envelope. ``one_fn`` is the module's
+    per-host action closure ``(hid, sidx, hrow, chip) -> (hid, ok, err)``
+    (it owns the app-specific auth + endpoint calls); ``verb`` is the
+    past-tense action word for the detail line. Folds the identical
+    guard / gather / tally / log shell every fleet module's
+    ``_skill_fleet_action`` wrapped around its ``_one``."""
+    if not insts:
+        return {"ok": False, "detail": f"no {app_label} instances configured",
+                "status": 0}
+    results = await asyncio.gather(*[one_fn(*t) for t in insts])
+    out = fleet_action_result(results, app_label, verb)
+    _extra = (" " + log_extra) if log_extra else ""
+    print(f"[{log_tag}] INFO fleet{_extra} -> {out.get('detail')}")
+    return out
+
+
+async def fleet_run_skill(skill_id: str, *, prefix: str, status_fn, action_fn,
+                          skills) -> dict:
+    """The shared ``run_skill`` dispatch ladder for a fleet DNS-blocker.
+    Maps ``<prefix>_status`` → ``status_fn()`` (read-only); ``<prefix>_enable``
+    / ``<prefix>_reenable`` → ``action_fn("enable")``; ``<prefix>_disable`` →
+    ``action_fn("disable")`` (indefinite); ``<prefix>_refresh`` →
+    ``action_fn("refresh")``; ``<prefix>_disable_<dur>`` →
+    ``action_fn("disable", <disable_seconds from skills>)``. ``action_fn``
+    takes SECONDS as its optional second arg (the natural unit — a module
+    whose upstream wants milliseconds converts internally). Raises
+    ``ValueError`` on an unknown skill id (the route maps it to HTTP 404)."""
+    if skill_id == f"{prefix}_status":
+        return await status_fn()
+    if skill_id in (f"{prefix}_enable", f"{prefix}_reenable"):
+        return await action_fn("enable")
+    if skill_id == f"{prefix}_disable":
+        return await action_fn("disable")
+    if skill_id == f"{prefix}_refresh":
+        return await action_fn("refresh")
+    if skill_id.startswith(f"{prefix}_disable_"):
+        secs = next((safe_int(s.get("disable_seconds")) for s in skills
+                     if s.get("id") == skill_id), 0)
+        if not secs:
+            raise ValueError(f"unknown disable preset: {skill_id!r}")
+        return await action_fn("disable", secs)
+    raise ValueError(f"unknown skill: {skill_id!r}")
