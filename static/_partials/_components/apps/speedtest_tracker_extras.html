@@ -47,19 +47,19 @@
           <div class="apps-speedtest-statgrid">
             <div class="apps-card-stat">
               <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_download') || 'Avg down (10)'"></div>
+                   x-text="t('apps.speedtest.avg_download', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg down (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
               <div class="fs-sm"
                    x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
             </div>
             <div class="apps-card-stat">
               <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_upload') || 'Avg up (10)'"></div>
+                   x-text="t('apps.speedtest.avg_upload', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg up (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
               <div class="fs-sm"
                    x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
             </div>
             <div class="apps-card-stat">
               <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_ping') || 'Avg ping (10)'"></div>
+                   x-text="t('apps.speedtest.avg_ping', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg ping (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
               <div class="fs-sm"
                    x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
             </div>

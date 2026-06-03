@@ -710,6 +710,11 @@ export default {
       // api_key, the backend returns this in the clear, so it seeds the
       // input directly and round-trips on save.
       username: inst.username || '',
+      // Per-instance averages window (Speedtest "Avg of last N tests").
+      // Returned in the clear; seeds the number input as a string. Blank
+      // = use the app default (10); backend clamps 2..60 + drops blanks.
+      avg_window: (inst.avg_window != null && inst.avg_window !== '')
+        ? String(inst.avg_window) : '',
     };
     this.appsInstanceEditError = '';
     // Clear any Test-connection result from a PREVIOUSLY-edited instance —
@@ -750,6 +755,7 @@ export default {
       show_extras: (f.show_extras === true || f.show_extras === false) ? f.show_extras : null,
       api_key: (typeof f.api_key === 'string') ? f.api_key : '',
       username: f.username || '',
+      avg_window: f.avg_window || '',
       ports,
     });
   },
@@ -1093,6 +1099,9 @@ export default {
           // empty for single-secret apps (Speedtest), so the backend
           // simply drops it. Each app owns its own auth fields.
           username: (typeof f.username === 'string') ? f.username : '',
+          // Per-instance averages window (Speedtest). Blank => backend
+          // drops it => app default (10); a value is clamped 2..60.
+          avg_window: (f.avg_window != null) ? f.avg_window : '',
         }),
       });
       if (!r.ok) {

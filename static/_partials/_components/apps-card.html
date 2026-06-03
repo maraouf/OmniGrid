@@ -389,7 +389,15 @@
                `appLevelExtras: true` (e.g. AdGuard Home, which aggregates the
                N hosts' stats into one block rather than a row per host). Each
                app-level partial self-gates via its own `<template x-if>`. -->
-          <template x-if="anyAppAggExtrasMatch(app)">
+          <!-- App-LEVEL extras ALSO honour the per-instance `show_extras`
+               admin toggle (via appsShowExtras) — without this gate the
+               aggregated extras rendered regardless of the operator's
+               setting (the per-INSTANCE extras above already gate on it
+               inside their partials; the app-level path was the gap). For
+               an aggregated card there's no single instance, so resolve
+               show_extras from the FIRST instance (→ catalog default →
+               size preset), matching how the card is one combined view. -->
+          <template x-if="anyAppAggExtrasMatch(app) && appsShowExtras(app, (app.instances && app.instances[0]) || null, (typeof item !== 'undefined' ? item : null))">
             <div class="mt-2 apps-card-extras-col">
               <!-- INCLUDE: _components/apps/_all_extras_app.html -->
             </div>

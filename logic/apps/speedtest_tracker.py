@@ -30,6 +30,7 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import cache_key, fetch_preamble, resolve_base_url
+from logic.coerce import safe_int
 
 # Catalog template slugs handled by this module. The registry maps
 # each slug to this module's exports; adding an alias slug here is
@@ -111,6 +112,26 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     if r.status_code in (401, 403):
         return {"ok": False, "detail": "auth failed (check api_key)", "status": r.status_code}
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
+
+
+# Operator-configurable averages window — how many of the MOST-RECENT
+# results the expanded card / skill rolls the "Avg of last N tests" over.
+# Stored per-instance on the chip (`avg_window`, validated + bounded in
+# _clean_host_services); absent => DEFAULT_AVG_WINDOW. Bounds match the
+# data fetch (perPage=60), so the average can never window more results
+# than were pulled.
+DEFAULT_AVG_WINDOW = 10
+_AVG_WINDOW_MIN = 2
+_AVG_WINDOW_MAX = 60
+
+
+def _avg_window(chip: dict) -> int:
+    """Resolve the per-instance averages window from the chip, clamped to
+    [_AVG_WINDOW_MIN, _AVG_WINDOW_MAX]; DEFAULT_AVG_WINDOW when unset/bad."""
+    # safe_int coerces Any/None/str → int (or the default on blank /
+    # unparseable), so the clamp below operates on a concrete int.
+    n = safe_int((chip or {}).get("avg_window"), DEFAULT_AVG_WINDOW)
+    return max(_AVG_WINDOW_MIN, min(_AVG_WINDOW_MAX, n))
 
 
 async def fetch_data(host_row: dict, chip: dict, *,
@@ -294,9 +315,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
             f"raw_ping={_r0.get('ping')} -> download_mbps={round(latest['download'], 2)} "
             f"upload_mbps={round(latest['upload'], 2)} ping_ms={round(latest['ping'], 1)}"
         )
-    # Averages over the last 10 points — windowed so a single
-    # anomalous spike doesn't dominate the badge.
-    sample = series[:10]
+    # Averages over the most-recent N points (per-instance `avg_window`,
+    # default 10) — windowed so a single anomalous spike doesn't dominate.
+    sample = series[:_avg_window(chip)]
     n = len(sample)
     if n > 0:
         avg = {
@@ -434,8 +455,9 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
     if ts_disp:
         lines.append(f"🕒 {ts_disp}")
     if avg.get("sample_size"):
+        _n = int(avg["sample_size"])
         lines.append(
-            f"Avg of {int(avg['sample_size'])}:   "
+            f"Avg of last {_n} test{'s' if _n != 1 else ''}:   "
             f"⬇️ {_fmt_mbps(avg.get('download'))}   "
             f"⬆️ {_fmt_mbps(avg.get('upload'))}   "
             f"🏓 {_fmt_ms(avg.get('ping'))}")

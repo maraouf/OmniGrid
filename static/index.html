@@ -10286,7 +10286,11 @@
                      stats AND actions in ONE card here instead of a skill
                      card duplicated per instance. -->
                 <template x-for="app in [drawerApp]" :key="'aggext'">
-                  <template x-if="anyAppAggExtrasMatch(app)">
+                  <!-- App-level extras honour the per-instance show_extras
+                       admin toggle (via appsShowExtras, resolved from the
+                       first instance → catalog → preset) — same gate as the
+                       Apps-grid card so the drawer + card agree. -->
+                  <template x-if="anyAppAggExtrasMatch(app) && appsShowExtras(app, (app.instances && app.instances[0]) || null, (typeof item !== 'undefined' ? item : null))">
                     <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box mt-2">
                       <!-- INCLUDE: _components/apps/_all_extras_app.html -->
                     </div>
