@@ -286,6 +286,29 @@ async def _try_dispatch_skill_command(
             client,
             f"❌ <b>{esc(skill_name)}</b> failed: <code>{esc(str(detail))}</code>",
         )
+    # Audit-trail parity with the web skill route (apps_routes.py writes a
+    # `services_skill` row for every dispatch) — a Telegram-dispatched app
+    # skill (e.g. a Pi-hole / AdGuard fleet enable/disable) is a state
+    # mutation that MUST land in History so the operator can trace
+    # "who ran what" across every actor. Telegram actor encodes the linked
+    # OmniGrid user. Best-effort: never let an audit failure break the
+    # reply (mirrors the dispatcher-level audit's defensive wrap).
+    _ran_ok = bool(isinstance(result, dict) and result.get("ok"))
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn as _db_conn
+        from logic.ops import write_admin_audit as _write_admin_audit
+        with _db_conn() as _c:
+            _write_admin_audit(
+                _c, "services_skill",
+                target_kind="host", target_name=host_label, target_id=host_id,
+                actor=(f"telegram:{mapped}" if mapped else "telegram"),
+                status=("success" if _ran_ok else "error"),
+                message=(f"Ran skill '{cmd}' on {host_label} "
+                         f"(service_idx={svc_idx}, fleet={is_fleet}, ok={_ran_ok})"),
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return True
 
 

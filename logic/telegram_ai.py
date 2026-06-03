@@ -1318,6 +1318,29 @@ async def _ai_reply(
                         f"\n\n❌ Skill <b>{_listener()._escape(sk_id)}</b> failed: "
                         f"<code>{_listener()._escape(str(_d))}</code>"
                     )
+                # Audit-trail parity with the web skill route + the
+                # Telegram slash-command dispatch — an AI-initiated app
+                # skill (the user asked the bot in free text, the model
+                # emitted a skill action) is a state mutation that MUST
+                # land in History. Distinct `telegram-ai:` actor so an
+                # AI-initiated run is forensically separable from a direct
+                # /command run. Best-effort: never break the reply.
+                _sk_ok = bool(isinstance(sk_result, dict) and sk_result.get("ok"))
+                # noinspection PyBroadException
+                try:
+                    from logic.db import db_conn as _db_conn
+                    from logic.ops import write_admin_audit as _write_admin_audit
+                    with _db_conn() as _c:
+                        _write_admin_audit(
+                            _c, "services_skill",
+                            target_kind="host", target_name=sk_host, target_id=sk_host,
+                            actor=(f"telegram-ai:{omnigrid_username}" if omnigrid_username else "telegram-ai"),
+                            status=("success" if _sk_ok else "error"),
+                            message=(f"AI-dispatched skill '{sk_id}' on {sk_host} "
+                                     f"(service_idx={sk_idx}, ok={_sk_ok})"),
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
     # noinspection PyBroadException
     except Exception as _act_err:  # noqa: BLE001
         print(f"[telegram_listener] ai action dispatch failed: {_act_err}")

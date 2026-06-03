@@ -1,0 +1,36 @@
+<!-- Per-app editor fields -- Pi-hole (v6 FTL).
+
+     Renders inside the Admin -> Apps per-instance editor, gated on
+     `piholeIsApp(...)` so the password input appears ONLY for a Pi-hole
+     chip. Unlike AdGuard (HTTP Basic, username + password), Pi-hole v6
+     authenticates with a PASSWORD ONLY (no username) — the FTL API does
+     `POST /api/auth {password}` and returns a session SID. So the editor
+     renders a single secret field:
+       - password -> the secret `api_key` chip field (never returned;
+         only an `api_key_set` flag, keep-current-if-blank on save). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="piholeIsApp && piholeIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-pihole-password"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.pihole.password_label') || 'Pi-hole password'"></label>
+      <input id="apps-instance-pihole-password"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.pihole.password_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.pihole.password_placeholder_unset') || 'Pi-hole web/app password')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.pihole.creds_hint') || 'Pi-hole v6 uses a password only (no username). Required for the aggregated stats + fleet actions. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one.'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

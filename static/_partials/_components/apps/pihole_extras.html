@@ -1,0 +1,153 @@
+<!-- App-LEVEL aggregated extras -- Pi-hole (v6 FTL).
+
+     Rendered ONCE per app card (via apps-card.html's app-level slot +
+     `_all_extras_app.html`), with `app` in scope (NO `inst`). The
+     operator runs N Pi-hole hosts; this block aggregates them into ONE
+     summary instead of a row per host (operator decision). The
+     aggregation + fleet-action dispatch live in
+     `static/js/apps/pihole.js`:
+       piholeIsApp(app)           -- gate "is this a Pi-hole chip"
+       piholeAggregate(app)       -- {ready, loading, queries, blocked,
+                                      pct, rules, clients, topBlocked,
+                                      protOn, protTotal, protOffHosts,
+                                      failedHosts, okN, n}
+       piholeInt/Pct              -- formatters
+       piholeDisablePresets()     -- [{label, skill}]
+       piholeFleetSkill(app, id)  -- dispatch a fleet skill
+       piholeSkillBusy(app, id)   -- in-flight gate
+
+     Pi-hole has NO avg-processing metric (unlike AdGuard), so the stat
+     grid omits it. Actions are FLEET-wide (all hosts at once) and
+     admin-only; the backend skill route + run_skill fan-out enforce
+     both. The presentational classes are the shared `apps-fleet-*`
+     family (same as AdGuard). -->
+<!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
+<template x-if="piholeIsApp && piholeIsApp(app)">
+  <div class="apps-card-pihole mt-1 pt-1 border-t border-[var(--border)] space-y-2">
+    <!-- Compute the aggregate ONCE per render via a single-element x-for. -->
+    <template x-for="agg in [piholeAggregate(app)]" :key="'agg'">
+      <div class="space-y-2">
+        <!-- Stats grid (aggregated across every reachable host). -->
+        <template x-if="agg.ready">
+          <div class="space-y-2">
+            <div class="apps-fleet-statgrid">
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.pihole.blocked_today') || 'Blocked today'"></div>
+                <div class="fs-md font-semibold">
+                  <span x-text="piholeInt(agg.blocked)"></span>
+                  <span class="fs-2xs text-[var(--text-faint)]"
+                        x-text="'(' + piholePct(agg.pct) + ')'"></span>
+                </div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.pihole.queries_today') || 'Queries today'"></div>
+                <div class="fs-md font-semibold" x-text="piholeInt(agg.queries)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.pihole.blocklist') || 'Blocklist domains'"></div>
+                <div class="fs-md font-semibold" x-text="piholeInt(agg.rules)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.pihole.clients') || 'Active clients'"></div>
+                <div class="fs-sm" x-text="piholeInt(agg.clients)"></div>
+              </div>
+              <div class="apps-card-stat" x-show="agg.topBlocked">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.pihole.top_blocked') || 'Top blocked'"></div>
+                <div class="fs-sm truncate"
+                     :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
+                     x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
+              </div>
+            </div>
+            <!-- Protection status — green when every host is ON, amber when
+                 some are OFF (the actionable warning). -->
+            <div class="flex items-center gap-1.5 fs-2xs">
+              <span class="apps-fleet-dot"
+                    :class="agg.protOn === agg.protTotal ? 'apps-fleet-dot--on' : 'apps-fleet-dot--off'"
+                    aria-hidden="true"></span>
+              <span x-show="agg.protOn === agg.protTotal" class="text-[var(--text-faint)]"
+                    x-text="t('apps.pihole.protection_on') || 'Blocking on'"></span>
+              <span x-show="agg.protOn !== agg.protTotal" class="text-[var(--warning)]"
+                    x-text="(t('apps.pihole.protection_partial') || 'Blocking OFF on') + ' ' + agg.protOffHosts.join(', ')"></span>
+            </div>
+          </div>
+        </template>
+        <!-- Loading / error states. -->
+        <template x-if="!agg.ready && agg.loading">
+          <p class="fs-xs text-[var(--text-faint)] italic"
+             x-text="t('apps.pihole.loading') || 'Loading Pi-hole stats…'"></p>
+        </template>
+        <template x-if="!agg.ready && !agg.loading">
+          <p class="fs-xs text-[var(--danger)] italic"
+             x-text="(t('apps.pihole.all_unreachable') || 'No Pi-hole host reachable')
+               + (agg.failedHosts.length ? ' — ' + agg.failedHosts.join(', ') : '')"></p>
+        </template>
+        <!-- Partial-failure footnote (some hosts down but totals shown). -->
+        <template x-if="agg.ready && agg.failedHosts.length">
+          <p class="fs-2xs text-[var(--warning)]"
+             x-text="(t('apps.pihole.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></p>
+        </template>
+
+        <!-- Fleet actions (admin-only; need at least one credentialed host). -->
+        <template x-if="isAdmin() && (app.instances || []).some((i) => i.api_key_set)">
+          <div class="apps-fleet-actions pt-2 mt-1 border-t border-[var(--border)] space-y-1.5">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="piholeSkillBusy(app, 'pihole_enable')"
+                      @click.stop="piholeFleetSkill(app, 'pihole_enable')"
+                      :title="t('apps.pihole.action_enable_title') || 'Enable blocking on every host'">
+                <svg width="11" height="11" :class="piholeSkillBusy(app, 'pihole_enable') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+                </svg>
+                <span x-text="t('apps.pihole.action_enable') || 'Enable'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill apps-card-action-pill--danger whitespace-nowrap"
+                      :disabled="piholeSkillBusy(app, 'pihole_disable')"
+                      @click.stop="piholeFleetSkill(app, 'pihole_disable')"
+                      :title="t('apps.pihole.action_disable_title') || 'Disable blocking on every host (indefinitely)'">
+                <svg width="11" height="11" :class="piholeSkillBusy(app, 'pihole_disable') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-pause"/>
+                </svg>
+                <span x-text="t('apps.pihole.action_disable') || 'Disable'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="piholeSkillBusy(app, 'pihole_refresh')"
+                      @click.stop="piholeFleetSkill(app, 'pihole_refresh')"
+                      :title="t('apps.pihole.action_refresh_title') || 'Update gravity (blocklists) on every host'">
+                <svg width="11" height="11" :class="piholeSkillBusy(app, 'pihole_refresh') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                </svg>
+                <span x-text="t('apps.pihole.action_refresh') || 'Update gravity'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="piholeSkillBusy(app, 'pihole_status')"
+                      @click.stop="piholeFleetSkill(app, 'pihole_status')"
+                      :title="t('apps.pihole.action_status_title') || 'Refresh the aggregated stats'">
+                <svg width="11" height="11" :class="piholeSkillBusy(app, 'pihole_status') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+                </svg>
+                <span x-text="t('apps.pihole.action_status') || 'Refresh'"></span>
+              </button>
+            </div>
+            <!-- Timed-disable presets. -->
+            <div class="flex items-center gap-1 flex-wrap">
+              <span class="fs-2xs text-[var(--text-faint)] me-1"
+                    x-text="(t('apps.pihole.disable_for') || 'Disable for') + ':'"></span>
+              <template x-for="ds in piholeDisablePresets()" :key="ds.skill">
+                <button type="button"
+                        class="apps-fleet-preset"
+                        :disabled="piholeSkillBusy(app, ds.skill)"
+                        @click.stop="piholeFleetSkill(app, ds.skill)"
+                        x-text="ds.label"></button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</template>
