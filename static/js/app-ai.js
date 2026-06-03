@@ -938,6 +938,14 @@ export default {
       await this._ensureWeatherHistory();
     } catch (_) {
     }
+    // Pre-fetch prayer times + the Hijri date so the AI can answer
+    // "when is the next prayer / Maghrib" / "what's the Hijri date"
+    // questions in the same turn. Fire-and-forget; gated off / no
+    // location → the prompt-builder skips the block cleanly.
+    try {
+      await this._ensurePrayerTimes();
+    } catch (_) {
+    }
     // Persist the user turn IMMEDIATELY — pre-fix `persistAiConversation`
     // only fired in the `finally` block after the AI response landed,
     // so a refresh / redeploy that hit during a slow LLM round-trip
@@ -1064,6 +1072,15 @@ export default {
         if (tasks.length) {
           await Promise.allSettled(tasks);
         }
+      }
+    } catch (_) { /* never block the question on prefetch */
+    }
+    // Pre-fetch prayer times + Hijri date so the modal palette can answer
+    // prayer / Hijri questions even when no prayer widget is mounted.
+    // Self-gating (disabled / fresh-cache → no-op).
+    try {
+      if (typeof this._ensurePrayerTimes === 'function') {
+        await this._ensurePrayerTimes();
       }
     } catch (_) { /* never block the question on prefetch */
     }
@@ -2426,6 +2443,44 @@ export default {
         });
       }
     }
+    // Prayer Times — when the operator has the feature enabled and the
+    // widget / palette pre-fetch populated `this.prayer`, include the
+    // five daily prayers, the next upcoming prayer, and the Hijri date
+    // so the AI answers "when is Maghrib?" / "what's the Hijri date?"
+    // from real data instead of refusing or hallucinating.
+    let prayerCtx = null;
+    const pr = this.prayer;
+    if (pr && pr.configured !== false && pr.timings
+      && typeof this.prayerWidgetRows === 'function') {
+      const rows = this.prayerWidgetRows();
+      if (rows.length) {
+        prayerCtx = {
+          location: (pr.location && pr.location.label) || this.headerWeatherLabel || '',
+          timezone: pr.timezone || '',
+          method: pr.method_name || '',
+          timings: rows.map(r => ({
+            name: r.name, key: r.key, time: r.time, is_prayer: r.isPrayer,
+          })),
+          next: pr.next ? {
+            name: this.prayerNextName(),
+            key: pr.next.key,
+            time: ((pr.timings[pr.next.key] || {}).time) || '',
+            in_seconds: pr.next.in_seconds,
+            tomorrow: !!pr.next.tomorrow,
+          } : null,
+          hijri: pr.hijri ? {
+            day: pr.hijri.day,
+            month: pr.hijri.month_en,
+            month_ar: pr.hijri.month_ar,
+            year: pr.hijri.year,
+            designation: pr.hijri.designation,
+            weekday: pr.hijri.weekday_en,
+            text: this.prayerHijriLabel(),
+          } : null,
+          gregorian: pr.gregorian || null,
+        };
+      }
+    }
     // Problem-hosts block — full list of hosts whose status is in
     // {down, paused, unknown}, capped at 200 to bound prompt size on
     // a degraded fleet. Mirrors the Telegram AI context's
@@ -2479,6 +2534,9 @@ export default {
     };
     if (weatherCtx) {
       ctx.weather = weatherCtx;
+    }
+    if (prayerCtx) {
+      ctx.prayer = prayerCtx;
     }
     // App skills the AI may invoke (run_app_skill) — instance-level
     // availability built from the pinned apps + the per-slug skill defs on

@@ -343,6 +343,56 @@ def _markdown_to_telegram_html(text: str) -> str:
 
 
 # noinspection SpellCheckingInspection
+def _shape_prayer_ctx(p: dict) -> dict:
+    """Convert a ``logic.prayer_times.fetch`` response into the compact
+    ``prayer`` context block ``ai_extras.build_palette_user_prompt``
+    renders (same shape the SPA's ``_buildAiPaletteContext`` emits)."""
+    timings = p.get("timings") or {}
+    order = ("fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha")
+    rows = []
+    for k in order:
+        r = timings.get(k) or {}
+        if r.get("time"):
+            rows.append({
+                "name": r.get("name") or k.title(),
+                "key": k,
+                "time": r.get("time"),
+                "is_prayer": bool(r.get("prayer")),
+            })
+    nxt = p.get("next") or {}
+    next_block = None
+    if nxt.get("key"):
+        nk = nxt["key"]
+        next_block = {
+            "name": nxt.get("name") or nk.title(),
+            "key": nk,
+            "time": (timings.get(nk) or {}).get("time") or "",
+            "in_seconds": nxt.get("in_seconds"),
+            "tomorrow": bool(nxt.get("tomorrow")),
+        }
+    h = p.get("hijri") or {}
+    hijri_block = None
+    if h.get("day"):
+        hijri_block = {
+            "day": h.get("day"),
+            "month": h.get("month_en"),
+            "month_ar": h.get("month_ar"),
+            "year": h.get("year"),
+            "designation": h.get("designation"),
+            "weekday": h.get("weekday_en"),
+            "text": h.get("text"),
+        }
+    return {
+        "location": (p.get("location") or {}).get("label") or "",
+        "method": p.get("method_name") or "",
+        "timezone": p.get("timezone") or "",
+        "timings": rows,
+        "next": next_block,
+        "hijri": hijri_block,
+        "gregorian": p.get("gregorian"),
+    }
+
+
 # noinspection PyProtectedMember,PyUnresolvedReferences
 # All `_listener()._X` accesses below are intentional — see the
 # `_listener()` shim docstring at the top of this file for the
@@ -433,6 +483,32 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # noinspection PyBroadException
         except Exception as e:
             print(f"[telegram_listener] context weather build failed: {e}")
+    # ---- Prayer Times + Hijri date — per-user saved weather location.
+    # Operator-opt-in (tuning_prayer_times_enabled); method + Asr school
+    # come from Admin → Prayer Times. Same in-process cache the widget
+    # hits. Lets the Telegram AI answer "when is the next prayer" /
+    # "what's the Hijri date" from real data.
+    if username:
+        try:
+            from logic import prayer_times as _pt
+            if _pt.is_enabled():
+                loc = _listener()._load_user_weather_pref(username)
+                if loc and loc.get("lat") is not None and loc.get("lon") is not None:
+                    pdata = await _pt.fetch(
+                        float(loc["lat"]), float(loc["lon"]),
+                        label=(loc.get("label") or "").strip(),
+                    )
+                else:
+                    dloc = _pt.default_location()
+                    pdata = await _pt.fetch(
+                        float(dloc["lat"]), float(dloc["lon"]),
+                        label=dloc.get("label") or "",
+                    ) if dloc else None
+                if isinstance(pdata, dict) and pdata.get("timings") and not pdata.get("error"):
+                    ctx["prayer"] = _shape_prayer_ctx(pdata)
+        # noinspection PyBroadException
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram_listener] context prayer build failed: {e}")
     # ---- Public IP / ISP / ASN — operator-opt-in ifconfig.co lookup.
     # Gated behind `tuning_public_ip_enabled` (default OFF for
     # privacy); cached in-process via `tuning_public_ip_cache_ttl_seconds`
@@ -1411,7 +1487,7 @@ async def _ai_reply(
             raw_text + "\n" + (action_outcome_line or ""),
         )
         if m:
-            await _listener()._send_photo(client, m.group(0))
+            await _listener()._send_photo(client, m.group())
     # noinspection PyBroadException
     except Exception as _photo_err:  # noqa: BLE001
         print(f"[telegram_listener] speedtest photo send skipped: {_photo_err}")

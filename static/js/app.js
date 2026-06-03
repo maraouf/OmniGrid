@@ -769,6 +769,7 @@ function app() {
       {id: 'port_scan', label: 'Port Scan', icon: 'search'},
       {id: 'public_ip', label: 'Public IP', icon: 'globe'},
       {id: 'weather', label: 'Weather', icon: 'cloud'},
+      {id: 'prayer_times', label: 'Prayer Times', icon: 'mosque'},
       {id: 'host_groups', label: 'Host Groups', icon: 'layers'},
       {id: 'hosts', label: 'Hosts', icon: 'server'},
       {id: 'apps', label: 'Apps', icon: 'grid'},
@@ -2213,6 +2214,16 @@ function app() {
         }
         this._appsClockTicker = setInterval(() => {
           this.appsClockNow = Date.now();
+          // Piggyback a ~60s prayer-times staleness check on the Apps
+          // ticker so the next-prayer hero advances after a prayer
+          // passes + the times refresh across midnight, without a
+          // dedicated timer. The loader self-gates (10-min cache +
+          // master toggle + next-passed), so this is cheap.
+          if (typeof this._ensurePrayerTimes === 'function'
+            && (this.appsClockNow - (this._prayerLastKick || 0)) > 60000) {
+            this._prayerLastKick = this.appsClockNow;
+            this._ensurePrayerTimes();
+          }
         }, 1000);
       };
       const _stopAppsClock = () => {

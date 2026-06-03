@@ -482,6 +482,18 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     except (ImportError, AttributeError, KeyError, ValueError, TypeError):
         public_ip_enabled = False
 
+    # Prayer-times gate: drop /prayer + /hijri from help when the
+    # operator hasn't enabled `tuning_prayer_times_enabled` (Admin →
+    # Prayer Times). The commands stay registered (a dispatch when off
+    # renders a friendly "ask an admin to enable it" message) but
+    # listing them is misleading when there's nothing to show.
+    try:
+        from logic.tuning import Tunable as _Tunable2, tuning_int as _tuning_int2
+        prayer_enabled = bool(_tuning_int2(_Tunable2.PRAYER_TIMES_ENABLED))
+    except (ImportError, AttributeError, KeyError, ValueError, TypeError):
+        prayer_enabled = False
+    _PRAYER_GATED = {"/prayer", "/hijri"}
+
     # First pass: group commands by handler (dedup aliases). Records
     # the FIRST occurrence as the primary for that handler — subsequent
     # entries become aliases regardless of `hidden`.
@@ -504,6 +516,9 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             continue
         # Public-IP gate (parallel to the weather curation above).
         if name == "/ip" and not public_ip_enabled:
+            continue
+        # Prayer-times gate (parallel to the weather + public-IP curation).
+        if not prayer_enabled and name in _PRAYER_GATED:
             continue
         # Linked-user gate: /link is the bootstrap for unmapped
         # senders ("paste the code from Profile → Telegram to claim
@@ -2545,6 +2560,167 @@ async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     if forecast_lines:
         text += "\n\n<b>Next 3 days:</b>\n" + "\n".join(forecast_lines)
     await _listener()._send_reply(client, text)
+
+
+_PRAYER_EMOJI = {
+    "fajr": "🌅",
+    "sunrise": "☀️",
+    "dhuhr": "🌞",
+    "asr": "🌤️",
+    "maghrib": "🌇",
+    "isha": "🌙",
+}
+
+
+async def _fetch_user_prayer(client: httpx.AsyncClient, msg: dict):
+    """Shared helper for /prayer + /hijri — resolves the linked user's
+    saved weather location + fetches today's prayer times. Sends the
+    operator-facing reply itself on every failure path (not linked, no
+    location, feature disabled, upstream error) and returns None then;
+    returns the prayer-data dict on success."""
+    from logic import prayer_times as _pt
+    if not _pt.is_enabled():
+        await _listener()._send_reply(
+            client,
+            "⚙️ Prayer Times is disabled.\n"
+            "<i>An admin can enable it in <b>Admin → Prayer Times</b>.</i>"
+        )
+        return None
+    result = await _require_user_weather_pref(client, msg)
+    if result is None:
+        return None
+    _username, loc = result
+    label = (loc.get("label") or "").strip() or "your location"
+    try:
+        data = await _pt.fetch(
+            float(loc["lat"]), float(loc["lon"]), label=label,
+        )
+    # noinspection PyBroadException
+    except Exception as e:  # noqa: BLE001
+        await _listener()._send_reply(
+            client, f"❌ Prayer times lookup failed: <code>{_listener()._escape(str(e))}</code>"
+        )
+        return None
+    if not isinstance(data, dict) or data.get("configured") is False:
+        await _listener()._send_reply(
+            client,
+            "⚙️ Prayer Times is disabled.\n"
+            "<i>An admin can enable it in <b>Admin → Prayer Times</b>.</i>"
+        )
+        return None
+    if data.get("error") or not data.get("timings"):
+        await _listener()._send_reply(
+            client,
+            f"❌ Prayer times upstream error: "
+            f"<code>{_listener()._escape(str(data.get('error') or 'no data'))}</code>"
+        )
+        return None
+    return data
+
+
+def _fmt_prayer_countdown(secs) -> str:
+    """'2h 14m' / '7m' from an in-seconds value; '' on bad input."""
+    try:
+        s = int(secs)
+    except (TypeError, ValueError):
+        return ""
+    if s < 0:
+        s = 0
+    h = s // 3600
+    m = (s % 3600) // 60
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m"
+    return f"{s % 60}s"
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
+async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/prayer`` — today's five prayer times + the next prayer +
+    countdown for the linked user's saved location, plus the Hijri date.
+    Location comes from the same saved Weather location /weather uses."""
+    data = await _fetch_user_prayer(client, msg)
+    if data is None:
+        return
+    timings = data.get("timings") or {}
+    loc = (data.get("location") or {})
+    label = (loc.get("label") or "").strip() or "your location"
+    nxt = data.get("next") or {}
+    hijri = data.get("hijri") or {}
+
+    head = f"🕌 <b>Prayer times — {_listener()._escape(label)}</b>"
+    method = str(data.get("method_name") or "").strip()
+    sub = []
+    if hijri.get("text") or hijri.get("day"):
+        hijri_txt = hijri.get("text") or (
+            f"{hijri.get('day')} {hijri.get('month_en')} "
+            f"{hijri.get('year')} {hijri.get('designation')}"
+        )
+        sub.append(f"📅 {_listener()._escape(str(hijri_txt).strip())}")
+    if method:
+        sub.append(f"<i>{_listener()._escape(method)}</i>")
+
+    next_line = ""
+    if nxt.get("key") and nxt.get("name"):
+        cd = _fmt_prayer_countdown(nxt.get("in_seconds"))
+        tom = " (tomorrow)" if nxt.get("tomorrow") else ""
+        ntime = (timings.get(nxt["key"]) or {}).get("time") or ""
+        emoji = _PRAYER_EMOJI.get(nxt["key"], "🕋")
+        next_line = (
+            f"\n\n{emoji} <b>Next: {_listener()._escape(str(nxt['name']))}</b> "
+            f"at <b>{_listener()._escape(ntime)}</b>{tom}"
+            + (f" — in {cd}" if cd else "")
+        )
+
+    rows = []
+    for key in ("fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"):
+        r = timings.get(key) or {}
+        if not r.get("time"):
+            continue
+        emoji = _PRAYER_EMOJI.get(key, "•")
+        name = str(r.get("name") or key.title())
+        is_next = nxt.get("key") == key and r.get("prayer")
+        line = f"{emoji} {_listener()._escape(name)}: <b>{_listener()._escape(r['time'])}</b>"
+        if is_next:
+            line = "▶️ " + line
+        rows.append(line)
+
+    text = head
+    if sub:
+        text += "\n" + "  ".join(sub)
+    text += next_line + "\n\n" + "\n".join(rows)
+    await _listener()._send_reply(client, text)
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
+async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/hijri`` — today's Hijri (Islamic) calendar date for the
+    linked user's saved location."""
+    data = await _fetch_user_prayer(client, msg)
+    if data is None:
+        return
+    hijri = data.get("hijri") or {}
+    greg = data.get("gregorian") or {}
+    if not (hijri.get("text") or hijri.get("day")):
+        await _listener()._send_reply(client, "❌ No Hijri date available right now.")
+        return
+    hijri_txt = hijri.get("text") or (
+        f"{hijri.get('day')} {hijri.get('month_en')} "
+        f"{hijri.get('year')} {hijri.get('designation')}"
+    )
+    lines = [f"📅 <b>Hijri date</b>", f"🌙 <b>{_listener()._escape(str(hijri_txt).strip())}</b>"]
+    if hijri.get("month_ar"):
+        ar = f"{hijri.get('day')} {hijri.get('month_ar')} {hijri.get('year')}"
+        lines.append(_listener()._escape(ar.strip()))
+    if hijri.get("weekday_en"):
+        lines.append(f"<i>{_listener()._escape(str(hijri.get('weekday_en')))}</i>")
+    if greg.get("date"):
+        gline = str(greg.get("date"))
+        if greg.get("weekday"):
+            gline += f" ({greg.get('weekday')})"
+        lines.append(f"🗓️ {_listener()._escape(gline)}")
+    await _listener()._send_reply(client, "\n".join(lines))
 
 
 # noinspection PyUnusedLocal,PyProtectedMember,PyBroadException

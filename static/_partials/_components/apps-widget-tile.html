@@ -666,6 +666,73 @@
           </div>
         </template>
       </template>
+
+      <!-- Prayer Times widget — next prayer hero + live countdown, the
+           Hijri date, and the 5 daily prayers (+ Sunrise) as a list with
+           the next prayer highlighted via --widget-accent. Self-fetches
+           via `_ensurePrayerTimes()` on first mount using the logged-in
+           user's existing weather location (no separate prayer location
+           pref). Polished empty state when disabled / no location. -->
+      <template x-if="item.widget === 'prayer_times'">
+        <div class="apps-widget-prayer-wrap" x-init="_ensurePrayerTimes()">
+          <template x-if="prayer && prayer.timings && prayer.configured !== false && prayerWidgetRows().length">
+            <div class="apps-widget-prayer-body">
+              <!-- Hero: next prayer name + live countdown. -->
+              <div class="apps-widget-prayer-hero" x-show="prayer.next && prayer.next.key">
+                <svg class="apps-widget-prayer-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + prayerIconId((prayer.next || {}).key)"/>
+                </svg>
+                <div class="apps-widget-prayer-hero-col">
+                  <div class="apps-widget-prayer-next-name" x-text="prayerNextName()"></div>
+                  <div class="apps-widget-prayer-countdown">
+                    <span x-text="t('prayer_times.in') || 'in'"></span>
+                    <span class="apps-widget-prayer-countdown-val" x-text="prayerCountdownLabel()"></span>
+                    <span x-show="prayer.next && prayer.next.tomorrow" class="apps-widget-prayer-tomorrow"
+                          x-text="t('prayer_times.tomorrow') || 'tomorrow'"></span>
+                  </div>
+                </div>
+              </div>
+              <!-- Hijri date line. -->
+              <div class="apps-widget-prayer-hijri" x-show="prayerHijriLabel()">
+                <svg width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
+                </svg>
+                <span x-text="prayerHijriLabel()"></span>
+              </div>
+              <!-- The 5 prayers + Sunrise. Next prayer row highlighted. -->
+              <div class="apps-widget-prayer-list">
+                <template x-for="row in prayerWidgetRows()" :key="row.key">
+                  <div class="apps-widget-prayer-row"
+                       :class="{ 'apps-widget-prayer-row--next': row.isNext, 'apps-widget-prayer-row--info': !row.isPrayer }">
+                    <svg class="apps-widget-prayer-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + prayerIconId(row.key)"/>
+                    </svg>
+                    <span class="apps-widget-prayer-name" x-text="row.name"></span>
+                    <span class="apps-widget-prayer-time" x-text="row.time"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+          <template x-if="!prayer || prayer.configured === false || !prayerWidgetRows().length">
+            <div class="apps-widget-empty">
+              <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-mosque"/>
+              </svg>
+              <!-- Three differentiated empty states:
+                   (a) feature disabled by an admin
+                   (b) no location available (no weather location + no admin default)
+                   (c) configured but no data yet (transient — refresh retries) -->
+              <span class="apps-widget-empty-text"
+                    x-text="(prayer && prayer.configured === false)
+                    ? (t('prayer_times.widget_disabled') || 'Prayer Times is disabled. Ask an admin to enable it in Admin → Prayer Times.')
+                    : ((prayer && prayer.no_location) || ((!headerWeatherLat || !headerWeatherLon) && (!prayer || !prayer.location || !prayer.location.lat)))
+                      ? (t('prayer_times.widget_no_location') || 'Set your weather location in Settings → Profile → Weather, or an admin can set a default in Admin → Prayer Times.')
+                      : (t('prayer_times.widget_no_data') || 'No prayer data yet — click the refresh button to try again.')"></span>
+            </div>
+          </template>
+        </div>
+      </template>
     </div>
 
     <!-- Freshness footer — operator-visible "last refreshed" stamp so

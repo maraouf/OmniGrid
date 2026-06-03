@@ -55,6 +55,13 @@ export default {
   publicIpTesting: false,
   publicIpTestOk: false,
   publicIpTestResult: '',
+  // Admin → Prayer Times state (section-owned save spanning the
+  // enable/cache/timeout tunables AND the method/school/location
+  // settings). Same Save-button-dirty + Test-connection shape.
+  prayerTimesSaving: false,
+  prayerTimesTesting: false,
+  prayerTimesTestOk: false,
+  prayerTimesTestResult: '',
   // Admin → Public IP "Recent samples" table state (mirrors weatherHistory).
   publicIpHistory: [],
   publicIpHistoryLoading: false,
@@ -233,6 +240,164 @@ export default {
     }
   },
 
+  // --- Admin → Prayer Times (section-owned save: tunables + settings) ---
+  // The enable / cache-TTL / fetch-timeout are TUNABLES; the
+  // method / Asr school / fallback-location / base-URL are DB-backed
+  // settings. One Save POST carries both. Dirty = any of either group
+  // differs from its loaded baseline.
+  _prayerTimesSectionTuningKeys() {
+    return [
+      'tuning_prayer_times_enabled',
+      'tuning_prayer_times_cache_ttl_seconds',
+      'tuning_prayer_times_fetch_timeout_seconds',
+    ];
+  },
+  // [editable flat settings key, loaded nested key under settings.prayer_times].
+  _prayerTimesSettingFields() {
+    return [
+      ['prayer_times_method', 'method'],
+      ['prayer_times_school', 'school'],
+      ['prayer_times_default_label', 'default_label'],
+      ['prayer_times_default_lat', 'default_lat'],
+      ['prayer_times_default_lon', 'default_lon'],
+      ['prayer_times_api_base_url', 'api_base_url'],
+    ];
+  },
+  prayerTimesSectionDirty() {
+    try {
+      const baseline = this._tuningBaselineMap();
+      for (const k of this._prayerTimesSectionTuningKeys()) {
+        const cur = (this.tuningForm || {})[k];
+        const curStr = (cur == null ? '' : String(cur).trim());
+        const baseStr = (baseline[k] == null ? '' : String(baseline[k]).trim());
+        if (curStr !== baseStr) {
+          return true;
+        }
+      }
+    } catch (_) {
+    }
+    const s = this.settings || {};
+    const nested = s.prayer_times || {};
+    for (const pair of this._prayerTimesSettingFields()) {
+      const cur = (s[pair[0]] == null ? '' : String(s[pair[0]]).trim());
+      const base = (nested[pair[1]] == null ? '' : String(nested[pair[1]]).trim());
+      if (cur !== base) {
+        return true;
+      }
+    }
+    return false;
+  },
+  async savePrayerTimesSection() {
+    if (this.prayerTimesSaving) {
+      return;
+    }
+    // Validate the numeric tunables against their (min, max) bounds first.
+    for (const k of this._prayerTimesSectionTuningKeys()) {
+      const raw = (this.tuningForm || {})[k];
+      if (raw === '' || raw == null) {
+        continue;
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        this.showToast(this.t('admin.config.errors.must_be_int', {
+          field: this.t('admin.config.fields.' + k + '.label'),
+        }), 'error');
+        return;
+      }
+      const eff = this.tuningEffective[k] || {};
+      if (Number.isFinite(eff.min) && n < eff.min) {
+        this.showToast(this.t('admin.config.errors.below_min', {
+          field: this.t('admin.config.fields.' + k + '.label'), min: eff.min,
+        }), 'error');
+        return;
+      }
+      if (Number.isFinite(eff.max) && n > eff.max) {
+        this.showToast(this.t('admin.config.errors.above_max', {
+          field: this.t('admin.config.fields.' + k + '.label'), max: eff.max,
+        }), 'error');
+        return;
+      }
+    }
+    this.prayerTimesSaving = true;
+    try {
+      const body = {};
+      for (const k of this._prayerTimesSectionTuningKeys()) {
+        const v = (this.tuningForm || {})[k];
+        body[k] = (v == null ? '' : String(v).trim());
+      }
+      const s = this.settings || {};
+      for (const pair of this._prayerTimesSettingFields()) {
+        const v = s[pair[0]];
+        body[pair[0]] = (v == null ? '' : String(v).trim());
+      }
+      const r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(this.fmtApiError(j, r.status));
+      }
+      await Promise.all([this.loadSettings(), this.loadTuning()]);
+      // Invalidate the SPA's prayer cache so the widget re-fetches with
+      // the new method / school / location on its next mount.
+      try {
+        this.prayer = null;
+        this._prayerFetchedAt = 0;
+      } catch (_) {
+      }
+      this.showToast(this.t('toasts.saved') || 'Saved', 'success');
+    } catch (e) {
+      this.showToast((this.t('toasts_extra.save_failed_generic') || 'Save failed') + ': ' + (e.message || e), 'error');
+    } finally {
+      this.prayerTimesSaving = false;
+    }
+  },
+  async testPrayerTimes() {
+    if (this.prayerTimesTesting) {
+      return;
+    }
+    this.prayerTimesTesting = true;
+    this.prayerTimesTestResult = '';
+    this.prayerTimesTestOk = false;
+    try {
+      const s = this.settings || {};
+      const body = {
+        lat: s.prayer_times_default_lat || '',
+        lon: s.prayer_times_default_lon || '',
+        label: s.prayer_times_default_label || '',
+        method: s.prayer_times_method || '',
+        school: s.prayer_times_school || '',
+      };
+      const r = await fetch('/api/prayer-times/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        this.prayerTimesTestOk = false;
+        this.prayerTimesTestResult = 'HTTP ' + r.status + ': ' + (j.detail || JSON.stringify(j));
+      } else if (j && j.ok) {
+        this.prayerTimesTestOk = true;
+        this.prayerTimesTestResult = j.detail || 'OK';
+        if (this.recordTestSuccess) {
+          this.recordTestSuccess('prayer_times');
+        }
+      } else {
+        this.prayerTimesTestOk = false;
+        this.prayerTimesTestResult = (j && j.detail) || 'Test failed';
+      }
+    } catch (e) {
+      this.prayerTimesTestOk = false;
+      this.prayerTimesTestResult = 'fetch failed: ' + (e && e.message ? e.message : String(e));
+    } finally {
+      this.prayerTimesTesting = false;
+    }
+  },
+
   // --- Topbar clock + weather ---
   tickHeaderClock() {
     const now = new Date();
@@ -374,6 +539,13 @@ export default {
         // value until the fresh response lands; the in-place reconcile in
         // `_ensurePublicIp` keeps the card subtree mounted.
         await this._ensurePublicIp(true);
+      } else if (kind === 'prayer_times') {
+        // force=True bypasses both the client TTL gate + the backend
+        // per-(coord, method, school) cache, without zeroing
+        // `_prayerFetchedAt` (avoids the freshness-label flicker). The
+        // in-place reconcile in `_ensurePrayerTimes` keeps the subtree
+        // mounted.
+        await this._ensurePrayerTimes(true);
       }
     } catch (_) {
     } finally {
@@ -398,6 +570,8 @@ export default {
       ts = this._weatherFetchedAt || 0;
     } else if (kind === 'public_ip') {
       ts = this._publicIpFetchedAt || 0;
+    } else if (kind === 'prayer_times') {
+      ts = this._prayerFetchedAt || 0;
     }
     if (!ts) {
       return '';
@@ -444,7 +618,7 @@ export default {
   // Whether a given widget kind has a refresh button. Clock + system_stats
   // are client-side derivations; refresh wouldn't change anything.
   widgetSupportsRefresh(kind) {
-    return kind === 'weather' || kind === 'moon' || kind === 'public_ip';
+    return ['weather', 'moon', 'public_ip', 'prayer_times'].includes(kind);
   },
   // Whether the widget actually has data to refresh / timestamp.
   // When the master feature is disabled, the upstream is unreachable,
@@ -466,6 +640,18 @@ export default {
         return false;
       }
       return !!(this.publicIp && this.publicIp.ip);
+    }
+    if (kind === 'prayer_times') {
+      if (!this.prayer || this.prayer.configured === false) {
+        return false;
+      }
+      if (!this.prayer.timings) {
+        return false;
+      }
+      if (typeof this.prayerWidgetRows !== 'function') {
+        return false;
+      }
+      return this.prayerWidgetRows().length > 0;
     }
     return true;
   },

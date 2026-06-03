@@ -1013,7 +1013,7 @@ export default {
   // is the active weather provider (Open-Meteo doesn't return moon
   // data). The tile's empty state surfaces a "switch provider" hint
   // when the provider can't supply this data.
-  appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats'],
+  appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats', 'prayer_times'],
 
   // Reactive ms timestamp driving the clock widget's live time.
   // Ticked every second by an Apps-view-gated interval armed in
@@ -1023,6 +1023,16 @@ export default {
   // `hostHistoryNow` (that ticker stops when no drawer is open, which
   // froze the displayed time while the CSS colon kept pulsing).
   appsClockNow: 0,
+
+  // Prayer-times widget state. `prayer` holds the latest
+  // /api/prayer-times response ({timings, prayers, next, hijri, ...});
+  // `_prayerFetchedAt` gates the in-process refresh (10-min window like
+  // public_ip). Location comes from the logged-in user's existing
+  // weather location (headerWeatherLat/Lon) — no separate prayer
+  // location pref. The live countdown reads the shared 1s `appsClockNow`
+  // tick so it ticks down without a dedicated timer.
+  prayer: null,
+  _prayerFetchedAt: 0,
 
   // i18n label for a widget kind (picker + tile heading).
   appsWidgetLabel(kind) {
@@ -1056,6 +1066,9 @@ export default {
     }
     if (kind === 'moon') {
       return 'icon-moon';
+    }
+    if (kind === 'prayer_times') {
+      return 'icon-mosque';
     }
     // Unknown kind — fall back to a neutral icon rather than an
     // empty fragment (which would produce a broken sprite ref).
@@ -1333,6 +1346,182 @@ export default {
   // every override-mode card kicks its own fetch on first paint. 10-
   // minute cache window (same as `_ensurePublicIp`). Silent failure
   // leaves the cache empty — the card renders the empty state.
+  // ----------------------------------------------------------------
+  // Prayer Times widget
+  // ----------------------------------------------------------------
+  // One-shot fetch on first tile mount (x-init) + on the Apps-view
+  // refresh path. Location = the logged-in user's existing weather
+  // location (headerWeatherLat/Lon) so there's no separate prayer
+  // location pref; falls back to the operator's Admin default when the
+  // user has no weather location (the endpoint resolves that). Gated on
+  // the master toggle so a disabled feature never hits the network.
+  // 10-min cache window matching the other self-fetching widgets; the
+  // live countdown re-derives from `appsClockNow` so it ticks without a
+  // re-fetch.
+  _ensurePrayerTimes(force = false) {
+    const cc = (this.me && this.me.client_config) || {};
+    if (cc.prayer_times_enabled === false) {
+      // Master toggle off — surface the disabled empty-state, no fetch.
+      if (!this.prayer) {
+        this.prayer = {configured: false};
+      }
+      return;
+    }
+    const now = Date.now();
+    // Refetch when the cached next-prayer epoch has already passed so the
+    // hero advances to the following prayer (the client countdown alone
+    // can't roll the `next` pointer — that lives in the response).
+    const nextAt = this.prayer && this.prayer.next && this.prayer.next.at_ts;
+    const nextPassed = nextAt && (nextAt * 1000) < now;
+    if (!force && !nextPassed && this.prayer && this.prayer.configured !== false
+      && (now - this._prayerFetchedAt) < 10 * 60 * 1000) {
+      return;
+    }
+    if (this._prayerFetching) {
+      return;
+    }
+    this._prayerFetching = true;
+    const lat = this.headerWeatherLat;
+    const lon = this.headerWeatherLon;
+    const params = new URLSearchParams();
+    if (lat != null && lon != null) {
+      params.set('lat', String(lat));
+      params.set('lon', String(lon));
+      if (this.headerWeatherLabel) {
+        params.set('label', this.headerWeatherLabel);
+      }
+    }
+    if (force) {
+      params.set('force', '1');
+    }
+    const qs = params.toString();
+    // Return the promise so the AI palette can `await` a completed fetch
+    // before building its context (so prayer questions answer in the
+    // same turn). The widget x-init path ignores the return value.
+    return fetch('/api/prayer-times' + (qs ? ('?' + qs) : ''))
+      .then(r => (r.ok ? r.json() : null))
+      .then((fresh) => {
+        if (!fresh) {
+          return;
+        }
+        // In-place reconcile (anti-flicker — same pattern as
+        // loadHeaderWeather / _ensurePublicIp): keep the bound subtree
+        // mounted, just update fields.
+        const haveCur = this.prayer && typeof this.prayer === 'object';
+        if (haveCur && typeof fresh === 'object') {
+          Object.keys(this.prayer).forEach((k) => {
+            if (!(k in fresh)) {
+              delete this.prayer[k];
+            }
+          });
+          Object.assign(this.prayer, fresh);
+        } else {
+          this.prayer = fresh;
+        }
+        this._prayerFetchedAt = now;
+      })
+      .catch(() => { /* silent — tile shows the no-data empty state */ })
+      .finally(() => { this._prayerFetching = false; });
+  },
+  // Explicit refresh button on the tile.
+  refreshPrayerTimes() {
+    this._ensurePrayerTimes(true);
+  },
+  // Ordered rows for the card: the 5 obligatory prayers PLUS Sunrise
+  // (informational). Each row carries the translated name + whether it's
+  // the next upcoming prayer (for the highlight). Returns [] until the
+  // first successful fetch so the tile renders its empty state.
+  prayerWidgetRows() {
+    const p = this.prayer;
+    if (!p || !p.timings || p.configured === false) {
+      return [];
+    }
+    const order = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'];
+    const nextKey = (p.next && p.next.key) || '';
+    const out = [];
+    order.forEach((key) => {
+      const row = p.timings[key];
+      if (!row || !row.time) {
+        return;
+      }
+      out.push({
+        key,
+        name: this.prayerName(key),
+        time: row.time,
+        ts: row.ts,
+        isPrayer: !!row.prayer,
+        isNext: row.prayer && key === nextKey,
+      });
+    });
+    return out;
+  },
+  // Translated prayer name (falls back to TitleCase English). Sunrise is
+  // included so the card can label the informational row.
+  prayerName(key) {
+    const tr = this.t('prayer_times.name_' + key);
+    if (tr && tr !== 'prayer_times.name_' + key) {
+      return tr;
+    }
+    return (key || '').charAt(0).toUpperCase() + (key || '').slice(1);
+  },
+  // Per-prayer sprite icon id (dawn → sun-high → sun-low → sunset →
+  // moon). Sunrise reuses the sunrise glyph.
+  prayerIconId(key) {
+    const map = {
+      fajr: 'icon-sunrise',
+      sunrise: 'icon-sun-medium',
+      dhuhr: 'icon-sun',
+      asr: 'icon-sun-low',
+      maghrib: 'icon-sunset',
+      isha: 'icon-moon-stars',
+    };
+    return map[key] || 'icon-clock';
+  },
+  // The next upcoming prayer's translated name (for the hero line).
+  prayerNextName() {
+    const p = this.prayer;
+    if (!p || !p.next || !p.next.key) {
+      return '';
+    }
+    return this.prayerName(p.next.key);
+  },
+  // Live "in 2h 14m" countdown to the next prayer. Reads the shared 1s
+  // `appsClockNow` tick so it re-evaluates every second (reactive
+  // dependency) and counts down between fetches. Empty when no next
+  // prayer is known.
+  prayerCountdownLabel() {
+    const p = this.prayer;
+    const at = p && p.next && p.next.at_ts;
+    if (!at) {
+      return '';
+    }
+    // Touch appsClockNow so Alpine re-runs this each tick.
+    const nowMs = this.appsClockNow || Date.now();
+    let secs = Math.max(0, Math.round(at - (nowMs / 1000)));
+    const h = Math.floor(secs / 3600);
+    secs -= h * 3600;
+    const m = Math.floor(secs / 60);
+    const s = secs - m * 60;
+    if (h > 0) {
+      return h + 'h ' + m + 'm';
+    }
+    if (m > 0) {
+      return m + 'm';
+    }
+    return s + 's';
+  },
+  // "17 Dhul Hijjah 1447 AH" — the Hijri date header. Uses the English
+  // month name from the API (already localised per AlAdhan); the
+  // designation (AH) is appended.
+  prayerHijriLabel() {
+    const h = (this.prayer && this.prayer.hijri) || null;
+    if (!h || !h.day) {
+      return '';
+    }
+    const parts = [h.day, h.month_en, h.year].filter(Boolean).join(' ');
+    return (parts + (h.designation ? (' ' + h.designation) : '')).trim();
+  },
+
   _ensurePerCardWeather(item) {
     const opts = this.effectiveWeatherOpts(item);
     if (opts.follow || opts.lat === null || opts.lng === null) {
