@@ -300,10 +300,10 @@ export default {
     'tuning_weather_history_retention_days',
     'tuning_weather_sampler_interval_seconds',
     // Prayer Times — standalone subsystem with its own Admin → Prayer
-    // Times section. Master toggle (1/0) + cache TTL + fetch timeout.
-    // Section-owned save via prayerTimesSectionDirty() /
-    // savePrayerTimesSection().
-    'tuning_prayer_times_enabled',
+    // Times section. The master enable toggle is a plain setting
+    // (prayer_times_enabled), NOT a tunable; only the cache TTL + fetch
+    // timeout are tunables. Section-owned save via prayerTimesSectionDirty()
+    // / savePrayerTimesSection().
     'tuning_prayer_times_cache_ttl_seconds',
     'tuning_prayer_times_fetch_timeout_seconds',
     // Telegram listener long-poll + outer-HTTP timeouts — rendered

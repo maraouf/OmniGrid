@@ -172,6 +172,7 @@ class Settings(str, Enum):
     PORT_SCAN_ENABLED = "port_scan_enabled"
     PORT_SCAN_UDP_DEFAULT_PORTS = "port_scan_udp_default_ports"
     PRAYER_TIMES_API_BASE_URL = "prayer_times_api_base_url"
+    PRAYER_TIMES_ENABLED = "prayer_times_enabled"
     PRAYER_TIMES_DEFAULT_LABEL = "prayer_times_default_label"
     PRAYER_TIMES_DEFAULT_LAT = "prayer_times_default_lat"
     PRAYER_TIMES_DEFAULT_LON = "prayer_times_default_lon"

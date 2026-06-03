@@ -1383,9 +1383,11 @@ class SettingsIn(BaseModel):
     # default 5 = Egyptian); `prayer_times_school` is the Asr school
     # (0 = Standard/Shafi, 1 = Hanafi). `prayer_times_default_*` is the
     # fallback location used when no per-user weather location is set.
-    # The master enable toggle + cache TTL + fetch timeout are TUNABLES
-    # (tuning_prayer_times_*), not here. `prayer_times_api_base_url` is
-    # the AlAdhan REST base override (blank = the documented default).
+    # The master enable toggle is the plain `prayer_times_enabled` setting
+    # (like `weather_enabled`); only the cache TTL + fetch timeout are
+    # TUNABLES (tuning_prayer_times_*). `prayer_times_api_base_url` is the
+    # AlAdhan REST base override (blank = the documented default).
+    prayer_times_enabled: Optional[bool] = None
     prayer_times_method: Optional[str] = None
     prayer_times_school: Optional[str] = None
     prayer_times_default_label: Optional[str] = None

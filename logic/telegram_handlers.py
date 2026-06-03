@@ -483,13 +483,14 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         public_ip_enabled = False
 
     # Prayer-times gate: drop /prayer + /hijri from help when the
-    # operator hasn't enabled `tuning_prayer_times_enabled` (Admin →
-    # Prayer Times). The commands stay registered (a dispatch when off
-    # renders a friendly "ask an admin to enable it" message) but
-    # listing them is misleading when there's nothing to show.
+    # operator hasn't enabled `prayer_times_enabled` (Admin → Prayer
+    # Times). The commands stay registered (a dispatch when off renders a
+    # friendly "ask an admin to enable it" message) but listing them is
+    # misleading when there's nothing to show.
     try:
-        from logic.tuning import Tunable as _Tunable2, tuning_int as _tuning_int2
-        prayer_enabled = bool(_tuning_int2(_Tunable2.PRAYER_TIMES_ENABLED))
+        from logic.db import get_setting_bool as _get_setting_bool2
+        from logic.settings_keys import Settings as _Settings2
+        prayer_enabled = _get_setting_bool2(_Settings2.PRAYER_TIMES_ENABLED, False)
     except (ImportError, AttributeError, KeyError, ValueError, TypeError):
         prayer_enabled = False
     _PRAYER_GATED = {"/prayer", "/hijri"}

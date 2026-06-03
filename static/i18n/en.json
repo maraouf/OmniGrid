@@ -1840,10 +1840,6 @@
           "label": "Public-IP change-sampler interval (seconds)",
           "help": "How often a background loop force-probes the public IP to record a CHANGE in the history, even when nobody is viewing the widget. Without it, change-detection only fires on incidental lookups (widget load / Telegram /ip / AI palette) which are gated by the cache TTL, so a short-lived WAN flap shorter than the cache window is missed entirely and the 'changed X ago' label goes stale. Default 300 (5 minutes) catches typical failover flaps while staying light on the upstream (~288 calls/day). 0 disables the sampler (change-detection falls back to incidental lookups only). Range 0..86400. Takes effect on the next tick."
         },
-        "tuning_prayer_times_enabled": {
-          "label": "Prayer Times enabled",
-          "help": "Master gate for the Prayer Times subsystem (the custom-dashboard widget card + the AI / Telegram prayer-time + Hijri-date answers). 1 = enabled, 0 = disabled. Default 0 — flipping to 1 authorises outbound calls to api.aladhan.com (free, no-key Islamic prayer-times service). Range 0..1."
-        },
         "tuning_prayer_times_cache_ttl_seconds": {
           "label": "Prayer Times cache TTL (seconds)",
           "help": "How long the in-process cache holds a successful api.aladhan.com response before re-fetching. Daily prayer times are static for a given day, so the default 3600 (1 hour) is plenty (it also picks up the new day across midnight). Lower for fresher data after a method / location change; raise to spare the upstream on large multi-user deploys. Range 300..21600. Takes effect on the next lookup."

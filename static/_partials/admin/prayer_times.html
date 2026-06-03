@@ -9,28 +9,28 @@
       </svg>
       <h3 class="font-semibold fs-md" x-text="t('admin_prayer_times.title') || 'Prayer Times'"></h3>
     </div>
-    <span x-show="!tuningLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+    <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
       <span class="spin" aria-hidden="true"></span>
       <span x-text="t('common.loading') || 'Loading…'"></span>
     </span>
-    <span x-show="tuningLoaded" class="chip"
-          :class="(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1) ? 'pill-ok' : 'pill-muted'"
-          x-text="(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
+    <span x-show="settingsLoaded" class="chip"
+          :class="settings.prayer_times_enabled ? 'pill-ok' : 'pill-muted'"
+          x-text="settings.prayer_times_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
      x-text="t('admin_prayer_times.intro') || 'Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user\'s saved Weather location; set a calculation method + Asr school below.'"></p>
 
-  <!-- Master switch (tuning_prayer_times_enabled int 1/0). Help text
-       BEFORE the checkbox per the canonical admin-section pattern. -->
+  <!-- Master switch (prayer_times_enabled — a plain DB setting like
+       weather_enabled, loads with settingsLoaded; NOT a tunable). Help
+       text BEFORE the checkbox per the canonical admin-section pattern. -->
   <p class="fs-xs text-[var(--text-faint)] mb-1 leading-snug max-w-[720px]"
      x-text="t('admin_prayer_times.enable_hint') || 'When off, the widget shows a disabled state and no outbound call to api.aladhan.com is made.'"></p>
   <label class="flex items-center gap-2 fs-sm cursor-pointer mb-3 select-none">
     <input type="checkbox"
-           :checked="tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1"
-           @change="tuningForm['tuning_prayer_times_enabled'] = ($event.target.checked ? '1' : '0')"
-           :disabled="isReadonly() || !tuningLoaded">
+           x-model="settings.prayer_times_enabled"
+           :disabled="isReadonly() || !settingsLoaded">
     <span class="font-medium" x-text="t('admin_integrations.enabled_label')"></span>
-    <span x-show="!tuningLoaded" class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
+    <span x-show="!settingsLoaded" class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
       <span class="spin" aria-hidden="true"></span>
       <span x-text="t('common.loading') || 'Loading…'"></span>
     </span>
@@ -41,14 +41,14 @@
        toggle is on, mirroring the weather/portainer dependent-input
        pattern. -->
   <div class="space-y-3 max-w-[560px]"
-       :class="(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1) ? '' : 'opacity-60'">
+       :class="settings.prayer_times_enabled ? '' : 'opacity-60'">
     <div>
       <label for="prayer-method" class="block fs-xs font-medium mb-1"
              x-text="t('admin_prayer_times.method_label') || 'Calculation method'"></label>
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-1"
          x-text="t('admin_prayer_times.method_help') || 'The authority whose Fajr / Isha twilight angles are used. Pick the one standard in your region.'"></p>
       <select id="prayer-method" x-model="settings.prayer_times_method"
-              :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
+              :disabled="isReadonly() || !settings.prayer_times_enabled"
               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm">
         <option value="" x-text="t('admin_prayer_times.method_default_option', { n: (settings.prayer_times && settings.prayer_times.default_method) }) || ('App default (' + ((settings.prayer_times && settings.prayer_times.default_method) || 5) + ')')"></option>
         <template x-for="m in ((settings.prayer_times && settings.prayer_times.methods) || [])" :key="m.id">
@@ -62,7 +62,7 @@
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-1"
          x-text="t('admin_prayer_times.school_help') || 'Standard (Shafi\'i / Maliki / Hanbali): Asr when shadow = object length. Hanafi: Asr when shadow = twice the object length (later).'"></p>
       <select id="prayer-school" x-model="settings.prayer_times_school"
-              :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
+              :disabled="isReadonly() || !settings.prayer_times_enabled"
               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm">
         <option value="" x-text="t('admin_prayer_times.school_default_option') || 'App default (Standard / Shafi\'i)'"></option>
         <option value="0" x-text="t('admin_prayer_times.school_standard') || '0 — Standard (Shafi\'i / Maliki / Hanbali)'"></option>
@@ -82,21 +82,21 @@
         <label class="contents">
           <input type="text" inputmode="decimal" x-model="settings.prayer_times_default_lat"
                  :aria-label="t('admin_prayer_times.lat_label') || 'Default latitude'"
-                 :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
+                 :disabled="isReadonly() || !settings.prayer_times_enabled"
                  :placeholder="t('admin_prayer_times.lat_placeholder') || 'Latitude (e.g. 30.0444)'"
                  class="w-44 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono">
         </label>
         <label class="contents">
           <input type="text" inputmode="decimal" x-model="settings.prayer_times_default_lon"
                  :aria-label="t('admin_prayer_times.lon_label') || 'Default longitude'"
-                 :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
+                 :disabled="isReadonly() || !settings.prayer_times_enabled"
                  :placeholder="t('admin_prayer_times.lon_placeholder') || 'Longitude (e.g. 31.2357)'"
                  class="w-44 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono">
         </label>
         <label class="contents">
           <input type="text" x-model="settings.prayer_times_default_label"
                  :aria-label="t('admin_prayer_times.label_field_label') || 'Default location label'"
-                 :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
+                 :disabled="isReadonly() || !settings.prayer_times_enabled"
                  :placeholder="t('admin_prayer_times.label_placeholder') || 'Label (e.g. Cairo)'"
                  class="flex-1 min-w-[140px] bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm">
         </label>
@@ -129,8 +129,11 @@
   <!-- Shared Test-connection component — probes api.aladhan.com with the
        default location + method/school and shows the next prayer + Hijri
        date in the result box. -->
+  <!-- Test works regardless of the enable toggle (the backend test route
+       bypasses the master gate) so the admin can verify the connection
+       BEFORE enabling + saving — hence no tcDisabled gate on the toggle. -->
   <div class="mt-3" x-show="isAdmin()"
-       x-data="{ tcRun: () => testPrayerTimes(), tcResult: () => (prayerTimesTesting ? { pending: true } : (prayerTimesTestResult ? { pending: false, ok: prayerTimesTestOk, detail: prayerTimesTestResult } : null)), tcDisabled: () => !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1), tcSuccessKey: 'prayer_times' }">
+       x-data="{ tcRun: () => testPrayerTimes(), tcResult: () => (prayerTimesTesting ? { pending: true } : (prayerTimesTestResult ? { pending: false, ok: prayerTimesTestOk, detail: prayerTimesTestResult } : null)), tcSuccessKey: 'prayer_times' }">
     <!-- INCLUDE: _components/og-test-connection.html -->
   </div>
 

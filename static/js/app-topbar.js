@@ -241,13 +241,13 @@ export default {
   },
 
   // --- Admin → Prayer Times (section-owned save: tunables + settings) ---
-  // The enable / cache-TTL / fetch-timeout are TUNABLES; the
+  // The cache-TTL / fetch-timeout are TUNABLES; the enable toggle +
   // method / Asr school / fallback-location / base-URL are DB-backed
-  // settings. One Save POST carries both. Dirty = any of either group
-  // differs from its loaded baseline.
+  // settings (enable is a plain bool like weather_enabled, so it loads
+  // with settingsLoaded — NOT a tunable). One Save POST carries both.
+  // Dirty = any of either group differs from its loaded baseline.
   _prayerTimesSectionTuningKeys() {
     return [
-      'tuning_prayer_times_enabled',
       'tuning_prayer_times_cache_ttl_seconds',
       'tuning_prayer_times_fetch_timeout_seconds',
     ];
@@ -255,6 +255,7 @@ export default {
   // [editable flat settings key, loaded nested key under settings.prayer_times].
   _prayerTimesSettingFields() {
     return [
+      ['prayer_times_enabled', 'enabled'],
       ['prayer_times_method', 'method'],
       ['prayer_times_school', 'school'],
       ['prayer_times_default_label', 'default_label'],

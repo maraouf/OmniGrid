@@ -1304,7 +1304,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                     )
         # Prayer Times + Hijri date — when the operator opts in (the
         # context-builders stamp `prayer` only if
-        # `tuning_prayer_times_enabled` is true and a location is
+        # `prayer_times_enabled` is true and a location is
         # available). Lets the AI answer "when is the next prayer / when
         # is Maghrib" / "what's the Hijri date today" from real AlAdhan
         # data instead of refusing or hallucinating times.
