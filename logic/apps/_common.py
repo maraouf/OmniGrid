@@ -10,7 +10,180 @@ shared by the same modules): a dependency-free leaf import, no cycle.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
+
+from logic.coerce import safe_int
+
+# Canonical timed-disable presets (label, seconds) shared by every fleet
+# DNS-blocker (Pi-hole / AdGuard / future). The provider's blocking timer
+# natively auto-re-enables after N seconds.
+_FLEET_DISABLE_PRESETS: "tuple[tuple[str, int], ...]" = (
+    ("1m", 60), ("5m", 300), ("10m", 600), ("30m", 1800),
+    ("1h", 3600), ("2h", 7200), ("24h", 86400),
+)
+_FLEET_DISABLE_HUMAN = {
+    "1m": "1 minute", "5m": "5 minutes", "10m": "10 minutes",
+    "30m": "30 minutes", "1h": "1 hour", "2h": "2 hours", "24h": "24 hours",
+}
+
+
+def fleet_disable_skills(prefix: str, app_label: str) -> list:
+    """Build the timed-disable skill dicts (1m … 24h) for a fleet
+    DNS-blocker. ``prefix`` is the skill-id stem (``"pihole"`` →
+    ``"pihole_disable_5m"``); ``app_label`` is the lowercase brand used
+    in the AI match phrases. Each skill carries ``disable_seconds`` so
+    ``run_skill`` resolves the duration from the SKILLS list directly
+    (no parallel presets tuple needed). Replaces the per-module
+    ``DISABLE_PRESETS`` + ``_disable_skill`` factory."""
+    out = []
+    for label, seconds in _FLEET_DISABLE_PRESETS:
+        human = _FLEET_DISABLE_HUMAN.get(label, label)
+        out.append({
+            "id": f"{prefix}_disable_{label}",
+            "name": f"Disable for {human}",
+            "ai_phrases": (f"disable {app_label} for {human}, pause blocking "
+                           f"for {human}, turn off {app_label} for {human}"),
+            "destructive": True,
+            "disable_seconds": seconds,
+        })
+    return out
+
+
+async def fleet_fetch_all(insts: list, fetch_fn) -> "tuple[list, list]":
+    """Force-fetch every fleet instance in parallel and partition the
+    results into ``(ok_rows, failed_host_ids)``. ``insts`` is the
+    ``fleet_instances`` shape ``[(host_id, service_idx, host_row, chip)]``;
+    ``fetch_fn`` is the module's ``fetch_data`` (called with
+    ``host_id=`` / ``service_idx=`` / ``force=True``). Exceptions per
+    instance are swallowed into the failed list (gather
+    ``return_exceptions=True``)."""
+    results = await asyncio.gather(
+        *[fetch_fn(hrow, chip, host_id=hid, service_idx=sidx, force=True)
+          for (hid, sidx, hrow, chip) in insts],
+        return_exceptions=True,
+    )
+    ok_rows = [r for r in results if isinstance(r, dict) and r.get("ok")]
+    failed = [insts[i][0] for i, r in enumerate(results)
+              if not (isinstance(r, dict) and r.get("ok"))]
+    return ok_rows, failed
+
+
+def fleet_sum(rows: list, field: str) -> int:
+    """Sum an integer field across fleet rows (missing / non-numeric → 0)."""
+    return sum(safe_int(r.get(field)) for r in rows)
+
+
+def fleet_max(rows: list, field: str) -> int:
+    """Max of an integer field across fleet rows (``0`` when empty)."""
+    return max((safe_int(r.get(field)) for r in rows), default=0)
+
+
+def fleet_top(rows: list, key: str) -> Optional[dict]:
+    """Pick the single ``{name, count}`` entry with the highest ``count``
+    across every fleet row's ``rows[i][key]`` sub-dict (e.g. the top
+    blocked domain across all hosts). ``None`` when no row carries one."""
+    top = None
+    top_count = -1
+    for r in rows:
+        t = r.get(key)
+        if not (isinstance(t, dict) and t.get("name")):
+            continue
+        c = safe_int(t.get("count"))
+        if c > top_count:
+            top, top_count = t, c
+    return top
+
+
+def fleet_action_result(results: list, app_label: str, verb: str) -> dict:
+    """Format a fleet action's per-host ``(host_id, ok, err)`` tuples into
+    the standard ``{ok, detail, status}`` envelope: ``"<app> <verb> on
+    K/N host(s)"`` plus a ``— failed: …`` tail for any failures. ``ok`` is
+    true when at least one host succeeded."""
+    ok_hosts = [hid for hid, ok, _ in results if ok]
+    bad = [(hid, err) for hid, ok, err in results if not ok]
+    detail = f"{app_label} {verb} on {len(ok_hosts)}/{len(results)} host(s)"
+    if bad:
+        detail += " — failed: " + ", ".join(f"{h} ({e})" for h, e in bad)
+    return {"ok": len(ok_hosts) > 0, "detail": detail,
+            "status": 200 if ok_hosts else 502}
+
+
+def fleet_blocker_totals(ok_rows: list) -> dict:
+    """Standard DNS-blocker fleet aggregate over the per-host rows (the
+    `host_*` shape both Pi-hole + AdGuard emit, same field names): sum
+    queries / blocked / clients, max blocklist rules, blocked-percent,
+    the single top-blocked domain across hosts, count of hosts with
+    protection ON, and the reachable-host count. Returns one dict the
+    status renderer reads — keeps the metric math in ONE place."""
+    queries = fleet_sum(ok_rows, "queries_today")
+    blocked = fleet_sum(ok_rows, "blocked_today")
+    return {
+        "queries": queries,
+        "blocked": blocked,
+        "pct": round((blocked / queries) * 100.0, 1) if queries > 0 else 0.0,
+        "rules": fleet_max(ok_rows, "blocklist_rules"),
+        "clients": fleet_sum(ok_rows, "num_clients"),
+        "top": fleet_top(ok_rows, "top_blocked_domain"),
+        "prot_on": sum(1 for r in ok_rows if r.get("protection_enabled")),
+        "n": len(ok_rows),
+    }
+
+
+def fleet_blocker_detail(totals: dict, failed: list, *, header: str,
+                         protection_label: str,
+                         extra_lines: "Optional[list]" = None) -> dict:
+    """Render a DNS-blocker fleet status into the ``{ok, detail, status}``
+    envelope. ``header`` is the emoji + app-name lead (e.g. ``"🕳️ Pi-hole"``
+    / ``"🛡️ AdGuard"``); ``protection_label`` is the on/off noun
+    (``"Blocking"`` / ``"Protection"``); ``extra_lines`` are app-specific
+    stat lines inserted after the core stats (e.g. AdGuard's avg-processing
+    line — Pi-hole passes none). ``totals`` is ``fleet_blocker_totals``
+    output."""
+    n = totals["n"]
+    on = totals["prot_on"]
+    lines = [
+        f"{header} — {n} host{'s' if n != 1 else ''}",
+        f"⛔ Blocked today: {fmt_int_grouped(totals['blocked'])}  ({totals['pct']}%)",
+        f"🔢 Queries today: {fmt_int_grouped(totals['queries'])}",
+        f"📋 Blocklist domains: {fmt_int_grouped(totals['rules'])}",
+        f"👥 Active clients: {fmt_int_grouped(totals['clients'])}",
+    ]
+    lines.extend(extra_lines or [])
+    top = totals["top"]
+    if top:
+        lines.append(f"🔝 Top blocked: {top.get('name')} "
+                     f"({fmt_int_grouped(top.get('count'))})")
+    lines.append(f"🔐 {protection_label}: {'ON' if on == n else f'{on}/{n} ON'}")
+    if failed:
+        lines.append(f"⚠️ unreachable: {', '.join(failed)}")
+    return {"ok": True, "detail": "\n".join(lines), "status": 200}
+
+
+async def fleet_blocker_status(insts: list, fetch_fn, *, app_label: str,
+                               header: str, protection_label: str,
+                               extra_lines_fn=None) -> dict:
+    """The full read-only DNS-blocker fleet status skill, shared by every
+    fleet blocker module's ``_skill_status``: guard empty instances,
+    parallel force-fetch every host, aggregate via ``fleet_blocker_totals``,
+    render via ``fleet_blocker_detail``. ``app_label`` fills the empty /
+    all-unreachable messages; ``header`` / ``protection_label`` the detail
+    lines. ``extra_lines_fn(ok_rows, totals) -> list[str]`` (optional)
+    supplies app-specific stat lines (AdGuard's query-weighted
+    avg-processing-ms). Never raises — a single down host is footnoted, an
+    all-down fleet returns ``ok=False``."""
+    if not insts:
+        return {"ok": False, "detail": f"no {app_label} instances configured",
+                "status": 0}
+    ok_rows, failed = await fleet_fetch_all(insts, fetch_fn)
+    if not ok_rows:
+        return {"ok": False, "detail": f"all {app_label} hosts unreachable",
+                "status": 0}
+    totals = fleet_blocker_totals(ok_rows)
+    extra = extra_lines_fn(ok_rows, totals) if extra_lines_fn else None
+    return fleet_blocker_detail(totals, failed, header=header,
+                                protection_label=protection_label,
+                                extra_lines=extra)
 
 
 def fleet_instances(slugs: "tuple[str, ...]") -> list:
@@ -48,7 +221,14 @@ def peek_cache(cache: dict, host_id: str, service_idx: int) -> Optional[dict]:
     ``app_skills[].last`` is the canonical consumer (it must stay
     side-effect-free, so this never fetches)."""
     cached = cache.get(cache_key(host_id, service_idx))
-    return cached[1] if cached else None
+    if cached is None:
+        return None
+    # Tuple-unpack rather than `cached[1]` — the cache value is a
+    # ``(stored_at, value)`` pair; subscripting an ``Any | None`` makes the
+    # type checker flag a phantom None.__getitem__ even after the is-None
+    # guard (Any absorbs None so `is None` doesn't narrow it).
+    _stored_at, value = cached
+    return value
 
 
 def fmt_int_grouped(v) -> str:
@@ -121,3 +301,24 @@ def fetch_preamble(host_row: dict, chip: dict, host_id: str, service_idx: int,
     if not base:
         raise ValueError("no upstream URL configured for this instance")
     return base, cache_get(cache, cache_key(host_id, service_idx), ttl_s, now, force)
+
+
+def fetch_gate(host_row: dict, chip: dict, host_id: str, service_idx: int,
+               cache: dict, ttl_s: float, now: float, force: bool, *,
+               credential, log_tag: str) -> "tuple[str, Optional[dict]]":
+    """Credential + URL + cache gate for a fleet module's ``fetch_data``.
+    Raises ``ValueError`` when ``credential`` is falsy (the per-app secret
+    isn't set) or the URL won't resolve; otherwise returns
+    ``(base_url, cached_or_None)`` like ``fetch_preamble`` and logs a
+    ``[<log_tag>] INFO fetch …`` line on a cache MISS (so a served-from-
+    cache hit stays quiet). The caller still does ``if hit is not None:
+    return hit`` — that early-return is its own control flow. Folds the
+    duplicated credential-check + preamble + miss-log shape that every
+    fleet module's ``fetch_data`` opened with."""
+    if not credential:
+        raise ValueError("credential not set for this instance")
+    base, hit = fetch_preamble(host_row, chip, host_id, service_idx,
+                               cache, ttl_s, now, force)
+    if hit is None:
+        print(f"[{log_tag}] INFO fetch host={host_id} svc_idx={service_idx} url={base}")
+    return base, hit

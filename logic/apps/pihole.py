@@ -47,40 +47,15 @@ from typing import Any, Optional
 
 import httpx
 
-from logic.apps._common import (cache_key, fetch_preamble, fleet_instances,
-                                fmt_int_grouped, peek_cache, resolve_base_url)
+from logic.apps._common import (
+    cache_key, fetch_gate, fleet_action_result, fleet_blocker_status,
+    fleet_disable_skills, fleet_instances, peek_cache, resolve_base_url)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
 # ``pihole``; the aliases catch operator-edited chips that kept the brand
 # but dropped the catalog link.
 SLUGS: tuple[str, ...] = ("pihole", "pi-hole", "pihole-v6")
-
-# Timed-disable presets (label, seconds) — Pi-hole's blocking timer
-# natively auto-re-enables after N seconds, so each preset is a distinct
-# ``pihole_disable_<label>`` skill (the skill route carries no params).
-DISABLE_PRESETS: tuple[tuple[str, int], ...] = (
-    ("1m", 60), ("5m", 300), ("10m", 600), ("30m", 1800),
-    ("1h", 3600), ("2h", 7200), ("24h", 86400),
-)
-
-
-def _disable_skill(label: str, seconds: int) -> dict:
-    human = {
-        "1m": "1 minute", "5m": "5 minutes", "10m": "10 minutes",
-        "30m": "30 minutes", "1h": "1 hour", "2h": "2 hours", "24h": "24 hours",
-    }.get(label, label)
-    return {
-        "id": f"pihole_disable_{label}",
-        "name": f"Disable for {human}",
-        "ai_phrases": (f"disable pihole for {human}, pause blocking for {human}, "
-                       f"turn off pi-hole for {human}"),
-        "destructive": True,
-        # Non-protocol hint consumed by the SPA to group the timed-disable
-        # buttons + by run_skill to resolve the duration.
-        "disable_seconds": seconds,
-    }
-
 
 # Fleet-wide SKILLS — run_skill ignores the targeted chip and fans out to
 # EVERY Pi-hole instance. ``pihole_status`` is read-only.
@@ -107,7 +82,7 @@ SKILLS: tuple[dict, ...] = (
                        "stop blocking, turn pihole off indefinitely"),
         "destructive": True,
     },
-    *(_disable_skill(lbl, sec) for lbl, sec in DISABLE_PRESETS),
+    *fleet_disable_skills("pihole", "pihole"),
     {
         "id": "pihole_refresh",
         "name": "Update gravity (blocklists)",
@@ -259,14 +234,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     ``ValueError`` (-> HTTP 400) when the password / URL is missing,
     ``RuntimeError`` (-> HTTP 502) on an upstream failure."""
     password = _password(chip)
-    if not password:
-        raise ValueError("password not set for this instance")
     now = time.time()
-    base, hit = fetch_preamble(host_row, chip, host_id, service_idx,
-                               _data_cache, CACHE_TTL_S, now, force)
+    base, hit = fetch_gate(host_row, chip, host_id, service_idx,
+                           _data_cache, CACHE_TTL_S, now, force,
+                           credential=password, log_tag="pihole")
     if hit is not None:
         return hit
-    print(f"[pihole] INFO fetch host={host_id} svc_idx={service_idx} url={base}/api/stats/summary")
 
     async def _authed_get(auth_sid: str, path: str) -> tuple[int, Any]:
         async with httpx.AsyncClient(verify=False, timeout=12.0, follow_redirects=True) as cli:
@@ -404,49 +377,11 @@ async def _run_gravity(base: str, sid: str) -> None:
 
 async def _skill_status() -> dict:
     """Read-only: live-fetch every instance + aggregate into a formatted
-    detail block (web inline + Telegram + AI). Never raises."""
-    insts = _instances()
-    if not insts:
-        return {"ok": False, "detail": "no Pi-hole instances configured", "status": 0}
-    results = await asyncio.gather(
-        *[fetch_data(hrow, chip, host_id=hid, service_idx=sidx, force=True)
-          for (hid, sidx, hrow, chip) in insts],
-        return_exceptions=True,
-    )
-    ok_rows = [r for r in results if isinstance(r, dict) and r.get("ok")]
-    failed = [insts[i][0] for i, r in enumerate(results)
-              if not (isinstance(r, dict) and r.get("ok"))]
-    if not ok_rows:
-        return {"ok": False, "detail": "all Pi-hole hosts unreachable", "status": 0}
-    queries = sum(safe_int(r.get("queries_today")) for r in ok_rows)
-    blocked = sum(safe_int(r.get("blocked_today")) for r in ok_rows)
-    pct = round((blocked / queries) * 100.0, 1) if queries > 0 else 0.0
-    rules = max((safe_int(r.get("blocklist_rules")) for r in ok_rows), default=0)
-    clients = sum(safe_int(r.get("num_clients")) for r in ok_rows)
-    top = None
-    top_count = -1
-    for r in ok_rows:
-        t = r.get("top_blocked_domain")
-        if not (isinstance(t, dict) and t.get("name")):
-            continue
-        c = safe_int(t.get("count"))
-        if c > top_count:
-            top, top_count = t, c
-    prot_on = sum(1 for r in ok_rows if r.get("protection_enabled"))
-    n = len(ok_rows)
-    lines = [
-        f"🕳️ Pi-hole — {n} host{'s' if n != 1 else ''}",
-        f"⛔ Blocked today: {fmt_int_grouped(blocked)}  ({pct}%)",
-        f"🔢 Queries today: {fmt_int_grouped(queries)}",
-        f"📋 Blocklist domains: {fmt_int_grouped(rules)}",
-        f"👥 Active clients: {fmt_int_grouped(clients)}",
-    ]
-    if top:
-        lines.append(f"🔝 Top blocked: {top.get('name')} ({fmt_int_grouped(top.get('count'))})")
-    lines.append(f"🔐 Blocking: {'ON' if prot_on == n else f'{prot_on}/{n} ON'}")
-    if failed:
-        lines.append(f"⚠️ unreachable: {', '.join(failed)}")
-    return {"ok": True, "detail": "\n".join(lines), "status": 200}
+    detail block (web inline + Telegram + AI). Pi-hole has no avg-processing
+    metric, so no extra_lines. Never raises."""
+    return await fleet_blocker_status(
+        _instances(), fetch_data, app_label="Pi-hole",
+        header="🕳️ Pi-hole", protection_label="Blocking")
 
 
 async def _skill_fleet_action(action: str, timer_s: int = 0) -> dict:
@@ -479,17 +414,13 @@ async def _skill_fleet_action(action: str, timer_s: int = 0) -> dict:
         return hid, True, ""
 
     results = await asyncio.gather(*[_one(*t) for t in insts])
-    ok_hosts = [hid for hid, ok, _ in results if ok]
-    bad = [(hid, err) for hid, ok, err in results if not ok]
-    verb = {"enable": "enabled", "disable": "disabled", "refresh": "gravity updated"}.get(action, action)
+    verb = {"enable": "enabled", "disable": "disabled",
+            "refresh": "gravity updated"}.get(action, action)
     if action == "disable" and timer_s > 0:
         verb = f"disabled for {timer_s}s"
-    detail = f"Pi-hole {verb} on {len(ok_hosts)}/{len(results)} host(s)"
-    if bad:
-        detail += " — failed: " + ", ".join(f"{h} ({e})" for h, e in bad)
-    print(f"[pihole] INFO fleet action={action} timer_s={timer_s} "
-          f"ok={len(ok_hosts)}/{len(results)}")
-    return {"ok": len(ok_hosts) > 0, "detail": detail, "status": 200 if ok_hosts else 502}
+    out = fleet_action_result(results, "Pi-hole", verb)
+    print(f"[pihole] INFO fleet action={action} timer_s={timer_s} -> {out.get('detail')}")
+    return out
 
 
 # noinspection PyUnusedLocal
@@ -511,9 +442,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "pihole_refresh":
         return await _skill_fleet_action("refresh")
     if skill_id.startswith("pihole_disable_"):
-        label = skill_id[len("pihole_disable_"):]
-        secs = dict(DISABLE_PRESETS).get(label)
-        if secs is None:
-            raise ValueError(f"unknown disable preset: {label!r}")
+        # Resolve the duration straight from the SKILLS list (each timed
+        # disable carries `disable_seconds`) — no parallel presets tuple.
+        secs = next((safe_int(s.get("disable_seconds")) for s in SKILLS
+                     if s.get("id") == skill_id), 0)
+        if not secs:
+            raise ValueError(f"unknown disable preset: {skill_id!r}")
         return await _skill_fleet_action("disable", secs)
     raise ValueError(f"unknown skill: {skill_id!r}")
