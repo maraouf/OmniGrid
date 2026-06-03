@@ -246,14 +246,38 @@
   <template x-if="item.kind === 'app' && item.app && item.app.catalog && appsTemplateSupportsExtras(item.app.catalog.slug) && isAdmin()">
     <div class="apps-card-settings-row mt-1">
       <label class="flex items-center gap-2 fs-xs">
+        <!-- SAME control as the Admin → Apps instance editor's "Show extras"
+             checkbox: both write the per-instance show_extras and the
+             backend syncs it across every instance of the app, so editing
+             either surface updates the other (no precedence / divergence).
+             `:checked` reads the EFFECTIVE value (appsShowExtras). -->
         <input type="checkbox"
-               :checked="!!(item.app.catalog && item.app.catalog.show_extras)"
-               @change.stop="appsSetTemplateExtras(item, $event.target.checked)">
+               :checked="appsCardShowExtrasChecked(item)"
+               @change.stop="appsSetCardShowExtras(item, $event.target.checked)">
         <span x-text="t('apps.custom.settings.show_extras_label') || 'Show extras panel'"></span>
       </label>
       <span class="apps-card-settings-hint"
-            x-text="t('apps.custom.settings.show_extras_hint') || 'Show this app’s extra data panel (e.g. APC UPS stats) on the card. Same setting as Admin → Apps.'"></span>
+            x-text="t('apps.custom.settings.show_extras_hint') || 'Show this app’s extra data panel (e.g. APC UPS stats) on the card. Same setting as the Admin → Apps instance editor — changing either updates both.'"></span>
     </div>
+  </template>
+
+  <!-- ============================================================
+       Speedtest Tracker — per-instance "Averages window" (admin only).
+       Unlike the show-extras toggle above (a catalog-level flag), this
+       writes CHIP data (hosts_config services[].avg_window) via the
+       admin PATCH /api/services/{host}/{idx}, resolved from the card's
+       first instance. Blank = the app default (10); 2..60 otherwise.
+       Same setting as the Admin → Apps instance editor.
+       ============================================================ -->
+  <template x-if="item.kind === 'app' && (typeof speedtestIsApp === 'function') && speedtestIsApp(item.app) && isAdmin()">
+    <label class="apps-card-settings-row mt-1">
+      <span class="apps-card-settings-label"
+            x-text="t('apps.speedtest.avg_window_label') || 'Averages window (tests)'"></span>
+      <input type="number" min="2" max="60" step="1" class="input fs-xs mono"
+             :value="appChipAvgWindow(item)"
+             @change.stop="setAppChipAvgWindow(item, $event.target.value)"
+             :placeholder="t('apps.speedtest.avg_window_placeholder') || '10 (default)'">
+    </label>
   </template>
 
   <!-- ============================================================

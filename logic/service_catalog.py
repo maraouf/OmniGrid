@@ -1603,6 +1603,10 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # (e.g. AdGuard Home). Returned in the clear so the editor
                 # can show/edit it; the password stays in `api_key`.
                 "username": (svc.get("username") or ""),
+                # Per-instance averages window (Speedtest "Avg of last N
+                # tests"). Returned in the clear so the editor + card
+                # settings can show/edit it; None when unset (SPA defaults).
+                "avg_window": svc.get("avg_window"),
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1734,6 +1738,9 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 ),
                 # Non-secret Basic-auth username half (e.g. AdGuard Home).
                 "username": (svc.get("username") or ""),
+                # Per-instance averages window (Speedtest "Avg of last N
+                # tests"); None when unset (SPA defaults).
+                "avg_window": svc.get("avg_window"),
                 # Per-instance show_extras tri-state.
                 "show_extras": (svc.get("show_extras")
                                 if isinstance(svc.get("show_extras"), bool)

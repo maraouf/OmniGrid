@@ -3126,42 +3126,106 @@ export default {
     this._persistAppsCustomLayout();
   },
 
-  // Toggle an APP TEMPLATE's `show_extras` flag from the card-settings
-  // flip (admin-only). Persists to the catalog via the partial-update
-  // endpoint (only show_extras changes — no full-template re-save), so
-  // it's the SAME state the Admin → Apps template toggle writes; either
-  // surface flips the per-app extras panel (e.g. APC's UPS stats) for
-  // every instance of the app. Optimistically reflects the new value on
-  // the in-memory catalog block, then force-refreshes so the card body
-  // shows / hides the panel.
-  async appsSetTemplateExtras(item, checked) {
-    const cat = item && item.app && item.app.catalog;
-    const slug = cat && (cat.slug || '').trim();
-    if (!slug) {
+  // Gear-flip "Show extras" — EFFECTIVE checked state for the card. Reads
+  // the resolved show_extras (per-instance override → catalog default →
+  // size preset) via appsShowExtras on the card's first instance, so the
+  // checkbox reflects what's actually rendered (and matches the Admin →
+  // Apps instance editor once an explicit toggle has been made).
+  appsCardShowExtrasChecked(item) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    return !!this.appsShowExtras(app, inst, item);
+  },
+
+  // Gear-flip "Show extras" — toggle handler. Writes the per-instance
+  // show_extras (NOT the catalog flag) via the admin PATCH; the backend
+  // syncs the value across EVERY instance of the app (same catalog_id),
+  // so the gear-flip + the Admin → Apps instance editor stay identical and
+  // change together. Optimistically mirrors onto the card's instances, then
+  // reloads so the fleet-wide sync + the extras re-render land. Admin-gated
+  // in the markup (the PATCH endpoint enforces it too).
+  async appsSetCardShowExtras(item, checked) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    if (!inst || !inst.host_id || inst.service_idx == null) {
       return;
     }
     const value = !!checked;
     try {
-      const r = await fetch('/api/apps/catalog/' + encodeURIComponent(slug) + '/show-extras', {
-        method: 'POST',
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx), {
+        method: 'PATCH',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({show_extras: value}),
       });
       if (!r.ok) {
         throw new Error(await this.fmtResponseError(r));
       }
-      // Optimistic local reflect so the checkbox + body update without
-      // waiting on the refetch round-trip.
-      cat.show_extras = value;
+      (app.instances || []).forEach((i) => { if (i) { i.show_extras = value; } });
       await this.loadAppsList(true);
     } catch (err) {
-      // Non-fatal: revert the optimistic flip on failure + surface.
-      cat.show_extras = !value;
       const msg = (err && err.message) ? err.message : String(err);
       if (typeof this.showToast === 'function') {
         this.showToast(msg, 'error');
       } else {
-        console.error('[apps] set template extras failed:', msg);
+        console.error('[apps] set card show_extras failed:', msg);
+      }
+    }
+  },
+
+  // Current per-instance averages window for a card's app (Speedtest),
+  // read from the card's FIRST instance. '' when unset (the app default
+  // 10 applies). Seeds the gear-flip "Averages window" number input.
+  appChipAvgWindow(item) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    return (inst && inst.avg_window != null && inst.avg_window !== '')
+      ? inst.avg_window : '';
+  },
+
+  // Set the per-instance averages window from the gear-flip card settings.
+  // Unlike setAppsItemOpt (per-USER card OPTIONS → ui_prefs), this writes
+  // CHIP data (hosts_config) via the ADMIN-only PATCH
+  // /api/services/{host}/{idx} — the markup gates the control on isAdmin().
+  // Resolves the instance from the card's first instance (Speedtest is
+  // single-instance per card). Blank => clears the override (app default
+  // 10); a value is clamped 2..60. Refreshes the per-app data so the
+  // "Avg of last N" labels re-render with the new window.
+  async setAppChipAvgWindow(item, value) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    if (!inst || !inst.host_id || inst.service_idx == null) {
+      return;
+    }
+    let send;
+    const v = parseInt(value, 10);
+    if (!Number.isFinite(v)) {
+      send = '';  // blank => backend clears => default
+    } else {
+      send = Math.max(2, Math.min(60, v));
+    }
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({avg_window: send}),
+      });
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      // Optimistic local reflect, then refresh per-app data so the
+      // averages re-window with the new value.
+      inst.avg_window = (send === '' ? null : send);
+      if (typeof this.loadAppData === 'function') {
+        await this.loadAppData(inst, true);
+      }
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      } else {
+        console.error('[apps] set avg_window failed:', msg);
       }
     }
   },

@@ -1308,6 +1308,20 @@ def _clean_host_services(raw: Any) -> list[dict]:
         un = entry.get("username")
         if isinstance(un, str) and un.strip():
             cleaned["username"] = un.strip()[:128]
+        # Per-instance averages window — how many of the MOST-RECENT
+        # results the expanded card / skill rolls the "Avg of last N
+        # tests" over (currently Speedtest Tracker). Bounded 2..60 (the
+        # data fetch pulls perPage=60, so the average never windows more
+        # than were pulled). Absent => the app's default (10). Plain int,
+        # round-trips to the SPA editor verbatim.
+        aw = entry.get("avg_window")
+        if isinstance(aw, (int, str)) and str(aw).strip() != "":
+            try:
+                awi = int(aw)
+                if 2 <= awi <= 60:
+                    cleaned["avg_window"] = awi
+            except (TypeError, ValueError):
+                pass
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

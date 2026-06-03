@@ -26,6 +26,22 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.speedtest.api_key_hint') || 'Required for the expanded card to fetch latest/average/graph data. Leave blank to keep the stored key.'"></p>
     </div>
+    <!-- Averages window — how many of the most-recent results the card +
+         skills roll the "Avg of last N tests" over. Blank = the app
+         default (10); backend clamps 2..60. -->
+    <div>
+      <label for="apps-instance-speedtest-avg-window"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.speedtest.avg_window_label') || 'Averages window (tests)'"></label>
+      <input id="apps-instance-speedtest-avg-window"
+             type="number" min="2" max="60" step="1"
+             x-model="appsInstanceEditForm.avg_window"
+             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.speedtest.avg_window_placeholder') || '10 (default)'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.speedtest.avg_window_hint') || 'How many of the most-recent results to average for &quot;Avg of last N tests&quot; (2–60). Leave blank for the default of 10.'"></p>
+    </div>
     <!-- Shared Test-connection unit (same button + result box as the
          Portainer / OIDC admin panels) so the per-app editor never drifts
          on style. tcRun is the per-app test fn; tcResult is its reactive

@@ -170,6 +170,39 @@ def _persist_host_services(hosts: list, target_idx: int, services: list) -> None
         pass
 
 
+def _sync_show_extras_across_app(hosts: list, source_chip: dict, value: Any) -> None:
+    """Mirror a per-instance ``show_extras`` override onto EVERY chip of the
+    same app (same ``catalog_id``) across ALL hosts, so the per-app card's
+    gear-flip "Show extras" toggle and the Admin -> Apps instance editor are
+    ONE control: editing either surface (which both write per-instance
+    show_extras through the PATCH handler) updates every instance, and the
+    per-app card (which aggregates instances) reflects the change no matter
+    which instance was edited. ``value`` is the bool to set on every sibling,
+    or a non-bool (the SPA's inherit sentinel) to CLEAR the override on every
+    sibling. Mutates the in-place ``hosts`` list; the caller persists the
+    whole config via ``_persist_host_services`` (which json.dumps all hosts).
+    Chips with no ``catalog_id`` (manual, not catalog-linked) are left alone
+    — there's no sibling set to sync to.
+
+    Only an EXPLICIT show/hide (``value`` is a bool) propagates. A
+    clear-to-inherit (non-bool sentinel) stays per-instance so saving an
+    untouched admin editor (form ``show_extras=null``) never clobbers a
+    sibling's explicit setting; the gear-flip always sends a bool, so it
+    always syncs."""
+    if not isinstance(value, bool):
+        return
+    cid = _coerce_int_local(source_chip.get("catalog_id"))
+    if cid is None:
+        return
+    for h in hosts:
+        if not isinstance(h, dict):
+            continue
+        for c in (h.get("services") or []):
+            if not isinstance(c, dict) or _coerce_int_local(c.get("catalog_id")) != cid:
+                continue
+            c["show_extras"] = value
+
+
 @app.post("/api/services/discover/{host_id}/apply")
 async def api_services_discover_apply(host_id: str, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: bulk-bind a set of catalog templates to a host.
@@ -528,6 +561,14 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["show_extras"] = v
         else:
             chip.pop("show_extras", None)
+        # The gear-flip card "Show extras" toggle + this admin instance
+        # editor are ONE control (operator request) — keep show_extras
+        # UNIFORM across every instance of this app so editing either
+        # surface updates the other and the aggregated card never disagrees
+        # with the admin setting. Mirror the value onto every sibling chip
+        # (same catalog_id, all hosts); _persist_host_services below dumps
+        # the whole config so the cross-host mutations land.
+        _sync_show_extras_across_app(hosts, chip, v)
     # Per-instance api_key — keep-current-if-blank contract
     # shared with every other secret in OmniGrid. Non-empty
     # string overwrites; empty / whitespace / missing preserves
@@ -552,6 +593,25 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["username"] = v[:128]
         else:
             chip.pop("username", None)
+    # Per-instance averages window (Speedtest "Avg of last N tests").
+    # Bounded 2..60; a blank / out-of-range / non-int value CLEARS the
+    # override so the app falls back to its default (10). Returned in the
+    # clear so the Admin editor AND the gear-flip card settings round-trip
+    # it. Both surfaces send it through THIS handler.
+    if "avg_window" in payload:
+        _aw_raw = payload.get("avg_window")
+        _awi = None
+        if isinstance(_aw_raw, (int, str)) and str(_aw_raw).strip() != "":
+            try:
+                _v = int(_aw_raw)
+                if 2 <= _v <= 60:
+                    _awi = _v
+            except (TypeError, ValueError):
+                _awi = None
+        if _awi is not None:
+            chip["avg_window"] = _awi
+        else:
+            chip.pop("avg_window", None)
     _probe_raw = chip.get("probe")
     probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:
