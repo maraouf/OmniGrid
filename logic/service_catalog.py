@@ -1607,6 +1607,9 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # tests"). Returned in the clear so the editor + card
                 # settings can show/edit it; None when unset (SPA defaults).
                 "avg_window": svc.get("avg_window"),
+                # Per-instance data-cache TTL (seconds) override; None when
+                # unset (the app module's default applies).
+                "cache_ttl": svc.get("cache_ttl"),
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1741,6 +1744,9 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 # Per-instance averages window (Speedtest "Avg of last N
                 # tests"); None when unset (SPA defaults).
                 "avg_window": svc.get("avg_window"),
+                # Per-instance data-cache TTL (seconds) override; None when
+                # unset (the app module's default applies).
+                "cache_ttl": svc.get("cache_ttl"),
                 # Per-instance show_extras tri-state.
                 "show_extras": (svc.get("show_extras")
                                 if isinstance(svc.get("show_extras"), bool)

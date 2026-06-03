@@ -3190,6 +3190,20 @@ export default {
     return Math.max(2, Math.min(60, n));
   },
 
+  // Per-instance data-cache TTL clamp (seconds, 5..3600) — same blank-
+  // passthrough contract as appsClampAvgWindow ('' => app default).
+  appsClampCacheTtl(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (s === '') {
+      return '';
+    }
+    const n = parseInt(s, 10);
+    if (!Number.isFinite(n)) {
+      return '';
+    }
+    return Math.max(5, Math.min(3600, n));
+  },
+
   // Current per-instance averages window for a card's app (Speedtest),
   // read from the card's FIRST instance. '' when unset (the app default
   // 10 applies). Seeds the gear-flip "Averages window" number input.

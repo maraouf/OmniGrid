@@ -55,8 +55,9 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import (
-    cache_key, fetch_gate, fleet_action_result, fleet_blocker_status,
-    fleet_disable_skills, fleet_instances, peek_cache, resolve_base_url)
+    cache_key, fetch_gate, fleet_blocker_status, fleet_disable_skills,
+    fleet_fan_out, fleet_instances, fleet_run_skill, peek_cache,
+    resolve_base_url, resolve_cache_ttl)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
@@ -73,7 +74,7 @@ SKILLS: tuple[dict, ...] = (
         "name": "Show AdGuard status",
         "ai_phrases": ("adguard status, adguard stats, dns blocking stats, "
                        "how many queries blocked today, blocked percentage, "
-                       "show adguard, ad blocking summary, pihole status"),
+                       "show adguard, ad blocking summary"),
         "destructive": False,
     },
     {
@@ -120,7 +121,9 @@ FLEET_SKILLS: bool = True
 # Per-app modules intentionally share the cache + requires_api_key +
 # resolve_base_url shape — duplication is the documented price of full
 # per-app encapsulation (PyCharm flags it Info-level; not suppressible).
-CACHE_TTL_S = 30
+# Per-instance data-cache TTL DEFAULT — overridable per chip via the
+# editor's `cache_ttl` field (resolve_cache_ttl); NOT a global TUNABLE.
+DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -221,7 +224,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     username, password = _creds(chip)
     now = time.time()
     base, hit = fetch_gate(host_row, chip, host_id, service_idx,
-                           _data_cache, CACHE_TTL_S, now, force,
+                           _data_cache, resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
                            credential=password, log_tag="adguard")
     if hit is not None:
         return hit
@@ -372,13 +375,11 @@ async def _skill_status() -> dict:
         extra_lines_fn=_avg_processing_lines)
 
 
-async def _skill_fleet_action(action: str, duration_ms: int = 0) -> dict:
-    """Apply enable / disable / refresh across EVERY instance. Returns
-    ``{ok, detail}`` with an ok/failed tally."""
-    insts = _instances()
-    if not insts:
-        return {"ok": False, "detail": "no AdGuard instances configured", "status": 0}
-
+async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
+    """Apply enable / disable / refresh across EVERY instance (the shared
+    fan-out shell lives in ``_common.fleet_fan_out``; only the per-host
+    ``_one`` closure is app-specific). ``seconds`` is the timed-disable
+    window — AdGuard's API wants milliseconds, so ``_one`` converts."""
     async def _one(hid, _sidx, hrow, chip):
         username, password = _creds(chip)
         base = resolve_base_url(hrow, chip)
@@ -389,7 +390,7 @@ async def _skill_fleet_action(action: str, duration_ms: int = 0) -> dict:
             if action == "enable":
                 await _set_protection(base, auth, True)
             elif action == "disable":
-                await _set_protection(base, auth, False, duration_ms)
+                await _set_protection(base, auth, False, seconds * 1000)
             elif action == "refresh":
                 await _refresh_filters(base, auth)
             else:
@@ -398,41 +399,26 @@ async def _skill_fleet_action(action: str, duration_ms: int = 0) -> dict:
             return hid, False, str(e)
         return hid, True, ""
 
-    results = await asyncio.gather(*[_one(*t) for t in insts])
     verb = {"enable": "enabled", "disable": "disabled",
             "refresh": "refreshed"}.get(action, action)
-    if action == "disable" and duration_ms > 0:
-        verb = f"disabled for {duration_ms // 1000}s"
-    out = fleet_action_result(results, "AdGuard", verb)
-    print(f"[adguard] INFO fleet action={action} dur_ms={duration_ms} -> {out.get('detail')}")
-    return out
+    if action == "disable" and seconds > 0:
+        verb = f"disabled for {seconds}s"
+    return await fleet_fan_out(_instances(), _one, app_label="AdGuard",
+                               verb=verb, log_tag="adguard",
+                               log_extra=f"action={action} seconds={seconds}")
 
 
 # noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None, **_kw) -> dict:
-    """Dispatch one AdGuard skill. Action skills (enable / disable* /
-    refresh / reenable) FAN OUT to every AdGuard instance regardless of
-    the targeted chip — they are fleet-level by design, so the per-chip
-    ``host_row`` / ``chip`` / ``host_id`` / ``service_idx`` the route
-    passes are intentionally unused here (the registry contract requires
-    the signature). ``adguard_status`` is read-only. Raises ValueError on
-    an unknown skill id."""
-    if skill_id == "adguard_status":
-        return await _skill_status()
-    if skill_id in ("adguard_enable", "adguard_reenable"):
-        return await _skill_fleet_action("enable")
-    if skill_id == "adguard_disable":
-        return await _skill_fleet_action("disable")
-    if skill_id == "adguard_refresh":
-        return await _skill_fleet_action("refresh")
-    if skill_id.startswith("adguard_disable_"):
-        # Resolve the duration straight from the SKILLS list (each timed
-        # disable carries `disable_seconds`) — no parallel presets tuple.
-        secs = next((safe_int(s.get("disable_seconds")) for s in SKILLS
-                     if s.get("id") == skill_id), 0)
-        if not secs:
-            raise ValueError(f"unknown disable preset: {skill_id!r}")
-        return await _skill_fleet_action("disable", secs * 1000)
-    raise ValueError(f"unknown skill: {skill_id!r}")
+    """Dispatch one AdGuard skill via the shared fleet dispatch ladder.
+    Action skills (enable / disable* / refresh / reenable) FAN OUT to
+    every AdGuard instance regardless of the targeted chip — fleet-level by
+    design, so the per-chip ``host_row`` / ``chip`` / ``host_id`` /
+    ``service_idx`` the route passes are intentionally unused (the registry
+    contract requires the signature). ``adguard_status`` is read-only.
+    Raises ValueError on an unknown skill id."""
+    return await fleet_run_skill(skill_id, prefix="adguard",
+                                 status_fn=_skill_status,
+                                 action_fn=_skill_fleet_action, skills=SKILLS)

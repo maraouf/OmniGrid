@@ -715,6 +715,10 @@ export default {
       // = use the app default (10); backend clamps 2..60 + drops blanks.
       avg_window: (inst.avg_window != null && inst.avg_window !== '')
         ? String(inst.avg_window) : '',
+      // Per-instance data-cache TTL (seconds). Blank = the app's default
+      // (AdGuard / Pi-hole 30, Speedtest 60); backend clamps 5..3600.
+      cache_ttl: (inst.cache_ttl != null && inst.cache_ttl !== '')
+        ? String(inst.cache_ttl) : '',
     };
     this.appsInstanceEditError = '';
     // Clear any Test-connection result from a PREVIOUSLY-edited instance —
@@ -756,6 +760,7 @@ export default {
       api_key: (typeof f.api_key === 'string') ? f.api_key : '',
       username: f.username || '',
       avg_window: f.avg_window || '',
+      cache_ttl: f.cache_ttl || '',
       ports,
     });
   },
@@ -1102,6 +1107,9 @@ export default {
           // Per-instance averages window (Speedtest). Blank => backend
           // drops it => app default (10); a value is clamped 2..60.
           avg_window: (f.avg_window != null) ? f.avg_window : '',
+          // Per-instance data-cache TTL (seconds). Blank => backend drops
+          // it => the app module's default; a value is clamped 5..3600.
+          cache_ttl: (f.cache_ttl != null) ? f.cache_ttl : '',
         }),
       });
       if (!r.ok) {

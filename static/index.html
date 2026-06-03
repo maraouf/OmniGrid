@@ -4851,15 +4851,26 @@
                 <!-- Range picker. Same shape / cadence as the
                          Beszel-history picker. -->
                 <div class="flex items-center gap-2 mb-3 fs-xs">
-                    <span class="text-[var(--text-faint)]"
+                    <!-- Visible "Range" prefix — aria-hidden because the
+                         radiogroup below carries the accessible group name via
+                         its aria-label (avoids the SR double-announce). -->
+                    <span class="text-[var(--text-faint)]" aria-hidden="true"
                           x-text="t('host_drawer.timeline.range_label')"></span>
-                  <template x-for="opt in [[24, 'range_24h'], [168, 'range_7d'], [720, 'range_30d']]" :key="opt[0]">
-                    <button type="button"
-                            @click="setHostTimelineRange(h.id, opt[0])"
-                            class="btn btn-ghost fs-xs px-2 py-0.5"
-                            :class="((hostTimelineRange[h.id] || 168) === opt[0]) ? 'btn-soft' : ''"
-                            x-text="t('host_drawer.timeline.' + opt[1])"></button>
-                  </template>
+                  <!-- Shared og-range-picker (radiogroup ARIA + roving tabindex
+                       + arrow-key nav) — single source of truth for every SPA
+                       chip strip; replaces the hand-rolled btn-ghost toggle. -->
+                  <div x-data="{
+                         rpOptions: [
+                           { value: 24,  label: t('host_drawer.timeline.range_24h') },
+                           { value: 168, label: t('host_drawer.timeline.range_7d') },
+                           { value: 720, label: t('host_drawer.timeline.range_30d') }
+                         ],
+                         get rpCurrent() { return hostTimelineRange[h.id] || 168; },
+                         rpOnChange: (v) => setHostTimelineRange(h.id, v),
+                         rpAriaLabel: t('host_drawer.timeline.range_label')
+                       }">
+                    <!-- INCLUDE: _components/og-range-picker.html -->
+                  </div>
                   <span class="flex-1"></span>
                   <button type="button"
                           @click="loadHostTimeline(h.id, true)"

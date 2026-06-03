@@ -5273,6 +5273,9 @@
       "ran_ok": "Started",
       "failed": "Skill failed"
     },
+    "cache_ttl_label": "Data cache TTL (seconds)",
+    "cache_ttl_placeholder": "App default",
+    "cache_ttl_hint": "How long fetched data is cached before re-querying the app (5–3600 seconds). Leave blank for the app’s default.",
     "open_all_title": "Open every instance URL in a new tab",
     "open_all_aria": "Open all URLs for {name}",
     "show_all": "Show all ({n})",
