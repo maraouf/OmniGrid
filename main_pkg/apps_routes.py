@@ -603,9 +603,10 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
         _awi = None
         if isinstance(_aw_raw, (int, str)) and str(_aw_raw).strip() != "":
             try:
-                _v = int(_aw_raw)
-                if 2 <= _v <= 60:
-                    _awi = _v
+                # CLAMP to 2..60 (don't drop): 90 -> 60, honouring intent
+                # instead of reverting to the default. Blank / unparseable
+                # clears the override (-> app default).
+                _awi = max(2, min(60, int(_aw_raw)))
             except (TypeError, ValueError):
                 _awi = None
         if _awi is not None:

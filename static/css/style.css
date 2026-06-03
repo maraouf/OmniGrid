@@ -6772,6 +6772,16 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   border-radius: var(--r-sm);
   padding: 0 4px;
   color: var(--text-dim);
+  /* Override the `.swal2-html-container code { word-break: break-all }`
+     rule (added for the remove-dialog long container names) — these
+     inline code chips are short single tokens (e.g. `subdl`, commit
+     hashes), and break-all shattered them character-by-character at a
+     line wrap (the chip became a tiny "su / bd / l" box). Keep each chip
+     on one line; it wraps to the next line as a UNIT when it doesn't fit.
+     Higher specificity (.release-notes-rendered .release-notes-code) wins
+     over the single-class swal rule. */
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .release-notes-rendered .release-notes-mention {
