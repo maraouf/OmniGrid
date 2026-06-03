@@ -90,6 +90,11 @@ export default {
   // every AI palette open.
   weatherHistory: [],
   weatherHistoryLoading: false,
+  // Admin → Prayer Times "Recent samples" table — newest-first rows
+  // from prayer_times_samples (one row per day per location). Lazy-loaded
+  // on first expand of the samples <details> + by its refresh button.
+  prayerHistory: [],
+  prayerHistoryLoading: false,
   // Per-widget refresh-in-flight gate. `appsWidgetRefreshing[kind] =
   // true` while a manual refresh is mid-fetch — drives the spinner
   // on the per-widget refresh button + disables the button to prevent
@@ -198,16 +203,18 @@ export default {
         const j = await r.json().catch(() => ({}));
         throw new Error(this.fmtApiError(j, r.status));
       }
-      // Re-baseline settings + tunables + invalidate the SPA's public-IP
-      // cache so the next widget fetch / AI palette call re-probes
-      // /api/public-ip and sees the new gate state. (No /api/me refresh
-      // needed — the public-IP widget self-gates on the /api/public-ip
-      // {enabled:false} response, not on a client_config flag.)
+      // Re-baseline settings + tunables, then FORCE-re-probe /api/public-ip
+      // so the apps-page public-IP widget tile repopulates immediately with
+      // the new gate state — without this it kept the stale pre-save
+      // {enabled:false} (or null) and showed "no data" until a full reload
+      // (the widget gates on this.publicIp, which only refreshes on its own
+      // 10-min cycle / re-mount). No /api/me refresh needed — the widget
+      // reads this.publicIp, not a client_config flag.
       await Promise.all([this.loadSettings(), this.loadTuning()]);
       try {
-        this.publicIp = null;
         this._publicIpFetchedAt = 0;
-      } catch (_) {
+        await this._ensurePublicIp(true);
+      } catch (_) { /* best-effort live-apply; reload still works */
       }
       this.showToast(this.t('toasts.saved') || 'Saved', 'success');
     } catch (e) {
@@ -267,6 +274,8 @@ export default {
     return [
       'tuning_prayer_times_cache_ttl_seconds',
       'tuning_prayer_times_fetch_timeout_seconds',
+      'tuning_prayer_times_sampler_interval_seconds',
+      'tuning_prayer_times_history_retention_days',
     ];
   },
   // [editable flat settings key, loaded nested key under settings.prayer_times].
@@ -1061,6 +1070,31 @@ export default {
       this.weatherHistory = [];
     } finally {
       this.weatherHistoryLoading = false;
+    }
+  },
+
+  // Admin → Prayer Times "Recent samples" table loader — mirrors
+  // loadWeatherHistory. Reads the admin-only /api/prayer-times/history
+  // (newest-first prayer_times_samples rows). Lazy-loaded on first
+  // expand of the samples <details> + by its refresh button.
+  async loadPrayerHistory() {
+    if (this.prayerHistoryLoading) {
+      return;
+    }
+    this.prayerHistoryLoading = true;
+    try {
+      const r = await fetch('/api/prayer-times/history?limit=30');
+      if (!r.ok) {
+        this.prayerHistory = [];
+        return;
+      }
+      const data = await r.json();
+      this.prayerHistory = Array.isArray(data && data.history)
+        ? data.history : [];
+    } catch (_) {
+      this.prayerHistory = [];
+    } finally {
+      this.prayerHistoryLoading = false;
     }
   },
 

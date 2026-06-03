@@ -151,6 +151,8 @@ class Tunable(str, Enum):
     PORTAINER_OP_TIMEOUT_SHORT_SECONDS = "tuning_portainer_op_timeout_short_seconds"
     PRAYER_TIMES_CACHE_TTL_SECONDS = "tuning_prayer_times_cache_ttl_seconds"
     PRAYER_TIMES_FETCH_TIMEOUT_SECONDS = "tuning_prayer_times_fetch_timeout_seconds"
+    PRAYER_TIMES_HISTORY_RETENTION_DAYS = "tuning_prayer_times_history_retention_days"
+    PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS = "tuning_prayer_times_sampler_interval_seconds"
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
     PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
     PUBLIC_IP_SAMPLE_INTERVAL_SECONDS = "tuning_public_ip_sample_interval_seconds"
@@ -383,6 +385,18 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # answers well under 1s; raise on slow links / proxy paths.
     # Range 2..60.
     "tuning_prayer_times_fetch_timeout_seconds": ("PRAYER_TIMES_FETCH_TIMEOUT_SECONDS", 8, 2, 60),
+    # Cadence of the lifespan-managed prayer-times sampler that writes
+    # one row per day per location into prayer_times_samples (drives the
+    # Admin → Prayer Times history table). Prayer timings are daily-static,
+    # so the default is 6h (21600s) rather than weather's hourly — the new
+    # day's timings still appear within 6h of midnight. 0 disables the
+    # sampler entirely (the on-demand cache for the widget / AI / Telegram
+    # still works). Range 0..86400.
+    "tuning_prayer_times_sampler_interval_seconds": ("PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS", 21600, 0, 86400),
+    # Retention window for prayer_times_samples. Pruned hourly by the
+    # sampler. 0 keeps every day's row forever (the table is tiny — one
+    # row per location per day). Range 0..3650.
+    "tuning_prayer_times_history_retention_days": ("PRAYER_TIMES_HISTORY_RETENTION_DAYS", 90, 0, 3650),
     # Public-IP lookup module. Standalone subsystem (NOT AI-related —
     # the AI palette + Telegram /ip command both consume it but the
     # feature is independent and toggled from its own Admin → Public IP

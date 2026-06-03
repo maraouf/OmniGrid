@@ -677,6 +677,12 @@
         <div class="apps-widget-prayer-wrap" x-init="_ensurePrayerTimes()">
           <template x-if="prayer && prayer.timings && prayer.configured !== false && prayerWidgetRows().length">
             <div class="apps-widget-prayer-body">
+              <!-- LEFT column (hero + Hijri). On wide+short tiles (3x1/4x1)
+                   a CSS override flips the body to a row so this sits LEFT
+                   and the prayer list fills the space on the RIGHT (mirrors
+                   the weather hero/forecast split). On narrow + on any tall
+                   tile the body stays a column (list below) — unchanged. -->
+              <div class="apps-widget-prayer-main">
               <!-- Hero: next prayer name + live countdown. -->
               <div class="apps-widget-prayer-hero" x-show="prayer.next && prayer.next.key">
                 <svg class="apps-widget-prayer-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -699,7 +705,10 @@
                 </svg>
                 <span x-text="prayerHijriLabel()"></span>
               </div>
-              <!-- The 5 prayers + Sunrise. Next prayer row highlighted. -->
+              </div><!-- /.apps-widget-prayer-main -->
+              <!-- The 5 prayers + Sunrise. Next prayer row highlighted. On
+                   wide+short tiles this is the RIGHT column (full height ->
+                   shows all rows); elsewhere it sits below the hero. -->
               <div class="apps-widget-prayer-list">
                 <template x-for="row in prayerWidgetRows()" :key="row.key">
                   <div class="apps-widget-prayer-row"

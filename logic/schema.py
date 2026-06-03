@@ -602,6 +602,45 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_weather_samples_coord_ts
             ON weather_samples(lat, lon, ts DESC);
 
+        -- AlAdhan prayer-times per-day samples. ONE row per
+        -- (greg_date, lat, lon, method, school) — prayer timings are
+        -- daily-static for a given location + calculation config, so the
+        -- composite primary key deduplicates to a single row per day per
+        -- config (a re-fetch within the same day INSERT-OR-REPLACEs, just
+        -- refreshing `ts`). Lat / lon quantised to 3 decimals (matches
+        -- logic.prayer_times's cache key). Written by
+        -- logic.prayer_times_sampler at
+        -- tuning_prayer_times_sampler_interval_seconds cadence (default
+        -- 21600s = 6h; daily-static data doesn't need hourly; 0 disables
+        -- the sampler entirely). Pruned hourly to
+        -- tuning_prayer_times_history_retention_days (default 90; 0 keeps
+        -- every sample forever). Stores the five obligatory prayers +
+        -- Sunrise (HH:MM) + the Hijri date text so the Admin → Prayer
+        -- Times history table + AI palette can answer "what time was Fajr
+        -- last Friday" without re-hitting api.aladhan.com.
+        CREATE TABLE IF NOT EXISTS prayer_times_samples (
+            ts          INTEGER NOT NULL,
+            greg_date   TEXT    NOT NULL,
+            lat         REAL    NOT NULL,
+            lon         REAL    NOT NULL,
+            label       TEXT,
+            method      INTEGER NOT NULL,
+            school      INTEGER NOT NULL,
+            fajr        TEXT,
+            sunrise     TEXT,
+            dhuhr       TEXT,
+            asr         TEXT,
+            maghrib     TEXT,
+            isha        TEXT,
+            hijri_text  TEXT,
+            timezone    TEXT,
+            PRIMARY KEY (greg_date, lat, lon, method, school)
+        );
+        CREATE INDEX IF NOT EXISTS idx_prayer_times_samples_ts
+            ON prayer_times_samples(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_prayer_times_samples_coord_ts
+            ON prayer_times_samples(lat, lon, ts DESC);
+
         -- HTTP / TLS-cert / DNS health probe (seventh host-stats provider).
         -- ONE row per (host_id, url, ts). Written by
         -- logic/host_http_sampler.py at

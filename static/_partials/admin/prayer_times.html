@@ -149,7 +149,9 @@
         <span x-text="t('common.loading')"></span>
       </div>
       <template x-for="key in (tuningLoaded ? ['tuning_prayer_times_cache_ttl_seconds',
-                                    'tuning_prayer_times_fetch_timeout_seconds'] : [])"
+                                    'tuning_prayer_times_fetch_timeout_seconds',
+                                    'tuning_prayer_times_sampler_interval_seconds',
+                                    'tuning_prayer_times_history_retention_days'] : [])"
                 :key="key">
         <div>
           <label class="block fs-xs font-medium mb-1"
@@ -195,6 +197,74 @@
           </div>
         </div>
       </template>
+    </div>
+  </details>
+
+  <!-- Recent samples panel — admin-only confirmation that the lifespan
+       prayer-times sampler is writing rows to prayer_times_samples. Loaded
+       lazily via loadPrayerHistory() on first expand; shows the most
+       recent 30 rows (one per day per location) with date + the five
+       prayers + Hijri. Timestamps / dates format through the user's
+       Settings > Profile > Formats datetime_format pref. -->
+  <details x-show="isAdmin()" class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3"
+           @toggle="if ($event.target.open) { loadPrayerHistory(); }">
+    <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+      </svg>
+      <span x-text="t('admin_prayer_times.history_label') || 'Recent samples'"></span>
+      <span class="fs-2xs text-[var(--text-faint)]"
+            x-show="prayerHistory && prayerHistory.length"
+            x-text="'(' + prayerHistory.length + ')'"></span>
+      <!-- Reload via the shared og-reload-button. A <span> (not a div —
+           <summary> only allows phrasing content) carries ms-auto to
+           right-float + @click.stop so the button's click doesn't toggle
+           the <details>. -->
+      <span class="ms-auto" @click.stop
+            x-data="{ rbKey: 'prayer_times_history', rbOnClick: () => _runWithBusy('prayer_times_history', () => loadPrayerHistory()) }">
+        <!-- INCLUDE: _components/og-reload-button.html -->
+      </span>
+    </summary>
+    <div class="mt-3 overflow-x-auto scrollbar">
+      <div x-show="prayerHistoryLoading" class="fs-xs text-[var(--text-faint)] flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('actions.loading')"></span>
+      </div>
+      <div x-show="!prayerHistoryLoading && (!prayerHistory || !prayerHistory.length)"
+           class="fs-xs text-[var(--text-faint)] italic"
+           x-text="t('admin_prayer_times.history_empty') || 'No samples yet. The sampler writes one row per day per location once Prayer Times is enabled.'"></div>
+      <table x-show="!prayerHistoryLoading && prayerHistory && prayerHistory.length"
+             class="w-full fs-xs whitespace-nowrap">
+        <thead>
+        <tr class="text-[var(--text-faint)] text-start">
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_date') || 'Date'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_location') || 'Location'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_fajr') || 'Fajr'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_dhuhr') || 'Dhuhr'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_asr') || 'Asr'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_maghrib') || 'Maghrib'"></th>
+          <th class="text-start py-1 pe-2" x-text="t('admin_prayer_times.history_col_isha') || 'Isha'"></th>
+          <th class="text-start py-1" x-text="t('admin_prayer_times.history_col_hijri') || 'Hijri'"></th>
+        </tr>
+        </thead>
+        <tbody>
+        <template x-for="row in prayerHistory" :key="row.greg_date + '-' + row.lat + '-' + row.lon + '-' + row.method + '-' + row.school">
+          <tr class="border-t border-[var(--border)]">
+            <td class="py-1 pe-2 mono" x-text="row.greg_date || '—'"></td>
+            <td class="py-1 pe-2" x-text="row.label || (row.lat + ',' + row.lon)"></td>
+            <td class="py-1 pe-2 mono" x-text="row.fajr || '—'"></td>
+            <td class="py-1 pe-2 mono" x-text="row.dhuhr || '—'"></td>
+            <td class="py-1 pe-2 mono" x-text="row.asr || '—'"></td>
+            <td class="py-1 pe-2 mono" x-text="row.maghrib || '—'"></td>
+            <td class="py-1 pe-2 mono" x-text="row.isha || '—'"></td>
+            <td class="py-1" x-text="row.hijri_text || '—'"></td>
+          </tr>
+        </template>
+        </tbody>
+      </table>
     </div>
   </details>
 

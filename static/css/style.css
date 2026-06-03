@@ -10042,10 +10042,28 @@ select.field-invalid {
 /* Top-align the title + grey description so the label reads as
    "directly under the title", not floated to the vertical centre of
    the two title/desc rows (the logo spans both, which stretched them). */
-.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-titleblock,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-name,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-meta {
   align-self: start;
+}
+
+/* Stack the title + grey meta as ONE tight flex column (gap 2px) that
+   spans the title+desc rows, instead of leaving them as two SEPARATE grid
+   rows that the 44px logo (spanning both) inflates — that inflation opened
+   a big gap between the title and its meta even with align-self:start
+   (operator-flagged on 4x1). As a flex item the titleblock overrides the
+   base `display:contents`; name + meta become its flex children (their
+   grid-area assignments go inert) and stack tight. The logo + ports still
+   span beside it; the leftover vertical slack now sits BELOW the block
+   rather than between the title and its description. */
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-titleblock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: start;
+  min-width: 0;
 }
 
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-card.apps-card--vertical .apps-card-body-region,
@@ -11742,6 +11760,17 @@ select.field-invalid {
   min-height: 0;
 }
 
+/* LEFT column wrapper (hero + Hijri). In the default column body this is
+   transparent — hero + Hijri stack with the same gap as before, then the
+   list follows. The wide+short override below flips the body to a row and
+   sizes this as the left column. */
+.apps-widget-prayer-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
 .apps-widget-prayer-hero {
   display: flex;
   align-items: center;
@@ -11858,6 +11887,37 @@ select.field-invalid {
 .apps-widget-prayer-time {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+/* Wide + short prayer tile (3x1 / 4x1 = width preset double / xlarge at
+   short height): lay the hero + Hijri on the LEFT and the full prayer
+   list on the RIGHT, filling the otherwise-empty horizontal space
+   (mirrors the weather hero/forecast split). Scoped to double/xlarge +
+   short ONLY — narrow tiles and every tall tile keep the default column
+   (list-below) layout untouched. The list gets the full tile height in
+   the row layout so all rows show (overflow clipped, no scroll — same as
+   the weather forecast column). */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-body,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-body {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--s-3);
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-main,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-main {
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-list,
+.apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  overflow: hidden;
 }
 
 /* Background-icon decoration — a large faded brand icon in the

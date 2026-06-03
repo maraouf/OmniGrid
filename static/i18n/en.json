@@ -1844,6 +1844,14 @@
           "label": "Prayer Times fetch timeout (seconds)",
           "help": "Outbound HTTP wall-clock for the api.aladhan.com request. Default 8s. Raise on slow links / proxy paths. Range 2..60. Takes effect on the next lookup."
         },
+        "tuning_prayer_times_sampler_interval_seconds": {
+          "label": "Prayer Times sampler interval (seconds)",
+          "help": "How often the background sampler records one row per day per user location into the prayer-times history table (Admin → Prayer Times → Recent samples). Prayer timings are daily-static, so the default 21600 (6 hours) is enough to catch the new day shortly after midnight without hammering api.aladhan.com. Set 0 to disable the sampler entirely — the on-demand widget / AI / Telegram lookups still work, but no history accumulates. Range 0..86400. Takes effect on the next tick."
+        },
+        "tuning_prayer_times_history_retention_days": {
+          "label": "Prayer Times history retention (days)",
+          "help": "How long recorded prayer-times samples are kept before the hourly prune sweep deletes them. The table is tiny (one row per location per day), so a long window is cheap. Set 0 to keep every row forever. Range 0..3650. Takes effect on the next prune sweep."
+        },
         "tuning_weather_cache_ttl_seconds": {
           "label": "Weather cache TTL (seconds)",
           "help": "How long the in-process per-coordinate cache holds the last successful WeatherAPI.com response before re-fetching. Default 600 (10 minutes) keeps the public 1M-calls-month free tier comfortably under cap. Lower for fresher readings during active monitoring; raise to reduce outbound traffic on a large multi-user deployment. Range 60..86400. Takes effect on the next lookup."
@@ -4783,7 +4791,17 @@
     "base_url_label": "AlAdhan API base URL",
     "base_url_placeholder": "api.aladhan.com/v1",
     "base_url_help": "AlAdhan REST base. Leave blank for the default (api.aladhan.com/v1).",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "history_label": "Recent samples",
+    "history_empty": "No samples yet. The sampler writes one row per day per location once Prayer Times is enabled.",
+    "history_col_date": "Date",
+    "history_col_location": "Location",
+    "history_col_fajr": "Fajr",
+    "history_col_dhuhr": "Dhuhr",
+    "history_col_asr": "Asr",
+    "history_col_maghrib": "Maghrib",
+    "history_col_isha": "Isha",
+    "history_col_hijri": "Hijri"
   },
   "prayer_times": {
     "name_fajr": "Fajr",

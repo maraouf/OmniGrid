@@ -101,6 +101,15 @@ DEFAULT_PORTS: tuple[int, ...] = (
     5480,  # VMware vCenter Server Management (VAMI)
     9997,  # Splunk forwarder receiver (splunkd)
     10051,  # Zabbix server (active-agent + proxy connections)
+    # Common well-known service ports — audit additions so a fresh
+    # scan covers the standard infra/homelab port set out of the box.
+    88, 113, 119, 264, 427, 444, 500, 502, 515, 543, 544, 548,
+    593, 623, 660, 902, 1099, 1311, 1812, 1813, 2000, 2181, 2222,
+    2377, 2379, 2380, 2483, 2484, 2525, 3260, 3268, 3269, 3300,
+    4040, 4222, 4789, 4949, 5044, 5500, 5938, 5986, 6000, 7070,
+    7946, 7990, 8042, 8083, 8087, 8118, 8140, 8161, 8444, 8883,
+    8983, 9042, 9092, 9093, 9160, 9389, 9999, 10250, 10255, 10443,
+    15672, 27015,
 )
 
 # Tiny lookup table — port → likely service name. This is NAMING
@@ -112,7 +121,7 @@ _PORT_HINTS: dict[int, str] = {
     20: "ftp-data", 21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp",
     53: "dns", 67: "dhcp", 68: "dhcp", 69: "tftp", 80: "http", 81: "npm-admin",
     110: "pop3", 111: "rpcbind", 123: "ntp", 135: "msrpc",
-    137: "netbios-ns", 139: "smb",
+    137: "netbios-ns", 138: "netbios-dgm", 139: "smb",
     143: "imap", 161: "snmp", 162: "snmp-trap", 179: "bgp",
     199: "smux", 389: "ldap",
     443: "https", 445: "smb", 465: "smtps", 514: "syslog", 554: "rtsp",
@@ -175,8 +184,32 @@ _PORT_HINTS: dict[int, str] = {
     49669: "manageengine", 50000: "jenkins",
     51510: "qbittorrent", 51511: "qbittorrent", 51820: "wireguard",
     53000: "tautulli", 57221: "tailscale",
-    1514: "syslog-tls", 5201: "iperf3", 5480: "vcenter",
+    1514: "syslog-tls", 1515: "syslog-tls", 1516: "syslog-tls",
+    1517: "syslog-tls", 1518: "syslog-tls", 1519: "syslog-tls",
+    1520: "syslog-tls",
+    5201: "iperf3", 5480: "vcenter",
     9997: "splunk-fwd", 10051: "zabbix-server",
+    # Common well-known service ports — audit additions.
+    88: "kerberos", 113: "ident", 119: "nntp", 264: "bgmp",
+    427: "svrloc", 444: "snpp", 500: "isakmp", 502: "modbus",
+    515: "printer-lpd", 543: "klogin", 544: "kshell", 548: "afp",
+    593: "http-rpc-epmap", 623: "ipmi", 660: "mac-srvr-admin",
+    902: "vmware-auth", 1099: "java-rmi", 1311: "dell-omsa",
+    1812: "radius", 1813: "radius-acct", 2000: "cisco-sccp",
+    2181: "zookeeper", 2222: "ssh-alt", 2377: "docker-swarm",
+    2379: "etcd-client", 2380: "etcd-peer", 2483: "oracle-db",
+    2484: "oracle-ssl", 2525: "smtp-alt", 3260: "iscsi",
+    3268: "ldap-gc", 3269: "ldap-gc-ssl", 3300: "ceph-mon",
+    4040: "spark-ui", 4222: "nats", 4789: "vxlan", 4949: "munin",
+    5044: "logstash-beats", 5500: "vnc-listener", 5938: "teamviewer",
+    5986: "winrm-https", 6000: "x11", 7070: "realserver",
+    7946: "swarm-gossip", 7990: "bitbucket", 8042: "hadoop-yarn",
+    8083: "http-alt", 8087: "riak", 8118: "privoxy", 8140: "puppet",
+    8161: "activemq", 8444: "https-alt", 8883: "mqtt-tls",
+    8983: "solr", 9042: "cassandra", 9092: "kafka",
+    9093: "alertmanager", 9160: "cassandra-thrift", 9389: "adws",
+    9999: "http-alt", 10250: "kubelet", 10255: "kubelet-ro",
+    10443: "https-alt", 15672: "rabbitmq-mgmt", 27015: "source-engine",
 }
 
 

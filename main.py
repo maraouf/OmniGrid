@@ -829,6 +829,17 @@ async def _lifespan(_app: FastAPI):
         _public_ip_sampler.sampler_loop(),
         name="public-ip-sampler",
     )
+    # AlAdhan prayer-times historical-sample writer — runs at
+    # tuning_prayer_times_sampler_interval_seconds cadence (default 21600s
+    # = 6h; daily-static data doesn't need hourly), writes one row per day
+    # per user weather location into prayer_times_samples. Master-gated on
+    # prayer_times_enabled (default OFF); interval 0 disables it (the
+    # on-demand cache for the widget / AI / Telegram still works).
+    from logic import prayer_times_sampler as _prayer_times_sampler
+    prayer_times_sampler = asyncio.create_task(
+        _prayer_times_sampler.sampler_loop(),
+        name="prayer-times-sampler",
+    )
     try:
         yield
     finally:
@@ -838,7 +849,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
