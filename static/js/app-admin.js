@@ -1510,6 +1510,7 @@ export default {
     stats_samplers: false,
     ai_dashboard: false, telegram_links: false, asset_refresh: false,
     public_ip_history: false, weather_history: false,
+    prayer_times_history: false,
     history: false, hosts_config: false,
   },
   // Watchdog timer per busy-key — see `_runWithBusy` below. Cleared

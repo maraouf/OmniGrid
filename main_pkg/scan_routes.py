@@ -2325,6 +2325,27 @@ async def api_prayer_times_test(
     }, target="api.aladhan.com")
 
 
+# noinspection PyTypeChecker,PyUnresolvedReferences
+@app.get("/api/prayer-times/history")
+async def api_prayer_times_history(
+    limit: int = 100,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    _admin: auth.User = Depends(auth.require_admin),  # noqa: B008
+):
+    """Historical prayer-times samples from the ``prayer_times_samples``
+    table (newest first). Admin-only.
+
+    Optional ``lat`` / ``lon`` narrow to one coordinate; omitted = every
+    coordinate. Written by ``logic.prayer_times_sampler`` (one row per day
+    per location). Powers the Admin → Prayer Times Recent-samples table.
+    """
+    from logic import prayer_times_sampler as _sampler
+    rows = _sampler.recent_samples(limit=int(max(1, min(limit, 5000))),
+                                   lat=lat, lon=lon)
+    return {"history": rows, "count": len(rows)}
+
+
 # ============================================================================
 # App logs — in-memory ring buffer of recent stdout/stderr lines.
 # Admin-only. Frontend polls /api/logs?since=<ts> to incrementally

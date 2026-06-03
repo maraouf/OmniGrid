@@ -201,12 +201,10 @@ async def sampler_loop() -> None:
         # Iterate every distinct user-configured location across all
         # active users. Falls back to the legacy operator-set default
         # ONLY when no user has configured a weather location yet
-        # (first-deploy / pre-bootstrap state).
-        locations = _weather.user_locations()
-        if not locations:
-            legacy_default = _weather.default_location()
-            if legacy_default:
-                locations = [legacy_default]
+        # (first-deploy / pre-bootstrap state). The resolve-or-fall-back
+        # step is the shared sampler helper; only the skip-log text below
+        # is provider-specific.
+        locations = _weather.resolve_sampler_locations(_weather.default_location)
         if not locations:
             print("[weather_sampler] skipped — no user-configured weather "
                   "locations (Settings → Profile → Weather) and no legacy "

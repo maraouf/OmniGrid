@@ -77,6 +77,27 @@ DEFAULT_UDP_PORTS: tuple[int, ...] = (
     5060,  # SIP
     5353,  # mDNS
     51820,  # WireGuard
+    # Common well-known UDP service ports — audit additions so a scan
+    # covers the standard infra/homelab UDP set out of the box.
+    88,  # Kerberos
+    111,  # rpcbind / portmapper
+    138,  # NetBIOS Datagram
+    162,  # SNMP trap
+    177,  # XDMCP
+    389,  # LDAP / CLDAP
+    443,  # QUIC / HTTP3
+    547,  # DHCPv6 server
+    636,  # LDAPS
+    1645,  # RADIUS auth (legacy)
+    1646,  # RADIUS accounting (legacy)
+    1985,  # Cisco HSRP
+    2049,  # NFS
+    3478,  # STUN / TURN
+    4789,  # VXLAN (Docker Swarm overlay)
+    5355,  # LLMNR
+    6081,  # Geneve
+    33434,  # traceroute
+    49152,  # WS-Discovery / dynamic
 )
 
 _UDP_SERVICE_HINTS: dict[int, str] = {
@@ -102,6 +123,24 @@ _UDP_SERVICE_HINTS: dict[int, str] = {
     5060: "SIP",
     5353: "mDNS",
     51820: "WireGuard",
+    # Common well-known UDP service ports — audit additions.
+    88: "Kerberos",
+    111: "rpcbind",
+    177: "XDMCP",
+    389: "LDAP-CLDAP",
+    443: "QUIC",
+    547: "DHCPv6",
+    636: "LDAPS",
+    1645: "RADIUS-legacy",
+    1646: "RADIUS-acct-legacy",
+    1985: "HSRP",
+    2049: "NFS",
+    3478: "STUN",
+    4789: "VXLAN",
+    5355: "LLMNR",
+    6081: "Geneve",
+    33434: "traceroute",
+    49152: "WS-Discovery",
 }
 
 

@@ -36,11 +36,9 @@
         <option value="UTC" x-text="t('scheduler_settings.tz_utc_label')">UTC</option>
       </datalist>
       <span class="fs-2xs text-[var(--text-faint)]">
-        <span x-text="t('scheduler_settings.tz_hint_prefix')"></span><!--suppress HtmlUnknownTarget --><a
-        href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
-        target="_blank" rel="noopener"
-        class="text-[var(--primary)] hover:underline"
-        x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
+        <span x-text="t('scheduler_settings.tz_hint_prefix')"></span>
+        <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline"
+           x-text="t('scheduler_settings.tz_hint_link')"></a><span x-text="t('scheduler_settings.tz_hint_suffix')"></span>
       </span>
     </div>
     <div class="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -80,7 +78,7 @@
       <input x-model="newSchedule.name" type="text"
              :placeholder="t('admin.schedules.name_placeholder')" class="w-full">
       <select x-model="newSchedule.kind" class="w-full">
-        <template x-for="k in scheduleKinds" :key="k">
+        <template x-for="k in sortedScheduleKinds()" :key="k">
           <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
         </template>
       </select>

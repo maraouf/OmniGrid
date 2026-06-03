@@ -28,7 +28,7 @@ don't branch on provider name).
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 
@@ -237,6 +237,29 @@ def user_locations() -> list[dict]:
     return locations
 
 
+def resolve_sampler_locations(
+    default_fn: Optional[Callable[[], Optional[dict]]],
+) -> list[dict]:
+    """Distinct user weather locations for a per-tick location-driven
+    sampler, falling back to the provider's own default location
+    (``default_fn()``) ONLY when no user has configured a weather
+    location yet (first-deploy / pre-bootstrap state).
+
+    Returns a list of ``{lat, lon, label}`` dicts, or ``[]`` when neither
+    a user location nor a provider default is available — the caller then
+    logs its provider-specific "skipped — no locations" line and sleeps
+    the tick. Shared by every location-driven sampler (weather,
+    prayer-times) so the resolve-or-fall-back block isn't duplicated per
+    sampler module — only the skip-log text differs, which stays at the
+    call site.
+    """
+    locations = user_locations()
+    if locations:
+        return locations
+    fallback = default_fn() if callable(default_fn) else None
+    return [fallback] if isinstance(fallback, dict) and fallback else []
+
+
 def _quantise_key(lat: float, lon: float) -> tuple[float, float]:
     return round(float(lat), 2), round(float(lon), 2)
 
@@ -296,7 +319,9 @@ def _log_fetch_error(provider_name: str, qkey, label: str, err, upstream: str) -
             + (f" (upstream={upstream})" if upstream else ""),
             flush=True,
         )
-    except Exception:  # noqa: BLE001 — logging must never break the fetch
+    except (OSError, ValueError, TypeError):
+        # Logging must never break the fetch — swallow the realistic
+        # print/format failures (broken stdout pipe, encoding, bad format).
         pass
 
 

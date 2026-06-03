@@ -58,6 +58,18 @@ export default {
   _scheduleQueueSearchTimer: null,
   scheduleQueueTotalPages: 1,
   scheduleKinds: ['prune_node', 'prune_all_nodes', 'gather_refresh', 'backup', 'config_backup', 'asset_inventory_refresh', 'prune_logs', 'prune_notifications', 'prune_config_backups', 'swarm_agent_health', 'port_scan_refresh'],
+  // The create-schedule "Kind" dropdown sorted by DISPLAYED name (the
+  // translated label), not the raw declaration order, so the operator
+  // scans it alphabetically. Locale-aware compare; falls back to the raw
+  // kind key when a label is missing.
+  sortedScheduleKinds() {
+    const kinds = Array.isArray(this.scheduleKinds) ? this.scheduleKinds.slice() : [];
+    return kinds.sort((a, b) => {
+      const la = this.t('admin.schedules.kinds.' + a) || a;
+      const lb = this.t('admin.schedules.kinds.' + b) || b;
+      return String(la).localeCompare(String(lb));
+    });
+  },
   scheduleMinInterval: 60,
   scheduleBusy: false,
   // Create form. `params_text` is a raw JSON textarea — we parse on submit
