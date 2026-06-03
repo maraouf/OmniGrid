@@ -18,7 +18,7 @@
           x-text="(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
-     x-text="t('admin_prayer_times.intro') || 'Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user&apos;s saved Weather location; set a calculation method + Asr school below.'"></p>
+     x-text="t('admin_prayer_times.intro') || 'Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user\'s saved Weather location; set a calculation method + Asr school below.'"></p>
 
   <!-- Master switch (tuning_prayer_times_enabled int 1/0). Help text
        BEFORE the checkbox per the canonical admin-section pattern. -->
@@ -60,12 +60,12 @@
       <label for="prayer-school" class="block fs-xs font-medium mb-1"
              x-text="t('admin_prayer_times.school_label') || 'Asr school (madhab)'"></label>
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-1"
-         x-text="t('admin_prayer_times.school_help') || 'Standard (Shafi&apos;i / Maliki / Hanbali): Asr when shadow = object length. Hanafi: Asr when shadow = twice the object length (later).'"></p>
+         x-text="t('admin_prayer_times.school_help') || 'Standard (Shafi\'i / Maliki / Hanbali): Asr when shadow = object length. Hanafi: Asr when shadow = twice the object length (later).'"></p>
       <select id="prayer-school" x-model="settings.prayer_times_school"
               :disabled="isReadonly() || !(tuningForm['tuning_prayer_times_enabled'] === '1' || tuningForm['tuning_prayer_times_enabled'] === 1)"
               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm">
-        <option value="" x-text="t('admin_prayer_times.school_default_option') || 'App default (Standard / Shafi&apos;i)'"></option>
-        <option value="0" x-text="t('admin_prayer_times.school_standard') || '0 — Standard (Shafi&apos;i / Maliki / Hanbali)'"></option>
+        <option value="" x-text="t('admin_prayer_times.school_default_option') || 'App default (Standard / Shafi\'i)'"></option>
+        <option value="0" x-text="t('admin_prayer_times.school_standard') || '0 — Standard (Shafi\'i / Maliki / Hanbali)'"></option>
         <option value="1" x-text="t('admin_prayer_times.school_hanafi') || '1 — Hanafi'"></option>
       </select>
     </div>
@@ -77,7 +77,7 @@
       <p class="fs-xs font-medium mb-1"
          x-text="t('admin_prayer_times.location_label') || 'Default location (fallback)'"></p>
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-         x-text="t('admin_prayer_times.location_help') || 'Used only when a user has no saved Weather location. Each user&apos;s own Weather location takes precedence.'"></p>
+         x-text="t('admin_prayer_times.location_help') || 'Used only when a user has no saved Weather location. Each user\'s own Weather location takes precedence.'"></p>
       <div class="flex flex-wrap gap-2">
         <label class="contents">
           <input type="text" inputmode="decimal" x-model="settings.prayer_times_default_lat"
