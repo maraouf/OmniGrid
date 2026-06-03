@@ -2284,14 +2284,18 @@ async def api_prayer_times_test(
         school_i = None
     label = (body.get("label") or "").strip()
     # force=True so a re-test after a settings change isn't served a
-    # stale cache entry.
+    # stale cache entry. bypass_gate=True so the admin can verify the
+    # connection BEFORE enabling + saving (the explicit Test click is the
+    # authorisation for this one probe — same as the Weather / Portainer
+    # tests, which probe regardless of their enable toggle).
     data = await _pt.fetch(float(lat), float(lon), label=label,
-                           method=method_i, school=school_i, force=True)
-    if not data or data.get("configured") is False:
+                           method=method_i, school=school_i, force=True,
+                           bypass_gate=True)
+    if not data:
         return _stamp_test_success("prayer_times", {
             "ok": False,
-            "detail": "Prayer Times is disabled — enable it above, Save, "
-                      "then re-run Test",
+            "detail": "no response from the prayer-times provider — check "
+                      "the API base URL + your network",
         }, target="api.aladhan.com")
     err_detail = data.get("error")
     if err_detail:

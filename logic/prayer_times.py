@@ -22,7 +22,7 @@ available. METHOD + Asr SCHOOL are operator settings in Admin → Prayer
 Times (defaults: Egyptian General Authority = AlAdhan method 5; Asr
 school Standard/Shafi = 0) — never hardcoded magic numbers downstream.
 
-Privacy: default OFF. The operator must flip ``tuning_prayer_times_enabled``
+Privacy: default OFF. The operator must flip ``prayer_times_enabled``
 (Admin → Prayer Times) before any outbound call to api.aladhan.com runs.
 
 Returns a normalised dict (``configured`` False when gated off / no
@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
-from logic.db import get_setting, read_location_setting
+from logic.db import get_setting, get_setting_bool, read_location_setting
 from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
 from logic.tuning import Tunable, tuning_int
@@ -121,12 +121,13 @@ _neg_until: dict[tuple[float, float, int, int], float] = {}
 
 
 def is_enabled() -> bool:
-    """Master gate. Operator flips ``tuning_prayer_times_enabled``
-    (Admin → Prayer Times) to authorise outbound calls to
-    api.aladhan.com. Encoded as an int tunable (1 = on, 0 = off) per the
-    canonical TUNABLES pattern."""
+    """Master gate. Operator flips ``prayer_times_enabled`` (Admin →
+    Prayer Times) to authorise outbound calls to api.aladhan.com.
+    A plain DB-backed setting (like ``weather_enabled``) — NOT a tunable —
+    so the admin toggle loads with the rest of the settings (default OFF
+    for privacy)."""
     try:
-        return bool(tuning_int(Tunable.PRAYER_TIMES_ENABLED))
+        return get_setting_bool(Settings.PRAYER_TIMES_ENABLED, False)
     except (KeyError, ValueError, TypeError):
         return False
 
@@ -358,7 +359,7 @@ def _with_next(body: dict, *, label: str = "", cached: bool = False) -> dict:
 
 async def fetch(lat: float, lon: float, *, label: str = "",
                 method: Optional[int] = None, school: Optional[int] = None,
-                force: bool = False) -> dict:
+                force: bool = False, bypass_gate: bool = False) -> dict:
     """Fetch today's prayer times + Hijri date for one lat/lon.
 
     ``method`` / ``school`` default to the operator's Admin → Prayer
@@ -367,8 +368,16 @@ async def fetch(lat: float, lon: float, *, label: str = "",
     applies so a Refresh spammed during an upstream outage doesn't
     hammer api.aladhan.com. ``next`` is recomputed on every call (fresh
     or cached) so the countdown stays accurate.
+
+    ``bypass_gate=True`` skips the ``is_enabled()`` master-gate check —
+    used ONLY by the admin Test-connection route, where the operator has
+    explicitly authorised this one outbound probe (mirrors Weather /
+    Portainer / OIDC tests, which probe regardless of their enable
+    toggle, so the admin can verify before enabling + saving). Every
+    other caller leaves it False so the privacy default (no outbound
+    call until enabled) holds.
     """
-    if not is_enabled():
+    if not bypass_gate and not is_enabled():
         return {"configured": False}
     m = default_method() if method is None else int(method)
     s = default_school() if school is None else (1 if int(school) == 1 else 0)

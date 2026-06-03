@@ -1201,7 +1201,7 @@ async def api_me(request: Request):
             # picker can hide the kind when the operator hasn't enabled it
             # in Admin → Prayer Times. (The endpoint also self-gates with
             # {configured:false}; this just avoids a needless round-trip.)
-            "prayer_times_enabled": bool(tuning.tuning_int(Tunable.PRAYER_TIMES_ENABLED)),
+            "prayer_times_enabled": get_setting_bool(Settings.PRAYER_TIMES_ENABLED, False),
             # Seconds without a successful backend signal (any SSE event OR
             # any REST 2xx) before the SPA's top-of-page "backend unreachable"
             # banner appears. 0 disables the banner — useful for dev / single-

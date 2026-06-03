@@ -150,7 +150,6 @@ class Tunable(str, Enum):
     PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS = "tuning_portainer_op_timeout_medium_seconds"
     PORTAINER_OP_TIMEOUT_SHORT_SECONDS = "tuning_portainer_op_timeout_short_seconds"
     PRAYER_TIMES_CACHE_TTL_SECONDS = "tuning_prayer_times_cache_ttl_seconds"
-    PRAYER_TIMES_ENABLED = "tuning_prayer_times_enabled"
     PRAYER_TIMES_FETCH_TIMEOUT_SECONDS = "tuning_prayer_times_fetch_timeout_seconds"
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
     PUBLIC_IP_ENABLED = "tuning_public_ip_enabled"
@@ -371,10 +370,10 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_portainer_op_timeout_long_seconds": ("PORTAINER_OP_TIMEOUT_LONG_SECONDS", 600, 60, 3600),
     # Prayer Times module. Standalone subsystem — the custom-dashboard
     # widget tile + AI palette + Telegram /prayer + /hijri commands all
-    # consume it. Default OFF: enabling authorises outbound calls to
-    # api.aladhan.com (free, no-key Islamic prayer-times service).
-    # Range 0..1 (boolean).
-    "tuning_prayer_times_enabled": ("PRAYER_TIMES_ENABLED", 0, 0, 1),
+    # consume it. The master enable toggle is the plain `prayer_times_enabled`
+    # SETTING (like `weather_enabled`), NOT a tunable — so the admin toggle
+    # loads with the rest of the settings; only the cache-TTL + fetch-timeout
+    # below are tunables.
     # Prayer-times in-process cache TTL. Daily prayer times are static
     # for a given day, so a 1-hour default is plenty (re-fetches hourly,
     # picks up the new day across midnight). Lower for fresher data after

@@ -286,12 +286,14 @@ async def api_get_settings(request: Request):
             "default_lon": get_setting(Settings.WEATHER_DEFAULT_LON) or "",
         },
         # Prayer Times (Admin → Prayer Times). DB-backed like weather.
-        # The master enable toggle lives in the TUNABLES (the SPA reads
-        # tuning_prayer_times_enabled); these are the calculation-method /
-        # Asr-school / fallback-location settings. `methods` is the full
-        # AlAdhan method id→name map so the SPA renders the dropdown
-        # without hardcoding the list.
+        # The master enable toggle is the plain `prayer_times_enabled`
+        # setting (returned nested as `prayer_times.enabled`, mirroring
+        # `weather.enabled`) so the SPA toggle loads with settingsLoaded;
+        # these are the calculation-method / Asr-school / fallback-location
+        # settings. `methods` is the full AlAdhan method id→name map so the
+        # SPA renders the dropdown without hardcoding the list.
         "prayer_times": (lambda _pt: {
+            "enabled": get_setting_bool(Settings.PRAYER_TIMES_ENABLED, False),
             "method": get_setting(Settings.PRAYER_TIMES_METHOD) or "",
             "school": get_setting(Settings.PRAYER_TIMES_SCHOOL) or "",
             "default_label": get_setting(Settings.PRAYER_TIMES_DEFAULT_LABEL) or "",
@@ -982,8 +984,12 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             pass
     # Prayer Times (DB-backed like weather). Method id validated against
     # the known AlAdhan method set; school clamped to 0/1; lat/lon
-    # validated as floats; base URL trailing-slash stripped.
+    # validated as floats; base URL trailing-slash stripped. The master
+    # enable toggle is a plain bool setting (mirrors `weather_enabled`).
     prayer_changed = False
+    if s.prayer_times_enabled is not None:
+        set_setting(Settings.PRAYER_TIMES_ENABLED,
+                    "true" if s.prayer_times_enabled else "false")
     if s.prayer_times_method is not None:
         raw_m = (s.prayer_times_method or "").strip()
         if raw_m:

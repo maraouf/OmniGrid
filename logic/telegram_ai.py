@@ -484,7 +484,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         except Exception as e:
             print(f"[telegram_listener] context weather build failed: {e}")
     # ---- Prayer Times + Hijri date — per-user saved weather location.
-    # Operator-opt-in (tuning_prayer_times_enabled); method + Asr school
+    # Operator-opt-in (prayer_times_enabled); method + Asr school
     # come from Admin → Prayer Times. Same in-process cache the widget
     # hits. Lets the Telegram AI answer "when is the next prayer" /
     # "what's the Hijri date" from real data.
