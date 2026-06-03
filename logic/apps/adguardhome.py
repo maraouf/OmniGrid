@@ -54,40 +54,15 @@ from typing import Any, Optional
 
 import httpx
 
-from logic.apps._common import cache_key, fetch_preamble, resolve_base_url
+from logic.apps._common import (
+    cache_key, fetch_gate, fleet_action_result, fleet_blocker_status,
+    fleet_disable_skills, fleet_instances, peek_cache, resolve_base_url)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
 # ``adguard-home``; the aliases catch operator-edited chips that kept
 # the brand but dropped the catalog link.
 SLUGS: tuple[str, ...] = ("adguard-home", "adguardhome", "adguard")
-
-# Timed-disable presets (label, seconds). Each becomes a distinct
-# ``adguard_disable_<label>`` skill so the AI / Telegram / drawer can
-# pick a duration without a params channel (the skill route carries no
-# body). 0 / indefinite is the bare ``adguard_disable`` skill.
-DISABLE_PRESETS: tuple[tuple[str, int], ...] = (
-    ("1m", 60), ("5m", 300), ("10m", 600), ("30m", 1800),
-    ("1h", 3600), ("2h", 7200), ("24h", 86400),
-)
-
-
-def _disable_skill(label: str, seconds: int) -> dict:
-    human = {
-        "1m": "1 minute", "5m": "5 minutes", "10m": "10 minutes",
-        "30m": "30 minutes", "1h": "1 hour", "2h": "2 hours", "24h": "24 hours",
-    }.get(label, label)
-    return {
-        "id": f"adguard_disable_{label}",
-        "name": f"Disable for {human}",
-        "ai_phrases": (f"disable adguard for {human}, pause blocking for {human}, "
-                       f"turn off protection for {human}"),
-        "destructive": True,
-        # Non-protocol hint consumed by the SPA to group the timed-disable
-        # buttons + by run_skill to resolve the duration.
-        "disable_seconds": seconds,
-    }
-
 
 # Fleet-wide SKILLS. run_skill ignores the targeted chip's identity for
 # the action skills — it fans out to EVERY AdGuard instance (operator's
@@ -115,7 +90,7 @@ SKILLS: tuple[dict, ...] = (
                        "stop blocking, turn adguard off indefinitely"),
         "destructive": True,
     },
-    *(_disable_skill(lbl, sec) for lbl, sec in DISABLE_PRESETS),
+    *fleet_disable_skills("adguard", "adguard"),
     {
         "id": "adguard_refresh",
         "name": "Refresh blocklists",
@@ -244,14 +219,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     (→ HTTP 502) on an upstream failure (the SPA aggregate footnotes
     the failing host, so a single down host doesn't sink the card)."""
     username, password = _creds(chip)
-    if not password:
-        raise ValueError("password not set for this instance")
     now = time.time()
-    base, hit = fetch_preamble(host_row, chip, host_id, service_idx,
-                               _data_cache, CACHE_TTL_S, now, force)
+    base, hit = fetch_gate(host_row, chip, host_id, service_idx,
+                           _data_cache, CACHE_TTL_S, now, force,
+                           credential=password, log_tag="adguard")
     if hit is not None:
         return hit
-    print(f"[adguard] INFO fetch host={host_id} svc_idx={service_idx} url={base}/control/stats")
     auth = httpx.BasicAuth(username, password)
     headers = {"Accept": "application/json"}
 
@@ -325,8 +298,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     """Cache-only peek (no upstream call) for the AI context's
     ``app_skills[].last``. Returns the last fetched per-host stats or
     None."""
-    cached = _data_cache.get(cache_key(host_id, service_idx))
-    return cached[1] if cached else None
+    return peek_cache(_data_cache, host_id, service_idx)
 
 
 # ---------------------------------------------------------------------------
@@ -334,27 +306,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 # instance in hosts_config — the operator's explicit "all the fleet" model.
 # ---------------------------------------------------------------------------
 def _instances() -> list:
-    """Enumerate every AdGuard instance with credentials:
-    ``[(host_id, service_idx, host_row, chip)]``. Never raises."""
-    # noinspection PyBroadException
-    try:
-        from logic.apps.registry import instances_for_slug  # noqa: PLC0415
-    except Exception:  # noqa: BLE001
-        return []
-    out = []
-    for slug in SLUGS:
-        for tup in instances_for_slug(slug):
-            out.append(tup)
-    # Dedup by (host_id, service_idx) in case aliases overlap.
-    seen = set()
-    uniq = []
-    for hid, sidx, hrow, chip in out:
-        k = (hid, sidx)
-        if k in seen:
-            continue
-        seen.add(k)
-        uniq.append((hid, sidx, hrow, chip))
-    return uniq
+    """Enumerate every AdGuard instance:
+    ``[(host_id, service_idx, host_row, chip)]``. Shared fleet helper —
+    deduped, never raises."""
+    return fleet_instances(SLUGS)
 
 
 async def _set_protection(base: str, auth: httpx.BasicAuth, enabled: bool,
@@ -395,61 +350,26 @@ async def _refresh_filters(base: str, auth: httpx.BasicAuth) -> None:
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
-def _fmt_int(v) -> str:
-    try:
-        return f"{int(v):,}"
-    except (TypeError, ValueError):
-        return "—"
+def _avg_processing_lines(ok_rows: list, totals: dict) -> list:
+    """AdGuard-specific extra stat line for the fleet status: the
+    query-weighted average DNS processing time across hosts (Pi-hole has
+    no equivalent metric). Passed as ``extra_lines_fn`` to
+    ``fleet_blocker_status``."""
+    queries = totals["queries"]
+    wsum = sum(safe_float(r.get("avg_processing_ms")) * safe_int(r.get("queries_today"))
+               for r in ok_rows)
+    avg_ms = round(wsum / queries, 1) if queries > 0 else 0.0
+    return [f"⏱️ Avg processing: {avg_ms} ms"]
 
 
 async def _skill_status() -> dict:
     """Read-only: live-fetch every instance + aggregate into a formatted
-    detail block (web inline + Telegram + AI). Never raises."""
-    insts = _instances()
-    if not insts:
-        return {"ok": False, "detail": "no AdGuard instances configured", "status": 0}
-    results = await asyncio.gather(
-        *[fetch_data(hrow, chip, host_id=hid, service_idx=sidx, force=True)
-          for (hid, sidx, hrow, chip) in insts],
-        return_exceptions=True,
-    )
-    ok_rows = [r for r in results if isinstance(r, dict) and r.get("ok")]
-    failed = [insts[i][0] for i, r in enumerate(results) if not (isinstance(r, dict) and r.get("ok"))]
-    if not ok_rows:
-        return {"ok": False, "detail": "all AdGuard hosts unreachable", "status": 0}
-    queries = sum(safe_int(r.get("queries_today")) for r in ok_rows)
-    blocked = sum(safe_int(r.get("blocked_today")) for r in ok_rows)
-    pct = round((blocked / queries) * 100.0, 1) if queries > 0 else 0.0
-    rules = max((safe_int(r.get("blocklist_rules")) for r in ok_rows), default=0)
-    clients = sum(safe_int(r.get("num_clients")) for r in ok_rows)
-    # Query-weighted average processing time.
-    wsum = sum(safe_float(r.get("avg_processing_ms")) * safe_int(r.get("queries_today")) for r in ok_rows)
-    avg_ms = round(wsum / queries, 1) if queries > 0 else 0.0
-    top = None
-    top_count = -1
-    for r in ok_rows:
-        t = r.get("top_blocked_domain")
-        if not (isinstance(t, dict) and t.get("name")):
-            continue
-        c = safe_int(t.get("count"))
-        if c > top_count:
-            top, top_count = t, c
-    prot_on = sum(1 for r in ok_rows if r.get("protection_enabled"))
-    n = len(ok_rows)
-    lines = [
-        f"🛡️ AdGuard — {n} host{'s' if n != 1 else ''}",
-        f"⛔ Blocked today: {_fmt_int(blocked)}  ({pct}%)",
-        f"🔢 Queries today: {_fmt_int(queries)}",
-        f"📋 Blocklist domains: {_fmt_int(rules)}",
-        f"👥 Active clients: {_fmt_int(clients)}",
-        f"⏱️ Avg processing: {avg_ms} ms",
-    ]
-    if top:
-        lines.append(f"🔝 Top blocked: {top.get('name')} ({_fmt_int(top.get('count'))})")
-    lines.append(f"🔐 Protection: {'ON' if prot_on == n else f'{prot_on}/{n} ON'}")
-    if failed:
-        lines.append(f"⚠️ unreachable: {', '.join(failed)}")
-    return {"ok": True, "detail": "\n".join(lines), "status": 200}
+    detail block (web inline + Telegram + AI). The query-weighted
+    avg-processing line is AdGuard-specific (extra_lines_fn). Never raises."""
+    return await fleet_blocker_status(
+        _instances(), fetch_data, app_label="AdGuard",
+        header="🛡️ AdGuard", protection_label="Protection",
+        extra_lines_fn=_avg_processing_lines)
 
 
 async def _skill_fleet_action(action: str, duration_ms: int = 0) -> dict:
@@ -479,18 +399,13 @@ async def _skill_fleet_action(action: str, duration_ms: int = 0) -> dict:
         return hid, True, ""
 
     results = await asyncio.gather(*[_one(*t) for t in insts])
-    ok_hosts = [hid for hid, ok, _ in results if ok]
-    bad = [(hid, err) for hid, ok, err in results if not ok]
-    verb = {"enable": "enabled", "disable": "disabled", "refresh": "refreshed"}.get(action, action)
+    verb = {"enable": "enabled", "disable": "disabled",
+            "refresh": "refreshed"}.get(action, action)
     if action == "disable" and duration_ms > 0:
-        secs = duration_ms // 1000
-        verb = f"disabled for {secs}s"
-    detail = f"AdGuard {verb} on {len(ok_hosts)}/{len(results)} host(s)"
-    if bad:
-        detail += " — failed: " + ", ".join(f"{h} ({e})" for h, e in bad)
-    print(f"[adguard] INFO fleet action={action} dur_ms={duration_ms} "
-          f"ok={len(ok_hosts)}/{len(results)}")
-    return {"ok": len(ok_hosts) > 0, "detail": detail, "status": 200 if ok_hosts else 502}
+        verb = f"disabled for {duration_ms // 1000}s"
+    out = fleet_action_result(results, "AdGuard", verb)
+    print(f"[adguard] INFO fleet action={action} dur_ms={duration_ms} -> {out.get('detail')}")
+    return out
 
 
 # noinspection PyUnusedLocal
@@ -513,9 +428,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "adguard_refresh":
         return await _skill_fleet_action("refresh")
     if skill_id.startswith("adguard_disable_"):
-        label = skill_id[len("adguard_disable_"):]
-        secs = dict(DISABLE_PRESETS).get(label)
-        if secs is None:
-            raise ValueError(f"unknown disable preset: {label!r}")
+        # Resolve the duration straight from the SKILLS list (each timed
+        # disable carries `disable_seconds`) — no parallel presets tuple.
+        secs = next((safe_int(s.get("disable_seconds")) for s in SKILLS
+                     if s.get("id") == skill_id), 0)
+        if not secs:
+            raise ValueError(f"unknown disable preset: {skill_id!r}")
         return await _skill_fleet_action("disable", secs * 1000)
     raise ValueError(f"unknown skill: {skill_id!r}")
