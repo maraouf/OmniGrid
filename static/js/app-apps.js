@@ -3173,6 +3173,23 @@ export default {
     }
   },
 
+  // Clamp a typed averages-window value to the valid range [2, 60], or ''
+  // when blank (= "use the app default"). Shared by the gear-flip card
+  // setting + the Admin → Apps instance editor so both enforce the SAME
+  // bounds the backend does — a number input's min/max only bounds the
+  // spinner, not typed values, so typing 90 must clamp to 60 on the spot.
+  appsClampAvgWindow(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (s === '') {
+      return '';
+    }
+    const n = parseInt(s, 10);
+    if (!Number.isFinite(n)) {
+      return '';
+    }
+    return Math.max(2, Math.min(60, n));
+  },
+
   // Current per-instance averages window for a card's app (Speedtest),
   // read from the card's FIRST instance. '' when unset (the app default
   // 10 applies). Seeds the gear-flip "Averages window" number input.
@@ -3197,13 +3214,8 @@ export default {
     if (!inst || !inst.host_id || inst.service_idx == null) {
       return;
     }
-    let send;
-    const v = parseInt(value, 10);
-    if (!Number.isFinite(v)) {
-      send = '';  // blank => backend clears => default
-    } else {
-      send = Math.max(2, Math.min(60, v));
-    }
+    // '' clears the override (backend → app default); else clamped 2..60.
+    const send = this.appsClampAvgWindow(value);
     try {
       const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
         + '/' + encodeURIComponent(inst.service_idx), {

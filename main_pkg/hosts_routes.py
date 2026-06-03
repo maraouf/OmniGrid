@@ -1317,9 +1317,12 @@ def _clean_host_services(raw: Any) -> list[dict]:
         aw = entry.get("avg_window")
         if isinstance(aw, (int, str)) and str(aw).strip() != "":
             try:
-                awi = int(aw)
-                if 2 <= awi <= 60:
-                    cleaned["avg_window"] = awi
+                # CLAMP to 2..60 (don't drop): an out-of-range value (e.g.
+                # 90) becomes 60 so the operator's intent ("as many as
+                # possible") is honoured instead of silently reverting to
+                # the default. Blank / unparseable still falls through to
+                # the default by omitting the field.
+                cleaned["avg_window"] = max(2, min(60, int(aw)))
             except (TypeError, ValueError):
                 pass
         # Per-chip probe sub-dict.

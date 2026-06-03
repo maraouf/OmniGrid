@@ -36,6 +36,7 @@
       <input id="apps-instance-speedtest-avg-window"
              type="number" min="2" max="60" step="1"
              x-model="appsInstanceEditForm.avg_window"
+             @change="appsInstanceEditForm.avg_window = appsClampAvgWindow(appsInstanceEditForm.avg_window)"
              class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
              :placeholder="t('apps.speedtest.avg_window_placeholder') || '10 (default)'"
              autocomplete="off">
