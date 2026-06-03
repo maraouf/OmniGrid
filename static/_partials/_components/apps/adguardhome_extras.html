@@ -20,7 +20,7 @@
      backend skill route + run_skill fan-out enforce both. -->
 <!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
 <template x-if="adguardIsApp && adguardIsApp(app)">
-  <div class="apps-card-adguard mt-3 pt-3 border-t border-[var(--border)] space-y-2">
+  <div class="apps-card-adguard mt-1 pt-1 border-t border-[var(--border)] space-y-2">
     <!-- Compute the aggregate ONCE per render via a single-element x-for. -->
     <template x-for="agg in [adguardAggregate(app)]" :key="'agg'">
       <div class="space-y-2">
