@@ -6381,7 +6381,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-size: var(--fs-md) !important;
 }
 
-.swal2-html-container ul {
+.swal2-html-container ul:not(.release-notes-list) {
   text-align: start;
   display: inline-block;
   /* Never exceed the popup width: with `word-break` on the code pills
@@ -6395,7 +6395,13 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   list-style: none;
 }
 
-.swal2-html-container li {
+/* `:not(.release-notes-li)` scopes this to the remove/update CONFIRM
+   dialog lists — the release-notes popup is ALSO a SweetAlert, so an
+   unscoped `.swal2-html-container li` flex + bullet leaked into the
+   rendered changelog and squeezed each note's inline content (text +
+   code chips) into a cramped, mid-word-breaking column. The
+   release-notes list keeps its own block flow (.release-notes-li). */
+.swal2-html-container li:not(.release-notes-li) {
   padding: var(--s-1) 0;
   color: var(--text);
   /* Bullet + name as a flex row so the marker hangs to the LEFT of the
@@ -6408,7 +6414,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   gap: var(--s-2);
 }
 
-.swal2-html-container li::before {
+.swal2-html-container li:not(.release-notes-li)::before {
   content: "•";
   color: var(--primary);
   font-weight: bold;
@@ -10681,7 +10687,8 @@ select.field-invalid {
    card border is the only frame, not an hr stacked inside the instance box. */
 .apps-drawer-extras-box .apps-card-speedtest,
 .apps-drawer-extras-box .apps-card-ups,
-.apps-drawer-extras-box .apps-card-adguard {
+.apps-drawer-extras-box .apps-card-adguard,
+.apps-drawer-extras-box .apps-card-pihole {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
@@ -11381,15 +11388,20 @@ select.field-invalid {
   min-width: 0;
 }
 
-/* AdGuard Home aggregated extras (app-level block on the Apps card). The
-   stat grid auto-fits 2-3 columns; each cell reuses `.apps-card-stat`. */
-.apps-adguard-statgrid {
+/* Fleet-app aggregated extras (app-level block on the Apps card) — shared
+   by AdGuard Home + Pi-hole + any future N-host fleet DNS-blocker. The
+   `.apps-fleet-*` names are canonical; the `.apps-adguard-*` aliases stay
+   so the AdGuard partial keeps working without a class rename. The stat
+   grid auto-fits 2-3 columns; each cell reuses `.apps-card-stat`. */
+.apps-adguard-statgrid,
+.apps-fleet-statgrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: var(--s-2);
 }
 
-.apps-adguard-dot {
+.apps-adguard-dot,
+.apps-fleet-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -11397,16 +11409,19 @@ select.field-invalid {
   background: var(--text-faint);
 }
 
-.apps-adguard-dot--on {
+.apps-adguard-dot--on,
+.apps-fleet-dot--on {
   background: var(--success);
 }
 
-.apps-adguard-dot--off {
+.apps-adguard-dot--off,
+.apps-fleet-dot--off {
   background: var(--warning);
 }
 
 /* Timed-disable preset chips (1m / 5m / … / 24h). Small mono pills. */
-.apps-adguard-preset {
+.apps-adguard-preset,
+.apps-fleet-preset {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -11422,18 +11437,21 @@ select.field-invalid {
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
-.apps-adguard-preset:hover:not(:disabled) {
+.apps-adguard-preset:hover:not(:disabled),
+.apps-fleet-preset:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 22%, transparent);
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   color: var(--danger);
 }
 
-.apps-adguard-preset:disabled {
+.apps-adguard-preset:disabled,
+.apps-fleet-preset:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.apps-adguard-preset:focus-visible {
+.apps-adguard-preset:focus-visible,
+.apps-fleet-preset:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }

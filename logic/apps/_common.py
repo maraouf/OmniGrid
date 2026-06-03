@@ -13,6 +13,54 @@ from __future__ import annotations
 from typing import Optional
 
 
+def fleet_instances(slugs: "tuple[str, ...]") -> list:
+    """Enumerate every pinned instance of a FLEET app across the curated
+    host list: ``[(host_id, service_idx, host_row, chip)]``, deduped by
+    ``(host_id, service_idx)`` in case aliases overlap. Shared by every
+    fleet module (AdGuard / Pi-hole / future N-host apps) whose
+    ``run_skill`` fans out across all instances — pass the module's own
+    ``SLUGS`` tuple. Never raises (returns ``[]`` if the registry import
+    fails)."""
+    # noinspection PyBroadException
+    try:
+        from logic.apps.registry import instances_for_slug  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for slug in slugs:
+        for tup in instances_for_slug(slug):
+            out.append(tup)
+    seen = set()
+    uniq = []
+    for hid, sidx, hrow, chip in out:
+        k = (hid, sidx)
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append((hid, sidx, hrow, chip))
+    return uniq
+
+
+def peek_cache(cache: dict, host_id: str, service_idx: int) -> Optional[dict]:
+    """Cache-only peek (no upstream call, no TTL check) for a per-app
+    module's ``peek_latest`` — returns the last fetched per-host stats
+    for ``(host_id, service_idx)`` or ``None``. The AI context's
+    ``app_skills[].last`` is the canonical consumer (it must stay
+    side-effect-free, so this never fetches)."""
+    cached = cache.get(cache_key(host_id, service_idx))
+    return cached[1] if cached else None
+
+
+def fmt_int_grouped(v) -> str:
+    """Format an integer with thousands separators; ``"—"`` for a
+    non-numeric / missing value. Shared by the fleet modules' aggregate
+    detail blocks (web inline + Telegram + AI)."""
+    try:
+        return f"{int(v):,}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def resolve_base_url(host_row: dict, chip: dict) -> str:
     """Resolve an app chip's upstream base URL.
 

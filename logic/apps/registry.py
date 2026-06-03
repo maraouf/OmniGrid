@@ -27,6 +27,7 @@ from logic.coerce import int_or_none
 
 from . import adguardhome
 from . import apc
+from . import pihole
 from . import speedtest_tracker
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
@@ -47,6 +48,7 @@ def _register(module: ModuleType) -> None:
 
 _register(adguardhome)
 _register(apc)
+_register(pihole)
 _register(speedtest_tracker)
 
 
