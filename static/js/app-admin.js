@@ -2166,6 +2166,23 @@ export default {
           api_base_url: '', api_key_set: false,
           default_label: '', default_lat: '', default_lon: '',
         },
+        // Prayer Times (Admin → Prayer Times). Master toggle is the
+        // tuning_prayer_times_enabled tunable (read via tuningForm, like
+        // public_ip); these flat keys are the DB-backed method / Asr
+        // school / fallback-location / base-URL settings. The nested
+        // `prayer_times` object carries the AlAdhan methods list for the
+        // dropdown + the fallback default ids.
+        prayer_times_method: (d.prayer_times && d.prayer_times.method) || '',
+        prayer_times_school: (d.prayer_times && d.prayer_times.school) || '',
+        prayer_times_default_label: (d.prayer_times && d.prayer_times.default_label) || '',
+        prayer_times_default_lat: (d.prayer_times && d.prayer_times.default_lat) || '',
+        prayer_times_default_lon: (d.prayer_times && d.prayer_times.default_lon) || '',
+        prayer_times_api_base_url: (d.prayer_times && d.prayer_times.api_base_url) || '',
+        prayer_times: d.prayer_times || {
+          method: '', school: '', default_label: '', default_lat: '',
+          default_lon: '', api_base_url: '', methods: [],
+          default_method: 5, default_school: 0,
+        },
         // Per-service master switches. Default true so legacy
         // deploys keep working before the operator interacts with
         // the toggles.

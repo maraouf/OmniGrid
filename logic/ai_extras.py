@@ -1302,6 +1302,61 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                         "multi-day questions like 'next 5 days' / 'this week' / 'tomorrow'):\n"
                         + "\n".join(lines)
                     )
+        # Prayer Times + Hijri date — when the operator opts in (the
+        # context-builders stamp `prayer` only if
+        # `tuning_prayer_times_enabled` is true and a location is
+        # available). Lets the AI answer "when is the next prayer / when
+        # is Maghrib" / "what's the Hijri date today" from real AlAdhan
+        # data instead of refusing or hallucinating times.
+        prayer = _typed_field(ctx, "prayer", dict)
+        if prayer:
+            head_bits = []
+            if prayer.get("location"):
+                head_bits.append(str(prayer["location"]))
+            if prayer.get("method"):
+                head_bits.append(f"method: {prayer['method']}")
+            if prayer.get("timezone"):
+                head_bits.append(f"tz: {prayer['timezone']}")
+            parts.append(
+                "Prayer times"
+                + (f" for {' · '.join(head_bits)}" if head_bits else "")
+                + " (from OmniGrid Prayer Times — use these to answer prayer-time "
+                  "+ Hijri-calendar questions):"
+            )
+            nxt = prayer.get("next")
+            if isinstance(nxt, dict) and nxt.get("name"):
+                secs = nxt.get("in_seconds")
+                when = ""
+                if isinstance(secs, (int, float)) and secs >= 0:
+                    h = int(secs) // 3600
+                    m = (int(secs) % 3600) // 60
+                    when = (f" (in {h}h {m}m)" if h else f" (in {m}m)")
+                tom = " tomorrow" if nxt.get("tomorrow") else ""
+                parts.append(
+                    f"  Next prayer: {nxt['name']} at {nxt.get('time') or '?'}{tom}{when}"
+                )
+            timings = prayer.get("timings")
+            if isinstance(timings, list) and timings:
+                t_lines = []
+                for row in timings:
+                    if not isinstance(row, dict) or not row.get("name"):
+                        continue
+                    tag = "" if row.get("is_prayer", True) else " (sunrise — not a prayer)"
+                    t_lines.append(f"  - {row['name']}: {row.get('time') or '?'}{tag}")
+                if t_lines:
+                    parts.append("\n".join(t_lines))
+            hijri = prayer.get("hijri")
+            if isinstance(hijri, dict) and (hijri.get("text") or hijri.get("day")):
+                hijri_txt = hijri.get("text") or " ".join(
+                    str(x) for x in [hijri.get("day"), hijri.get("month"),
+                                     hijri.get("year"), hijri.get("designation")] if x
+                )
+                wk = f" ({hijri['weekday']})" if hijri.get("weekday") else ""
+                parts.append(f"  Hijri date: {hijri_txt}{wk}")
+            greg = prayer.get("gregorian")
+            if isinstance(greg, dict) and greg.get("date"):
+                gwk = f" ({greg['weekday']})" if greg.get("weekday") else ""
+                parts.append(f"  Gregorian date: {greg['date']}{gwk}")
         # Public IP + ISP / ASN — when the operator opts in (the
         # context-builders fetch from ifconfig.co and stamp `public_ip`
         # only if `tuning_public_ip_enabled` is true). Surfacing this lets

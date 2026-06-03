@@ -216,6 +216,7 @@
   --widget-accent-weather: #38bdf8; /* sky-400 */
   --widget-accent-public_ip: #2dd4bf; /* teal-400 */
   --widget-accent-system_stats: #34d399; /* emerald-400 */
+  --widget-accent-prayer_times: #fbbf24; /* amber-400 — dawn/dusk warmth */
   /* Chart extended palette — distinguishing hues for per-host probe
      charts (Dell temp probes, sensor strips, multi-line plots) when
      the base --info / --warning / --success / --danger / --primary
@@ -599,6 +600,7 @@
   --widget-accent-weather: #0284c7; /* sky-600 */
   --widget-accent-public_ip: #0d9488; /* teal-600 */
   --widget-accent-system_stats: #059669; /* emerald-600 */
+  --widget-accent-prayer_times: #d97706; /* amber-600 — dawn/dusk warmth */
   --chart-palette-violet: #7c3aed; /* darker violet for light-theme contrast */
   --chart-palette-pink: #be185d; /* darker pink */
   --chart-palette-cyan: #0e7490; /* darker cyan */
@@ -11717,6 +11719,145 @@ select.field-invalid {
   --widget-accent: var(--widget-accent-system_stats);
   --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
   --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
+}
+
+.apps-widget-tile--prayer_times {
+  --widget-accent: var(--widget-accent-prayer_times);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
+}
+
+/* Prayer Times widget body — next-prayer hero, Hijri date line, and the
+   5 daily prayers (+ Sunrise) as a compact list. The next prayer row is
+   highlighted with the accent-soft fill + accent text. */
+.apps-widget-prayer-wrap {
+  display: contents;
+}
+
+.apps-widget-prayer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  height: 100%;
+  min-height: 0;
+}
+
+.apps-widget-prayer-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.apps-widget-prayer-hero-icon {
+  width: 26px;
+  height: 26px;
+  color: var(--widget-accent);
+  flex: 0 0 auto;
+}
+
+.apps-widget-prayer-hero-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.apps-widget-prayer-next-name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.apps-widget-prayer-countdown {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.apps-widget-prayer-countdown-val {
+  font-weight: 700;
+  color: var(--widget-accent);
+}
+
+.apps-widget-prayer-tomorrow {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.apps-widget-prayer-hijri {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.apps-widget-prayer-hijri svg {
+  color: var(--widget-accent);
+  flex: 0 0 auto;
+}
+
+.apps-widget-prayer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.apps-widget-prayer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.apps-widget-prayer-row--info {
+  color: var(--text-faint);
+}
+
+.apps-widget-prayer-row--next {
+  background: var(--widget-accent-soft);
+  color: var(--widget-accent);
+  font-weight: 700;
+}
+
+.apps-widget-prayer-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--widget-accent);
+  opacity: 0.85;
+}
+
+.apps-widget-prayer-row--info .apps-widget-prayer-icon {
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
+.apps-widget-prayer-row--next .apps-widget-prayer-icon {
+  color: var(--widget-accent);
+  opacity: 1;
+}
+
+.apps-widget-prayer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.apps-widget-prayer-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 /* Background-icon decoration — a large faded brand icon in the

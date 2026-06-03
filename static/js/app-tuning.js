@@ -299,6 +299,13 @@ export default {
     'tuning_weather_fetch_timeout_seconds',
     'tuning_weather_history_retention_days',
     'tuning_weather_sampler_interval_seconds',
+    // Prayer Times — standalone subsystem with its own Admin → Prayer
+    // Times section. Master toggle (1/0) + cache TTL + fetch timeout.
+    // Section-owned save via prayerTimesSectionDirty() /
+    // savePrayerTimesSection().
+    'tuning_prayer_times_enabled',
+    'tuning_prayer_times_cache_ttl_seconds',
+    'tuning_prayer_times_fetch_timeout_seconds',
     // Telegram listener long-poll + outer-HTTP timeouts — rendered
     // inside Admin → Notifications → Telegram tab next to the bot-
     // token / chat-id / api-base inputs. Section save piggy-backs on

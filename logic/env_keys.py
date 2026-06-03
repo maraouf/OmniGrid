@@ -81,6 +81,10 @@ class EnvKey(str, Enum):
     PORTAINER_API_KEY = "PORTAINER_API_KEY"
     PORTAINER_ENDPOINT_ID = "PORTAINER_ENDPOINT_ID"
     PORTAINER_URL = "PORTAINER_URL"
+    # AlAdhan prayer-times REST base — operator-set so we don't bake
+    # a third-party URL into Python source. Empty falls through to
+    # the documented default in logic/prayer_times.py.
+    PRAYER_TIMES_API_BASE_URL = "PRAYER_TIMES_API_BASE_URL"
     # Public-IP lookup endpoint URL — operator-set so we don't bake
     # a third-party URL into Python source. Empty falls through to
     # the documented default in logic/public_ip.py.

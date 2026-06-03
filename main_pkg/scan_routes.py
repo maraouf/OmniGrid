@@ -1853,7 +1853,10 @@ async def api_public_ip(_admin: AdminUser, force: bool = False, test: bool = Fal
     # Best-effort — `last_change()` returns None on no-history / DB error.
     try:
         last_change = await asyncio.to_thread(_public_ip.last_change)
-    except Exception:  # noqa: BLE001
+    except RuntimeError:
+        # `last_change()` is self-guarding (returns None on any DB error),
+        # so the only thing reaching here is a to_thread / event-loop
+        # RuntimeError during shutdown — None is the right fallback.
         last_change = None
     if data is None:
         # Live lookup failed (transient network blip or an active
@@ -2193,6 +2196,122 @@ async def api_weather_history(
     rows = _sampler.recent_samples(limit=int(max(1, min(limit, 5000))),
                                    lat=lat, lon=lon)
     return {"history": rows, "count": len(rows)}
+
+
+# ============================================================================
+# Prayer Times — five daily prayers + Hijri date from api.aladhan.com.
+# Standalone subsystem (logic/prayer_times.py). Location comes from the
+# logged-in user's existing weather location (the SPA passes their
+# headerWeatherLat/Lon); method + Asr school are operator settings in
+# Admin → Prayer Times. Consumed by the custom-dashboard widget tile,
+# the AI palette, and the Telegram /prayer + /hijri commands.
+# ============================================================================
+# noinspection PyTypeChecker,PyUnresolvedReferences
+@app.get("/api/prayer-times")
+async def api_prayer_times(
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    label: str = "",
+    method: Optional[int] = None,
+    school: Optional[int] = None,
+    force: bool = False,
+):
+    """Fetch today's five prayers + Sunrise + the Hijri date for one
+    lat/lon. Delegates to ``logic.prayer_times.fetch`` which owns the
+    per-(coord, method, school) in-process cache + the master-toggle
+    gate. ``method`` / ``school`` default to the Admin → Prayer Times
+    settings when omitted. When no coordinates are passed, falls back
+    to the operator-configured default location so the widget / AI
+    context get SOMETHING before a user has a weather location."""
+    from logic import prayer_times as _pt
+    if lat is None or lon is None:
+        loc = _pt.default_location()
+        if not loc:
+            # Distinguish "feature disabled" (configured:false) from
+            # "enabled but no location available" (no_location:true) so
+            # the widget shows the right empty-state message.
+            if _pt.is_enabled():
+                return {"configured": True, "no_location": True}
+            return {"configured": False}
+        lat = loc["lat"]
+        lon = loc["lon"]
+        if not label:
+            label = loc.get("label") or ""
+    return await _pt.fetch(float(lat), float(lon), label=label,
+                           method=method, school=school, force=force)
+
+
+# noinspection PyTypeChecker,PyUnresolvedReferences
+@app.post("/api/prayer-times/test")
+async def api_prayer_times_test(
+    body: dict,
+    _admin: auth.User = Depends(auth.require_admin),  # noqa: B008
+):
+    """Test-connection probe for Admin → Prayer Times. Accepts
+    ``{lat, lon, label, method, school}`` (all optional — falls through
+    to the persisted default location + method/school settings). Returns
+    ``{ok, detail, ...}`` and stamps ``last_test_success`` so the shared
+    og-test-connection component lights up. Admin-only."""
+    from logic import prayer_times as _pt
+    _log_provider_test_start("prayer_times", target="api.aladhan.com")
+    try:
+        lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
+        lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
+    except (TypeError, ValueError):
+        return _stamp_test_success("prayer_times", {
+            "ok": False, "detail": "lat/lon must be numbers",
+        }, target="api.aladhan.com")
+    if lat is None or lon is None:
+        loc = _pt.default_location()
+        if loc:
+            lat = loc["lat"]
+            lon = loc["lon"]
+        else:
+            return _stamp_test_success("prayer_times", {
+                "ok": False,
+                "detail": "no default location set — enter a latitude / "
+                          "longitude in Admin → Prayer Times (or save your "
+                          "Weather location), then re-run Test",
+            }, target="api.aladhan.com")
+    method = body.get("method")
+    school = body.get("school")
+    try:
+        method_i = int(method) if method not in (None, "") else None
+        school_i = int(school) if school not in (None, "") else None
+    except (TypeError, ValueError):
+        method_i = None
+        school_i = None
+    label = (body.get("label") or "").strip()
+    # force=True so a re-test after a settings change isn't served a
+    # stale cache entry.
+    data = await _pt.fetch(float(lat), float(lon), label=label,
+                           method=method_i, school=school_i, force=True)
+    if not data or data.get("configured") is False:
+        return _stamp_test_success("prayer_times", {
+            "ok": False,
+            "detail": "Prayer Times is disabled — enable it above, Save, "
+                      "then re-run Test",
+        }, target="api.aladhan.com")
+    err_detail = data.get("error")
+    if err_detail:
+        return _stamp_test_success("prayer_times", {
+            "ok": False,
+            "detail": err_detail if isinstance(err_detail, str) else str(err_detail),
+        }, target="api.aladhan.com")
+    nxt = (data.get("next") or {})
+    hijri = (data.get("hijri") or {})
+    timings = (data.get("timings") or {})
+    fajr = (timings.get("fajr") or {}).get("time") or "?"
+    maghrib = (timings.get("maghrib") or {}).get("time") or "?"
+    detail = (
+        f"OK: Fajr {fajr}, Maghrib {maghrib}; next {nxt.get('name') or '?'}; "
+        f"Hijri {hijri.get('day') or '?'} {hijri.get('month_en') or ''} "
+        f"{hijri.get('year') or ''} {hijri.get('designation') or ''}".strip()
+    )
+    return _stamp_test_success("prayer_times", {
+        "ok": True, "detail": detail,
+        "method_name": data.get("method_name") or "",
+    }, target="api.aladhan.com")
 
 
 # ============================================================================

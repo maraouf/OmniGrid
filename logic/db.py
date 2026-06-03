@@ -662,6 +662,30 @@ def get_setting(key: str, default: str = "") -> str:
     return _SETTINGS_KV_CACHE.get(key, default)
 
 
+def read_location_setting(lat_key: str, lon_key: str, label_key: str):
+    """Read a ``{lat, lon, label}`` location triple from three settings
+    keys, or ``None`` when either coordinate is unset / non-numeric.
+
+    Shared by every "operator-configured default location" resolver
+    (``logic.weather.default_location`` /
+    ``logic.prayer_times.default_location``) so the parse + validate +
+    shape lives in ONE place instead of being copied per feature."""
+    lat_raw = (get_setting(lat_key) or "").strip()
+    lon_raw = (get_setting(lon_key) or "").strip()
+    if not lat_raw or not lon_raw:
+        return None
+    try:
+        lat = float(lat_raw)
+        lon = float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "lat": lat,
+        "lon": lon,
+        "label": (get_setting(label_key) or "").strip(),
+    }
+
+
 def set_setting(key: str, value: str) -> None:
     """Upsert one row into the ``settings`` table.
 

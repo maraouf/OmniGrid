@@ -149,6 +149,9 @@ class Tunable(str, Enum):
     PORTAINER_OP_TIMEOUT_LONG_SECONDS = "tuning_portainer_op_timeout_long_seconds"
     PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS = "tuning_portainer_op_timeout_medium_seconds"
     PORTAINER_OP_TIMEOUT_SHORT_SECONDS = "tuning_portainer_op_timeout_short_seconds"
+    PRAYER_TIMES_CACHE_TTL_SECONDS = "tuning_prayer_times_cache_ttl_seconds"
+    PRAYER_TIMES_ENABLED = "tuning_prayer_times_enabled"
+    PRAYER_TIMES_FETCH_TIMEOUT_SECONDS = "tuning_prayer_times_fetch_timeout_seconds"
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
     PUBLIC_IP_ENABLED = "tuning_public_ip_enabled"
     PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
@@ -366,6 +369,22 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     "tuning_portainer_op_timeout_short_seconds": ("PORTAINER_OP_TIMEOUT_SHORT_SECONDS", 120, 10, 600),
     "tuning_portainer_op_timeout_medium_seconds": ("PORTAINER_OP_TIMEOUT_MEDIUM_SECONDS", 300, 30, 1800),
     "tuning_portainer_op_timeout_long_seconds": ("PORTAINER_OP_TIMEOUT_LONG_SECONDS", 600, 60, 3600),
+    # Prayer Times module. Standalone subsystem — the custom-dashboard
+    # widget tile + AI palette + Telegram /prayer + /hijri commands all
+    # consume it. Default OFF: enabling authorises outbound calls to
+    # api.aladhan.com (free, no-key Islamic prayer-times service).
+    # Range 0..1 (boolean).
+    "tuning_prayer_times_enabled": ("PRAYER_TIMES_ENABLED", 0, 0, 1),
+    # Prayer-times in-process cache TTL. Daily prayer times are static
+    # for a given day, so a 1-hour default is plenty (re-fetches hourly,
+    # picks up the new day across midnight). Lower for fresher data after
+    # a method/location change; raise to spare api.aladhan.com on large
+    # multi-user deploys. Range 300..21600.
+    "tuning_prayer_times_cache_ttl_seconds": ("PRAYER_TIMES_CACHE_TTL_SECONDS", 3600, 300, 21600),
+    # Prayer-times outbound HTTP wall-clock. api.aladhan.com normally
+    # answers well under 1s; raise on slow links / proxy paths.
+    # Range 2..60.
+    "tuning_prayer_times_fetch_timeout_seconds": ("PRAYER_TIMES_FETCH_TIMEOUT_SECONDS", 8, 2, 60),
     # Public-IP lookup module. Standalone subsystem (NOT AI-related —
     # the AI palette + Telegram /ip command both consume it but the
     # feature is independent and toggled from its own Admin → Public IP

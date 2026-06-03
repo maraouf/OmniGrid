@@ -32,7 +32,7 @@ from typing import Optional
 
 import httpx
 
-from logic.db import get_setting, get_setting_bool
+from logic.db import get_setting, get_setting_bool, read_location_setting
 from logic.env_keys import EnvKey, env_get
 from logic.settings_keys import Settings
 from logic.tuning import Tunable, tuning_int
@@ -154,20 +154,11 @@ def default_location() -> Optional[dict]:
     user-location iterator returns NO locations (no users have
     configured a weather location in Settings → Profile yet).
     """
-    lat_raw = (get_setting(Settings.WEATHER_DEFAULT_LAT) or "").strip()
-    lon_raw = (get_setting(Settings.WEATHER_DEFAULT_LON) or "").strip()
-    if not lat_raw or not lon_raw:
-        return None
-    try:
-        lat = float(lat_raw)
-        lon = float(lon_raw)
-    except (TypeError, ValueError):
-        return None
-    return {
-        "lat": lat,
-        "lon": lon,
-        "label": (get_setting(Settings.WEATHER_DEFAULT_LABEL) or "").strip(),
-    }
+    return read_location_setting(
+        Settings.WEATHER_DEFAULT_LAT,
+        Settings.WEATHER_DEFAULT_LON,
+        Settings.WEATHER_DEFAULT_LABEL,
+    )
 
 
 def user_locations() -> list[dict]:

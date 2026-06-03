@@ -1418,6 +1418,7 @@
       "ssh": "SSH",
       "public_ip": "Public IP",
       "weather": "Weather",
+      "prayer_times": "Prayer Times",
       "port_scan": "Port Scan",
       "assets": "Asset Inventory",
       "ai": "AI Integration",
@@ -1838,6 +1839,18 @@
         "tuning_public_ip_sample_interval_seconds": {
           "label": "Public-IP change-sampler interval (seconds)",
           "help": "How often a background loop force-probes the public IP to record a CHANGE in the history, even when nobody is viewing the widget. Without it, change-detection only fires on incidental lookups (widget load / Telegram /ip / AI palette) which are gated by the cache TTL, so a short-lived WAN flap shorter than the cache window is missed entirely and the 'changed X ago' label goes stale. Default 300 (5 minutes) catches typical failover flaps while staying light on the upstream (~288 calls/day). 0 disables the sampler (change-detection falls back to incidental lookups only). Range 0..86400. Takes effect on the next tick."
+        },
+        "tuning_prayer_times_enabled": {
+          "label": "Prayer Times enabled",
+          "help": "Master gate for the Prayer Times subsystem (the custom-dashboard widget card + the AI / Telegram prayer-time + Hijri-date answers). 1 = enabled, 0 = disabled. Default 0 — flipping to 1 authorises outbound calls to api.aladhan.com (free, no-key Islamic prayer-times service). Range 0..1."
+        },
+        "tuning_prayer_times_cache_ttl_seconds": {
+          "label": "Prayer Times cache TTL (seconds)",
+          "help": "How long the in-process cache holds a successful api.aladhan.com response before re-fetching. Daily prayer times are static for a given day, so the default 3600 (1 hour) is plenty (it also picks up the new day across midnight). Lower for fresher data after a method / location change; raise to spare the upstream on large multi-user deploys. Range 300..21600. Takes effect on the next lookup."
+        },
+        "tuning_prayer_times_fetch_timeout_seconds": {
+          "label": "Prayer Times fetch timeout (seconds)",
+          "help": "Outbound HTTP wall-clock for the api.aladhan.com request. Default 8s. Raise on slow links / proxy paths. Range 2..60. Takes effect on the next lookup."
         },
         "tuning_weather_cache_ttl_seconds": {
           "label": "Weather cache TTL (seconds)",
@@ -4755,6 +4768,45 @@
     "history_col_isp": "ISP",
     "history_col_loc": "Location"
   },
+  "admin_prayer_times": {
+    "title": "Prayer Times",
+    "intro": "Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user's saved Weather location; set a calculation method + Asr school below.",
+    "enable_hint": "When off, the widget shows a disabled state and no outbound call to api.aladhan.com is made.",
+    "method_label": "Calculation method",
+    "method_help": "The authority whose Fajr / Isha twilight angles are used. Pick the one standard in your region.",
+    "method_default_option": "App default ({n})",
+    "school_label": "Asr school (madhab)",
+    "school_help": "Standard (Shafi'i / Maliki / Hanbali): Asr when shadow = object length. Hanafi: Asr when shadow = twice the object length (later).",
+    "school_default_option": "App default (Standard / Shafi'i)",
+    "school_standard": "0 — Standard (Shafi'i / Maliki / Hanbali)",
+    "school_hanafi": "1 — Hanafi",
+    "location_label": "Default location (fallback)",
+    "location_help": "Used only when a user has no saved Weather location. Each user's own Weather location takes precedence.",
+    "lat_label": "Default latitude",
+    "lon_label": "Default longitude",
+    "label_field_label": "Default location label",
+    "lat_placeholder": "Latitude (e.g. 30.0444)",
+    "lon_placeholder": "Longitude (e.g. 31.2357)",
+    "label_placeholder": "Label (e.g. Cairo)",
+    "base_url_summary": "Advanced — API base URL",
+    "base_url_label": "AlAdhan API base URL",
+    "base_url_placeholder": "api.aladhan.com/v1",
+    "base_url_help": "AlAdhan REST base. Leave blank for the default (api.aladhan.com/v1).",
+    "saving": "Saving…"
+  },
+  "prayer_times": {
+    "name_fajr": "Fajr",
+    "name_sunrise": "Sunrise",
+    "name_dhuhr": "Dhuhr",
+    "name_asr": "Asr",
+    "name_maghrib": "Maghrib",
+    "name_isha": "Isha",
+    "in": "in",
+    "tomorrow": "tomorrow",
+    "widget_disabled": "Prayer Times is disabled. Ask an admin to enable it in Admin → Prayer Times.",
+    "widget_no_location": "Set your weather location in Settings → Profile → Weather, or an admin can set a default in Admin → Prayer Times.",
+    "widget_no_data": "No prayer data yet — click the refresh button to try again."
+  },
   "hosts_extra_ssh": {
     "card_title": "SSH",
     "status_not_configured": "Not configured",
@@ -5036,6 +5088,7 @@
       "widget_weather": "Weather",
       "widget_moon": "Moon phase",
       "widget_public_ip": "Public IP",
+      "widget_prayer_times": "Prayer Times",
       "widget_system_stats": "Host status",
       "widget_no_data": "No data",
       "widget_system_summary": "{up} / {total} hosts up",

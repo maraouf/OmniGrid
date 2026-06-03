@@ -1196,6 +1196,12 @@ async def api_me(request: Request):
             # consumer keeps its existing ms-based contract. Renaming
             # the SPA field would touch every call site for no gain.
             "ops_poll_ms": tuning.tuning_int(Tunable.OPS_POLL_INTERVAL_SECONDS) * 1000,
+            # Prayer Times master toggle — surfaced so the custom-dashboard
+            # widget tile gates its /api/prayer-times fetch + the widget
+            # picker can hide the kind when the operator hasn't enabled it
+            # in Admin → Prayer Times. (The endpoint also self-gates with
+            # {configured:false}; this just avoids a needless round-trip.)
+            "prayer_times_enabled": bool(tuning.tuning_int(Tunable.PRAYER_TIMES_ENABLED)),
             # Seconds without a successful backend signal (any SSE event OR
             # any REST 2xx) before the SPA's top-of-page "backend unreachable"
             # banner appears. 0 disables the banner — useful for dev / single-
@@ -1390,6 +1396,7 @@ async def api_me(request: Request):
                     "portainer", "oidc", "beszel", "pulse",
                     "webmin", "snmp", "ping", "asset_inventory",
                     "apprise", "telegram", "weather", "public_ip",
+                    "prayer_times",
                     "ai_claude", "ai_gemini", "ai_chatgpt", "ai_deepseek",
                 )
             },

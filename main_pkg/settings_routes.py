@@ -285,6 +285,23 @@ async def api_get_settings(request: Request):
             "default_lat": get_setting(Settings.WEATHER_DEFAULT_LAT) or "",
             "default_lon": get_setting(Settings.WEATHER_DEFAULT_LON) or "",
         },
+        # Prayer Times (Admin → Prayer Times). DB-backed like weather.
+        # The master enable toggle lives in the TUNABLES (the SPA reads
+        # tuning_prayer_times_enabled); these are the calculation-method /
+        # Asr-school / fallback-location settings. `methods` is the full
+        # AlAdhan method id→name map so the SPA renders the dropdown
+        # without hardcoding the list.
+        "prayer_times": (lambda _pt: {
+            "method": get_setting(Settings.PRAYER_TIMES_METHOD) or "",
+            "school": get_setting(Settings.PRAYER_TIMES_SCHOOL) or "",
+            "default_label": get_setting(Settings.PRAYER_TIMES_DEFAULT_LABEL) or "",
+            "default_lat": get_setting(Settings.PRAYER_TIMES_DEFAULT_LAT) or "",
+            "default_lon": get_setting(Settings.PRAYER_TIMES_DEFAULT_LON) or "",
+            "api_base_url": get_setting(Settings.PRAYER_TIMES_API_BASE_URL) or "",
+            "methods": [{"id": k, "name": v} for k, v in sorted(_pt.METHODS.items())],
+            "default_method": _pt.DEFAULT_METHOD,
+            "default_school": _pt.DEFAULT_SCHOOL,
+        })(__import__("logic.prayer_times", fromlist=["x"])),
         # Host groups — returned as a parsed list of dicts. Per-group
         # SSH password is masked at the boundary: we replace it with
         # a `password_set: bool` flag so the browser learns whether a
@@ -962,6 +979,75 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             # minimal builds. AttributeError: invalidate_cache renamed
             # / removed by a refactor. Either is non-fatal -- the
             # cache will self-expire on its TTL.
+            pass
+    # Prayer Times (DB-backed like weather). Method id validated against
+    # the known AlAdhan method set; school clamped to 0/1; lat/lon
+    # validated as floats; base URL trailing-slash stripped.
+    prayer_changed = False
+    if s.prayer_times_method is not None:
+        raw_m = (s.prayer_times_method or "").strip()
+        if raw_m:
+            from logic.prayer_times import METHODS as _PT_METHODS
+            try:
+                m_i = int(raw_m)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"prayer_times_method {raw_m!r} is not an integer",
+                )
+            if m_i not in _PT_METHODS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"prayer_times_method {m_i} is not a known AlAdhan method id",
+                )
+        set_setting(Settings.PRAYER_TIMES_METHOD, raw_m)
+        prayer_changed = True
+    if s.prayer_times_school is not None:
+        raw_s = (s.prayer_times_school or "").strip()
+        if raw_s and raw_s not in ("0", "1"):
+            raise HTTPException(
+                status_code=400,
+                detail="prayer_times_school must be '0' (Standard/Shafi) or '1' (Hanafi)",
+            )
+        set_setting(Settings.PRAYER_TIMES_SCHOOL, raw_s)
+        prayer_changed = True
+    if s.prayer_times_default_label is not None:
+        set_setting(Settings.PRAYER_TIMES_DEFAULT_LABEL,
+                    (s.prayer_times_default_label or "").strip())
+        prayer_changed = True
+    if s.prayer_times_default_lat is not None:
+        raw_lat = (s.prayer_times_default_lat or "").strip()
+        if raw_lat:
+            try:
+                float(raw_lat)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"prayer_times_default_lat {raw_lat!r} is not a number",
+                )
+        set_setting(Settings.PRAYER_TIMES_DEFAULT_LAT, raw_lat)
+        prayer_changed = True
+    if s.prayer_times_default_lon is not None:
+        raw_lon = (s.prayer_times_default_lon or "").strip()
+        if raw_lon:
+            try:
+                float(raw_lon)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"prayer_times_default_lon {raw_lon!r} is not a number",
+                )
+        set_setting(Settings.PRAYER_TIMES_DEFAULT_LON, raw_lon)
+        prayer_changed = True
+    if s.prayer_times_api_base_url is not None:
+        set_setting(Settings.PRAYER_TIMES_API_BASE_URL,
+                    (s.prayer_times_api_base_url or "").strip().rstrip("/"))
+        prayer_changed = True
+    if prayer_changed:
+        try:
+            from logic.prayer_times import invalidate_cache as _pt_invalidate
+            _pt_invalidate()
+        except (ImportError, AttributeError):
             pass
     if s.portainer_public_url is not None:
         set_setting(Settings.PORTAINER_PUBLIC_URL, s.portainer_public_url)

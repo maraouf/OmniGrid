@@ -1378,6 +1378,20 @@ class SettingsIn(BaseModel):
     weather_default_label: Optional[str] = None
     weather_default_lat: Optional[str] = None
     weather_default_lon: Optional[str] = None
+    # Prayer Times (Admin → Prayer Times) — DB-backed like weather.
+    # `prayer_times_method` is the AlAdhan calculation-method id (0..23,
+    # default 5 = Egyptian); `prayer_times_school` is the Asr school
+    # (0 = Standard/Shafi, 1 = Hanafi). `prayer_times_default_*` is the
+    # fallback location used when no per-user weather location is set.
+    # The master enable toggle + cache TTL + fetch timeout are TUNABLES
+    # (tuning_prayer_times_*), not here. `prayer_times_api_base_url` is
+    # the AlAdhan REST base override (blank = the documented default).
+    prayer_times_method: Optional[str] = None
+    prayer_times_school: Optional[str] = None
+    prayer_times_default_label: Optional[str] = None
+    prayer_times_default_lat: Optional[str] = None
+    prayer_times_default_lon: Optional[str] = None
+    prayer_times_api_base_url: Optional[str] = None
     # Host grouping — JSON array of {name, range_start, range_end, order}
     # that buckets curated hosts into collapsible sections in the Hosts
     # view by their custom_number. Operator-managed under Admin → Hosts.

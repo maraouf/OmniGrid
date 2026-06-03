@@ -617,6 +617,22 @@ PUBLIC_IP_SAMPLE_INTERVAL_SECONDS=300
 # PUBLIC_IP_LOOKUP_URL=https://ifconfig.co/json
 PUBLIC_IP_LOOKUP_URL=
 
+# ── Prayer Times ──────────────────────────────────────────────────────
+# Five daily prayers + Hijri date from the AlAdhan API (api.aladhan.com,
+# free, no API key). Drives a custom-dashboard widget card + the AI /
+# Telegram prayer-time + Hijri answers. Default OFF — enabling authorises
+# outbound calls to api.aladhan.com. Method + Asr school + fallback
+# location are DB-backed (Admin → Prayer Times), not env. Cache TTL
+# default 3600 s (daily times are static; refetch hourly picks up the
+# new day across midnight).
+PRAYER_TIMES_ENABLED=0
+PRAYER_TIMES_CACHE_TTL_SECONDS=3600
+PRAYER_TIMES_FETCH_TIMEOUT_SECONDS=8
+# AlAdhan REST base — operator override. Blank uses the default
+# https://api.aladhan.com/v1.
+# PRAYER_TIMES_API_BASE_URL=https://api.aladhan.com/v1
+PRAYER_TIMES_API_BASE_URL=
+
 # ──────────────────────────────────────────────────────────────────────
 # OG_TRACEMALLOC_FRAMES — diagnostic-ONLY. Default OFF in prod.
 # ──────────────────────────────────────────────────────────────────────
@@ -1075,6 +1091,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PUBLIC_IP_CACHE_TTL_SECONDS`              | Runtime     | `600`                   | In-process cache TTL for Public-IP lookups. Range 60..3600.                                                                                                                                                                                                                                                       |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS`          | Runtime     | `8`                     | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60.                                                                                                                                                                                                                                            |
 | `PUBLIC_IP_SAMPLE_INTERVAL_SECONDS`        | Runtime     | `300`                   | Background change-sampler cadence (seconds). A lifespan loop force-probes the public IP so a CHANGE is recorded even when no one views the widget; incidental lookups alone are cache-gated and miss short flaps. `0` disables the sampler. Range 0..86400.                                                          |
+| `PRAYER_TIMES_ENABLED`                     | Runtime     | `0`                     | Master gate for the Prayer Times module (Admin → Prayer Times). Default OFF — enabling authorises outbound calls to api.aladhan.com. Range 0..1.                                                                                                                                                                   |
+| `PRAYER_TIMES_CACHE_TTL_SECONDS`           | Runtime     | `3600`                  | In-process cache TTL for prayer-times lookups. Daily times are static, so a 1-hour default is plenty. Range 300..21600.                                                                                                                                                                                            |
+| `PRAYER_TIMES_FETCH_TIMEOUT_SECONDS`       | Runtime     | `8`                     | HTTP timeout for the AlAdhan fetch. Range 2..60.                                                                                                                                                                                                                                                                  |
+| `PRAYER_TIMES_API_BASE_URL`                | Runtime     | `""`                    | AlAdhan REST base override. Empty = the default `https://api.aladhan.com/v1`.                                                                                                                                                                                                                                     |
 | `WEATHER_OPEN_METEO_ENDPOINT`              | Runtime     | `""`                    | Open-Meteo forecast endpoint URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                        |
 | `WEATHER_WEATHERAPI_ENDPOINT`              | Runtime     | `""`                    | WeatherAPI.com base URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                                 |
 | `WEATHER_CACHE_TTL_SECONDS`                | Runtime     | `600`                   | Weather provider in-process per-coordinate cache TTL. Range 60..86400.                                                                                                                                                                                                                                            |
