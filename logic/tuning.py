@@ -152,7 +152,6 @@ class Tunable(str, Enum):
     PRAYER_TIMES_CACHE_TTL_SECONDS = "tuning_prayer_times_cache_ttl_seconds"
     PRAYER_TIMES_FETCH_TIMEOUT_SECONDS = "tuning_prayer_times_fetch_timeout_seconds"
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
-    PUBLIC_IP_ENABLED = "tuning_public_ip_enabled"
     PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
     PUBLIC_IP_SAMPLE_INTERVAL_SECONDS = "tuning_public_ip_sample_interval_seconds"
     PULSE_FAILURE_PAUSE_ROUNDS = "tuning_pulse_failure_pause_rounds"
@@ -387,10 +386,10 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Public-IP lookup module. Standalone subsystem (NOT AI-related —
     # the AI palette + Telegram /ip command both consume it but the
     # feature is independent and toggled from its own Admin → Public IP
-    # section). Default OFF for privacy: enabling authorises outbound
-    # calls to ifconfig.co (third-party JSON service) revealing the
-    # deployment's IP / ISP / ASN / city / country. Range 0..1 (boolean).
-    "tuning_public_ip_enabled": ("PUBLIC_IP_ENABLED", 0, 0, 1),
+    # section). The master enable toggle is the plain `public_ip_enabled`
+    # SETTING (like `weather_enabled`), NOT a tunable — so the admin toggle
+    # loads with the rest of the settings; only the cache TTL + fetch
+    # timeout + sample interval below are tunables.
     # Public-IP in-process cache TTL. Single deploy hits the upstream
     # at most ~144 times/day at the 600s default; lower for fresher
     # geolocation after a WAN failover, raise on rate-limit pressure.

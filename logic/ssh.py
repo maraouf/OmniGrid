@@ -467,7 +467,8 @@ def _group_ssh(group: Optional[dict]) -> dict:
     return s if isinstance(s, dict) else {}
 
 
-def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
+def resolve_ssh_params(host_id: str, hosts_config: list[dict], *,
+                       bypass_master_gate: bool = False) -> dict:
     """Merge global defaults + group + per-host overrides into one
     connect spec.
 
@@ -483,6 +484,14 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     ``"main_group"`` / ``"global"`` / ``""`` — used by ``run_command``
     to pick the matching password value, and surfaced to the UI for
     operator transparency.
+
+    ``bypass_master_gate=True`` skips ONLY the global ``ssh_enabled``
+    master-switch short-circuit — used by the explicit admin Test path so
+    the operator can verify a host's SSH connection BEFORE enabling +
+    saving the master switch (the Test click authorises this one probe,
+    mirroring the Weather / public_ip tests). The PER-HOST opt-in
+    (``hosts_config[].ssh.enabled``) is STILL enforced below — a host the
+    operator hasn't SSH-enabled is never testable.
     """
     record = _find_host_record(host_id, hosts_config)
     g = get_global_ssh_settings()
@@ -497,8 +506,11 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict]) -> dict:
     # clear error. The stored creds + per-host overrides STAY in the
     # settings table — flipping the switch back on resumes service
     # without re-typing. Note this short-circuits BEFORE the heavier
-    # per-host walk, so the cost stays at one DB read.
-    if (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true":
+    # per-host walk, so the cost stays at one DB read. The explicit admin
+    # Test path passes bypass_master_gate=True so it can probe before the
+    # master switch is saved on (per-host opt-in below still applies).
+    if (not bypass_master_gate
+            and (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true"):
         return {
             "host": "",
             "user": g["user"],
@@ -690,6 +702,7 @@ async def run_command(
     hosts_config: list[dict],
     timeout: float = 30.0,
     dry_run: bool = False,
+    bypass_master_gate: bool = False,
 ) -> dict:
     """Execute ``command`` over SSH on the host resolved from ``host_id``.
 
@@ -704,6 +717,11 @@ async def run_command(
     actually executing. It exercises enough of the setup to catch the
     common configuration problems (missing key, host disabled, bad
     port, auth cool-down) while guaranteeing nothing runs on the box.
+
+    ``bypass_master_gate=True`` skips ONLY the global ssh_enabled
+    master-switch gate (used by the explicit admin Test path so a
+    connection can be verified before the master switch is saved on); the
+    per-host opt-in (``hosts_config[].ssh.enabled``) is still enforced.
     """
     started = time.time()
     base_result: dict[str, Any] = {
@@ -725,7 +743,8 @@ async def run_command(
         )
         return base_result
 
-    resolved = resolve_ssh_params(host_id, hosts_config)
+    resolved = resolve_ssh_params(host_id, hosts_config,
+                                  bypass_master_gate=bypass_master_gate)
     base_result["resolved"] = resolved
     if resolved.get("error"):
         base_result["error"] = resolved["error"]
@@ -963,9 +982,16 @@ async def test_connection(host_id: str, hosts_config: list[dict]) -> dict:
     """Short-lived ``whoami`` probe. Thin wrapper around run_command()
     so the UI's Test button shares every safety rail (cool-down, key
     resolution, known-hosts handling) with the real runner.
+
+    Passes ``bypass_master_gate=True`` so the operator can verify a host's
+    SSH connection BEFORE flipping + saving the global ssh_enabled master
+    switch (the explicit Test click authorises this one probe). The
+    per-host ``ssh.enabled`` opt-in is still enforced — a host the operator
+    hasn't SSH-enabled stays untestable.
     """
     r = await run_command(
         host_id, "whoami", hosts_config, timeout=10.0,
+        bypass_master_gate=True,
     )
     return r
 

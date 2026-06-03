@@ -271,9 +271,10 @@ export default {
     'tuning_portainer_op_timeout_medium_seconds',
     'tuning_portainer_op_timeout_long_seconds',
     // Public IP — standalone subsystem with its own Admin → Public
-    // IP section. Master toggle (1/0) + cache TTL + fetch timeout.
-    // Section-owned save via publicIpSectionDirty() / savePublicIpSection().
-    'tuning_public_ip_enabled',
+    // IP section. The master enable toggle is a plain setting
+    // (public_ip_enabled), NOT a tunable; only cache TTL + fetch timeout
+    // + sample interval are tunables. Section-owned save via
+    // publicIpSectionDirty() / savePublicIpSection().
     'tuning_public_ip_cache_ttl_seconds',
     'tuning_public_ip_fetch_timeout_seconds',
     'tuning_public_ip_sample_interval_seconds',

@@ -103,27 +103,20 @@
       </div>
     </div>
 
-    <!-- AlAdhan base URL override (advanced). Blank = the documented
-         default (api.aladhan.com/v1). -->
-    <details class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
-      <summary class="cursor-pointer fs-xs font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
-        </svg>
-        <span x-text="t('admin_prayer_times.base_url_summary') || 'Advanced — API base URL'"></span>
-      </summary>
-      <div class="mt-2">
-        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-1"
-           x-text="t('admin_prayer_times.base_url_help') || 'AlAdhan REST base. Leave blank for the default (api.aladhan.com/v1).'"></p>
-        <label class="contents">
-          <input type="text" x-model="settings.prayer_times_api_base_url"
-                 :aria-label="t('admin_prayer_times.base_url_label') || 'AlAdhan API base URL'"
-                 :disabled="isReadonly()"
-                 :placeholder="t('admin_prayer_times.base_url_placeholder') || 'api.aladhan.com/v1'"
-                 class="w-full bg-[var(--surface)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono">
-        </label>
-      </div>
-    </details>
+    <!-- AlAdhan base URL override. Blank = the documented default
+         (api.aladhan.com/v1). Plain field (not collapsed) per operator
+         preference. -->
+    <div>
+      <label for="prayer-base-url" class="block fs-xs font-medium mb-1"
+             x-text="t('admin_prayer_times.base_url_label') || 'AlAdhan API base URL'"></label>
+      <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-1"
+         x-text="t('admin_prayer_times.base_url_help') || 'AlAdhan REST base. Leave blank for the default (api.aladhan.com/v1).'"></p>
+      <input id="prayer-base-url" type="text" x-model="settings.prayer_times_api_base_url"
+             :aria-label="t('admin_prayer_times.base_url_label') || 'AlAdhan API base URL'"
+             :disabled="isReadonly()"
+             :placeholder="t('admin_prayer_times.base_url_placeholder') || 'api.aladhan.com/v1'"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono">
+    </div>
   </div>
 
   <!-- Shared Test-connection component — probes api.aladhan.com with the

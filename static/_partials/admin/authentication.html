@@ -49,7 +49,15 @@
         <p class="fs-xs text-[var(--text-faint)] mb-3"
            x-text="t('admin.config.totp.subtitle')"></p>
       </div>
-      <span class="chip"
+      <!-- Until settings load, the policy flags are unknown — show a
+           neutral Loading pill instead of flashing the default-falsy
+           "Disabled" on every reload (gated on settingsLoaded; both
+           totp_allowed + passkeys_allowed are plain settings). -->
+      <span x-show="!settingsLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+      <span x-show="settingsLoaded" class="chip"
             :class="(settings.totp_allowed || settings.passkeys_allowed) ? 'pill-ok' : 'pill-muted'"
             x-text="(settings.totp_allowed || settings.passkeys_allowed) ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
     </div>

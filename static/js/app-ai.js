@@ -2573,7 +2573,7 @@ export default {
       // Context assembly must never break on the skills block.
     }
     // Public IP + ISP / ASN — operator-opt-in via the
-    // `tuning_public_ip_enabled` tunable. The SPA caches the last
+    // `public_ip_enabled` tunable. The SPA caches the last
     // /api/public-ip response on `this.publicIp` so repeated AI
     // calls don't re-fetch; the backend has its own cache
     // so even uncached SPA-side calls cost at most one ifconfig.co

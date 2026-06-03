@@ -1162,7 +1162,7 @@ def _escape(s: str) -> str:
 #   /link, /help, /start — mapping flow itself
 #   /whoami, /myid       — show the sender's own telegram_user_id
 #   /version, /ver       — non-sensitive build identifier
-#   /ip                  — gated separately by `tuning_public_ip_enabled`
+#   /ip                  — gated separately by `public_ip_enabled`
 # `_cmd_help` reads this set to render a 🔓 marker next to open commands
 # so unmapped senders can see at a glance which ones actually work
 # pre-link (operator-flagged: prior /help output had no distinction,
@@ -1364,7 +1364,7 @@ _COMMANDS: dict[str, dict[str, Any]] = {
     "/ip": {
         "handler": _cmd_ip,
         "usage": "/ip",
-        "description": "Show the deployment's public IP + ISP / ASN / country (requires tuning_public_ip_enabled in Admin → Public IP)",
+        "description": "Show the deployment's public IP + ISP / ASN / country (enable it in Admin → Public IP)",
         "category": "info",
         "access": "open",
     },
@@ -1607,7 +1607,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     # /version + /ver + /ip are open per their docstrings: version is
     # non-sensitive (lets an unmapped operator confirm which build
     # they're talking to before linking), and /ip is gated separately
-    # by the `tuning_public_ip_enabled` tunable so the dispatcher gate
+    # by the `public_ip_enabled` tunable so the dispatcher gate
     # doesn't need to second-guess it.
     if head not in _OPEN_COMMANDS:
         sender_id = (msg.get("from") or {}).get("id")

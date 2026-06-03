@@ -8,7 +8,7 @@ heavy usage. The cache is shared across SPA palette + Telegram
 listener so both context-builders get one result per cache window.
 
 Privacy: the operator must explicitly enable this in Admin → Public IP
-(``tuning_public_ip_enabled = 1``) before this runs. Default is OFF
+(``public_ip_enabled = 1``) before this runs. Default is OFF
 because fetching reveals the deployment is making an outbound request
 to ifconfig.co (a third-party service) and the result includes IP /
 ASN / geolocation that some operators consider sensitive.
@@ -30,6 +30,8 @@ from typing import Optional
 
 import httpx
 
+from logic.db import get_setting_bool
+from logic.settings_keys import Settings
 from logic.tuning import Tunable, tuning_int
 
 _cache: dict = {"ts": 0.0, "data": None, "neg_until": 0.0}
@@ -63,18 +65,19 @@ def _lookup_url() -> str:
 
 
 def is_enabled() -> bool:
-    """Master gate. Operator flips ``tuning_public_ip_enabled``
-    (Admin → Public IP) to authorise outbound calls to ifconfig.co.
-    Encoded as an int tunable (1 = on, 0 = off) per the canonical
-    TUNABLES pattern — see the project conventions "Plain-settings escape hatch is
-    a drift class"."""
+    """Master gate. Operator flips ``public_ip_enabled`` (Admin → Public
+    IP) to authorise outbound calls to ifconfig.co. A plain DB-backed
+    setting (like ``weather_enabled`` / ``prayer_times_enabled``) — NOT a
+    tunable — so the admin toggle loads with the rest of the settings
+    (default OFF for privacy: fetching reveals the deploy reaches
+    ifconfig.co)."""
     try:
-        return bool(tuning_int(Tunable.PUBLIC_IP_ENABLED))
+        return get_setting_bool(Settings.PUBLIC_IP_ENABLED, False)
     except (KeyError, ValueError, TypeError):
         return False
 
 
-async def fetch(force: bool = False) -> Optional[dict]:
+async def fetch(force: bool = False, bypass_gate: bool = False) -> Optional[dict]:
     """Return ``{ip, isp, asn, country, city}`` or None.
 
     Cache-aware: a fresh entry (TTL configurable via
@@ -88,8 +91,15 @@ async def fetch(force: bool = False) -> Optional[dict]:
     demand; the result is still written back to the cache for subsequent
     reads. The negative cache still applies under force so a Refresh
     spammed during an upstream outage doesn't hammer ifconfig.co.
+
+    ``bypass_gate=True`` skips the ``is_enabled()`` master gate — used
+    ONLY by the admin Test path (``GET /api/public-ip?test=1``), where
+    the explicit Test click authorises this one probe so the operator can
+    verify the lookup BEFORE enabling + saving (mirrors the Weather /
+    prayer_times tests). Every other caller leaves it False so the privacy
+    default (no outbound call until enabled) holds.
     """
-    if not is_enabled():
+    if not bypass_gate and not is_enabled():
         return None
     now = time.time()
     try:
@@ -246,7 +256,7 @@ def last_change() -> Optional[dict]:
 
 def invalidate_cache() -> None:
     """Force the next fetch() to re-probe. Call after the operator
-    toggles tuning_public_ip_enabled so a freshly-enabled deploy
+    toggles public_ip_enabled so a freshly-enabled deploy
     doesn't serve a stale None from an earlier gate-off call. Also
     drops any active negative-cache window so a re-enable doesn't have
     to wait out a prior failure's negative-TTL."""

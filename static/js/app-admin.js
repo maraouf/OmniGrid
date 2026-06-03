@@ -2185,6 +2185,14 @@ export default {
           default_lon: '', api_base_url: '', methods: [],
           default_method: 5, default_school: 0,
         },
+        // Public-IP master toggle is the plain `public_ip_enabled` setting
+        // (nested as public_ip.enabled, like weather.enabled) so it loads
+        // with settingsLoaded — NOT a tunable. The nested object is the
+        // dirty-tracker baseline for the section save.
+        public_ip_enabled: !!(d.public_ip && d.public_ip.enabled),
+        public_ip: d.public_ip || {
+          enabled: false, cache_ttl_seconds: 600, fetch_timeout_seconds: 8,
+        },
         // Per-service master switches. Default true so legacy
         // deploys keep working before the operator interacts with
         // the toggles.
@@ -2444,10 +2452,11 @@ export default {
       // Settings hydration complete — drives the consistent
       // "Loading…" + spinner pill on every master-toggle admin tab
       // (OIDC / Portainer / Providers / SSH / Weather / Notifications /
-      // AI / Assets). Until this flips true the pills show a neutral
-      // loading state instead of flashing a premature "Disabled" from
-      // the default-falsy settings values. public_ip uses `tuningLoaded`
-      // instead because its master toggle is a tunable.
+      // AI / Assets / Public IP / Prayer Times). Until this flips true the
+      // pills show a neutral loading state instead of flashing a premature
+      // "Disabled" from the default-falsy settings values. Every master
+      // toggle is now a plain setting gated on settingsLoaded (public_ip +
+      // prayer_times were migrated off tunables for consistency).
       this.settingsLoaded = true;
     } catch (e) {
       console.error(e);

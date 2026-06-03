@@ -548,7 +548,7 @@ def init_db():
 
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
-        -- tuning_public_ip_enabled). ONE row per change — duplicate IPs
+        -- public_ip_enabled). ONE row per change — duplicate IPs
         -- from the cache hit OR consecutive fetches returning the same
         -- value DON'T write a row. Drives the AI palette's ability to
         -- answer "when did my IP / ISP last change?" + the Admin →

@@ -186,6 +186,7 @@ class Settings(str, Enum):
     PROVIDER_COLOR_SERVICE_PROBE = "provider_color_service_probe"
     PROVIDER_COLOR_SNMP = "provider_color_snmp"
     PROVIDER_COLOR_WEBMIN = "provider_color_webmin"
+    PUBLIC_IP_ENABLED = "public_ip_enabled"
     PULSE_ALIASES = "pulse_aliases"
     PULSE_TOKEN = "pulse_token"
     PULSE_URL = "pulse_url"
