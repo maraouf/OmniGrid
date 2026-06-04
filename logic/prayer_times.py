@@ -15,8 +15,8 @@ AI palette context-builder, and the Telegram ``/prayer`` + ``/hijri``
 commands all consume ``fetch()`` so they share one result per cache
 window.
 
-LOCATION comes from the logged-in user's existing weather location
-(the SPA passes the user's ``headerWeatherLat/Lon`` to the endpoint);
+LOCATION comes from the logged-in user's saved location
+(the SPA passes the user's ``userLat/userLon`` to the endpoint);
 ``default_location()`` is only the fallback when no user location is
 available. METHOD + Asr SCHOOL are operator settings in Admin → Prayer
 Times (defaults: Egyptian General Authority = AlAdhan method 5; Asr

@@ -641,6 +641,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_prayer_times_samples_coord_ts
             ON prayer_times_samples(lat, lon, ts DESC);
 
+        -- Prayer-reminder dedup ledger. ONE row per (user, day, prayer)
+        -- that has already had its "N minutes before" reminder delivered,
+        -- so the lifespan reminder loop (logic.prayer_reminders) never
+        -- double-fires across its frequent ticks OR across a container
+        -- restart mid-window. greg_date is YYYY-MM-DD; prayer_key is one
+        -- of fajr/dhuhr/asr/maghrib/isha. Pruned to a few days (the loop
+        -- only cares about today; older rows are housekeeping).
+        CREATE TABLE IF NOT EXISTS prayer_reminders_sent (
+            username   TEXT    NOT NULL,
+            greg_date  TEXT    NOT NULL,
+            prayer_key TEXT    NOT NULL,
+            ts         INTEGER NOT NULL,
+            PRIMARY KEY (username, greg_date, prayer_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_prayer_reminders_sent_ts
+            ON prayer_reminders_sent(ts);
+
         -- HTTP / TLS-cert / DNS health probe (seventh host-stats provider).
         -- ONE row per (host_id, url, ts). Written by
         -- logic/host_http_sampler.py at

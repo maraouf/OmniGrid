@@ -648,6 +648,12 @@
       "linked_label": "✅ Linked — your Telegram user_id {user_id} runs as this OmniGrid user.",
       "linked_at": "Linked at {when}"
     },
+    "prayer_reminders": {
+      "title": "Prayer reminders",
+      "hint": "Get a notification a few minutes before each daily prayer. Requires Prayer Times to be enabled and your location set (Settings → Profile). The lead time is configured by an admin under Admin → Prayer Times.",
+      "enable_label": "Enable prayer reminders",
+      "mediums_label": "Send via:"
+    },
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
@@ -1456,10 +1462,10 @@
       "default_lat_placeholder": "Latitude (e.g. 51.5074)",
       "default_lon_placeholder": "Longitude (e.g. -0.1278)",
       "use_profile_button": "Use my profile location",
-      "use_profile_title": "Stamp the latitude / longitude / label from your profile's saved weather location.",
-      "use_profile_unavailable": "Set a weather location in Settings → Profile first.",
+      "use_profile_title": "Stamp the latitude / longitude / label from your profile's saved location.",
+      "use_profile_unavailable": "Set your location in Settings → Profile first.",
       "location_per_user_title": "Location is per-user, not admin-configured",
-      "location_per_user_hint": "Every user picks their own weather location in Settings → Profile → Weather. The topbar widget, the Apps weather / moon widgets, the AI palette, and the Telegram /weather command all read each user's own saved coordinates. The historical sampler polls every distinct location across all configured users.",
+      "location_per_user_hint": "Every user picks their own location in Settings → Profile. The topbar widget, the Apps weather / moon widgets, Prayer Times, the AI palette, and the Telegram /weather command all read each user's own saved coordinates. The historical sampler polls every distinct location across all configured users.",
       "moon_supported_title": "Moon-phase data available",
       "moon_supported_hint": "WeatherAPI.com returns moon_phase / moon_illumination / moonrise / moonset for every forecast day. The Apps moon widget, the AI palette's moon-question handling, and the Telegram /moon command are all active.",
       "moon_unsupported_title": "Moon-phase data not available",
@@ -1851,6 +1857,14 @@
         "tuning_prayer_times_history_retention_days": {
           "label": "Prayer Times history retention (days)",
           "help": "How long recorded prayer-times samples are kept before the hourly prune sweep deletes them. The table is tiny (one row per location per day), so a long window is cheap. Set 0 to keep every row forever. Range 0..3650. Takes effect on the next prune sweep."
+        },
+        "tuning_prayer_times_reminder_lead_minutes": {
+          "label": "Prayer reminder lead time (minutes)",
+          "help": "How many minutes before each prayer the reminder notification fires. Each user opts in and picks which channels (in-app / Telegram / Apprise) receive it under Profile → Notifications; this sets the global lead time for everyone. Set 0 to disable prayer reminders entirely (the prayer widget and history are unaffected). Range 0..240. Takes effect on the next reminder check."
+        },
+        "tuning_prayer_times_reminder_check_interval_seconds": {
+          "label": "Prayer reminder check interval (seconds)",
+          "help": "How often the background loop checks whether any user is now within the lead window of an upcoming prayer. Lower is more precise (the reminder lands within one tick of the lead mark) at a little more work; the default 30 gives sub-minute accuracy. Range 15..600. Takes effect on the next tick."
         },
         "tuning_weather_cache_ttl_seconds": {
           "label": "Weather cache TTL (seconds)",
@@ -4238,6 +4252,8 @@
     "show_weather": "Show weather",
     "hide_ai_launcher": "Hide the AI Assistant floating launcher",
     "hide_ai_launcher_hint": "Cmd-K (Ctrl-K) still opens the AI sidebar — this only removes the floating button from the page.",
+    "location_label": "Your location",
+    "location_hint": "Used by the weather widget, Prayer Times, and prayer reminders.",
     "city_label": "City / label",
     "city_placeholder": "e.g. Cairo",
     "lat_label": "Latitude",
@@ -4769,7 +4785,7 @@
   },
   "admin_prayer_times": {
     "title": "Prayer Times",
-    "intro": "Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user's saved Weather location; set a calculation method + Asr school below.",
+    "intro": "Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user's saved location (Settings → Profile); set a calculation method + Asr school below.",
     "enable_hint": "When off, the widget shows a disabled state and no outbound call to api.aladhan.com is made.",
     "method_label": "Calculation method",
     "method_help": "The authority whose Fajr / Isha twilight angles are used. Pick the one standard in your region.",
@@ -4780,7 +4796,7 @@
     "school_standard": "0 — Standard (Shafi'i / Maliki / Hanbali)",
     "school_hanafi": "1 — Hanafi",
     "location_label": "Default location (fallback)",
-    "location_help": "Used only when a user has no saved Weather location. Each user's own Weather location takes precedence.",
+    "location_help": "Used only when a user has no saved location. Each user's own location takes precedence.",
     "lat_label": "Default latitude",
     "lon_label": "Default longitude",
     "label_field_label": "Default location label",
@@ -4813,7 +4829,7 @@
     "in": "in",
     "tomorrow": "tomorrow",
     "widget_disabled": "Prayer Times is disabled. Ask an admin to enable it in Admin → Prayer Times.",
-    "widget_no_location": "Set your weather location in Settings → Profile → Weather, or an admin can set a default in Admin → Prayer Times.",
+    "widget_no_location": "Set your location in Settings → Profile, or an admin can set a default in Admin → Prayer Times.",
     "widget_no_data": "No prayer data yet — click the refresh button to try again."
   },
   "hosts_extra_ssh": {
@@ -5110,7 +5126,7 @@
       "widget_weather_tomorrow": "Tomorrow {hi}/{lo}°",
       "widget_weather_no_data": "No weather data yet — click the refresh button to try again.",
       "widget_weather_admin_disabled": "Weather service is disabled. Ask an admin to enable it in Admin → Weather.",
-      "widget_weather_no_location": "Set your weather location in Settings → Profile → Weather to see live conditions here.",
+      "widget_weather_no_location": "Set your location in Settings → Profile to see live conditions here.",
       "widget_ip_unknown_isp": "Unknown ISP",
       "widget_ip_disabled": "Public-IP lookup disabled in Admin → Public IP",
       "widget_publicip_changed_label": "Changed",

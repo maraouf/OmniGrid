@@ -309,6 +309,8 @@ export default {
     'tuning_prayer_times_fetch_timeout_seconds',
     'tuning_prayer_times_sampler_interval_seconds',
     'tuning_prayer_times_history_retention_days',
+    'tuning_prayer_times_reminder_lead_minutes',
+    'tuning_prayer_times_reminder_check_interval_seconds',
     // Telegram listener long-poll + outer-HTTP timeouts — rendered
     // inside Admin → Notifications → Telegram tab next to the bot-
     // token / chat-id / api-base inputs. Section save piggy-backs on

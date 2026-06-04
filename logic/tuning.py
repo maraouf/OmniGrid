@@ -152,6 +152,8 @@ class Tunable(str, Enum):
     PRAYER_TIMES_CACHE_TTL_SECONDS = "tuning_prayer_times_cache_ttl_seconds"
     PRAYER_TIMES_FETCH_TIMEOUT_SECONDS = "tuning_prayer_times_fetch_timeout_seconds"
     PRAYER_TIMES_HISTORY_RETENTION_DAYS = "tuning_prayer_times_history_retention_days"
+    PRAYER_TIMES_REMINDER_CHECK_INTERVAL_SECONDS = "tuning_prayer_times_reminder_check_interval_seconds"
+    PRAYER_TIMES_REMINDER_LEAD_MINUTES = "tuning_prayer_times_reminder_lead_minutes"
     PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS = "tuning_prayer_times_sampler_interval_seconds"
     PUBLIC_IP_CACHE_TTL_SECONDS = "tuning_public_ip_cache_ttl_seconds"
     PUBLIC_IP_FETCH_TIMEOUT_SECONDS = "tuning_public_ip_fetch_timeout_seconds"
@@ -397,6 +399,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # sampler. 0 keeps every day's row forever (the table is tiny — one
     # row per location per day). Range 0..3650.
     "tuning_prayer_times_history_retention_days": ("PRAYER_TIMES_HISTORY_RETENTION_DAYS", 90, 0, 3650),
+    # How many minutes BEFORE each prayer the reminder notification fires
+    # (logic.prayer_reminders). Per-user opt-in + medium selection lives in
+    # Profile -> Notifications; this is the global lead time. 0 disables
+    # prayer reminders entirely (the widget / history are unaffected).
+    # Range 0..240.
+    "tuning_prayer_times_reminder_lead_minutes": ("PRAYER_TIMES_REMINDER_LEAD_MINUTES", 10, 0, 240),
+    # Cadence of the prayer-reminder check loop. Lower = tighter firing
+    # accuracy (the reminder lands within one tick of the lead mark);
+    # higher = less work. 30s gives ~sub-minute accuracy. Range 15..600.
+    "tuning_prayer_times_reminder_check_interval_seconds": ("PRAYER_TIMES_REMINDER_CHECK_INTERVAL_SECONDS", 30, 15, 600),
     # Public-IP lookup module. Standalone subsystem (NOT AI-related —
     # the AI palette + Telegram /ip command both consume it but the
     # feature is independent and toggled from its own Admin → Public IP

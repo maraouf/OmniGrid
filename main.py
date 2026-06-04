@@ -840,6 +840,17 @@ async def _lifespan(_app: FastAPI):
         _prayer_times_sampler.sampler_loop(),
         name="prayer-times-sampler",
     )
+    # Prayer-reminder loop — fires a per-user notification
+    # tuning_prayer_times_reminder_lead_minutes before each prayer to the
+    # mediums each user picked in Profile -> Notifications. Gated on
+    # prayer_times_enabled + a non-zero lead; ticks every
+    # tuning_prayer_times_reminder_check_interval_seconds. Deduped per
+    # (user, day, prayer) so a restart can't double-fire.
+    from logic import prayer_reminders as _prayer_reminders
+    prayer_reminders = asyncio.create_task(
+        _prayer_reminders.reminder_loop(),
+        name="prayer-reminders",
+    )
     try:
         yield
     finally:
@@ -849,7 +860,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

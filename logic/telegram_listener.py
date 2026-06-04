@@ -1079,8 +1079,8 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
         prefs = json.loads(raw)
     except (ValueError, TypeError):
         return None
-    lat = prefs.get("headerWeatherLat")
-    lon = prefs.get("headerWeatherLon")
+    lat = prefs.get("userLat")
+    lon = prefs.get("userLon")
     if lat is None or lon is None:
         return None
     try:
@@ -1088,7 +1088,7 @@ def _load_user_weather_pref(username: str) -> Optional[dict]:
         lon_f = float(lon)
     except (TypeError, ValueError):
         return None
-    label = (prefs.get("headerWeatherLabel") or "").strip()
+    label = (prefs.get("userLabel") or "").strip()
     unit_raw = (prefs.get("headerWeatherUnit") or "c")
     unit = "f" if str(unit_raw).strip().lower() == "f" else "c"
     return {

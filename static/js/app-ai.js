@@ -2339,7 +2339,7 @@ export default {
       // SPA converts here at the context-build boundary.
       const unitSuffix = (this.headerWeatherUnit === 'f') ? '°F' : '°C';
       weatherCtx = {
-        label: w.label || this.headerWeatherLabel || '',
+        label: w.label || this.userLabel || '',
         temperature: this.convertTempPref(w.temp_c),
         unit: unitSuffix,
         condition: w.condition || '',
@@ -2455,7 +2455,7 @@ export default {
       const rows = this.prayerWidgetRows();
       if (rows.length) {
         prayerCtx = {
-          location: (pr.location && pr.location.label) || this.headerWeatherLabel || '',
+          location: (pr.location && pr.location.label) || this.userLabel || '',
           timezone: pr.timezone || '',
           method: pr.method_name || '',
           timings: rows.map(r => ({

@@ -25,9 +25,9 @@ export default {
   // /api/weather (Open-Meteo, no API key, 10-min server cache).
   headerClockEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('headerClockEnabled') !== 'false'),
   headerWeatherEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('headerWeatherEnabled') === 'true'),
-  headerWeatherLat: (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLat') || '') || null) : null),
-  headerWeatherLon: (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('headerWeatherLon') || '') || null) : null),
-  headerWeatherLabel: (typeof localStorage !== 'undefined' ? (localStorage.getItem('headerWeatherLabel') || '') : ''),
+  userLat: (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('userLat') || '') || null) : null),
+  userLon: (typeof localStorage !== 'undefined' ? (parseFloat(localStorage.getItem('userLon') || '') || null) : null),
+  userLabel: (typeof localStorage !== 'undefined' ? (localStorage.getItem('userLabel') || '') : ''),
   // Operator's preferred temperature unit ('c' | 'f', default 'c').
   // Backend `/api/weather` always returns Celsius (`temp_c`,
   // forecast `temp_max_c` / `temp_min_c`); the SPA converts at the
@@ -276,6 +276,8 @@ export default {
       'tuning_prayer_times_fetch_timeout_seconds',
       'tuning_prayer_times_sampler_interval_seconds',
       'tuning_prayer_times_history_retention_days',
+      'tuning_prayer_times_reminder_lead_minutes',
+      'tuning_prayer_times_reminder_check_interval_seconds',
     ];
   },
   // [editable flat settings key, loaded nested key under settings.prayer_times].
@@ -406,15 +408,15 @@ export default {
     try {
       const s = this.settings || {};
       // Resolve test coords: the Admin global default first, then fall
-      // back to the admin's own saved topbar Weather location (the same
+      // back to the admin's own saved location (the same
       // source the widget uses) so a Test works even before a global
       // default is set — matching the operator's "the data is in the
       // topbar widget" expectation.
       const lat = s.prayer_times_default_lat
-        || (this.headerWeatherLat != null ? String(this.headerWeatherLat) : '');
+        || (this.userLat != null ? String(this.userLat) : '');
       const lon = s.prayer_times_default_lon
-        || (this.headerWeatherLon != null ? String(this.headerWeatherLon) : '');
-      const label = s.prayer_times_default_label || this.headerWeatherLabel || '';
+        || (this.userLon != null ? String(this.userLon) : '');
+      const label = s.prayer_times_default_label || this.userLabel || '';
       const body = {
         lat: lat,
         lon: lon,
@@ -472,16 +474,16 @@ export default {
   },
   async loadHeaderWeather(force = false) {
     if (!this.headerWeatherEnabled
-      || this.headerWeatherLat == null
-      || this.headerWeatherLon == null) {
+      || this.userLat == null
+      || this.userLon == null) {
       this.weather = null;
       return;
     }
     try {
       const p = new URLSearchParams({
-        lat: String(this.headerWeatherLat),
-        lon: String(this.headerWeatherLon),
-        label: this.headerWeatherLabel || '',
+        lat: String(this.userLat),
+        lon: String(this.userLon),
+        label: this.userLabel || '',
       });
       // Explicit Refresh bypasses the backend per-coord TTL cache so the
       // operator gets current data on demand. NOT done by zeroing the
@@ -830,7 +832,7 @@ export default {
   },
   _weatherSectionPlainKeys() {
     // `weather_default_*` (label / lat / lon) intentionally OMITTED —
-    // location is now per-user (Settings → Profile → Weather) and
+    // location is now per-user (Settings → Profile) and
     // the admin Weather tab no longer surfaces those fields. The
     // legacy SettingsIn fields stay on the wire for back-compat
     // seed round-trip but no SPA save writes to them.
@@ -894,14 +896,14 @@ export default {
     // hooks (debounced auto-validate, live preview) have a single
     // attach point.
   },
-  // The SPA saves the user's weather location under `headerWeather*`
+  // The SPA saves the user's location under `userLat/userLon/userLabel`
   // camelCase keys (see save-prefs payload in app-admin.js). Read
   // those FIRST with legacy `weather_*` fallback for back-compat
   // with older preference shapes.
   weatherProfileLocationAvailable() {
     const p = (this.me && this.me.ui_prefs) || {};
-    const lat = Number(p.headerWeatherLat != null ? p.headerWeatherLat : p.weather_lat);
-    const lon = Number(p.headerWeatherLon != null ? p.headerWeatherLon : p.weather_lon);
+    const lat = Number(p.userLat != null ? p.userLat : p.weather_lat);
+    const lon = Number(p.userLon != null ? p.userLon : p.weather_lon);
     return Number.isFinite(lat) && Number.isFinite(lon);
   },
   weatherUseProfileLocation() {
@@ -909,9 +911,9 @@ export default {
     if (!this.weatherProfileLocationAvailable()) {
       return;
     }
-    const lat = p.headerWeatherLat != null ? p.headerWeatherLat : p.weather_lat;
-    const lon = p.headerWeatherLon != null ? p.headerWeatherLon : p.weather_lon;
-    const label = p.headerWeatherLabel || p.weather_label || '';
+    const lat = p.userLat != null ? p.userLat : p.weather_lat;
+    const lon = p.userLon != null ? p.userLon : p.weather_lon;
+    const label = p.userLabel || p.weather_label || '';
     this.settings.weather_default_lat = String(lat || '');
     this.settings.weather_default_lon = String(lon || '');
     if (label) {
@@ -1096,6 +1098,58 @@ export default {
     } finally {
       this.prayerHistoryLoading = false;
     }
+  },
+
+  // ── Prayer reminders (Profile → Notifications card) ──────────────
+  // Per-user opt-in + medium selection, stored in ui_prefs.prayer_reminders
+  // = {enabled, mediums:{app,telegram,apprise}}. Saved immediately on each
+  // toggle via the free-form /api/me/ui-prefs PATCH (same fire-and-forget
+  // pattern as the other ui_prefs toggles — no page-level Save needed).
+  // The lead time is the admin tunable; the backend reminder loop reads
+  // this pref per user.
+  _prayerReminderPref() {
+    const prefs = (this.me && this.me.ui_prefs) || {};
+    const p = prefs.prayer_reminders || {};
+    const med = p.mediums || {};
+    return {
+      enabled: !!p.enabled,
+      mediums: {app: !!med.app, telegram: !!med.telegram, apprise: !!med.apprise},
+    };
+  },
+  prayerReminderEnabled() {
+    return this._prayerReminderPref().enabled;
+  },
+  prayerReminderMedium(m) {
+    return !!this._prayerReminderPref().mediums[m];
+  },
+  _persistPrayerReminders(obj) {
+    if (!this.me) {
+      return;
+    }
+    if (!this.me.ui_prefs) {
+      this.me.ui_prefs = {};
+    }
+    this.me.ui_prefs.prayer_reminders = obj;
+    // Fire-and-forget — the CSRF header is attached by the global fetch
+    // wrapper; failure leaves the in-memory pref set so the next toggle
+    // re-attempts the write.
+    fetch('/api/me/ui-prefs', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prefs: {prayer_reminders: obj}}),
+    }).catch(() => {
+      // best-effort persistence — next toggle re-attempts the write
+    });
+  },
+  togglePrayerReminderEnabled(on) {
+    const cur = this._prayerReminderPref();
+    cur.enabled = !!on;
+    this._persistPrayerReminders(cur);
+  },
+  togglePrayerReminderMedium(m, on) {
+    const cur = this._prayerReminderPref();
+    cur.mediums[m] = !!on;
+    this._persistPrayerReminders(cur);
   },
 
   // Admin → Public IP "Recent samples" table loader — mirrors
