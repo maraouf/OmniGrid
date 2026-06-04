@@ -185,6 +185,7 @@ async def api_get_settings(request: Request):
         # Drawer auto-fix — VXLAN overlay cleanup outcomes.
         "notify_event_overlay_cleanup_success": get_setting_bool(Settings.NOTIFY_EVENT_OVERLAY_CLEANUP_SUCCESS, True),
         "notify_event_overlay_cleanup_failure": get_setting_bool(Settings.NOTIFY_EVENT_OVERLAY_CLEANUP_FAILURE, True),
+        "notify_event_prayer_reminder": get_setting_bool(Settings.NOTIFY_EVENT_PRAYER_REMINDER),
         # Per-medium master switches. Defaults from
         # NOTIFY_MEDIUM_DEFAULTS (both ON for back-compat); operators
         # flip individually from Admin → Notifications.
@@ -293,7 +294,7 @@ async def api_get_settings(request: Request):
         # settings. `methods` is the full AlAdhan method id→name map so the
         # SPA renders the dropdown without hardcoding the list.
         "prayer_times": (lambda _pt: {
-            "enabled": get_setting_bool(Settings.PRAYER_TIMES_ENABLED, False),
+            "enabled": get_setting_bool(Settings.PRAYER_TIMES_ENABLED),
             "method": get_setting(Settings.PRAYER_TIMES_METHOD) or "",
             "school": get_setting(Settings.PRAYER_TIMES_SCHOOL) or "",
             "default_label": get_setting(Settings.PRAYER_TIMES_DEFAULT_LABEL) or "",
@@ -394,7 +395,7 @@ async def api_get_settings(request: Request):
         # public_ip.enabled, mirrors weather.enabled) so the SPA toggle
         # loads with settingsLoaded — NOT a tunable.
         "public_ip": {
-            "enabled": get_setting_bool(Settings.PUBLIC_IP_ENABLED, False),
+            "enabled": get_setting_bool(Settings.PUBLIC_IP_ENABLED),
             "cache_ttl_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_CACHE_TTL_SECONDS),
             "fetch_timeout_seconds": tuning.tuning_int(Tunable.PUBLIC_IP_FETCH_TIMEOUT_SECONDS),
         },

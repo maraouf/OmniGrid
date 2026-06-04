@@ -27,6 +27,7 @@ from logic.coerce import int_or_none
 
 from . import adguardhome
 from . import apc
+from . import bazarr
 from . import pihole
 from . import speedtest_tracker
 
@@ -48,6 +49,7 @@ def _register(module: ModuleType) -> None:
 
 _register(adguardhome)
 _register(apc)
+_register(bazarr)
 _register(pihole)
 _register(speedtest_tracker)
 

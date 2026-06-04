@@ -1,0 +1,52 @@
+<!-- Per-app editor fields -- Bazarr.
+
+     Renders inside the Admin -> Apps per-instance editor as a
+     conditional `<template x-if="...">` so it only appears when the
+     chip's catalog template is Bazarr. Gates on
+     `bazarrIsApp({catalog:{slug: appsInstanceEditForm.catalog_slug}})`
+     so the helper from `static/js/apps/bazarr.js` is the single source
+     of truth for "is this a Bazarr chip?". Bazarr authenticates via the
+     X-API-KEY header (Settings -> General -> API key). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="bazarrIsApp && bazarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-bazarr-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.bazarr.api_key_label') || 'Bazarr API key'"></label>
+      <input id="apps-instance-bazarr-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.bazarr.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.bazarr.api_key_placeholder_unset') || 'API key from Bazarr -> Settings -> General')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.bazarr.api_key_hint') || 'Required for the expanded card to fetch missing-subtitle counts. Found in Bazarr under Settings -> General -> API key. Leave blank to keep the stored key.'"></p>
+    </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (30s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-bazarr-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <input id="apps-instance-bazarr-cache-ttl"
+             type="number" min="5" max="3600" step="1"
+             x-model="appsInstanceEditForm.cache_ttl"
+             @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.bazarr.cache_ttl_hint') || 'How long fetched counts are cached before re-querying Bazarr (5–3600s). Leave blank for the app default (30s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

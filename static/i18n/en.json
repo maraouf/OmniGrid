@@ -648,12 +648,6 @@
       "linked_label": "✅ Linked — your Telegram user_id {user_id} runs as this OmniGrid user.",
       "linked_at": "Linked at {when}"
     },
-    "prayer_reminders": {
-      "title": "Prayer reminders",
-      "hint": "Get a notification a few minutes before each daily prayer. Requires Prayer Times to be enabled and your location set (Settings → Profile). The lead time is configured by an admin under Admin → Prayer Times.",
-      "enable_label": "Enable prayer reminders",
-      "mediums_label": "Send via:"
-    },
     "notifications": {
       "title": "Notifications",
       "subtitle": "Choose which event notifications you receive. Toggles greyed out have been disabled globally by an admin.",
@@ -678,7 +672,9 @@
       "cat_health": "System health",
       "cat_health_desc": "Sampler auto-pause and unhealthy-state events surfaced by background watchers.",
       "cat_security": "Security",
-      "cat_security_desc": "Authentication-related events such as user sign-in."
+      "cat_security_desc": "Authentication-related events such as user sign-in.",
+      "cat_info": "Information",
+      "cat_info_desc": "Scheduled and informational notices, such as prayer-time reminders."
     },
     "notify_templates": {
       "modal_title": "Notification template",
@@ -1685,6 +1681,7 @@
         "host_paused": "Host sampling auto-paused",
         "http_probe_failure": "HTTP probe failed",
         "service_probe_failure": "Service probe failed",
+        "prayer_reminder": "Prayer reminder",
         "enabled": "Enabled",
         "cat_count_title": "Events globally enabled in this category"
       }
@@ -5232,6 +5229,17 @@
       "runtime": "Runtime remaining",
       "battery_temp": "Battery temperature",
       "battery_state": "Battery state"
+    },
+    "bazarr": {
+      "api_key_label": "Bazarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Bazarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch missing-subtitle counts. Found in Bazarr under Settings → General → API key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long fetched counts are cached before re-querying Bazarr (5–3600s). Leave blank for the app default (30s).",
+      "episodes_missing": "Episodes missing",
+      "movies_missing": "Movies missing",
+      "providers_throttled": "Throttled providers",
+      "health_issues": "Health issues"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",

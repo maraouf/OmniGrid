@@ -126,6 +126,7 @@ class Settings(str, Enum):
     NOTIFY_EVENT_OVERLAY_CLEANUP_FAILURE = "notify_event_overlay_cleanup_failure"
     NOTIFY_EVENT_OVERLAY_CLEANUP_SUCCESS = "notify_event_overlay_cleanup_success"
     NOTIFY_EVENT_PORT_SCAN_NEW_PORT = "notify_event_port_scan_new_port"
+    NOTIFY_EVENT_PRAYER_REMINDER = "notify_event_prayer_reminder"
     NOTIFY_EVENT_SERVICE_PROBE_FAILURE = "notify_event_service_probe_failure"
     NOTIFY_EVENT_PRUNE_FAILURE = "notify_event_prune_failure"
     NOTIFY_EVENT_PRUNE_SUCCESS = "notify_event_prune_success"

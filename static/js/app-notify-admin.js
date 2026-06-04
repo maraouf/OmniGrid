@@ -271,6 +271,7 @@ export default {
     'notify_event_totp_audit_log_failed',
     'notify_event_overlay_cleanup_success',
     'notify_event_overlay_cleanup_failure',
+    'notify_event_prayer_reminder',
   ],
   // Per-medium master switches. Mirrors `NOTIFY_MEDIUM_NAMES` in
   // logic/ops.py. Adding a third medium adds one entry here +
@@ -312,6 +313,12 @@ export default {
     {label: 'host_paused', key: 'notify_event_host_paused'},
     {label: 'http_probe_failure', key: 'notify_event_http_probe_failure'},
     {label: 'service_probe_failure', key: 'notify_event_service_probe_failure'},
+  ],
+  // Informational / scheduled events — not a problem signal (Health) nor a
+  // security event, so they get their own category. Single-toggle per event
+  // like the sampler / security events.
+  notifyInfoEvents: [
+    {label: 'prayer_reminder', key: 'notify_event_prayer_reminder'},
   ],
   // Flattened ops-event row list — every (group, kind) becomes one
   // row in the Profile→Notifications grid. Computed once-per-render
@@ -392,6 +399,10 @@ export default {
     for (const e of (this.notifySecurityEvents || [])) {
       security.push({key: e.key, label: e.label, kind: null});
     }
+    const info = [];
+    for (const e of (this.notifyInfoEvents || [])) {
+      info.push({key: e.key, label: e.label, kind: null});
+    }
     this._notifyCategoriesCache = [
       {
         id: 'operations',
@@ -415,6 +426,14 @@ export default {
         label_key: 'profile.notifications.cat_security',
         desc_key: 'profile.notifications.cat_security_desc',
         rows: security,
+        groups: null,
+      },
+      {
+        id: 'info',
+        icon: 'icon-info',
+        label_key: 'profile.notifications.cat_info',
+        desc_key: 'profile.notifications.cat_info_desc',
+        rows: info,
         groups: null,
       },
     ];
