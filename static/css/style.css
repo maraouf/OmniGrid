@@ -6701,24 +6701,36 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 /* List rendering: the enclosing `.swal2-html-container li::before` already
-   supplies a single blue `• ` bullet + indent for every <li>, so this list
-   MUST NOT add its own marker — `list-style: disc` + `padding-inline-start`
-   here stacked a SECOND (white) disc and a second indent on top of the
-   swal bullet (operator saw "2 dots, 1 white 1 blue, 2 indentation").
-   list-style:none + zero padding leaves exactly the one swal bullet. */
+   used to supply the bullet + indent for every <li>, but the remove/update
+   dialog rules are now scoped with `:not(.release-notes-li)` /
+   `:not(.release-notes-list)` (so their flex + bullet no longer cramp the
+   changelog) — which means this list gets NO swal bullet anymore and MUST
+   draw its own. A `::before` blue dot (matching the swal bullet's colour)
+   + a hanging-indent layout: the list indents, each <li> carries the bullet
+   at its inline start, and wrapped lines align under the text. The old
+   "2 dots / 2 indents" double-up is gone because the swal marker no longer
+   applies here. */
 .release-notes-rendered .release-notes-list {
   margin: var(--s-1) 0;
-  padding-inline-start: 0;
+  padding-inline-start: var(--s-4);
   list-style: none;
 }
 
 .release-notes-rendered .release-notes-li {
+  position: relative;
   margin: 2px 0;
+  padding-inline-start: var(--s-3);
+}
+
+.release-notes-rendered .release-notes-li::before {
+  content: "•";
+  position: absolute;
+  inset-inline-start: 0;
+  color: var(--primary);
 }
 
 .release-notes-rendered .release-notes-li--nested {
   margin-inline-start: var(--s-4);
-  list-style: none;
 }
 
 /* GitHub-style alert callout (`> [!WARNING]` / [!NOTE] / [!TIP] /
