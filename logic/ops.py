@@ -1543,6 +1543,63 @@ def _resolve_notify_host_for_log(host_id: str) -> str:
     return ""
 
 
+def _resolve_fleet_event_routing(event: str) -> Optional[dict]:
+    """Per-channel routing for an ACTORLESS event (sampler / fleet-wide
+    notification with no real acting user — ``http_probe_failure``,
+    ``service_probe_failure``, host-failure transitions, scheduler ops).
+
+    There's no single acting user to consult, so the per-channel routing
+    is OR-merged across every ACTIVE ADMIN's Profile → Notifications
+    settings: a global-destination channel (Telegram / in-app / Apprise)
+    fires when AT LEAST ONE admin has it enabled for this event, and is
+    suppressed only when every admin with an EXPLICIT choice routed the
+    event away from it. Admins who never made a per-event choice are not
+    counted — they neither force a channel on nor veto one off — so a
+    single-admin deployment's Profile routing governs exactly as the
+    operator set it.
+
+    Returns:
+      - ``None`` when no admin has an explicit pref for ``event`` →
+        caller keeps the legacy "fire on every enabled medium" default.
+      - ``{medium: bool}`` merged dict otherwise (consumed by the same
+        per-medium fan-out gate as the per-user path).
+    """
+    medium_names = list(NOTIFY_MEDIUMS.keys())
+    try:
+        from logic import auth as _auth
+        with db_conn() as _c:
+            users = _auth.list_users(_c)
+            merged: dict = {}
+            saw_explicit = False
+            for u in users:
+                if u.get("role") != "admin" or u.get("disabled"):
+                    continue
+                prefs_map = _auth.get_user_notify_prefs(_c, u["id"]) or {}
+                if event not in prefs_map:
+                    continue
+                pref = prefs_map[event]
+                # Normalise this admin's pref to a per-medium view.
+                # Bare True/False = "all channels on/off"; dict = explicit
+                # routing (missing channel defaults to on).
+                if pref is True:
+                    per = {m: True for m in medium_names}
+                elif pref is False:
+                    per = {m: False for m in medium_names}
+                elif isinstance(pref, dict):
+                    per = {m: bool(pref.get(m, True)) for m in medium_names}
+                else:
+                    continue
+                saw_explicit = True
+                for m in medium_names:
+                    merged[m] = merged.get(m, False) or per[m]
+            return merged if saw_explicit else None
+    except (_sqlite3.Error, ImportError, AttributeError, ValueError, KeyError) as _e:
+        # Defensive: a routing-lookup failure must never drop the
+        # notification. None ⇒ legacy "every enabled medium fires".
+        print(f"[notify] fleet-event routing lookup failed for '{event}': {_e}")
+        return None
+
+
 async def notify(
     title: str, body: str, status: str = "info", *,
     event: Optional[str] = None,
@@ -1717,12 +1774,14 @@ async def notify(
     # only. Token / system actors (negative ids) skip the per-user
     # lookup so scheduler-fired notifications still land.
     user_event_pref: Optional[Union[bool, dict]] = None
+    resolved_real_user = False
     if event and actor_username:
         try:
             from logic import auth as _auth
             with db_conn() as _c:
                 _u = _auth.get_user_by_username(_c, actor_username)
                 if _u and _u.id >= 0:
+                    resolved_real_user = True
                     prefs_map = _auth.get_user_notify_prefs(_c, _u.id) or {}
                     if event in prefs_map:
                         user_event_pref = prefs_map[event]
@@ -1731,6 +1790,17 @@ async def notify(
             # admin-gate decision. user_event_pref stays None ⇒ default
             # to "enabled across every medium" (legacy behaviour).
             print(f"[notify] user-pref lookup failed for '{actor_username}': {_e}")
+    # Actorless / fleet event (sampler-fired: http_probe_failure,
+    # service_probe_failure, host-failure transitions; or a
+    # system/scheduler actor with no real user id). There's no REAL
+    # acting user to consult, so resolve per-channel routing by
+    # OR-merging the admin users' Profile → Notifications settings — a
+    # global-destination channel (Telegram / in-app / Apprise) is
+    # suppressed only when every admin with an explicit choice routed
+    # the event away from it. Single-admin deployments get exactly the
+    # routing the operator set in their Profile.
+    if event and not resolved_real_user:
+        user_event_pref = _resolve_fleet_event_routing(event)
     # Legacy bare-bool false short-circuits every medium — matches the
     # pre-per-medium behaviour for users who haven't migrated their
     # ui_prefs yet AND for events the user explicitly opted out of in
@@ -1748,8 +1818,9 @@ async def notify(
         and user_event_pref
         and not any(bool(v) for v in user_event_pref.values())
     ):
+        _route_src = f"user '{actor_username}'" if actor_username else "admin routing"
         print(
-            f"[notify] skipped — user '{actor_username}' opted out of "
+            f"[notify] skipped — {_route_src} opted out of "
             f"'{event}' across every medium"
         )
         return
@@ -1771,10 +1842,12 @@ async def notify(
         #   above so we don't see it here.
         if isinstance(user_event_pref, dict):
             if not user_event_pref.get(medium_name, True):
+                _route_src = (
+                    f"user '{actor_username}'" if actor_username else "admin routing"
+                )
                 print(
-                    f"[notify] medium '{medium_name}' skipped — user "
-                    f"'{actor_username}' routed '{event}' away from "
-                    f"this channel"
+                    f"[notify] medium '{medium_name}' skipped — {_route_src} "
+                    f"routed '{event}' away from this channel"
                 )
                 continue
         senders.append(sender(
