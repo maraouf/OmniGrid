@@ -191,26 +191,20 @@ def user_locations() -> list[dict]:
                     continue
                 if not isinstance(prefs, dict):
                     continue
-                # The SPA writes the user's weather pref under the
-                # camelCase `headerWeather*` keys (see
-                # `static/js/app-admin.js` save-prefs payload). Read
-                # those FIRST + fall back to legacy `weather_*` keys
-                # so older preferences-format installs still work.
-                # Coerce via str() so Pyright narrows from `Any | None`
-                # cleanly — empty / None values are caught by the
-                # subsequent try/except. Skip the row when either coord
-                # can't parse as a float (operator typed garbage,
-                # blank, or never configured a location).
-                lat_raw = (
-                    prefs.get("headerWeatherLat")
-                    if prefs.get("headerWeatherLat") not in (None, "")
-                    else prefs.get("weather_lat")
-                )
-                lon_raw = (
-                    prefs.get("headerWeatherLon")
-                    if prefs.get("headerWeatherLon") not in (None, "")
-                    else prefs.get("weather_lon")
-                )
+                # The SPA writes the user's location under the shared
+                # `userLat` / `userLon` / `userLabel` keys (see
+                # `static/js/app-admin.js` save-prefs payload). The same
+                # location feeds Weather, Prayer Times, and Prayer
+                # reminders — it's no longer weather-specific. Legacy
+                # `headerWeather*` / `weather_*` keys are migrated to these
+                # at boot by migration 007, so only the canonical keys are
+                # read here. Coerce via str() so Pyright narrows from
+                # `Any | None` cleanly — empty / None values are caught by
+                # the subsequent try/except. Skip the row when either coord
+                # can't parse as a float (user typed garbage, blank, or
+                # never configured a location).
+                lat_raw = prefs.get("userLat")
+                lon_raw = prefs.get("userLon")
                 if lat_raw in (None, "") or lon_raw in (None, ""):
                     continue
                 try:
@@ -222,11 +216,7 @@ def user_locations() -> list[dict]:
                 if key in seen:
                     continue
                 seen.add(key)
-                label_raw = (
-                    prefs.get("headerWeatherLabel")
-                    or prefs.get("weather_label")
-                    or ""
-                )
+                label_raw = prefs.get("userLabel") or ""
                 locations.append({
                     "lat": lat,
                     "lon": lon,

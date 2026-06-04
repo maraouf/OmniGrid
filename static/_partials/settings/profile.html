@@ -143,7 +143,42 @@
         <input type="checkbox" x-model="headerClockEnabled">
         <span x-text="t('topbar_widgets.show_clock')"></span>
       </label>
-      <!-- Weather toggle hidden entirely when the admin
+      <!-- Your location — shared across services. This is NO LONGER a
+           weather-only setting: the weather widget, Prayer Times, and
+           prayer reminders all read these coordinates. It is therefore
+           shown independently of the weather widget toggle so prayer
+           features still work when the weather widget is off. -->
+      <div class="pt-1 border-t border-[var(--border)]">
+        <label class="block fs-sm font-medium mb-1"
+               x-text="t('topbar_widgets.location_label') || 'Your location'"></label>
+        <p class="fs-2xs text-[var(--text-faint)] mb-2"
+           x-text="t('topbar_widgets.location_hint') || 'Used by the weather widget, Prayer Times, and prayer reminders.'"></p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
+            <input type="text" x-model="userLabel"
+                   :placeholder="t('topbar_widgets.city_placeholder')"
+                   class="w-full fs-sm">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
+            <input type="number" step="any" x-model.number="userLat"
+                   placeholder="30.0444"
+                   class="w-full fs-sm mono">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
+            <input type="number" step="any" x-model.number="userLon"
+                   placeholder="31.2357"
+                   class="w-full fs-sm mono">
+          </div>
+        </div>
+        <p class="fs-2xs text-[var(--text-faint)] mt-2">
+          <span x-text="t('topbar_widgets.tip_prefix')"></span><a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.tip_maps')"></a><span x-text="t('topbar_widgets.tip_suffix')"></span>
+        </p>
+      </div>
+
+      <!-- Weather widget toggle hidden entirely when the admin
            hasn't configured Open-Meteo upstream — there's no
            endpoint to call, so the feature isn't available
            to opt into. Becomes visible the moment the admin
@@ -153,48 +188,24 @@
         <input type="checkbox" x-model="headerWeatherEnabled">
         <span x-text="t('topbar_widgets.show_weather')"></span>
       </label>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"
-           x-show="headerWeatherEnabled && settings && (settings.open_meteo_url || '').trim()">
-        <div>
-          <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
-          <input type="text" x-model="headerWeatherLabel"
-                 :placeholder="t('topbar_widgets.city_placeholder')"
-                 class="w-full fs-sm">
-        </div>
-        <div>
-          <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
-          <input type="number" step="any" x-model.number="headerWeatherLat"
-                 placeholder="30.0444"
-                 class="w-full fs-sm mono">
-        </div>
-        <div>
-          <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
-          <input type="number" step="any" x-model.number="headerWeatherLon"
-                 placeholder="31.2357"
-                 class="w-full fs-sm mono">
-        </div>
-        <!-- Temperature unit preference. Backend returns Celsius
-             always; the SPA converts at the render boundary
-             (topbar chip + AI palette context). Radio buttons
-             over a select so the operator sees both options at
-             a glance — only two values to pick from. -->
-        <div class="sm:col-span-3">
-          <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.unit_label')"></label>
-          <div class="flex items-center gap-4 fs-sm">
-            <label class="inline-flex items-center gap-2">
-              <input type="radio" name="weather-unit" value="c" x-model="headerWeatherUnit">
-              <span x-text="t('topbar_widgets.unit_celsius')"></span>
-            </label>
-            <label class="inline-flex items-center gap-2">
-              <input type="radio" name="weather-unit" value="f" x-model="headerWeatherUnit">
-              <span x-text="t('topbar_widgets.unit_fahrenheit')"></span>
-            </label>
-          </div>
+      <!-- Temperature unit preference — genuinely weather-specific, so
+           it stays under the weather widget toggle. Backend returns
+           Celsius always; the SPA converts at the render boundary
+           (topbar chip + AI palette context). Radio buttons over a
+           select so both options show at a glance. -->
+      <div x-show="headerWeatherEnabled && settings && (settings.open_meteo_url || '').trim()">
+        <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.unit_label')"></label>
+        <div class="flex items-center gap-4 fs-sm">
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" name="weather-unit" value="c" x-model="headerWeatherUnit">
+            <span x-text="t('topbar_widgets.unit_celsius')"></span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" name="weather-unit" value="f" x-model="headerWeatherUnit">
+            <span x-text="t('topbar_widgets.unit_fahrenheit')"></span>
+          </label>
         </div>
       </div>
-      <p class="fs-2xs text-[var(--text-faint)]" x-show="headerWeatherEnabled">
-        <span x-text="t('topbar_widgets.tip_prefix')"></span><a href="https://www.google.com/maps" target="_blank" rel="noopener" class="text-[var(--primary)] hover:underline" x-text="t('topbar_widgets.tip_maps')"></a><span x-text="t('topbar_widgets.tip_suffix')"></span>
-      </p>
       <div x-show="headerWeatherEnabled && weather && weather.error"
            class="fs-xs text-[var(--danger)]"
            x-text="t('topbar_widgets.fetch_failed', { error: (weather && weather.error) || '' })"></div>

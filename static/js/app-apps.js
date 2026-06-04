@@ -1028,7 +1028,7 @@ export default {
   // /api/prayer-times response ({timings, prayers, next, hijri, ...});
   // `_prayerFetchedAt` gates the in-process refresh (10-min window like
   // public_ip). Location comes from the logged-in user's existing
-  // weather location (headerWeatherLat/Lon) — no separate prayer
+  // user location (userLat/Lon) — no separate prayer
   // location pref. The live countdown reads the shared 1s `appsClockNow`
   // tick so it ticks down without a dedicated timer.
   prayer: null,
@@ -1351,9 +1351,9 @@ export default {
   // ----------------------------------------------------------------
   // One-shot fetch on first tile mount (x-init) + on the Apps-view
   // refresh path. Location = the logged-in user's existing weather
-  // location (headerWeatherLat/Lon) so there's no separate prayer
+  // location (userLat/Lon) so there's no separate prayer
   // location pref; falls back to the operator's Admin default when the
-  // user has no weather location (the endpoint resolves that). Gated on
+  // user has no saved location (the endpoint resolves that). Gated on
   // the master toggle so a disabled feature never hits the network.
   // 10-min cache window matching the other self-fetching widgets; the
   // live countdown re-derives from `appsClockNow` so it ticks without a
@@ -1381,14 +1381,14 @@ export default {
       return;
     }
     this._prayerFetching = true;
-    const lat = this.headerWeatherLat;
-    const lon = this.headerWeatherLon;
+    const lat = this.userLat;
+    const lon = this.userLon;
     const params = new URLSearchParams();
     if (lat != null && lon != null) {
       params.set('lat', String(lat));
       params.set('lon', String(lon));
-      if (this.headerWeatherLabel) {
-        params.set('label', this.headerWeatherLabel);
+      if (this.userLabel) {
+        params.set('label', this.userLabel);
       }
     }
     if (force) {

@@ -7,7 +7,7 @@
      AI palette moon-question handling + Telegram /moon command all
      auto-disable when Open-Meteo is selected (no moon data on that
      provider).
-     Location is per-USER (Settings → Profile → Weather) — the admin
+     Location is per-USER (Settings → Profile) — the admin
      tab no longer carries a fallback location field; the SPA widget,
      AI palette context, and Telegram /weather all read each user's
      own saved location. The lifespan historical sampler iterates
@@ -127,7 +127,7 @@
   </div>
 
   <!-- Location-source hint — operators see the contract at a glance:
-       weather location is per-USER (Settings → Profile → Weather),
+       user location is per-USER (Settings → Profile),
        NOT operator-set here. Removes the old default_label/lat/lon
        form fields that were confusing alongside the user-side
        location pref. -->

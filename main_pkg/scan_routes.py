@@ -2207,8 +2207,8 @@ async def api_weather_history(
 # ============================================================================
 # Prayer Times — five daily prayers + Hijri date from api.aladhan.com.
 # Standalone subsystem (logic/prayer_times.py). Location comes from the
-# logged-in user's existing weather location (the SPA passes their
-# headerWeatherLat/Lon); method + Asr school are operator settings in
+# logged-in user's saved location (the SPA passes their
+# userLat/userLon); method + Asr school are operator settings in
 # Admin → Prayer Times. Consumed by the custom-dashboard widget tile,
 # the AI palette, and the Telegram /prayer + /hijri commands.
 # ============================================================================

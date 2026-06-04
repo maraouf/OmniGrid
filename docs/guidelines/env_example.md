@@ -637,6 +637,12 @@ PRAYER_TIMES_FETCH_TIMEOUT_SECONDS=8
 # hourly). 0 disables the sampler. History pruned to the retention window.
 PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS=21600
 PRAYER_TIMES_HISTORY_RETENTION_DAYS=90
+# Prayer reminders — fire a notification N minutes before each prayer.
+# Per-user opt-in + medium choice live in Profile -> Notifications; this
+# is the global lead time. 0 disables reminders. The check interval is
+# how often the background loop scans for users entering the lead window.
+PRAYER_TIMES_REMINDER_LEAD_MINUTES=10
+PRAYER_TIMES_REMINDER_CHECK_INTERVAL_SECONDS=30
 # AlAdhan REST base — operator override. Blank uses the default
 # https://api.aladhan.com/v1.
 # PRAYER_TIMES_API_BASE_URL=https://api.aladhan.com/v1
@@ -1103,6 +1109,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PRAYER_TIMES_FETCH_TIMEOUT_SECONDS`       | Runtime     | `8`                     | HTTP timeout for the AlAdhan fetch. Range 2..60.                                                                                                                                                                                                                                                                  |
 | `PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS`    | Runtime     | `21600`                 | Lifespan-managed prayer-times sampler cadence (one row per day per location into `prayer_times_samples`). Daily-static data, so 6h default. 0 disables the sampler. Range 0..86400.                                                                                                                                |
 | `PRAYER_TIMES_HISTORY_RETENTION_DAYS`      | Runtime     | `90`                    | Days of prayer-times samples kept in `prayer_times_samples`. 0 disables pruning. Range 0..3650.                                                                                                                                                                                                                   |
+| `PRAYER_TIMES_REMINDER_LEAD_MINUTES`       | Runtime     | `10`                    | Minutes before each prayer that the reminder notification fires. Per-user opt-in + medium choice in Profile → Notifications. 0 disables prayer reminders. Range 0..240.                                                                                                                                            |
+| `PRAYER_TIMES_REMINDER_CHECK_INTERVAL_SECONDS` | Runtime | `30`                    | Cadence of the prayer-reminder check loop. Lower = tighter firing accuracy. Range 15..600.                                                                                                                                                                                                                        |
 | `PRAYER_TIMES_API_BASE_URL`                | Runtime     | `""`                    | AlAdhan REST base override. Empty = the default `https://api.aladhan.com/v1`.                                                                                                                                                                                                                                     |
 | `WEATHER_OPEN_METEO_ENDPOINT`              | Runtime     | `""`                    | Open-Meteo forecast endpoint URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                        |
 | `WEATHER_WEATHERAPI_ENDPOINT`              | Runtime     | `""`                    | WeatherAPI.com base URL (operator-pasted; no baked default). Empty = the feature returns a "configure URL" error.                                                                                                                                                                                                 |

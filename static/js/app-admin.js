@@ -1295,9 +1295,9 @@ export default {
     return JSON.stringify({
       clk: !!this.headerClockEnabled,
       wth: !!this.headerWeatherEnabled,
-      lat: this.headerWeatherLat == null ? '' : String(this.headerWeatherLat),
-      lon: this.headerWeatherLon == null ? '' : String(this.headerWeatherLon),
-      label: this.headerWeatherLabel || '',
+      lat: this.userLat == null ? '' : String(this.userLat),
+      lon: this.userLon == null ? '' : String(this.userLon),
+      label: this.userLabel || '',
       unit: (this.headerWeatherUnit === 'f') ? 'f' : 'c',
       // AI launcher visibility participates in the dirty/save flow
       // so toggling the checkbox marks the form dirty (amber ring +
@@ -1322,9 +1322,9 @@ export default {
     try {
       localStorage.setItem('headerClockEnabled', String(!!this.headerClockEnabled));
       localStorage.setItem('headerWeatherEnabled', String(!!this.headerWeatherEnabled));
-      localStorage.setItem('headerWeatherLat', this.headerWeatherLat == null ? '' : String(this.headerWeatherLat));
-      localStorage.setItem('headerWeatherLon', this.headerWeatherLon == null ? '' : String(this.headerWeatherLon));
-      localStorage.setItem('headerWeatherLabel', this.headerWeatherLabel || '');
+      localStorage.setItem('userLat', this.userLat == null ? '' : String(this.userLat));
+      localStorage.setItem('userLon', this.userLon == null ? '' : String(this.userLon));
+      localStorage.setItem('userLabel', this.userLabel || '');
       localStorage.setItem('headerWeatherUnit', (this.headerWeatherUnit === 'f') ? 'f' : 'c');
     } catch (_) {
     }
@@ -1352,9 +1352,9 @@ export default {
           prefs: {
             headerClockEnabled: !!this.headerClockEnabled,
             headerWeatherEnabled: !!this.headerWeatherEnabled,
-            headerWeatherLat: this.headerWeatherLat == null ? null : Number(this.headerWeatherLat),
-            headerWeatherLon: this.headerWeatherLon == null ? null : Number(this.headerWeatherLon),
-            headerWeatherLabel: this.headerWeatherLabel || null,
+            userLat: this.userLat == null ? null : Number(this.userLat),
+            userLon: this.userLon == null ? null : Number(this.userLon),
+            userLabel: this.userLabel || null,
             headerWeatherUnit: (this.headerWeatherUnit === 'f') ? 'f' : 'c',
             datetime_format: dtFmtTrimmed || null,
           }
@@ -1419,24 +1419,24 @@ export default {
       } catch (_) {
       }
     }
-    if (p.headerWeatherLat != null) {
-      this.headerWeatherLat = Number(p.headerWeatherLat);
+    if (p.userLat != null) {
+      this.userLat = Number(p.userLat);
       try {
-        localStorage.setItem('headerWeatherLat', String(p.headerWeatherLat));
+        localStorage.setItem('userLat', String(p.userLat));
       } catch (_) {
       }
     }
-    if (p.headerWeatherLon != null) {
-      this.headerWeatherLon = Number(p.headerWeatherLon);
+    if (p.userLon != null) {
+      this.userLon = Number(p.userLon);
       try {
-        localStorage.setItem('headerWeatherLon', String(p.headerWeatherLon));
+        localStorage.setItem('userLon', String(p.userLon));
       } catch (_) {
       }
     }
-    if (typeof p.headerWeatherLabel === 'string') {
-      this.headerWeatherLabel = p.headerWeatherLabel;
+    if (typeof p.userLabel === 'string') {
+      this.userLabel = p.userLabel;
       try {
-        localStorage.setItem('headerWeatherLabel', p.headerWeatherLabel);
+        localStorage.setItem('userLabel', p.userLabel);
       } catch (_) {
       }
     }

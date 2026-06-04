@@ -18,7 +18,7 @@
           x-text="settings.prayer_times_enabled ? t('admin_integrations.enabled_pill') : t('admin_integrations.disabled_pill')"></span>
   </div>
   <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
-     x-text="t('admin_prayer_times.intro') || 'Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user\'s saved Weather location; set a calculation method + Asr school below.'"></p>
+     x-text="t('admin_prayer_times.intro') || 'Show the five daily prayers + the Hijri date on a custom-dashboard widget card, and let the AI assistant + Telegram bot answer prayer-time and Hijri-calendar questions. Times come from the AlAdhan API (api.aladhan.com — free, no API key). The widget uses each user\'s saved location (Settings → Profile); set a calculation method + Asr school below.'"></p>
 
   <!-- Master switch (prayer_times_enabled — a plain DB setting like
        weather_enabled, loads with settingsLoaded; NOT a tunable). Help
@@ -70,14 +70,14 @@
       </select>
     </div>
 
-    <!-- Fallback location — used ONLY when a user has no saved Weather
+    <!-- Fallback location — used ONLY when a user has no saved
          location. The widget itself prefers each user's own Weather
          location. -->
     <div class="pt-2 border-t border-[var(--border)]">
       <p class="fs-xs font-medium mb-1"
          x-text="t('admin_prayer_times.location_label') || 'Default location (fallback)'"></p>
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-         x-text="t('admin_prayer_times.location_help') || 'Used only when a user has no saved Weather location. Each user\'s own Weather location takes precedence.'"></p>
+         x-text="t('admin_prayer_times.location_help') || 'Used only when a user has no saved location. Each user\'s own location takes precedence.'"></p>
       <div class="flex flex-wrap gap-2">
         <label class="contents">
           <input type="text" inputmode="decimal" x-model="settings.prayer_times_default_lat"
@@ -148,7 +148,9 @@
         <span class="spin" aria-hidden="true"></span>
         <span x-text="t('common.loading')"></span>
       </div>
-      <template x-for="key in (tuningLoaded ? ['tuning_prayer_times_cache_ttl_seconds',
+      <template x-for="key in (tuningLoaded ? ['tuning_prayer_times_reminder_lead_minutes',
+                                    'tuning_prayer_times_reminder_check_interval_seconds',
+                                    'tuning_prayer_times_cache_ttl_seconds',
                                     'tuning_prayer_times_fetch_timeout_seconds',
                                     'tuning_prayer_times_sampler_interval_seconds',
                                     'tuning_prayer_times_history_retention_days'] : [])"

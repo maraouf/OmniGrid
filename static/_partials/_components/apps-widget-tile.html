@@ -335,7 +335,7 @@
                        follow-user cards fall back to the global header label
                        or the upstream-returned label. The condition string is
                        appended only when `show_conditions` opt is on. -->
-                  <span x-text="(((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || headerWeatherLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
+                  <span x-text="(((effectiveWeatherOpts(item).label) || userLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || userLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
                 </div>
                 <!-- Detail row: humidity + wind. Gated on
                      `appsWidgetWeatherShowConditions(item)` so an operator
@@ -386,8 +386,8 @@
             <span class="apps-widget-empty-text"
                   x-text="(weather && weather.configured === false)
                   ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
-                  : (!headerWeatherLat || !headerWeatherLon)
-                    ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see live conditions here.')
+                  : (!userLat || !userLon)
+                    ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see live conditions here.')
                     : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
           </div>
         </template>
@@ -660,8 +660,8 @@
                   ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
                   : (weather && !weather.supports_moon)
                     ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
-                    : (!headerWeatherLat || !headerWeatherLon)
-                      ? (t('apps.custom.widget_weather_no_location') || 'Set your weather location in Settings → Profile → Weather to see moon phases here.')
+                    : (!userLat || !userLon)
+                      ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see moon phases here.')
                       : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
           </div>
         </template>
@@ -671,7 +671,7 @@
            Hijri date, and the 5 daily prayers (+ Sunrise) as a list with
            the next prayer highlighted via --widget-accent. Self-fetches
            via `_ensurePrayerTimes()` on first mount using the logged-in
-           user's existing weather location (no separate prayer location
+           user's saved location (no separate prayer location
            pref). Polished empty state when disabled / no location. -->
       <template x-if="item.widget === 'prayer_times'">
         <div class="apps-widget-prayer-wrap" x-init="_ensurePrayerTimes()">
@@ -730,13 +730,13 @@
               </svg>
               <!-- Three differentiated empty states:
                    (a) feature disabled by an admin
-                   (b) no location available (no weather location + no admin default)
+                   (b) no location available (no user location + no admin default)
                    (c) configured but no data yet (transient — refresh retries) -->
               <span class="apps-widget-empty-text"
                     x-text="(prayer && prayer.configured === false)
                     ? (t('prayer_times.widget_disabled') || 'Prayer Times is disabled. Ask an admin to enable it in Admin → Prayer Times.')
-                    : ((prayer && prayer.no_location) || ((!headerWeatherLat || !headerWeatherLon) && (!prayer || !prayer.location || !prayer.location.lat)))
-                      ? (t('prayer_times.widget_no_location') || 'Set your weather location in Settings → Profile → Weather, or an admin can set a default in Admin → Prayer Times.')
+                    : ((prayer && prayer.no_location) || ((!userLat || !userLon) && (!prayer || !prayer.location || !prayer.location.lat)))
+                      ? (t('prayer_times.widget_no_location') || 'Set your location in Settings → Profile, or an admin can set a default in Admin → Prayer Times.')
                       : (t('prayer_times.widget_no_data') || 'No prayer data yet — click the refresh button to try again.')"></span>
             </div>
           </template>

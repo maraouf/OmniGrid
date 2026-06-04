@@ -535,6 +535,64 @@ def _migration_006_service_catalog_extras_opt_in(conn: sqlite3.Connection) -> No
     conn.execute("UPDATE service_catalog SET show_extras = 0 WHERE show_extras = 1")
 
 
+def _migration_007_rename_user_location_keys(conn: sqlite3.Connection) -> None:
+    """Rename the per-user location keys in ``users.ui_prefs`` from the
+    legacy weather-centric names to the shared user-location names.
+
+    The location set under the topbar widget is no longer weather-only —
+    Weather, Prayer Times, and Prayer reminders all read it — so the keys
+    move from ``headerWeatherLat/Lon/Label`` (and the even-older
+    ``weather_lat/lon/label``) to ``userLat/userLon/userLabel``.
+
+    Per user: seed each ``userX`` from the first present legacy source
+    (``headerWeatherX`` preferred, then ``weather_x``) when ``userX``
+    isn't already set, then drop every legacy key so the data settles on
+    the new shape. Idempotent — a re-run finds no legacy keys and
+    rewrites nothing. ``headerWeatherEnabled`` / ``headerWeatherUnit`` /
+    ``headerClockEnabled`` are widget settings (NOT location) and are
+    left untouched.
+    """
+    import json
+
+    try:
+        rows = conn.execute("SELECT id, ui_prefs FROM users").fetchall()
+    except sqlite3.OperationalError:
+        return  # users table not created yet — nothing to migrate
+
+    pairs = [
+        ("userLat", "headerWeatherLat", "weather_lat"),
+        ("userLon", "headerWeatherLon", "weather_lon"),
+        ("userLabel", "headerWeatherLabel", "weather_label"),
+    ]
+    for uid, raw in rows:
+        if not raw:
+            continue
+        try:
+            prefs = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(prefs, dict):
+            continue
+        changed = False
+        for new_k, old_k, legacy_k in pairs:
+            if prefs.get(new_k) in (None, ""):
+                src = prefs.get(old_k)
+                if src in (None, ""):
+                    src = prefs.get(legacy_k)
+                if src not in (None, ""):
+                    prefs[new_k] = src
+                    changed = True
+            for k in (old_k, legacy_k):
+                if k in prefs:
+                    del prefs[k]
+                    changed = True
+        if changed:
+            conn.execute(
+                "UPDATE users SET ui_prefs=? WHERE id=?",
+                (json.dumps(prefs), uid),
+            )
+
+
 MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (1, "flip_ssh_per_host_to_opt_in", _migration_001_flip_ssh_per_host_to_opt_in),
     (2, "split_provider_host_pk", _migration_002_split_provider_host_pk),
@@ -542,4 +600,5 @@ MIGRATIONS: List[Tuple[int, str, MigrationFn]] = [
     (4, "port_scan_protocol_column", _migration_004_port_scan_protocol_column),
     (5, "service_samples_port_column", _migration_005_service_samples_port_column),
     (6, "service_catalog_extras_opt_in", _migration_006_service_catalog_extras_opt_in),
+    (7, "rename_user_location_keys", _migration_007_rename_user_location_keys),
 ]
