@@ -1892,6 +1892,7 @@ class SettingsIn(BaseModel):
     # Drawer auto-fix — Portainer-API VXLAN overlay cleanup events.
     notify_event_overlay_cleanup_success: Optional[str] = None
     notify_event_overlay_cleanup_failure: Optional[str] = None
+    notify_event_prayer_reminder: Optional[str] = None
     # -----------------------------------------------------------------
     # Per-medium master switches. The dispatcher in `logic/ops.py:notify`
     # fans out to every enabled medium; flipping one of these false

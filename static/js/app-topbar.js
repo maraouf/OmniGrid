@@ -1100,58 +1100,6 @@ export default {
     }
   },
 
-  // ── Prayer reminders (Profile → Notifications card) ──────────────
-  // Per-user opt-in + medium selection, stored in ui_prefs.prayer_reminders
-  // = {enabled, mediums:{app,telegram,apprise}}. Saved immediately on each
-  // toggle via the free-form /api/me/ui-prefs PATCH (same fire-and-forget
-  // pattern as the other ui_prefs toggles — no page-level Save needed).
-  // The lead time is the admin tunable; the backend reminder loop reads
-  // this pref per user.
-  _prayerReminderPref() {
-    const prefs = (this.me && this.me.ui_prefs) || {};
-    const p = prefs.prayer_reminders || {};
-    const med = p.mediums || {};
-    return {
-      enabled: !!p.enabled,
-      mediums: {app: !!med.app, telegram: !!med.telegram, apprise: !!med.apprise},
-    };
-  },
-  prayerReminderEnabled() {
-    return this._prayerReminderPref().enabled;
-  },
-  prayerReminderMedium(m) {
-    return !!this._prayerReminderPref().mediums[m];
-  },
-  _persistPrayerReminders(obj) {
-    if (!this.me) {
-      return;
-    }
-    if (!this.me.ui_prefs) {
-      this.me.ui_prefs = {};
-    }
-    this.me.ui_prefs.prayer_reminders = obj;
-    // Fire-and-forget — the CSRF header is attached by the global fetch
-    // wrapper; failure leaves the in-memory pref set so the next toggle
-    // re-attempts the write.
-    fetch('/api/me/ui-prefs', {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({prefs: {prayer_reminders: obj}}),
-    }).catch(() => {
-      // best-effort persistence — next toggle re-attempts the write
-    });
-  },
-  togglePrayerReminderEnabled(on) {
-    const cur = this._prayerReminderPref();
-    cur.enabled = !!on;
-    this._persistPrayerReminders(cur);
-  },
-  togglePrayerReminderMedium(m, on) {
-    const cur = this._prayerReminderPref();
-    cur.mediums[m] = !!on;
-    this._persistPrayerReminders(cur);
-  },
-
   // Admin → Public IP "Recent samples" table loader — mirrors
   // loadWeatherHistory. Reads the admin-only /api/public-ip/history
   // (newest-first public_ip_history rows). Lazy-loaded on first expand of

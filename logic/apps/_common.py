@@ -274,6 +274,27 @@ def cache_key(host_id: str, service_idx: int) -> str:
     return f"{host_id}:{service_idx}"
 
 
+def resolve_credential_target(host_row: dict, chip: dict,
+                              candidate_key: str) -> "tuple[str, str, Optional[dict]]":
+    """Resolve ``(api_key, base_url)`` for a per-app ``test_credential`` probe.
+
+    Applies the standard blank-candidate -> stored-``chip['api_key']``
+    fallback so the operator can re-test after first save without retyping
+    the secret. Returns ``(key, base, err)`` where ``err`` is a
+    ready-to-return ``{ok: False, detail, status}`` dict when the key or
+    URL is missing (``key`` / ``base`` are ``""`` in that case), else
+    ``None``. Folds the identical opening every credentialed module's
+    ``test_credential`` repeated."""
+    key = (candidate_key or "").strip() or (chip.get("api_key") or "").strip()
+    if not key:
+        return "", "", {"ok": False, "detail": "api_key required", "status": 0}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return key, "", {"ok": False, "detail": "no upstream URL configured",
+                         "status": 0}
+    return key, base, None
+
+
 # Per-instance data-cache TTL bounds. The TTL is operator-configurable IN
 # THE APP (the per-instance editor's optional `cache_ttl` field) — NOT a
 # global Config TUNABLE, so each app stays self-contained. Each module

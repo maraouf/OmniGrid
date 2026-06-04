@@ -506,9 +506,15 @@ NOTIFY_EVENT_NAMES = (
     # task-error remediation panel.
     "overlay_cleanup_success",
     "overlay_cleanup_failure",
+    # Prayer reminder — fires `tuning_prayer_times_reminder_lead_minutes`
+    # before each daily prayer for users who have a saved location, routed
+    # per-user via the Profile → Notifications matrix. Default OFF (admin
+    # opt-in in Admin → Notifications, like user_login) so it never fires
+    # until an admin enables it. Requires Prayer Times to be enabled.
+    "prayer_reminder",
 )
 NOTIFY_EVENT_DEFAULTS: dict[str, bool] = {
-    name: (False if name in ("user_login", "port_scan_new_port", "http_probe_failure", "service_probe_failure") else True)
+    name: (False if name in ("user_login", "port_scan_new_port", "http_probe_failure", "service_probe_failure", "prayer_reminder") else True)
     for name in NOTIFY_EVENT_NAMES
 }
 
@@ -752,6 +758,13 @@ NOTIFY_TEMPLATE_DEFAULTS: dict = {
     },
     "overlay_cleanup_failure": {
         "title": "Overlay cleanup failed: {name}",
+        "body": "{message}",
+    },
+    # Prayer reminder — {name} is the prayer (Fajr / Dhuhr / …, fed from
+    # the caller's "Prayer: <name>" title), {message} is the caller's
+    # detail line ("<name> at HH:MM · <location> — in N minutes").
+    "prayer_reminder": {
+        "title": "🕌 {name} prayer reminder",
         "body": "{message}",
     },
 }
@@ -1477,12 +1490,19 @@ def _resolve_notify_host_for_log(host_id: str) -> str:
     Lazy import on iter_curated_hosts to dodge the import-time
     cycle with logic.db. Matches the resolver shape used by
     host_metrics_sampler._resolve_target_for_log."""
+    # Best-effort log resolver — a bad hosts_config blob / DB read must
+    # yield "" (the alias), never raise.
+    # noinspection PyBroadException
     try:
         from logic.db import iter_curated_hosts as _iter
         for _h in _iter():
             if (_h.get("id") or "").strip() != host_id:
                 continue
-            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+            # Assign once so the isinstance check narrows `_ssh` to a dict
+            # (PyCharm can't narrow a ternary that re-calls `.get` in both
+            # the condition and the branch).
+            _ssh_raw = _h.get("ssh")
+            _ssh = _ssh_raw if isinstance(_ssh_raw, dict) else {}
             return (
                 (_h.get("address") or "").strip()
                 or (_ssh.get("fqdn") or "").strip()

@@ -30,7 +30,8 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import (
-    cache_key, fetch_preamble, resolve_base_url, resolve_cache_ttl)
+    cache_key, fetch_preamble, resolve_base_url, resolve_cache_ttl,
+    resolve_credential_target)
 from logic.coerce import safe_int
 
 # Catalog template slugs handled by this module. The registry maps
@@ -94,12 +95,9 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     ``candidate_key`` is blank so the operator can re-test after
     first save without re-typing the secret.
     """
-    key = (candidate_key or "").strip() or (chip.get("api_key") or "").strip()
-    if not key:
-        return {"ok": False, "detail": "api_key required", "status": 0}
-    base = resolve_base_url(host_row, chip)
-    if not base:
-        return {"ok": False, "detail": "no upstream URL configured", "status": 0}
+    key, base, err = resolve_credential_target(host_row, chip, candidate_key)
+    if err:
+        return err
     url = base + "/api/v1/results/latest"
     headers = {
         "Authorization": f"Bearer {key}",

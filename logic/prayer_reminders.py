@@ -37,7 +37,6 @@ from logic import prayer_times as _pt
 
 # Obligatory prayers, in order — Sunrise is informational, never reminded.
 _PRAYER_KEYS = ("fajr", "dhuhr", "asr", "maghrib", "isha")
-_VALID_MEDIUMS = ("app", "telegram", "apprise")
 # First-tick delay — let boot-time schema migrations land before the
 # first read, same shape as the samplers.
 _FIRST_TICK_DELAY_SECONDS = 30
@@ -61,15 +60,22 @@ def _check_interval_seconds() -> int:
         return 30
 
 
-def _enabled_users() -> list[dict]:
-    """Active users who opted into prayer reminders with >=1 medium, each
-    resolved to a concrete location. Returns
-    ``[{username, lat, lon, label, mediums}]``.
+def _located_users() -> list[dict]:
+    """Every active user with a resolvable location. Returns
+    ``[{username, lat, lon, label}]``.
 
     Location precedence mirrors the prayer widget: the user's saved
     location (``ui_prefs.userLat/userLon/userLabel``) -> the
-    Admin -> Prayer Times default location. A user with reminders enabled
-    but no resolvable location is skipped.
+    Admin -> Prayer Times default location. A user with no resolvable
+    location is skipped.
+
+    NOTE: this does NOT filter by an opt-in flag — delivery + per-user
+    routing is the job of ``logic.ops.notify(event='prayer_reminder',
+    actor_username=...)``, which applies the global Admin -> Notifications
+    gate AND each user's per-medium routing from Profile -> Notifications
+    (exactly like every other notify event). The whole feature is
+    short-circuited up front by the global gate, so this only runs when an
+    admin has enabled the prayer-reminder event.
     """
     out: list[dict] = []
     default_loc: Optional[dict] = None
@@ -94,14 +100,6 @@ def _enabled_users() -> list[dict]:
             continue
         if not isinstance(prefs, dict):
             continue
-        pr = prefs.get("prayer_reminders")
-        if not isinstance(pr, dict) or not pr.get("enabled"):
-            continue
-        mediums_pref = pr.get("mediums") or {}
-        mediums = [m for m in _VALID_MEDIUMS
-                   if isinstance(mediums_pref, dict) and mediums_pref.get(m)]
-        if not mediums:
-            continue
         lat_raw = prefs.get("userLat")
         lon_raw = prefs.get("userLon")
         label = str(prefs.get("userLabel") or "").strip()
@@ -124,7 +122,7 @@ def _enabled_users() -> list[dict]:
             if not label:
                 label = str(default_loc.get("label") or "").strip()
         out.append({"username": username, "lat": lat, "lon": lon,
-                    "label": label, "mediums": mediums})
+                    "label": label})
     return out
 
 
@@ -171,44 +169,46 @@ def _prune_dedup() -> int:
         return 0
 
 
-async def _deliver(username: str, mediums: list[str], *,
-                   title: str, body: str, prayer_key: str) -> list[str]:
-    """Fire the reminder to each selected medium via the public
-    ``notify_one_medium`` primitive (honours each medium's global master
-    switch). Returns the list of mediums that actually delivered."""
-    from logic.ops import notify_one_medium
-    metadata = {"kind": "prayer_reminder", "prayer": prayer_key}
-    delivered: list[str] = []
-    for m in mediums:
-        try:
-            res = await notify_one_medium(
-                m, title, body,
-                actor_username=username, metadata=metadata,
-            )
-        except Exception as e:  # noqa: BLE001
-            if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt)):
-                raise
-            print(f"[prayer_reminders] medium '{m}' for {username} "
-                  f"errored: {e}", flush=True)
-            continue
-        if isinstance(res, dict) and res.get("ok"):
-            delivered.append(m)
-        else:
-            detail = (res or {}).get("detail") if isinstance(res, dict) else None
-            print(f"[prayer_reminders] medium '{m}' for {username}/"
-                  f"{prayer_key} not delivered: {detail}", flush=True)
-    return delivered
+def _event_enabled() -> bool:
+    """Global Admin -> Notifications gate for the ``prayer_reminder`` event.
+    Default OFF (admin opt-in, like ``user_login``) so the loop does no work
+    + fires nothing until an admin enables it."""
+    try:
+        from logic.db import get_setting_bool  # noqa: PLC0415
+        from logic.settings_keys import notify_event_key  # noqa: PLC0415
+        # get_setting_bool defaults to False — the prayer_reminder event is
+        # admin-opt-in, so an unset setting reads as OFF.
+        return get_setting_bool(notify_event_key("prayer_reminder"))
+    except (KeyError, ValueError, TypeError):
+        return False
 
 
-def _reminder_text(name: str, hhmm: str, lead: int, label: str) -> tuple[str, str]:
-    """English title/body (backend notification convention). Title carries
-    the lead countdown; body the exact time + location. ``name`` is the
-    already-resolved display name of the prayer (from the fetch's timing
-    row) so this helper doesn't reach into prayer_times' internals."""
+async def _fire_reminder(username: str, *, name: str, hhmm: str, lead: int,
+                         label: str, prayer_key: str) -> None:
+    """Fire ONE prayer reminder through the standard notify() event system.
+
+    Delivery + per-user routing (which mediums) is entirely notify()'s job:
+    it applies the global Admin -> Notifications gate AND the user's
+    per-medium routing for the ``prayer_reminder`` event from
+    Profile -> Notifications — exactly like every other notify event. The
+    title/body feed the template placeholders: the ``"Prayer: <name>"``
+    title becomes ``{name}`` (the notify template engine splits on ": ");
+    the detail line becomes ``{message}``."""
+    from logic.ops import notify  # noqa: PLC0415
     minutes = "minute" if lead == 1 else "minutes"
-    title = f"🕌 {name} in {lead} {minutes}"
-    body = f"{name} at {hhmm}" + (f" · {label}" if label else "")
-    return title, body
+    detail = f"{name} at {hhmm}"
+    if label:
+        detail += f" · {label}"
+    detail += f" — in {lead} {minutes}"
+    await notify(
+        f"Prayer: {name}",
+        detail,
+        event="prayer_reminder",
+        actor_username=username,
+        target_kind="prayer",
+        target_id=prayer_key,
+        metadata={"prayer": prayer_key, "host": label},
+    )
 
 
 async def reminder_loop() -> None:
@@ -219,13 +219,17 @@ async def reminder_loop() -> None:
     while True:
         interval = _check_interval_seconds()
         lead = _lead_minutes()
-        # 0 lead disables the feature; sleep at the configured cadence.
-        if lead <= 0 or not _pt.is_enabled():
+        # Three gates, all cheap, all re-read per tick so an Admin change
+        # applies without restart: 0 lead disables the feature; Prayer Times
+        # must be enabled (to fetch); the prayer_reminder notify event must
+        # be enabled globally (Admin -> Notifications, default OFF). The
+        # event gate short-circuits ALL per-user work + delivery.
+        if lead <= 0 or not _pt.is_enabled() or not _event_enabled():
             await asyncio.sleep(max(interval, 15))
             continue
         lead_seconds = lead * 60
         now = int(time.time())
-        users = _enabled_users()
+        users = _located_users()
         if users:
             # Cache fetched bodies per (lat,lon) within this tick so two
             # users in the same city share one upstream call. Keyed by a
@@ -263,19 +267,17 @@ async def reminder_loop() -> None:
                         continue
                     if _already_sent(u["username"], greg, pk):
                         continue
-                    title, b = _reminder_text(
-                        row.get("name") or pk.title(),
-                        row.get("time") or "", lead, u.get("label") or "")
-                    delivered = await _deliver(
-                        u["username"], u["mediums"],
-                        title=title, body=b, prayer_key=pk)
-                    # One attempt per (user, day, prayer) regardless of
-                    # per-medium outcome — avoids re-attempt spam every tick
-                    # when a selected medium is globally disabled.
+                    await _fire_reminder(
+                        u["username"],
+                        name=row.get("name") or pk.title(),
+                        hhmm=row.get("time") or "",
+                        lead=lead, label=u.get("label") or "", prayer_key=pk)
+                    # One notify() per (user, day, prayer); notify() itself
+                    # applies the per-user routing / per-medium gates, so the
+                    # dedup mark is unconditional (no re-attempt spam).
                     _mark_sent(u["username"], greg, pk)
                     print(f"[prayer_reminders] {u['username']}: {pk} "
-                          f"reminder (lead {lead}m) -> "
-                          f"{delivered or 'no medium delivered'}", flush=True)
+                          f"reminder fired (lead {lead}m)", flush=True)
         # Periodic dedup prune.
         nowf = time.time()
         if (nowf - last_prune_ts) >= _PRUNE_EVERY_SECONDS:

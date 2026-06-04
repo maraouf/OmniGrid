@@ -1,0 +1,59 @@
+<!-- Per-app expanded-card extras -- Bazarr (subtitle manager).
+
+     Renders inside `apps-card.html` as the per-instance host row when the
+     chip is the Bazarr catalog template AND the operator hasn't hidden
+     extras via the per-instance `show_extras` toggle. The data comes from
+     Bazarr's `GET /api/badges` (via `logic/apps/bazarr.py:fetch_data`),
+     read through the generic, cache-backed `appsAppData(inst)` -- so the
+     card never triggers a per-card round-trip on the hot path. Returns
+     null while idle / pending / errored, so the panel gates cleanly.
+
+     Reuses the shared `.apps-card-ups-*` stat-grid component (the same
+     2-column stat panel APC renders) so the responsive tile-size rules
+     apply for free -- the classes are a generic telemetry stat grid, not
+     UPS-specific.
+
+     Helpers used (all from `static/js/apps/bazarr.js`):
+       bazarrIsApp(app)   -- gate "is this a Bazarr chip"
+       bazarrData(inst)   -- per-instance badge-count payload
+       bazarrCount(v)     -- thousands-separated integer formatter -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="bazarrIsApp && bazarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && bazarrData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-bazarr-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Episodes missing subtitles -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.bazarr.episodes_missing') || 'Episodes missing'"></div>
+        <div class="apps-card-ups-value" x-text="bazarrCount(bazarrData(inst).episodes_missing)"></div>
+      </div>
+      <!-- Movies missing subtitles -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.bazarr.movies_missing') || 'Movies missing'"></div>
+        <div class="apps-card-ups-value" x-text="bazarrCount(bazarrData(inst).movies_missing)"></div>
+      </div>
+      <!-- Throttled subtitle providers (0 = all good) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.bazarr.providers_throttled') || 'Throttled providers'"></div>
+        <div class="apps-card-ups-value"
+             :class="(Number(bazarrData(inst).providers_throttled) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+             x-text="bazarrCount(bazarrData(inst).providers_throttled)"></div>
+      </div>
+      <!-- Health issues (0 = healthy) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-ups-label" x-text="t('apps.bazarr.health_issues') || 'Health issues'"></div>
+        <div class="apps-card-ups-value"
+             :class="(Number(bazarrData(inst).health_issues) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+             x-text="bazarrCount(bazarrData(inst).health_issues)"></div>
+      </div>
+    </div>
+    <!-- Version footnote (when reported by /api/system/status). -->
+    <div x-show="bazarrData(inst).version"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+         x-text="'Bazarr ' + (bazarrData(inst).version || '')"></div>
+  </div>
+</template>

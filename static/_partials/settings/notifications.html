@@ -8,41 +8,6 @@
   </div>
   <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('profile.notifications.subtitle_per_medium')"></p>
 
-  <!-- Prayer reminders — per-user opt-in. Enable + pick which mediums
-       receive the "N minutes before each prayer" notification. The lead
-       time is set by an admin in Admin → Prayer Times. Saved immediately
-       to ui_prefs (no page Save needed), like the other ui_prefs toggles. -->
-  <div class="bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3 mb-4">
-    <div class="flex items-center gap-2 mb-1">
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-mosque"/>
-      </svg>
-      <span class="fs-sm font-semibold" x-text="t('profile.prayer_reminders.title') || 'Prayer reminders'"></span>
-    </div>
-    <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-       x-text="t('profile.prayer_reminders.hint') || 'Get a notification a few minutes before each daily prayer. Requires Prayer Times to be enabled and your location set (Settings → Profile). The lead time is configured by an admin under Admin → Prayer Times.'"></p>
-    <label class="flex items-center gap-2 fs-sm cursor-pointer mb-2 select-none">
-      <input type="checkbox" :checked="prayerReminderEnabled()"
-             @change="togglePrayerReminderEnabled($event.target.checked)">
-      <span class="font-medium" x-text="t('profile.prayer_reminders.enable_label') || 'Enable prayer reminders'"></span>
-    </label>
-    <div class="flex flex-wrap items-center gap-3 ps-6"
-         :class="prayerReminderEnabled() ? '' : 'opacity-50'">
-      <span class="fs-xs text-[var(--text-faint)]"
-            x-text="t('profile.prayer_reminders.mediums_label') || 'Send via:'"></span>
-      <template x-for="m in notifyMediumNames()" :key="'prayer_rem_' + m">
-        <label class="inline-flex items-center gap-1.5 fs-sm cursor-pointer select-none"
-               :class="notifyMediumIsGloballyEnabled(m) ? '' : 'opacity-50'"
-               :title="notifyMediumIsGloballyEnabled(m) ? '' : (t('profile.notifications.medium_globally_disabled') || 'Disabled by admin')">
-          <input type="checkbox" :checked="prayerReminderMedium(m)"
-                 :disabled="!prayerReminderEnabled() || !notifyMediumIsGloballyEnabled(m)"
-                 @change="togglePrayerReminderMedium(m, $event.target.checked)">
-          <span x-text="t('admin.notifications.medium_' + m)"></span>
-        </label>
-      </template>
-    </div>
-  </div>
-
   <!-- ============== CATEGORISED NOTIFICATIONS PANEL ==========
        Replaces the flat per-event matrix with three collapsible
        category cards (Operations / Health / Security). Each
