@@ -94,6 +94,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Fixed
 
+- **Notification events can be enabled without Apprise.** The per-event enable toggles in Admin → Notifications (and the Enable-all / Disable-all / Errors-only buttons) were greyed out unless Apprise was switched on — so an operator using only in-app or Telegram couldn't enable any event (including the new prayer reminders), which then showed as disabled on the Profile → Notifications page. Events deliver to whichever channels are enabled, so these toggles now work regardless of Apprise.
 - **Long resource names on the Stacks / Services tables no longer run under the status pills.** A bare image digest (or any long name) now truncates with an ellipsis — hover to see the full name — instead of overflowing into the Health / Status columns.
 - **Public-IP widget no longer shows "no data" right after you enable it.** Enabling Public IP in Admin and saving left the apps-page widget empty until a full page reload, because the save cleared the cached value without re-fetching. It now force-probes immediately after the save so the widget populates without a reload.
 - **App card description sat too far below the title (worst in the 4×1 size).** The grey meta/description line now sits tight under the app title with a small gap instead of being pushed down by the app logo's vertical slack.

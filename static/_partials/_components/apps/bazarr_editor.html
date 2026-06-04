@@ -31,13 +31,40 @@
       <label for="apps-instance-bazarr-cache-ttl"
              class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
-      <input id="apps-instance-bazarr-cache-ttl"
-             type="number" min="5" max="3600" step="1"
-             x-model="appsInstanceEditForm.cache_ttl"
-             @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
-             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
-             :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
-             autocomplete="off">
+      <!-- Input + min / max / default chips, matching the Admin → Config
+           tunable rows. Values are static (the per-instance cache TTL is
+           bounded 5..3600 with a 30s app default), so the chips show
+           literals rather than the tuningEffective map. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-bazarr-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>30</span>
+          </span>
+        </div>
+      </div>
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.bazarr.cache_ttl_hint') || 'How long fetched counts are cached before re-querying Bazarr (5–3600s). Leave blank for the app default (30s).'"></p>
     </div>

@@ -626,6 +626,35 @@ NOTIFY_TEMPLATE_SAMPLES: dict = {
     "url": "https://example.com/health",
 }
 
+# Per-event sample overrides for the live-preview pane. Most events read
+# fine against the generic samples above, but events whose template binds
+# a generic placeholder (e.g. prayer_reminder's body is ``{message}``)
+# would preview with an unrelated sample ("Probe ran, 3 nodes flagged
+# unhealthy"). Override the relevant placeholders per event so the preview
+# reflects what that event ACTUALLY sends. Merged over the global samples
+# by :func:`samples_for_event`.
+NOTIFY_TEMPLATE_SAMPLES_BY_EVENT: dict[str, dict] = {
+    "prayer_reminder": {
+        "name": "Fajr",
+        "message": "Fajr at 04:12 · Cairo — in 10 minutes",
+        "host": "Cairo",
+        "type": "prayer_reminder",
+    },
+}
+
+
+def samples_for_event(event: Optional[str]) -> dict:
+    """Placeholder sample values for the live-preview pane, with any
+    per-event overrides from :data:`NOTIFY_TEMPLATE_SAMPLES_BY_EVENT`
+    merged over the global :data:`NOTIFY_TEMPLATE_SAMPLES`. Use this
+    (not a bare ``dict(NOTIFY_TEMPLATE_SAMPLES)``) wherever a single
+    event's preview / test render is built so event-specific placeholders
+    show realistic text."""
+    base = dict(NOTIFY_TEMPLATE_SAMPLES)
+    if event:
+        base.update(NOTIFY_TEMPLATE_SAMPLES_BY_EVENT.get(event, {}))
+    return base
+
 # Per-event hard-coded defaults. Each value mirrors the string the
 # corresponding `_do_*` handler used to pass to `notify()` BEFORE the
 # template feature shipped, so a deploy with no template settings
