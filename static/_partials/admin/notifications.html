@@ -647,7 +647,7 @@
                       <input type="checkbox"
                              :checked="settings[kind === 'success' ? grp.success_key : grp.failure_key]"
                              @change="settings[kind === 'success' ? grp.success_key : grp.failure_key] = $event.target.checked"
-                             :disabled="isReadonly() || !settings.apprise_enabled">
+                             :disabled="isReadonly()">
                       <span class="text-[var(--text-dim)]"
                             x-text="t('admin.notifications.events.enabled')"></span>
                     </label>
@@ -674,7 +674,7 @@
                   <input type="checkbox"
                          :checked="settings[row.key]"
                          @change="settings[row.key] = $event.target.checked"
-                         :disabled="isReadonly() || !settings.apprise_enabled">
+                         :disabled="isReadonly()">
                   <span class="text-[var(--text-dim)]"
                         x-text="t('admin.notifications.events.enabled')"></span>
                 </label>
@@ -693,7 +693,7 @@
 
   <div class="flex items-center gap-2 flex-wrap" x-show="isAdmin()">
     <button type="button" @click="setAllNotifyEvents(true)"
-            :disabled="isReadonly() || !settings.apprise_enabled"
+            :disabled="isReadonly()"
             class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
       <svg width="12" height="12" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
@@ -701,7 +701,7 @@
       <span x-text="t('admin.notifications.events.enable_all')"></span>
     </button>
     <button type="button" @click="setAllNotifyEvents(false)"
-            :disabled="isReadonly() || !settings.apprise_enabled"
+            :disabled="isReadonly()"
             class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
       <svg width="12" height="12" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
@@ -709,7 +709,7 @@
       <span x-text="t('admin.notifications.events.disable_all')"></span>
     </button>
     <button type="button" @click="setNotifyEventsErrorsOnly()"
-            :disabled="isReadonly() || !settings.apprise_enabled"
+            :disabled="isReadonly()"
             class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
       <svg width="12" height="12" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>

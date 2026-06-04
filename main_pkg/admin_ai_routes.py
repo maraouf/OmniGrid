@@ -1779,7 +1779,7 @@ async def api_admin_notify_templates_preview(
             detail=f"Unknown event '{event}'. Must be one of: "
                    f"{', '.join(sorted(_NOTIFY_EVENT_NAMES))}.",
         )
-    samples = dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES)
+    samples = _ops_mod.samples_for_event(event)
     title_in = body.title or ""
     body_in = body.body or ""
     rendered_title = _ops_mod.render_template(title_in, samples)
@@ -1858,9 +1858,10 @@ async def api_admin_notify_templates_test(
         if body.body is not None:
             set_setting(body_key, body.body or "")
     # Build sample-flavoured kwargs so the dispatcher's placeholder
-    # resolver lands on the sample values. The SPA's "Send test"
-    # button is admin-only, so the actor is whoever clicked it.
-    samples = dict(_ops_mod.NOTIFY_TEMPLATE_SAMPLES)
+    # resolver lands on the sample values (per-event overrides applied so
+    # e.g. a prayer_reminder test reads as real prayer text). The SPA's
+    # "Send test" button is admin-only, so the actor is whoever clicked it.
+    samples = _ops_mod.samples_for_event(event)
     actor = getattr(getattr(request.state, "user", None), "username", None) or "system"
     # Determine target_kind from the event name — failure events
     # commonly target the same kind as their success siblings; we
