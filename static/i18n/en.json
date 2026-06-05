@@ -5259,7 +5259,8 @@
       "processing": "Processing",
       "available": "Available",
       "total": "Total",
-      "issues_open": "Open issues"
+      "issues_open": "Open issues",
+      "request_btn": "Request on Seerr"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",
