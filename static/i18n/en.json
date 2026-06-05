@@ -5382,6 +5382,12 @@
       "pihole_disable_24h": "Disable for 24 hours",
       "pihole_refresh": "Update gravity (blocklists)",
       "pihole_reenable": "Re-enable (cancel timed disable)",
+      "bazarr_status": "Bazarr status",
+      "seerr_status": "Seerr status",
+      "seerr_request_movie": "Request a movie",
+      "seerr_suggest_movie": "Suggest a movie",
+      "seerr_set_filter": "Set a suggestion filter",
+      "seerr_show_filters": "Show suggestion filters",
       "ran_ok": "Started",
       "failed": "Skill failed"
     },

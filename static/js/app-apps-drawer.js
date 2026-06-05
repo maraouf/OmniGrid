@@ -291,9 +291,11 @@ export default {
         // Stash the followup (e.g. Seerr suggest → request) so the drawer can
         // render a one-click Request button under the result, like the AI.
         const _fu = (j && j.followup && typeof j.followup === 'object') ? j.followup : null;
-        this._appSkillResult[resKey] = {
-          ok: true, detail: detail, image_url: img, followup: _fu, at: Date.now(),
-        };
+        // Whole-map reassign (not per-key set) so re-running a skill reliably
+        // re-renders — a per-key SET on an existing key desyncs Alpine effects.
+        this._appSkillResult = Object.assign({}, this._appSkillResult, {
+          [resKey]: {ok: true, detail: detail, image_url: img, followup: _fu, at: Date.now()},
+        });
         _result = {
           ok: true, detail: detail, image_url: img,
           followup: _fu,
@@ -314,7 +316,9 @@ export default {
         }
       } else {
         const detail = (j && j.detail) || ('HTTP ' + r.status);
-        this._appSkillResult[resKey] = {ok: false, detail: detail, image_url: '', at: Date.now()};
+        this._appSkillResult = Object.assign({}, this._appSkillResult, {
+          [resKey]: {ok: false, detail: detail, image_url: '', at: Date.now()},
+        });
         _result = {ok: false, detail: detail, image_url: '', followup: null};
         if (!silent) {
           this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
@@ -322,9 +326,10 @@ export default {
       }
     } catch (err) {
       const msg = (err && err.message) || err;
-      this._appSkillResult = this._appSkillResult || {};
-      this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] =
-        {ok: false, detail: String(msg), image_url: '', at: Date.now()};
+      this._appSkillResult = Object.assign({}, this._appSkillResult || {}, {
+        ['res:' + this.appInstanceKey(inst) + ':' + skillId]:
+          {ok: false, detail: String(msg), image_url: '', at: Date.now()},
+      });
       _result = {ok: false, detail: String(msg), image_url: '', followup: null};
       if (!silent) {
         this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
@@ -349,16 +354,18 @@ export default {
     if (!entry || entry.followup_busy || entry.followup_done) {
       return;
     }
-    // Reactive-safe state writes: `_appSkillResult` is a lazily-created
-    // (not data()-declared) map, so MUTATING a sub-property in place
-    // (`entry.followup_busy = …`) doesn't reliably re-render the bound
-    // `:disabled` — the button could stick disabled after the run.
-    // Reassign the WHOLE entry on every transition so Alpine fires the
-    // key-set reactivity (same pattern the AI sidebar gets for free via
-    // its data()-declared `aiConversation` turns).
+    // Reactive-safe state writes. Adding a NEW key to `_appSkillResult`
+    // (the initial result) re-renders fine, but a per-key SET on an
+    // EXISTING key did NOT reliably re-run the button's `:disabled` /
+    // `x-if` effects (the button stuck `disabled` after the run while the
+    // label span DID update — a partial-reactivity desync). Reassign the
+    // WHOLE map each transition so it's a top-level data-property change
+    // Alpine always tracks; every `appSkillResult()` reader re-evaluates.
     const patch = (extra) => {
-      this._appSkillResult[resKey] =
-        Object.assign({}, this._appSkillResult[resKey] || entry, extra);
+      const cur = this._appSkillResult[resKey] || entry;
+      this._appSkillResult = Object.assign({}, this._appSkillResult, {
+        [resKey]: Object.assign({}, cur, extra),
+      });
     };
     patch({followup_busy: true});
     // No initializer — `res` is assigned in the try before any read (a throw
