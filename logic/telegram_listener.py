@@ -383,7 +383,7 @@ async def _telegram_post(
         return False, {}
 
 
-def _reply_text(text: str) -> dict:
+def _reply_text(text: str, reply_markup: Optional[dict] = None) -> dict:
     """Build a sendMessage payload targeted at the chat the inbound
     command came from (per the `_inbound_chat_id` ContextVar set by
     `_process_update`) — falls back to the primary CSV entry for
@@ -392,7 +392,8 @@ def _reply_text(text: str) -> dict:
 
     Re-uses Phase 1's HTML parse_mode + thread_id behaviour so replies
     land in the same forum topic the original command came from (when
-    applicable).
+    applicable). ``reply_markup`` attaches a Telegram inline keyboard
+    (e.g. the Seerr "Request on Seerr" button after an AI suggestion).
     """
     from logic.db import get_setting
     chat = _reply_destination()
@@ -403,6 +404,8 @@ def _reply_text(text: str) -> dict:
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     if thread:
         try:
             payload["message_thread_id"] = int(thread)
@@ -411,13 +414,15 @@ def _reply_text(text: str) -> dict:
     return payload
 
 
-async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
+async def _send_reply(client: httpx.AsyncClient, text: str,
+                      reply_markup: Optional[dict] = None) -> Optional[int]:
     """Send a reply to the configured chat. Returns the Telegram
     ``message_id`` on success (so callers can later edit the message
     via :func:`_edit_message`); returns None on any failure. Existing
-    fire-and-forget callers discard the return value silently."""
+    fire-and-forget callers discard the return value silently.
+    ``reply_markup`` optionally attaches an inline keyboard."""
     ok, body = await _telegram_post(
-        client, "sendMessage", _reply_text(text),
+        client, "sendMessage", _reply_text(text, reply_markup),
         log_label="reply",
     )
     if not ok:
@@ -431,6 +436,7 @@ async def _send_reply(client: httpx.AsyncClient, text: str) -> Optional[int]:
 
 async def _send_photo(
     client: httpx.AsyncClient, photo_url: str, caption: str = "",
+    reply_markup: Optional[dict] = None,
 ) -> Optional[int]:
     """Send a photo (by URL) to the reply chat — used when an AI reply
     references an image the operator should SEE inline (e.g. a Speedtest
@@ -438,7 +444,9 @@ async def _send_photo(
     so a bare URL would not render. Telegram fetches ``photo_url`` itself.
     Fire-and-forget shape mirroring :func:`_send_reply`: returns the
     ``message_id`` on success, None on any failure (caller already
-    delivered the text, so a photo failure must never raise)."""
+    delivered the text, so a photo failure must never raise).
+    ``reply_markup`` optionally attaches an inline keyboard (e.g. the
+    Seerr "Request on Seerr" button under a movie-suggestion poster)."""
     from logic.db import get_setting
     url = (photo_url or "").strip()
     if not url:
@@ -450,6 +458,8 @@ async def _send_photo(
         # Caption is HTML-parsed + capped at Telegram's 1024-char limit.
         payload["caption"] = caption[:1024]
         payload["parse_mode"] = "HTML"
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     if thread:
         try:
             payload["message_thread_id"] = int(thread)
@@ -1514,6 +1524,156 @@ def _mark_update_seen(update_id: int) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Inline-keyboard pending actions. A Telegram inline button can only carry
+# 64 bytes of `callback_data`, and a per-app skill action (host_id +
+# service_idx + skill_id + a movie title) doesn't fit. So we stash the full
+# action server-side under a short random token and put only `ssr:<token>`
+# in the button. When the button is pressed, the callback handler pops the
+# token and dispatches. Entries expire (the user might press a stale button
+# from an old message) and the map is size-capped.
+# ---------------------------------------------------------------------------
+_PENDING_ACTIONS: "dict[str, tuple[float, dict]]" = {}
+_PENDING_ACTION_TTL_SECONDS = 3600.0
+_PENDING_ACTION_CAP = 500
+
+
+def register_pending_action(payload: dict) -> str:
+    """Stash an inline-button action; return a short token for callback_data.
+
+    ``payload`` carries ``{host_id, service_idx, skill_id, arg}`` (the
+    Seerr request-a-movie dispatch). Public so ``logic.telegram_ai`` can
+    register the action when it attaches the button to a suggestion."""
+    import secrets  # noqa: PLC0415
+    import time as _time  # noqa: PLC0415
+    _prune_pending_actions()
+    token = secrets.token_urlsafe(8)
+    _PENDING_ACTIONS[token] = (_time.time(), dict(payload))
+    return token
+
+
+def _pop_pending_action(token: str) -> Optional[dict]:
+    """Pop + return a pending action by token, or None when missing/expired."""
+    import time as _time  # noqa: PLC0415
+    entry = _PENDING_ACTIONS.pop(token, None)
+    if not entry:
+        return None
+    ts, payload = entry
+    if (_time.time() - ts) > _PENDING_ACTION_TTL_SECONDS:
+        return None
+    return payload
+
+
+def _prune_pending_actions() -> None:
+    import time as _time  # noqa: PLC0415
+    now = _time.time()
+    for k in [k for k, (ts, _) in _PENDING_ACTIONS.items()
+              if (now - ts) > _PENDING_ACTION_TTL_SECONDS]:
+        _PENDING_ACTIONS.pop(k, None)
+    if len(_PENDING_ACTIONS) > _PENDING_ACTION_CAP:
+        # Drop the oldest entries beyond the cap (runaway safety net).
+        for k in sorted(_PENDING_ACTIONS, key=lambda k: _PENDING_ACTIONS[k][0]
+                        )[:len(_PENDING_ACTIONS) - _PENDING_ACTION_CAP]:
+            _PENDING_ACTIONS.pop(k, None)
+
+
+async def _answer_callback(client: httpx.AsyncClient, callback_id: str,
+                           text: str = "") -> None:
+    """Acknowledge a callback query (stops the button's loading spinner).
+    ``text`` (optional) shows as a transient toast to the user."""
+    if not callback_id:
+        return
+    payload: dict = {"callback_query_id": callback_id}
+    if text:
+        payload["text"] = text[:200]
+    await _telegram_post(client, "answerCallbackQuery", payload,
+                         log_label="answer_callback", silent_failure=True)
+
+
+async def _clear_callback_markup(client: httpx.AsyncClient, cb_msg: dict) -> None:
+    """Remove the inline keyboard from the message a callback came from
+    (so a one-shot button can't be pressed twice). Best-effort."""
+    chat = (cb_msg.get("chat") or {}).get("id")
+    mid = cb_msg.get("message_id")
+    if chat is None or mid is None:
+        return
+    await _telegram_post(
+        client, "editMessageReplyMarkup",
+        {"chat_id": chat, "message_id": mid, "reply_markup": {"inline_keyboard": []}},
+        log_label="clear_markup", silent_failure=True)
+
+
+async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
+    """Handle an inline-button press (currently the Seerr "Request on Seerr"
+    button after an AI movie suggestion). Authorizes the presser the same
+    two ways as a message (chat-id gate + linked-user), dispatches the
+    stashed skill action, answers the callback, removes the button, and
+    replies with the outcome (audited like every other skill dispatch)."""
+    cb_id = str(cb.get("id") or "")
+    data = (cb.get("data") or "").strip()
+    cb_msg = cb.get("message") or {}
+    chat = (cb_msg.get("chat") or {}).get("id")
+    if chat is not None:
+        _inbound_chat_id.set(str(chat))
+    # Authorize via the same chat-id gate + user allow-list as a message
+    # (synthesize the shape `_is_authorized` reads).
+    ok, reason = _is_authorized({"message": {"chat": cb_msg.get("chat") or {},
+                                             "from": cb.get("from") or {}}})
+    if not ok:
+        print(f"[telegram_listener] unauthorized callback: {reason}")
+        await _answer_callback(client, cb_id)
+        return
+    sender_id = (cb.get("from") or {}).get("id")
+    mapped = _lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not mapped:
+        await _answer_callback(client, cb_id, "Link your OmniGrid account first")
+        return
+    if not data.startswith("ssr:"):
+        await _answer_callback(client, cb_id)
+        return
+    payload = _pop_pending_action(data[4:])
+    if not payload:
+        await _answer_callback(client, cb_id, "This button expired — ask again")
+        await _clear_callback_markup(client, cb_msg)
+        return
+    host_id = str(payload.get("host_id") or "")
+    sidx = payload.get("service_idx")
+    sidx = sidx if isinstance(sidx, int) else -1
+    skill_id = str(payload.get("skill_id") or "")
+    arg = str(payload.get("arg") or "")
+    from logic.apps.registry import resolve_chip, run_app_skill  # noqa: PLC0415
+    host_row, chip, slug = resolve_chip(host_id, sidx)
+    if not (isinstance(chip, dict) and slug and skill_id):
+        await _answer_callback(client, cb_id, "App instance not found")
+        await _clear_callback_markup(client, cb_msg)
+        return
+    await _answer_callback(client, cb_id, "Requesting…")
+    await _clear_callback_markup(client, cb_msg)
+    try:
+        res = await run_app_skill(slug, skill_id, host_row, chip,
+                                  host_id=host_id, service_idx=sidx, arg=arg)
+    except ValueError as e:
+        res = {"ok": False, "detail": str(e)}
+    ran_ok = bool(isinstance(res, dict) and res.get("ok"))
+    detail = str((res or {}).get("detail") or ("done" if ran_ok else "failed"))
+    await _send_reply(client, (f"✅ {_escape(detail)}" if ran_ok
+                               else f"❌ {_escape(detail)}"))
+    # Audit-trail parity with the web + slash + AI skill dispatch paths.
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn as _db_conn  # noqa: PLC0415
+        from logic.ops import write_admin_audit as _waa  # noqa: PLC0415
+        with _db_conn() as _c:
+            _waa(_c, "services_skill",
+                 target_kind="host", target_name=host_id, target_id=host_id,
+                 actor=f"telegram-ai:{mapped}",
+                 status=("success" if ran_ok else "error"),
+                 message=(f"Ran skill '{skill_id}' on {host_id} via inline "
+                          f"button (ok={ran_ok})"))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # noinspection SpellCheckingInspection
 async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     """Authorize + parse + dispatch one incoming Update."""
@@ -1530,6 +1690,13 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
                 f"— already processed in this lifespan, skipping"
             )
             return
+    # Inline-button press (callback query) — distinct update shape with no
+    # message text. Handled before the message-text path (the Seerr
+    # "Request on Seerr" button after an AI movie suggestion).
+    cb = update.get("callback_query")
+    if isinstance(cb, dict):
+        await _handle_callback_query(client, cb)
+        return
     ok, reason = _is_authorized(update)
     # Stamp the inbound chat.id onto the contextvar BEFORE any reply
     # path fires (including the unauthorized log line below — though
@@ -1974,7 +2141,7 @@ async def listener_loop() -> None:
                         params={
                             "offset": offset,
                             "timeout": long_poll_to,
-                            "allowed_updates": '["message","edited_message"]',
+                            "allowed_updates": '["message","edited_message","callback_query"]',
                         },
                     )
                     if r.status_code != 200:
