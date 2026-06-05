@@ -749,6 +749,10 @@ export default {
       ['gcsr', 'gcsr'],
       ['forgejo', 'forgejo'],
       ['gitea', 'forgejo'],
+      // TelegramWeb custom app — matches the `telegram-web` stack AND its
+      // `telegram-web_web` container (substring). Listed (and there is no
+      // bare 'telegram' keyword token) so the longer phrase always wins.
+      ['telegram-web', 'telegram-web'],
       // databases — brand-specific first, generic last.
       ['mongodb', 'mongodb'],
       ['mongo', 'mongodb'],
