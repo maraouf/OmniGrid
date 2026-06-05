@@ -588,6 +588,13 @@ TELEGRAM_BULK_UPDATE_CONCURRENCY=4
 # 0..168 (a week); 0 disables dedupe (every suggestion draws from the
 # full pool again).
 SEERR_SUGGEST_COOLDOWN_HOURS=12
+# How many random TMDB discover pages "suggest a movie" draws before giving
+# up (each ~20 candidates, then library/country/genre/rating-filtered).
+# Raise when many countries are excluded / the library is large. 1..50.
+SEERR_SUGGEST_PAGE_ATTEMPTS=8
+# Upper bound for the random TMDB discover page — higher draws from deeper,
+# less-likely-already-owned slices of the catalogue. 10..500.
+SEERR_SUGGEST_MAX_PAGE=200
 
 # Host baseline sampler — controls the per-host drift detector. The
 # sampler recomputes a 30-day rolling baseline (median ± IQR) for CPU%
@@ -1030,6 +1037,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `SERVICE_PROBE_TIMEOUT_SECONDS`            | Runtime     | `5`                     | Per-target TCP/HTTP probe timeout. Range 1..30.                                                                                                                                                                                                                                                                   |
 | `SERVICE_PROBE_FAILURE_PAUSE_ROUNDS`       | Runtime     | `5`                     | Per-(service_probe, host) auto-pause threshold. 0 = disabled. Range 0..50.                                                                                                                                                                                                                                        |
 | `SEERR_SUGGEST_COOLDOWN_HOURS`             | Runtime     | `12`                    | Per-user dedupe window for AI movie suggestions — a suggested TMDB id is skipped for this many hours so the same film doesn't recur in one session. 0 disables. Range 0..168.                                                                                                                                       |
+| `SEERR_SUGGEST_PAGE_ATTEMPTS`              | Runtime     | `8`                     | How many random TMDB discover pages "suggest a movie" draws before giving up (each ~20 candidates, then library/country/genre/rating-filtered). Raise when many countries are excluded / the library is large. Range 1..50.                                                                                          |
+| `SEERR_SUGGEST_MAX_PAGE`                   | Runtime     | `200`                   | Upper bound for the random TMDB discover page — higher draws from deeper, less-likely-already-owned slices of the catalogue. Range 10..500.                                                                                                                                                                        |
 | `SNMP_PROBE_TIMEOUT_SECONDS`               | Runtime     | `5`                     | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                                                                                                                                                                                                                                                   |
 | `SNMP_WALL_CLOCK_BUDGET_SECONDS`           | Runtime     | `60`                    | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600.                                                                                                                                                                                                                       |
 | `SNMP_CONCURRENCY`                         | Runtime     | `16`                    | SNMP probe fan-out cap (parallel hosts within one tick).                                                                                                                                                                                                                                                          |

@@ -1171,6 +1171,8 @@ class SettingsIn(BaseModel):
     tuning_telegram_ai_calls_per_minute: Optional[str] = None
     tuning_telegram_bulk_update_concurrency: Optional[str] = None
     tuning_seerr_suggest_cooldown_hours: Optional[str] = None
+    tuning_seerr_suggest_page_attempts: Optional[str] = None
+    tuning_seerr_suggest_max_page: Optional[str] = None
     notify_medium_telegram: Optional[str] = None
     # Phase 2 — inbound command listener config. `enabled` controls
     # whether the long-poll loop in `logic/telegram_listener.py` fires

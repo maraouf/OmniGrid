@@ -166,7 +166,8 @@ _TMDB_POSTER_SIZE = "w500"
 # operator already has it). Drawing from a WIDE page range surfaces titles
 # deeper in the catalogue that are far less likely to be already in the
 # library — the `vote_count.gte` filter keeps them watchable, not obscure.
-_TMDB_DISCOVER_MAX_PAGE = 50
+# The page upper bound is operator-tunable via `_suggest_max_page()`
+# (Tunable.SEERR_SUGGEST_MAX_PAGE, default 200).
 
 # TMDB movie genre id -> name. These ids are stable (TMDB has used them for
 # years) so we map locally instead of an extra /genre/movie/list call. Both
@@ -390,6 +391,26 @@ def _suggest_cooldown_hours() -> int:
         return tuning_int(Tunable.SEERR_SUGGEST_COOLDOWN_HOURS)
     except (ImportError, KeyError, ValueError, TypeError):
         return 12
+
+
+def _suggest_page_attempts() -> int:
+    """Operator-tunable count of random TMDB pages to draw before giving up.
+    Bigger = larger candidate pool (helps when many countries are excluded)."""
+    try:
+        from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+        return tuning_int(Tunable.SEERR_SUGGEST_PAGE_ATTEMPTS)
+    except (ImportError, KeyError, ValueError, TypeError):
+        return 8
+
+
+def _suggest_max_page() -> int:
+    """Operator-tunable upper bound for the random TMDB discover page. Higher
+    = draws from a deeper, less-likely-already-owned slice of the catalogue."""
+    try:
+        from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+        return tuning_int(Tunable.SEERR_SUGGEST_MAX_PAGE)
+    except (ImportError, KeyError, ValueError, TypeError):
+        return 200
 
 
 def _load_recent_suggestion_ids(username: Optional[str], cooldown_hours: int) -> "set[int]":
@@ -1003,9 +1024,10 @@ async def _request_skill(host_row: dict, chip: dict, *,
 _SUGGEST_CHECK_LIMIT = 20
 # How many fresh random pages to try before concluding the operator really
 # does have everything. Each page is a different random slice of the
-# catalogue, so 4 attempts checks up to ~80 distinct movies across the
-# popularity depth — an active library rarely owns all of those.
-_SUGGEST_PAGE_ATTEMPTS = 4
+# catalogue, so N attempts check up to ~N*20 distinct movies across the
+# popularity depth — an active library rarely owns all of those. The attempt
+# count is operator-tunable via `_suggest_page_attempts()`
+# (Tunable.SEERR_SUGGEST_PAGE_ATTEMPTS, default 8).
 # Seerr mediaInfo.status >= this = already requested / processing / partially
 # available / available — i.e. already in (or on its way into) the library.
 _SEERR_IN_LIBRARY_MIN_STATUS = 2
@@ -1026,7 +1048,7 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
     if not tmdb_key:
         return []
     headers, params = _tmdb_auth(tmdb_key)
-    page = random.randint(1, _TMDB_DISCOVER_MAX_PAGE)
+    page = random.randint(1, _suggest_max_page())
     params = dict(params)
     params.update({"sort_by": "popularity.desc", "vote_count.gte": "150",
                    "include_adult": "false", "page": str(page)})
@@ -1134,7 +1156,7 @@ async def _seerr_discover_candidates(base: str, api_key: str,
     ``/api/v1/discover/movies``, whose results ALREADY carry each movie's
     library status via ``mediaInfo`` (so no per-movie lookup needed). Returns
     a SHUFFLED list of ``{id, title, year, overview, poster_url, status}``."""
-    page = random.randint(1, _TMDB_DISCOVER_MAX_PAGE)
+    page = random.randint(1, _suggest_max_page())
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
                                      follow_redirects=True) as cli:
@@ -1306,7 +1328,7 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     pick = None
     got_candidates = False
     pages_checked = 0
-    for _attempt in range(_SUGGEST_PAGE_ATTEMPTS):
+    for _attempt in range(_suggest_page_attempts()):
         if tmdb_key:
             candidates = await _tmdb_candidate_movies(
                 tmdb_key, tmdb_base, image_base, min_rating=min_rating,
