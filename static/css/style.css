@@ -5049,7 +5049,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   line-height: 1.4;
 }
 
-.ai-skill-followup-btn {
+/* Scoped under `.ai-skill-panel` so the selector specificity (0,2,0) beats
+   Tailwind v4's preflight `[type='button'] { background-color: transparent }`
+   (0,1,0) — which is injected at runtime AFTER style.css, so a same-
+   specificity tie would otherwise let Tailwind's transparent reset win and
+   the button rendered see-through. */
+.ai-skill-panel .ai-skill-followup-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
@@ -5064,16 +5069,16 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   cursor: pointer;
 }
 
-.ai-skill-followup-btn:hover:not(:disabled) {
+.ai-skill-panel .ai-skill-followup-btn:hover:not(:disabled) {
   background: var(--primary-hov);
 }
 
-.ai-skill-followup-btn:disabled {
+.ai-skill-panel .ai-skill-followup-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }
 
-.ai-skill-followup-btn:focus-visible {
+.ai-skill-panel .ai-skill-followup-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
