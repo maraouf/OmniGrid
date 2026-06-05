@@ -1332,6 +1332,10 @@ async def _ai_reply(
     # poster). We send it as a real photo (below) and strip the bare URL
     # out of the appended text so it doesn't show as a dead link.
     action_image_url = ""
+    # A skill result may carry a `followup` (e.g. Seerr suggest → request) we
+    # surface as a Telegram inline-keyboard button so the operator can run it
+    # with one tap. {host_id, service_idx, skill_id, arg, label}.
+    action_followup = None
     try:
         actions, _ = ai.parse_palette_actions(raw_text)
         action_data, _ = ai.parse_palette_action_data(raw_text)
@@ -1402,6 +1406,16 @@ async def _ai_reply(
                 if isinstance(sk_result, dict) and sk_result.get("ok"):
                     _d = sk_result.get("detail")
                     action_image_url = str(sk_result.get("image_url") or "").strip()
+                    # Capture a follow-up action (e.g. Seerr suggest → request)
+                    # so we can attach a one-tap inline button to the reply.
+                    _fu = sk_result.get("followup")
+                    if isinstance(_fu, dict) and _fu.get("skill_id"):
+                        action_followup = {
+                            "host_id": sk_host, "service_idx": sk_idx,
+                            "skill_id": str(_fu.get("skill_id")),
+                            "arg": str(_fu.get("arg") or ""),
+                            "label": str(_fu.get("label") or "Request on Seerr"),
+                        }
                     # Drop the image URL line out of the TEXT (it's sent as a
                     # photo) so the reply doesn't carry a bare dead link.
                     if action_image_url and _d:
@@ -1507,11 +1521,35 @@ async def _ai_reply(
     # since either can carry the URL and `clean` may have truncated it.
     # Fire-and-forget; a photo failure never affects the delivered text reply.
     try:
+        # Build the inline-keyboard button for a skill follow-up (e.g. Seerr
+        # suggest → "Request on Seerr"). The full action is stashed
+        # server-side under a short token (callback_data is 64-byte capped);
+        # the callback handler in telegram_listener pops it + dispatches.
+        _reply_markup = None
+        if action_followup:
+            _token = _listener().register_pending_action({
+                "host_id": action_followup["host_id"],
+                "service_idx": action_followup["service_idx"],
+                "skill_id": action_followup["skill_id"],
+                "arg": action_followup["arg"],
+            })
+            _reply_markup = {"inline_keyboard": [[{
+                "text": action_followup["label"][:120],
+                "callback_data": "ssr:" + _token,
+            }]]}
         # A skill that returned an explicit image_url (e.g. Seerr's
-        # suggest-a-movie poster) is sent directly. Otherwise fall back to
-        # the speedtest result-image regex over the reply text.
+        # suggest-a-movie poster) is sent directly — with the button attached
+        # when present. Otherwise fall back to the speedtest result-image
+        # regex over the reply text.
         if action_image_url:
-            await _listener()._send_photo(client, action_image_url)
+            await _listener()._send_photo(client, action_image_url,
+                                          reply_markup=_reply_markup)
+        elif _reply_markup:
+            # No poster but we DO have a follow-up — send the button on a
+            # minimal prompt so the operator can still tap to request.
+            await _listener()._send_reply(
+                client, "🎬 " + _listener()._escape(action_followup["label"]),
+                reply_markup=_reply_markup)
         else:
             import re as _re_img
             m = _re_img.search(
