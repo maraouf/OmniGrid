@@ -238,6 +238,7 @@ async def api_admin_stats_samples_by_host(
                 }
         except (TypeError, KeyError, AttributeError):
             pass
+
     # Offload the COUNT(*) + GROUP BY to a worker thread. On a long-lived
     # fleet the sample tables are millions of rows and this whole-table
     # scan (no WHERE ts predicate, so no index can seek it) is the
@@ -269,11 +270,11 @@ async def api_admin_stats_samples_by_host(
                 ).fetchall()
                 shaped = []
                 for r in rows:
-                    hid = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
+                    _hid = (r["host_id"] if hasattr(r, "keys") else r[0]) or ""
                     cnt = int(r["rows"] if hasattr(r, "keys") else r[1] or 0)
-                    meta = curated_meta.get(hid) or {}
+                    meta = curated_meta.get(_hid) or {}
                     shaped.append({
-                        "host_id": hid,
+                        "host_id": _hid,
                         "rows": cnt,
                         "label": meta.get("label"),
                         "address": meta.get("address"),
@@ -287,6 +288,7 @@ async def api_admin_stats_samples_by_host(
                 out["total"] = sum(r["rows"] for r in shaped)
         except Exception as e:
             out["error"] = str(e)
+
     await asyncio.to_thread(_compute_by_host)
     return out
 
@@ -2330,9 +2332,21 @@ async def api_telegram_test(
         thread_id = (get_setting(Settings.TELEGRAM_THREAD_ID) or "").strip()
     else:
         thread_id = str(thread_id_raw).strip()
-    # `target` for the log = chat_id (operator-recognisable; the bot
+    # A "Test connection" is a DIAGNOSTIC, not a broadcast — scope it to
+    # the PRIMARY (first) chat only. `telegram_chat_id` is a CSV so a
+    # deploy serving a group PLUS individual operator DMs fans REAL
+    # notifications out to every entry; but the operator clicking Test
+    # only wants to verify token+chat wiring, NOT spam a test message to
+    # every recipient (operator-reported: the test reached people who'd
+    # DM'd the bot but weren't meant to receive a manual probe). Take the
+    # first non-empty CSV entry; note any skipped chats in the detail so
+    # the operator understands the scope.
+    _all_chats = [p.strip() for p in str(chat_id or "").split(",") if p.strip()]
+    primary_chat = _all_chats[0] if _all_chats else ""
+    _skipped = len(_all_chats) - 1 if len(_all_chats) > 1 else 0
+    # `target` for the log = primary chat (operator-recognisable; the bot
     # token is a secret + bot identity is constant across all chats).
-    _tg_target = f"chat={chat_id}" if chat_id else "(no chat_id)"
+    _tg_target = f"chat={primary_chat}" if primary_chat else "(no chat_id)"
     if thread_id:
         _tg_target += f"/thread={thread_id}"
     _log_provider_test_start("telegram", target=_tg_target)
@@ -2340,15 +2354,23 @@ async def api_telegram_test(
         return _stamp_test_success("telegram", {
             "ok": False, "detail": "Bot token is required", "status": 0,
         }, target=_tg_target)
-    if not chat_id:
+    if not primary_chat:
         return _stamp_test_success("telegram", {
             "ok": False, "detail": "Chat ID is required", "status": 0,
         }, target=_tg_target)
     result = await _tg.probe(
         bot_token=bot_token,
-        chat_id=chat_id,
+        chat_id=primary_chat,
         thread_id=thread_id,
     )
+    # Append a note when additional chats were intentionally NOT probed,
+    # so the operator knows the test only pinged the primary destination.
+    if _skipped and isinstance(result, dict) and result.get("ok"):
+        _base = str(result.get("detail") or "").strip()
+        result["detail"] = (
+            f"{_base} (primary chat only; {_skipped} other configured "
+            f"chat(s) not pinged — real notifications still reach all)"
+        ).strip()
     return _stamp_test_success("telegram", result, target=_tg_target)
 
 

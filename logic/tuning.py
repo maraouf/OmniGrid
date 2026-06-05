@@ -181,6 +181,7 @@ class Tunable(str, Enum):
     SNMP_WALK_CONCURRENCY_SYNOLOGY = "tuning_snmp_walk_concurrency_synology"
     SNMP_WALK_CONCURRENCY_UCD = "tuning_snmp_walk_concurrency_ucd"
     SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
+    SEERR_SUGGEST_COOLDOWN_HOURS = "tuning_seerr_suggest_cooldown_hours"
     SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
     SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
@@ -320,6 +321,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # deployments) or raise for fast multi-node Swarms. Same bound
     # applies to bulk `/restart`-style dispatches.
     "tuning_telegram_bulk_update_concurrency": ("TELEGRAM_BULK_UPDATE_CONCURRENCY", 4, 1, 16),
+    # Seerr movie-suggestion dedupe cooldown (hours). When the AI suggests
+    # a movie (Telegram or SPA palette), its TMDB id is recorded per user;
+    # for this many hours that id is skipped so the same film doesn't cycle
+    # back as a "fresh" suggestion in the same session. Default 12h covers a
+    # typical browsing session without permanently exhausting the catalogue.
+    # Range 0..168 (a week); 0 disables dedupe entirely (every suggestion
+    # draws from the full pool again).
+    "tuning_seerr_suggest_cooldown_hours": ("SEERR_SUGGEST_COOLDOWN_HOURS", 12, 0, 168),
     "tuning_stats_history_days": ("STATS_HISTORY_DAYS", 7, 1, 365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30, 3600),
     # Stats -> Database growth projection: how often a DB file-size sample
@@ -1559,7 +1568,11 @@ def audit_consumed_keys() -> set[str]:
     # `main_pkg/*.py` to cover the continuation chain.
     targets: list[Path] = sorted(root.glob("main*.py"))
     targets.extend(sorted((root / "main_pkg").glob("*.py")))
-    targets.extend((root / "logic").glob("*.py"))
+    # rglob (NOT glob) so per-app modules under `logic/apps/` and any other
+    # subpackage are scanned — a consumer like `logic/apps/seerr.py` reading
+    # `tuning_int(Tunable.SEERR_SUGGEST_COOLDOWN_HOURS)` would otherwise be
+    # invisible and its knob falsely flagged decorative.
+    targets.extend((root / "logic").rglob("*.py"))
     for path in targets:
         try:
             # encoding="utf-8" required so Windows dev sessions don't trip

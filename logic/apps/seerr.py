@@ -70,8 +70,9 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
-from typing import Any, Optional
+from typing import Any, Collection, Optional
 
 import httpx
 
@@ -130,7 +131,10 @@ SKILLS: tuple[dict, ...] = (
         "arg": True,
         "arg_hint": ("a filter directive: 'exclude country France' / 'allow "
                      "country France' / 'min rating 7' / 'exclude genre horror' "
-                     "/ 'only genre action' / 'allow genre horror' / 'clear'"),
+                     "/ 'only genre action' / 'allow genre horror' / 'clear'. "
+                     "A country directive may list several at once joined by "
+                     "'and'/commas, e.g. 'exclude country Spain and Denmark' — "
+                     "keep them in ONE directive, don't drop any"),
     },
     {
         "id": "seerr_show_filters",
@@ -244,6 +248,72 @@ def _norm_country(name: str) -> str:
     return _COUNTRY_SYNONYMS.get(n, n)
 
 
+# Conjunction / list separators for MULTI-country directives. A user (or
+# the AI) can say "exclude country Spain and Denmark" or "exclude country
+# Spain, Denmark & France" — historically only the FIRST country survived
+# because the whole tail was taken as ONE country token (operator-
+# reported: "exclude movies from Spain and Denmark" excluded Spain only).
+# Splitting on these separators lets the country branches add every named
+# country in a single directive. Multi-word synonyms that legitimately
+# contain "and" (e.g. "Trinidad and Tobago") are protected by stashing
+# them before the split — see `_split_country_list`.
+_COUNTRY_LIST_SEP = re.compile(r"\s*(?:,|;|/|&|\+|\band\b)\s*", flags=re.IGNORECASE)
+# Country names whose canonical form contains a separator word ("and").
+# Stashed to a placeholder before the conjunction split so they don't get
+# torn apart, then restored. Kept small + explicit (the common cases).
+_COUNTRY_PROTECTED = (
+    "trinidad and tobago",
+    "antigua and barbuda",
+    "saint kitts and nevis",
+    "bosnia and herzegovina",
+    "sao tome and principe",
+)
+
+
+def _split_country_list(val: str) -> list[str]:
+    """Split a free-text country phrase into individual, de-duplicated
+    country names (Title-cased). Handles "Spain and Denmark",
+    "Spain, Denmark & France", etc. Protects the handful of country
+    names that legitimately contain "and". Empty tokens are dropped."""
+    if not val:
+        return []
+    work = val
+    holders: dict[str, str] = {}
+    low = work.lower()
+    for i, name in enumerate(_COUNTRY_PROTECTED):
+        if name in low:
+            token = f"\x00c{i}\x01"
+            # Case-insensitive replace of the protected name with a token.
+            work = re.sub(re.escape(name), token, work, flags=re.IGNORECASE)
+            holders[token] = name.title()
+            low = work.lower()
+    out: list[str] = []
+    seen: set[str] = set()
+    for piece in _COUNTRY_LIST_SEP.split(work):
+        s = piece.strip()
+        if s in holders:
+            s = holders[s]
+        else:
+            s = s.title()
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            out.append(s)
+    return out
+
+
+def _join_human(items: list[str]) -> str:
+    """Join a list into operator-readable prose: ``[a]`` → "a",
+    ``[a, b]`` → "a and b", ``[a, b, c]`` → "a, b, and c"."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def _coerce_filters(raw: Any) -> dict:
     """Normalise a stored / partial filters blob into the canonical shape."""
     f = dict(_DEFAULT_FILTERS)
@@ -302,6 +372,100 @@ def _save_user_filters(username: Optional[str], filters: dict) -> bool:
         return False
 
 
+# --- Recently-suggested dedupe (per user, ui_prefs-backed) -----------------
+# The AI suggests a random movie via `seerr_suggest_movie`; without memory it
+# re-draws from the same most-popular pages and the SAME film reappears within
+# one browsing session (operator-reported: "cycle again through the same
+# movies in the same session"). We remember each suggested TMDB id per user
+# (with a ms timestamp) under `users.ui_prefs.seerr_recent_suggestions` and
+# skip those ids for a cooldown window (`tuning_seerr_suggest_cooldown_hours`).
+_SUGGEST_RECENT_CAP = 200  # max remembered ids per user (FIFO trim)
+_SUGGEST_RECENT_CEILING_HOURS = 168  # hard prune ceiling (a week) regardless of cooldown
+
+
+def _suggest_cooldown_hours() -> int:
+    """Operator-tunable dedupe window (hours). 0 disables dedupe."""
+    try:
+        from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+        return tuning_int(Tunable.SEERR_SUGGEST_COOLDOWN_HOURS)
+    except (ImportError, KeyError, ValueError, TypeError):
+        return 12
+
+
+def _load_recent_suggestion_ids(username: Optional[str], cooldown_hours: int) -> "set[int]":
+    """Set of TMDB ids the user was suggested within the cooldown window.
+    Returns empty on no user / dedupe disabled / any failure (never raises)."""
+    if not username or cooldown_hours <= 0:
+        return set()
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn  # noqa: PLC0415
+        from logic import auth as _auth  # noqa: PLC0415
+        with db_conn() as c:
+            u = _auth.get_user_by_username(c, username)
+            if not u or u.id < 0:
+                return set()
+            row = c.execute("SELECT ui_prefs FROM users WHERE id=?", (u.id,)).fetchone()
+        prefs = json.loads(row[0]) if (row and row[0]) else {}
+        recents = prefs.get("seerr_recent_suggestions") if isinstance(prefs, dict) else None
+        if not isinstance(recents, list):
+            return set()
+        cutoff_ms = (time.time() - cooldown_hours * 3600) * 1000.0
+        out: "set[int]" = set()
+        for r in recents:
+            if not isinstance(r, dict):
+                continue
+            try:
+                rid = int(r.get("id") or 0)
+                ts = float(r.get("ts") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid and ts >= cutoff_ms:
+                out.add(rid)
+        return out
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _record_suggestion(username: Optional[str], tmdb_id: int) -> None:
+    """Append a suggested TMDB id (with now-ms) to the user's recent list,
+    pruning stale entries (> ceiling) + capping length. Never raises."""
+    if not username or not tmdb_id:
+        return
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn  # noqa: PLC0415
+        from logic import auth as _auth  # noqa: PLC0415
+        now_ms = time.time() * 1000.0
+        keep_after = now_ms - _SUGGEST_RECENT_CEILING_HOURS * 3600 * 1000.0
+        with db_conn() as c:
+            u = _auth.get_user_by_username(c, username)
+            if not u or u.id < 0:
+                return
+            row = c.execute("SELECT ui_prefs FROM users WHERE id=?", (u.id,)).fetchone()
+            prefs = json.loads(row[0]) if (row and row[0]) else {}
+            recents = prefs.get("seerr_recent_suggestions") if isinstance(prefs, dict) else None
+            if not isinstance(recents, list):
+                recents = []
+            cleaned = []
+            for r in recents:
+                if not isinstance(r, dict):
+                    continue
+                try:
+                    rid = int(r.get("id") or 0)
+                    ts = float(r.get("ts") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if rid and rid != int(tmdb_id) and ts >= keep_after:
+                    cleaned.append({"id": rid, "ts": ts})
+            cleaned.append({"id": int(tmdb_id), "ts": now_ms})
+            if len(cleaned) > _SUGGEST_RECENT_CAP:
+                cleaned = cleaned[-_SUGGEST_RECENT_CAP:]
+            _auth.update_ui_prefs(c, u.id, {"seerr_recent_suggestions": cleaned})
+    except Exception:  # noqa: BLE001
+        return
+
+
 def _format_filters(filters: dict) -> str:
     """Human-readable summary of the active filters for the show / set skills."""
     f = _coerce_filters(filters)
@@ -334,19 +498,25 @@ def _apply_filter_directive(filters: dict, directive: str) -> "tuple[dict, str]"
         return f, "Tell me what to filter — e.g. “exclude country France”, “min rating 7”, or “exclude genre horror”."
     if dl in ("clear", "reset", "clear all", "reset all", "clear filters", "reset filters"):
         return dict(_coerce_filters(None)), "✅ Cleared all movie-suggestion filters."
-    # --- country ---
+    # --- country (multi-country aware: "exclude country Spain and Denmark") ---
     for pre in ("exclude country ", "no country ", "without country ", "block country "):
         if dl.startswith(pre):
-            val = d[len(pre):].strip().title()
-            if val and not any(_norm_country(x) == _norm_country(val) for x in f["exclude_countries"]):
-                f["exclude_countries"].append(val)
-            return f, f"✅ Excluding movies from {val}."
+            names = _split_country_list(d[len(pre):])
+            if not names:
+                return f, "Tell me which country to exclude — e.g. “exclude country France”."
+            for val in names:
+                if not any(_norm_country(x) == _norm_country(val) for x in f["exclude_countries"]):
+                    f["exclude_countries"].append(val)
+            return f, f"✅ Excluding movies from {_join_human(names)}."
     for pre in ("allow country ", "remove country ", "include country ", "un-exclude country "):
         if dl.startswith(pre):
-            val = d[len(pre):].strip()
+            names = _split_country_list(d[len(pre):])
+            if not names:
+                return f, "Tell me which country to allow again — e.g. “allow country France”."
+            norms = {_norm_country(v) for v in names}
             f["exclude_countries"] = [x for x in f["exclude_countries"]
-                                      if _norm_country(x) != _norm_country(val)]
-            return f, f"✅ {val.title()} movies are allowed again."
+                                      if _norm_country(x) not in norms]
+            return f, f"✅ {_join_human(names)} movies are allowed again."
     # --- genre ---
     for pre in ("exclude genre ", "no genre ", "without genre ", "block genre "):
         if dl.startswith(pre):
@@ -1001,12 +1171,14 @@ async def _seerr_discover_candidates(base: str, api_key: str,
 
 async def _pick_not_in_library(base: str, api_key: str,
                                candidates: list[dict], *,
-                               exclude_countries: "tuple[str, ...]" = ()
+                               exclude_countries: "tuple[str, ...]" = (),
+                               exclude_ids: Collection[int] = frozenset()
                                ) -> Optional[dict]:
     """From a candidate list, return the first movie that is NOT already in
-    Seerr's library (``mediaInfo.status < 2``) AND not from an excluded
-    country. The chosen movie has its ``_countries`` attached (from the same
-    detail call) so the caller renders the country line without a re-fetch.
+    Seerr's library (``mediaInfo.status < 2``), NOT recently suggested
+    (``exclude_ids``), AND not from an excluded country. The chosen movie has
+    its ``_countries`` attached (from the same detail call) so the caller
+    renders the country line without a re-fetch.
 
     Candidates that already carry a ``status`` key (Seerr-discover source) are
     filtered inline when there's NO country filter (cheap); otherwise each is
@@ -1015,6 +1187,12 @@ async def _pick_not_in_library(base: str, api_key: str,
     every checked candidate is already in the library / excluded."""
     if not candidates:
         return None
+    # Drop recently-suggested ids up front so the dedupe applies on BOTH the
+    # fast (inline-status) and the detail-check paths.
+    if exclude_ids:
+        candidates = [c for c in candidates if safe_int(c.get("id")) not in exclude_ids]
+        if not candidates:
+            return None
     check = candidates[:_SUGGEST_CHECK_LIMIT]
     ex = {_norm_country(c) for c in exclude_countries if c}
     # Fast path: Seerr-discover candidates carry status inline AND there's no
@@ -1113,10 +1291,15 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     exc_ids = _genre_ids_for_names(filters["exclude_genres"])
     exclude_genres_lc = {g.lower() for g in filters["exclude_genres"]}
     include_genres_lc = {g.lower() for g in filters["include_genres"]}
+    # Recently-suggested dedupe: skip ids suggested to THIS user inside the
+    # cooldown window so the same film doesn't cycle back in one session.
+    cooldown_hours = _suggest_cooldown_hours()
+    recent_ids = _load_recent_suggestion_ids(actor_username, cooldown_hours)
     print(f"[seerr] INFO seerr_suggest_movie host={host_id} user={actor_username!r} "
           f"source={'tmdb' if tmdb_key else 'seerr-discover'} "
           f"filters(min_rating={min_rating}, ex_countries={exclude_countries}, "
-          f"ex_genres={filters['exclude_genres']}, inc_genres={filters['include_genres']})")
+          f"ex_genres={filters['exclude_genres']}, inc_genres={filters['include_genres']}) "
+          f"dedupe(cooldown_h={cooldown_hours}, recent={len(recent_ids)})")
     # Try several fresh random pages — an active library can own every movie
     # on the first (most-popular) page, so we keep drawing deeper / different
     # slices of the catalogue until we find one the operator doesn't have.
@@ -1142,7 +1325,8 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         got_candidates = True
         pages_checked += 1
         pick = await _pick_not_in_library(base, api_key, candidates,
-                                          exclude_countries=exclude_countries)
+                                          exclude_countries=exclude_countries,
+                                          exclude_ids=recent_ids)
         if pick and pick.get("title"):
             break
         pick = None
@@ -1171,6 +1355,9 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     if len(overview) > 300:
         overview = overview[:297].rstrip() + "…"
     tmdb_id = safe_int(pick.get("id"))
+    # Remember this suggestion so it's skipped for the cooldown window.
+    if tmdb_id and cooldown_hours > 0:
+        _record_suggestion(actor_username, tmdb_id)
     # Country comes from the pick's detail call (attached by _pick_not_in_library).
     countries = pick.get("_countries") if isinstance(pick.get("_countries"), list) else []
     lines = [f"🎬 How about: {label}"]

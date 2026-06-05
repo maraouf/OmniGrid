@@ -581,6 +581,14 @@ TELEGRAM_AI_CALLS_PER_MINUTE=6
 # fast multi-node Swarms.
 TELEGRAM_BULK_UPDATE_CONCURRENCY=4
 
+# Seerr movie-suggestion dedupe cooldown (hours). When the AI suggests a
+# movie (Telegram or command palette), its TMDB id is recorded per user;
+# for this many hours that id is skipped so the same film doesn't cycle
+# back as a "fresh" suggestion in the same session. Default 12h. Range
+# 0..168 (a week); 0 disables dedupe (every suggestion draws from the
+# full pool again).
+SEERR_SUGGEST_COOLDOWN_HOURS=12
+
 # Host baseline sampler — controls the per-host drift detector. The
 # sampler recomputes a 30-day rolling baseline (median ± IQR) for CPU%
 # / Memory% / Disk% / Ping RTT once per `recompute_interval`. Baselines
@@ -1021,6 +1029,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `SERVICE_PROBE_CONCURRENCY`                | Runtime     | `16`                    | Parallel service probes per sampler tick. Range 1..64.                                                                                                                                                                                                                                                            |
 | `SERVICE_PROBE_TIMEOUT_SECONDS`            | Runtime     | `5`                     | Per-target TCP/HTTP probe timeout. Range 1..30.                                                                                                                                                                                                                                                                   |
 | `SERVICE_PROBE_FAILURE_PAUSE_ROUNDS`       | Runtime     | `5`                     | Per-(service_probe, host) auto-pause threshold. 0 = disabled. Range 0..50.                                                                                                                                                                                                                                        |
+| `SEERR_SUGGEST_COOLDOWN_HOURS`             | Runtime     | `12`                    | Per-user dedupe window for AI movie suggestions — a suggested TMDB id is skipped for this many hours so the same film doesn't recur in one session. 0 disables. Range 0..168.                                                                                                                                       |
 | `SNMP_PROBE_TIMEOUT_SECONDS`               | Runtime     | `5`                     | Per-OID UDP timeout for SNMP queries (fast-fail on dead hosts).                                                                                                                                                                                                                                                   |
 | `SNMP_WALL_CLOCK_BUDGET_SECONDS`           | Runtime     | `60`                    | Total wall-clock budget for ONE probe against ONE host (~60 OIDs round-trip). Range 5..600.                                                                                                                                                                                                                       |
 | `SNMP_CONCURRENCY`                         | Runtime     | `16`                    | SNMP probe fan-out cap (parallel hosts within one tick).                                                                                                                                                                                                                                                          |
