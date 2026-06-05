@@ -593,6 +593,22 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["username"] = v[:128]
         else:
             chip.pop("username", None)
+    # Seerr TMDB config. `tmdb_api_key` is a SECRET → keep-current-if-blank
+    # (non-empty overwrites; blank preserves the stored value; never
+    # returned in the clear). The two base URLs are NON-secret → a blank
+    # CLEARS them (so the app falls back to its public TMDB defaults).
+    if "tmdb_api_key" in payload:
+        v = (payload.get("tmdb_api_key") or "").strip()
+        if v:
+            chip["tmdb_api_key"] = v[:512]
+        # blank → keep current (no pop).
+    for _tf in ("tmdb_base_url", "tmdb_image_base_url"):
+        if _tf in payload:
+            v = (payload.get(_tf) or "").strip()
+            if v:
+                chip[_tf] = v[:256]
+            else:
+                chip.pop(_tf, None)
     # Per-instance averages window (Speedtest "Avg of last N tests").
     # Bounded 2..60; a blank / out-of-range / non-int value CLEARS the
     # override so the app falls back to its default (10). Returned in the
@@ -824,9 +840,20 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
         print(f"[app_skill] warning: web skill skipped — api_key not set for "
               f"skill={skill_id} at host={host_id} svc_idx={service_idx}")
         raise HTTPException(400, "api_key not set for this app")
+    # Optional free-form argument (e.g. Seerr's request-a-movie title).
+    # Skills that don't declare `arg` simply ignore it. Body is optional —
+    # the drawer button POSTs with no body; the AI dispatch sends {arg}.
+    skill_arg = ""
+    try:
+        _body = await request.json()
+        if isinstance(_body, dict):
+            skill_arg = str(_body.get("arg") or "").strip()[:512]
+    except (ValueError, TypeError, UnicodeDecodeError):
+        skill_arg = ""
     try:
         result = await mod.run_skill(skill_id, host_row, chip,
-                                     host_id=host_id, service_idx=service_idx)
+                                     host_id=host_id, service_idx=service_idx,
+                                     arg=skill_arg)
     except ValueError as e:  # unknown skill id reaching the module
         print(f"[app_skill] warning: web skill {skill_id!r} rejected by module at "
               f"host={host_id} svc_idx={service_idx} — {e}")

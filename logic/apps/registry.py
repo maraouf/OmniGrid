@@ -29,6 +29,7 @@ from . import adguardhome
 from . import apc
 from . import bazarr
 from . import pihole
+from . import seerr
 from . import speedtest_tracker
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
@@ -51,6 +52,7 @@ _register(adguardhome)
 _register(apc)
 _register(bazarr)
 _register(pihole)
+_register(seerr)
 _register(speedtest_tracker)
 
 
@@ -286,7 +288,12 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
                             # pick the right skill_id (e.g. 'pause blocking for
                             # 10 min' → adguard_disable_10m). Rendered by
                             # ai_extras.build_palette_user_prompt.
-                            "ai_phrases": s.get("ai_phrases") or ""}
+                            "ai_phrases": s.get("ai_phrases") or "",
+                            # arg / arg_hint = this skill takes a free-form
+                            # argument the model must supply in ACTION_DATA's
+                            # `arg` field (e.g. Seerr request-a-movie title).
+                            "arg": bool(s.get("arg")),
+                            "arg_hint": s.get("arg_hint") or ""}
                            for s in skills],
             }
             last = peek_skill_data(slug, host_id, idx)

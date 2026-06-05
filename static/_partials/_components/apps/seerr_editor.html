@@ -1,0 +1,123 @@
+<!-- Per-app editor fields -- Seerr (Overseerr / Jellyseerr).
+
+     Renders inside the Admin -> Apps per-instance editor as a
+     conditional `<template x-if="...">` so it only appears when the
+     chip's catalog template is Seerr. Gates on
+     `seerrIsApp({catalog:{slug: appsInstanceEditForm.catalog_slug}})`
+     so the helper from `static/js/apps/seerr.js` is the single source
+     of truth for "is this a Seerr chip?".
+
+     Auth: Seerr authenticates via the X-Api-Key header (Settings ->
+     General -> API Key). The TMDB block (optional) powers the AI's
+     "suggest a movie" skill -- a TMDB API key + base URLs are stored
+     per-instance so the app stays self-contained. The TMDB key is a
+     secret (keep-current-if-blank); the base URLs round-trip in the
+     clear with public defaults. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="seerrIsApp && seerrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-seerr-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.seerr.api_key_label') || 'Seerr API key'"></label>
+      <input id="apps-instance-seerr-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.seerr.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.seerr.api_key_placeholder_unset') || 'API key from Seerr -> Settings -> General')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.seerr.api_key_hint') || 'Required for the expanded card + the AI request/suggest skills. Found in Seerr under Settings -> General -> API Key. Leave blank to keep the stored key.'"></p>
+    </div>
+    <!-- TMDB config (optional) -- powers the AI "suggest a movie" skill.
+         Posters use the image base; the API key fetches random titles. -->
+    <div class="pt-2 mt-2 border-t border-[var(--border)] border-dashed">
+      <div class="fs-2xs text-[var(--text-faint)] mb-1"
+           x-text="t('apps.seerr.tmdb_section') || 'TMDB (for movie suggestions)'"></div>
+      <div>
+        <label for="apps-instance-seerr-tmdb-key"
+               class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('apps.seerr.tmdb_api_key_label') || 'TMDB API key'"></label>
+        <input id="apps-instance-seerr-tmdb-key"
+               type="password" x-model="appsInstanceEditForm.tmdb_api_key"
+               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+               :placeholder="appsInstanceEditForm.tmdb_api_key_set
+                 ? (t('apps.seerr.tmdb_api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+                 : (t('apps.seerr.tmdb_api_key_placeholder_unset') || 'TMDB v3 key (or v4 read token)')"
+               autocomplete="off" spellcheck="false">
+        <p class="fs-2xs text-[var(--text-faint)] mt-1"
+           x-text="t('apps.seerr.tmdb_api_key_hint') || 'Optional. Enables the AI “suggest a movie” skill (random picks from TMDB). Get a free key at themoviedb.org -> Settings -> API. Without it, suggestions fall back to Seerr’s own discover list.'"></p>
+      </div>
+      <div class="mt-2">
+        <label for="apps-instance-seerr-tmdb-base"
+               class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('apps.seerr.tmdb_base_url_label') || 'TMDB API base URL'"></label>
+        <input id="apps-instance-seerr-tmdb-base"
+               type="text" x-model="appsInstanceEditForm.tmdb_base_url"
+               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               placeholder="https://api.themoviedb.org/3"
+               autocomplete="off" spellcheck="false">
+      </div>
+      <div class="mt-2">
+        <label for="apps-instance-seerr-tmdb-image"
+               class="block fs-xs text-[var(--text-faint)] mb-1"
+               x-text="t('apps.seerr.tmdb_image_base_url_label') || 'TMDB image base URL'"></label>
+        <input id="apps-instance-seerr-tmdb-image"
+               type="text" x-model="appsInstanceEditForm.tmdb_image_base_url"
+               class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               placeholder="https://image.tmdb.org/t/p"
+               autocomplete="off" spellcheck="false">
+        <p class="fs-2xs text-[var(--text-faint)] mt-1"
+           x-text="t('apps.seerr.tmdb_base_hint') || 'Leave at the defaults unless you proxy TMDB. The image base builds poster URLs for suggestions.'"></p>
+      </div>
+    </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (30s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-seerr-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-seerr-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>30</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.seerr.cache_ttl_hint') || 'How long fetched request counts are cached before re-querying Seerr (5–3600s). Leave blank for the app default (30s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

@@ -37,12 +37,13 @@ import * as adguardHome from './adguardhome.js?v=__APP_VERSION__';
 import * as apc from './apc.js?v=__APP_VERSION__';
 import * as bazarr from './bazarr.js?v=__APP_VERSION__';
 import * as pihole from './pihole.js?v=__APP_VERSION__';
+import * as seerr from './seerr.js?v=__APP_VERSION__';
 import * as speedtestTracker from './speedtest_tracker.js?v=__APP_VERSION__';
 
 // Add new per-app modules above (one import) and below (one
 // entry in `_modules`) -- the rest is fully generic.
 
-const _modules = [adguardHome, apc, bazarr, pihole, speedtestTracker];
+const _modules = [adguardHome, apc, bazarr, pihole, seerr, speedtestTracker];
 
 // Named extractors -- keep `.map(extract).filter(predicate)`
 // from firing PyCharm's anonymous-function / chained-call

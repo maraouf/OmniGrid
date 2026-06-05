@@ -164,14 +164,28 @@ async def _try_dispatch_skill_command(
         isinstance(sk, dict) and str(sk.get("id") or "").lower() == cmd
         and bool(sk.get("fleet"))
         for ent in matches for sk in (ent.get("skills") or []))
+    # Arg-taking skills (e.g. Seerr's `seerr_request_movie <title>`) consume
+    # their trailing text as a free-form ARGUMENT, not a host token — so we
+    # don't try to host-disambiguate on the title. They run on the single
+    # (or first) matching instance; multi-instance operators use the AI.
+    takes_arg = any(
+        isinstance(sk, dict) and str(sk.get("id") or "").lower() == cmd
+        and bool(sk.get("arg"))
+        for ent in matches for sk in (ent.get("skills") or []))
 
     # Resolve the target chip. A trailing `confirm` arg (destructive
     # two-step) is NOT a host token, so strip it before host matching.
     host_args = [a for a in args if str(a).strip().lower() != "confirm"]
+    skill_arg = ""
+    if takes_arg:
+        # The whole trailing text IS the argument; pick the first instance.
+        skill_arg = " ".join(str(a) for a in host_args).strip()[:512]
+        host_args = []
     target = str(host_args[0]).strip().lower() if host_args else ""
     chosen = None
-    if is_fleet:
-        # Any instance — run_skill fans the action out across the fleet.
+    if is_fleet or takes_arg:
+        # Any instance — run_skill fans the action out (fleet) OR the arg
+        # carries the real target (arg-taking), so the chip choice is moot.
         chosen = matches[0]
     elif target:
         for ent in matches:
@@ -257,7 +271,8 @@ async def _try_dispatch_skill_command(
         return True
     try:
         result = await run_app_skill(
-            rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx)
+            rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx,
+            arg=skill_arg)
     except ValueError as ve:
         result = {"ok": False, "detail": str(ve)}
     if isinstance(result, dict) and result.get("ok"):

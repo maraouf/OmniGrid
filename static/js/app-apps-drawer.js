@@ -234,7 +234,7 @@ export default {
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.
-  async runAppSkill(inst, skillId) {
+  async runAppSkill(inst, skillId, arg) {
     if (!inst || !skillId) {
       return;
     }
@@ -245,9 +245,17 @@ export default {
     }
     this._appSkillBusy[busyKey] = true;
     try {
+      // Optional free-form argument (e.g. Seerr request-a-movie title).
+      // Only send a body when there's an arg — the drawer buttons pass none.
+      const _arg = (arg == null) ? '' : String(arg).trim();
+      const _opts = {method: 'POST'};
+      if (_arg) {
+        _opts.headers = {'Content-Type': 'application/json'};
+        _opts.body = JSON.stringify({arg: _arg});
+      }
       const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
         + '/' + encodeURIComponent(inst.service_idx)
-        + '/skill/' + encodeURIComponent(skillId), {method: 'POST'});
+        + '/skill/' + encodeURIComponent(skillId), _opts);
       const j = await r.json().catch(() => ({}));
       this._appSkillResult = this._appSkillResult || {};
       const resKey = 'res:' + this.appInstanceKey(inst) + ':' + skillId;
