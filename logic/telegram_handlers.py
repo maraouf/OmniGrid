@@ -306,7 +306,9 @@ async def _try_dispatch_skill_command(
                 "arg": str(_fu.get("arg") or ""),
             })
             reply_markup = {"inline_keyboard": [[{
-                "text": str(_fu.get("label") or "Request on Seerr")[:120],
+                # Telegram inline buttons can't be colour-styled via the Bot
+                # API, so a leading emoji makes the button stand out.
+                "text": "🎬 " + str(_fu.get("label") or "Request on Seerr")[:116],
                 "callback_data": "ssr:" + _token,
             }]]}
         if image_url:

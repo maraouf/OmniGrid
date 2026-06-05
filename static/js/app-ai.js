@@ -407,7 +407,18 @@ export default {
     if (!host || !skillId || isNaN(idx) || idx < 0) {
       return;
     }
-    const res = await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg, {silent: true});
+    // Show a spinner row while the skill runs — the Seerr suggest skill now
+    // queries the library + TMDB, which takes a couple of seconds, so the
+    // user gets visible feedback that something's happening.
+    turn.skill_running = true;
+    // No initializer — `res` is assigned in the try before any read (a throw
+    // exits via the propagated exception, never reaching the read below).
+    let res;
+    try {
+      res = await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg, {silent: true});
+    } finally {
+      turn.skill_running = false;
+    }
     if (!res || typeof res !== 'object') {
       return;
     }

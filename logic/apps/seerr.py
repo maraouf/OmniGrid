@@ -77,7 +77,7 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_cache_ttl,
     resolve_credential_target)
-from logic.coerce import safe_int
+from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("seerr",)
@@ -561,6 +561,7 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
         "id": safe_int(m.get("id")),
         "title": str(m.get("title") or m.get("original_title") or "").strip(),
         "year": _year_of(str(m.get("release_date") or "")),
+        "rating": round(safe_float(m.get("vote_average")), 1),
         "overview": str(m.get("overview") or "").strip(),
         "poster_url": _poster_url(image_base, str(m.get("poster_path") or "")),
     } for m in results if isinstance(m, dict) and m.get("id")]
@@ -622,6 +623,7 @@ async def _seerr_discover_candidates(base: str, api_key: str,
             "id": safe_int(m.get("id")),
             "title": str(m.get("title") or m.get("originalTitle") or "").strip(),
             "year": _year_of(str(m.get("releaseDate") or "")),
+            "rating": round(safe_float(m.get("voteAverage")), 1),
             "overview": str(m.get("overview") or "").strip(),
             "poster_url": _poster_url(image_base, str(m.get("posterPath") or "")),
             "status": safe_int(mi.get("status")) if isinstance(mi, dict) else 0,
@@ -704,12 +706,21 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
                 "detail": "couldn't fetch a suggestion (check the Seerr / TMDB config)"}
     title = pick.get("title") or ""
     year = pick.get("year") or ""
+    rating = safe_float(pick.get("rating"))
     label = title + (f" ({year})" if year else "")
     overview = (pick.get("overview") or "").strip()
     if len(overview) > 300:
         overview = overview[:297].rstrip() + "…"
     tmdb_id = safe_int(pick.get("id"))
     lines = [f"🎬 How about: {label}"]
+    # ⭐ rating + year meta line (rating is TMDB's 0-10 vote average).
+    meta_bits = []
+    if rating:
+        meta_bits.append(f"⭐ {rating:.1f}/10")
+    if year:
+        meta_bits.append(str(year))
+    if meta_bits:
+        lines.append(" · ".join(meta_bits))
     if overview:
         lines.append(overview)
     lines.append(f"Say “request {title}” and I'll add it to Seerr. (TMDB id {tmdb_id})")
@@ -724,6 +735,7 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         "tmdb_id": tmdb_id,
         "title": title,
         "year": year,
+        "rating": rating,
         # Follow-up action the UI can offer as a one-click button (the AI
         # sidebar renders it after a suggestion). Requesting by the exact
         # TMDB id avoids a re-search. Generic shape: {skill_id, arg, label}.

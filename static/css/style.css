@@ -5054,13 +5054,27 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    (0,1,0) — which is injected at runtime AFTER style.css, so a same-
    specificity tie would otherwise let Tailwind's transparent reset win and
    the button rendered see-through. */
+/* Spinner row while a per-app skill runs (Seerr suggest takes a couple of
+   seconds to query the library + TMDB). */
+.ai-skill-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
 .ai-skill-panel .ai-skill-followup-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
   align-self: flex-start;
   padding: var(--s-1) var(--s-3);
-  background: var(--primary);
+  /* `!important` defeats Tailwind v4 preflight's `[type='button'] {
+     background-color: transparent }` regardless of cascade order/layers —
+     belt-and-braces over the `.ai-skill-panel` specificity bump. */
+  background-color: var(--primary) !important;
   color: var(--text-on-primary);
   border: 0;
   border-radius: var(--r-sm);
@@ -5070,7 +5084,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 }
 
 .ai-skill-panel .ai-skill-followup-btn:hover:not(:disabled) {
-  background: var(--primary-hov);
+  background-color: var(--primary-hov) !important;
 }
 
 .ai-skill-panel .ai-skill-followup-btn:disabled {
