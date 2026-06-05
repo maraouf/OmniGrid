@@ -60,22 +60,53 @@ def _check_interval_seconds() -> int:
         return 30
 
 
+def _prayer_reminder_opted_in(prefs: dict) -> bool:
+    """True only when the user EXPLICITLY enabled the ``prayer_reminder``
+    event in Profile -> Notifications.
+
+    Prayer reminders are a PERSONAL, location-specific notification, so
+    they require explicit per-user opt-in — UNLIKE a system event (e.g.
+    ``user_login``) that fires for every user once the admin enables it.
+    Without this gate the reminder fired for EVERY active account (and for
+    users with no location, via the Admin-default-location fallback), and
+    because Telegram + the in-app store are SHARED single-destination
+    channels, all of those piled into one chat as duplicates (operator saw
+    the same prayer twice — one per account / location).
+
+    Matches ``logic.ops.notify``'s per-user pref shapes so the two agree:
+    a bare ``True`` OR a ``{medium: bool}`` dict with at least one medium
+    enabled = opted in; absent / ``False`` / an all-false dict = NOT opted
+    in (the default — privacy + no-spam, restoring the original intent)."""
+    events = prefs.get("notify_events")
+    if not isinstance(events, dict):
+        return False
+    pref = events.get("prayer_reminder")
+    if pref is True:
+        return True
+    if isinstance(pref, dict):
+        return any(bool(v) for v in pref.values())
+    return False
+
+
 def _located_users() -> list[dict]:
-    """Every active user with a resolvable location. Returns
-    ``[{username, lat, lon, label}]``.
+    """Every active user who EXPLICITLY opted into prayer reminders AND has
+    a resolvable location. Returns ``[{username, lat, lon, label}]``.
+
+    Opt-in gate: only users with an explicit ``prayer_reminder`` enable in
+    Profile -> Notifications are included (see ``_prayer_reminder_opted_in``).
+    This is the load-bearing fix for the "reminder fires for every active
+    account into one shared Telegram chat" duplicate — a personal event
+    must be per-user opt-in, not default-on once the admin enables it.
 
     Location precedence mirrors the prayer widget: the user's saved
     location (``ui_prefs.userLat/userLon/userLabel``) -> the
     Admin -> Prayer Times default location. A user with no resolvable
     location is skipped.
 
-    NOTE: this does NOT filter by an opt-in flag — delivery + per-user
-    routing is the job of ``logic.ops.notify(event='prayer_reminder',
-    actor_username=...)``, which applies the global Admin -> Notifications
-    gate AND each user's per-medium routing from Profile -> Notifications
-    (exactly like every other notify event). The whole feature is
-    short-circuited up front by the global gate, so this only runs when an
-    admin has enabled the prayer-reminder event.
+    Delivery + per-medium routing is STILL ``logic.ops.notify``'s job (it
+    re-applies the global Admin -> Notifications gate AND the same per-user
+    routing) — this pre-filter just stops the default-on flood before it
+    reaches the shared channels.
     """
     out: list[dict] = []
     default_loc: Optional[dict] = None
@@ -99,6 +130,13 @@ def _located_users() -> list[dict]:
         except (TypeError, ValueError):
             continue
         if not isinstance(prefs, dict):
+            continue
+        # Explicit per-user opt-in gate — the fix for the duplicate-into-
+        # one-shared-chat bug. A user who never enabled prayer_reminder in
+        # their Profile -> Notifications no longer fires (default-on flood
+        # removed); this also suppresses the Admin-default-location fallback
+        # firing for accounts that never asked for reminders.
+        if not _prayer_reminder_opted_in(prefs):
             continue
         lat_raw = prefs.get("userLat")
         lon_raw = prefs.get("userLon")
