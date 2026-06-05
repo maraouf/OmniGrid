@@ -10283,16 +10283,25 @@
                                    class="block mt-2">
                                   <img :src="appSkillResult(inst, sk.id).image_url" alt=""
                                        loading="lazy"
-                                       class="max-w-[120px] rounded border border-[var(--border)]"/>
+                                       class="max-w-[200px] rounded border border-[var(--border)]"/>
                                 </a>
                               </template>
                               <!-- One-click follow-up (e.g. Seerr suggest →
                                    "Request on Seerr"), like the AI sidebar. -->
                               <template x-if="appSkillResult(inst, sk.id).followup && !appSkillResult(inst, sk.id).followup_done">
+                                <!-- NO `:disabled` binding. The bound attribute
+                                     could stick stale (`disabled="disabled"`
+                                     after the run finished), permanently
+                                     blocking clicks. The button stays clickable;
+                                     `runAppSkillFollowup` reads followup_busy /
+                                     followup_done IMPERATIVELY at click time
+                                     (always fresh) so it can't be blocked by a
+                                     stale render, and double-clicks during a run
+                                     are guarded there. `.stop` matches the skill
+                                     buttons + avoids parent-click interference. -->
                                 <button type="button"
                                         class="apps-card-action-pill apps-card-action-pill--primary mt-2"
-                                        :disabled="appSkillResult(inst, sk.id).followup_busy"
-                                        @click="runAppSkillFollowup(inst, sk, appSkillResult(inst, sk.id).followup)"
+                                        @click.stop="runAppSkillFollowup(inst, sk, appSkillResult(inst, sk.id).followup)"
                                         :aria-label="appSkillResult(inst, sk.id).followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr')">
                                   <svg width="12" height="12" aria-hidden="true">
                                     <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-plus'"/>
