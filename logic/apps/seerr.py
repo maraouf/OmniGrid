@@ -132,9 +132,42 @@ _data_cache: dict[str, tuple[float, dict]] = {}
 _TMDB_BASE_DEFAULT = "https://api.themoviedb.org/3"
 _TMDB_IMAGE_BASE_DEFAULT = "https://image.tmdb.org/t/p"
 _TMDB_POSTER_SIZE = "w500"
-# Random-page ceiling for the discover suggestion — pages past this start
-# returning long-tail obscure titles; 15 keeps suggestions watchable.
-_TMDB_DISCOVER_MAX_PAGE = 15
+# Random-page ceiling for the discover suggestion. Popular movies are sorted
+# popularity-descending, so page 1 is the most mainstream (= most likely the
+# operator already has it). Drawing from a WIDE page range surfaces titles
+# deeper in the catalogue that are far less likely to be already in the
+# library — the `vote_count.gte` filter keeps them watchable, not obscure.
+_TMDB_DISCOVER_MAX_PAGE = 50
+
+# TMDB movie genre id -> name. These ids are stable (TMDB has used them for
+# years) so we map locally instead of an extra /genre/movie/list call. Both
+# TMDB discover (`genre_ids`) and Seerr discover (`genreIds`) return ids.
+_TMDB_GENRES = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
+    80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
+    14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
+    9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
+    10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+}
+# How many genres to show per suggestion (the first N from TMDB's ordered list).
+_GENRE_DISPLAY_MAX = 3
+
+
+def _genre_names(genre_ids: Any) -> list[str]:
+    """Map a list of TMDB genre ids to display names (top
+    ``_GENRE_DISPLAY_MAX``, in source order, unknown ids skipped). ``Any``
+    arg type — callers pass raw ``dict.get(...)`` values (``Any | None``);
+    the isinstance guard below handles a non-list at runtime."""
+    if not isinstance(genre_ids, list):
+        return []
+    out = []
+    for gid in genre_ids:
+        name = _TMDB_GENRES.get(safe_int(gid))
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= _GENRE_DISPLAY_MAX:
+            break
+    return out
 
 
 def requires_api_key() -> bool:
@@ -212,6 +245,17 @@ def _version_from(resp) -> str:
         return ""
 
 
+async def _fetch_version(cli: httpx.AsyncClient, base: str, key: str) -> str:
+    """Best-effort Seerr version via ``GET /api/v1/status`` on an already-open
+    client — shared by the credential probe + the card fetch. ``''`` on any
+    failure (version is a nice-to-have, never load-bearing)."""
+    try:
+        return _version_from(await cli.get(base + "/api/v1/status",
+                                           headers=_headers(key)))
+    except (httpx.HTTPError, OSError):
+        return ""
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Seerr's auth-required ``/api/v1/request/count`` with the
     supplied X-Api-Key. Returns ``{ok, detail, status}`` for direct SPA
@@ -226,12 +270,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
         async with httpx.AsyncClient(verify=False, timeout=10.0,
                                      follow_redirects=True) as cli:
             r = await cli.get(url, headers=_headers(key))
-            ver = ""
-            try:
-                ver = _version_from(await cli.get(base + "/api/v1/status",
-                                                  headers=_headers(key)))
-            except (httpx.HTTPError, OSError):
-                ver = ""
+            ver = await _fetch_version(cli, base, key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
     if r.status_code == 200:
@@ -243,6 +282,12 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
+# noinspection DuplicatedCode
+# The upstream-error guard + JSON-parse block below is structurally shared
+# with every other per-app module's fetch_data (bazarr / speedtest / …) — the
+# deliberate per-app encapsulation pattern (CLAUDE.md). The content differs
+# (app name, endpoint, fields), so it stays inline rather than coupling the
+# modules through a parameterised _common helper.
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -276,12 +321,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     issues_open = safe_int((ir.json() or {}).get("open"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 issues_open = 0
-            ver = ""
-            try:
-                ver = _version_from(await cli.get(base + "/api/v1/status",
-                                                  headers=_headers(api_key)))
-            except (httpx.HTTPError, OSError):
-                ver = ""
+            ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] error: fetch host={host_id} url={count_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -359,6 +399,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
+# The force-fetch-then-format shape is shared with every per-app module's
+# status skill (bazarr / adguard / …) — the deliberate per-app encapsulation
+# pattern (CLAUDE.md). The formatted output is app-specific, so it stays
+# inline rather than being factored into a shared helper.
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
@@ -416,7 +461,8 @@ async def _seerr_search_movie(base: str, api_key: str, query: str) -> Optional[d
         print(f"[seerr] warning: search HTTP {r.status_code} for {query!r}")
         return None
     try:
-        results = (r.json() or {}).get("results") or []
+        _raw = (r.json() or {}).get("results")
+        results: list = _raw if isinstance(_raw, list) else []
     except (ValueError, TypeError):
         return None
     for item in results:
@@ -521,9 +567,15 @@ async def _request_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
-# How many candidates to library-check per suggestion (bounds the Seerr
-# lookups when sourcing from TMDB). One discover page is ~20 movies.
-_SUGGEST_CHECK_LIMIT = 14
+# How many candidates to library-check per page (one discover page is ~20
+# movies — check them all so a single page yields as many not-in-library
+# options as possible).
+_SUGGEST_CHECK_LIMIT = 20
+# How many fresh random pages to try before concluding the operator really
+# does have everything. Each page is a different random slice of the
+# catalogue, so 4 attempts checks up to ~80 distinct movies across the
+# popularity depth — an active library rarely owns all of those.
+_SUGGEST_PAGE_ATTEMPTS = 4
 # Seerr mediaInfo.status >= this = already requested / processing / partially
 # available / available — i.e. already in (or on its way into) the library.
 _SEERR_IN_LIBRARY_MIN_STATUS = 2
@@ -544,7 +596,10 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
                    "include_adult": "false", "page": str(page)})
     url = _tmdb_api_url(tmdb_base, "discover/movie")
     try:
-        async with httpx.AsyncClient(verify=True, timeout=15.0,
+        # TMDB is a public HTTPS endpoint with a real cert — TLS verification
+        # stays ON (httpx's default), unlike the Seerr calls which use
+        # verify=False for self-signed home-lab certs.
+        async with httpx.AsyncClient(timeout=15.0,
                                      follow_redirects=True) as cli:
             r = await cli.get(url, headers=headers, params=params)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -554,7 +609,8 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
         print(f"[seerr] warning: TMDB discover HTTP {r.status_code} (check tmdb_api_key)")
         return []
     try:
-        results = (r.json() or {}).get("results") or []
+        _raw = (r.json() or {}).get("results")
+        results: list = _raw if isinstance(_raw, list) else []
     except (ValueError, TypeError):
         return []
     out = [{
@@ -562,6 +618,7 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
         "title": str(m.get("title") or m.get("original_title") or "").strip(),
         "year": _year_of(str(m.get("release_date") or "")),
         "rating": round(safe_float(m.get("vote_average")), 1),
+        "genres": _genre_names(m.get("genre_ids")),
         "overview": str(m.get("overview") or "").strip(),
         "poster_url": _poster_url(image_base, str(m.get("poster_path") or "")),
     } for m in results if isinstance(m, dict) and m.get("id")]
@@ -593,6 +650,55 @@ async def _seerr_movie_status(cli: httpx.AsyncClient, base: str, api_key: str,
     return safe_int(mi.get("status")) if isinstance(mi, dict) else 0
 
 
+# A few verbose TMDB country names shortened for the suggestion line.
+_COUNTRY_SHORT = {
+    "United States of America": "USA",
+    "United Kingdom": "UK",
+    "United Arab Emirates": "UAE",
+    "Korea, Republic of": "South Korea",
+    "Russian Federation": "Russia",
+}
+_COUNTRY_DISPLAY_MAX = 3
+
+
+async def _movie_countries(base: str, api_key: str, tmdb_id: int) -> list[str]:
+    """Production countries for a movie via Seerr's ``GET /api/v1/movie/<id>``
+    (``productionCountries: [{iso_3166_1, name}]``). Returns a short display
+    list (top ``_COUNTRY_DISPLAY_MAX``, verbose names shortened). ``[]`` on
+    any failure — country is a nice-to-have, never load-bearing."""
+    if not tmdb_id or not (base and api_key):
+        return []
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
+                              headers=_headers(api_key))
+    except (httpx.HTTPError, OSError):
+        return []
+    if getattr(r, "status_code", 0) != 200:
+        return []
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return []
+    countries = body.get("productionCountries")
+    if not isinstance(countries, list):
+        return []
+    out: list[str] = []
+    for c in countries:
+        if not isinstance(c, dict):
+            continue
+        name = str(c.get("name") or "").strip()
+        if not name:
+            continue
+        name = _COUNTRY_SHORT.get(name, name)
+        if name not in out:
+            out.append(name)
+        if len(out) >= _COUNTRY_DISPLAY_MAX:
+            break
+    return out
+
+
 async def _seerr_discover_candidates(base: str, api_key: str,
                                      image_base: str) -> list[dict]:
     """Fallback candidate source when no TMDB key is set — Seerr's own
@@ -611,7 +717,8 @@ async def _seerr_discover_candidates(base: str, api_key: str,
     if r.status_code != 200:
         return []
     try:
-        results = (r.json() or {}).get("results") or []
+        _raw = (r.json() or {}).get("results")
+        results: list = _raw if isinstance(_raw, list) else []
     except (ValueError, TypeError):
         return []
     out = []
@@ -624,6 +731,7 @@ async def _seerr_discover_candidates(base: str, api_key: str,
             "title": str(m.get("title") or m.get("originalTitle") or "").strip(),
             "year": _year_of(str(m.get("releaseDate") or "")),
             "rating": round(safe_float(m.get("voteAverage")), 1),
+            "genres": _genre_names(m.get("genreIds")),
             "overview": str(m.get("overview") or "").strip(),
             "poster_url": _poster_url(image_base, str(m.get("posterPath") or "")),
             "status": safe_int(mi.get("status")) if isinstance(mi, dict) else 0,
@@ -685,33 +793,54 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     tmdb_key, tmdb_base, image_base = _tmdb_cfg(chip)
     print(f"[seerr] INFO seerr_suggest_movie host={host_id} "
           f"source={'tmdb' if tmdb_key else 'seerr-discover'}")
-    candidates: list[dict] = []
-    if tmdb_key:
-        candidates = await _tmdb_candidate_movies(tmdb_key, tmdb_base, image_base)
-    if not candidates and base and api_key:
-        candidates = await _seerr_discover_candidates(base, api_key, image_base)
-    if not candidates:
-        return {"ok": False, "status": 0,
-                "detail": "couldn't fetch a suggestion (set a TMDB API key on the "
-                          "Seerr app for movie suggestions, or check the Seerr URL)"}
-    pick = await _pick_not_in_library(base, api_key, candidates)
+    # Try several fresh random pages — an active library can own every movie
+    # on the first (most-popular) page, so we keep drawing deeper / different
+    # slices of the catalogue until we find one the operator doesn't have.
+    pick = None
+    got_candidates = False
+    pages_checked = 0
+    for _attempt in range(_SUGGEST_PAGE_ATTEMPTS):
+        if tmdb_key:
+            candidates = await _tmdb_candidate_movies(tmdb_key, tmdb_base, image_base)
+        elif base and api_key:
+            candidates = await _seerr_discover_candidates(base, api_key, image_base)
+        else:
+            candidates = []
+        if not candidates:
+            break  # fetch failure / nothing to draw from — retrying won't help
+        got_candidates = True
+        pages_checked += 1
+        pick = await _pick_not_in_library(base, api_key, candidates)
+        if pick and pick.get("title"):
+            break
+        pick = None
     if pick is None:
-        # Every checked candidate is already requested / in the library —
-        # be honest rather than suggesting a movie they already have.
+        if not got_candidates:
+            return {"ok": False, "status": 0,
+                    "detail": "couldn't fetch a suggestion (set a TMDB API key on the "
+                              "Seerr app for movie suggestions, or check the Seerr URL)"}
+        # Checked several whole pages and the operator owns every one — be
+        # honest rather than suggesting a movie they already have.
+        print(f"[seerr] INFO suggest: {pages_checked} page(s) checked, all "
+              f"candidates already in the library")
         return {"ok": True, "status": 200,
-                "detail": "🎬 Every popular movie I checked is already requested "
-                          "or in your Seerr library — ask again for a fresh batch."}
-    if not pick.get("title"):
-        return {"ok": False, "status": 0,
-                "detail": "couldn't fetch a suggestion (check the Seerr / TMDB config)"}
+                "detail": "🎬 Wow — every movie across the "
+                          f"{pages_checked} batches I checked is already requested "
+                          "or in your Seerr library! Ask again to try a different "
+                          "slice of the catalogue."}
     title = pick.get("title") or ""
     year = pick.get("year") or ""
     rating = safe_float(pick.get("rating"))
+    genres = pick.get("genres") if isinstance(pick.get("genres"), list) else []
     label = title + (f" ({year})" if year else "")
     overview = (pick.get("overview") or "").strip()
     if len(overview) > 300:
         overview = overview[:297].rstrip() + "…"
     tmdb_id = safe_int(pick.get("id"))
+    # Production country/countries — one extra Seerr movie-detail call for the
+    # FINAL pick only (discover results don't carry it). Never blocks the
+    # suggestion: [] on any failure.
+    countries = await _movie_countries(base, api_key, tmdb_id)
     lines = [f"🎬 How about: {label}"]
     # ⭐ rating + year meta line (rating is TMDB's 0-10 vote average).
     meta_bits = []
@@ -721,6 +850,12 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         meta_bits.append(str(year))
     if meta_bits:
         lines.append(" · ".join(meta_bits))
+    # 🎭 genre line.
+    if genres:
+        lines.append("🎭 " + " · ".join(genres))
+    # 🌍 country line.
+    if countries:
+        lines.append("🌍 " + " · ".join(countries))
     if overview:
         lines.append(overview)
     lines.append(f"Say “request {title}” and I'll add it to Seerr. (TMDB id {tmdb_id})")
@@ -736,6 +871,8 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         "title": title,
         "year": year,
         "rating": rating,
+        "genres": genres,
+        "countries": countries,
         # Follow-up action the UI can offer as a one-click button (the AI
         # sidebar renders it after a suggestion). Requesting by the exact
         # TMDB id avoids a re-search. Generic shape: {skill_id, arg, label}.
