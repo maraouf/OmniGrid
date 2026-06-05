@@ -1052,6 +1052,16 @@ async def _ai_reply(
           "confirmation; the bot runs the skill server-side and appends "
           "the real result (and any image) to your reply, so DO emit the "
           "directive — NEVER say you 'cannot trigger skills on Telegram'. "
+          "When a skill is annotated `[arg: …]` it takes a free-form "
+          "argument — extract it from the request and ADD an "
+          "\"arg\":\"<value>\" field to the ACTION_DATA. For the Seerr app: "
+          "'request <movie>' / 'add <movie>' / 'get <movie>' → skill_id "
+          "'seerr_request_movie' with arg set to the title; 'suggest a "
+          "movie' / 'what should I watch' → skill_id 'seerr_suggest_movie' "
+          "(no arg), then if the operator says 'request it' call "
+          "'seerr_request_movie' with arg = the suggested title or its TMDB "
+          "id. 'seerr_status' answers request-queue questions. Requesting a "
+          "movie is non-destructive — just emit it, no confirm. "
           "(2) ACTION: send_notification + ACTION_DATA: "
           "{\"medium\":..,\"title\":..,\"body\":..} (medium app / apprise "
           "/ telegram) to send a notification. For these TWO, emit the "
@@ -1318,6 +1328,10 @@ async def _ai_reply(
     # restart_* / update_* / schedule_*) stay SPA-only because their
     # blast radius justifies a UI-side confirm.
     action_outcome_line = ""
+    # A skill result may carry an `image_url` (e.g. Seerr's suggest-a-movie
+    # poster). We send it as a real photo (below) and strip the bare URL
+    # out of the appended text so it doesn't show as a dead link.
+    action_image_url = ""
     try:
         actions, _ = ai.parse_palette_actions(raw_text)
         action_data, _ = ai.parse_palette_action_data(raw_text)
@@ -1358,6 +1372,9 @@ async def _ai_reply(
             # gate is re-enforced inside run_app_skill / the module.
             sk_host = str(action_data.get("host_id") or "").strip()
             sk_id = str(action_data.get("skill_id") or "").strip()
+            # Optional free-form skill argument (e.g. Seerr's request-a-movie
+            # title). Skills that don't take an arg ignore it.
+            sk_arg = str(action_data.get("arg") or "").strip()[:512]
             _raw_idx = action_data.get("service_idx")
             try:
                 sk_idx = int(_raw_idx) if isinstance(_raw_idx, (int, str)) else -1
@@ -1378,11 +1395,20 @@ async def _ai_reply(
             else:
                 try:
                     sk_result = await run_app_skill(slug, sk_id, host_row, chip,
-                                                    host_id=sk_host, service_idx=sk_idx)
+                                                    host_id=sk_host, service_idx=sk_idx,
+                                                    arg=sk_arg)
                 except ValueError as _ve:
                     sk_result = {"ok": False, "detail": str(_ve)}
                 if isinstance(sk_result, dict) and sk_result.get("ok"):
                     _d = sk_result.get("detail")
+                    action_image_url = str(sk_result.get("image_url") or "").strip()
+                    # Drop the image URL line out of the TEXT (it's sent as a
+                    # photo) so the reply doesn't carry a bare dead link.
+                    if action_image_url and _d:
+                        _d = "\n".join(
+                            ln for ln in str(_d).split("\n")
+                            if ln.strip() != action_image_url
+                        ).strip()
                     action_outcome_line = (
                         f"\n\n✅ Ran <b>{_listener()._escape(sk_id)}</b> on "
                         f"<code>{_listener()._escape(sk_host)}</code>"
@@ -1481,13 +1507,19 @@ async def _ai_reply(
     # since either can carry the URL and `clean` may have truncated it.
     # Fire-and-forget; a photo failure never affects the delivered text reply.
     try:
-        import re as _re_img
-        m = _re_img.search(
-            r"https?://[^\s<>\"']*speedtest\.net/result/[^\s<>\"']*\.png",
-            raw_text + "\n" + (action_outcome_line or ""),
-        )
-        if m:
-            await _listener()._send_photo(client, m.group())
+        # A skill that returned an explicit image_url (e.g. Seerr's
+        # suggest-a-movie poster) is sent directly. Otherwise fall back to
+        # the speedtest result-image regex over the reply text.
+        if action_image_url:
+            await _listener()._send_photo(client, action_image_url)
+        else:
+            import re as _re_img
+            m = _re_img.search(
+                r"https?://[^\s<>\"']*speedtest\.net/result/[^\s<>\"']*\.png",
+                raw_text + "\n" + (action_outcome_line or ""),
+            )
+            if m:
+                await _listener()._send_photo(client, m.group())
     # noinspection PyBroadException
     except Exception as _photo_err:  # noqa: BLE001
-        print(f"[telegram_listener] speedtest photo send skipped: {_photo_err}")
+        print(f"[telegram_listener] skill photo send skipped: {_photo_err}")

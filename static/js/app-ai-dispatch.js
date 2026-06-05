@@ -778,6 +778,8 @@ export default {
     const data = (opts && opts.data && typeof opts.data === 'object') ? opts.data : {};
     const host = (data.host_id || '').toString().trim();
     const skillId = (data.skill_id || '').toString().trim();
+    // Optional free-form skill argument (e.g. Seerr request-a-movie title).
+    const arg = (data.arg == null) ? '' : String(data.arg).trim();
     let idx = data.service_idx;
     idx = (typeof idx === 'number') ? idx : parseInt(idx, 10);
     if (!host || !skillId || isNaN(idx) || idx < 0) {
@@ -786,7 +788,7 @@ export default {
       return;
     }
     if (typeof this.runAppSkill === 'function') {
-      await this.runAppSkill({host_id: host, service_idx: idx}, skillId);
+      await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg);
     }
   },
 

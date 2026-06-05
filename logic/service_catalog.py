@@ -1741,6 +1741,15 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 ),
                 # Non-secret Basic-auth username half (e.g. AdGuard Home).
                 "username": (svc.get("username") or ""),
+                # Seerr TMDB config — the secret key is never returned in the
+                # clear (only the `_set` flag, same convention as api_key);
+                # the two base URLs round-trip to the editor verbatim.
+                "tmdb_api_key_set": bool(
+                    isinstance(svc.get("tmdb_api_key"), str)
+                    and svc.get("tmdb_api_key", "").strip()
+                ),
+                "tmdb_base_url": (svc.get("tmdb_base_url") or ""),
+                "tmdb_image_base_url": (svc.get("tmdb_image_base_url") or ""),
                 # Per-instance averages window (Speedtest "Avg of last N
                 # tests"); None when unset (SPA defaults).
                 "avg_window": svc.get("avg_window"),

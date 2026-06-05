@@ -1663,7 +1663,10 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 # right skill_id without relying on the id/name alone.
                 sk_ids = "; ".join(
                     (f"{s.get('id')} ({s.get('name')})"
-                     + (f" [matches: {s.get('ai_phrases')}]" if s.get("ai_phrases") else ""))
+                     + (f" [matches: {s.get('ai_phrases')}]" if s.get("ai_phrases") else "")
+                     + (f" [arg: {s.get('arg_hint') or 'a free-form argument'} — "
+                        f"supply it in ACTION_DATA's \"arg\" field]"
+                        if s.get("arg") else ""))
                     for s in _sk if isinstance(s, dict) and s.get("id")
                 )
                 seg = (f"  - app={ent.get('app') or ent.get('slug')} "

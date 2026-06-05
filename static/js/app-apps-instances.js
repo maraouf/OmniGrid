@@ -651,6 +651,14 @@ export default {
     // the "Saved" indicator without round-tripping the secret.
     api_key: '',
     api_key_set: false,
+    // Seerr TMDB config (for the AI "suggest a movie" skill). tmdb_api_key
+    // is a secret (keep-current-if-blank, never returned in the clear —
+    // only the `tmdb_api_key_set` flag); the two base URLs round-trip in
+    // the clear with public defaults applied server-side when blank.
+    tmdb_api_key: '',
+    tmdb_api_key_set: false,
+    tmdb_base_url: '',
+    tmdb_image_base_url: '',
   },
 
   openInstanceEdit(inst) {
@@ -719,6 +727,12 @@ export default {
       // (AdGuard / Pi-hole 30, Speedtest 60); backend clamps 5..3600.
       cache_ttl: (inst.cache_ttl != null && inst.cache_ttl !== '')
         ? String(inst.cache_ttl) : '',
+      // Seerr TMDB config. tmdb_api_key starts blank (secret, keep-current);
+      // the base URLs seed from the backend (returned in the clear).
+      tmdb_api_key: '',
+      tmdb_api_key_set: !!inst.tmdb_api_key_set,
+      tmdb_base_url: inst.tmdb_base_url || '',
+      tmdb_image_base_url: inst.tmdb_image_base_url || '',
     };
     this.appsInstanceEditError = '';
     // Clear any Test-connection result from a PREVIOUSLY-edited instance —
@@ -761,6 +775,9 @@ export default {
       username: f.username || '',
       avg_window: f.avg_window || '',
       cache_ttl: f.cache_ttl || '',
+      tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
+      tmdb_base_url: f.tmdb_base_url || '',
+      tmdb_image_base_url: f.tmdb_image_base_url || '',
       ports,
     });
   },
@@ -1110,6 +1127,12 @@ export default {
           // Per-instance data-cache TTL (seconds). Blank => backend drops
           // it => the app module's default; a value is clamped 5..3600.
           cache_ttl: (f.cache_ttl != null) ? f.cache_ttl : '',
+          // Seerr TMDB config. tmdb_api_key is a secret (keep-current-if-
+          // blank); the two base URLs round-trip in the clear (blank =>
+          // backend clears => app falls back to the public TMDB defaults).
+          tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
+          tmdb_base_url: (typeof f.tmdb_base_url === 'string') ? f.tmdb_base_url : '',
+          tmdb_image_base_url: (typeof f.tmdb_image_base_url === 'string') ? f.tmdb_image_base_url : '',
         }),
       });
       if (!r.ok) {

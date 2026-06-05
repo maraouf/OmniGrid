@@ -1308,6 +1308,19 @@ def _clean_host_services(raw: Any) -> list[dict]:
         un = entry.get("username")
         if isinstance(un, str) and un.strip():
             cleaned["username"] = un.strip()[:128]
+        # Per-instance TMDB config — used by the Seerr app's movie-suggest
+        # skill. `tmdb_api_key` is a SECRET (suffix `_key` → auto-redacted
+        # by backup sanitisation; never returned in the clear — see
+        # `iter_instances` which stamps `tmdb_api_key_set` only; preserved
+        # keep-current-if-blank by `_preserve_chip_api_keys`). The two base
+        # URLs are NON-secret (round-trip to the editor verbatim).
+        tak = entry.get("tmdb_api_key")
+        if isinstance(tak, str) and tak.strip():
+            cleaned["tmdb_api_key"] = tak.strip()[:512]
+        for _tf in ("tmdb_base_url", "tmdb_image_base_url"):
+            _tv = entry.get(_tf)
+            if isinstance(_tv, str) and _tv.strip():
+                cleaned[_tf] = _tv.strip()[:256]
         # Per-instance averages window — how many of the MOST-RECENT
         # results the expanded card / skill rolls the "Avg of last N
         # tests" over (currently Speedtest Tracker). Bounded 2..60 (the
@@ -1598,20 +1611,29 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
     return ordered
 
 
+# Per-instance SECRET chip fields that follow the keep-current-if-blank
+# contract (never returned to the SPA in the clear, carried forward when a
+# save drops them). `api_key` is the primary app secret; `tmdb_api_key` is
+# the Seerr app's optional TMDB secret. Add any future per-chip secret here
+# (suffix `_key` / `_token` / `_secret` per the global-secret convention).
+_SECRET_CHIP_FIELDS: tuple[str, ...] = ("api_key", "tmdb_api_key")
+
+
 def _preserve_chip_api_keys(ordered: list[dict]) -> None:
-    """Carry forward each chip's stored ``api_key`` when the incoming
-    save dropped it (blank/absent) — the keep-current-if-blank contract
-    for the per-instance app secret, applied at the full-config boundary.
+    """Carry forward each chip's stored secret fields (``api_key`` +
+    ``tmdb_api_key``) when the incoming save dropped them (blank/absent) —
+    the keep-current-if-blank contract for per-instance app secrets,
+    applied at the full-config boundary.
 
     Mutates ``ordered`` in place. Matches the previously-stored chip by
     ``(host_id, service_idx)`` first, then ``(host_id, catalog_id)`` so a
-    chip that moved position within its host still recovers its key. A
-    chip that genuinely has a fresh non-blank key keeps it (no overwrite).
+    chip that moved position within its host still recovers its secrets. A
+    chip that genuinely has a fresh non-blank value keeps it (no overwrite).
     """
     prior = _load_hosts_config()
-    # Build: host_id -> {idx: api_key} + host_id -> {catalog_id: api_key}.
-    by_idx: dict[str, dict[int, str]] = {}
-    by_cat: dict[str, dict[int, str]] = {}
+    # Build per-secret-field: host_id -> {idx: value} + host_id -> {cat: value}.
+    by_idx: dict[str, dict[str, dict[int, str]]] = {}
+    by_cat: dict[str, dict[str, dict[int, str]]] = {}
     for ph in prior:
         if not isinstance(ph, dict):
             continue
@@ -1623,31 +1645,34 @@ def _preserve_chip_api_keys(ordered: list[dict]) -> None:
         for pidx, pchip in enumerate(psvcs):
             if not isinstance(pchip, dict):
                 continue
-            pkey = (pchip.get("api_key") or "").strip()
-            if not pkey:
-                continue
-            by_idx.setdefault(phid, {})[pidx] = pkey
             pcat = _coerce_int(pchip.get("catalog_id"))
-            if pcat is not None:
-                by_cat.setdefault(phid, {})[pcat] = pkey
+            for field in _SECRET_CHIP_FIELDS:
+                pval = (pchip.get(field) or "").strip()
+                if not pval:
+                    continue
+                by_idx.setdefault(phid, {}).setdefault(field, {})[pidx] = pval
+                if pcat is not None:
+                    by_cat.setdefault(phid, {}).setdefault(field, {})[pcat] = pval
     for nh in ordered:
         nhid = (nh.get("id") or "").strip()
         if not nhid or nhid not in by_idx:
             continue
         _nsvcs_raw = nh.get("services")
         nsvcs = _nsvcs_raw if isinstance(_nsvcs_raw, list) else []
+        host_by_idx = by_idx.get(nhid, {})
+        host_by_cat = by_cat.get(nhid, {})
         for nidx, nchip in enumerate(nsvcs):
             if not isinstance(nchip, dict):
                 continue
-            if (nchip.get("api_key") or "").strip():
-                continue  # fresh key supplied — keep it
-            carried = by_idx.get(nhid, {}).get(nidx)
-            if not carried:
-                ncat = _coerce_int(nchip.get("catalog_id"))
-                if ncat is not None:
-                    carried = by_cat.get(nhid, {}).get(ncat)
-            if carried:
-                nchip["api_key"] = carried
+            ncat = _coerce_int(nchip.get("catalog_id"))
+            for field in _SECRET_CHIP_FIELDS:
+                if (nchip.get(field) or "").strip():
+                    continue  # fresh value supplied — keep it
+                carried = host_by_idx.get(field, {}).get(nidx)
+                if not carried and ncat is not None:
+                    carried = host_by_cat.get(field, {}).get(ncat)
+                if carried:
+                    nchip[field] = carried
 
 
 @app.get("/api/hosts/config")

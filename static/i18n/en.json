@@ -5241,6 +5241,26 @@
       "providers_throttled": "Throttled providers",
       "health_issues": "Health issues"
     },
+    "seerr": {
+      "api_key_label": "Seerr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Seerr → Settings → General",
+      "api_key_hint": "Required for the expanded card + the AI request/suggest skills. Found in Seerr (Overseerr / Jellyseerr) under Settings → General → API Key. Leave blank to keep the stored key.",
+      "tmdb_section": "TMDB (for movie suggestions)",
+      "tmdb_api_key_label": "TMDB API key",
+      "tmdb_api_key_placeholder_saved": "Saved — leave blank to keep",
+      "tmdb_api_key_placeholder_unset": "TMDB v3 key (or v4 read token)",
+      "tmdb_api_key_hint": "Optional. Enables the AI “suggest a movie” skill (random picks from TMDB). Get a free key at themoviedb.org → Settings → API. Without it, suggestions fall back to Seerr’s own discover list.",
+      "tmdb_base_url_label": "TMDB API base URL",
+      "tmdb_image_base_url_label": "TMDB image base URL",
+      "tmdb_base_hint": "Leave at the defaults unless you proxy TMDB. The image base builds poster URLs for suggestions.",
+      "cache_ttl_hint": "How long fetched request counts are cached before re-querying Seerr (5–3600s). Leave blank for the app default (30s).",
+      "pending": "Pending",
+      "processing": "Processing",
+      "available": "Available",
+      "total": "Total",
+      "issues_open": "Open issues"
+    },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",
       "api_key_placeholder_saved": "Saved — leave blank to keep",
