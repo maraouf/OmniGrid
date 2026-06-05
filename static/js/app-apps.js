@@ -1024,6 +1024,16 @@ export default {
   // froze the displayed time while the CSS colon kept pulsing).
   appsClockNow: 0,
 
+  // Per-(chip, skill) drawer skill state, declared here so Alpine makes
+  // them DEEPLY reactive from init. Lazy-creating them inside a method
+  // (`this._appSkillResult = this._appSkillResult || {}`) didn't reliably
+  // make nested mutations (e.g. a result's `followup_busy`) re-render the
+  // bound `:disabled` — which left the Seerr "Request" follow-up button
+  // stuck (un-clickable) after the first tap. Declaring them as data
+  // fields guarantees deep reactivity for every mutation path.
+  _appSkillResult: {},
+  _appSkillBusy: {},
+
   // Prayer-times widget state. `prayer` holds the latest
   // /api/prayer-times response ({timings, prayers, next, hijri, ...});
   // `_prayerFetchedAt` gates the in-process refresh (10-min window like
@@ -1420,8 +1430,11 @@ export default {
         }
         this._prayerFetchedAt = now;
       })
-      .catch(() => { /* silent — tile shows the no-data empty state */ })
-      .finally(() => { this._prayerFetching = false; });
+      .catch(() => { /* silent — tile shows the no-data empty state */
+      })
+      .finally(() => {
+        this._prayerFetching = false;
+      });
   },
   // Explicit refresh button on the tile.
   refreshPrayerTimes() {
@@ -1431,6 +1444,37 @@ export default {
   // (informational). Each row carries the translated name + whether it's
   // the next upcoming prayer (for the highlight). Returns [] until the
   // first successful fetch so the tile renders its empty state.
+  // Format a backend "HH:MM" (24h) prayer time to the user's profile
+  // time format (12h/24h + AM/PM — Settings → Profile → Formats). Seconds
+  // are dropped (prayer times are minute-granularity, so ":00" would be
+  // noise). Falls back to the raw string on any parse issue. Pure reformat,
+  // no timezone conversion — the value is already the location's local time.
+  _fmtPrayerTime(hhmm) {
+    const s = String(hhmm == null ? '' : hhmm).trim();
+    // Parse "HH:MM" by hand (no regex): JSHint (E016) rejects ES2018 named
+    // capture groups and the inspector flags anonymous ones — slicing on the
+    // first colon sidesteps both and is plenty for a "HH:MM[:SS]" time.
+    const colon = s.indexOf(':');
+    if (colon < 1) {
+      return s;
+    }
+    const hh = parseInt(s.slice(0, colon), 10);
+    const mm = parseInt(s.slice(colon + 1, colon + 3), 10);
+    if (isNaN(hh) || isNaN(mm)) {
+      return s;
+    }
+    const d = new Date(2000, 0, 1, hh, mm, 0);
+    if (isNaN(d.getTime())) {
+      return s;
+    }
+    // Time-only format with seconds stripped + dangling separators tidied.
+    const fmt = (this._userTimeOnlyFormat() || 'HH:mm')
+      .replace(/[:.]?ss/g, '')
+      .replace(/[:.]?s(?![a-z])/g, '')
+      .replace(/^[\s:.,\-/]+|[\s:.,\-/]+$/g, '')
+      .trim() || 'HH:mm';
+    return this._applyDateTimeFormat(d, fmt) || s;
+  },
   // Ordered prayer rows for the widget. On wide+short tiles that can only
   // show 3 rows, returns a 3-row CIRCULAR window CENTERED on the next
   // upcoming prayer (prev / upcoming / next) — so as each prayer passes the
@@ -1455,7 +1499,7 @@ export default {
       all.push({
         key,
         name: this.prayerName(key),
-        time: row.time,
+        time: this._fmtPrayerTime(row.time),
         ts: row.ts,
         isPrayer: !!row.prayer,
         isNext: false,
@@ -3409,7 +3453,11 @@ export default {
       if (!r.ok) {
         throw new Error(await this.fmtResponseError(r));
       }
-      (app.instances || []).forEach((i) => { if (i) { i.show_extras = value; } });
+      (app.instances || []).forEach((i) => {
+        if (i) {
+          i.show_extras = value;
+        }
+      });
       await this.loadAppsList(true);
     } catch (err) {
       const msg = (err && err.message) ? err.message : String(err);

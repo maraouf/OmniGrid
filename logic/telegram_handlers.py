@@ -269,16 +269,41 @@ async def _try_dispatch_skill_command(
             f"<code>/{esc(cmd)}</code> on <code>{esc(host_label)}</code>.",
         )
         return True
-    # Some skills take a few seconds (e.g. Seerr suggest queries the library +
-    # TMDB across several pages), so fire the native "Bot is typing…"
-    # indicator for immediate feedback before the skill runs. Fire-and-forget.
-    await _listener()._send_chat_action(client, "typing")
+    # Some skills take a while (e.g. Seerr suggest queries the library + TMDB
+    # across several pages). Telegram's "Bot is typing…" indicator auto-clears
+    # after ~5s, so a single send vanishes mid-work and the chat looks idle.
+    # Keep RE-SENDING it every ~4s for the whole run. The keep-alive task
+    # inherits this handler's chat ContextVar (so it targets the right chat)
+    # and is stopped + awaited in the finally below.
+    _typing_stop = asyncio.Event()
+
+    # noinspection PyProtectedMember
+    async def _keep_typing() -> None:
+        while not _typing_stop.is_set():
+            await _listener()._send_chat_action(client, "typing")
+            try:
+                await asyncio.wait_for(_typing_stop.wait(), timeout=4.0)
+            except asyncio.TimeoutError:
+                pass
+
+    _typing_task = asyncio.create_task(_keep_typing())
+    # Bound up front so it's always defined even if run_app_skill raises a
+    # non-ValueError (which propagates out via the finally below — the
+    # result-handling block past the try is then skipped).
+    result: dict = {"ok": False, "detail": "skill did not run"}
     try:
         result = await run_app_skill(
             rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx,
             arg=skill_arg, actor_username=mapped)
     except ValueError as ve:
         result = {"ok": False, "detail": str(ve)}
+    finally:
+        _typing_stop.set()
+        _typing_task.cancel()
+        try:
+            await _typing_task
+        except asyncio.CancelledError:
+            pass
     if isinstance(result, dict) and result.get("ok"):
         detail = str(result.get("detail") or "").strip()
         image_url = str(result.get("image_url") or "").strip()
@@ -306,7 +331,7 @@ async def _try_dispatch_skill_command(
         if isinstance(_fu, dict) and _fu.get("skill_id"):
             _token = _listener().register_pending_action({
                 "host_id": host_id, "service_idx": svc_idx,
-                "skill_id": str(_fu.get("skill_id")),
+                "skill_id": str(_fu.get("skill_id") or ""),
                 "arg": str(_fu.get("arg") or ""),
             })
             reply_markup = {"inline_keyboard": [[{
@@ -423,6 +448,7 @@ async def _require_user_weather_pref(
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Auto-generated help — iterates `_COMMANDS` so adding a new
     handler shows up in `/help` with no extra wiring.
@@ -520,7 +546,7 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     try:
         from logic.db import get_setting_bool as _get_setting_bool_pi
         from logic.settings_keys import Settings as _Settings_pi
-        public_ip_enabled = _get_setting_bool_pi(_Settings_pi.PUBLIC_IP_ENABLED, False)
+        public_ip_enabled = _get_setting_bool_pi(_Settings_pi.PUBLIC_IP_ENABLED)
     except (ImportError, AttributeError, KeyError, ValueError, TypeError):
         public_ip_enabled = False
 
@@ -532,7 +558,7 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     try:
         from logic.db import get_setting_bool as _get_setting_bool2
         from logic.settings_keys import Settings as _Settings2
-        prayer_enabled = _get_setting_bool2(_Settings2.PRAYER_TIMES_ENABLED, False)
+        prayer_enabled = _get_setting_bool2(_Settings2.PRAYER_TIMES_ENABLED)
     except (ImportError, AttributeError, KeyError, ValueError, TypeError):
         prayer_enabled = False
     _PRAYER_GATED = {"/prayer", "/hijri"}
@@ -838,6 +864,7 @@ def _load_host_paused_set() -> set[str]:
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/hosts`` — split the curated fleet into three grouped lists:
     Active (enabled + no failure-state markers), Down (enabled but has
@@ -984,6 +1011,7 @@ def _fmt_age(ts: float | int | None) -> str:
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/host <target>`` — probe live, then show fresh stats for one
     curated host (CPU / memory / disk / uptime + extended provider
@@ -1373,6 +1401,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/restart <target>`` — reboot a host via SSH.
 
@@ -1452,6 +1481,7 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/version`` (aliased as ``/ver``) — show the running OmniGrid
     version. Reads the version baked into the image at build time
@@ -1558,6 +1588,7 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/ip`` — show the deployment's public IP + ISP / ASN / country
     via the same lookup the AI palette uses (ifconfig.co JSON). Gated
@@ -1614,6 +1645,7 @@ async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """Debug aid — tells the user their Telegram user_id + the
     OmniGrid username they're linked to (or that they aren't) + their
@@ -1656,6 +1688,7 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/time`` — show the current local time at the linked user's
     saved weather location. Uses Open-Meteo's resolved IANA timezone
@@ -1745,6 +1778,7 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/cleanup`` (dry-run) — list every stopped / failed / orphan
     container the dashboard's cleanup button would remove. ``/cleanup
@@ -1904,6 +1938,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/update`` — pull-and-recreate stacks / containers whose remote
     image digest differs from what's running locally.
@@ -2243,6 +2278,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/link <code>`` — bind the sender's Telegram user_id to an
     OmniGrid user. Code is minted by the SPA's Profile section and
@@ -2312,6 +2348,7 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/unlink`` — drop the sender's Telegram → OmniGrid mapping."""
     sender_id_int = await _resolve_telegram_sender_id_int(client, msg)
@@ -2353,6 +2390,7 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
+# noinspection PyProtectedMember
 async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/weather`` — fetch the linked OmniGrid user's saved weather
     location and return current conditions + a 3-day forecast snippet.
@@ -2614,6 +2652,7 @@ _PRAYER_EMOJI = {
 }
 
 
+# noinspection PyProtectedMember
 async def _fetch_user_prayer(client: httpx.AsyncClient, msg: dict):
     """Shared helper for /prayer + /hijri — resolves the linked user's
     saved weather location + fetches today's prayer times. Sends the
