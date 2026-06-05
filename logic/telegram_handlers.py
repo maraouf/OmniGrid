@@ -269,12 +269,15 @@ async def _try_dispatch_skill_command(
             f"<code>/{esc(cmd)}</code> on <code>{esc(host_label)}</code>.",
         )
         return True
-    # Some skills take a while (e.g. Seerr suggest queries the library + TMDB
-    # across several pages). Telegram's "Bot is typing…" indicator auto-clears
-    # after ~5s, so a single send vanishes mid-work and the chat looks idle.
-    # Keep RE-SENDING it every ~4s for the whole run. The keep-alive task
-    # inherits this handler's chat ContextVar (so it targets the right chat)
-    # and is stopped + awaited in the finally below.
+    # Some skills take a few seconds (e.g. Seerr suggest queries the library +
+    # TMDB across several pages). Show a VISIBLE "🤖 Thinking…" placeholder
+    # bubble (more obvious than the typing indicator alone) and EDIT it in
+    # place with the final result — same UX as the free-text AI path. Capture
+    # its id; None when the send failed (the helpers then send fresh).
+    _ph_id = await _listener()._send_reply(client, "🤖 <i>Thinking…</i>")
+    # ALSO keep the native "Bot is typing…" indicator alive — Telegram clears
+    # it after ~5s, so re-send every ~4s for the whole run. The keep-alive
+    # task inherits this handler's chat ContextVar and is stopped in finally.
     _typing_stop = asyncio.Event()
 
     # noinspection PyProtectedMember
@@ -340,17 +343,19 @@ async def _try_dispatch_skill_command(
                 "text": "🎬 " + str(_fu.get("label") or "Request on Seerr")[:116],
                 "callback_data": "ssr:" + _token,
             }]]}
+        # Replace the "🤖 Thinking…" bubble with the result text in place.
+        await _listener()._replace_placeholder(client, _ph_id, body)
         if image_url:
-            # Button rides the poster when there is one; the text reply stays plain.
-            await _listener()._send_reply(client, body)
+            # Poster (with the follow-up button, if any) lands below the text.
             await _listener()._send_photo(client, image_url, reply_markup=reply_markup)
-        else:
-            # No poster — attach the button to the text reply.
-            await _listener()._send_reply(client, body, reply_markup=reply_markup)
+        elif reply_markup:
+            # No poster but a follow-up button (rare) — _edit_message can't
+            # carry a reply_markup, so send the button on a tiny follow-up.
+            await _listener()._send_reply(client, "🎬 Tap to request:", reply_markup=reply_markup)
     else:
         detail = (result or {}).get("detail") or "failed"
-        await _listener()._send_reply(
-            client,
+        await _listener()._replace_placeholder(
+            client, _ph_id,
             f"❌ <b>{esc(skill_name)}</b> failed: <code>{esc(str(detail))}</code>",
         )
     # Audit-trail parity with the web skill route (apps_routes.py writes a
