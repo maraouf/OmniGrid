@@ -1061,7 +1061,15 @@ async def _ai_reply(
           "(no arg), then if the operator says 'request it' call "
           "'seerr_request_movie' with arg = the suggested title or its TMDB "
           "id. 'seerr_status' answers request-queue questions. Requesting a "
-          "movie is non-destructive — just emit it, no confirm. "
+          "movie is non-destructive — just emit it, no confirm. Per-user "
+          "SUGGESTION FILTERS (country / rating / genre, saved per user): to "
+          "change one, skill_id 'seerr_set_filter' with arg = ONE directive — "
+          "'exclude country France' / 'allow country France' / 'min rating 7' "
+          "/ 'exclude genre horror' / 'only genre action' / 'allow genre "
+          "horror' / 'clear'. Map 'don't suggest French movies' → 'exclude "
+          "country France'; 'only movies rated 7+' → 'min rating 7'; 'no "
+          "horror' → 'exclude genre horror'; 'clear my filters' → 'clear'. "
+          "skill_id 'seerr_show_filters' (no arg) lists them. "
           "(2) ACTION: send_notification + ACTION_DATA: "
           "{\"medium\":..,\"title\":..,\"body\":..} (medium app / apprise "
           "/ telegram) to send a notification. For these TWO, emit the "
@@ -1400,7 +1408,8 @@ async def _ai_reply(
                 try:
                     sk_result = await run_app_skill(slug, sk_id, host_row, chip,
                                                     host_id=sk_host, service_idx=sk_idx,
-                                                    arg=sk_arg)
+                                                    arg=sk_arg,
+                                                    actor_username=omnigrid_username)
                 except ValueError as _ve:
                     sk_result = {"ok": False, "detail": str(_ve)}
                 if isinstance(sk_result, dict) and sk_result.get("ok"):

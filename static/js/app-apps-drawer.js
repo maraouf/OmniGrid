@@ -288,10 +288,15 @@ export default {
         if (img && detail) {
           detail = detail.split('\n').filter((l) => l.trim() !== img).join('\n').trim();
         }
-        this._appSkillResult[resKey] = {ok: true, detail: detail, image_url: img, at: Date.now()};
+        // Stash the followup (e.g. Seerr suggest → request) so the drawer can
+        // render a one-click Request button under the result, like the AI.
+        const _fu = (j && j.followup && typeof j.followup === 'object') ? j.followup : null;
+        this._appSkillResult[resKey] = {
+          ok: true, detail: detail, image_url: img, followup: _fu, at: Date.now(),
+        };
         _result = {
           ok: true, detail: detail, image_url: img,
-          followup: (j && j.followup && typeof j.followup === 'object') ? j.followup : null,
+          followup: _fu,
           tmdb_id: (j && j.tmdb_id != null) ? j.tmdb_id : null,
           title: (j && j.title) ? String(j.title) : '',
         };
@@ -328,6 +333,36 @@ export default {
       this._appSkillBusy[busyKey] = false;
     }
     return _result;
+  },
+
+  // One-click follow-up from a drawer skill result (e.g. "Request on Seerr"
+  // after a Suggest-a-movie result), mirroring the AI sidebar's followup
+  // button. Runs the follow-up skill silently, then records the outcome on
+  // the SAME result entry so the button is replaced by a success/failure line.
+  async runAppSkillFollowup(inst, sk, followup) {
+    if (!inst || !sk || !followup || !followup.skill_id) {
+      return;
+    }
+    const resKey = 'res:' + this.appInstanceKey(inst) + ':' + sk.id;
+    const entry = this._appSkillResult && this._appSkillResult[resKey];
+    if (!entry || entry.followup_busy || entry.followup_done) {
+      return;
+    }
+    entry.followup_busy = true;
+    // No initializer — `res` is assigned in the try before any read (a throw
+    // exits via the propagated exception, never reaching the read below).
+    let res;
+    try {
+      res = await this.runAppSkill(inst, followup.skill_id, followup.arg, {silent: true});
+    } finally {
+      entry.followup_busy = false;
+    }
+    if (res && typeof res === 'object') {
+      entry.followup_result = {ok: !!res.ok, detail: (res.detail || '').toString()};
+      if (res.ok) {
+        entry.followup_done = true;
+      }
+    }
   },
 
   // Admin Edit affordance from the App detail drawer — redirect to the

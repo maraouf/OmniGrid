@@ -1651,7 +1651,8 @@ async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
     await _clear_callback_markup(client, cb_msg)
     try:
         res = await run_app_skill(slug, skill_id, host_row, chip,
-                                  host_id=host_id, service_idx=sidx, arg=arg)
+                                  host_id=host_id, service_idx=sidx, arg=arg,
+                                  actor_username=mapped)
     except ValueError as e:
         res = {"ok": False, "detail": str(e)}
     ran_ok = bool(isinstance(res, dict) and res.get("ok"))
