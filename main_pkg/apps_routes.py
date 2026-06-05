@@ -853,7 +853,8 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
     try:
         result = await mod.run_skill(skill_id, host_row, chip,
                                      host_id=host_id, service_idx=service_idx,
-                                     arg=skill_arg)
+                                     arg=skill_arg,
+                                     actor_username=_actor_from(request))
     except ValueError as e:  # unknown skill id reaching the module
         print(f"[app_skill] warning: web skill {skill_id!r} rejected by module at "
               f"host={host_id} svc_idx={service_idx} — {e}")

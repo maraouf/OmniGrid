@@ -269,10 +269,14 @@ async def _try_dispatch_skill_command(
             f"<code>/{esc(cmd)}</code> on <code>{esc(host_label)}</code>.",
         )
         return True
+    # Some skills take a few seconds (e.g. Seerr suggest queries the library +
+    # TMDB across several pages), so fire the native "Bot is typing…"
+    # indicator for immediate feedback before the skill runs. Fire-and-forget.
+    await _listener()._send_chat_action(client, "typing")
     try:
         result = await run_app_skill(
             rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx,
-            arg=skill_arg)
+            arg=skill_arg, actor_username=mapped)
     except ValueError as ve:
         result = {"ok": False, "detail": str(ve)}
     if isinstance(result, dict) and result.get("ok"):

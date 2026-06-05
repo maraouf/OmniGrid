@@ -93,6 +93,11 @@
           <p class="fs-2xs text-[var(--warning)]"
              x-text="(t('apps.adguard.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></p>
         </template>
+        <!-- Version footnote (from the AdGuard /control/status response). -->
+        <template x-if="agg.ready && agg.version">
+          <p class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+             x-text="'AdGuard Home ' + agg.version"></p>
+        </template>
 
         <!-- Fleet actions (admin-only; need at least one credentialed host). -->
         <template x-if="isAdmin() && (app.instances || []).some((i) => i.api_key_set)">

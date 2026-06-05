@@ -68,6 +68,7 @@ Upstream API reference: <seerr-host>/api-docs. Endpoints used:
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
 from typing import Any, Optional
@@ -113,6 +114,30 @@ SKILLS: tuple[dict, ...] = (
         "ai_phrases": ("suggest a movie, recommend a movie, what should i "
                        "watch, random movie, pick a movie for me, suggest "
                        "something to watch, give me a movie recommendation"),
+        "destructive": False,
+    },
+    {
+        "id": "seerr_set_filter",
+        "name": "Set a suggestion filter",
+        "ai_phrases": ("don't suggest movies from <country>, exclude <country> "
+                       "movies, no <country> films, only suggest movies rated "
+                       "above <n>, minimum rating <n>, don't suggest <genre> "
+                       "movies, exclude <genre>, only <genre> movies, allow "
+                       "<country> again, remove the <country> filter, clear my "
+                       "movie filters, reset suggestion filters, add a filter, "
+                       "remove a filter, filter movies by country/rating/genre"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("a filter directive: 'exclude country France' / 'allow "
+                     "country France' / 'min rating 7' / 'exclude genre horror' "
+                     "/ 'only genre action' / 'allow genre horror' / 'clear'"),
+    },
+    {
+        "id": "seerr_show_filters",
+        "name": "Show suggestion filters",
+        "ai_phrases": ("show my movie filters, what are my suggestion filters, "
+                       "list my filters, what movies am i excluding, my seerr "
+                       "filters"),
         "destructive": False,
     },
 )
@@ -168,6 +193,208 @@ def _genre_names(genre_ids: Any) -> list[str]:
         if len(out) >= _GENRE_DISPLAY_MAX:
             break
     return out
+
+
+# ---------------------------------------------------------------------------
+# Per-user suggestion filters. Stored per user in users.ui_prefs under
+# `seerr_suggest_filters` (so it's database-backed + per-user). The AI / the
+# user manage them via the seerr_set_filter skill; seerr_suggest_movie applies
+# them (min_rating + genres pushed to the TMDB discover query; countries +
+# genres also enforced client-side).
+# ---------------------------------------------------------------------------
+_GENRE_NAME_TO_ID = {name.lower(): gid for gid, name in _TMDB_GENRES.items()}
+_GENRE_SYNONYMS = {
+    "sci-fi": "science fiction", "scifi": "science fiction",
+    "sci fi": "science fiction", "romcom": "romance",
+    "rom-com": "romance", "docu": "documentary", "doc": "documentary",
+    "kids": "family", "children": "family",
+}
+# Country synonym → canonical token (for case-insensitive exclude matching;
+# the movie's production-country names are shortened for display, so both the
+# user's input and the movie's countries normalise through this).
+_COUNTRY_SYNONYMS = {
+    "usa": "usa", "us": "usa", "u.s.": "usa", "u.s.a.": "usa",
+    "america": "usa", "united states": "usa",
+    "united states of america": "usa", "the united states": "usa",
+    "uk": "uk", "u.k.": "uk", "united kingdom": "uk", "britain": "uk",
+    "great britain": "uk", "england": "uk",
+    "korea": "south korea", "republic of korea": "south korea",
+    "uae": "uae", "united arab emirates": "uae",
+}
+
+_DEFAULT_FILTERS: dict = {
+    "exclude_countries": [], "min_rating": 0.0,
+    "exclude_genres": [], "include_genres": [],
+}
+
+
+def _canonical_genre(name: str) -> Optional[str]:
+    """Resolve a user-typed genre to its canonical TMDB name (handles a few
+    synonyms), or ``None`` when unknown."""
+    n = (name or "").strip().lower()
+    n = _GENRE_SYNONYMS.get(n, n)
+    gid = _GENRE_NAME_TO_ID.get(n)
+    return _TMDB_GENRES.get(gid) if gid else None
+
+
+def _norm_country(name: str) -> str:
+    """Normalise a country name to a canonical lowercase token for
+    case-insensitive exclude matching (USA / United States → usa, etc.)."""
+    n = (name or "").strip().lower()
+    return _COUNTRY_SYNONYMS.get(n, n)
+
+
+def _coerce_filters(raw: Any) -> dict:
+    """Normalise a stored / partial filters blob into the canonical shape."""
+    f = dict(_DEFAULT_FILTERS)
+    f["exclude_countries"] = []
+    f["exclude_genres"] = []
+    f["include_genres"] = []
+    if isinstance(raw, dict):
+        f["exclude_countries"] = [str(x).strip() for x in (raw.get("exclude_countries") or [])
+                                  if isinstance(x, str) and x.strip()]
+        f["exclude_genres"] = [str(x).strip() for x in (raw.get("exclude_genres") or [])
+                               if isinstance(x, str) and x.strip()]
+        f["include_genres"] = [str(x).strip() for x in (raw.get("include_genres") or [])
+                               if isinstance(x, str) and x.strip()]
+        f["min_rating"] = max(0.0, min(10.0, safe_float(raw.get("min_rating"))))
+    return f
+
+
+def _load_user_filters(username: Optional[str]) -> dict:
+    """Load a user's Seerr suggestion filters from their ui_prefs. Returns the
+    default (no filters) when no user / nothing stored. Never raises."""
+    if not username:
+        return _coerce_filters(None)
+    # defensive boundary — a filter-load failure must never break a suggestion.
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn  # noqa: PLC0415
+        from logic import auth as _auth  # noqa: PLC0415
+        with db_conn() as c:
+            u = _auth.get_user_by_username(c, username)
+            if not u or u.id < 0:
+                return _coerce_filters(None)
+            row = c.execute("SELECT ui_prefs FROM users WHERE id=?", (u.id,)).fetchone()
+        prefs = json.loads(row[0]) if (row and row[0]) else {}
+        raw = prefs.get("seerr_suggest_filters") if isinstance(prefs, dict) else None
+        return _coerce_filters(raw)
+    except Exception:  # noqa: BLE001
+        return _coerce_filters(None)
+
+
+def _save_user_filters(username: Optional[str], filters: dict) -> bool:
+    """Persist a user's Seerr suggestion filters into their ui_prefs (merge,
+    cache-invalidated via auth.update_ui_prefs). Returns True on success."""
+    if not username:
+        return False
+    # noinspection PyBroadException
+    try:
+        from logic.db import db_conn  # noqa: PLC0415
+        from logic import auth as _auth  # noqa: PLC0415
+        with db_conn() as c:
+            u = _auth.get_user_by_username(c, username)
+            if not u or u.id < 0:
+                return False
+            _auth.update_ui_prefs(c, u.id, {"seerr_suggest_filters": _coerce_filters(filters)})
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _format_filters(filters: dict) -> str:
+    """Human-readable summary of the active filters for the show / set skills."""
+    f = _coerce_filters(filters)
+    lines = ["🎚️ Your movie-suggestion filters:"]
+    mr = f["min_rating"]
+    lines.append(f"⭐ Min rating: {mr:.1f}/10" if mr > 0 else "⭐ Min rating: any")
+    lines.append("🌍 Excluded countries: "
+                 + (", ".join(f["exclude_countries"]) if f["exclude_countries"] else "none"))
+    lines.append("🎭 Excluded genres: "
+                 + (", ".join(f["exclude_genres"]) if f["exclude_genres"] else "none"))
+    if f["include_genres"]:
+        lines.append("✅ Only these genres: " + ", ".join(f["include_genres"]))
+    return "\n".join(lines)
+
+
+def _apply_filter_directive(filters: dict, directive: str) -> "tuple[dict, str]":
+    """Apply one filter directive to ``filters``; return ``(new_filters,
+    message)``. Recognised directives (the AI emits these — see the prompt):
+
+      exclude country <name>     allow country <name>
+      exclude genre <name>       allow genre <name>
+      only genre <name>          (alias: include genre <name>)
+      min rating <number>        (0 / any = clear the rating filter)
+      clear                      (reset everything)
+    """
+    f = _coerce_filters(filters)
+    d = (directive or "").strip()
+    dl = d.lower()
+    if not dl:
+        return f, "Tell me what to filter — e.g. “exclude country France”, “min rating 7”, or “exclude genre horror”."
+    if dl in ("clear", "reset", "clear all", "reset all", "clear filters", "reset filters"):
+        return dict(_coerce_filters(None)), "✅ Cleared all movie-suggestion filters."
+    # --- country ---
+    for pre in ("exclude country ", "no country ", "without country ", "block country "):
+        if dl.startswith(pre):
+            val = d[len(pre):].strip().title()
+            if val and not any(_norm_country(x) == _norm_country(val) for x in f["exclude_countries"]):
+                f["exclude_countries"].append(val)
+            return f, f"✅ Excluding movies from {val}."
+    for pre in ("allow country ", "remove country ", "include country ", "un-exclude country "):
+        if dl.startswith(pre):
+            val = d[len(pre):].strip()
+            f["exclude_countries"] = [x for x in f["exclude_countries"]
+                                      if _norm_country(x) != _norm_country(val)]
+            return f, f"✅ {val.title()} movies are allowed again."
+    # --- genre ---
+    for pre in ("exclude genre ", "no genre ", "without genre ", "block genre "):
+        if dl.startswith(pre):
+            canon = _canonical_genre(d[len(pre):])
+            if not canon:
+                return f, _unknown_genre_msg(d[len(pre):])
+            if canon not in f["exclude_genres"]:
+                f["exclude_genres"].append(canon)
+            f["include_genres"] = [g for g in f["include_genres"] if g != canon]
+            return f, f"✅ Excluding {canon} movies."
+    for pre in ("only genre ", "include genre ", "prefer genre "):
+        if dl.startswith(pre):
+            canon = _canonical_genre(d[len(pre):])
+            if not canon:
+                return f, _unknown_genre_msg(d[len(pre):])
+            if canon not in f["include_genres"]:
+                f["include_genres"].append(canon)
+            f["exclude_genres"] = [g for g in f["exclude_genres"] if g != canon]
+            return f, f"✅ Only suggesting {canon} movies (plus any other 'only' genres)."
+    for pre in ("allow genre ", "remove genre ", "un-exclude genre "):
+        if dl.startswith(pre):
+            canon = _canonical_genre(d[len(pre):]) or d[len(pre):].strip().title()
+            f["exclude_genres"] = [g for g in f["exclude_genres"] if g.lower() != canon.lower()]
+            f["include_genres"] = [g for g in f["include_genres"] if g.lower() != canon.lower()]
+            return f, f"✅ {canon} genre filter cleared."
+    # --- rating ---
+    for pre in ("min rating ", "minimum rating ", "rating above ", "rating "):
+        if dl.startswith(pre):
+            rest = dl[len(pre):].replace("/10", "").strip()
+            if rest in ("any", "none", "off", "0"):
+                f["min_rating"] = 0.0
+                return f, "✅ Rating filter cleared (any rating)."
+            try:
+                f["min_rating"] = max(0.0, min(10.0, float(rest)))
+            except (TypeError, ValueError):
+                return f, f"I couldn't read a rating from “{d}”. Try e.g. “min rating 7”."
+            return (f, (f"✅ Only suggesting movies rated {f['min_rating']:.1f}/10 or higher."
+                        if f["min_rating"] > 0 else "✅ Rating filter cleared (any rating)."))
+    if dl in ("any rating", "no rating", "no rating filter"):
+        f["min_rating"] = 0.0
+        return f, "✅ Rating filter cleared (any rating)."
+    return f, (f"I didn't understand “{d}”. Try “exclude country France”, “min rating 7”, "
+               "“exclude genre horror”, “allow country France”, or “clear”.")
+
+
+def _unknown_genre_msg(name: str) -> str:
+    return (f"“{name.strip()}” isn't a genre I know. Valid genres: "
+            + ", ".join(sorted(_TMDB_GENRES.values())) + ".")
 
 
 def requires_api_key() -> bool:
@@ -384,19 +611,52 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None,
-                    arg: Optional[str] = None, **_kw) -> dict:
+                    arg: Optional[str] = None,
+                    actor_username: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``
     (+ ``image_url`` for the suggest skill). Raises ValueError on an unknown
-    skill id (route maps to HTTP 404). ``arg`` carries the free-form
-    argument (movie title / TMDB id) for ``seerr_request_movie``."""
+    skill id (route maps to HTTP 404). ``arg`` carries the free-form argument
+    (movie title / TMDB id, or a filter directive); ``actor_username`` is the
+    acting OmniGrid user, used to load/save that user's per-user suggestion
+    filters."""
     if skill_id == "seerr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
     if skill_id == "seerr_request_movie":
         return await _request_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "seerr_suggest_movie":
-        return await _suggest_skill(host_row, chip, host_id=host_id)
+        return await _suggest_skill(host_row, chip, host_id=host_id,
+                                    actor_username=actor_username)
+    if skill_id == "seerr_set_filter":
+        return _set_filter_skill(arg, actor_username)
+    if skill_id == "seerr_show_filters":
+        return _show_filters_skill(actor_username)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+def _set_filter_skill(arg: Optional[str], actor_username: Optional[str]) -> dict:
+    """Apply a filter directive to the acting user's per-user suggestion
+    filters (database-backed in their ui_prefs). Returns ``{ok, detail}``."""
+    if not actor_username:
+        return {"ok": False, "status": 0,
+                "detail": "I can't tell which account you are, so I can't save a "
+                          "per-user filter. (Link your account / sign in first.)"}
+    current = _load_user_filters(actor_username)
+    new_filters, message = _apply_filter_directive(current, arg or "")
+    if not _save_user_filters(actor_username, new_filters):
+        return {"ok": False, "status": 0, "detail": "couldn't save your filter — try again"}
+    summary = _format_filters(new_filters)
+    print(f"[seerr] INFO seerr_set_filter user={actor_username!r} arg={arg!r}")
+    return {"ok": True, "status": 200, "detail": message + "\n\n" + summary}
+
+
+def _show_filters_skill(actor_username: Optional[str]) -> dict:
+    """Show the acting user's current per-user suggestion filters."""
+    if not actor_username:
+        return {"ok": False, "status": 0,
+                "detail": "I can't tell which account you are. (Link your account / sign in first.)"}
+    return {"ok": True, "status": 200,
+            "detail": _format_filters(_load_user_filters(actor_username))}
 
 
 # noinspection DuplicatedCode
@@ -582,11 +842,17 @@ _SEERR_IN_LIBRARY_MIN_STATUS = 2
 
 
 async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
-                                 image_base: str) -> list[dict]:
+                                 image_base: str, *,
+                                 min_rating: float = 0.0,
+                                 include_genre_ids: "tuple[int, ...]" = (),
+                                 exclude_genre_ids: "tuple[int, ...]" = ()) -> list[dict]:
     """A SHUFFLED list of popular-movie candidates from TMDB's
     ``/discover/movie`` (a random page). Each entry is ``{id, title, year,
-    overview, poster_url}``. Returns ``[]`` on failure / no key. The caller
-    library-checks these against Seerr and picks the first not already there."""
+    rating, genres, overview, poster_url}``. Returns ``[]`` on failure / no
+    key. The per-user filters (min rating, include / exclude genres) are
+    pushed INTO the TMDB query (``vote_average.gte`` / ``with_genres`` /
+    ``without_genres``) so the page is already pre-filtered; the caller then
+    library-checks + country-filters the results."""
     if not tmdb_key:
         return []
     headers, params = _tmdb_auth(tmdb_key)
@@ -594,6 +860,13 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
     params = dict(params)
     params.update({"sort_by": "popularity.desc", "vote_count.gte": "150",
                    "include_adult": "false", "page": str(page)})
+    if min_rating and min_rating > 0:
+        params["vote_average.gte"] = f"{min_rating:.1f}"
+    if include_genre_ids:
+        # pipe = OR (any of these genres)
+        params["with_genres"] = "|".join(str(g) for g in include_genre_ids)
+    if exclude_genre_ids:
+        params["without_genres"] = ",".join(str(g) for g in exclude_genre_ids)
     url = _tmdb_api_url(tmdb_base, "discover/movie")
     try:
         # TMDB is a public HTTPS endpoint with a real cert — TLS verification
@@ -626,30 +899,6 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
     return out
 
 
-async def _seerr_movie_status(cli: httpx.AsyncClient, base: str, api_key: str,
-                              tmdb_id: int) -> int:
-    """Seerr's ``mediaInfo.status`` for a TMDB movie id via
-    ``GET /api/v1/movie/<id>`` — ``0`` when the movie isn't in Seerr (no
-    mediaInfo) / unknown, ``>=2`` when it's already requested / processing /
-    available. Never raises (a lookup failure reads as "not in library", so
-    a transient blip just means we might suggest one that's already there —
-    the request path then reports it gracefully)."""
-    if not tmdb_id:
-        return 0
-    try:
-        r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
-                          headers=_headers(api_key))
-    except (httpx.HTTPError, OSError):
-        return 0
-    if getattr(r, "status_code", 0) != 200:
-        return 0
-    try:
-        mi = (r.json() or {}).get("mediaInfo")
-    except (ValueError, TypeError):
-        return 0
-    return safe_int(mi.get("status")) if isinstance(mi, dict) else 0
-
-
 # A few verbose TMDB country names shortened for the suggestion line.
 _COUNTRY_SHORT = {
     "United States of America": "USA",
@@ -661,31 +910,13 @@ _COUNTRY_SHORT = {
 _COUNTRY_DISPLAY_MAX = 3
 
 
-async def _movie_countries(base: str, api_key: str, tmdb_id: int) -> list[str]:
-    """Production countries for a movie via Seerr's ``GET /api/v1/movie/<id>``
-    (``productionCountries: [{iso_3166_1, name}]``). Returns a short display
-    list (top ``_COUNTRY_DISPLAY_MAX``, verbose names shortened). ``[]`` on
-    any failure — country is a nice-to-have, never load-bearing."""
-    if not tmdb_id or not (base and api_key):
-        return []
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=15.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
-                              headers=_headers(api_key))
-    except (httpx.HTTPError, OSError):
-        return []
-    if getattr(r, "status_code", 0) != 200:
-        return []
-    try:
-        body = r.json() or {}
-    except (ValueError, TypeError):
-        return []
-    countries = body.get("productionCountries")
-    if not isinstance(countries, list):
+def _extract_countries(raw: Any) -> list[str]:
+    """Shape a TMDB / Seerr ``productionCountries`` list into a short display
+    list (top ``_COUNTRY_DISPLAY_MAX``, verbose names shortened)."""
+    if not isinstance(raw, list):
         return []
     out: list[str] = []
-    for c in countries:
+    for c in raw:
         if not isinstance(c, dict):
             continue
         name = str(c.get("name") or "").strip()
@@ -697,6 +928,34 @@ async def _movie_countries(base: str, api_key: str, tmdb_id: int) -> list[str]:
         if len(out) >= _COUNTRY_DISPLAY_MAX:
             break
     return out
+
+
+async def _seerr_movie_detail(cli: httpx.AsyncClient, base: str, api_key: str,
+                              tmdb_id: int) -> "tuple[int, list[str]]":
+    """Seerr's ``(mediaInfo.status, production-countries)`` for a TMDB movie id
+    via ONE ``GET /api/v1/movie/<id>`` — status ``0`` when not in Seerr /
+    unknown, ``>=2`` when already requested / processing / available; countries
+    is the short display list. Never raises (a lookup failure reads as
+    ``(0, [])`` — not-in-library, no country — so a transient blip just means
+    we might suggest one that's already there; the request path guards it)."""
+    if not tmdb_id:
+        return 0, []
+    try:
+        r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
+                          headers=_headers(api_key))
+    except (httpx.HTTPError, OSError):
+        return 0, []
+    if getattr(r, "status_code", 0) != 200:
+        return 0, []
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return 0, []
+    if not isinstance(body, dict):
+        return 0, []
+    mi = body.get("mediaInfo")
+    status = safe_int(mi.get("status")) if isinstance(mi, dict) else 0
+    return status, _extract_countries(body.get("productionCountries"))
 
 
 async def _seerr_discover_candidates(base: str, api_key: str,
@@ -741,58 +1000,123 @@ async def _seerr_discover_candidates(base: str, api_key: str,
 
 
 async def _pick_not_in_library(base: str, api_key: str,
-                               candidates: list[dict]) -> Optional[dict]:
-    """From a candidate list, return the first movie NOT already in Seerr's
-    library (``mediaInfo.status < 2``). Candidates that already carry a
-    ``status`` key (the Seerr-discover source) are filtered inline; TMDB
-    candidates are status-checked against Seerr in PARALLEL (capped at
-    ``_SUGGEST_CHECK_LIMIT``). Returns ``None`` when every checked candidate
-    is already in the library (caller surfaces an honest "you've got them
-    all" message rather than suggesting a dup)."""
+                               candidates: list[dict], *,
+                               exclude_countries: "tuple[str, ...]" = ()
+                               ) -> Optional[dict]:
+    """From a candidate list, return the first movie that is NOT already in
+    Seerr's library (``mediaInfo.status < 2``) AND not from an excluded
+    country. The chosen movie has its ``_countries`` attached (from the same
+    detail call) so the caller renders the country line without a re-fetch.
+
+    Candidates that already carry a ``status`` key (Seerr-discover source) are
+    filtered inline when there's NO country filter (cheap); otherwise each is
+    detail-checked against Seerr in PARALLEL (capped at
+    ``_SUGGEST_CHECK_LIMIT``) for status + countries. Returns ``None`` when
+    every checked candidate is already in the library / excluded."""
     if not candidates:
         return None
     check = candidates[:_SUGGEST_CHECK_LIMIT]
-    # Seerr-discover candidates already carry library status — no extra call.
-    if all("status" in c for c in check):
+    ex = {_norm_country(c) for c in exclude_countries if c}
+    # Fast path: Seerr-discover candidates carry status inline AND there's no
+    # country filter → no detail call needed.
+    if not ex and all("status" in c for c in check):
         for c in check:
             if safe_int(c.get("status")) < _SEERR_IN_LIBRARY_MIN_STATUS:
                 return c
         return None
-    # TMDB candidates → can't filter without Seerr. If Seerr isn't reachable
-    # we can't check, so suggest the first (the request path still guards).
+    # Need Seerr to check status and/or country. If unreachable, suggest the
+    # first (the request path still guards already-owned).
     if not (base and api_key):
         return check[0]
     async with httpx.AsyncClient(verify=False, timeout=15.0,
                                  follow_redirects=True) as cli:
-        statuses = await asyncio.gather(
-            *[_seerr_movie_status(cli, base, api_key, safe_int(c.get("id")))
+        details = await asyncio.gather(
+            *[_seerr_movie_detail(cli, base, api_key, safe_int(c.get("id")))
               for c in check],
             return_exceptions=True)
-    in_lib = 0
-    for c, st in zip(check, statuses):
-        stv = st if isinstance(st, int) else 0
-        if stv < _SEERR_IN_LIBRARY_MIN_STATUS:
-            return c
-        in_lib += 1
-    print(f"[seerr] INFO suggest: all {in_lib} checked candidates already in "
-          f"the Seerr library")
+    skipped = 0
+    for c, det in zip(check, details):
+        status, countries = det if isinstance(det, tuple) else (0, [])
+        # Prefer an inline status (Seerr-discover) over the detail status.
+        st = safe_int(c.get("status")) if "status" in c else safe_int(status)
+        if st >= _SEERR_IN_LIBRARY_MIN_STATUS:
+            skipped += 1
+            continue
+        if ex and any(_norm_country(x) in ex for x in countries):
+            skipped += 1
+            continue
+        c["_countries"] = countries
+        return c
+    print(f"[seerr] INFO suggest: all {skipped} checked candidates already in "
+          f"the library or excluded by filters")
     return None
 
 
+def _genre_ids_for_names(names: list) -> "tuple[int, ...]":
+    """Map a list of (canonical) genre names to TMDB ids, dropping unknowns."""
+    out = []
+    for n in names:
+        gid = _GENRE_NAME_TO_ID.get(_GENRE_SYNONYMS.get(str(n).lower(), str(n).lower()))
+        if gid:
+            out.append(gid)
+    return tuple(out)
+
+
+def _candidate_passes_filters(c: dict, min_rating: float,
+                              exclude_genres_lc: set, include_genres_lc: set) -> bool:
+    """Client-side defence for the Seerr-discover fallback path (the TMDB path
+    pushes these into the query). Checks rating + genre include/exclude on the
+    candidate's own fields."""
+    if min_rating and safe_float(c.get("rating")) < min_rating:
+        return False
+    cg = {str(g).lower() for g in (c.get("genres") or [])}
+    if exclude_genres_lc and (cg & exclude_genres_lc):
+        return False
+    if include_genres_lc and not (cg & include_genres_lc):
+        return False
+    return True
+
+
+def _active_filter_summary(filters: dict) -> str:
+    """Compact one-line note of the active filters, appended to a suggestion so
+    the user knows their filters are being applied. '' when no filters set."""
+    bits = []
+    if filters["min_rating"] > 0:
+        bits.append(f"⭐≥{filters['min_rating']:.1f}")
+    if filters["exclude_countries"]:
+        bits.append("no " + "/".join(filters["exclude_countries"]))
+    if filters["exclude_genres"]:
+        bits.append("no " + "/".join(filters["exclude_genres"]))
+    if filters["include_genres"]:
+        bits.append("only " + "/".join(filters["include_genres"]))
+    return ("🎚️ Filters: " + " · ".join(bits)) if bits else ""
+
+
 async def _suggest_skill(host_row: dict, chip: dict, *,
-                         host_id: Optional[str] = None) -> dict:
+                         host_id: Optional[str] = None,
+                         actor_username: Optional[str] = None) -> dict:
     """Read-only skill: suggest a random movie the user can then request —
-    and that is NOT already in their Seerr library (requested / processing /
-    available are all skipped). Prefers TMDB (when a TMDB key is configured
-    on the chip) for genuine variety; falls back to Seerr's own discover
-    endpoint. Returns ``{ok, detail, image_url, tmdb_id, title, followup}``
-    so the AI / button can offer to request it."""
+    NOT already in their Seerr library AND matching the requesting user's
+    saved filters (min rating, excluded countries / genres, only-genres).
+    Prefers TMDB (when a TMDB key is configured on the chip) for genuine
+    variety; falls back to Seerr's own discover endpoint. Returns
+    ``{ok, detail, image_url, tmdb_id, title, followup}``."""
     api_key = (chip.get("api_key") or "").strip()
     from logic.apps._common import resolve_base_url  # noqa: PLC0415
     base = resolve_base_url(host_row, chip)
     tmdb_key, tmdb_base, image_base = _tmdb_cfg(chip)
-    print(f"[seerr] INFO seerr_suggest_movie host={host_id} "
-          f"source={'tmdb' if tmdb_key else 'seerr-discover'}")
+    # Per-user filters (database-backed in the requesting user's ui_prefs).
+    filters = _load_user_filters(actor_username)
+    min_rating = filters["min_rating"]
+    exclude_countries = tuple(filters["exclude_countries"])
+    inc_ids = _genre_ids_for_names(filters["include_genres"])
+    exc_ids = _genre_ids_for_names(filters["exclude_genres"])
+    exclude_genres_lc = {g.lower() for g in filters["exclude_genres"]}
+    include_genres_lc = {g.lower() for g in filters["include_genres"]}
+    print(f"[seerr] INFO seerr_suggest_movie host={host_id} user={actor_username!r} "
+          f"source={'tmdb' if tmdb_key else 'seerr-discover'} "
+          f"filters(min_rating={min_rating}, ex_countries={exclude_countries}, "
+          f"ex_genres={filters['exclude_genres']}, inc_genres={filters['include_genres']})")
     # Try several fresh random pages — an active library can own every movie
     # on the first (most-popular) page, so we keep drawing deeper / different
     # slices of the catalogue until we find one the operator doesn't have.
@@ -801,16 +1125,24 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     pages_checked = 0
     for _attempt in range(_SUGGEST_PAGE_ATTEMPTS):
         if tmdb_key:
-            candidates = await _tmdb_candidate_movies(tmdb_key, tmdb_base, image_base)
+            candidates = await _tmdb_candidate_movies(
+                tmdb_key, tmdb_base, image_base, min_rating=min_rating,
+                include_genre_ids=inc_ids, exclude_genre_ids=exc_ids)
         elif base and api_key:
             candidates = await _seerr_discover_candidates(base, api_key, image_base)
+            # The Seerr discover query can't take the rating/genre filters, so
+            # enforce them client-side on the candidate fields.
+            candidates = [c for c in candidates
+                          if _candidate_passes_filters(c, min_rating,
+                                                       exclude_genres_lc, include_genres_lc)]
         else:
             candidates = []
         if not candidates:
             break  # fetch failure / nothing to draw from — retrying won't help
         got_candidates = True
         pages_checked += 1
-        pick = await _pick_not_in_library(base, api_key, candidates)
+        pick = await _pick_not_in_library(base, api_key, candidates,
+                                          exclude_countries=exclude_countries)
         if pick and pick.get("title"):
             break
         pick = None
@@ -819,15 +1151,17 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
             return {"ok": False, "status": 0,
                     "detail": "couldn't fetch a suggestion (set a TMDB API key on the "
                               "Seerr app for movie suggestions, or check the Seerr URL)"}
-        # Checked several whole pages and the operator owns every one — be
-        # honest rather than suggesting a movie they already have.
-        print(f"[seerr] INFO suggest: {pages_checked} page(s) checked, all "
-              f"candidates already in the library")
+        # Checked several whole pages and nothing passed (owned / filtered) —
+        # be honest rather than suggesting a dup or an excluded title.
+        print(f"[seerr] INFO suggest: {pages_checked} page(s) checked, nothing "
+              f"new passed the filters")
+        _fs = _active_filter_summary(filters)
+        _tail = (f" (your filters: {_fs[len('🎚️ Filters: '):]})" if _fs else "")
         return {"ok": True, "status": 200,
-                "detail": "🎬 Wow — every movie across the "
-                          f"{pages_checked} batches I checked is already requested "
-                          "or in your Seerr library! Ask again to try a different "
-                          "slice of the catalogue."}
+                "detail": "🎬 I couldn't find a fresh movie that's not already in "
+                          f"your Seerr library and matches your filters{_tail}. Ask "
+                          "again, or loosen a filter (e.g. “min rating 0”, “allow "
+                          "country France”)."}
     title = pick.get("title") or ""
     year = pick.get("year") or ""
     rating = safe_float(pick.get("rating"))
@@ -837,10 +1171,8 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     if len(overview) > 300:
         overview = overview[:297].rstrip() + "…"
     tmdb_id = safe_int(pick.get("id"))
-    # Production country/countries — one extra Seerr movie-detail call for the
-    # FINAL pick only (discover results don't carry it). Never blocks the
-    # suggestion: [] on any failure.
-    countries = await _movie_countries(base, api_key, tmdb_id)
+    # Country comes from the pick's detail call (attached by _pick_not_in_library).
+    countries = pick.get("_countries") if isinstance(pick.get("_countries"), list) else []
     lines = [f"🎬 How about: {label}"]
     # ⭐ rating + year meta line (rating is TMDB's 0-10 vote average).
     meta_bits = []
@@ -859,6 +1191,10 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     if overview:
         lines.append(overview)
     lines.append(f"Say “request {title}” and I'll add it to Seerr. (TMDB id {tmdb_id})")
+    # Footnote: show the active filters so it's clear they were applied.
+    _fs = _active_filter_summary(filters)
+    if _fs:
+        lines.append(_fs)
     poster = pick.get("poster_url") or ""
     if poster:
         lines.append(poster)

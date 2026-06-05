@@ -5110,6 +5110,37 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   color: var(--danger);
 }
 
+/* Drawer skill-result follow-up button (e.g. Seerr suggest → Request). Same
+   bulletproofed primary fill as the AI sidebar button — `!important` defeats
+   Tailwind v4 preflight's `[type='button'] { background-color: transparent }`. */
+.apps-skill-followup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-3);
+  background-color: var(--primary) !important;
+  color: var(--text-on-primary);
+  border: 0;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apps-skill-followup-btn:hover:not(:disabled) {
+  background-color: var(--primary-hov) !important;
+}
+
+.apps-skill-followup-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.apps-skill-followup-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
    actions invoked from the AI sidebar. Wraps a warning icon, the
    action label, and Yes / Cancel buttons in one compact row attached
