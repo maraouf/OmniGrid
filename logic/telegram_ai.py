@@ -251,6 +251,40 @@ _TELEGRAM_TAG_SPAN = _re.compile(
     flags=_re.IGNORECASE,
 )
 
+# A `<code>…</code>` span whose content is a SINGLE bot-command token
+# (`/whoami`, `/run_speedtest`, `/host …`). Telegram does NOT auto-link
+# bot commands that sit inside a `code` / `pre` entity — text there is
+# rendered verbatim, so the command shows as monospace copy-only text
+# instead of a tappable `/command` (operator-reported: per-app skill +
+# `/whoami`-style commands in AI replies were copyable but not
+# clickable). `<b>`/`<i>` do NOT suppress command detection — only
+# `code`/`pre` do — so the fix is to drop the `<code>` wrap on
+# single-command spans and let Telegram linkify the bare token.
+#
+# Shape: optional leading whitespace, a `/cmd` token (Telegram command
+# grammar: letter-led, `[A-Za-z0-9_]`, ≤64 chars, optional `@BotName`),
+# then EITHER end-of-span OR a whitespace + arbitrary trailing
+# (placeholder args like `&lt;target&gt;`). The post-token boundary
+# (whitespace-or-end) excludes path-like `/etc/hosts` and
+# `/api/foo` strings whose next char is `/` — those keep their wrap.
+_CODE_COMMAND_SPAN = _re.compile(
+    r"<code>(?P<inner>\s*/[A-Za-z][A-Za-z0-9_]{0,63}(?:@\w+)?(?:\s[^<]*)?)</code>",
+    flags=_re.IGNORECASE,
+)
+
+
+def _make_commands_clickable(html: str) -> str:
+    """Unwrap single-command `<code>/cmd</code>` spans → bare `/cmd` so
+    Telegram renders them as tappable bot commands instead of verbatim
+    monospace text. Runs AFTER `_telegram_safe_escape` (so the `<code>`
+    tags present are the recognised ones and any `<…>` placeholder args
+    are already entity-escaped). Multi-token code spans (e.g. an aliases
+    list `/ver, /v` or a real code snippet) don't match and keep their
+    wrap."""
+    if not html or "<code>" not in html:
+        return html
+    return _CODE_COMMAND_SPAN.sub(lambda m: m.group("inner"), html)
+
 
 def _truncate_telegram_html(text: str, max_chars: int) -> str:
     """Trim `text` to at most `max_chars` WITHOUT cutting mid-HTML-tag
@@ -1066,7 +1100,11 @@ async def _ai_reply(
           "change one, skill_id 'seerr_set_filter' with arg = ONE directive — "
           "'exclude country France' / 'allow country France' / 'min rating 7' "
           "/ 'exclude genre horror' / 'only genre action' / 'allow genre "
-          "horror' / 'clear'. Map 'don't suggest French movies' → 'exclude "
+          "horror' / 'clear'. A country directive may name SEVERAL countries "
+          "at once — keep them in ONE directive joined by 'and' / commas, e.g. "
+          "'exclude movies from Spain and Denmark' → 'exclude country Spain "
+          "and Denmark' (do NOT drop any country, do NOT split into two "
+          "skill calls). Map 'don't suggest French movies' → 'exclude "
           "country France'; 'only movies rated 7+' → 'min rating 7'; 'no "
           "horror' → 'exclude genre horror'; 'clear my filters' → 'clear'. "
           "skill_id 'seerr_show_filters' (no arg) lists them. "
@@ -1419,11 +1457,17 @@ async def _ai_reply(
                     # so we can attach a one-tap inline button to the reply.
                     _fu = sk_result.get("followup")
                     if isinstance(_fu, dict) and _fu.get("skill_id"):
+                        # isinstance-guard each field (the followup dict is our
+                        # own shape, always strings) instead of str()-coercing
+                        # an `object`-typed dict value.
+                        _sid = _fu.get("skill_id")
+                        _arg = _fu.get("arg")
+                        _label = _fu.get("label")
                         action_followup = {
                             "host_id": sk_host, "service_idx": sk_idx,
-                            "skill_id": str(_fu.get("skill_id")),
-                            "arg": str(_fu.get("arg") or ""),
-                            "label": str(_fu.get("label") or "Request on Seerr"),
+                            "skill_id": _sid if isinstance(_sid, str) else "",
+                            "arg": _arg if isinstance(_arg, str) else "",
+                            "label": _label if isinstance(_label, str) else "Request on Seerr",
                         }
                     # Drop the image URL line out of the TEXT (it's sent as a
                     # photo) so the reply doesn't carry a bare dead link.
@@ -1521,7 +1565,10 @@ async def _ai_reply(
     # just produced more) while escaping every other `<` / `>` so
     # the parser doesn't HTTP-400 the message. `_listener()._escape` would have
     # escaped EVERY tag, killing all formatting.
-    await _deliver(_telegram_safe_escape(clean))
+    # `_make_commands_clickable` runs LAST: it unwraps single-command
+    # `<code>/cmd</code>` spans so Telegram linkifies them as tappable
+    # commands (a `code` entity suppresses command auto-detection).
+    await _deliver(_make_commands_clickable(_telegram_safe_escape(clean)))
     # If the reply references a Speedtest result share image, send it as a
     # PHOTO so it actually displays — text replies set
     # disable_web_page_preview, so a bare URL would only render as a link.
