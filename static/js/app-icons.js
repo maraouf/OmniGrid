@@ -41,6 +41,11 @@ export const KNOWN_DARK_ICONS = new Set([
   // `amazon.svg` from upstream `amazon.svg`; local `amazon-dark.svg`
   // from upstream `amazon-light.svg`.
   'amazon',
+  // GitHub — the mark is near-black (#1b1f23) on the default
+  // `github.svg` (homarr-labs upstream `github.svg`), invisible on a
+  // dark UI; `github-dark.svg` carries the white mark (upstream
+  // `github-light.svg`), so dark theme auto-swaps to it.
+  'github',
 ]);
 
 export const KNOWN_ICONS = new Set([
@@ -50,7 +55,7 @@ export const KNOWN_ICONS = new Set([
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'cloudflared', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
   'dockge', 'dozzle', 'esxi', 'etisalat', 'fing', 'firetv', 'flaresolverr', 'forgejo',
-  'freenas', 'ftth', 'gigabyte', 'gitsync', 'glinet', 'glinet-dark', 'google',
+  'freenas', 'ftth', 'gcsr', 'gigabyte', 'github', 'github-dark', 'gitsync', 'glinet', 'glinet-dark', 'google', 'google-cloud',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',
   'influxdb', 'jellyfin', 'jellyseerr', 'seerr', 'jtech', 'kali', 'kaonmedia', 'kavita', 'keycloak',

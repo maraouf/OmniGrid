@@ -10230,7 +10230,7 @@
                             <button type="button"
                                     @click.stop="runAppSkill(inst, sk.id)"
                                     :disabled="appSkillBusy(inst, sk.id)"
-                                    class="btn btn-primary fs-xs inline-flex items-center gap-1.5">
+                                    class="apps-card-action-pill whitespace-nowrap">
                               <svg width="13" height="13" :class="appSkillBusy(inst, sk.id) ? 'spin-md' : ''" aria-hidden="true">
                                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
                               </svg>
@@ -10290,7 +10290,7 @@
                                    "Request on Seerr"), like the AI sidebar. -->
                               <template x-if="appSkillResult(inst, sk.id).followup && !appSkillResult(inst, sk.id).followup_done">
                                 <button type="button"
-                                        class="apps-skill-followup-btn mt-2"
+                                        class="apps-card-action-pill apps-card-action-pill--primary mt-2"
                                         :disabled="appSkillResult(inst, sk.id).followup_busy"
                                         @click="runAppSkillFollowup(inst, sk, appSkillResult(inst, sk.id).followup)"
                                         :aria-label="appSkillResult(inst, sk.id).followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr')">
@@ -11718,7 +11718,7 @@
                    x-text="turn.skill_panel.detail"></div>
               <template x-if="turn.skill_panel.followup && !turn.skill_panel.followup_done">
                 <button type="button"
-                        class="ai-skill-followup-btn"
+                        class="apps-card-action-pill apps-card-action-pill--primary"
                         :disabled="turn.skill_panel.followup_busy"
                         @click="aiRunSkillFollowup(idx)"
                         :aria-label="turn.skill_panel.followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr')">

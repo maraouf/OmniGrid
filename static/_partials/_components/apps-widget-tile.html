@@ -683,34 +683,34 @@
                    the weather hero/forecast split). On narrow + on any tall
                    tile the body stays a column (list below) — unchanged. -->
               <div class="apps-widget-prayer-main">
-              <!-- Hero: next prayer name + live countdown. -->
-              <div class="apps-widget-prayer-hero" x-show="prayer.next && prayer.next.key">
-                <svg class="apps-widget-prayer-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + prayerIconId((prayer.next || {}).key)"/>
-                </svg>
-                <div class="apps-widget-prayer-hero-col">
-                  <div class="apps-widget-prayer-next-name" x-text="prayerNextName()"></div>
-                  <div class="apps-widget-prayer-countdown">
-                    <span x-text="t('prayer_times.in') || 'in'"></span>
-                    <span class="apps-widget-prayer-countdown-val" x-text="prayerCountdownLabel()"></span>
-                    <span x-show="prayer.next && prayer.next.tomorrow" class="apps-widget-prayer-tomorrow"
-                          x-text="t('prayer_times.tomorrow') || 'tomorrow'"></span>
+                <!-- Hero: next prayer name + live countdown. -->
+                <div class="apps-widget-prayer-hero" x-show="prayer.next && prayer.next.key">
+                  <svg class="apps-widget-prayer-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + prayerIconId((prayer.next || {}).key)"/>
+                  </svg>
+                  <div class="apps-widget-prayer-hero-col">
+                    <div class="apps-widget-prayer-next-name" x-text="prayerNextName()"></div>
+                    <div class="apps-widget-prayer-countdown">
+                      <span x-text="t('prayer_times.in') || 'in'"></span>
+                      <span class="apps-widget-prayer-countdown-val" x-text="prayerCountdownLabel()"></span>
+                      <span x-show="prayer.next && prayer.next.tomorrow" class="apps-widget-prayer-tomorrow"
+                            x-text="t('prayer_times.tomorrow') || 'tomorrow'"></span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <!-- Hijri date line. -->
-              <div class="apps-widget-prayer-hijri" x-show="prayerHijriLabel()">
-                <svg width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
-                </svg>
-                <span x-text="prayerHijriLabel()"></span>
-              </div>
+                <!-- Hijri date line. -->
+                <div class="apps-widget-prayer-hijri" x-show="prayerHijriLabel()">
+                  <svg width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
+                  </svg>
+                  <span x-text="prayerHijriLabel()"></span>
+                </div>
               </div><!-- /.apps-widget-prayer-main -->
               <!-- The 5 prayers + Sunrise. Next prayer row highlighted. On
                    wide+short tiles this is the RIGHT column (full height ->
                    shows all rows); elsewhere it sits below the hero. -->
               <div class="apps-widget-prayer-list">
-                <template x-for="row in prayerWidgetRows()" :key="row.key">
+                <template x-for="row in prayerWidgetRows(item)" :key="row.key">
                   <div class="apps-widget-prayer-row"
                        :class="{ 'apps-widget-prayer-row--next': row.isNext, 'apps-widget-prayer-row--info': !row.isPrayer }">
                     <svg class="apps-widget-prayer-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

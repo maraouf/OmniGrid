@@ -1431,29 +1431,88 @@ export default {
   // (informational). Each row carries the translated name + whether it's
   // the next upcoming prayer (for the highlight). Returns [] until the
   // first successful fetch so the tile renders its empty state.
-  prayerWidgetRows() {
+  // Ordered prayer rows for the widget. On wide+short tiles that can only
+  // show 3 rows, returns a 3-row CIRCULAR window CENTERED on the next
+  // upcoming prayer (prev / upcoming / next) — so as each prayer passes the
+  // window rolls up and the upcoming one stays in the middle. The "next"
+  // index is computed CLIENT-SIDE from the live `appsClockNow` 1s tick (not
+  // the backend `prayer.next`), so the list re-centers within ~1s of a
+  // prayer time passing WITHOUT a page refresh / re-fetch. Tiles that fit
+  // the full set (normal/half width, or any tall tile) get all rows in
+  // natural order with the upcoming one highlighted live.
+  prayerWidgetRows(item) {
     const p = this.prayer;
     if (!p || !p.timings || p.configured === false) {
       return [];
     }
     const order = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'];
-    const nextKey = (p.next && p.next.key) || '';
-    const out = [];
+    const all = [];
     order.forEach((key) => {
       const row = p.timings[key];
       if (!row || !row.time) {
         return;
       }
-      out.push({
+      all.push({
         key,
         name: this.prayerName(key),
         time: row.time,
         ts: row.ts,
         isPrayer: !!row.prayer,
-        isNext: row.prayer && key === nextKey,
+        isNext: false,
       });
     });
+    if (!all.length) {
+      return [];
+    }
+    // Client-side "next upcoming PRAYER" index (skip the informational
+    // Sunrise row as a centre — it's a neighbour, never the highlight).
+    // Touch `appsClockNow` so Alpine re-runs this each second.
+    const nowS = (this.appsClockNow || Date.now()) / 1000;
+    let center = -1;
+    for (let i = 0; i < all.length; i++) {
+      if (all[i].isPrayer && all[i].ts && all[i].ts > nowS) {
+        center = i;
+        break;
+      }
+    }
+    if (center < 0) {
+      // Every prayer today has passed — the next is tomorrow's first
+      // prayer; wrap the window to it (Fajr).
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].isPrayer) {
+          center = i;
+          break;
+        }
+      }
+    }
+    if (center < 0) {
+      center = 0;
+    }
+    const cap = this._prayerWidgetVisibleCap(item);
+    if (all.length <= cap) {
+      return all.map((r, i) => Object.assign({}, r, {isNext: i === center}));
+    }
+    // Circular window of `cap` rows centred on `center` (upcoming in the
+    // middle), wrapping across the day boundary so it never runs off the end.
+    const half = Math.floor(cap / 2);
+    const out = [];
+    for (let off = -half; off < cap - half; off++) {
+      const idx = ((center + off) % all.length + all.length) % all.length;
+      out.push(Object.assign({}, all[idx], {isNext: idx === center}));
+    }
     return out;
+  },
+  // How many prayer rows the tile can actually show. The wide+short
+  // row-layout (size double/xlarge at short height) clips the list to ~3
+  // rows; every other layout fits the full set. Drives whether
+  // `prayerWidgetRows` returns a centred 3-row window or all rows.
+  _prayerWidgetVisibleCap(item) {
+    const size = (item && item.opts && item.opts.size) || 'normal';
+    const tall = (item && item.opts && item.opts.height) === 'tall';
+    if (!tall && (size === 'double' || size === 'xlarge')) {
+      return 3;
+    }
+    return 6;
   },
   // Translated prayer name (falls back to TitleCase English). Sunrise is
   // included so the card can label the informational row.

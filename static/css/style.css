@@ -5049,11 +5049,6 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   line-height: 1.4;
 }
 
-/* Scoped under `.ai-skill-panel` so the selector specificity (0,2,0) beats
-   Tailwind v4's preflight `[type='button'] { background-color: transparent }`
-   (0,1,0) — which is injected at runtime AFTER style.css, so a same-
-   specificity tie would otherwise let Tailwind's transparent reset win and
-   the button rendered see-through. */
 /* Spinner row while a per-app skill runs (Seerr suggest takes a couple of
    seconds to query the library + TMDB). */
 .ai-skill-loading {
@@ -5063,38 +5058,6 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   margin-top: var(--s-2);
   font-size: var(--fs-xs);
   color: var(--text-dim);
-}
-
-.ai-skill-panel .ai-skill-followup-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  align-self: flex-start;
-  padding: var(--s-1) var(--s-3);
-  /* `!important` defeats Tailwind v4 preflight's `[type='button'] {
-     background-color: transparent }` regardless of cascade order/layers —
-     belt-and-braces over the `.ai-skill-panel` specificity bump. */
-  background-color: var(--primary) !important;
-  color: var(--text-on-primary);
-  border: 0;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ai-skill-panel .ai-skill-followup-btn:hover:not(:disabled) {
-  background-color: var(--primary-hov) !important;
-}
-
-.ai-skill-panel .ai-skill-followup-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.ai-skill-panel .ai-skill-followup-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 .ai-skill-followup-result {
@@ -5108,37 +5071,6 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 
 .ai-skill-followup-result--err {
   color: var(--danger);
-}
-
-/* Drawer skill-result follow-up button (e.g. Seerr suggest → Request). Same
-   bulletproofed primary fill as the AI sidebar button — `!important` defeats
-   Tailwind v4 preflight's `[type='button'] { background-color: transparent }`. */
-.apps-skill-followup-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-  padding: var(--s-1) var(--s-3);
-  background-color: var(--primary) !important;
-  color: var(--text-on-primary);
-  border: 0;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.apps-skill-followup-btn:hover:not(:disabled) {
-  background-color: var(--primary-hov) !important;
-}
-
-.apps-skill-followup-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.apps-skill-followup-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
@@ -11262,6 +11194,23 @@ select.field-invalid {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
+/* Primary-accent variant — the emphasised call-to-action pill (e.g. the
+   Seerr "Request on Seerr" follow-up after a suggestion). Reads primary so
+   it stands out from the neutral action pills while staying in the same
+   pill family (parallel to the --danger tint), so every app button shares
+   one consistent style. */
+.apps-card-action-pill--primary {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+.apps-card-action-pill--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 24%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 48%, transparent);
+}
+
 .apps-card-action-pill:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -12051,6 +12000,10 @@ select.field-invalid {
   min-width: 0;
   align-self: stretch;
   overflow: hidden;
+  /* The wide+short tile renders a centred 3-row window (prev / upcoming /
+     next) — centre the group vertically so the highlighted upcoming row
+     lines up with the hero on the left. */
+  justify-content: center;
 }
 
 /* Background-icon decoration — a large faded brand icon in the

@@ -230,6 +230,35 @@ def strip_time_tokens(fmt: str) -> str:
     return out.strip() or "dd/MM/yyyy"
 
 
+def strip_date_tokens(fmt: str) -> str:
+    """Return a time-only variant of ``fmt`` by removing every
+    date-related token (year / month / day) and tidying the separators
+    the strip leaves behind. Mirrors the SPA's ``_userTimeOnlyFormat`` so a
+    user with full-format ``dd/MM/yyyy, HH:mm:ss`` gets ``HH:mm:ss`` (or
+    ``hh:mm a`` for a 12-hour preference) on a time-only surface — e.g. a
+    prayer reminder's "<name> at <time>". Case-sensitive replaces keep the
+    lowercase time tokens (``m`` / ``h`` / ``s``) intact while dropping the
+    uppercase month token (``M``) and the day token (``d``).
+    """
+    import re as _re
+    if not fmt:
+        return "HH:mm"
+    out = fmt
+    # Multi-char date tokens first (longer-before-shorter).
+    for token in ("yyyy", "yy", "MMMM", "MMM", "MM"):
+        out = out.replace(token, "")
+    out = _re.sub(r"\bM\b", "", out)  # lone month token
+    out = out.replace("dd", "")
+    out = _re.sub(r"\bd\b", "", out)  # lone day token (lowercase)
+    # Tidy the separators the strip leaves behind (slashes / dashes /
+    # commas / colons / whitespace) — collapse runs, drop orphan pairs,
+    # trim the ends.
+    out = _re.sub(r"\s+", " ", out)
+    out = _re.sub(r"[/\-]\s*[/\-]", "", out)
+    out = _re.sub(r"^[,;:\s/\-]+|[,;:\s/\-]+$", "", out)
+    return out.strip() or "HH:mm"
+
+
 def get_user_datetime_format(username: str) -> str:
     """Read ``ui_prefs.datetime_format`` for one user. Returns the
     canonical default when unset / malformed. Read-only DB query;

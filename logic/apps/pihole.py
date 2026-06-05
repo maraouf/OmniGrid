@@ -41,7 +41,8 @@ API reference: https://ftl.pi-hole.net/master/docs/
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import hmac
+import secrets
 import time
 from typing import Any, Optional
 
@@ -112,10 +113,15 @@ FLEET_SKILLS: bool = True
 DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
-# Session-ID cache: base|password-hash -> (sid, expires_at). Pi-hole caps
-# concurrent sessions, so we reuse a SID until ~expiry instead of
+# Session-ID cache: base|password-discriminator -> (sid, expires_at). Pi-hole
+# caps concurrent sessions, so we reuse a SID until ~expiry instead of
 # authenticating on every fetch.
 _sid_cache: dict[str, tuple[str, float]] = {}
+
+# Per-process random secret for the cache-key discriminator below. Generated
+# fresh each start, never persisted — the in-memory cache is per-process, so
+# a new secret just means an empty cache (no correctness impact).
+_SID_KEY_SECRET = secrets.token_bytes(32)
 
 
 def requires_api_key() -> bool:
@@ -131,7 +137,17 @@ def _password(chip: dict, *, candidate: Optional[str] = None) -> str:
 
 
 def _sid_key(base: str, password: str) -> str:
-    return base + "|" + hashlib.sha256(password.encode()).hexdigest()[:16]
+    """Cache-key discriminator for the SID cache — NOT password storage.
+
+    Uses a KEYED HMAC with a per-process random secret (`_SID_KEY_SECRET`)
+    rather than a bare password hash: the result changes when the password
+    changes (so a credential rotation re-authenticates) but is not reversible
+    / offline-brute-forceable without the secret, which never leaves memory.
+    Keyed HMAC is the appropriate construction here (a fast password hash like
+    bare SHA-256 would be wrong for password *storage*, but this is an
+    in-memory cache key, not stored credentials)."""
+    digest = hmac.new(_SID_KEY_SECRET, password.encode(), "sha256").hexdigest()
+    return base + "|" + digest[:16]
 
 
 async def _authenticate(base: str, password: str) -> str:
@@ -392,6 +408,7 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
     fan-out shell lives in ``_common.fleet_fan_out``; only the per-host
     ``_one`` closure is app-specific). ``seconds`` is the timed-disable
     window — Pi-hole's API takes seconds natively."""
+
     async def _one(hid, _sidx, hrow, chip):
         password = _password(chip)
         base = resolve_base_url(hrow, chip)
