@@ -1820,12 +1820,26 @@ export default {
     // <img> entirely (we don't render remote images inline); unwrap block
     // tags to newlines; strip inline layout tags but keep their text. Leave
     // <samp> alone — `_renderReleaseNotesMd` turns it into a commit chip.
-    out = out.replace(/<img\b[^>]*>/gi, '');
-    out = out.replace(/<\/?(?:picture|source|figure|figcaption)\b[^>]*>/gi, '');
-    out = out.replace(/<br\s*\/?>/gi, '\n');
-    out = out.replace(/<\/(?:p|div)>/gi, '\n');
-    out = out.replace(/<(?:p|div)\b[^>]*>/gi, '');
-    out = out.replace(/<\/?(?:span|small|sub|sup|kbd|b|i|em|strong|details|summary|h[1-6])\b[^>]*>/gi, '');
+    // Strip each tag pattern to a FIXPOINT (loop until the string stops
+    // changing) rather than a single pass: a one-shot replace can let a
+    // reconstructed tag reappear (e.g. `<<b>b>` → one pass → `<b>`), which
+    // CodeQL's js/incomplete-multi-character-sanitization rule flags. Looping
+    // removes the residue. Defence-in-depth only — `_renderReleaseNotesMd`
+    // ALSO fully HTML-escapes the result before it reaches innerHTML, so no
+    // raw tag is ever executed regardless of what survives here.
+    const _strip = (re, repl) => {
+      let prev;
+      do {
+        prev = out;
+        out = out.replace(re, repl);
+      } while (out !== prev);
+    };
+    _strip(/<img\b[^>]*>/gi, '');
+    _strip(/<\/?(?:picture|source|figure|figcaption)\b[^>]*>/gi, '');
+    _strip(/<br\s*\/?>/gi, '\n');
+    _strip(/<\/(?:p|div)>/gi, '\n');
+    _strip(/<(?:p|div)\b[^>]*>/gi, '');
+    _strip(/<\/?(?:span|small|sub|sup|kbd|b|i|em|strong|details|summary|h[1-6])\b[^>]*>/gi, '');
     // Markdown image refs (rare in release notes but worth handling
     // before the generic link rule so we don't keep `![alt]` orphans).
     // `![alt](url)` → `alt`. Named capturing group `(?<alt>...)` over

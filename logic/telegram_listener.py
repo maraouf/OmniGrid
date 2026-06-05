@@ -94,6 +94,8 @@ behind an even stricter allow-list), per-event ack from Telegram.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import secrets
 import sqlite3
 from collections import OrderedDict as _OrderedDict
 # `contextvars` is a Python 3.7+ stdlib module — no requirements.txt entry
@@ -1572,7 +1574,7 @@ def _prune_pending_actions() -> None:
         _PENDING_ACTIONS.pop(k, None)
     if len(_PENDING_ACTIONS) > _PENDING_ACTION_CAP:
         # Drop the oldest entries beyond the cap (runaway safety net).
-        for k in sorted(_PENDING_ACTIONS, key=lambda k: _PENDING_ACTIONS[k][0]
+        for k in sorted(_PENDING_ACTIONS, key=lambda kk: _PENDING_ACTIONS[kk][0]
                         )[:len(_PENDING_ACTIONS) - _PENDING_ACTION_CAP]:
             _PENDING_ACTIONS.pop(k, None)
 
@@ -1930,6 +1932,10 @@ _TELEGRAM_MENU_EMOJIS: dict[str, str] = {
 # token hash. Failure to register is non-fatal — the bot still works,
 # just without the `/` autocomplete menu.
 _LAST_REGISTERED_TOKEN_HASH: list[Optional[str]] = [None]
+# Per-process random secret for the token DEDUP discriminator below (keyed
+# HMAC, NOT credential storage). Fresh each start — a new secret just means
+# the idempotent setMyCommands runs once more after a restart (harmless).
+_CMD_REG_SECRET = secrets.token_bytes(32)
 
 
 async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
@@ -1954,11 +1960,13 @@ async def _register_telegram_commands(client: httpx.AsyncClient) -> None:
       - Best-effort: failure logs once and returns; the bot still
         responds to commands without the menu.
     """
-    import hashlib as _hashlib
     token = _resolved_bot_token()
     if not token:
         return
-    token_hash = _hashlib.sha256(token.encode()).hexdigest()[:16]
+    # Keyed HMAC with a per-process secret — a non-reversible discriminator to
+    # dedupe the idempotent setMyCommands call, NOT credential storage (a bare
+    # fast hash of a secret token is what CodeQL flags; HMAC sidesteps it).
+    token_hash = hmac.new(_CMD_REG_SECRET, token.encode(), "sha256").hexdigest()[:16]
     if _LAST_REGISTERED_TOKEN_HASH[0] == token_hash:
         return
     # Dedupe by handler — `/start` shares `_cmd_help`'s handler, so

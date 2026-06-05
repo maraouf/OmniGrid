@@ -344,24 +344,37 @@ export default {
       return;
     }
     const resKey = 'res:' + this.appInstanceKey(inst) + ':' + sk.id;
-    const entry = this._appSkillResult && this._appSkillResult[resKey];
+    this._appSkillResult = this._appSkillResult || {};
+    const entry = this._appSkillResult[resKey];
     if (!entry || entry.followup_busy || entry.followup_done) {
       return;
     }
-    entry.followup_busy = true;
+    // Reactive-safe state writes: `_appSkillResult` is a lazily-created
+    // (not data()-declared) map, so MUTATING a sub-property in place
+    // (`entry.followup_busy = …`) doesn't reliably re-render the bound
+    // `:disabled` — the button could stick disabled after the run.
+    // Reassign the WHOLE entry on every transition so Alpine fires the
+    // key-set reactivity (same pattern the AI sidebar gets for free via
+    // its data()-declared `aiConversation` turns).
+    const patch = (extra) => {
+      this._appSkillResult[resKey] =
+        Object.assign({}, this._appSkillResult[resKey] || entry, extra);
+    };
+    patch({followup_busy: true});
     // No initializer — `res` is assigned in the try before any read (a throw
     // exits via the propagated exception, never reaching the read below).
     let res;
     try {
       res = await this.runAppSkill(inst, followup.skill_id, followup.arg, {silent: true});
     } finally {
-      entry.followup_busy = false;
-    }
-    if (res && typeof res === 'object') {
-      entry.followup_result = {ok: !!res.ok, detail: (res.detail || '').toString()};
-      if (res.ok) {
-        entry.followup_done = true;
-      }
+      const done = !!(res && typeof res === 'object' && res.ok);
+      patch({
+        followup_busy: false,
+        followup_done: done,
+        followup_result: (res && typeof res === 'object')
+          ? {ok: !!res.ok, detail: (res.detail || '').toString()}
+          : (this._appSkillResult[resKey] || entry).followup_result || null,
+      });
     }
   },
 

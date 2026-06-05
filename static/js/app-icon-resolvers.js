@@ -180,6 +180,10 @@ export default {
       'tracearr': '/img/icons/tracearr.svg',
       'portainer': '/img/icons/portainer.svg',
       'portainer-agent': '/img/icons/portainer.svg',
+      // Google Cloud Source Repositories — dedicated GCSR mark
+      // (operator-supplied official icon: white repo glyph on a #3B78E7
+      // disc). The long product-name slug maps to the short `gcsr.svg`.
+      'google-cloud-source-repositories': 'gcsr',
       // Somfy typos / product-line synonyms — keep these in sync
       // with the `hostIconUrl` alias map so item / stack contexts
       // (not just curated host rows) accept the same misspellings.
@@ -738,6 +742,11 @@ export default {
       ['n8n', 'n8n'],
       ['ansible', 'ansible'],
       // git forges
+      ['github', 'github'],
+      // GCSR (Google Cloud Source Repositories) → dedicated gcsr mark.
+      // Multi-word phrase first so it beats any bare 'google' token.
+      ['google cloud source', 'gcsr'],
+      ['gcsr', 'gcsr'],
       ['forgejo', 'forgejo'],
       ['gitea', 'forgejo'],
       // databases — brand-specific first, generic last.

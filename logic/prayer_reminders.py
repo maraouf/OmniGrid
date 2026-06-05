@@ -81,11 +81,11 @@ def _prayer_reminder_opted_in(prefs: dict) -> bool:
     if not isinstance(events, dict):
         return False
     pref = events.get("prayer_reminder")
-    if pref is True:
-        return True
     if isinstance(pref, dict):
+        # {medium: bool} — opted in if at least one medium is enabled.
         return any(bool(v) for v in pref.values())
-    return False
+    # A bare boolean True = opted in; absent / False / anything else = not.
+    return pref is True
 
 
 def _located_users() -> list[dict]:
@@ -221,6 +221,31 @@ def _event_enabled() -> bool:
         return False
 
 
+def _format_prayer_time(username: str, hhmm: str) -> str:
+    """Reformat the location-local ``HH:MM`` prayer time to the requesting
+    user's datetime preference (12h/24h + AM/PM), preserving the EXACT
+    time — only the display format changes, no timezone conversion (the
+    ``hhmm`` is already the location's local prayer time). Falls back to the
+    raw ``hhmm`` on any parse issue so a reminder never blanks its time."""
+    s = (hhmm or "").strip()
+    if not s:
+        return s
+    try:
+        import re as _re  # noqa: PLC0415
+        from datetime import datetime as _dt  # noqa: PLC0415
+        from logic.datetime_fmt import (  # noqa: PLC0415
+            apply_datetime_format, strip_date_tokens, get_user_datetime_format)
+        m = _re.match(r"\s*(?P<h>\d{1,2}):(?P<m>\d{2})(?::(?P<s>\d{2}))?", s)
+        if not m:
+            return s
+        hh, mm, ss = int(m.group("h")), int(m.group("m")), int(m.group("s") or 0)
+        time_fmt = strip_date_tokens(get_user_datetime_format(username))
+        rendered = apply_datetime_format(_dt(2000, 1, 1, hh, mm, ss), time_fmt)
+        return rendered or s
+    except (ValueError, TypeError, IndexError):
+        return s
+
+
 async def _fire_reminder(username: str, *, name: str, hhmm: str, lead: int,
                          label: str, prayer_key: str) -> None:
     """Fire ONE prayer reminder through the standard notify() event system.
@@ -234,7 +259,7 @@ async def _fire_reminder(username: str, *, name: str, hhmm: str, lead: int,
     the detail line becomes ``{message}``."""
     from logic.ops import notify  # noqa: PLC0415
     minutes = "minute" if lead == 1 else "minutes"
-    detail = f"{name} at {hhmm}"
+    detail = f"{name} at {_format_prayer_time(username, hhmm)}"
     if label:
         detail += f" · {label}"
     detail += f" — in {lead} {minutes}"
