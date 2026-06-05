@@ -1534,7 +1534,9 @@ async def _ai_reply(
                 "arg": action_followup["arg"],
             })
             _reply_markup = {"inline_keyboard": [[{
-                "text": action_followup["label"][:120],
+                # Telegram inline buttons can't be colour-styled via the Bot
+                # API, so a leading emoji makes the button stand out.
+                "text": "🎬 " + action_followup["label"][:116],
                 "callback_data": "ssr:" + _token,
             }]]}
         # A skill that returned an explicit image_url (e.g. Seerr's

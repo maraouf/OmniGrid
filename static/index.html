@@ -11673,6 +11673,13 @@
             </svg>
             <span x-text="t('ai_sidebar.action_ran_label', { action: turn.action_label })"></span>
           </div>
+          <!-- Spinner while a per-app skill runs (e.g. Seerr suggest queries
+               the library + TMDB — a couple of seconds). -->
+          <div x-show="turn.role === 'assistant' && turn.skill_running"
+               class="ai-skill-loading">
+            <span class="spin" aria-hidden="true"></span>
+            <span x-text="t('ai_sidebar.skill_running') || 'Working on it…'"></span>
+          </div>
           <!-- Inline per-app SKILL result (e.g. a Seerr movie suggestion):
                poster + detail text + an optional one-click follow-up button
                (Request on Seerr). Stamped on the turn by `_aiSidebarRunSkill`

@@ -2822,6 +2822,7 @@
     "mode_autonomous_title": "Autonomous mode — the AI fires every action immediately without confirmation, including destructive ones (sign out, cleanup, restart, update, remove). Use only for agentic background workflows where you want the AI to act without intervention. The audit trail still lands in History; ai_jobs still records every call.",
     "action_ran": "Ran:",
     "action_ran_label": "Ran: {action}",
+    "skill_running": "Working on it…",
     "opened": "Opened",
     "opened_label": "Opened {label}",
     "navigated": "Navigated to",
