@@ -11673,6 +11673,38 @@
             </svg>
             <span x-text="t('ai_sidebar.action_ran_label', { action: turn.action_label })"></span>
           </div>
+          <!-- Inline per-app SKILL result (e.g. a Seerr movie suggestion):
+               poster + detail text + an optional one-click follow-up button
+               (Request on Seerr). Stamped on the turn by `_aiSidebarRunSkill`
+               when the AI runs a non-destructive run_app_skill action. -->
+          <template x-if="turn.role === 'assistant' && turn.skill_panel">
+            <div class="ai-skill-panel">
+              <img x-show="turn.skill_panel.image_url"
+                   :src="turn.skill_panel.image_url" alt=""
+                   class="ai-skill-poster" loading="lazy">
+              <div x-show="turn.skill_panel.detail"
+                   class="ai-skill-detail"
+                   x-text="turn.skill_panel.detail"></div>
+              <template x-if="turn.skill_panel.followup && !turn.skill_panel.followup_done">
+                <button type="button"
+                        class="ai-skill-followup-btn"
+                        :disabled="turn.skill_panel.followup_busy"
+                        @click="aiRunSkillFollowup(idx)"
+                        :aria-label="turn.skill_panel.followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr')">
+                  <svg width="12" height="12" aria-hidden="true">
+                    <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-plus'"/>
+                  </svg>
+                  <span x-text="turn.skill_panel.followup_busy
+                    ? (t('actions.working') || 'Working…')
+                    : (turn.skill_panel.followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr'))"></span>
+                </button>
+              </template>
+              <div x-show="turn.skill_panel.followup_result"
+                   class="ai-skill-followup-result"
+                   :class="(turn.skill_panel.followup_result && turn.skill_panel.followup_result.ok) ? 'ai-skill-followup-result--ok' : 'ai-skill-followup-result--err'"
+                   x-text="turn.skill_panel.followup_result ? turn.skill_panel.followup_result.detail : ''"></div>
+            </div>
+          </template>
           <div x-show="turn.role === 'assistant' && !turn.error && !turn.slash"
                class="ai-bubble-feedback">
             <button type="button"

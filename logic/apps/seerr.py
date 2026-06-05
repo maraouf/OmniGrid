@@ -634,4 +634,12 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         "tmdb_id": tmdb_id,
         "title": title,
         "year": year,
+        # Follow-up action the UI can offer as a one-click button (the AI
+        # sidebar renders it after a suggestion). Requesting by the exact
+        # TMDB id avoids a re-search. Generic shape: {skill_id, arg, label}.
+        "followup": {
+            "skill_id": "seerr_request_movie",
+            "arg": str(tmdb_id) if tmdb_id else title,
+            "label": f"Request {label} on Seerr",
+        } if (tmdb_id or title) else None,
     }

@@ -5020,6 +5020,77 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   text-decoration: line-through;
 }
 
+/* Inline per-app skill result (e.g. a Seerr movie suggestion) rendered in
+   the AI chat bubble — poster + detail + a one-click follow-up button
+   (Request on Seerr). Stamped on the turn by `_aiSidebarRunSkill`. */
+.ai-skill-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.ai-skill-poster {
+  width: 92px;
+  max-width: 40%;
+  height: auto;
+  border-radius: var(--r-sm);
+  align-self: flex-start;
+}
+
+.ai-skill-detail {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.ai-skill-followup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  align-self: flex-start;
+  padding: var(--s-1) var(--s-3);
+  background: var(--primary);
+  color: var(--text-on-primary);
+  border: 0;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-skill-followup-btn:hover:not(:disabled) {
+  background: var(--primary-hov);
+}
+
+.ai-skill-followup-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ai-skill-followup-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.ai-skill-followup-result {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.ai-skill-followup-result--ok {
+  color: var(--success);
+}
+
+.ai-skill-followup-result--err {
+  color: var(--danger);
+}
+
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
    actions invoked from the AI sidebar. Wraps a warning icon, the
    action label, and Yes / Cancel buttons in one compact row attached

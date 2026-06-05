@@ -385,6 +385,89 @@ export default {
       color: this._cssVar('--text'),
     });
   },
+  // Run a per-app SKILL from the AI sidebar and capture its result INTO
+  // the assistant turn (so the suggestion / status renders in the chat,
+  // not just a toast). Sidebar-only — the modal command palette keeps the
+  // generic `_runCommandPaletteAction` → toast path. When the skill returns
+  // a `followup` (e.g. Seerr's suggest-a-movie → request-this-movie), it's
+  // stamped on the turn's `skill_panel` so the template renders a one-click
+  // button. Non-destructive skills only (destructive ones keep the
+  // inline-confirm-chip path).
+  async _aiSidebarRunSkill(turnIdx) {
+    const turn = this.aiConversation[turnIdx];
+    if (!turn || !turn.action_data || typeof this.runAppSkill !== 'function') {
+      return;
+    }
+    const d = turn.action_data;
+    const host = (d.host_id || '').toString().trim();
+    const skillId = (d.skill_id || '').toString().trim();
+    let idx = d.service_idx;
+    idx = (typeof idx === 'number') ? idx : parseInt(idx, 10);
+    const arg = (d.arg == null) ? '' : String(d.arg).trim();
+    if (!host || !skillId || isNaN(idx) || idx < 0) {
+      return;
+    }
+    const res = await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg, {silent: true});
+    if (!res || typeof res !== 'object') {
+      return;
+    }
+    const panel = {
+      ok: !!res.ok,
+      detail: (res.detail || '').toString(),
+      image_url: (res.image_url || '').toString(),
+    };
+    if (res.ok && res.followup && typeof res.followup === 'object' && res.followup.skill_id) {
+      panel.followup = {
+        skill_id: String(res.followup.skill_id),
+        arg: (res.followup.arg != null) ? String(res.followup.arg) : '',
+        label: (res.followup.label || '').toString(),
+        host_id: host,
+        service_idx: idx,
+      };
+    }
+    turn.skill_panel = panel;
+    if (typeof this.persistAiConversation === 'function') {
+      this.persistAiConversation();
+    }
+  },
+
+  // One-click follow-up button handler (e.g. "Request <movie> on Seerr"
+  // after a suggestion). Runs the follow-up skill stamped on the turn's
+  // `skill_panel.followup`, then records the outcome so the button is
+  // replaced by a success/failure line. No popups (sidebar contract).
+  async aiRunSkillFollowup(turnIdx) {
+    const turn = this.aiConversation[turnIdx];
+    if (!turn || !turn.skill_panel || !turn.skill_panel.followup) {
+      return;
+    }
+    const sp = turn.skill_panel;
+    if (sp.followup_busy || sp.followup_done) {
+      return;
+    }
+    const fu = sp.followup;
+    sp.followup_busy = true;
+    // No initializer — `res` is assigned in the try before any read (a throw
+    // exits the function via the propagated exception, never reaching the
+    // read below). An `= null` here is flagged dead by no-useless-assignment.
+    let res;
+    try {
+      res = await this.runAppSkill(
+        {host_id: fu.host_id, service_idx: fu.service_idx},
+        fu.skill_id, fu.arg, {silent: true});
+    } finally {
+      sp.followup_busy = false;
+    }
+    if (res && typeof res === 'object') {
+      sp.followup_result = {ok: !!res.ok, detail: (res.detail || '').toString()};
+      if (res.ok) {
+        sp.followup_done = true;
+      }
+    }
+    if (typeof this.persistAiConversation === 'function') {
+      this.persistAiConversation();
+    }
+  },
+
   // Same write-through pattern for the host-drawer time-range
   // picker. Stored under `ui_prefs.host_history_range` as an int so
   // the operator's preferred range follows them across browsers.
@@ -446,6 +529,10 @@ export default {
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
+      // Inline per-app skill result + follow-up button state (e.g. a Seerr
+      // movie suggestion with its "Request on Seerr" button). Persisted so
+      // the suggestion + button survive a reload / cross-browser hydration.
+      skill_panel: (t.skill_panel && typeof t.skill_panel === 'object') ? t.skill_panel : null,
       // `ts` is the per-turn epoch-ms stamp set when the turn is
       // pushed onto `aiConversation`. Load-bearing for the
       // cross-device hydration filter at init() — the Clear button
@@ -536,6 +623,10 @@ export default {
       pending_confirm: !!t.pending_confirm,
       pending_action: t.pending_action || null,
       cancelled: !!t.cancelled,
+      // Inline per-app skill result + follow-up button state (e.g. a Seerr
+      // movie suggestion with its "Request on Seerr" button). Persisted so
+      // the suggestion + button survive a reload / cross-browser hydration.
+      skill_panel: (t.skill_panel && typeof t.skill_panel === 'object') ? t.skill_panel : null,
       ts: t.ts || null,
     }));
     // localStorage write — synchronous, always lands.
@@ -1278,29 +1369,43 @@ export default {
       // data popup since it lists every container by name — that's
       // legitimate confirmation data, not a disruption.
       if (actionDesc) {
-        // ALL destructive actions in the sidebar route through the
-        // inline-confirm chip — including those marked
-        // `defer_confirm_to_run` (cleanup_stopped /
-        // update_all_updatable). Operator-flagged: AI said
-        // "Opening the confirmation to remove all stopped, failed,
-        // and orphaned containers" but no chip appeared because the
-        // pre-mark was setting `action_ran: true` for defer-confirm
-        // actions (their inner SweetAlert was supposed to show but
-        // is now skipped via skipConfirm in confirmInlineAction).
-        // Result: turn rendered with the green "Ran:" chip while
-        // pending_confirm was true → confirm chip rendered above
-        // it but the visual hierarchy made it easy to miss.
-        if (actionDesc.destructive) {
-          turn.action_ran = false;
-        } else {
+        // Per-app SKILL runs (non-destructive) are dispatched inline so the
+        // skill's RESULT (e.g. a Seerr movie suggestion) lands in the chat
+        // bubble with any follow-up button — instead of vanishing into a
+        // toast. The modal command palette keeps the generic toast path; this
+        // capture is sidebar-only. Destructive skills fall through to the
+        // inline-confirm-chip path below.
+        if (actionId === 'run_app_skill' && turn.action_data && !actionDesc.destructive) {
           turn.action_ran = true;
+          const _skillTurnIdx = this.aiConversation.length - 1;
+          this.$nextTick(() => {
+            this._aiSidebarRunSkill(_skillTurnIdx);
+          });
+        } else {
+          // ALL destructive actions in the sidebar route through the
+          // inline-confirm chip — including those marked
+          // `defer_confirm_to_run` (cleanup_stopped /
+          // update_all_updatable). Operator-flagged: AI said
+          // "Opening the confirmation to remove all stopped, failed,
+          // and orphaned containers" but no chip appeared because the
+          // pre-mark was setting `action_ran: true` for defer-confirm
+          // actions (their inner SweetAlert was supposed to show but
+          // is now skipped via skipConfirm in confirmInlineAction).
+          // Result: turn rendered with the green "Ran:" chip while
+          // pending_confirm was true → confirm chip rendered above
+          // it but the visual hierarchy made it easy to miss.
+          if (actionDesc.destructive) {
+            turn.action_ran = false;
+          } else {
+            turn.action_ran = true;
+          }
+          this._runCommandPaletteAction(actionDesc, {
+            surface: 'sidebar',
+            tag: turn.action_tag,
+            actionItem: turn.action_item,
+            data: turn.action_data,
+          });
         }
-        this._runCommandPaletteAction(actionDesc, {
-          surface: 'sidebar',
-          tag: turn.action_tag,
-          actionItem: turn.action_item,
-          data: turn.action_data,
-        });
       }
     } catch (e) {
       this.aiConversation.push({

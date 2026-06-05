@@ -148,15 +148,25 @@ export default {
 
   // ---- Per-app SKILLS (the AI / drawer skill framework) ----
   // Skills the chip's app exposes, from /api/me's client_config.app_skills
-  // (keyed by catalog slug). Each is {id, name, ai_phrases?, destructive?}.
-  // Returns [] when the app declares none.
+  // (keyed by catalog slug). Each is {id, name, ai_phrases?, destructive?,
+  // arg?}. Returns [] when the app declares none.
+  //
+  // Arg-taking skills (`sk.arg === true`, e.g. Seerr's request-a-movie which
+  // needs a title) are FILTERED OUT here — they can't run as a one-click
+  // button, so they don't belong in the drawer OR the Cmd-K palette (both
+  // consume this list). They remain fully usable via the AI (web + Telegram),
+  // which supplies the argument from natural language through the separate
+  // server-side `available_app_skills_context`.
   appInstanceSkills(inst) {
     const cc = (this.me && this.me.client_config) || {};
     const map = (cc && cc.app_skills) || {};
     const slug = String((inst && inst.catalog && inst.catalog.slug)
       || (inst && inst.catalog_slug) || '').toLowerCase();
     const list = (slug && map[slug]) || [];
-    return Array.isArray(list) ? list : [];
+    if (!Array.isArray(list)) {
+      return [];
+    }
+    return list.filter((sk) => !(sk && sk.arg === true));
   },
 
   // True when the chip can run skills NOW: it has at least one skill AND its
@@ -234,16 +244,25 @@ export default {
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.
-  async runAppSkill(inst, skillId, arg) {
+  // Returns the structured result `{ok, detail, image_url, followup, tmdb_id,
+  // title}` (or null when skipped) so callers — e.g. the AI sidebar's
+  // suggest→request flow — can render the outcome + a follow-up button.
+  // `opts.silent` suppresses the toasts (the AI sidebar shows the result
+  // inline in the chat instead).
+  async runAppSkill(inst, skillId, arg, opts) {
+    const silent = !!(opts && opts.silent);
     if (!inst || !skillId) {
-      return;
+      return null;
     }
     this._appSkillBusy = this._appSkillBusy || {};
     const busyKey = 'skill:' + this.appInstanceKey(inst) + ':' + skillId;
     if (this._appSkillBusy[busyKey]) {
-      return;
+      return null;
     }
     this._appSkillBusy[busyKey] = true;
+    // Assigned in every try branch (success / failure) AND in catch, so no
+    // initializer (an `= null` here is flagged dead by no-useless-assignment).
+    let _result;
     try {
       // Optional free-form argument (e.g. Seerr request-a-movie title).
       // Only send a body when there's an arg — the drawer buttons pass none.
@@ -270,8 +289,16 @@ export default {
           detail = detail.split('\n').filter((l) => l.trim() !== img).join('\n').trim();
         }
         this._appSkillResult[resKey] = {ok: true, detail: detail, image_url: img, at: Date.now()};
+        _result = {
+          ok: true, detail: detail, image_url: img,
+          followup: (j && j.followup && typeof j.followup === 'object') ? j.followup : null,
+          tmdb_id: (j && j.tmdb_id != null) ? j.tmdb_id : null,
+          title: (j && j.title) ? String(j.title) : '',
+        };
         // Toast stays minimal — the output now lives in the drawer.
-        this.showToast(this.t('apps.skills.ran_ok') || 'Skill started', 'success');
+        if (!silent) {
+          this.showToast(this.t('apps.skills.ran_ok') || 'Skill started', 'success');
+        }
         // A freshly-QUEUED run (e.g. run_speedtest) lands its result ~10-60s
         // later; refresh the per-app data so the extras card updates once
         // ready (also re-syncs the extras after a read-only `latest_*` skill).
@@ -283,17 +310,24 @@ export default {
       } else {
         const detail = (j && j.detail) || ('HTTP ' + r.status);
         this._appSkillResult[resKey] = {ok: false, detail: detail, image_url: '', at: Date.now()};
-        this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
+        _result = {ok: false, detail: detail, image_url: '', followup: null};
+        if (!silent) {
+          this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
+        }
       }
     } catch (err) {
       const msg = (err && err.message) || err;
       this._appSkillResult = this._appSkillResult || {};
       this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] =
         {ok: false, detail: String(msg), image_url: '', at: Date.now()};
-      this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
+      _result = {ok: false, detail: String(msg), image_url: '', followup: null};
+      if (!silent) {
+        this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
+      }
     } finally {
       this._appSkillBusy[busyKey] = false;
     }
+    return _result;
   },
 
   // Admin Edit affordance from the App detail drawer — redirect to the
