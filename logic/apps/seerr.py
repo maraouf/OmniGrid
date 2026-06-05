@@ -166,8 +166,8 @@ _TMDB_POSTER_SIZE = "w500"
 # operator already has it). Drawing from a WIDE page range surfaces titles
 # deeper in the catalogue that are far less likely to be already in the
 # library — the `vote_count.gte` filter keeps them watchable, not obscure.
-# The page upper bound is operator-tunable via `_suggest_max_page()`
-# (Tunable.SEERR_SUGGEST_MAX_PAGE, default 200).
+# The page upper bound is a PER-INSTANCE override via `_suggest_max_page(chip)`
+# (the chip's `suggest_max_page` field, Seerr editor; default 200).
 
 # TMDB movie genre id -> name. These ids are stable (TMDB has used them for
 # years) so we map locally instead of an extra /genre/movie/list call. Both
@@ -393,24 +393,42 @@ def _suggest_cooldown_hours() -> int:
         return 12
 
 
-def _suggest_page_attempts() -> int:
-    """Operator-tunable count of random TMDB pages to draw before giving up.
-    Bigger = larger candidate pool (helps when many countries are excluded)."""
-    try:
-        from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
-        return tuning_int(Tunable.SEERR_SUGGEST_PAGE_ATTEMPTS)
-    except (ImportError, KeyError, ValueError, TypeError):
-        return 8
+# Suggestion-pool defaults + bounds. These are PER-INSTANCE chip overrides
+# (Admin → Apps → edit the Seerr instance → "Suggestion pool" fields), NOT a
+# global tunable — the suggest skill runs against one resolved Seerr chip, so
+# each instance carries its own pool sizing. Bounds are enforced both in the
+# chip cleaner / PATCH handler and again here (defence in depth).
+_SUGGEST_PAGE_ATTEMPTS_DEFAULT, _SUGGEST_PAGE_ATTEMPTS_LO, _SUGGEST_PAGE_ATTEMPTS_HI = 8, 1, 50
+_SUGGEST_MAX_PAGE_DEFAULT, _SUGGEST_MAX_PAGE_LO, _SUGGEST_MAX_PAGE_HI = 200, 10, 500
 
 
-def _suggest_max_page() -> int:
-    """Operator-tunable upper bound for the random TMDB discover page. Higher
-    = draws from a deeper, less-likely-already-owned slice of the catalogue."""
-    try:
-        from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
-        return tuning_int(Tunable.SEERR_SUGGEST_MAX_PAGE)
-    except (ImportError, KeyError, ValueError, TypeError):
-        return 200
+def _chip_int(chip: dict, key: str, default: int, lo: int, hi: int) -> int:
+    """Read an int field off a chip, clamped to ``[lo, hi]``; ``default``
+    when absent / blank / unparseable. ``safe_int`` does the coercion (it
+    accepts ``Any`` and never raises), so a bad value falls back to the
+    default rather than tripping the int() type check."""
+    v = (chip or {}).get(key)
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return default
+    return max(lo, min(hi, safe_int(v, default)))
+
+
+def _suggest_page_attempts(chip: dict) -> int:
+    """How many random TMDB pages to draw before giving up — per-instance
+    override via the chip's ``suggest_page_attempts``. Bigger = larger pool
+    (helps when many countries are excluded). Clamped to [1, 50], default 8."""
+    return _chip_int(chip, "suggest_page_attempts",
+                     _SUGGEST_PAGE_ATTEMPTS_DEFAULT,
+                     _SUGGEST_PAGE_ATTEMPTS_LO, _SUGGEST_PAGE_ATTEMPTS_HI)
+
+
+def _suggest_max_page(chip: dict) -> int:
+    """Upper bound for the random TMDB discover page — per-instance override
+    via the chip's ``suggest_max_page``. Higher = deeper, less-likely-owned
+    slice of the catalogue. Clamped to [10, 500], default 200."""
+    return _chip_int(chip, "suggest_max_page",
+                     _SUGGEST_MAX_PAGE_DEFAULT,
+                     _SUGGEST_MAX_PAGE_LO, _SUGGEST_MAX_PAGE_HI)
 
 
 def _load_recent_suggestion_ids(username: Optional[str], cooldown_hours: int) -> "set[int]":
@@ -1026,8 +1044,8 @@ _SUGGEST_CHECK_LIMIT = 20
 # does have everything. Each page is a different random slice of the
 # catalogue, so N attempts check up to ~N*20 distinct movies across the
 # popularity depth — an active library rarely owns all of those. The attempt
-# count is operator-tunable via `_suggest_page_attempts()`
-# (Tunable.SEERR_SUGGEST_PAGE_ATTEMPTS, default 8).
+# count is a PER-INSTANCE override via `_suggest_page_attempts(chip)` (the
+# chip's `suggest_page_attempts` field, Seerr editor; default 8).
 # Seerr mediaInfo.status >= this = already requested / processing / partially
 # available / available — i.e. already in (or on its way into) the library.
 _SEERR_IN_LIBRARY_MIN_STATUS = 2
@@ -1035,6 +1053,7 @@ _SEERR_IN_LIBRARY_MIN_STATUS = 2
 
 async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
                                  image_base: str, *,
+                                 max_page: int = _SUGGEST_MAX_PAGE_DEFAULT,
                                  min_rating: float = 0.0,
                                  include_genre_ids: "tuple[int, ...]" = (),
                                  exclude_genre_ids: "tuple[int, ...]" = ()) -> list[dict]:
@@ -1048,7 +1067,7 @@ async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
     if not tmdb_key:
         return []
     headers, params = _tmdb_auth(tmdb_key)
-    page = random.randint(1, _suggest_max_page())
+    page = random.randint(1, max_page)
     params = dict(params)
     params.update({"sort_by": "popularity.desc", "vote_count.gte": "150",
                    "include_adult": "false", "page": str(page)})
@@ -1151,12 +1170,13 @@ async def _seerr_movie_detail(cli: httpx.AsyncClient, base: str, api_key: str,
 
 
 async def _seerr_discover_candidates(base: str, api_key: str,
-                                     image_base: str) -> list[dict]:
+                                     image_base: str, *,
+                                     max_page: int = _SUGGEST_MAX_PAGE_DEFAULT) -> list[dict]:
     """Fallback candidate source when no TMDB key is set — Seerr's own
     ``/api/v1/discover/movies``, whose results ALREADY carry each movie's
     library status via ``mediaInfo`` (so no per-movie lookup needed). Returns
     a SHUFFLED list of ``{id, title, year, overview, poster_url, status}``."""
-    page = random.randint(1, _suggest_max_page())
+    page = random.randint(1, max_page)
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
                                      follow_redirects=True) as cli:
@@ -1325,16 +1345,21 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     # Try several fresh random pages — an active library can own every movie
     # on the first (most-popular) page, so we keep drawing deeper / different
     # slices of the catalogue until we find one the operator doesn't have.
+    # Pool sizing is per-instance (Seerr editor → Suggestion pool fields).
+    _attempts = _suggest_page_attempts(chip)
+    _max_page = _suggest_max_page(chip)
     pick = None
     got_candidates = False
     pages_checked = 0
-    for _attempt in range(_suggest_page_attempts()):
+    for _attempt in range(_attempts):
         if tmdb_key:
             candidates = await _tmdb_candidate_movies(
-                tmdb_key, tmdb_base, image_base, min_rating=min_rating,
+                tmdb_key, tmdb_base, image_base, max_page=_max_page,
+                min_rating=min_rating,
                 include_genre_ids=inc_ids, exclude_genre_ids=exc_ids)
         elif base and api_key:
-            candidates = await _seerr_discover_candidates(base, api_key, image_base)
+            candidates = await _seerr_discover_candidates(
+                base, api_key, image_base, max_page=_max_page)
             # The Seerr discover query can't take the rating/genre filters, so
             # enforce them client-side on the candidate fields.
             candidates = [c for c in candidates

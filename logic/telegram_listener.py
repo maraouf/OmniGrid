@@ -1762,8 +1762,15 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
         # out of _COMMANDS (so they don't bloat the setMyCommands menu) but
         # ARE routed here + listed in /help. The dispatcher returns True
         # when it handled `head` (incl. its own gate / error replies).
-        from logic.telegram_handlers import _try_dispatch_skill_command  # noqa: PLC0415
+        from logic.telegram_handlers import (  # noqa: PLC0415
+            _try_dispatch_skill_command, _try_dispatch_skill_menu_command,
+        )
         if await _try_dispatch_skill_command(client, head, args, msg):
+            return
+        # Per-app skill MENU command (/adguardhome, /seerr, …) — lists that
+        # app's skill commands. Tried AFTER the skill dispatcher so a real
+        # skill id always wins.
+        if await _try_dispatch_skill_menu_command(client, head, msg):
             return
         await _send_reply(
             client,

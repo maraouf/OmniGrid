@@ -1348,6 +1348,19 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["cache_ttl"] = max(5, min(3600, int(ct)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance Seerr "suggest a movie" pool sizing — operator
+        # override of the module defaults (8 / 200). Clamp each; blank /
+        # unparseable omits the field so the default applies. Plain ints,
+        # round-trip to the editor (NOT secrets). Stored generically (only
+        # the Seerr suggest skill reads them; harmless on other apps).
+        for _sf, _slo, _shi in (("suggest_page_attempts", 1, 50),
+                                ("suggest_max_page", 10, 500)):
+            _sv = entry.get(_sf)
+            if isinstance(_sv, (int, str)) and str(_sv).strip() != "":
+                try:
+                    cleaned[_sf] = max(_slo, min(_shi, int(_sv)))
+                except (TypeError, ValueError):
+                    pass
         # Per-chip probe sub-dict.
         probe = entry.get("probe")
         if isinstance(probe, dict):

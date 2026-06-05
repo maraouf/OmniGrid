@@ -182,8 +182,6 @@ class Tunable(str, Enum):
     SNMP_WALK_CONCURRENCY_UCD = "tuning_snmp_walk_concurrency_ucd"
     SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
     SEERR_SUGGEST_COOLDOWN_HOURS = "tuning_seerr_suggest_cooldown_hours"
-    SEERR_SUGGEST_PAGE_ATTEMPTS = "tuning_seerr_suggest_page_attempts"
-    SEERR_SUGGEST_MAX_PAGE = "tuning_seerr_suggest_max_page"
     SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
     SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
@@ -331,15 +329,6 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Range 0..168 (a week); 0 disables dedupe entirely (every suggestion
     # draws from the full pool again).
     "tuning_seerr_suggest_cooldown_hours": ("SEERR_SUGGEST_COOLDOWN_HOURS", 12, 0, 168),
-    # Seerr "suggest a movie" pool size. Each attempt draws one random TMDB
-    # discover page (~20 candidates) then library/country/genre-filters it;
-    # more attempts = a bigger pool so heavy filters (many excluded
-    # countries) still find a fresh title before giving up.
-    "tuning_seerr_suggest_page_attempts": ("SEERR_SUGGEST_PAGE_ATTEMPTS", 8, 1, 50),
-    # Upper bound for the random TMDB discover page. Higher = draws from a
-    # deeper (less-mainstream, less-likely-already-owned) slice of the
-    # catalogue, which matters most when the popular pages are all owned.
-    "tuning_seerr_suggest_max_page": ("SEERR_SUGGEST_MAX_PAGE", 200, 10, 500),
     "tuning_stats_history_days": ("STATS_HISTORY_DAYS", 7, 1, 365),
     "tuning_stats_sample_interval_seconds": ("STATS_SAMPLE_INTERVAL_SECONDS", 300, 30, 3600),
     # Stats -> Database growth projection: how often a DB file-size sample

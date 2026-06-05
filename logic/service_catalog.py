@@ -1610,6 +1610,10 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
+                # Per-instance Seerr "suggest a movie" pool sizing; None when
+                # unset (the module defaults 8 / 200 apply).
+                "suggest_page_attempts": svc.get("suggest_page_attempts"),
+                "suggest_max_page": svc.get("suggest_max_page"),
                 # Optional Docker linkage — drives the App drawer's inline
                 # Restart action when the operator linked this chip to a
                 # Portainer container / stack.
@@ -1756,6 +1760,10 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
+                # Per-instance Seerr "suggest a movie" pool sizing; None when
+                # unset (the module defaults 8 / 200 apply).
+                "suggest_page_attempts": svc.get("suggest_page_attempts"),
+                "suggest_max_page": svc.get("suggest_max_page"),
                 # Per-instance show_extras tri-state.
                 "show_extras": (svc.get("show_extras")
                                 if isinstance(svc.get("show_extras"), bool)

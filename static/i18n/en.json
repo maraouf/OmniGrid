@@ -2379,14 +2379,6 @@
           "label": "Seerr suggestion dedupe cooldown (hours)",
           "help": "How long a movie the AI suggested (Telegram or command palette) is remembered per user so it isn't suggested again as 'fresh' — stops the same film cycling back in one browsing session. Each suggested TMDB id is recorded in the requesting user's prefs with a timestamp; for this many hours that id is skipped. Default 12h covers a typical session without permanently exhausting the catalogue. Range 0..168 (a week); set to 0 to disable dedupe entirely (every suggestion draws from the full pool again). Takes effect on the next suggestion."
         },
-        "tuning_seerr_suggest_page_attempts": {
-          "label": "Seerr suggestion pool attempts",
-          "help": "How many random TMDB discover pages the 'suggest a movie' skill draws before giving up — each page is ~20 candidates that are then filtered against your Seerr library plus your per-user country / genre / rating filters. Raise this if you exclude many countries (or have a large library) and the AI keeps replying 'I couldn't find a fresh movie' — a bigger pool means more chances to land an unowned, unfiltered title. Each extra attempt costs one more TMDB page fetch plus up to ~20 quick Seerr library checks, so it's a speed-vs-coverage trade. Default 8, range 1..50. Takes effect on the next suggestion."
-        },
-        "tuning_seerr_suggest_max_page": {
-          "label": "Seerr suggestion catalogue depth (max page)",
-          "help": "Upper bound for the random TMDB discover page the 'suggest a movie' skill draws from (sorted by popularity, with a vote-count floor so titles stay watchable). Higher = draws from deeper, less-mainstream slices of the catalogue that you're far less likely to already own — the most effective dial when all the popular pages are already in your library. Default 200, range 10..500. Takes effect on the next suggestion."
-        },
         "tuning_webmin_sampler_budget_seconds": {
           "label": "Webmin sampler tick budget (seconds)",
           "help": "Outer wall-clock cap for one Webmin sampler tick (fans out per-host `_probe_one_host` calls). Without an outer cap a single wedged Webmin host can starve the whole tick. 0 = auto-derive from `probe_timeout × hosts capped at 5 min` — safe default for fleets < 60 hosts. Operators with very large fleets can pin a higher value if their per-host probe is fast and they want a bigger fan-out window. Range 0..600s. Resolved per-tick."
@@ -5268,6 +5260,10 @@
       "tmdb_image_base_url_label": "TMDB image base URL",
       "tmdb_base_hint": "Leave at the defaults unless you proxy TMDB. The image base builds poster URLs for suggestions.",
       "cache_ttl_hint": "How long fetched request counts are cached before re-querying Seerr (5–3600s). Leave blank for the app default (30s).",
+      "suggest_attempts_label": "Suggestion pool — page attempts",
+      "suggest_attempts_hint": "How many random TMDB discover pages a movie suggestion tries before giving up (each ~20 candidates, then filtered against your library + filters). Raise it if you exclude many countries and keep getting no result. Blank = default (8).",
+      "suggest_maxpage_label": "Suggestion pool — catalogue depth (max page)",
+      "suggest_maxpage_hint": "How deep into the popularity-ranked TMDB catalogue suggestions reach. Higher = less-mainstream titles you are far less likely to already own — the most effective dial when all the popular pages are in your library. Blank = default (200).",
       "pending": "Pending",
       "processing": "Processing",
       "available": "Available",
