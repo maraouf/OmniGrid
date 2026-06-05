@@ -443,6 +443,96 @@ async def _require_user_weather_pref(
     return cast(str, username), cast(dict, loc)
 
 
+def _app_menu_cmd(slug: str) -> str:
+    """Telegram-safe per-app skill-MENU command name derived from an app
+    slug (lowercase, only ``[a-z0-9_]``). Used by BOTH ``/help`` (to print
+    one tappable entry per app) AND the menu dispatcher below — they MUST
+    agree, so the derivation lives here once. E.g. ``speedtest-tracker`` ->
+    ``speedtest_tracker``, ``adguardhome`` -> ``adguardhome``."""
+    import re as _re  # noqa: PLC0415
+    return _re.sub(r"[^a-z0-9_]", "_", str(slug or "").lower()).strip("_") or "app"
+
+
+def _grouped_app_skills() -> "list[tuple[str, dict]]":
+    """Aggregate ``available_app_skills_context()`` per app: one group per
+    app slug carrying its display name, the (id, name, fleet, arg) skills,
+    and the hosts it's pinned on. Returns ``[(menu_cmd, group), …]`` in a
+    stable order. Shared by ``/help`` + the menu dispatcher so they render
+    the identical set."""
+    from logic.apps.registry import available_app_skills_context  # noqa: PLC0415
+    by_app: dict[str, dict[str, Any]] = {}
+    order: list = []
+    for ent in available_app_skills_context() or []:
+        skills = [(str(s.get("id") or ""),
+                   str(s.get("name") or s.get("id") or ""),
+                   bool(s.get("fleet")), bool(s.get("arg")))
+                  for s in (ent.get("skills") or [])
+                  if isinstance(s, dict) and s.get("id")]
+        if not skills:
+            continue
+        slug = str(ent.get("slug") or ent.get("app") or "")
+        menu = _app_menu_cmd(slug)
+        host = str(ent.get("host") or ent.get("host_id") or "").strip()
+        g = by_app.get(menu)
+        if g is None:
+            g = {"app": str(ent.get("app") or ent.get("slug") or "app"),
+                 "skills": skills, "hosts": []}
+            by_app[menu] = g
+            order.append(menu)
+        if host and host not in g["hosts"]:
+            g["hosts"].append(host)
+    return [(m, by_app[m]) for m in order]
+
+
+# noinspection PyProtectedMember
+async def _try_dispatch_skill_menu_command(
+    client: httpx.AsyncClient, head: str, msg: dict,
+) -> bool:
+    """Per-app skill MENU command (``/adguardhome`` / ``/seerr`` / …) — lists
+    THAT app's skill commands. Keeps ``/help`` to ONE tappable entry per app
+    instead of every skill verb. Like the skill commands themselves, these
+    are NOT in ``_COMMANDS`` (so they stay out of the setMyCommands menu) and
+    are routed from the ``meta is None`` branch AFTER the skill dispatcher.
+
+    Returns ``True`` when ``head`` matched an app menu command (handled,
+    incl. the link gate); ``False`` otherwise so the caller can 404 it."""
+    cmd = head.lstrip("/").strip().lower()
+    if not cmd:
+        return False
+    groups = dict(_grouped_app_skills())
+    g = groups.get(cmd)
+    if g is None:
+        return False  # not an app menu command
+    # The skill commands it lists are linked-only, so gate the menu too.
+    sender_id = (msg.get("from") or {}).get("id")
+    mapped = _listener()._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not mapped:
+        await _listener()._send_reply(
+            client,
+            "🔒 Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>.",
+        )
+        return True
+    esc = _listener()._escape
+    multi = len(g["hosts"]) > 1
+    loc = (" @ " + ", ".join(esc(h) for h in g["hosts"])) if g["hosts"] else ""
+    lines = [f"<b>🧠 {esc(g['app'])} skills</b>{loc}"]
+    for sid, sname, sfleet, sarg in g["skills"]:
+        if sarg:
+            # Takes a free-form argument (e.g. a movie title) — render as
+            # copyable code the user edits, not a one-tap command.
+            lines.append(f"<code>/{esc(sid)} &lt;…&gt;</code> — {esc(sname)}")
+        else:
+            # No-arg (fleet OR host-disambiguated) — bare so Telegram makes
+            # it a one-tap command; a multi-host per-instance skill tapped
+            # bare just prompts for the host.
+            hostarg = "" if sfleet else (" &lt;host&gt;" if multi else "")
+            lines.append(f"/{esc(sid)}{hostarg} — {esc(sname)}")
+    lines.append("<i>Tap a command above, or just ask me in plain text.</i>")
+    await _listener()._send_reply(client, "\n".join(lines))
+    return True
+
+
 # noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
 # Telegram handlers have a fixed (client, args, msg) signature
 # set by the dispatcher; not every handler uses all three. Every
@@ -740,60 +830,28 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     # (who can't invoke them) would be misleading. The helper never
     # raises (returns [] on any failure), so no guard is needed.
     if is_linked:
-        from logic.apps.registry import available_app_skills_context
-        _skill_ctx = available_app_skills_context()
-        if _skill_ctx:
+        # ONE tappable entry per app — tapping the bare /<menu> command lists
+        # that app's skill commands (handled by
+        # _try_dispatch_skill_menu_command) instead of dumping every skill
+        # verb here (which ballooned /help with a dozen+ /<app>_disable_*
+        # lines per ad-blocker). Bare (not <code>) so Telegram renders the
+        # menu command as a one-tap command. Grouping is shared with the menu
+        # dispatcher via _grouped_app_skills() so the two always agree.
+        _groups = _grouped_app_skills()
+        if _groups:
             esc = _listener()._escape
-            # Aggregate per app: the skill SET is identical across every host
-            # running the same app, so list it ONCE with the hosts it's
-            # available on, instead of repeating the whole skill list per
-            # chip (e.g. AdGuard on adguard1 + adguard2 was shown twice). The
-            # AI dispatch context stays per-chip so the model still resolves
-            # which host_id / service_idx to target.
-            _by_app: dict[str, dict[str, Any]] = {}
-            _order: list = []
-            for _ent in _skill_ctx:
-                _skills = [(str(_s.get("id") or ""),
-                            str(_s.get("name") or _s.get("id") or ""),
-                            bool(_s.get("fleet")))
-                           for _s in (_ent.get("skills") or [])
-                           if isinstance(_s, dict) and _s.get("id")]
-                if not _skills:
-                    continue
-                _key = str(_ent.get("slug") or _ent.get("app") or "")
-                _host = str(_ent.get("host") or _ent.get("host_id") or "").strip()
-                _g = _by_app.get(_key)
-                if _g is None:
-                    _g = {"app": str(_ent.get("app") or _ent.get("slug") or "app"),
-                          "skills": _skills, "hosts": []}
-                    _by_app[_key] = _g
-                    _order.append(_key)
-                if _host and _host not in _g["hosts"]:
-                    _g["hosts"].append(_host)
-            if _order:
-                # Each skill carries a slash command (= its skill id) the
-                # operator can type directly; these are NOT in the
-                # setMyCommands menu (see _try_dispatch_skill_command). For
-                # an app on >1 host the command needs a `<host>` arg to pick
-                # the instance; single-host apps omit it.
+            lines.append(
+                "<b>🧠 App skills</b> <i>(tap an app to see its commands, "
+                "or just ask — I'll run them)</i>"
+            )
+            for _menu, _g in _groups:
+                _loc = (" @ " + ", ".join(esc(h) for h in _g["hosts"])) if _g["hosts"] else ""
+                _n = len(_g["skills"])
                 lines.append(
-                    "<b>🧠 App skills</b> <i>(type the command, or just ask — "
-                    "I'll run these)</i>"
+                    f"  • <b>{esc(_g['app'])}</b>{_loc} → /{esc(_menu)} "
+                    f"<i>({_n} command{'s' if _n != 1 else ''})</i>"
                 )
-                for _key in _order:
-                    _g = _by_app[_key]
-                    _loc = (" @ " + ", ".join(esc(h) for h in _g["hosts"])) if _g["hosts"] else ""
-                    lines.append(f"  • <b>{esc(_g['app'])}</b>{_loc}")
-                    _multi = len(_g["hosts"]) > 1
-                    for _sid, _sname, _sfleet in _g["skills"]:
-                        # Fleet skills run host-less (they aggregate across
-                        # every instance); a per-instance skill on a multi-host
-                        # app needs a <host> arg to pick which instance.
-                        _hostarg = "" if _sfleet else (" &lt;host&gt;" if _multi else "")
-                        lines.append(
-                            f"    <code>/{esc(_sid)}{_hostarg}</code> — {esc(_sname)}"
-                        )
-                lines.append("")
+            lines.append("")
 
     # Trailing legend — the 🔓 paragraph is for unmapped senders
     # ONLY (linked users already know they have access). Linked

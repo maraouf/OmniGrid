@@ -176,8 +176,6 @@ export default {
       'tuning_telegram_bulk_update_concurrency',
       'tuning_telegram_destructive_cooldown_seconds',
       'tuning_seerr_suggest_cooldown_hours',
-      'tuning_seerr_suggest_page_attempts',
-      'tuning_seerr_suggest_max_page',
     ];
   },
   // Per-provider knob lists (partial DRY). Single source
@@ -326,8 +324,6 @@ export default {
     'tuning_telegram_ai_calls_per_minute',
     'tuning_telegram_bulk_update_concurrency',
     'tuning_seerr_suggest_cooldown_hours',
-    'tuning_seerr_suggest_page_attempts',
-    'tuning_seerr_suggest_max_page',
     // Gather fan-out client timeout + orphan-probe per-call timeout —
     // also rendered in Admin → Portainer (gather talks to Portainer).
     'tuning_gather_client_timeout_seconds',

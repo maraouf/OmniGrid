@@ -112,6 +112,83 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.seerr.cache_ttl_hint') || 'How long fetched request counts are cached before re-querying Seerr (5–3600s). Leave blank for the app default (30s).'"></p>
     </div>
+    <!-- Per-instance "suggest a movie" pool sizing. More attempts = a bigger
+         candidate pool; a deeper max page reaches less-mainstream titles
+         you're less likely to already own. Raise both if you exclude many
+         countries and keep getting "couldn't find a fresh movie". Blank =
+         module defaults (8 / 200); backend clamps 1..50 / 10..500. -->
+    <div>
+      <label for="apps-instance-seerr-suggest-attempts"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.seerr.suggest_attempts_label') || 'Suggestion pool — page attempts'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-seerr-suggest-attempts"
+               type="number" min="1" max="50" step="1"
+               x-model="appsInstanceEditForm.suggest_page_attempts"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>1</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>50</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>8</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.seerr.suggest_attempts_hint') || 'How many random TMDB discover pages a movie suggestion tries before giving up (each ~20 candidates, then filtered against your library + filters). Raise it if you exclude many countries and keep getting no result. Blank = default (8).'"></p>
+    </div>
+    <div>
+      <label for="apps-instance-seerr-suggest-maxpage"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.seerr.suggest_maxpage_label') || 'Suggestion pool — catalogue depth (max page)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-seerr-suggest-maxpage"
+               type="number" min="10" max="500" step="1"
+               x-model="appsInstanceEditForm.suggest_max_page"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>10</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>500</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>200</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.seerr.suggest_maxpage_hint') || 'How deep into the popularity-ranked TMDB catalogue suggestions reach. Higher = less-mainstream titles you are far less likely to already own — the most effective dial when all the popular pages are in your library. Blank = default (200).'"></p>
+    </div>
     <!-- Shared Test-connection unit (same button + result box as the
          Portainer / OIDC admin panels) so the per-app editor never drifts
          on style. tcRun is the per-app test fn; tcResult is its reactive

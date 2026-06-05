@@ -659,6 +659,8 @@ export default {
     tmdb_api_key_set: false,
     tmdb_base_url: '',
     tmdb_image_base_url: '',
+    suggest_page_attempts: '',
+    suggest_max_page: '',
   },
 
   openInstanceEdit(inst) {
@@ -733,6 +735,12 @@ export default {
       tmdb_api_key_set: !!inst.tmdb_api_key_set,
       tmdb_base_url: inst.tmdb_base_url || '',
       tmdb_image_base_url: inst.tmdb_image_base_url || '',
+      // Per-instance "suggest a movie" pool sizing. Blank = module default
+      // (8 / 200); backend clamps 1..50 / 10..500.
+      suggest_page_attempts: (inst.suggest_page_attempts != null && inst.suggest_page_attempts !== '')
+        ? String(inst.suggest_page_attempts) : '',
+      suggest_max_page: (inst.suggest_max_page != null && inst.suggest_max_page !== '')
+        ? String(inst.suggest_max_page) : '',
     };
     this.appsInstanceEditError = '';
     // Clear any Test-connection result from a PREVIOUSLY-edited instance —
@@ -778,6 +786,8 @@ export default {
       tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
       tmdb_base_url: f.tmdb_base_url || '',
       tmdb_image_base_url: f.tmdb_image_base_url || '',
+      suggest_page_attempts: f.suggest_page_attempts || '',
+      suggest_max_page: f.suggest_max_page || '',
       ports,
     });
   },
@@ -1133,6 +1143,10 @@ export default {
           tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
           tmdb_base_url: (typeof f.tmdb_base_url === 'string') ? f.tmdb_base_url : '',
           tmdb_image_base_url: (typeof f.tmdb_image_base_url === 'string') ? f.tmdb_image_base_url : '',
+          // Per-instance suggestion-pool sizing. Blank => backend drops it
+          // => module default; a value is clamped 1..50 / 10..500.
+          suggest_page_attempts: (f.suggest_page_attempts != null) ? f.suggest_page_attempts : '',
+          suggest_max_page: (f.suggest_max_page != null) ? f.suggest_max_page : '',
         }),
       });
       if (!r.ok) {

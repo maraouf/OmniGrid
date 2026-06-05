@@ -645,6 +645,24 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["cache_ttl"] = _cti
         else:
             chip.pop("cache_ttl", None)
+    # Per-instance Seerr "suggest a movie" pool sizing. Clamp each; a blank /
+    # out-of-range / non-int value CLEARS the override so the module default
+    # applies (8 attempts / page-200 catalogue depth). Returned in the clear
+    # (round-trips to the editor) — NOT secrets.
+    for _sf, _slo, _shi in (("suggest_page_attempts", 1, 50),
+                            ("suggest_max_page", 10, 500)):
+        if _sf in payload:
+            _sv_raw = payload.get(_sf)
+            _svi = None
+            if isinstance(_sv_raw, (int, str)) and str(_sv_raw).strip() != "":
+                try:
+                    _svi = max(_slo, min(_shi, int(_sv_raw)))
+                except (TypeError, ValueError):
+                    _svi = None
+            if _svi is not None:
+                chip[_sf] = _svi
+            else:
+                chip.pop(_sf, None)
     _probe_raw = chip.get("probe")
     probe = _probe_raw if isinstance(_probe_raw, dict) else {}
     if "probe_enabled" in payload:
