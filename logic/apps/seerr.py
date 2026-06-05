@@ -1385,6 +1385,14 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     poster = pick.get("poster_url") or ""
     if poster:
         lines.append(poster)
+    _has_followup = bool(tmdb_id or title)
+    # Diagnostic: the drawer/AI render the poster off `image_url` and the
+    # Request button off `followup`. When either renders wrong, this line
+    # pins whether the backend attached them + WHERE the poster came from
+    # (empty image_base / poster_path => no poster URL was built).
+    print(f"[seerr] INFO seerr_suggest_movie RESULT host={host_id} title={title!r} "
+          f"tmdb_id={tmdb_id} image_base={image_base!r} "
+          f"poster_url={poster!r} (len={len(poster)}) followup={_has_followup}")
     return {
         "ok": True,
         "status": 200,
