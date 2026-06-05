@@ -67,6 +67,7 @@ Upstream API reference: <seerr-host>/api-docs. Endpoints used:
 """
 from __future__ import annotations
 
+import asyncio
 import random
 import time
 from typing import Any, Optional
@@ -520,12 +521,22 @@ async def _request_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
-async def _tmdb_random_movie(tmdb_key: str, tmdb_base: str, image_base: str) -> Optional[dict]:
-    """Pull a random popular movie from TMDB's ``/discover/movie`` (a
-    random page, then a random item). Returns ``{id, title, year, overview,
-    poster_url}`` or ``None`` on failure. Requires a TMDB key."""
+# How many candidates to library-check per suggestion (bounds the Seerr
+# lookups when sourcing from TMDB). One discover page is ~20 movies.
+_SUGGEST_CHECK_LIMIT = 14
+# Seerr mediaInfo.status >= this = already requested / processing / partially
+# available / available — i.e. already in (or on its way into) the library.
+_SEERR_IN_LIBRARY_MIN_STATUS = 2
+
+
+async def _tmdb_candidate_movies(tmdb_key: str, tmdb_base: str,
+                                 image_base: str) -> list[dict]:
+    """A SHUFFLED list of popular-movie candidates from TMDB's
+    ``/discover/movie`` (a random page). Each entry is ``{id, title, year,
+    overview, poster_url}``. Returns ``[]`` on failure / no key. The caller
+    library-checks these against Seerr and picks the first not already there."""
     if not tmdb_key:
-        return None
+        return []
     headers, params = _tmdb_auth(tmdb_key)
     page = random.randint(1, _TMDB_DISCOVER_MAX_PAGE)
     params = dict(params)
@@ -538,30 +549,55 @@ async def _tmdb_random_movie(tmdb_key: str, tmdb_base: str, image_base: str) -> 
             r = await cli.get(url, headers=headers, params=params)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] warning: TMDB discover failed — {type(e).__name__}: {e}")
-        return None
+        return []
     if r.status_code != 200:
         print(f"[seerr] warning: TMDB discover HTTP {r.status_code} (check tmdb_api_key)")
-        return None
+        return []
     try:
         results = (r.json() or {}).get("results") or []
     except (ValueError, TypeError):
-        return None
-    results = [m for m in results if isinstance(m, dict) and m.get("id")]
-    if not results:
-        return None
-    m = random.choice(results)
-    return {
+        return []
+    out = [{
         "id": safe_int(m.get("id")),
         "title": str(m.get("title") or m.get("original_title") or "").strip(),
         "year": _year_of(str(m.get("release_date") or "")),
         "overview": str(m.get("overview") or "").strip(),
         "poster_url": _poster_url(image_base, str(m.get("poster_path") or "")),
-    }
+    } for m in results if isinstance(m, dict) and m.get("id")]
+    random.shuffle(out)
+    return out
 
 
-async def _seerr_discover_movie(base: str, api_key: str, image_base: str) -> Optional[dict]:
-    """Fallback suggestion source when no TMDB key is set — Seerr's own
-    TMDB-backed ``/api/v1/discover/movies`` (random page + item)."""
+async def _seerr_movie_status(cli: httpx.AsyncClient, base: str, api_key: str,
+                              tmdb_id: int) -> int:
+    """Seerr's ``mediaInfo.status`` for a TMDB movie id via
+    ``GET /api/v1/movie/<id>`` — ``0`` when the movie isn't in Seerr (no
+    mediaInfo) / unknown, ``>=2`` when it's already requested / processing /
+    available. Never raises (a lookup failure reads as "not in library", so
+    a transient blip just means we might suggest one that's already there —
+    the request path then reports it gracefully)."""
+    if not tmdb_id:
+        return 0
+    try:
+        r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
+                          headers=_headers(api_key))
+    except (httpx.HTTPError, OSError):
+        return 0
+    if getattr(r, "status_code", 0) != 200:
+        return 0
+    try:
+        mi = (r.json() or {}).get("mediaInfo")
+    except (ValueError, TypeError):
+        return 0
+    return safe_int(mi.get("status")) if isinstance(mi, dict) else 0
+
+
+async def _seerr_discover_candidates(base: str, api_key: str,
+                                     image_base: str) -> list[dict]:
+    """Fallback candidate source when no TMDB key is set — Seerr's own
+    ``/api/v1/discover/movies``, whose results ALREADY carry each movie's
+    library status via ``mediaInfo`` (so no per-movie lookup needed). Returns
+    a SHUFFLED list of ``{id, title, year, overview, poster_url, status}``."""
     page = random.randint(1, _TMDB_DISCOVER_MAX_PAGE)
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
@@ -570,48 +606,102 @@ async def _seerr_discover_movie(base: str, api_key: str, image_base: str) -> Opt
                               headers=_headers(api_key), params={"page": page})
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] warning: Seerr discover failed — {type(e).__name__}: {e}")
-        return None
+        return []
     if r.status_code != 200:
-        return None
+        return []
     try:
         results = (r.json() or {}).get("results") or []
     except (ValueError, TypeError):
+        return []
+    out = []
+    for m in results:
+        if not isinstance(m, dict) or not m.get("id"):
+            continue
+        mi = m.get("mediaInfo")
+        out.append({
+            "id": safe_int(m.get("id")),
+            "title": str(m.get("title") or m.get("originalTitle") or "").strip(),
+            "year": _year_of(str(m.get("releaseDate") or "")),
+            "overview": str(m.get("overview") or "").strip(),
+            "poster_url": _poster_url(image_base, str(m.get("posterPath") or "")),
+            "status": safe_int(mi.get("status")) if isinstance(mi, dict) else 0,
+        })
+    random.shuffle(out)
+    return out
+
+
+async def _pick_not_in_library(base: str, api_key: str,
+                               candidates: list[dict]) -> Optional[dict]:
+    """From a candidate list, return the first movie NOT already in Seerr's
+    library (``mediaInfo.status < 2``). Candidates that already carry a
+    ``status`` key (the Seerr-discover source) are filtered inline; TMDB
+    candidates are status-checked against Seerr in PARALLEL (capped at
+    ``_SUGGEST_CHECK_LIMIT``). Returns ``None`` when every checked candidate
+    is already in the library (caller surfaces an honest "you've got them
+    all" message rather than suggesting a dup)."""
+    if not candidates:
         return None
-    results = [m for m in results if isinstance(m, dict) and m.get("id")]
-    if not results:
+    check = candidates[:_SUGGEST_CHECK_LIMIT]
+    # Seerr-discover candidates already carry library status — no extra call.
+    if all("status" in c for c in check):
+        for c in check:
+            if safe_int(c.get("status")) < _SEERR_IN_LIBRARY_MIN_STATUS:
+                return c
         return None
-    m = random.choice(results)
-    return {
-        "id": safe_int(m.get("id")),
-        "title": str(m.get("title") or m.get("originalTitle") or "").strip(),
-        "year": _year_of(str(m.get("releaseDate") or "")),
-        "overview": str(m.get("overview") or "").strip(),
-        "poster_url": _poster_url(image_base, str(m.get("posterPath") or "")),
-    }
+    # TMDB candidates → can't filter without Seerr. If Seerr isn't reachable
+    # we can't check, so suggest the first (the request path still guards).
+    if not (base and api_key):
+        return check[0]
+    async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                 follow_redirects=True) as cli:
+        statuses = await asyncio.gather(
+            *[_seerr_movie_status(cli, base, api_key, safe_int(c.get("id")))
+              for c in check],
+            return_exceptions=True)
+    in_lib = 0
+    for c, st in zip(check, statuses):
+        stv = st if isinstance(st, int) else 0
+        if stv < _SEERR_IN_LIBRARY_MIN_STATUS:
+            return c
+        in_lib += 1
+    print(f"[seerr] INFO suggest: all {in_lib} checked candidates already in "
+          f"the Seerr library")
+    return None
 
 
 async def _suggest_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
-    """Read-only skill: suggest a random movie the user can then request.
-    Prefers TMDB (when a TMDB key is configured on the chip) for genuine
-    variety; falls back to Seerr's own discover endpoint. Returns
-    ``{ok, detail, image_url, tmdb_id, title}`` so the AI can offer to
-    request it (by title OR the returned tmdb id)."""
+    """Read-only skill: suggest a random movie the user can then request —
+    and that is NOT already in their Seerr library (requested / processing /
+    available are all skipped). Prefers TMDB (when a TMDB key is configured
+    on the chip) for genuine variety; falls back to Seerr's own discover
+    endpoint. Returns ``{ok, detail, image_url, tmdb_id, title, followup}``
+    so the AI / button can offer to request it."""
     api_key = (chip.get("api_key") or "").strip()
     from logic.apps._common import resolve_base_url  # noqa: PLC0415
     base = resolve_base_url(host_row, chip)
     tmdb_key, tmdb_base, image_base = _tmdb_cfg(chip)
     print(f"[seerr] INFO seerr_suggest_movie host={host_id} "
           f"source={'tmdb' if tmdb_key else 'seerr-discover'}")
-    pick = None
+    candidates: list[dict] = []
     if tmdb_key:
-        pick = await _tmdb_random_movie(tmdb_key, tmdb_base, image_base)
-    if pick is None and base and api_key:
-        pick = await _seerr_discover_movie(base, api_key, image_base)
-    if pick is None or not pick.get("title"):
+        candidates = await _tmdb_candidate_movies(tmdb_key, tmdb_base, image_base)
+    if not candidates and base and api_key:
+        candidates = await _seerr_discover_candidates(base, api_key, image_base)
+    if not candidates:
         return {"ok": False, "status": 0,
                 "detail": "couldn't fetch a suggestion (set a TMDB API key on the "
                           "Seerr app for movie suggestions, or check the Seerr URL)"}
+    pick = await _pick_not_in_library(base, api_key, candidates)
+    if pick is None:
+        # Every checked candidate is already requested / in the library —
+        # be honest rather than suggesting a movie they already have.
+        return {"ok": True, "status": 200,
+                "detail": "🎬 Every popular movie I checked is already requested "
+                          "or in your Seerr library — ask again for a fresh batch."}
+    if not pick.get("title"):
+        return {"ok": False, "status": 0,
+                "detail": "couldn't fetch a suggestion (check the Seerr / TMDB config)"}
     title = pick.get("title") or ""
     year = pick.get("year") or ""
     label = title + (f" ({year})" if year else "")
