@@ -292,9 +292,30 @@ async def _try_dispatch_skill_command(
         body = f"✅ Ran <b>{esc(skill_name)}</b> on <code>{esc(host_label)}</code>"
         if detail:
             body += "\n" + esc(detail)
-        await _listener()._send_reply(client, body)
+        # A skill result may carry a `followup` (e.g. Seerr suggest → request)
+        # we surface as a one-tap inline button — same mechanism the AI reply
+        # path uses. The full action is stashed server-side under a short
+        # token (callback_data is 64-byte capped); the callback handler in
+        # telegram_listener pops it + dispatches.
+        reply_markup = None
+        _fu = result.get("followup")
+        if isinstance(_fu, dict) and _fu.get("skill_id"):
+            _token = _listener().register_pending_action({
+                "host_id": host_id, "service_idx": svc_idx,
+                "skill_id": str(_fu.get("skill_id")),
+                "arg": str(_fu.get("arg") or ""),
+            })
+            reply_markup = {"inline_keyboard": [[{
+                "text": str(_fu.get("label") or "Request on Seerr")[:120],
+                "callback_data": "ssr:" + _token,
+            }]]}
         if image_url:
-            await _listener()._send_photo(client, image_url)
+            # Button rides the poster when there is one; the text reply stays plain.
+            await _listener()._send_reply(client, body)
+            await _listener()._send_photo(client, image_url, reply_markup=reply_markup)
+        else:
+            # No poster — attach the button to the text reply.
+            await _listener()._send_reply(client, body, reply_markup=reply_markup)
     else:
         detail = (result or {}).get("detail") or "failed"
         await _listener()._send_reply(
