@@ -267,6 +267,7 @@ async def api_admin_stats_overview(
                 "instances": 0,
                 "apps": 0,
                 "up": 0, "down": 0, "degraded": 0, "unknown": 0,
+                "extras": 0, "extras_active": 0,
             },
         }
         try:
@@ -429,6 +430,21 @@ async def api_admin_stats_overview(
             # (some-up, some-down) — not exposed per-instance by list_apps,
             # so derive by subtracting up+down+unknown from total.
             degraded = max(0, instance_total - up - down - unknown_total)
+            # Apps-with-extras roll-up: count the app GROUPS whose catalog
+            # slug has a registered per-app module (radarr / sonarr / seerr /
+            # bazarr / apc / speedtest / adguard / pihole) — i.e. the apps
+            # that render a rich expanded card. `extras_active` = how many of
+            # those have at least one UP instance.
+            from logic.apps.registry import module_for_slug as _module_for_slug
+            extras = 0
+            extras_active = 0
+            for a in apps_list:
+                _cat = a.get("catalog") if isinstance(a.get("catalog"), dict) else {}
+                _slug = str((_cat or {}).get("slug") or "").strip().lower()
+                if _slug and _module_for_slug(_slug) is not None:
+                    extras += 1
+                    if int(a.get("up_count") or 0) > 0:
+                        extras_active += 1
             out["apps"] = {
                 "templates": len(catalog_rows),
                 "instances": instance_total,
@@ -437,6 +453,8 @@ async def api_admin_stats_overview(
                 "down": down,
                 "degraded": degraded,
                 "unknown": unknown_total,
+                "extras": extras,
+                "extras_active": extras_active,
             }
         except Exception as e:
             out["apps_error"] = str(e)
