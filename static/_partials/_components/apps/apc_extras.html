@@ -19,46 +19,75 @@
        apcIsApp(app)             -- gate "is this an APC chip"
        apcHostUpsData(inst)      -- per-instance UPS data dict
        apcUpsRuntimeLabel(s)     -- human runtime formatter -->
+<!-- Outer gate is just "is this an APC chip + extras visible" — the
+     data presence is checked on the INNER branches so the card shows a
+     "Loading UPS data…" placeholder (and error / no-data states) instead
+     of rendering nothing until the first DB-backed fetch lands (matches
+     the Speedtest extras pattern). `apcHostUpsData(inst)` (on the data
+     branch) calls `appsAppData(inst)`, which kicks the fetch on mount;
+     `appsAppDataStatus(inst)` reads the cache sentinel for the empty
+     states (it does NOT itself trigger a fetch). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && apcHostUpsData(inst)">
+<template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
   <div class="apps-card-ups" :data-ups-host="inst.host_id">
-    <!-- Per-host header (host name only when the app has > 1
-         instance; with 1 instance the card header already shows
-         the host). -->
-    <div x-show="(app.instances || []).length > 1"
-         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
-         x-text="inst.host_address || inst.host_id"></div>
-    <div class="apps-card-ups-grid">
-      <!-- Battery % -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
-        <div class="apps-card-ups-value"
-             x-text="(apcHostUpsData(inst).battery_percent != null) ? (apcHostUpsData(inst).battery_percent.toFixed(0) + '%') : '--'"></div>
+    <!-- Data present — render the 5-stat panel. -->
+    <template x-if="apcHostUpsData(inst)">
+      <div>
+        <!-- Per-host header (host name only when the app has > 1
+             instance; with 1 instance the card header already shows
+             the host). -->
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Battery % -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
+            <div class="apps-card-ups-value"
+                 x-text="(apcHostUpsData(inst).battery_percent != null) ? (apcHostUpsData(inst).battery_percent.toFixed(0) + '%') : '--'"></div>
+          </div>
+          <!-- Output load % -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
+            <div class="apps-card-ups-value"
+                 x-text="(apcHostUpsData(inst).load_percent != null) ? (apcHostUpsData(inst).load_percent.toFixed(0) + '%') : '--'"></div>
+          </div>
+          <!-- Runtime remaining (mm:ss / Nh Mm) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.ups.runtime') || 'Runtime remaining'"></div>
+            <div class="apps-card-ups-value"
+                 x-text="apcUpsRuntimeLabel(apcHostUpsData(inst).runtime_s)"></div>
+          </div>
+          <!-- Battery temperature degC -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.ups.battery_temp') || 'Battery temperature'"></div>
+            <div class="apps-card-ups-value"
+                 x-text="(apcHostUpsData(inst).battery_temp_c != null) ? (apcHostUpsData(inst).battery_temp_c.toFixed(0) + '°C') : '--'"></div>
+          </div>
+          <!-- Battery state (Normal / Low / On Battery / etc.) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.ups.battery_state') || 'Battery state'"></div>
+            <div class="apps-card-ups-value" x-text="apcHostUpsData(inst).status || '--'"></div>
+          </div>
+        </div>
       </div>
-      <!-- Output load % -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
-        <div class="apps-card-ups-value"
-             x-text="(apcHostUpsData(inst).load_percent != null) ? (apcHostUpsData(inst).load_percent.toFixed(0) + '%') : '--'"></div>
-      </div>
-      <!-- Runtime remaining (mm:ss / Nh Mm) -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.ups.runtime') || 'Runtime remaining'"></div>
-        <div class="apps-card-ups-value"
-             x-text="apcUpsRuntimeLabel(apcHostUpsData(inst).runtime_s)"></div>
-      </div>
-      <!-- Battery temperature degC -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.ups.battery_temp') || 'Battery temperature'"></div>
-        <div class="apps-card-ups-value"
-             x-text="(apcHostUpsData(inst).battery_temp_c != null) ? (apcHostUpsData(inst).battery_temp_c.toFixed(0) + '°C') : '--'"></div>
-      </div>
-      <!-- Battery state (Normal / Low / On Battery / etc.) -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.ups.battery_state') || 'Battery state'"></div>
-        <div class="apps-card-ups-value" x-text="apcHostUpsData(inst).status || '--'"></div>
-      </div>
-    </div>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!apcHostUpsData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.ups.loading') || 'Loading UPS data…'"></p>
+    </template>
+    <!-- Error — upstream / SNMP fetch failed. -->
+    <template x-if="!apcHostUpsData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.ups.fetch_failed') || 'UPS fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+    <!-- Fetched OK but the sample carries no UPS field (a plain SNMP host
+         pinned to the APC template by mistake). -->
+    <template x-if="!apcHostUpsData(inst) && appsAppDataStatus(inst) === 'ok'">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.ups.no_data') || 'No UPS data reported for this host'"></p>
+    </template>
   </div>
 </template>
