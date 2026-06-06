@@ -5399,7 +5399,14 @@
       "failed": "Skill failed",
       "radarr_status": "Radarr status",
       "radarr_search_missing": "Search for missing movies",
-      "radarr_refresh": "Refresh movie library"
+      "radarr_refresh": "Refresh movie library",
+      "radarr_upcoming": "Upcoming movies",
+      "radarr_queue": "Download queue",
+      "radarr_movie_info": "Look up a movie",
+      "radarr_add_movie": "Add a movie",
+      "radarr_remove_movie": "Remove a movie",
+      "bazarr_search_wanted": "Search for missing subtitles",
+      "bazarr_wanted": "List missing subtitles"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
