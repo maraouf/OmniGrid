@@ -677,19 +677,40 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         except Exception as _idx_err:  # noqa: BLE001
             print(f"[telegram_listener] provider state index unavailable: {_idx_err}")
             provider_state = {}
-        recent_ok_window_s = 3600  # within last hour = "up"
+        # Reconcile a STALE snapshot-derived `down` / `unknown` to `up` when
+        # a provider's MOST-RECENT probe actually succeeded — matching the
+        # SPA Hosts view's effective rendering after its per-host
+        # `/api/hosts/one` fan-out (which the AI context can't afford to do).
+        # Operator-flagged TWICE: first `unknown` hosts (ftth / router / …),
+        # then `down` hosts (vpn2 / winserver / asusrtac3100 / switches /
+        # printers) read as outages in the AI while the web showed them up.
+        # Both classes are the same root cause: `/api/hosts/list` returns the
+        # cached/snapshot status, which lags the live per-host probe.
+        #
+        # Precise signal (not a loose recency heuristic): promote ONLY when
+        # some provider has `last_ok_ts >= last_failure_ts` (its latest probe
+        # was a SUCCESS, so the host is reachable NOW) AND that success is
+        # recent. A genuinely-down host has a MORE-recent failure than its
+        # last ok, so it is NOT promoted — it correctly stays `down`.
+        recent_ok_window_s = 3600  # last-ok must be within the last hour
         _now_ts = time.time()
+        _stale_outage_statuses = {"unknown", "down"}
         for row in api_hosts:
-            if (row.get("status") or "").lower() != "unknown":
+            if (row.get("status") or "").lower() not in _stale_outage_statuses:
                 continue
             hid = row.get("id") or ""
             providers = provider_state.get(hid) or {}
-            recent_ok = any(
-                int((info or {}).get("last_ok_ts") or 0) > 0
-                and (_now_ts - int((info or {}).get("last_ok_ts") or 0)) < recent_ok_window_s
-                for info in providers.values()
-            )
-            if recent_ok:
+            up_now = False
+            for info in providers.values():
+                if not isinstance(info, dict):
+                    continue
+                ok_ts = int(info.get("last_ok_ts") or 0)
+                fail_ts = int(info.get("last_failure_ts") or 0)
+                if (ok_ts > 0 and ok_ts >= fail_ts
+                        and (_now_ts - ok_ts) < recent_ok_window_s):
+                    up_now = True
+                    break
+            if up_now:
                 row["status"] = "up"
 
         # Status taxonomy (canonical from `_shape_host_api_row`):

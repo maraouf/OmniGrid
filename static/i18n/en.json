@@ -5406,7 +5406,15 @@
       "radarr_add_movie": "Add a movie",
       "radarr_remove_movie": "Remove a movie",
       "bazarr_search_wanted": "Search for missing subtitles",
-      "bazarr_wanted": "List missing subtitles"
+      "bazarr_wanted": "List missing subtitles",
+      "sonarr_status": "Sonarr status",
+      "sonarr_upcoming": "Upcoming episodes",
+      "sonarr_queue": "Download queue",
+      "sonarr_series_info": "Look up a series",
+      "sonarr_add_series": "Add a series",
+      "sonarr_remove_series": "Remove a series",
+      "sonarr_search_missing": "Search for missing episodes",
+      "sonarr_refresh": "Refresh series library"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5490,6 +5498,23 @@
       "fetch_failed": "Radarr fetch failed",
       "storage": "Storage",
       "disk_free_short": "free"
+    },
+    "sonarr": {
+      "api_key_label": "Sonarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Sonarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch the library summary. Found in Sonarr under Settings → General → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Sonarr (5–3600s). Leave blank for the app default (60s).",
+      "series": "Series",
+      "missing": "Missing eps",
+      "downloading": "Downloading",
+      "monitored": "Monitored",
+      "storage": "Storage",
+      "disk_free_short": "free",
+      "health_issues_n": "{n} health issue(s)",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Sonarr data…",
+      "fetch_failed": "Sonarr fetch failed"
     }
   }
 }

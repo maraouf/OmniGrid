@@ -31,6 +31,7 @@ from . import bazarr
 from . import pihole
 from . import radarr
 from . import seerr
+from . import sonarr
 from . import speedtest_tracker
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
@@ -55,6 +56,7 @@ _register(bazarr)
 _register(pihole)
 _register(radarr)
 _register(seerr)
+_register(sonarr)
 _register(speedtest_tracker)
 
 
