@@ -58,11 +58,28 @@
                  :class="(Number(radarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="radarrCount(radarrData(inst).queue)"></div>
           </div>
-          <!-- Disk free (largest library volume) -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-ups-label" x-text="t('apps.radarr.disk_free') || 'Disk free'"></div>
-            <div class="apps-card-ups-value" x-text="radarrGb(radarrData(inst).disk_free_gb)"></div>
-          </div>
+        </div>
+        <!-- Storage — every mount Radarr reports (root / library volume /
+             remote shares), each with free / total + a usage bar. Replaces
+             the single largest-disk stat so multi-disk libraries show in
+             full. -->
+        <div x-show="radarrDisks(inst).length" class="mt-2 space-y-1.5">
+          <div class="apps-card-ups-label" x-text="t('apps.radarr.storage') || 'Storage'"></div>
+          <template x-for="m in radarrDisks(inst)" :key="m.path">
+            <div>
+              <div class="flex items-center justify-between gap-2 fs-3xs">
+                <span class="mono truncate text-[var(--text-dim)]" :title="m.path" x-text="m.path"></span>
+                <span class="mono text-[var(--text-faint)] flex-shrink-0"
+                      x-text="(t('apps.radarr.disk_free_short') || 'free') + ' ' + radarrSize(m.free_gb) + ' / ' + radarrSize(m.total_gb)"></span>
+              </div>
+              <div class="stat-bar mt-0.5" :class="barLevel(radarrDiskUsedPct(m))"
+                   role="progressbar" :aria-valuenow="radarrDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
+                   :aria-label="m.path + ' ' + radarrDiskUsedPct(m) + '% used'"
+                   :style="'--w: ' + radarrDiskUsedPct(m) + '%'">
+                <div class="fill"></div>
+              </div>
+            </div>
+          </template>
         </div>
         <!-- Footnote: version + health issues (when reported). -->
         <div x-show="radarrData(inst).version || (Number(radarrData(inst).health_issues) || 0) > 0"

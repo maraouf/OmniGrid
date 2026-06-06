@@ -10002,15 +10002,19 @@
               </div>
               <div class="flex items-center gap-1 flex-shrink-0">
                 <!-- Top refresh — re-probes every instance + force-refreshes
-                     the per-app card data for the open app (mirrors the host
-                     drawer's header refresh). Spins for the whole operation. -->
-                <button type="button" @click="refreshAppDrawer(drawerApp)" class="user-action-btn"
+                     the per-app card data for the open app. Exact same button
+                     as the host drawer's header refresh (btn btn-ghost + icon +
+                     "Refresh" label, spins for the whole operation). -->
+                <button type="button"
                         :disabled="appDrawerRefreshing(drawerApp)"
-                        :aria-label="t('apps.drawer.refresh') || 'Refresh'"
-                        :title="t('apps.drawer.refresh_title') || 'Re-probe and refresh this app’s data'">
-                  <svg width="14" height="14" :class="appDrawerRefreshing(drawerApp) ? 'spin-md' : ''" aria-hidden="true">
+                        @click.stop="refreshAppDrawer(drawerApp)"
+                        class="btn btn-ghost fs-xs flex items-center gap-1.5"
+                        :title="t('apps.drawer.refresh_title') || 'Re-probe and refresh this app’s data'"
+                        :aria-label="t('apps.drawer.refresh') || 'Refresh'">
+                  <svg width="13" height="13" :class="appDrawerRefreshing(drawerApp) ? 'spin-md' : ''" aria-hidden="true">
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
                   </svg>
+                  <span x-text="t('apps.drawer.refresh') || 'Refresh'"></span>
                 </button>
                 <button type="button" @click="closeAppDrawer()" class="user-action-btn"
                         :aria-label="t('actions.close')" :title="t('actions.close')">

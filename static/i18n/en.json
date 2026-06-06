@@ -5480,7 +5480,9 @@
       "health_issues_n": "{n} health issue(s)",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Radarr data…",
-      "fetch_failed": "Radarr fetch failed"
+      "fetch_failed": "Radarr fetch failed",
+      "storage": "Storage",
+      "disk_free_short": "free"
     }
   }
 }
