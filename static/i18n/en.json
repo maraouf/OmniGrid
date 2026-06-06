@@ -5252,7 +5252,8 @@
       "episodes_missing": "Episodes missing",
       "movies_missing": "Movies missing",
       "providers_throttled": "Throttled providers",
-      "health_issues": "Health issues"
+      "health_issues": "Health issues",
+      "loading": "Loading Bazarr data…"
     },
     "seerr": {
       "api_key_label": "Seerr API key",
@@ -5277,7 +5278,8 @@
       "available": "Available",
       "total": "Total",
       "issues_open": "Open issues",
-      "request_btn": "Request on Seerr"
+      "request_btn": "Request on Seerr",
+      "loading": "Loading Seerr data…"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",

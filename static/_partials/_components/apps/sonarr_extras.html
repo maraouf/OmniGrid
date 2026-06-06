@@ -83,8 +83,9 @@
     </template>
     <!-- Loading — first fetch in flight. -->
     <template x-if="!sonarrData(inst) && appsAppDataStatus(inst) === 'pending'">
-      <p class="fs-xs text-[var(--text-faint)] italic"
-         x-text="t('apps.sonarr.loading') || 'Loading Sonarr data…'"></p>
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.sonarr.loading') || 'Loading Sonarr data…'"></span></p>
     </template>
     <!-- Error — upstream fetch failed. -->
     <template x-if="!sonarrData(inst) && appsAppDataStatus(inst) === 'error'">

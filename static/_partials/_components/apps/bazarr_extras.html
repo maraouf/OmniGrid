@@ -57,3 +57,10 @@
          x-text="'Bazarr ' + (bazarrData(inst).version || '')"></div>
   </div>
 </template>
+<!-- Loading — first fetch in flight (panel above gates on bazarrData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="bazarrIsApp && bazarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !bazarrData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.bazarr.loading') || 'Loading Bazarr data…'"></span></p>
+</template>

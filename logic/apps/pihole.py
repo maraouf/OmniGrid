@@ -146,7 +146,12 @@ def _sid_key(base: str, password: str) -> str:
     Keyed HMAC is the appropriate construction here (a fast password hash like
     bare SHA-256 would be wrong for password *storage*, but this is an
     in-memory cache key, not stored credentials)."""
-    digest = hmac.new(_SID_KEY_SECRET, password.encode(), "sha256").hexdigest()
+    # codeql[py/weak-sensitive-data-hashing] — FALSE POSITIVE: this is a KEYED
+    # HMAC (per-process secret) used ONLY as an in-memory cache-key
+    # discriminator, NOT password storage. A slow/expensive password hash
+    # (bcrypt / argon2) would be WRONG here — it's recomputed on every request
+    # and the digest is never stored or logged. See the docstring above.
+    digest = hmac.new(_SID_KEY_SECRET, password.encode(), "sha256").hexdigest()  # codeql[py/weak-sensitive-data-hashing]
     return base + "|" + digest[:16]
 
 

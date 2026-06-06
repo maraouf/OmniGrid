@@ -78,8 +78,9 @@
         </template>
         <!-- Loading / error states. -->
         <template x-if="!agg.ready && agg.loading">
-          <p class="fs-xs text-[var(--text-faint)] italic"
-             x-text="t('apps.pihole.loading') || 'Loading Pi-hole stats…'"></p>
+          <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+            <span class="spin" aria-hidden="true"></span>
+            <span x-text="t('apps.pihole.loading') || 'Loading Pi-hole stats…'"></span></p>
         </template>
         <template x-if="!agg.ready && !agg.loading">
           <p class="fs-xs text-[var(--danger)] italic"

@@ -941,6 +941,13 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
     if not hosts:
         await _listener()._send_reply(client, "No curated hosts configured.")
         return
+    # /hosts now resolves the CANONICAL status (snapshot + reconcile + a
+    # bounded per-host re-probe), which takes a couple seconds — show a
+    # "working" placeholder so the chat isn't silent, then edit it in place
+    # with the result (None-safe: a failed send just falls through to a
+    # fresh reply at the end).
+    placeholder_id = await _listener()._send_reply(
+        client, "🔄 <i>Checking host status…</i>")
     paused_set = _load_host_paused_set()
     # Classify by the CANONICAL host status — the SAME effective view the web
     # Hosts page shows (snapshot + reconcile + per-host re-probe), via the
@@ -1034,7 +1041,9 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
             "limit — use the SPA's Hosts view for the full list.</i>"
         )
 
-    await _listener()._send_reply(client, "\n".join(out_lines))
+    # Edit the working placeholder in place with the result (falls back to a
+    # fresh reply if the placeholder send failed / the edit is rejected).
+    await _listener()._replace_placeholder(client, placeholder_id, "\n".join(out_lines))
 
 
 def _fmt_uptime(seconds: float | int | None) -> str:

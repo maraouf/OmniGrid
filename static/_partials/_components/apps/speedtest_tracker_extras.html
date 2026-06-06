@@ -174,8 +174,9 @@
          x-text="t('apps.speedtest.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
     </template>
     <template x-if="appsAppDataStatus(inst) === 'pending'">
-      <p class="fs-xs text-[var(--text-faint)] italic"
-         x-text="t('apps.speedtest.loading') || 'Loading speedtest data...'"></p>
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.speedtest.loading') || 'Loading speedtest data...'"></span></p>
     </template>
     <template x-if="appsAppDataStatus(inst) === 'error'">
       <p class="fs-xs text-[var(--danger)] italic"
