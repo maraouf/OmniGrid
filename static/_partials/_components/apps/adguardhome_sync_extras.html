@@ -67,6 +67,10 @@
         <div x-show="adguardsyncFailed(inst).length"
              class="fs-3xs text-[var(--danger)] mt-1"
              x-text="(t('apps.adguardsync.failing') || 'Failing') + ': ' + adguardsyncFailed(inst).join(', ')"></div>
+        <!-- Version footnote (best-effort scrape from the sync web UI). -->
+        <div x-show="adguardsyncData(inst).version"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+             x-text="'AdGuard Home Sync ' + (adguardsyncData(inst).version || '')"></div>
       </div>
     </template>
     <!-- Loading — first fetch in flight. -->

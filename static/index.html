@@ -10233,7 +10233,13 @@
                          divider (mt-3 / pt-3 / border-t) so the card border is the
                          only frame. Same gating + data path the app CARD uses. -->
                     <template x-for="app in [drawerApp]" :key="'extras:' + inst.host_id + ':' + inst.service_idx">
-                      <template x-if="anyAppExtrasMatch(app)">
+                      <!-- Gate on appsShowExtras TOO (not just anyAppExtrasMatch):
+                           anyAppExtrasMatch only says "this app HAS an extras
+                           partial", but the inner partial also gates on
+                           appsShowExtras (the per-instance toggle / compact-card
+                           default-off). Without this, an app with extras toggled
+                           off rendered an EMPTY bordered box here. -->
+                      <template x-if="anyAppExtrasMatch(app) && appsShowExtras(app, inst, null)">
                         <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box">
                           <!-- INCLUDE: _components/apps/_all_extras.html -->
                         </div>

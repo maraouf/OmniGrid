@@ -50,10 +50,18 @@ API reference: https://github.com/bakito/adguardhome-sync
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Optional
 
 import httpx
+
+# The sync API exposes NO version field (status / metrics carry none — the
+# version lives ONLY in the root web-UI page, rendered as
+# ``<p class="h6 text-muted mb-0">{{ .Version }} ({{ .Build }})</p>``). We
+# best-effort scrape it from ``GET /`` so the card shows a version like every
+# other app; a scrape miss just drops the version line (never load-bearing).
+_VERSION_RE = re.compile(r'class="h6 text-muted mb-0"\s*>\s*(?P<version>[^<(]+?)\s*\(', re.I)
 
 from logic.apps._common import (
     cache_key, fetch_preamble, peek_cache, resolve_base_url, resolve_cache_ttl)
@@ -171,6 +179,33 @@ def _shape_status(body: Any) -> dict:
     }
 
 
+def _scrape_version(html: Any) -> str:
+    """Best-effort: pull the app version out of the root web-UI page (the
+    only place the sync tool exposes it). Returns ``""`` on any miss — the
+    version line is never load-bearing."""
+    if not isinstance(html, str) or not html:
+        return ""
+    m = _VERSION_RE.search(html)
+    if not m:
+        return ""
+    return (m.group("version") or "").strip()[:40]
+
+
+async def _fetch_version(cli: httpx.AsyncClient, base: str) -> str:
+    """Best-effort version scrape from ``GET /`` on an already-open client.
+    ``""`` on any failure (auth / non-200 / no match) — never raises."""
+    try:
+        rr = await cli.get(base + "/")
+    except (httpx.HTTPError, OSError):
+        return ""
+    if getattr(rr, "status_code", 0) != 200:
+        return ""
+    try:
+        return _scrape_version(rr.text)
+    except (ValueError, TypeError):
+        return ""
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                           payload: Optional[dict] = None, **_kw) -> dict:
     """Probe ``GET /api/v1/status`` with the candidate Basic-auth creds (or
@@ -231,10 +266,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     auth = _auth(chip)
     url = base + "/api/v1/status"
     print(f"[adguardsync] INFO fetch host={host_id} svc_idx={service_idx} url={url}")
+    version = ""
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
                                      follow_redirects=True, auth=auth) as cli:
             r = await cli.get(url, headers={"Accept": "application/json"})
+            # Best-effort version scrape from the root web-UI page (the only
+            # place the sync tool exposes it) — reuse the open client; a miss
+            # just drops the version line.
+            if getattr(r, "status_code", 0) == 200:
+                version = await _fetch_version(cli, base)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[adguardsync] error: fetch host={host_id} url={url} "
               f"failed — {type(e).__name__}: {e}")
@@ -252,7 +293,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
     except (ValueError, TypeError):  # noqa: BLE001
         raise RuntimeError("upstream returned non-JSON")
     shaped = _shape_status(body)
-    out: dict[str, Any] = {"available": True, "fetched_at": int(now), **shaped}
+    out: dict[str, Any] = {"available": True, "fetched_at": int(now),
+                           "version": version, **shaped}
     print(f"[adguardsync] INFO fetched host={host_id} running={out['sync_running']} "
           f"origin_ok={out['origin_ok']} replicas_ok={out['replicas_ok']}/"
           f"{out['replicas_total']}")
@@ -273,6 +315,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "replicas_ok": safe_int(data.get("replicas_ok")),
         "replicas_total": safe_int(data.get("replicas_total")),
         "replicas_failed": safe_int(data.get("replicas_failed")),
+        "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -339,10 +382,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if failed:
         lines.append("❌ Failing: " + ", ".join(str(f) for f in failed))
+    version = str(data.get("version") or "").strip()
+    if version:
+        lines.append(f"🏷️ Version: {version}")
     return {
         "ok": True, "status": 200, "detail": "\n".join(lines),
         "sync_running": running, "origin_ok": origin_ok,
-        "replicas_ok": rep_ok, "replicas_total": rep_total,
+        "replicas_ok": rep_ok, "replicas_total": rep_total, "version": version,
     }
 
 
