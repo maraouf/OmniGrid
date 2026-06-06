@@ -316,6 +316,10 @@ function app() {
     // Free-text filter for the Admin → Apps → Instances table (name /
     // catalog / host / port). Client-side over appsInstances.
     appsInstancesSearch: '',
+    // When true, the Admin → Apps → Instances table shows ONLY instances of
+    // apps that have a per-app module (extras-capable). In-memory, resets on
+    // reload — mirrors the Apps-page appsExtrasOnly filter.
+    appsInstancesExtrasOnly: false,
     // Searchable Link-to-Docker combobox (instance editor): filter text +
     // dropdown-open flag.
     appsDockerLinkSearch: '',

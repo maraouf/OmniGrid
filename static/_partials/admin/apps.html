@@ -366,7 +366,19 @@
                  :placeholder="t('admin_apps.instances_search_placeholder') || 'Search instances by name, host, or port…'"
                  :aria-label="t('admin_apps.instances_search_placeholder') || 'Search instances'">
         </div>
-        <span x-show="appsInstancesSearch.trim()" class="fs-2xs text-[var(--text-faint)] flex-shrink-0 whitespace-nowrap"
+        <!-- "Extras only" capability filter — show only instances of apps
+             that have a rich card / AI skills (extras-capable). -->
+        <button type="button" class="chip fs-2xs inline-flex items-center gap-1 flex-shrink-0"
+                :class="appsInstancesExtrasOnly ? 'pill-info' : 'pill-muted'"
+                :aria-pressed="appsInstancesExtrasOnly"
+                @click="appsInstancesExtrasOnly = !appsInstancesExtrasOnly"
+                :title="t('admin_apps.instances_extras_only_title') || 'Show only instances of apps with a rich card / AI skills'">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+          <span x-text="t('admin_apps.instances_extras_only') || 'Extras only'"></span>
+        </button>
+        <span x-show="appsInstancesSearch.trim() || appsInstancesExtrasOnly" class="fs-2xs text-[var(--text-faint)] flex-shrink-0 whitespace-nowrap"
               x-text="t('admin_apps.search_count', { shown: appsInstancesMatchCount(), total: appsInstances.length }) || (appsInstancesMatchCount() + ' / ' + appsInstances.length)"></span>
       </div>
     </div>

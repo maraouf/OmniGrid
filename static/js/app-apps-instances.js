@@ -156,9 +156,24 @@ export default {
     return hay.includes(q);
   },
 
+  // True when an instance's app TEMPLATE has a per-app module (extras-
+  // capable). Resolves via the shared appsTemplateSupportsExtras() (walks
+  // window.OG_APPS_EXTENDERS), keyed on the chip's catalog slug / name.
+  _appsInstanceHasExtras(inst) {
+    if (!inst) {
+      return false;
+    }
+    return this.appsTemplateSupportsExtras(
+      inst.catalog_slug || inst.catalog_name || inst.name || '');
+  },
+
   appsInstancesMatchCount() {
     const q = (this.appsInstancesSearch || '').trim().toLowerCase();
-    const list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
+    const ef = !!this.appsInstancesExtrasOnly;
+    let list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
+    if (ef) {
+      list = list.filter((inst) => this._appsInstanceHasExtras(inst));
+    }
     if (!q) {
       return list.length;
     }
@@ -168,6 +183,9 @@ export default {
   appsInstancesGroups() {
     let list = Array.isArray(this.appsInstances) ? this.appsInstances : [];
     const q = (this.appsInstancesSearch || '').trim().toLowerCase();
+    if (this.appsInstancesExtrasOnly) {
+      list = list.filter((inst) => this._appsInstanceHasExtras(inst));
+    }
     if (q) {
       list = list.filter((inst) => this.appsInstancesMatch(inst, q));
     }
