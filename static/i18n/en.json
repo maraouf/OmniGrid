@@ -5427,7 +5427,15 @@
       "adguardsync_status": "AdGuard sync status",
       "adguardsync_sync": "Sync now",
       "adguardsync_logs": "Recent sync logs",
-      "adguardsync_clear_logs": "Clear sync logs"
+      "adguardsync_clear_logs": "Clear sync logs",
+      "lidarr_status": "Lidarr status",
+      "lidarr_upcoming": "Upcoming albums",
+      "lidarr_queue": "Download queue",
+      "lidarr_artist_info": "Look up an artist",
+      "lidarr_add_artist": "Add an artist",
+      "lidarr_remove_artist": "Remove an artist",
+      "lidarr_search_missing": "Search for missing albums",
+      "lidarr_refresh": "Refresh music library"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5550,6 +5558,23 @@
     },
     "extras_filter_label": "Filter by extras",
     "filter_extras_only": "Extras only",
-    "filter_extras_only_title": "Show only apps with a rich card / AI skills"
+    "filter_extras_only_title": "Show only apps with a rich card / AI skills",
+    "lidarr": {
+      "api_key_label": "Lidarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Lidarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch the library summary. Found in Lidarr under Settings → General → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Lidarr (5–3600s). Leave blank for the app default (60s).",
+      "artists": "Artists",
+      "missing": "Missing albums",
+      "downloading": "Downloading",
+      "monitored": "Monitored",
+      "storage": "Storage",
+      "disk_free_short": "free",
+      "health_issues_n": "{n} health issue(s)",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Lidarr data…",
+      "fetch_failed": "Lidarr fetch failed"
+    }
   }
 }

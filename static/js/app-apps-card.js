@@ -326,7 +326,10 @@ export default {
       }
       for (const s of e.slugs) {
         const needle = String(s).toLowerCase();
-        if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
+        // Exact slug wins; loose name-substring only as a de-linked-chip
+        // fallback (no slug) — see anyAppAggExtrasMatch for the full rationale
+        // (a short alias like 'adguard' must not match "AdGuard Home Sync").
+        if (slug === needle || (!slug && needle && name.indexOf(needle) !== -1)) {
           matched = true;
           break;
         }
@@ -360,7 +363,17 @@ export default {
       }
       for (const s of e.slugs) {
         const needle = String(s).toLowerCase();
-        if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
+        // Exact catalog-slug match ALWAYS wins. The loose name-substring
+        // match is a FALLBACK only for de-linked chips (no catalog slug) —
+        // without this guard a short alias like 'adguard' substring-matches
+        // a DIFFERENT app whose NAME merely contains it (e.g. "AdGuard Home
+        // Sync", slug "adguardhome-sync"), wrongly pulling in the app-level
+        // (fleet) card AND suppressing that app's own per-instance skill card
+        // (gated on !anyAppAggExtrasMatch) — i.e. "no actions" + an empty box.
+        if (slug === needle) {
+          return true;
+        }
+        if (!slug && needle && name.indexOf(needle) !== -1) {
           return true;
         }
       }
