@@ -858,13 +858,30 @@ export default {
           return;
         }
         console.log('[live] event=public_ip:changed ' + (p.prev_ip || '?') + ' → ' + p.ip);
+        // Mirror the FULL /api/public-ip success shape: a change event is a
+        // confirmed-fresh, enabled, non-stale lookup. `enabled: true` is
+        // load-bearing — the topbar + Apps widget tiles gate their
+        // disabled/empty state on `publicIp.enabled`, and the delete-then-
+        // assign reconcile below strips any key absent from `fresh`. Omitting
+        // it (or last_change) made the Apps Public-IP tile render
+        // "lookup disabled" after a change even though the feature was on.
         const fresh = {
+          enabled: true,
           ip: p.ip, isp: p.isp || '', asn: p.asn || '',
           country: p.country || '', country_code: p.country_code || '',
           city: p.city || '',
+          last_change: {
+            ts: p.ts || Math.floor(Date.now() / 1000),
+            ip: p.ip, isp: p.isp || '', asn: p.asn || '',
+            country: p.country || '', city: p.city || '',
+            country_code: p.country_code || '',
+            prev_ip: p.prev_ip || '', prev_ts: 0,
+          },
         };
         // In-place reconcile (same anti-flicker pattern as _ensurePublicIp):
         // mutate the existing object so Alpine keeps the bound subtree.
+        // Delete-then-assign clears any prior _stale / error keys (this is a
+        // fresh success) while keeping the bound object reference stable.
         if (this.publicIp && typeof this.publicIp === 'object') {
           Object.keys(this.publicIp).forEach((k) => {
             if (!(k in fresh)) {

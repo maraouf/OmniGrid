@@ -5444,7 +5444,9 @@
       "raw_json": "Raw debug JSON",
       "probe_done": "Probe complete",
       "skills_title": "App skills",
-      "probe_failed": "Probe failed: "
+      "probe_failed": "Probe failed: ",
+      "refresh": "Refresh",
+      "refresh_title": "Re-probe and refresh this app’s data"
     },
     "host_drawer": {
       "title": "Host apps",

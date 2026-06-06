@@ -10000,12 +10000,25 @@
                   </div>
                 </div>
               </div>
-              <button type="button" @click="closeAppDrawer()" class="user-action-btn"
-                      :aria-label="t('actions.close')" :title="t('actions.close')">
-                <svg width="14" height="14" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
-                </svg>
-              </button>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <!-- Top refresh — re-probes every instance + force-refreshes
+                     the per-app card data for the open app (mirrors the host
+                     drawer's header refresh). Spins for the whole operation. -->
+                <button type="button" @click="refreshAppDrawer(drawerApp)" class="user-action-btn"
+                        :disabled="appDrawerRefreshing(drawerApp)"
+                        :aria-label="t('apps.drawer.refresh') || 'Refresh'"
+                        :title="t('apps.drawer.refresh_title') || 'Re-probe and refresh this app’s data'">
+                  <svg width="14" height="14" :class="appDrawerRefreshing(drawerApp) ? 'spin-md' : ''" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+                  </svg>
+                </button>
+                <button type="button" @click="closeAppDrawer()" class="user-action-btn"
+                        :aria-label="t('actions.close')" :title="t('actions.close')">
+                  <svg width="14" height="14" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <!-- Catalog binding -->

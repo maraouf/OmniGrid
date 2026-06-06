@@ -32,6 +32,55 @@ export default {
     this.appDebugOpen = {};
   },
 
+  // Header refresh affordance for the App drawer — mirrors the host
+  // drawer's top refresh button. ONE click re-probes reachability for
+  // every instance of the open app AND force-re-fetches each instance's
+  // per-app card data (Radarr / Seerr / Bazarr / … expanded panels),
+  // bypassing the backend caches. Reuses the existing probeAllInstances
+  // (probe fan-out + apps-list reload, updates status dots / rtt in place)
+  // and loadAppData(inst, true) (per-instance force refresh) so there is no
+  // parallel fetch path to drift. `_appDrawerRefreshing[group_id]` drives
+  // the button spinner for the WHOLE operation (both probe + data).
+  async refreshAppDrawer(app) {
+    if (!app) {
+      return;
+    }
+    const gid = app.group_id;
+    if (!this._appDrawerRefreshing) {
+      this._appDrawerRefreshing = {};
+    }
+    if (this._appDrawerRefreshing[gid]) {
+      return;
+    }
+    // Snapshot the instance targets up front — probeAllInstances ->
+    // loadAppsList(true) reconciles app.instances in place, so iterating
+    // the live array could skip/repeat (same reason probeAllInstances
+    // snapshots its own targets).
+    const targets = (Array.isArray(app.instances) ? app.instances : [])
+      .filter((i) => i && i.host_id != null && i.service_idx != null)
+      .map((i) => ({host_id: i.host_id, service_idx: i.service_idx}));
+    this._appDrawerRefreshing[gid] = true;
+    try {
+      const probeP = (typeof this.probeAllInstances === 'function')
+        ? this.probeAllInstances(app)
+        : Promise.resolve();
+      const dataP = Promise.all(targets.map((t) =>
+        (typeof this.loadAppData === 'function')
+          ? this.loadAppData(t, true)
+          : Promise.resolve()));
+      await Promise.all([probeP, dataP]);
+    } finally {
+      this._appDrawerRefreshing[gid] = false;
+    }
+  },
+
+  // True while refreshAppDrawer is in flight for this app — drives the
+  // header refresh button's spin + disabled state.
+  appDrawerRefreshing(app) {
+    return !!(app && this._appDrawerRefreshing
+      && this._appDrawerRefreshing[app.group_id]);
+  },
+
   // Re-point an open App drawer to the matching refreshed group (by
   // group_id) after an apps reload, so edits made elsewhere (the
   // instance editor) reflect in the open drawer. No-op when the drawer
