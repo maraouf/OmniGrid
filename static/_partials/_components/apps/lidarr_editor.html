@@ -61,7 +61,7 @@
          x-text="t('apps.lidarr.cache_ttl_hint') || 'How long the fetched library summary is cached before re-querying Lidarr (5–3600s). Leave blank for the app default (60s).'"></p>
     </div>
     <!-- Shared Test-connection unit. -->
-    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
   </div>

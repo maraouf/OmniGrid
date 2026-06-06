@@ -31,6 +31,12 @@
     - tcSuccessKey: provider key for lastTestSuccessLabel(...) — when set,
                     renders the "✓ Last connected Xm ago" chip beside the
                     button.
+    - tcLastTs    : () => number — a raw epoch-seconds timestamp (e.g. a
+                    per-app-instance chip's `last_test_ok_ts`). When it returns
+                    a truthy value, renders the same "✓ Last tested Xm ago" chip
+                    via appsInstanceLastTestedLabel(...). Use INSTEAD of
+                    tcSuccessKey when there's no global provider key (per-app
+                    instances are keyed per host+service, not a fixed list).
     - tcExtraClass: extra Tailwind classes on the button.
 
   Gating: this component is gating-AGNOSTIC. The consumer keeps its own
@@ -59,6 +65,13 @@
           class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1">
       <span aria-hidden="true">✓</span>
       <span x-text="$data['tcSuccessKey'] ? lastTestSuccessLabel($data['tcSuccessKey']) : ''"></span>
+    </span>
+    <!-- Per-app-instance "last tested" chip — driven by a raw timestamp
+         (tcLastTs) rather than a global provider key (tcSuccessKey). -->
+    <span x-show="typeof $data['tcLastTs'] === 'function' && $data['tcLastTs']() && appsInstanceLastTestedLabel($data['tcLastTs']())"
+          class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1">
+      <span aria-hidden="true">✓</span>
+      <span x-text="(typeof $data['tcLastTs'] === 'function' && $data['tcLastTs']()) ? appsInstanceLastTestedLabel($data['tcLastTs']()) : ''"></span>
     </span>
   </div>
   <div x-show="tcResult()"

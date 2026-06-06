@@ -1348,6 +1348,18 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["cache_ttl"] = max(5, min(3600, int(ct)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance last-successful-test timestamp (epoch seconds) — written
+        # by the test-credential route on a passing Test, surfaced via
+        # iter_instances → the editor's "✓ Last tested Xm ago" chip. Bounded
+        # positive int; round-trips so a chip edit doesn't wipe it.
+        lt = entry.get("last_test_ok_ts")
+        if isinstance(lt, (int, str)) and str(lt).strip() != "":
+            try:
+                _lti = int(lt)
+                if _lti > 0:
+                    cleaned["last_test_ok_ts"] = _lti
+            except (TypeError, ValueError):
+                pass
         # Per-instance Seerr "suggest a movie" pool sizing — operator
         # override of the module defaults (8 / 200). Clamp each; blank /
         # unparseable omits the field so the default applies. Plain ints,

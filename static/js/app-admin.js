@@ -2555,26 +2555,42 @@ export default {
   // recorded yet (so the consumer's `x-show` collapses cleanly).
   // The relative-time math reads `_lastTestSuccessNow` so a 60s
   // tick refreshes every label without reloading.
-  lastTestSuccessLabel(key) {
-    const ts = (this._lastTestSuccess || {})[key];
+  // Shared relative-"ago" formatter for a raw epoch-seconds timestamp:
+  // 'just now' / 'Nm ago' / 'Nh ago' / 'Nd ago'. Reads `_lastTestSuccessNow`
+  // (the 60s tick) so every consumer refreshes without a reload. '' for a
+  // falsy ts. Used by both lastTestSuccessLabel (provider keys) AND
+  // appsInstanceLastTestedLabel (per-app-instance chips).
+  _relAgo(ts) {
     if (!ts) {
       return '';
     }
     const now = this._lastTestSuccessNow || Math.floor(Date.now() / 1000);
     const delta = Math.max(0, now - ts);
-    let rel;
     if (delta < 60) {
-      rel = this.t('common.just_now') || 'just now';
-    } else {
-      if (delta < 3600) {
-        rel = this.t('common.minutes_ago', {count: Math.floor(delta / 60)}) || `${Math.floor(delta / 60)}m ago`;
-      } else {
-        if (delta < 86400) {
-          rel = this.t('common.hours_ago', {count: Math.floor(delta / 3600)}) || `${Math.floor(delta / 3600)}h ago`;
-        } else {
-          rel = this.t('common.days_ago', {count: Math.floor(delta / 86400)}) || `${Math.floor(delta / 86400)}d ago`;
-        }
-      }
+      return this.t('common.just_now') || 'just now';
+    }
+    if (delta < 3600) {
+      return this.t('common.minutes_ago', {count: Math.floor(delta / 60)}) || `${Math.floor(delta / 60)}m ago`;
+    }
+    if (delta < 86400) {
+      return this.t('common.hours_ago', {count: Math.floor(delta / 3600)}) || `${Math.floor(delta / 3600)}h ago`;
+    }
+    return this.t('common.days_ago', {count: Math.floor(delta / 86400)}) || `${Math.floor(delta / 86400)}d ago`;
+  },
+  lastTestSuccessLabel(key) {
+    const rel = this._relAgo((this._lastTestSuccess || {})[key]);
+    if (!rel) {
+      return '';
+    }
+    return this.t('admin.last_connected_label', {rel: rel}) || `Last tested ${rel}`;
+  },
+  // "✓ Last tested Xm ago" label for a per-app-instance chip — takes the
+  // chip's `last_test_ok_ts` (epoch seconds, stamped by the test-credential
+  // route + surfaced via iter_instances). '' when never tested.
+  appsInstanceLastTestedLabel(ts) {
+    const rel = this._relAgo(Number(ts) || 0);
+    if (!rel) {
+      return '';
     }
     return this.t('admin.last_connected_label', {rel: rel}) || `Last tested ${rel}`;
   },

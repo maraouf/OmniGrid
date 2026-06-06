@@ -203,12 +203,19 @@ export default {
         body: JSON.stringify({api_key: f.api_key || '', username: f.username || '', url: f.url || ''}),
       });
       const j = await r.json().catch(() => ({}));
+      const _ok = !!(r.ok && j && j.ok);
       this.appsInstanceTestResult = {
         pending: false,
-        ok: !!(r.ok && j && j.ok),
+        ok: _ok,
         status: (j && j.status) || r.status,
         detail: (j && (j.detail || j.error)) || (r.ok ? 'OK' : 'HTTP ' + r.status),
       };
+      // Optimistically stamp the "✓ Last tested Xm ago" chip on a passing
+      // test (the backend also persists chip.last_test_ok_ts, hydrated via
+      // iter_instances on the next load) so the chip updates immediately.
+      if (_ok && this.appsInstanceEditForm) {
+        this.appsInstanceEditForm.last_test_ok_ts = Math.floor(Date.now() / 1000);
+      }
     } catch (err) {
       this.appsInstanceTestResult = {
         pending: false,

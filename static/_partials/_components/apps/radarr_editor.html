@@ -72,7 +72,7 @@
          Portainer / OIDC admin panels) so the per-app editor never drifts
          on style. tcRun is the per-app test fn; tcResult is its reactive
          {pending, ok, detail} result. -->
-    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
       <!-- INCLUDE: _components/og-test-connection.html -->
     </div>
   </div>

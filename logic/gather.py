@@ -818,6 +818,38 @@ def _parse_docker_ts(ts) -> Optional[float]:
         return None
 
 
+# OCI / common image-version label keys, highest-confidence first. The
+# OpenContainers spec key is the modern standard; org.label-schema is its
+# deprecated predecessor; bare `version` / `app.version` cover images that set
+# a plain label. Used to surface a RUNNING app version in the item drawer when
+# the image tag itself is uninformative (e.g. every app pinned to `:latest`).
+_IMAGE_VERSION_LABEL_KEYS: tuple[str, ...] = (
+    "org.opencontainers.image.version",
+    "org.label-schema.version",
+    "version",
+    "app.version",
+)
+
+
+def _extract_app_version(labels: Any) -> str:
+    """Pull a human app version out of a Docker labels dict, trying the OCI
+    version label first, then common fallbacks. Returns ``""`` when no label
+    is present or the value is a digest / obviously-not-a-version string.
+    Caps length so a stray long label can't bloat the item payload."""
+    if not isinstance(labels, dict):
+        return ""
+    for key in _IMAGE_VERSION_LABEL_KEYS:
+        v = labels.get(key)
+        if not isinstance(v, str):
+            continue
+        v = v.strip()
+        # Reject empties, sha digests, and the useless 'latest' (no signal).
+        if not v or v.lower() in ("latest", "unknown") or v.startswith("sha256:"):
+            continue
+        return v[:40]
+    return ""
+
+
 def _extract_service_ports(svc: dict) -> list[dict]:
     """Return ``[{published, target, protocol}, …]`` for a Swarm service.
 
@@ -1789,6 +1821,10 @@ async def _gather_impl() -> None:
         # Cache image-inspect results within this gather so services sharing an
         # image don't trigger N image-inspect calls.
         image_digest_cache: dict[str, Optional[str]] = {}
+        # image_id -> OCI app version label (or "" when none). Populated as a
+        # side-effect of _digest_for_image_id (which already inspects the image)
+        # so service items can resolve a version without an extra round-trip.
+        image_version_cache: dict[str, str] = {}
 
         async def _digest_for_image_id(image_id: str) -> Optional[str]:
             if not image_id:
@@ -1797,6 +1833,9 @@ async def _gather_impl() -> None:
                 return image_digest_cache[image_id]
             try:
                 img_doc = await portainer.pg(client, f"{ep}/images/{image_id}/json")
+                # Cache the image's OCI version label while we have the doc open.
+                image_version_cache[image_id] = _extract_app_version(
+                    (img_doc.get("Config") or {}).get("Labels") or {})
                 for repo_digest in img_doc.get("RepoDigests") or []:
                     if "@" in repo_digest:
                         digest = repo_digest.split("@", 1)[1]
@@ -1966,12 +2005,32 @@ async def _gather_impl() -> None:
             else:
                 health = "healthy"
 
+            # Running app version. The image tag is often uninformative
+            # (everything pinned to :latest), so surface the OCI version label:
+            # try the service's running container's Labels (Docker merges the
+            # image's labels in), then the image-version cache (filled if we
+            # inspected the image for a digest above), then the service /
+            # ContainerSpec deploy labels. Zero extra round-trips.
+            svc_app_version = ""
+            for _vc in containers_by_service.get(svc["ID"], []):
+                svc_app_version = _extract_app_version(_vc.get("Labels") or {})
+                if svc_app_version:
+                    break
+                _vid = _vc.get("ImageID") or _vc.get("Image")
+                if _vid and image_version_cache.get(_vid):
+                    svc_app_version = image_version_cache[_vid]
+                    break
+            if not svc_app_version:
+                svc_app_version = (_extract_app_version(cs.get("Labels") or {})
+                                   or _extract_app_version(labels))
+
             items.append({
                 "id": f"svc:{svc['ID'][:12]}",
                 "raw_id": svc["ID"],
                 "name": spec.get("Name", ""),
                 "type": "service",
                 "image": image_name_tag,
+                "app_version": svc_app_version,
                 "tag": registry.tag_of(image_name_tag),
                 "current_digest": current_digest,
                 "stack": stack_name,
@@ -2053,6 +2112,7 @@ async def _gather_impl() -> None:
                 node_name = "local"
 
             current_digest = None
+            cont_app_version = ""
             try:
                 # `headers(agent_target=...)` skips the
                 # X-PortainerAgent-Target header for "local" / "" /
@@ -2063,6 +2123,10 @@ async def _gather_impl() -> None:
                     f"{ep}/images/{cont['ImageID']}/json",
                     agent_target=node_name,
                 )
+                # OCI version label from the image (authoritative for the
+                # running version when the tag is just :latest).
+                cont_app_version = _extract_app_version(
+                    (img.get("Config") or {}).get("Labels") or {})
                 for rd in img.get("RepoDigests") or []:
                     if "@" in rd:
                         current_digest = rd.split("@", 1)[1]
@@ -2089,11 +2153,17 @@ async def _gather_impl() -> None:
             else:
                 health = "offline"
 
+            # Fall back to the container's own merged Labels when the image
+            # inspect didn't yield a version (404 on a purged orphan image, etc.).
+            if not cont_app_version:
+                cont_app_version = _extract_app_version(labels)
+
             items.append({
                 "id": f"ctn:{cont['Id'][:12]}",
                 "raw_id": cont["Id"],
                 "name": name,
                 "type": "orphan" if is_swarm_task else "container",
+                "app_version": cont_app_version,
                 "image": image_ref,
                 "tag": registry.tag_of(image_ref),
                 "current_digest": current_digest,
