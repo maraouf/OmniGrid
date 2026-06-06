@@ -49,7 +49,7 @@ export const KNOWN_DARK_ICONS = new Set([
 ]);
 
 export const KNOWN_ICONS = new Set([
-  '5g', 'adguard-home', 'alexa', 'alienware', 'amazon', 'amazon-dark', 'ansible',
+  '5g', 'adguard-home', 'adguard-home-sync', 'alexa', 'alienware', 'amazon', 'amazon-dark', 'ansible',
   'apache', 'apc', 'apc-ups', 'apple', 'apple-dark', 'apple-light', 'apple-tv-plus',
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'cloudflared', 'database',

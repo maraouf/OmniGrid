@@ -26,6 +26,7 @@ from typing import Any, Optional
 from logic.coerce import int_or_none
 
 from . import adguardhome
+from . import adguardhome_sync
 from . import apc
 from . import bazarr
 from . import pihole
@@ -51,6 +52,7 @@ def _register(module: ModuleType) -> None:
 
 
 _register(adguardhome)
+_register(adguardhome_sync)
 _register(apc)
 _register(bazarr)
 _register(pihole)
