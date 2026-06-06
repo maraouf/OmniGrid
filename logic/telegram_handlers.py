@@ -1837,6 +1837,36 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 
 # noinspection PyUnusedLocal
 # noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+def _cleanup_list_lines(removables: list, max_shown: int = 40) -> list[str]:
+    """Grouped-by-stack ``• <name> [stopped|orphan]`` lines for the cleanup
+    preview AND the execute reply, so the user always sees WHICH containers
+    are being removed (not just a count). Capped at ``max_shown`` for
+    Telegram's 4096-char wire limit; stacks sorted by descending member
+    count so the biggest groups surface first."""
+    by_stack: dict[str, list[dict]] = {}
+    for i in removables:
+        stack = i.get("stack") or "(no stack)"
+        by_stack.setdefault(stack, []).append(i)
+    out: list[str] = []
+    shown = 0
+    for stack in sorted(by_stack.keys(), key=lambda s: (-len(by_stack[s]), s)):
+        group = by_stack[stack]
+        out.append(f"<b>{_listener()._escape(stack)}</b> <i>({len(group)})</i>")
+        for i in group:
+            if shown >= max_shown:
+                break
+            name = i.get("name") or i.get("raw_id") or "(unknown)"
+            kind = i.get("type") or "container"
+            tag = "orphan" if kind == "orphan" else "stopped"
+            out.append(f"  • <code>{_listener()._escape(name)}</code> <i>[{tag}]</i>")
+            shown += 1
+        if shown >= max_shown:
+            break
+    if len(removables) > shown:
+        out.append(f"<i>…and {len(removables) - shown} more.</i>")
+    return out
+
+
 # Telegram handlers have a fixed (client, args, msg) signature
 # set by the dispatcher; not every handler uses all three. Every
 # `_listener()._X` access is the documented cross-module shim — see
@@ -1888,34 +1918,9 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             f"🧹 <b>{len(removables)} container(s) eligible for cleanup</b>",
             "",
         ]
-        # Group by stack for readability — matches the SPA's grouping.
-        by_stack: dict[str, list[dict]] = {}
-        for i in removables:
-            stack = i.get("stack") or "(no stack)"
-            by_stack.setdefault(stack, []).append(i)
-        # Cap visible items so the message stays under Telegram's 4096
-        # char wire limit. 40 is comfortable headroom. Sort stacks by
-        # DESCENDING per-stack count so an operator scanning a long
-        # list sees concentration first — pairs with the `(N)` count
-        # suffix added to each heading below.
-        shown = 0
-        max_shown = 40
-        for stack in sorted(by_stack.keys(), key=lambda s: (-len(by_stack[s]), s)):
-            group = by_stack[stack]
-            lines.append(f"<b>{_listener()._escape(stack)}</b> <i>({len(group)})</i>")
-            for i in group:
-                if shown >= max_shown:
-                    break
-                name = i.get("name") or i.get("raw_id") or "(unknown)"
-                kind = i.get("type") or "container"
-                tag = "orphan" if kind == "orphan" else "stopped"
-                lines.append(f"  • <code>{_listener()._escape(name)}</code> "
-                             f"<i>[{tag}]</i>")
-                shown += 1
-            if shown >= max_shown:
-                break
-        if len(removables) > shown:
-            lines.append(f"<i>…and {len(removables) - shown} more.</i>")
+        # Group-by-stack list (shared with the execute reply so both show
+        # WHICH containers, not just a count).
+        lines.extend(_cleanup_list_lines(removables))
         lines.append("")
         lines.append(_listener()._destructive_confirm_text(
             "/cleanup confirm",
@@ -1953,8 +1958,9 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
     await _listener()._send_reply(
         client,
-        f"🧹 Removing {len(removables)} container(s)… "
-        f"<i>(SPA tabs will refresh as each one completes)</i>"
+        f"🧹 <b>Removing {len(removables)} container(s)…</b>\n"
+        + "\n".join(_cleanup_list_lines(removables))
+        + "\n<i>(SPA tabs will refresh as each one completes)</i>"
     )
 
     spawned = 0
