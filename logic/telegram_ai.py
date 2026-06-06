@@ -713,6 +713,66 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             if up_now:
                 row["status"] = "up"
 
+        # AUTHORITATIVE pass — re-probe the hosts STILL flagged down/unknown
+        # via the SAME per-host path the SPA fans out (`api_hosts_one` →
+        # `_hosts_one_inner` + `_shape_host_api_row`). `api_hosts_list` only
+        # returns the SNAPSHOT status; the SPA's /hosts page then re-probes
+        # each host and that's what the operator actually sees. The cheap
+        # last_ok reconcile above resolves the common case without I/O; this
+        # closes the rest (hosts that are genuinely up now but had no recent
+        # success recorded, e.g. SNMP/ping gear the SPA re-probed live but the
+        # AI's snapshot still calls down). Bounded: only the remaining problem
+        # hosts, capped, concurrency-limited, each with its own timeout, so a
+        # degraded fleet can't stall the Telegram reply. force=False reuses the
+        # 10s provider-state cache (cheap on repeat calls).
+        _reprobe_ids = [str(r.get("id") or "") for r in api_hosts
+                        if (r.get("status") or "").lower() in _stale_outage_statuses
+                        and r.get("id")][:25]
+        if _reprobe_ids:
+            # noinspection PyBroadException
+            try:
+                from main_pkg.hosts_routes import (
+                    _load_hosts_config as _lhc, _hosts_one_inner, _shape_host_api_row)
+                curated_by_id = {str(h.get("id") or ""): h for h in _lhc()}
+                _sem = asyncio.Semaphore(6)
+
+                async def _reprobe_one(hid: str):
+                    h = curated_by_id.get(hid)
+                    if not h:
+                        return hid, None
+                    # noinspection PyBroadException
+                    try:
+                        async with _sem:
+                            state, (merged, providers) = await asyncio.wait_for(
+                                _hosts_one_inner(h, force=False, client_id=None),
+                                timeout=15.0)
+                        row = _shape_host_api_row(
+                            h, merged, providers,
+                            any_provider_enabled=bool(state.get("active")),
+                            active=state.get("active"))
+                        return hid, str(row.get("status") or "")
+                    except Exception:  # noqa: BLE001
+                        return hid, None
+
+                # Outer budget so the whole re-probe pass can't stall the
+                # Telegram reply (a timeout falls through to the skeleton
+                # status — no worse than before this pass existed).
+                _results = await asyncio.wait_for(
+                    asyncio.gather(*[_reprobe_one(i) for i in _reprobe_ids],
+                                   return_exceptions=True),
+                    timeout=20.0)
+                _fresh = {hid: st for r in _results if isinstance(r, tuple)
+                          for (hid, st) in [r] if st}
+                if _fresh:
+                    for row in api_hosts:
+                        st = _fresh.get(str(row.get("id") or ""))
+                        if st:
+                            row["status"] = st
+                    print(f"[telegram_listener] host re-probe reconciled "
+                          f"{len(_fresh)}/{len(_reprobe_ids)} problem hosts to live status")
+            except Exception as _rp_err:  # noqa: BLE001
+                print(f"[telegram_listener] host re-probe pass skipped: {_rp_err}")
+
         # Status taxonomy (canonical from `_shape_host_api_row`):
         # up / down / paused / loading / unconfigured / unknown
         status_counts: dict[str, int] = {}
