@@ -97,8 +97,12 @@
              x-text="'Pi-hole ' + agg.version"></p>
         </template>
 
-        <!-- Fleet actions (admin-only; need at least one credentialed host). -->
-        <template x-if="isAdmin() && (app.instances || []).some((i) => i.api_key_set)">
+        <!-- Fleet actions (admin-only; need at least one credentialed host).
+             Gated on `appsExtrasInDrawer` so they render ONLY in the app
+             drawer — the Apps-grid card stays stats-only (actions + details
+             live in the drawer). `typeof` guard: the card include never sets
+             the flag, so it reads undefined → actions hidden there. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && isAdmin() && (app.instances || []).some((i) => i.api_key_set)">
           <div class="apps-fleet-actions pt-2 mt-1 border-t border-[var(--border)] space-y-1.5">
             <div class="flex items-center gap-1.5 flex-wrap">
               <button type="button" class="apps-card-action-pill whitespace-nowrap"

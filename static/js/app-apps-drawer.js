@@ -201,6 +201,24 @@ export default {
     return this._appSkillResult['res:' + this.appInstanceKey(inst) + ':' + skillId] || null;
   },
 
+  // Clear a displayed skill-result box (the ✕ in its corner) — drops the
+  // stored result (incl. any follow-up state) so the box HIDES until the
+  // skill button is run again, which builds a fresh result. Whole-map
+  // reassign so Alpine reliably re-renders the `x-if` gate (per the
+  // reactivity note on runAppSkill's result writes).
+  clearAppSkillResult(inst, skillId) {
+    if (!inst || !skillId || !this._appSkillResult) {
+      return;
+    }
+    const resKey = 'res:' + this.appInstanceKey(inst) + ':' + skillId;
+    if (!(resKey in this._appSkillResult)) {
+      return;
+    }
+    const next = Object.assign({}, this._appSkillResult);
+    delete next[resKey];
+    this._appSkillResult = next;
+  },
+
   // Parse a skill result's `detail` into rows of stat chips for a clean,
   // non-stacked drawer layout. Each newline is a row; within a row, runs of
   // 2+ spaces split the stats (e.g. "⬇️ 185 Mbps   ⬆️ 57 Mbps   🏓 37 ms" →
