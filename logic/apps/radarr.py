@@ -681,24 +681,42 @@ async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
     return None
 
 
+def _norm_title(s: Any) -> str:
+    """Normalise a movie title / query for matching: lowercase, strip a
+    trailing ``" (YYYY)"`` year suffix (Radarr / our own replies append it,
+    but the library ``title`` field has no year), collapse whitespace. So
+    ``"Dora and the Lost City of Gold (2019)"`` matches the stored
+    ``"Dora and the Lost City of Gold"``."""
+    import re as _re
+    t = str(s or "").strip().lower()
+    t = _re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", t)  # drop a trailing (YYYY)
+    return _re.sub(r"\s+", " ", t).strip()
+
+
 def _find_in_library(movies: Any, query: str) -> Optional[dict]:
-    """Find a movie in the library list by numeric tmdbId, then exact title
-    (case-insensitive), then substring. Returns the movie dict or ``None``."""
+    """Find a movie in the library list by numeric tmdbId, then normalised
+    exact title, then BIDIRECTIONAL substring (so ``"Title (2019)"`` matches
+    a stored ``"Title"`` and a partial query still hits). Returns the movie
+    dict or ``None``."""
     if not isinstance(movies, list):
         return None
-    q = (query or "").strip().lower()
+    raw = (query or "").strip()
+    q = _norm_title(raw)
     if not q:
         return None
-    if query.strip().isdigit():
-        tid = int(query.strip())
+    if raw.isdigit():
+        tid = int(raw)
         for m in movies:
             if isinstance(m, dict) and safe_int(m.get("tmdbId")) == tid:
                 return m
     for m in movies:
-        if isinstance(m, dict) and str(m.get("title") or "").strip().lower() == q:
+        if isinstance(m, dict) and _norm_title(m.get("title")) == q:
             return m
     for m in movies:
-        if isinstance(m, dict) and q in str(m.get("title") or "").strip().lower():
+        if not isinstance(m, dict):
+            continue
+        t = _norm_title(m.get("title"))
+        if t and (q in t or t in q):
             return m
     return None
 
