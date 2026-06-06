@@ -30,10 +30,14 @@
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="apcIsApp && apcIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
-  <div class="apps-card-ups" :data-ups-host="inst.host_id">
-    <!-- Data present — render the 5-stat panel. -->
+  <!-- Neutral wrapper (NOT the accent-tinted `.apps-card-ups` box) so the
+       loading / error / no-data placeholders render as plain text — matching
+       the Speedtest / Seerr / Bazarr extras. Only the populated 5-stat panel
+       sits inside the boxed `.apps-card-ups`. -->
+  <div class="apps-card-apc">
+    <!-- Data present — render the 5-stat panel (the accent-tinted box). -->
     <template x-if="apcHostUpsData(inst)">
-      <div>
+      <div class="apps-card-ups" :data-ups-host="inst.host_id">
         <!-- Per-host header (host name only when the app has > 1
              instance; with 1 instance the card header already shows
              the host). -->
