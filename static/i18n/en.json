@@ -5421,7 +5421,11 @@
       "sonarr_add_series": "Add a series",
       "sonarr_remove_series": "Remove a series",
       "sonarr_search_missing": "Search for missing episodes",
-      "sonarr_refresh": "Refresh series library"
+      "sonarr_refresh": "Refresh series library",
+      "adguardsync_status": "AdGuard sync status",
+      "adguardsync_sync": "Sync now",
+      "adguardsync_logs": "Recent sync logs",
+      "adguardsync_clear_logs": "Clear sync logs"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5522,6 +5526,25 @@
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Sonarr data…",
       "fetch_failed": "Sonarr fetch failed"
+    },
+    "adguardsync": {
+      "username_label": "Username (optional)",
+      "username_placeholder": "Leave blank if the sync API is open",
+      "password_label": "Password (optional)",
+      "password_placeholder_saved": "Saved — leave blank to keep",
+      "password_placeholder_unset": "Leave blank if the sync API is open",
+      "creds_hint": "The adguardhome-sync API uses HTTP Basic auth only when you configure api.username / api.password upstream — leave both blank for an open instance. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one.",
+      "cache_ttl_hint": "How long fetched status is cached before re-querying the sync API (5–3600s). Leave blank for the app default (30s).",
+      "loading": "Loading AdGuard sync status…",
+      "fetch_failed": "AdGuard sync fetch failed",
+      "sync_state": "Sync",
+      "running": "Running",
+      "idle": "Idle",
+      "origin": "Origin",
+      "ok": "OK",
+      "unknown": "Unknown",
+      "replicas": "Replicas",
+      "failing": "Failing"
     }
   }
 }

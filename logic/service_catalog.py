@@ -370,10 +370,12 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "AdGuardHome Sync", "slug": "adguardhome-sync", "icon": "adguard-home",
-        "description": "Syncs config between AdGuard Home instances",
+        "name": "AdGuard Home Sync", "slug": "adguardhome-sync", "icon": "adguard-home-sync",
+        "description": "Sync AdGuard Home config from a primary to replicas (bakito/adguardhome-sync)",
         "default_ports": [
-            {"port": 8091, "protocol": "http", "label": "Web UI",
+            {"port": 8080, "protocol": "http", "label": "Web UI / API",
+             "probe_path": "/", "probe_status": 0},
+            {"port": 8091, "protocol": "http", "label": "Web UI (alt)",
              "probe_path": "/", "probe_status": 0},
         ],
     },

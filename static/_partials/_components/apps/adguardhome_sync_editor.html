@@ -1,0 +1,64 @@
+<!-- Per-app editor fields -- AdGuard Home Sync (bakito/adguardhome-sync).
+
+     Renders inside the Admin -> Apps per-instance editor, gated on
+     `adguardsyncIsApp(...)` so the fields appear ONLY for a sync chip.
+     The sync API's HTTP Basic auth is OPTIONAL (it only applies when the
+     operator set api.username + api.password upstream), so BOTH inputs are
+     optional — leave them blank for an open instance:
+       - username -> non-secret `username` chip field (round-trips in the
+         clear so the input shows the saved value).
+       - password -> the secret `api_key` chip field (never returned; only
+         an `api_key_set` flag, keep-current-if-blank on save). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="adguardsyncIsApp && adguardsyncIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-adguardsync-username"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.adguardsync.username_label') || 'Username (optional)'"></label>
+      <input id="apps-instance-adguardsync-username"
+             type="text" x-model="appsInstanceEditForm.username"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="t('apps.adguardsync.username_placeholder') || 'Leave blank if the sync API is open'"
+             autocomplete="off" spellcheck="false">
+    </div>
+    <div>
+      <label for="apps-instance-adguardsync-password"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.adguardsync.password_label') || 'Password (optional)'"></label>
+      <input id="apps-instance-adguardsync-password"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.adguardsync.password_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.adguardsync.password_placeholder_unset') || 'Leave blank if the sync API is open')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.adguardsync.creds_hint') || 'The adguardhome-sync API uses HTTP Basic auth only when you configure api.username / api.password upstream — leave both blank for an open instance. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one.'"></p>
+    </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (30s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-adguardsync-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <input id="apps-instance-adguardsync-cache-ttl"
+             type="number" min="5" max="3600" step="1"
+             x-model="appsInstanceEditForm.cache_ttl"
+             @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+             class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.adguardsync.cache_ttl_hint') || 'How long fetched status is cached before re-querying the sync API (5–3600s). Leave blank for the app default (30s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

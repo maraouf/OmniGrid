@@ -168,7 +168,19 @@ export default {
       'docker-prune': 'docker',
       'standalone': 'docker',
       'nebula-sync': 'pi-hole',
-      'adguardhome-sync': 'adguard-home',
+      // AdGuard Home Sync (bakito/adguardhome-sync) — its OWN brand mark
+      // (adguard-home-sync.svg), distinct from the plain AdGuard Home icon.
+      // The stack is `adguardhome-sync`; the Swarm service is the
+      // namespaced `adguardhome-sync_adguardhome-sync`. Map the bare slug,
+      // the no-separator + hyphen variants, AND the full service name so
+      // both the stack row and the service row render the sync mark (not
+      // the plain AdGuard icon). MUST precede the `adguard` keyword scan
+      // (longer / more-specific first) — handled here since these are
+      // exact-name overrides, which are checked before the keyword pass.
+      'adguardhome-sync': 'adguard-home-sync',
+      'adguard-home-sync': 'adguard-home-sync',
+      'adguardhomesync': 'adguard-home-sync',
+      'adguardhome-sync_adguardhome-sync': 'adguard-home-sync',
       'adguard-exporter': 'adguard-home',
       'blackbox-exporter': 'prometheus',
       'fing-agent': '/img/icons/fing.svg',
