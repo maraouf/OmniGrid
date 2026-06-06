@@ -622,6 +622,11 @@
         "label": "Apps",
         "sub": "apps: {apps} · templates: {templates} · degraded: {degraded} · down: {down}",
         "aria_label": "Apps — {up} of {total} instances up across {apps} apps, {templates} templates"
+      },
+      "apps_extras": {
+        "label": "Apps with extras",
+        "sub": "{active} active · rich expanded card (Radarr, Sonarr, Seerr, …)",
+        "aria_label": "Apps with extras — {active} of {total} active"
       }
     },
     "range": {

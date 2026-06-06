@@ -423,6 +423,35 @@
         </div>
       </button>
 
+      <!-- Apps with extras — how many pinned apps have a per-app module
+           (rich expanded card: Radarr / Sonarr / Seerr / Bazarr / APC /
+           Speedtest / AdGuard / Pi-hole) and how many are currently active
+           (≥1 instance up). Reads statsOverview.apps.extras /
+           .extras_active. Click navigates to the Apps view. -->
+      <button type="button"
+              @click="view='apps'"
+              class="stats-card"
+              :aria-label="t('stats.cards.apps_extras.aria_label', {
+                              active: (statsOverview.apps && statsOverview.apps.extras_active) || 0,
+                              total: (statsOverview.apps && statsOverview.apps.extras) || 0
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.apps_extras.label') || 'Apps with extras'"></div>
+          <div class="stats-card-value"
+               x-text="((statsOverview.apps && statsOverview.apps.extras_active) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.extras) || 0)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+               x-text="t('stats.cards.apps_extras.sub', {
+                         active: (statsOverview.apps && statsOverview.apps.extras_active) || 0,
+                         total: (statsOverview.apps && statsOverview.apps.extras) || 0
+                       }) || ('active: ' + ((statsOverview.apps && statsOverview.apps.extras_active) || 0))"></div>
+        </div>
+      </button>
+
       <!-- Tunables -->
       <button type="button"
               @click="view='admin'; openAdminTab('config')"

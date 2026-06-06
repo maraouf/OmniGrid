@@ -961,6 +961,11 @@ _SEERR_STATUS_LABEL = {
 }
 
 
+# noinspection DuplicatedCode
+# The POST-then-map-status tail (auth-fail / body-snippet / HTTP-N fallback)
+# is structurally shared with radarr / sonarr's command + add skills — the
+# deliberate per-app encapsulation pattern (CLAUDE.md). Content differs (app
+# name, endpoint), so it stays inline rather than coupling the modules.
 async def _request_skill(host_row: dict, chip: dict, *,
                          arg: Optional[str] = None,
                          host_id: Optional[str] = None) -> dict:
@@ -1167,6 +1172,60 @@ async def _seerr_movie_detail(cli: httpx.AsyncClient, base: str, api_key: str,
     mi = body.get("mediaInfo")
     status = safe_int(mi.get("status")) if isinstance(mi, dict) else 0
     return status, _extract_countries(body.get("productionCountries"))
+
+
+# How many cast members to show in the suggestion line.
+_CAST_DISPLAY_MAX = 5
+
+
+def _extract_cast(body: Any) -> list[str]:
+    """Top-billed cast NAMES from a Seerr / TMDB movie body's
+    ``credits.cast`` array, ordered by billing ``order`` (lower = lead role),
+    capped at ``_CAST_DISPLAY_MAX``. TMDB usually pre-sorts, but we sort
+    defensively. ``[]`` on a missing / malformed credits block."""
+    if not isinstance(body, dict):
+        return []
+    # Single .get per key (assigned to a local) so the isinstance guard
+    # narrows the type for the sort / iteration below — calling .get twice
+    # leaves the inferred type as `Any | None`.
+    _creds = body.get("credits")
+    creds = _creds if isinstance(_creds, dict) else {}
+    _cast = creds.get("cast")
+    cast: list = _cast if isinstance(_cast, list) else []
+    try:
+        cast = sorted(cast, key=lambda _c: safe_int(_c.get("order"), 9999)
+        if isinstance(_c, dict) else 9999)
+    except (TypeError, ValueError):
+        pass
+    out: list[str] = []
+    for member in cast:
+        if not isinstance(member, dict):
+            continue
+        name = str(member.get("name") or "").strip()
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= _CAST_DISPLAY_MAX:
+            break
+    return out
+
+
+async def _seerr_movie_cast(base: str, api_key: str, tmdb_id: int) -> list[str]:
+    """Best-effort top-billed cast for a movie via Seerr's
+    ``GET /api/v1/movie/<id>`` (Overseerr / Jellyseerr proxy TMDB credits in
+    that response). ``[]`` on no id / unreachable / no credits — the cast
+    line is a nice-to-have, never load-bearing."""
+    if not tmdb_id or not (base and api_key):
+        return []
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(f"{base}/api/v1/movie/{tmdb_id}",
+                              headers=_headers(api_key))
+        if getattr(r, "status_code", 0) != 200:
+            return []
+        return _extract_cast(r.json())
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
 
 
 async def _seerr_discover_candidates(base: str, api_key: str,
@@ -1407,6 +1466,9 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
         _record_suggestion(actor_username, tmdb_id)
     # Country comes from the pick's detail call (attached by _pick_not_in_library).
     countries = pick.get("_countries") if isinstance(pick.get("_countries"), list) else []
+    # Top-billed cast — one best-effort Seerr detail call for the FINAL pick
+    # (Overseerr / Jellyseerr proxy TMDB credits). Never blocks the suggestion.
+    cast = await _seerr_movie_cast(base, api_key, tmdb_id)
     lines = [f"🎬 How about: {label}"]
     # ⭐ rating + year meta line (rating is TMDB's 0-10 vote average).
     meta_bits = []
@@ -1422,6 +1484,9 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     # 🌍 country line.
     if countries:
         lines.append("🌍 " + " · ".join(countries))
+    # 👥 cast line (top-billed, up to 5).
+    if cast:
+        lines.append("👥 Cast: " + ", ".join(cast))
     if overview:
         lines.append(overview)
     lines.append(f"Say “request {title}” and I'll add it to Seerr. (TMDB id {tmdb_id})")
