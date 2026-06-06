@@ -1487,9 +1487,12 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     # 👥 cast line (top-billed, up to 5).
     if cast:
         lines.append("👥 Cast: " + ", ".join(cast))
+    # 📝 synopsis line (labelled, like the cast line, so the long blurb reads
+    # as a distinct section rather than running into the meta lines above).
     if overview:
-        lines.append(overview)
-    lines.append(f"Say “request {title}” and I'll add it to Seerr. (TMDB id {tmdb_id})")
+        lines.append("📝 Synopsis: " + overview)
+    # ➕ call-to-action line (icon + label so it stands apart from the synopsis).
+    lines.append(f"➕ To add it, say “request {title}”. (TMDB id {tmdb_id})")
     # Footnote: show the active filters so it's clear they were applied.
     _fs = _active_filter_summary(filters)
     if _fs:
