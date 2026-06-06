@@ -787,7 +787,10 @@ export default {
       }
       for (const s of e.slugs) {
         const needle = String(s).toLowerCase();
-        if (slug === needle || (needle && name.indexOf(needle) !== -1)) {
+        // Exact slug wins; loose name-substring only as a de-linked fallback
+        // (no slug). Mirrors the live copy in app-apps-card.js (which wins via
+        // the merge order) — kept in sync to avoid drift.
+        if (slug === needle || (!slug && needle && name.indexOf(needle) !== -1)) {
           matched = true;
           break;
         }

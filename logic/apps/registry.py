@@ -29,6 +29,7 @@ from . import adguardhome
 from . import adguardhome_sync
 from . import apc
 from . import bazarr
+from . import lidarr
 from . import pihole
 from . import radarr
 from . import seerr
@@ -55,6 +56,7 @@ _register(adguardhome)
 _register(adguardhome_sync)
 _register(apc)
 _register(bazarr)
+_register(lidarr)
 _register(pihole)
 _register(radarr)
 _register(seerr)

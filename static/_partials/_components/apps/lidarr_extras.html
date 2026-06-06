@@ -1,0 +1,96 @@
+<!-- Per-app expanded-card extras -- Lidarr (music collection manager).
+
+     Renders inside `apps-card.html` when the chip is the Lidarr catalog
+     template AND extras are visible. Data from Lidarr's `GET /api/v1/artist`
+     (+ wanted/missing / queue / disk / health), via
+     `logic/apps/lidarr.py:fetch_data`, read through the cache-backed
+     `appsAppData(inst)`. Mirrors sonarr_extras.html (Artists / Missing
+     albums / Downloading / Monitored + a per-mount Storage section +
+     loading/error/no-api-key plain-text branches).
+
+     Helpers used (all from `static/js/apps/lidarr.js`):
+       lidarrIsApp(app) / lidarrData(inst) / lidarrCount(v) /
+       lidarrDisks(inst) / lidarrSize(gib) / lidarrDiskUsedPct(m) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="lidarrIsApp && lidarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-lidarr">
+    <template x-if="lidarrData(inst)">
+      <div class="apps-card-ups" :data-lidarr-host="inst.host_id">
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Artists (total library size) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.lidarr.artists') || 'Artists'"></div>
+            <div class="apps-card-ups-value" x-text="lidarrCount(lidarrData(inst).artists_total)"></div>
+          </div>
+          <!-- Missing (monitored albums, no file) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.lidarr.missing') || 'Missing albums'"></div>
+            <div class="apps-card-ups-value"
+                 :class="(Number(lidarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
+                 x-text="lidarrCount(lidarrData(inst).missing)"></div>
+          </div>
+          <!-- Downloading (queue) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.lidarr.downloading') || 'Downloading'"></div>
+            <div class="apps-card-ups-value"
+                 :class="(Number(lidarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
+                 x-text="lidarrCount(lidarrData(inst).queue)"></div>
+          </div>
+          <!-- Monitored artists -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.lidarr.monitored') || 'Monitored'"></div>
+            <div class="apps-card-ups-value" x-text="lidarrCount(lidarrData(inst).monitored)"></div>
+          </div>
+        </div>
+        <!-- Storage — every mount Lidarr reports, each with free / total + a
+             usage bar. -->
+        <div x-show="lidarrDisks(inst).length" class="mt-2 space-y-1.5">
+          <div class="apps-card-ups-label" x-text="t('apps.lidarr.storage') || 'Storage'"></div>
+          <template x-for="m in lidarrDisks(inst)" :key="m.path">
+            <div>
+              <div class="flex items-center justify-between gap-2 fs-3xs">
+                <span class="mono truncate text-[var(--text-dim)]" :title="m.path" x-text="m.path"></span>
+                <span class="mono text-[var(--text-faint)] flex-shrink-0"
+                      x-text="(t('apps.lidarr.disk_free_short') || 'free') + ' ' + lidarrSize(m.free_gb) + ' / ' + lidarrSize(m.total_gb)"></span>
+              </div>
+              <div class="stat-bar mt-0.5" :class="barLevel(lidarrDiskUsedPct(m))"
+                   role="progressbar" :aria-valuenow="lidarrDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
+                   :aria-label="m.path + ' ' + lidarrDiskUsedPct(m) + '% used'"
+                   :style="'--w: ' + lidarrDiskUsedPct(m) + '%'">
+                <div class="fill"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- Footnote: version + health issues. -->
+        <div x-show="lidarrData(inst).version || (Number(lidarrData(inst).health_issues) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-show="lidarrData(inst).version" x-text="'Lidarr ' + (lidarrData(inst).version || '')"></span>
+          <span x-show="(Number(lidarrData(inst).health_issues) || 0) > 0"
+                class="text-[var(--warning)]"
+                x-text="(lidarrData(inst).version ? ' · ' : '') + (t('apps.lidarr.health_issues_n', { n: lidarrData(inst).health_issues }) || (lidarrData(inst).health_issues + ' health issue(s)'))"></span>
+        </div>
+      </div>
+    </template>
+    <!-- No API key yet — idle and unconfigured. -->
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.lidarr.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!lidarrData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.lidarr.loading') || 'Loading Lidarr data…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!lidarrData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.lidarr.fetch_failed') || 'Lidarr fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>
