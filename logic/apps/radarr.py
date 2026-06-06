@@ -141,6 +141,11 @@ async def _fetch_version(cli: httpx.AsyncClient, base: str, key: str) -> str:
         return ""
 
 
+# noinspection DuplicatedCode
+# The probe-then-map-status shape is structurally shared with every per-app
+# module's test_credential (bazarr / seerr / …) — the deliberate per-app
+# encapsulation pattern (CLAUDE.md). The endpoint + app name differ, so it
+# stays inline rather than coupling the modules through a _common helper.
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Radarr's auth-required ``/api/v3/system/status`` with the
     supplied X-Api-Key. Returns ``{ok, detail, status}`` for direct SPA
@@ -167,25 +172,58 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
-def _disk_free_total_gib(raw: Any) -> "tuple[float, float]":
-    """From a ``/api/v3/diskspace`` payload (list of
-    ``{path, freeSpace, totalSpace}``), pick the disk with the LARGEST
-    total space (the library volume) and return ``(free_gib, total_gib)``.
-    ``(0.0, 0.0)`` on an empty / malformed payload."""
+# Cap on how many mounts the card surfaces — a Radarr with a long
+# remote-mount list shouldn't render an unbounded stack. Sorted by total
+# space descending first, so the largest (real library) volumes win.
+_DISK_DISPLAY_MAX = 8
+
+
+def _parse_disks(raw: Any) -> list[dict]:
+    """Shape a ``/api/v3/diskspace`` payload (list of ``{path, label,
+    freeSpace, totalSpace}``) into ``[{path, free_gb, total_gb}]`` for
+    EVERY mount Radarr reports, sorted by total space descending and
+    capped at ``_DISK_DISPLAY_MAX``. Skips entries with no path / a
+    zero-total (pseudo / unreadable mounts). Free / total are GiB floats
+    (Radarr reports bytes; the card renders GiB / TiB). ``[]`` on an
+    empty / malformed payload."""
     if not isinstance(raw, list):
-        return 0.0, 0.0
-    best_total = -1.0
-    best_free = 0.0
+        return []
+    out: list[dict] = []
     for d in raw:
         if not isinstance(d, dict):
             continue
+        path = str(d.get("path") or "").strip()
         total = safe_float(d.get("totalSpace"))
-        if total > best_total:
-            best_total = total
-            best_free = safe_float(d.get("freeSpace"))
-    if best_total < 0:
+        if not path or total <= 0:
+            continue
+        out.append({
+            "path": path,
+            "free_gb": round(safe_float(d.get("freeSpace")) / _GIB, 1),
+            "total_gb": round(total / _GIB, 1),
+        })
+    out.sort(key=lambda m: m.get("total_gb", 0.0), reverse=True)
+    return out[:_DISK_DISPLAY_MAX]
+
+
+def _primary_disk(disks: list[dict]) -> "tuple[float, float]":
+    """The largest mount's ``(free_gb, total_gb)`` — used by the status
+    skill's one-line summary + the AI peek. ``(0.0, 0.0)`` when empty.
+    ``disks`` is already sorted by total descending, so element 0 is it."""
+    if not disks:
         return 0.0, 0.0
-    return round(best_free / _GIB, 1), round(best_total / _GIB, 1)
+    d0 = disks[0]
+    return safe_float(d0.get("free_gb")), safe_float(d0.get("total_gb"))
+
+
+def _fmt_size_gib(gib: Any) -> str:
+    """Render a GiB value as a human size, promoting to TiB at >= 1024 GiB
+    (matches Radarr's own GiB / TiB display). One decimal place. ``Any`` arg
+    type — callers pass raw ``dict.get(...)`` values (``Any | None``);
+    ``safe_float`` coerces (never raises), so a non-number falls back to 0."""
+    g = safe_float(gib)
+    if g >= 1024:
+        return f"{g / 1024:,.1f} TiB"
+    return f"{g:,.1f} GiB"
 
 
 # noinspection DuplicatedCode
@@ -227,14 +265,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     queue = safe_int((qr.json() or {}).get("totalCount"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 queue = 0
-            disk_free_gb = disk_total_gb = 0.0
+            disks: list[dict] = []
             try:
                 dr = await cli.get(base + "/api/v3/diskspace",
                                    headers=_headers(api_key))
                 if dr.status_code == 200:
-                    disk_free_gb, disk_total_gb = _disk_free_total_gib(dr.json())
+                    disks = _parse_disks(dr.json())
             except (httpx.HTTPError, OSError, ValueError, TypeError):
-                disk_free_gb = disk_total_gb = 0.0
+                disks = []
+            disk_free_gb, disk_total_gb = _primary_disk(disks)
             health_issues = 0
             try:
                 hr = await cli.get(base + "/api/v3/health",
@@ -282,13 +321,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "queue": safe_int(queue),
         "disk_free_gb": disk_free_gb,
         "disk_total_gb": disk_total_gb,
+        "disks": disks,
         "health_issues": safe_int(health_issues),
         "version": ver,
         "fetched_at": int(now),
     }
     print(f"[radarr] INFO fetched host={host_id} movies={total} "
           f"monitored={monitored} missing={missing} queue={out['queue']} "
-          f"disk_free_gb={disk_free_gb} health={out['health_issues']}")
+          f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
+          f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -306,6 +347,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "missing": safe_int(data.get("missing")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
+        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -363,24 +405,41 @@ async def _status_skill(host_row: dict, chip: dict, *,
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
+    disks = data.get("disks") if isinstance(data.get("disks"), list) else []
     lines = [
         f"🎬 Movies: {total:,}",
         f"📁 Monitored: {monitored:,}",
         f"{'❓' if missing else '✅'} Missing: {missing:,}",
         f"⬇️ Downloading: {queue:,}",
     ]
-    if free_gb > 0:
-        lines.append(f"💾 Disk free: {free_gb:,.1f} GB")
+    # List every mount Radarr reports (root / library / remote shares), not
+    # just the largest — operators run multi-disk libraries.
+    if disks:
+        lines.append("💾 Storage:")
+        for m in disks:
+            if not isinstance(m, dict):
+                continue
+            lines.append(f"  • {m.get('path', '?')}: "
+                         f"{_fmt_size_gib(m.get('free_gb'))} free / "
+                         f"{_fmt_size_gib(m.get('total_gb'))}")
+    elif free_gb > 0:
+        lines.append(f"💾 Disk free: {_fmt_size_gib(free_gb)}")
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "movies_total": total, "monitored": monitored, "missing": missing,
-        "queue": queue, "disk_free_gb": free_gb, "health_issues": health,
+        "queue": queue, "disk_free_gb": free_gb, "disks": disks,
+        "health_issues": health,
     }
 
 
+# noinspection DuplicatedCode
+# The POST-then-map-status tail (auth-fail / body-snippet / HTTP-N fallback)
+# is structurally shared with seerr's _request_skill — the deliberate per-app
+# encapsulation pattern (CLAUDE.md). The command + app name differ, so it
+# stays inline rather than coupling the modules through a _common helper.
 async def _command_skill(host_row: dict, chip: dict, *, command: str,
                          started_msg: str,
                          host_id: Optional[str] = None) -> dict:

@@ -81,6 +81,45 @@ function radarrGb(v) {
   return n.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' GB';
 }
 
+// The per-mount disk list (every volume Radarr reports). Returns [] when the
+// payload has none. Each entry is {path, free_gb, total_gb}.
+function radarrDisks(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.radarrData ? this.radarrData(inst) : null);
+  if (!d || !Array.isArray(d.disks)) {
+    return [];
+  }
+  return d.disks;
+}
+
+// Format a GiB float as a human size, promoting to TiB at >= 1024 GiB
+// (matches Radarr's own GiB / TiB display). '—' for missing / zero.
+function radarrSize(gib) {
+  const n = Number(gib);
+  if (gib == null || !isFinite(n) || n <= 0) {
+    return '—';
+  }
+  if (n >= 1024) {
+    return (n / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' TiB';
+  }
+  return n.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' GiB';
+}
+
+// Used-percent for a mount's usage bar (0..100); 0 when total is unknown.
+function radarrDiskUsedPct(m) {
+  if (!m) {
+    return 0;
+  }
+  const total = Number(m.total_gb);
+  const free = Number(m.free_gb);
+  if (!isFinite(total) || total <= 0 || !isFinite(free)) {
+    return 0;
+  }
+  const pct = ((total - free) / total) * 100;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Radarr gets a
 // 2-column span so the 4-stat panel doesn't squeeze the per-instance host
@@ -103,4 +142,7 @@ export const helpers = {
   radarrData: radarrData,
   radarrCount: radarrCount,
   radarrGb: radarrGb,
+  radarrDisks: radarrDisks,
+  radarrSize: radarrSize,
+  radarrDiskUsedPct: radarrDiskUsedPct,
 };
