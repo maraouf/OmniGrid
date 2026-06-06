@@ -2759,7 +2759,85 @@ async def _fetch_user_prayer(client: httpx.AsyncClient, msg: dict):
             f"<code>{_listener()._escape(str(data.get('error') or 'no data'))}</code>"
         )
         return None
-    return data
+    return _username, data
+
+
+def _user_dt_fmt(username) -> str:
+    """The linked user's ``datetime_format`` (Settings → Profile → Formats),
+    falling back to the canonical default when unset / on any error. So a
+    Telegram reply renders dates / clock times the way the user set them in
+    the UI — same contract as the AI surfaces + notification ``{time}``."""
+    # noinspection PyBroadException
+    try:
+        from logic.datetime_fmt import get_user_datetime_format
+        return get_user_datetime_format(username or "")
+    except Exception:  # noqa: BLE001
+        from logic.datetime_fmt import DEFAULT_DATETIME_FORMAT
+        return DEFAULT_DATETIME_FORMAT
+
+
+def _fmt_clock_user(time_str, fmt) -> str:
+    """Reformat a clock-time string into the user's TIME-ONLY format (12h vs
+    24h per their datetime_format). Accepts 24h ``"04:10"`` / ``"04:10:00"``
+    and 12h ``"12:05 AM"`` (an optional trailing `` (EET)`` timezone suffix is
+    tolerated). Returns the input UNCHANGED when it can't be parsed, so an
+    odd upstream value is never mangled."""
+    import re as _re
+    from datetime import datetime as _dt
+    s = (time_str or "").strip()
+    if not s:
+        return s
+    s = _re.sub(r"\s*\([^)]*\)\s*$", "", s).strip()  # drop a trailing "(EET)"
+    parsed = None
+    for f in ("%I:%M %p", "%I:%M%p", "%H:%M:%S", "%H:%M"):
+        try:
+            parsed = _dt.strptime(s.upper(), f)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return time_str
+    # noinspection PyBroadException
+    try:
+        from logic.datetime_fmt import apply_datetime_format, strip_date_tokens
+        tfmt = strip_date_tokens(fmt)
+        # Clock sources (prayer / moon rise-set) have MINUTE granularity, so
+        # drop any seconds token — a default 'HH:mm:ss' user format would
+        # otherwise render a meaningless ':00' on every time.
+        for tok in (":ss", ".ss", " ss", "ss"):
+            tfmt = tfmt.replace(tok, "")
+        tfmt = _re.sub(r"\bs\b", "", tfmt)
+        tfmt = _re.sub(r"\s{2,}", " ", tfmt).strip() or "HH:mm"
+        return apply_datetime_format(parsed, tfmt)
+    except Exception:  # noqa: BLE001
+        return time_str
+
+
+def _fmt_date_user(date_str, fmt) -> str:
+    """Reformat a GREGORIAN date string (ISO ``"YYYY-MM-DD"`` / ``"DD-MM-YYYY"``
+    / ``"DD/MM/YYYY"``) into the user's DATE-ONLY format. Returns the input
+    UNCHANGED when it can't be parsed — so a Hijri date or any non-Gregorian
+    string passes through untouched (a Hijri month number must NEVER be
+    rendered with a Gregorian month name)."""
+    from datetime import datetime as _dt
+    s = (date_str or "").strip()
+    if not s:
+        return s
+    parsed = None
+    for f in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"):
+        try:
+            parsed = _dt.strptime(s, f)
+            break
+        except ValueError:
+            continue
+    if parsed is None:
+        return date_str
+    # noinspection PyBroadException
+    try:
+        from logic.datetime_fmt import apply_datetime_format, strip_time_tokens
+        return apply_datetime_format(parsed, strip_time_tokens(fmt))
+    except Exception:  # noqa: BLE001
+        return date_str
 
 
 def _fmt_prayer_countdown(secs) -> str:
@@ -2784,9 +2862,11 @@ async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     """``/prayer`` — today's five prayer times + the next prayer +
     countdown for the linked user's saved location, plus the Hijri date.
     Location comes from the same saved Weather location /weather uses."""
-    data = await _fetch_user_prayer(client, msg)
-    if data is None:
+    res = await _fetch_user_prayer(client, msg)
+    if res is None:
         return
+    username, data = res
+    fmt = _user_dt_fmt(username)
     timings = data.get("timings") or {}
     loc = (data.get("location") or {})
     label = (loc.get("label") or "").strip() or "your location"
@@ -2809,7 +2889,7 @@ async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
     if nxt.get("key") and nxt.get("name"):
         cd = _fmt_prayer_countdown(nxt.get("in_seconds"))
         tom = " (tomorrow)" if nxt.get("tomorrow") else ""
-        ntime = (timings.get(nxt["key"]) or {}).get("time") or ""
+        ntime = _fmt_clock_user((timings.get(nxt["key"]) or {}).get("time") or "", fmt)
         emoji = _PRAYER_EMOJI.get(nxt["key"], "🕋")
         next_line = (
             f"\n\n{emoji} <b>Next: {_listener()._escape(str(nxt['name']))}</b> "
@@ -2825,7 +2905,8 @@ async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         emoji = _PRAYER_EMOJI.get(key, "•")
         name = str(r.get("name") or key.title())
         is_next = nxt.get("key") == key and r.get("prayer")
-        line = f"{emoji} {_listener()._escape(name)}: <b>{_listener()._escape(r['time'])}</b>"
+        rtime = _fmt_clock_user(r["time"], fmt)
+        line = f"{emoji} {_listener()._escape(name)}: <b>{_listener()._escape(rtime)}</b>"
         if is_next:
             line = "▶️ " + line
         rows.append(line)
@@ -2841,9 +2922,11 @@ async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/hijri`` — today's Hijri (Islamic) calendar date for the
     linked user's saved location."""
-    data = await _fetch_user_prayer(client, msg)
-    if data is None:
+    res = await _fetch_user_prayer(client, msg)
+    if res is None:
         return
+    username, data = res
+    fmt = _user_dt_fmt(username)
     hijri = data.get("hijri") or {}
     greg = data.get("gregorian") or {}
     if not (hijri.get("text") or hijri.get("day")):
@@ -2860,7 +2943,7 @@ async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
     if hijri.get("weekday_en"):
         lines.append(f"<i>{_listener()._escape(str(hijri.get('weekday_en')))}</i>")
     if greg.get("date"):
-        gline = str(greg.get("date"))
+        gline = _fmt_date_user(str(greg.get("date")), fmt)
         if greg.get("weekday"):
             gline += f" ({greg.get('weekday')})"
         lines.append(f"🗓️ {_listener()._escape(gline)}")
@@ -2879,6 +2962,7 @@ async def _cmd_moon(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     if result is None:
         return
     username, loc = result
+    fmt = _user_dt_fmt(username)
     label = (loc.get("label") or "").strip() or "your location"
     from main import api_weather as _api_weather
     try:
@@ -2966,9 +3050,9 @@ async def _cmd_moon(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     body = f"{emoji} <b>{safe_phase}</b>{illum_line}"
     rise_set_parts = []
     if moonrise:
-        rise_set_parts.append(f"🌅 Rise <b>{_listener()._escape(moonrise)}</b>")
+        rise_set_parts.append(f"🌅 Rise <b>{_listener()._escape(_fmt_clock_user(moonrise, fmt))}</b>")
     if moonset:
-        rise_set_parts.append(f"🌌 Set <b>{_listener()._escape(moonset)}</b>")
+        rise_set_parts.append(f"🌌 Set <b>{_listener()._escape(_fmt_clock_user(moonset, fmt))}</b>")
     rise_set_line = "\n" + " · ".join(rise_set_parts) if rise_set_parts else ""
     # Next-2-days outlook (forecast[1] / forecast[2]).
     outlook_lines = []
@@ -2988,7 +3072,7 @@ async def _cmd_moon(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             il_pct = None
         if not ph and il_pct is None:
             continue
-        bits = [_listener()._escape(date_s)] if date_s else []
+        bits = [_listener()._escape(_fmt_date_user(date_s, fmt))] if date_s else []
         if ph:
             bits.append(_listener()._escape(ph))
         if il_pct is not None:
