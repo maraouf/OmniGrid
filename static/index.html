@@ -3393,6 +3393,21 @@
                     @click="appsStatusFilter = appsStatusFilter === 'down' ? '' : 'down'"
                     x-text="t('apps.filter_down') || 'Down'"></button>
           </div>
+          <!-- "Extras only" capability filter — show only apps that have a
+               per-app rich card / AI skills (extras-capable). Distinct from the
+               status group (it filters by capability, not health). -->
+          <div role="group" :aria-label="t('apps.extras_filter_label') || 'Filter by extras'" class="flex gap-1">
+            <button type="button" class="chip fs-2xs inline-flex items-center gap-1"
+                    :class="appsExtrasOnly ? 'pill-info' : 'pill-muted'"
+                    :aria-pressed="appsExtrasOnly"
+                    @click="appsExtrasOnly = !appsExtrasOnly"
+                    :title="t('apps.filter_extras_only_title') || 'Show only apps with a rich card / AI skills'">
+              <svg width="11" height="11" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+              </svg>
+              <span x-text="t('apps.filter_extras_only') || 'Extras only'"></span>
+            </button>
+          </div>
           <!-- Group-by toggle — App (card per app, instances inside) vs
                Host (card per host, app icons beneath). Persisted to
                localStorage via setAppsViewGroupBy. -->

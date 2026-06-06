@@ -5545,6 +5545,9 @@
       "unknown": "Unknown",
       "replicas": "Replicas",
       "failing": "Failing"
-    }
+    },
+    "extras_filter_label": "Filter by extras",
+    "filter_extras_only": "Extras only",
+    "filter_extras_only_title": "Show only apps with a rich card / AI skills"
   }
 }
