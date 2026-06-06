@@ -5073,6 +5073,35 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   color: var(--danger);
 }
 
+/* Small ✕ in the corner of a drawer skill-result box — clears/hides the
+   box (e.g. "latest speed test", Seerr suggestion filters) until the skill
+   is run again. Subtle by default, brightens on hover. */
+.apps-skill-result-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: var(--fs-2xs);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.apps-skill-result-close:hover {
+  color: var(--text);
+  background: var(--row-hover);
+}
+
+.apps-skill-result-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
    actions invoked from the AI sidebar. Wraps a warning icon, the
    action label, and Yes / Cancel buttons in one compact row attached
