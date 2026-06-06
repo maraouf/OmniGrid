@@ -1189,6 +1189,7 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
         )
         items_updatable_total = items_summary.get("updatable_total")
         items_running_total = items_summary.get("running_total")
+        items_removable_total = items_summary.get("removable_total")
         items_sample_cap = ctx.get("items_sample_cap") or 60
         if isinstance(items_total, int) and items_total > 0:
             extra_seg = ""
@@ -1196,6 +1197,8 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 extra_seg += f", updatable_total: {items_updatable_total}"
             if isinstance(items_running_total, int):
                 extra_seg += f", running_total: {items_running_total}"
+            if isinstance(items_removable_total, int):
+                extra_seg += f", removable_total: {items_removable_total}"
             parts.append(
                 f"Items counts (AUTHORITATIVE — use these to answer "
                 f"'how many items' / 'any pending updates' / 'how many "
@@ -1228,6 +1231,21 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 "name, status, health, type, replicas, desired, "
                 "update_available",
                 items[:items_sample_cap],
+            ))
+        # Cleanup candidates — the AUTHORITATIVE removable set (stopped /
+        # failed / orphan containers), the SAME list the /cleanup command
+        # removes. USE THIS (and `removable_total` above) for 'what can I
+        # clean up' / 'how many orphans' / 'cleanup' questions — NEVER infer
+        # the count from the capped items sample, which under-reports.
+        cleanup_candidates = _typed_field(ctx, "cleanup_candidates", list)
+        if cleanup_candidates:
+            parts.append(_format_records_block(
+                "Cleanup candidates (FULL removable set — stopped/failed/"
+                "orphan containers /cleanup would remove; cap 60). Cite "
+                "removable_total for the count and name these when asked what "
+                "can be cleaned up.",
+                "name, type, stack",
+                cleanup_candidates[:60],
             ))
         weather = _typed_field(ctx, "weather", dict)
         if weather:

@@ -942,21 +942,49 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
         await _listener()._send_reply(client, "No curated hosts configured.")
         return
     paused_set = _load_host_paused_set()
+    # Classify by the CANONICAL host status — the SAME effective view the web
+    # Hosts page shows (snapshot + reconcile + per-host re-probe), via the
+    # shared resolver. Pre-fix this command grouped "down" as ANY host with a
+    # failure-state marker (whole-host OR per-provider), so a host that failed
+    # on ONE provider but is reachable via another read as "down" here while
+    # the web showed it up — operator-flagged 7-down-in-Telegram vs 1-on-web.
+    status_by_id: dict[str, str] = {}
+    # noinspection PyBroadException
+    try:
+        from logic.telegram_ai import resolve_host_status_rows
+        _resp, _rows = await resolve_host_status_rows()
+        status_by_id = {str(r.get("id") or ""): str(r.get("status") or "").lower()
+                        for r in _rows if isinstance(r, dict)}
+    except Exception as _e:  # noqa: BLE001
+        print(f"[telegram_listener] /hosts status resolve failed: {_e}")
     active: list[dict] = []
     down: list[dict] = []
+    unknown: list[dict] = []
+    paused: list[dict] = []
     disabled: list[dict] = []
     for h in hosts:
         enabled = h.get("enabled", True)
         hid = h.get("id") or ""
-        # Disabled-by-config wins over a failure marker: an operator who
-        # turned a host OFF cares that it's disabled, not that it stopped
-        # answering. Enabled-but-failing => down; everything else active.
+        st = status_by_id.get(hid)
+        # Disabled-by-config wins: an operator who turned a host OFF cares
+        # that it's disabled, not its probe status.
         if not enabled:
             disabled.append(h)
-        elif hid in paused_set:
+        elif st == "down":
             down.append(h)
-        else:
+        elif st == "paused":
+            paused.append(h)
+        elif st == "unknown":
+            unknown.append(h)
+        elif st == "unconfigured":
+            # Inventory-only row (no provider mapped) — not an outage.
+            disabled.append(h)
+        elif st == "up":
             active.append(h)
+        else:
+            # Status unavailable (resolver failed / host not returned) — fall
+            # back to the failure-marker heuristic so the command still works.
+            (down if hid in paused_set else active).append(h)
 
     # noinspection PyProtectedMember
     def _render_row(host_row: dict, status_emoji: str) -> str:
@@ -966,10 +994,13 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
         return (f"{status_emoji} <code>{_listener()._escape(row_id)}</code> — {_listener()._escape(label)}"
                 + (f" ({_listener()._escape(addr)})" if addr else ""))
 
-    out_lines: list[str] = [
-        f"<b>Curated hosts</b> — {len(active)} active, {len(down)} down, "
-        f"{len(disabled)} disabled",
-    ]
+    _hdr_bits = [f"{len(active)} active", f"{len(down)} down"]
+    if unknown:
+        _hdr_bits.append(f"{len(unknown)} unknown")
+    if paused:
+        _hdr_bits.append(f"{len(paused)} paused")
+    _hdr_bits.append(f"{len(disabled)} disabled")
+    out_lines: list[str] = ["<b>Curated hosts</b> — " + ", ".join(_hdr_bits)]
 
     # Three groups, each rendered only when non-empty. Active first, then
     # Down (enabled but failing — actionable), then Disabled (turned off
@@ -987,6 +1018,8 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
 
     _render_group(active, "Active", "🟢")
     _render_group(down, "Down", "🔴")
+    _render_group(unknown, "Unknown", "❓")
+    _render_group(paused, "Paused", "⏸️")
     _render_group(disabled, "Disabled", "⚪")
 
     # Footer — disclose the cap dimension so operators understand WHY 50.
@@ -994,7 +1027,7 @@ async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
     # `_listener()._send_reply` would HTTP-400 above that. Surfacing the
     # SPA's Hosts view as the alternative gives operators a clear path to
     # the full list. Only fires when at least one group was truncated.
-    if len(active) > 50 or len(down) > 50 or len(disabled) > 50:
+    if any(len(g) > 50 for g in (active, down, unknown, paused, disabled)):
         out_lines.append("")
         out_lines.append(
             "<i>Cap is 50 per group to fit Telegram's 4096-char message "
