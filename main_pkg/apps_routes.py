@@ -761,6 +761,16 @@ async def api_service_test_credential(host_id: str, service_idx: int,
     if mod is None or not hasattr(mod, "test_credential"):
         raise HTTPException(400, "no test path for this app")
     candidate_key = (payload.get("api_key") or "").strip()
+    # Overlay the LIVE editor URL (when the operator typed / changed the
+    # instance URL but hasn't saved yet) onto a chip copy so the per-app
+    # module's resolve_base_url sees the URL being tested, not the stale
+    # saved one. Test-before-save needs the current field value — without
+    # this, testing a brand-new (unsaved) chip reports "no upstream URL
+    # configured" even after the operator filled the URL in. Generic — every
+    # app's resolve_base_url reads chip['url'] first.
+    _live_url = (payload.get("url") or "").strip()
+    if _live_url:
+        chip = {**chip, "url": _live_url}
     try:
         # Forward the full payload so apps with multi-field credentials
         # (e.g. AdGuard's username + password) can validate them together

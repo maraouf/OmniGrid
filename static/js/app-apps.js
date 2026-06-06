@@ -251,6 +251,7 @@ export default {
   filteredApps() {
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
     const sf = this.appsStatusFilter || '';
+    const ef = !!this.appsExtrasOnly;
     const src = this.appsList || [];
     // Per-flush memo — see _filteredAppsCache comment block at top.
     // Cache key folds (search, statusFilter, source-array ref) so any
@@ -259,12 +260,19 @@ export default {
     // UI-freeze was root-caused + fixed — extras are now opt-in, so the
     // heavy panel no longer renders unless ticked, and the page loads
     // correctly with every app rendered.)
-    const cacheKey = q + '|' + sf + '|' + src.length;
+    const cacheKey = q + '|' + sf + '|' + (ef ? '1' : '0') + '|' + src.length;
     if (_filteredAppsCache && _filteredAppsCacheKey === cacheKey
       && _filteredAppsCache.__src === src) {
       return _filteredAppsCache;
     }
     let out = src;
+    if (ef) {
+      // "Extras only" — keep apps whose catalog template has a registered
+      // per-app module (extras-capable). appsTemplateSupportsExtras walks
+      // window.OG_APPS_EXTENDERS; pass the slug (fallback to the app name).
+      out = out.filter(a => this.appsTemplateSupportsExtras(
+        ((a.catalog && a.catalog.slug) || '') || (a.name || '')));
+    }
     if (sf) {
       // Status filter: keep apps whose rollup status matches AND drill
       // into each so ONLY the matching instances show — so the by-host
@@ -2183,37 +2191,12 @@ export default {
   // the backend side. Mirrors the canonical test-before-save
   // pattern (admin tabs with a probe path gate Save behind a
   // successful test).
-  async testInstanceCredential() {
-    const f = this.appsInstanceEditForm;
-    if (!f || !f.host_id || f.service_idx < 0) {
-      return;
-    }
-    this.appsInstanceTestBusy = true;
-    this.appsInstanceTestResult = null;
-    try {
-      const r = await fetch('/api/services/'
-        + encodeURIComponent(f.host_id) + '/'
-        + encodeURIComponent(f.service_idx) + '/test-credential', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({api_key: f.api_key || ''}),
-      });
-      const j = await r.json().catch(() => ({}));
-      this.appsInstanceTestResult = {
-        ok: !!(r.ok && j && j.ok),
-        detail: (j && (j.detail || j.error)) || (r.ok ? 'OK' : 'HTTP ' + r.status),
-      };
-    } catch (err) {
-      this.appsInstanceTestResult = {
-        ok: false,
-        detail: (err && err.message) ? err.message : String(err),
-      };
-    } finally {
-      this.appsInstanceTestBusy = false;
-    }
-  },
-  appsInstanceTestBusy: false,
-  appsInstanceTestResult: null,
+  // `testInstanceCredential` + `appsInstanceTestBusy` / `appsInstanceTestResult`
+  // live in `app-apps-data.js` (the canonical copy). It's merged AFTER this
+  // module in app.js's `_mergeKeepDescriptors` chain, so its version wins —
+  // this divergent duplicate was dead code and was removed to avoid drift
+  // (it lacked the `username` + `url` payload fields and the `{pending}`
+  // result shape the shared og-test-connection component needs).
   // Public-IP detail value formatter — strips the "AS" prefix from
   // the ASN field so the chip reads cleanly. Backend returns "AS15169"
   // (Google), "AS13335" (Cloudflare), etc.; the visual chip looks

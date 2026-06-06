@@ -194,9 +194,13 @@ export default {
         headers: {'Content-Type': 'application/json'},
         // `username` is forwarded for apps with multi-field credentials
         // (e.g. AdGuard Home: username + password). Single-secret apps
-        // (Speedtest) ignore it. The backend reads candidate_key from
+        // (Speedtest) ignore it. `url` is forwarded so the backend can
+        // resolve the base URL from the LIVE editor value (test-before-save)
+        // instead of the stale saved chip — without it, testing a brand-new
+        // or just-edited instance reports "no upstream URL configured" until
+        // the operator saves first. The backend reads candidate_key from
         // `api_key` and any extra fields from the same payload.
-        body: JSON.stringify({api_key: f.api_key || '', username: f.username || ''}),
+        body: JSON.stringify({api_key: f.api_key || '', username: f.username || '', url: f.url || ''}),
       });
       const j = await r.json().catch(() => ({}));
       this.appsInstanceTestResult = {

@@ -396,6 +396,13 @@ function app() {
     appsDiscoverHostActiveIdx: -1,
     appsSearchQuery: '',
     appsStatusFilter: '',  // '' | 'up' | 'down' | 'degraded' | 'unknown'
+    // When true, filteredApps() keeps ONLY apps whose catalog template has a
+    // per-app module (a rich expanded card / AI skills) — i.e. extras-capable
+    // (AdGuard Home Sync / Radarr / Sonarr / Seerr / Bazarr / APC / Speedtest /
+    // AdGuard / Pi-hole). In-memory like the other apps-view filters (resets on
+    // reload). Resolved via appsTemplateSupportsExtras() walking the registered
+    // per-app extenders.
+    appsExtrasOnly: false,
     // Per-chip "Probe now" in-flight tracker. Keyed by
     // `'probe:' + host_id + ':' + service_idx` so simultaneous clicks
     // on different chips don't share state; the matching button binds
