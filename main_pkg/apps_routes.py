@@ -786,6 +786,24 @@ async def api_service_test_credential(host_id: str, service_idx: int,
             message=(f"Tested credentials for service_idx={service_idx} on {host_id} "
                      f"(ok={result.get('ok')})"),
         )
+    # On a PASSING test, stamp the chip's last-successful-test timestamp so the
+    # editor's "✓ Last tested Xm ago" chip survives a reload (surfaced via
+    # iter_instances). Best-effort: a persist failure must never break the test
+    # response the SPA is waiting on.
+    if isinstance(result, dict) and result.get("ok"):
+        # noinspection PyBroadException
+        try:
+            import time as _time
+            hosts = _load_hosts_config()
+            tidx = _find_host_idx(hosts, host_id)
+            if tidx >= 0:
+                svcs = hosts[tidx].get("services") or []
+                if (isinstance(svcs, list) and 0 <= service_idx < len(svcs)
+                        and isinstance(svcs[service_idx], dict)):
+                    svcs[service_idx]["last_test_ok_ts"] = int(_time.time())
+                    _persist_host_services(hosts, tidx, svcs)
+        except Exception:  # noqa: BLE001
+            pass
     return result
 
 

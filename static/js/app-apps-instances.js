@@ -734,6 +734,11 @@ export default {
       // pattern from the global-secrets convention).
       api_key: '',
       api_key_set: !!inst.api_key_set,
+      // Epoch seconds of the last PASSING Test-connection (stamped by the
+      // test-credential route, surfaced via iter_instances). Drives the
+      // editor's "✓ Last tested Xm ago" chip; updated optimistically on a
+      // passing test in testInstanceCredential.
+      last_test_ok_ts: Number(inst.last_test_ok_ts) || 0,
       // Non-secret Basic-auth username half (e.g. AdGuard Home). Unlike
       // api_key, the backend returns this in the clear, so it seeds the
       // input directly and round-trips on save.

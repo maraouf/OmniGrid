@@ -83,6 +83,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Changed
 
+- **Per-app instance "Test connection" shows when it was last tested.** After a successful Test on an app instance (Radarr, Sonarr, Lidarr, Seerr, Bazarr, AdGuard, AdGuard Home Sync, Pi-hole, Speedtest), a "✓ Last tested Xm ago" chip appears next to the button and survives a reload — matching the Portainer / OIDC panels.
 - **Per-app "Test connection" now works before you save the instance URL.** The Test button forwards the URL currently typed in the editor, so a brand-new or just-edited app instance can be tested immediately instead of reporting "no upstream URL configured" until you save first.
 - **Every app editor's data-cache TTL field shows the same min / max / default chips.** The AdGuard Home, Pi-hole, and Speedtest Tracker editors were missing the little bounds chips (5 / 3600 / app default) that Radarr / Sonarr / Bazarr / Seerr already showed — they now match, so every app's cache-TTL field reads consistently.
 - **App cards show a small spinner while their extra stats load.** The "Loading … data" placeholder on every app card with expanded stats (AdGuard Home, Pi-hole, Radarr, Sonarr, Seerr, Bazarr, APC UPS, Speedtest Tracker) now has a subtle spinner to the left of the text, so a card mid-fetch reads as busy rather than stalled. Seerr and Bazarr cards previously showed nothing at all until their first fetch landed — they now show the same spinner-and-text placeholder as the others.

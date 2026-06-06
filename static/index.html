@@ -10523,7 +10523,16 @@
                        :alt="drawerItem.stack || drawerItem.name" loading="lazy"
                        @error="$el.style.display='none'">
                   <div class="min-w-0 flex-1">
-                    <h2 class="fs-display-sm font-semibold mono break-all" x-text="drawerItem.name"></h2>
+                    <h2 class="fs-display-sm font-semibold mono break-all">
+                      <span x-text="drawerItem.name"></span>
+                      <!-- Running app version from the image's OCI version label
+                           (org.opencontainers.image.version) — useful when the tag
+                           itself is just :latest. Muted, after the name. -->
+                      <span x-show="drawerItem.app_version"
+                            class="fs-xs font-normal text-[var(--text-faint)] ms-2 align-middle"
+                            :title="t('item.running_version') || 'Running version'"
+                            x-text="(drawerItem.app_version && /^[0-9]/.test(drawerItem.app_version)) ? ('v' + drawerItem.app_version) : drawerItem.app_version"></span>
+                    </h2>
                     <div class="mono fs-xs text-[var(--text-dim)] break-all mt-1">
                       <span x-text="imageRepo(drawerItem)"></span><span class="text-[var(--text-faint)]">:</span><span x-text="drawerItem.tag"></span>
                     </div>

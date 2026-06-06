@@ -1747,6 +1747,10 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 ),
                 # Non-secret Basic-auth username half (e.g. AdGuard Home).
                 "username": (svc.get("username") or ""),
+                # Epoch seconds of the last PASSING Test-connection (stamped by
+                # the test-credential route). Drives the editor's "✓ Last tested
+                # Xm ago" chip; 0 / absent when never tested.
+                "last_test_ok_ts": _coerce_int(svc.get("last_test_ok_ts")) or 0,
                 # Seerr TMDB config — the secret key is never returned in the
                 # clear (only the `_set` flag, same convention as api_key);
                 # the two base URLs round-trip to the editor verbatim.
