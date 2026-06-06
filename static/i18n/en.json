@@ -5233,7 +5233,10 @@
       "output_load": "Output load",
       "runtime": "Runtime remaining",
       "battery_temp": "Battery temperature",
-      "battery_state": "Battery state"
+      "battery_state": "Battery state",
+      "loading": "Loading UPS data…",
+      "fetch_failed": "UPS fetch failed",
+      "no_data": "No UPS data reported for this host"
     },
     "bazarr": {
       "api_key_label": "Bazarr API key",
