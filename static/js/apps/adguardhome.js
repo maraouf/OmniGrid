@@ -48,6 +48,14 @@ function isAdguardApp(app) {
     return true;
   }
   const name = String(app.name || '').toLowerCase();
+  // Exclude the separate AdGuard Home SYNC app — its name also contains
+  // 'adguard', and a loose substring match would bleed the AdGuard fleet
+  // card + enable/disable/refresh actions onto a sync chip. The sync app has
+  // its OWN module (adguardhome_sync.js / isAdguardSyncApp), so a name with
+  // 'sync' is never plain AdGuard here.
+  if (name.indexOf('sync') !== -1) {
+    return false;
+  }
   return (name.indexOf('adguard') !== -1);
 }
 

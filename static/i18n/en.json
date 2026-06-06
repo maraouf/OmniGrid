@@ -5073,7 +5073,9 @@
     "discover_select_at_least_one": "Select at least one proposal",
     "empty_instances_pin_cta": "Pin from Templates",
     "empty_instances_discover_cta": "Run Discovery wizard",
-    "empty_instances_hint": "Tip: on the Templates tab, click the link icon on any catalog row to pin it to a host."
+    "empty_instances_hint": "Tip: on the Templates tab, click the link icon on any catalog row to pin it to a host.",
+    "instances_extras_only": "Extras only",
+    "instances_extras_only_title": "Show only instances of apps with a rich card / AI skills"
   },
   "apps": {
     "title": "Apps",

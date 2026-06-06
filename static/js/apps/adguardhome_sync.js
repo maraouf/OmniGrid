@@ -40,7 +40,11 @@ function isAdguardSyncApp(app) {
     return true;
   }
   const nm = String(app.name || '').toLowerCase();
-  return (nm.indexOf('adguardhome-sync') !== -1) || (nm.indexOf('adguard-home-sync') !== -1);
+  // Match a de-linked chip by name too: any name containing BOTH 'adguard'
+  // AND 'sync' (e.g. "AdGuard Home Sync") is this app, not plain AdGuard —
+  // the inverse of isAdguardApp's 'sync' exclusion, so the two never both
+  // match the same chip.
+  return (nm.indexOf('adguard') !== -1) && (nm.indexOf('sync') !== -1);
 }
 
 // Per-instance sync-status lookup -- reads the per-app data the generic
