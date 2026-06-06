@@ -339,7 +339,15 @@ export default {
       : '';
     const cacheKey = hosts.length + '|' + groups.length + '|' + (this.hostGroupsRevision || 0)
       + '|' + (this.hostsSearch || '') + '|' + (this.hostsHideUnconfigured ? '1' : '0')
-      + '|' + provFilt + '|' + (this.hostsProblemFilter ? '1' : '0');
+      + '|' + provFilt + '|' + (this.hostsProblemFilter ? '1' : '0')
+      // hostsStatusRevision bumps whenever an in-place reconcile FLIPS a
+      // host's status. Reading it here (a) busts the cache when a status
+      // change doesn't alter hosts.length (e.g. up→down with the Problem
+      // filter off, or one problem host swapping for another), and (b)
+      // SUBSCRIBES the table's x-for effect to it so the table re-runs on a
+      // status flip even when a lightweight filteredHosts().length binding
+      // computed the per-flush memo first. See the declaration in app.js.
+      + '|' + (this.hostsStatusRevision || 0);
     const cached = this._groupedHostsCache;
     if (cached.key === cacheKey && cached.value) {
       return cached.value;
@@ -787,7 +795,13 @@ export default {
           }
           existing._seq = i;
           if (skipProbe) {
-            existing.status = 'unconfigured';
+            if (existing.status !== 'unconfigured') {
+              existing.status = 'unconfigured';
+              // Status flipped (configured → unmapped) — bump so the table
+              // re-renders under an active Problem filter (see the
+              // hostsStatusRevision declaration).
+              this.hostsStatusRevision = (this.hostsStatusRevision || 0) + 1;
+            }
             // Unconfigured rows skip the per-host probe entirely, so
             // make sure they aren't stuck on a stale spinner from a
             // previous configured-then-unmapped state.
@@ -1042,7 +1056,13 @@ export default {
           row._loading = false;
           row._probe_timeout = (r.status === 504);
           row._probe_error = `HTTP ${r.status}`;
-          row.status = 'unknown';
+          if (row.status !== 'unknown') {
+            row.status = 'unknown';
+            // A failed probe flipped this row into a problem status — bump
+            // so the Hosts table re-renders under an active Problem filter
+            // (see the hostsStatusRevision declaration).
+            this.hostsStatusRevision = (this.hostsStatusRevision || 0) + 1;
+          }
           // Clear any lingering per-provider polling flags — the
           // response failed so no `provider_done` events are coming.
           row._polling = {};
@@ -1079,6 +1099,14 @@ export default {
       // clears cleanly. CURATED_FIELDS-style flow (config / asset)
       // still uses the simple assign loop for whatever else the
       // backend chose to include.
+      // Capture the pre-reconcile status so we can detect an actual flip
+      // (up ↔ down/paused/unknown) and bump hostsStatusRevision — that
+      // reactive read is what makes the Hosts table's groupedHosts() x-for
+      // re-run + recompute when a host changes problem-state in place (the
+      // count binding subscribes via its own filteredHosts() reads, but the
+      // memoized table effect can be left holding a stale per-flush cache —
+      // see the hostsStatusRevision declaration).
+      const _prevStatus = row.status;
       for (const k of CURATED_REFRESH_FIELDS) {
         row[k] = (host[k] === undefined) ? null : host[k];
       }
@@ -1086,6 +1114,9 @@ export default {
         if (!CURATED_REFRESH_FIELDS.has(k)) {
           row[k] = host[k];
         }
+      }
+      if (row.status !== _prevStatus) {
+        this.hostsStatusRevision = (this.hostsStatusRevision || 0) + 1;
       }
       row._loading = false;
       row._probe_timeout = false;

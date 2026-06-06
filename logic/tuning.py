@@ -439,11 +439,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # is looking at the widget — without it, change-detection only fires
     # on incidental fetch() calls (SPA widget load / Telegram /ip / AI
     # palette) which are gated by the cache TTL, so a short-lived flap
-    # shorter than the cache window is missed entirely. Default 300s
-    # (5 min) catches typical WAN-failover flaps while staying light on
-    # the upstream (~288 calls/day). 0 disables the sampler (change-
-    # detection falls back to incidental fetches only). Range 0..86400.
-    "tuning_public_ip_sample_interval_seconds": ("PUBLIC_IP_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # shorter than the cache window is missed entirely. Default 120s
+    # (2 min) detects a WAN-IP change close to a dedicated DDNS updater's
+    # cadence while staying light on the upstream (~720 calls/day); a
+    # detected change is pushed to the SPA live via the `public_ip:changed`
+    # SSE event, so the widget updates the instant the sampler observes it
+    # (no waiting out the SPA's 10-min refresh cache). Dial DOWN to 30–60s
+    # for near-instant detection, or UP to reduce upstream calls. 0 disables
+    # the sampler (change-detection falls back to incidental fetches only).
+    # Range 0..86400.
+    "tuning_public_ip_sample_interval_seconds": ("PUBLIC_IP_SAMPLE_INTERVAL_SECONDS", 120, 0, 86400),
     # Asset-inventory outbound HTTP wall-clocks. Two tiers — token
     # probe (OAuth2 client_credentials handshake, default 10s) and
     # asset fetch (paginated /assets pull, default 15s). Operators on
