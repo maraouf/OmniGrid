@@ -29,6 +29,7 @@ from . import adguardhome
 from . import apc
 from . import bazarr
 from . import pihole
+from . import radarr
 from . import seerr
 from . import speedtest_tracker
 
@@ -52,6 +53,7 @@ _register(adguardhome)
 _register(apc)
 _register(bazarr)
 _register(pihole)
+_register(radarr)
 _register(seerr)
 _register(speedtest_tracker)
 

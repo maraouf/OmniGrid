@@ -533,6 +533,19 @@ function app() {
     // dashboard "Problem hosts" tile both flip this flag.
     hostsProblemFilter: (typeof sessionStorage !== 'undefined')
       && sessionStorage.getItem('hostsProblemFilter') === '1',
+    // Reactive revision bumped whenever an in-place host reconcile FLIPS a
+    // row's `status` (up ↔ down/paused/unknown/unconfigured). Read into the
+    // `groupedHosts()` cache key so (a) the change busts the table's cached
+    // buckets even though the host array identity is unchanged, and (b) the
+    // table's x-for effect SUBSCRIBES to it directly — closing the caveat-(6)
+    // subscription-theft hole where a lightweight `filteredHosts().length`
+    // count binding computed (and subscribed) first, leaving the table effect
+    // holding the per-flush memo WITHOUT subscribing to the changed host's
+    // status. Symptom that drove this: with the Problem filter active, a host
+    // flipping to a problem status updated the count (2) but not the rendered
+    // table (still 1) until the filter was toggled. See `hostGroupsRevision`
+    // for the same pattern on group edits.
+    hostsStatusRevision: 0,
     // Sort key for the Hosts view. Persisted to localStorage so the
     // operator's preferred order sticks across reloads. Supported keys:
     // 'status' (default — alive first, then paused, down, unknown)

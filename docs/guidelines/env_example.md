@@ -619,8 +619,12 @@ PUBLIC_IP_FETCH_TIMEOUT_SECONDS = 8
 # public IP every N seconds (when enabled) so a CHANGE is recorded in
 # history even when nobody is viewing the widget — incidental lookups
 # alone are cache-gated, so a flap shorter than the cache window is
-# missed. Default 300 s (~288 calls/day). 0 disables the sampler.
-PUBLIC_IP_SAMPLE_INTERVAL_SECONDS = 300
+# missed. A detected change is pushed to the SPA live via the
+# `public_ip:changed` SSE event (the widget updates the instant the
+# sampler observes it). Default 120 s (~720 calls/day); dial to 30–60 s
+# for near-instant detection, or up to reduce upstream calls. 0 disables
+# the sampler.
+PUBLIC_IP_SAMPLE_INTERVAL_SECONDS = 120
 # Public-IP lookup endpoint URL — operator override. Leave blank
 # to use the well-known ifconfig.co default. Uncomment + paste an
 # alternative if you prefer a different no-key endpoint:
@@ -1113,7 +1117,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `HOST_BASELINE_WINDOW_DAYS`                    | Runtime    | `30`                    | Rolling-window lookback (days) for the baseline computation. Range 1..365.                                                                                                                                                                                                                                        |
 | `PUBLIC_IP_CACHE_TTL_SECONDS`                  | Runtime    | `600`                   | In-process cache TTL for Public-IP lookups. Range 60..3600.                                                                                                                                                                                                                                                       |
 | `PUBLIC_IP_FETCH_TIMEOUT_SECONDS`              | Runtime    | `8`                     | HTTP timeout for the Public-IP fetch against ifconfig.co. Range 2..60.                                                                                                                                                                                                                                            |
-| `PUBLIC_IP_SAMPLE_INTERVAL_SECONDS`            | Runtime    | `300`                   | Background change-sampler cadence (seconds). A lifespan loop force-probes the public IP so a CHANGE is recorded even when no one views the widget; incidental lookups alone are cache-gated and miss short flaps. `0` disables the sampler. Range 0..86400.                                                       |
+| `PUBLIC_IP_SAMPLE_INTERVAL_SECONDS`            | Runtime    | `120`                   | Background change-sampler cadence (seconds). A lifespan loop force-probes the public IP so a CHANGE is recorded even when no one views the widget; incidental lookups alone are cache-gated and miss short flaps. A detected change pushes the `public_ip:changed` SSE event so the widget updates live. Dial to 30–60s for near-instant detection. `0` disables the sampler. Range 0..86400.                                                       |
 | `PRAYER_TIMES_CACHE_TTL_SECONDS`               | Runtime    | `3600`                  | In-process cache TTL for prayer-times lookups. Daily times are static, so a 1-hour default is plenty. Range 300..21600.                                                                                                                                                                                           |
 | `PRAYER_TIMES_FETCH_TIMEOUT_SECONDS`           | Runtime    | `8`                     | HTTP timeout for the AlAdhan fetch. Range 2..60.                                                                                                                                                                                                                                                                  |
 | `PRAYER_TIMES_SAMPLER_INTERVAL_SECONDS`        | Runtime    | `21600`                 | Lifespan-managed prayer-times sampler cadence (one row per day per location into `prayer_times_samples`). Daily-static data, so 6h default. 0 disables the sampler. Range 0..86400.                                                                                                                               |

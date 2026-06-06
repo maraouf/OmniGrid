@@ -1837,7 +1837,7 @@
         },
         "tuning_public_ip_sample_interval_seconds": {
           "label": "Public-IP change-sampler interval (seconds)",
-          "help": "How often a background loop force-probes the public IP to record a CHANGE in the history, even when nobody is viewing the widget. Without it, change-detection only fires on incidental lookups (widget load / Telegram /ip / AI palette) which are gated by the cache TTL, so a short-lived WAN flap shorter than the cache window is missed entirely and the 'changed X ago' label goes stale. Default 300 (5 minutes) catches typical failover flaps while staying light on the upstream (~288 calls/day). 0 disables the sampler (change-detection falls back to incidental lookups only). Range 0..86400. Takes effect on the next tick."
+          "help": "How often a background loop force-probes the public IP to record a CHANGE in the history, even when nobody is viewing the widget. Without it, change-detection only fires on incidental lookups (widget load / Telegram /ip / AI palette) which are gated by the cache TTL, so a short-lived WAN flap shorter than the cache window is missed entirely and the 'changed X ago' label goes stale. A detected change is also pushed to open tabs via the public_ip:changed SSE event, so the widget updates the instant the sampler observes it (no waiting out the SPA's 10-minute refresh cache). Default 120 (2 minutes) detects a change close to a dedicated DDNS updater's cadence while staying light on the upstream (~720 calls/day); dial DOWN to 30–60 for near-instant detection, or UP to reduce upstream calls. 0 disables the sampler (change-detection falls back to incidental lookups only). Range 0..86400. Takes effect on the next tick."
         },
         "tuning_prayer_times_cache_ttl_seconds": {
           "label": "Prayer Times cache TTL (seconds)",
@@ -5396,7 +5396,10 @@
       "seerr_set_filter": "Set a suggestion filter",
       "seerr_show_filters": "Show suggestion filters",
       "ran_ok": "Started",
-      "failed": "Skill failed"
+      "failed": "Skill failed",
+      "radarr_status": "Radarr status",
+      "radarr_search_missing": "Search for missing movies",
+      "radarr_refresh": "Refresh movie library"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5461,6 +5464,21 @@
       "unknown": "{n} unknown",
       "instances_up": "{up}/{total} instances up",
       "apps_up": "{up}/{total} apps up"
+    },
+    "radarr": {
+      "api_key_label": "Radarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Radarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch the library summary. Found in Radarr under Settings → General → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Radarr (5–3600s). Leave blank for the app default (60s).",
+      "movies": "Movies",
+      "missing": "Missing",
+      "downloading": "Downloading",
+      "disk_free": "Disk free",
+      "health_issues_n": "{n} health issue(s)",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Radarr data…",
+      "fetch_failed": "Radarr fetch failed"
     }
   }
 }

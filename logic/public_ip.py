@@ -212,6 +212,27 @@ def _record_ip_change(ts: int, ip: str, payload: dict) -> None:
             ),
         )
         print(f"[public_ip] recorded IP change: {prev_ip or '(first)'} -> {ip}")
+    # Push the change to connected SPA tabs so the topbar widget updates the
+    # instant the change is detected — without waiting out the SPA's own
+    # 10-min refresh cache. Only a REAL change (a prior IP existed AND it
+    # differs) publishes; the first-ever record is not a "change". Best-effort
+    # + outside the db_conn block so a publish hiccup can't roll back the row.
+    if prev_ip and prev_ip != ip:
+        # noinspection PyBroadException
+        try:
+            from logic import events as _events  # noqa: PLC0415
+            _events.publish("public_ip:changed", {
+                "ip": ip,
+                "isp": payload.get("isp") or "",
+                "asn": payload.get("asn") or "",
+                "country": payload.get("country") or "",
+                "country_code": payload.get("country_code") or "",
+                "city": payload.get("city") or "",
+                "prev_ip": prev_ip,
+                "ts": ts,
+            })
+        except Exception as e:  # noqa: BLE001
+            print(f"[public_ip] SSE publish failed: {e}")
 
 
 def last_change() -> Optional[dict]:

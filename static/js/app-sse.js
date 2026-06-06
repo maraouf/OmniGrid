@@ -843,6 +843,50 @@ export default {
       } catch (_) {
       }
     });
+    // public_ip:changed — emitted by logic/public_ip.py the instant a WAN
+    // IP change is detected (by the public_ip sampler's force-probe or any
+    // incidental fetch). Update the topbar widget in place + reset the
+    // freshness baseline so the operator sees the new IP immediately,
+    // without waiting out the SPA's own 10-min refresh cache. Payload
+    // carries the full {ip, isp, asn, country, country_code, city, prev_ip}.
+    es.addEventListener('public_ip:changed', (e) => {
+      onAny();
+      try {
+        const data = JSON.parse(e.data || '{}');
+        const p = data.payload || {};
+        if (!p.ip) {
+          return;
+        }
+        console.log('[live] event=public_ip:changed ' + (p.prev_ip || '?') + ' → ' + p.ip);
+        const fresh = {
+          ip: p.ip, isp: p.isp || '', asn: p.asn || '',
+          country: p.country || '', country_code: p.country_code || '',
+          city: p.city || '',
+        };
+        // In-place reconcile (same anti-flicker pattern as _ensurePublicIp):
+        // mutate the existing object so Alpine keeps the bound subtree.
+        if (this.publicIp && typeof this.publicIp === 'object') {
+          Object.keys(this.publicIp).forEach((k) => {
+            if (!(k in fresh)) {
+              delete this.publicIp[k];
+            }
+          });
+          Object.assign(this.publicIp, fresh);
+        } else {
+          this.publicIp = fresh;
+        }
+        // Reset the SPA fetch baseline so the "Updated Xs ago" label restarts
+        // AND a later _ensurePublicIp() within its 10-min window doesn't think
+        // it still holds older data.
+        this._publicIpFetchedAt = Date.now();
+        // Refresh the change-history strip if it's loaded (the new row is now
+        // the latest). Fire-and-forget; absent helper is a no-op.
+        if (typeof this.loadPublicIpHistory === 'function' && this._publicIpHistoryCache) {
+          this.loadPublicIpHistory();
+        }
+      } catch (_) {
+      }
+    });
     es.addEventListener('session:renewed', (e) => {
       onAny();
       if (this._isSelfEvent(e)) {
