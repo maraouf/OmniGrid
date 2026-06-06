@@ -199,6 +199,40 @@ def invalidate_cache() -> None:
     _neg_until.clear()
 
 
+def _cached_body_date_stale(body: dict, now: float) -> bool:
+    """True when a cached body's gregorian date no longer equals *today* in
+    that body's own timezone — i.e. the local day has rolled over since the
+    body was fetched. Used to force a re-fetch across local midnight so the
+    early-morning Fajr reminder never reads the previous day's epochs from a
+    still-within-TTL cache entry.
+
+    This is a defence-in-depth tightening of the primary fix (the localised
+    ``/timings/{ts}`` request); the 1h TTL already refreshes well before the
+    hours-after-midnight Fajr window, so this only closes the narrow case of
+    a body fetched in the final minutes before local midnight.
+
+    Robustness: the staleness comparison needs the location's IANA zone, and
+    the slim runtime image may lack ``tzdata`` (``ZoneInfo`` then falls back
+    to UTC). When the body names a real zone but we can only resolve UTC, we
+    can't trust the local-date computation, so we keep serving the cache
+    (return False) — that makes this guard a no-op exactly when tz data is
+    unavailable, and prevents a needless daily refetch window. Any parse
+    failure is likewise conservative (return False)."""
+    try:
+        cached_date = str((body.get("gregorian") or {}).get("date") or "").strip()
+        if not cached_date:
+            return False
+        tzname = str(body.get("timezone") or "").strip()
+        tz = _zone(tzname)
+        # Couldn't resolve a named zone (tzdata missing) -> don't guess.
+        if tz is timezone.utc and tzname and tzname.upper() not in ("UTC", "ETC/UTC"):
+            return False
+        local_today = datetime.fromtimestamp(now, tz).strftime("%Y-%m-%d")
+        return cached_date != local_today
+    except (TypeError, ValueError, OSError, KeyError):
+        return False
+
+
 def _strip_tz(t: str) -> str:
     """AlAdhan timings can carry a tz suffix — ``"05:12 (EET)"``. Keep
     the ``HH:MM`` head only."""
@@ -390,13 +424,34 @@ async def fetch(lat: float, lon: float, *, label: str = "",
 
     cached = _cache.get(key)
     if not force and cached and (now - cached[0]) < _cache_ttl():
-        return _with_next(cached[1], label=label, cached=True)
+        # Within the positive TTL — but DON'T serve a body whose date has
+        # rolled over locally. The cache key carries no date, so a body
+        # fetched just before the location's local midnight would otherwise
+        # be served for up to the full TTL into the new local day, handing
+        # the early-morning Fajr window the PREVIOUS day's (already-passed)
+        # epochs. Re-fetch when the cached body's local date no longer
+        # equals today in the cached body's timezone.
+        if not _cached_body_date_stale(cached[1], now):
+            return _with_next(cached[1], label=label, cached=True)
     if now < _neg_until.get(key, 0.0):
         return {"configured": True, "error": "temporarily unavailable",
                 "location": {"lat": qlat, "lon": qlon, "label": label}}
 
     base = base_url()
-    upstream = f"{base}/timings"
+    # Pass the current unix timestamp in the path so AlAdhan resolves the
+    # date in the LOCATION's timezone (derived from lat/lon), NOT its own
+    # server-UTC "now". Without the timestamp the bare /timings endpoint
+    # uses the server's UTC date — which lags the local date during the
+    # late-UTC-evening / around-UTC-midnight band. For users east of UTC
+    # that band is exactly when the Fajr reminder window opens (Fajr's
+    # local epoch is shortly after local midnight), so the UTC-lagged
+    # response returned the PREVIOUS day's timings and Fajr's epoch came
+    # back ~24h in the past — the reminder window check never matched and
+    # Fajr (and only Fajr) was silently skipped while the daytime prayers,
+    # well clear of the UTC boundary, fired normally. The /timings/{ts}
+    # variant localises the date to the lat/lon timezone (verified against
+    # api.aladhan.com), eliminating the whole class of UTC-boundary misses.
+    upstream = f"{base}/timings/{int(time.time())}"
     params = {
         "latitude": str(qlat),
         "longitude": str(qlon),
