@@ -218,10 +218,20 @@ export default {
     return list.filter((sk) => !(sk && sk.arg === true));
   },
 
-  // True when the chip can run skills NOW: it has at least one skill AND its
-  // api_key is set (the upstream action needs auth; the backend re-checks).
+  // True when the chip can run skills NOW: it has at least one (non-arg)
+  // skill AND — for apps whose auth is REQUIRED — its api_key is set. Apps
+  // with OPTIONAL auth (requires_api_key=false, e.g. AdGuard Home Sync, whose
+  // API is often open) can run skills WITHOUT an api_key; gating those on
+  // api_key_set hid their actions entirely. The backend re-enforces auth
+  // regardless, so this is purely "should the buttons render".
   appInstanceSkillsEnabled(inst) {
-    return !!(inst && inst.api_key_set && this.appInstanceSkills(inst).length);
+    if (!inst || !this.appInstanceSkills(inst).length) {
+      return false;
+    }
+    const slug = String((inst.catalog && inst.catalog.slug) || inst.catalog_slug || '');
+    const needsKey = (typeof this.appsTemplateRequiresApiKey === 'function')
+      ? this.appsTemplateRequiresApiKey(slug) : true;
+    return needsKey ? !!inst.api_key_set : true;
   },
 
   // i18n label for a skill button — prefers apps.skills.<id>, falls back to
