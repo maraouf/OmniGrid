@@ -64,18 +64,67 @@ from logic.coerce import safe_float, safe_int
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("radarr",)
 
-# Read-only status skill + two non-destructive background-command skills.
-# None take a free-form arg (they act on the whole library), so all three
-# surface as one-click drawer buttons AND AI / Telegram actions.
+# Read-only status skill + two non-destructive background-command skills +
+# two free-form-arg movie skills. The no-arg skills surface as one-click
+# drawer buttons AND AI / Telegram actions; the ``arg``-carrying add / remove
+# skills are AI / Telegram only (the dispatch surfaces supply the title from
+# natural language) and follow Seerr's request-a-movie pattern.
 SKILLS: tuple[dict, ...] = (
     {
         "id": "radarr_status",
         "name": "Radarr status",
         "ai_phrases": ("radarr status, movie library, how many movies, "
                        "how many movies are missing, missing movies, "
-                       "what's downloading on radarr, radarr queue, "
                        "radarr health, movie collection size, disk space radarr"),
         "destructive": False,
+    },
+    {
+        "id": "radarr_upcoming",
+        "name": "Upcoming movies",
+        "ai_phrases": ("upcoming movies, what movies are coming out, "
+                       "radarr calendar, what's releasing soon, "
+                       "new movie releases, upcoming radarr, movies coming soon"),
+        "destructive": False,
+    },
+    {
+        "id": "radarr_queue",
+        "name": "Download queue",
+        "ai_phrases": ("what's downloading on radarr, radarr queue, "
+                       "radarr downloads, what movies are downloading, "
+                       "download progress radarr, queue details"),
+        "destructive": False,
+    },
+    {
+        "id": "radarr_movie_info",
+        "name": "Look up a movie",
+        "ai_phrases": ("do i have <title>, is <title> in my library, "
+                       "is <title> downloaded, look up <title>, "
+                       "movie info <title>, status of <title>, "
+                       "do i have the movie <title>, is <title> monitored"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the movie title to look up in the Radarr library",
+    },
+    {
+        "id": "radarr_add_movie",
+        "name": "Add a movie",
+        "ai_phrases": ("add a movie, add <title>, add <title> to radarr, "
+                       "add <title> to the library, get <title> on radarr, "
+                       "download <title>, i want to watch <title>, "
+                       "put <title> in radarr"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the movie title (or a numeric TMDB id)",
+    },
+    {
+        "id": "radarr_remove_movie",
+        "name": "Remove a movie",
+        "ai_phrases": ("remove a movie, remove <title>, delete <title>, "
+                       "remove <title> from radarr, take <title> off radarr, "
+                       "delete <title> from the library, remove the movie <title>"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": "the movie title to remove from the Radarr library",
     },
     {
         "id": "radarr_search_missing",
@@ -359,12 +408,25 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``.
-    Raises ValueError on an unknown skill id (route maps to HTTP 404)."""
+    Raises ValueError on an unknown skill id (route maps to HTTP 404). ``arg``
+    carries the free-form argument (movie title / TMDB id) for the
+    add / remove / look-up skills."""
     if skill_id == "radarr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
+    if skill_id == "radarr_upcoming":
+        return await _upcoming_skill(host_row, chip, host_id=host_id)
+    if skill_id == "radarr_queue":
+        return await _queue_skill(host_row, chip, host_id=host_id)
+    if skill_id == "radarr_movie_info":
+        return await _movie_info_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "radarr_add_movie":
+        return await _add_movie_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "radarr_remove_movie":
+        return await _remove_movie_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "radarr_search_missing":
         return await _command_skill(host_row, chip, command="MissingMoviesSearch",
                                     started_msg="🔍 Started a search for all monitored "
@@ -376,6 +438,116 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                                 "scan on Radarr.",
                                     host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+# Shared opening for the arg / read skills: resolve (api_key, base) or return
+# a ready ``{ok: False, detail}``. Mirrors Seerr's _request_skill opening.
+def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return "", "", {"ok": False, "status": 0, "detail": "Radarr api_key not set"}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    return api_key, base, None
+
+
+def _year_suffix(year: Any) -> str:
+    """`` (2024)`` when ``year`` is a plausible film year, else ``""``."""
+    y = safe_int(year)
+    return f" ({y})" if 1870 < y < 2100 else ""
+
+
+async def _upcoming_skill(host_row: dict, chip: dict, *,
+                          host_id: Optional[str] = None) -> dict:
+    """Read-only: the next ~14 days of upcoming movie releases from
+    ``/api/v3/calendar``. Never raises."""
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    params = {
+        "start": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "end": (now + timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "unmonitored": "false",
+    }
+    print(f"[radarr] INFO radarr_upcoming host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v3/calendar",
+                              headers=_headers(api_key), params=params)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"calendar fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        items = r.json()
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not isinstance(items, list):
+        items = []
+    lines = []
+    for m in items[:12]:
+        if not isinstance(m, dict):
+            continue
+        title = str(m.get("title") or "?").strip()
+        # cinema / physical / digital release dates — pick the soonest present.
+        when = (str(m.get("digitalRelease") or m.get("physicalRelease")
+                    or m.get("inCinemas") or "")[:10])
+        lines.append(f"• {title}{_year_suffix(m.get('year'))}"
+                     + (f" — {when}" if when else ""))
+    if not lines:
+        return {"ok": True, "status": 200,
+                "detail": "🎬 No upcoming movie releases in the next 14 days."}
+    return {"ok": True, "status": 200,
+            "detail": "🎬 Upcoming movies (next 14 days):\n" + "\n".join(lines)}
+
+
+async def _queue_skill(host_row: dict, chip: dict, *,
+                       host_id: Optional[str] = None) -> dict:
+    """Read-only: what's currently downloading + progress from
+    ``/api/v3/queue``. Never raises."""
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[radarr] INFO radarr_queue host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v3/queue", headers=_headers(api_key),
+                              params={"pageSize": "20", "includeMovie": "true"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"queue fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        body = r.json()
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    records = body.get("records") if isinstance(body, dict) else None
+    records = records if isinstance(records, list) else []
+    if not records:
+        return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
+    lines = []
+    for q in records[:12]:
+        if not isinstance(q, dict):
+            continue
+        mv = q.get("movie") if isinstance(q.get("movie"), dict) else {}
+        title = str(mv.get("title") or q.get("title") or "?").strip()
+        total = safe_float(q.get("size"))
+        left = safe_float(q.get("sizeleft"))
+        pct = int(round((1 - left / total) * 100)) if total > 0 else 0
+        st = str(q.get("status") or "").strip().lower()
+        lines.append(f"• {title}{_year_suffix(mv.get('year'))} — {pct}%"
+                     + (f" ({st})" if st and st != "downloading" else ""))
+    return {"ok": True, "status": 200,
+            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
 
 
 # noinspection DuplicatedCode
@@ -477,3 +649,226 @@ async def _command_skill(host_row: dict, chip: dict, *, command: str,
     return {"ok": False, "status": r.status_code,
             "detail": f"Radarr returned HTTP {r.status_code} for {command}"
                       + (f" — {_body}" if _body else "")}
+
+
+async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
+                         query: str) -> Optional[dict]:
+    """Resolve a movie via Radarr's TMDB-backed lookup. A numeric ``query``
+    hits ``/api/v3/movie/lookup/tmdb`` (single object); a title hits
+    ``/api/v3/movie/lookup`` (list — top hit). Returns the movie dict (which
+    carries ``id > 0`` when it's already in the library) or ``None``."""
+    q = (query or "").strip()
+    try:
+        if q.isdigit():
+            r = await cli.get(base + "/api/v3/movie/lookup/tmdb",
+                              headers=_headers(api_key), params={"tmdbId": q})
+            if r.status_code != 200:
+                return None
+            obj = r.json()
+            return obj if isinstance(obj, dict) and obj.get("tmdbId") else None
+        r = await cli.get(base + "/api/v3/movie/lookup",
+                          headers=_headers(api_key), params={"term": q})
+        if r.status_code != 200:
+            return None
+        arr = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return None
+    if not isinstance(arr, list):
+        return None
+    for m in arr:
+        if isinstance(m, dict) and m.get("tmdbId"):
+            return m
+    return None
+
+
+def _find_in_library(movies: Any, query: str) -> Optional[dict]:
+    """Find a movie in the library list by numeric tmdbId, then exact title
+    (case-insensitive), then substring. Returns the movie dict or ``None``."""
+    if not isinstance(movies, list):
+        return None
+    q = (query or "").strip().lower()
+    if not q:
+        return None
+    if query.strip().isdigit():
+        tid = int(query.strip())
+        for m in movies:
+            if isinstance(m, dict) and safe_int(m.get("tmdbId")) == tid:
+                return m
+    for m in movies:
+        if isinstance(m, dict) and str(m.get("title") or "").strip().lower() == q:
+            return m
+    for m in movies:
+        if isinstance(m, dict) and q in str(m.get("title") or "").strip().lower():
+            return m
+    return None
+
+
+async def _movie_info_skill(host_row: dict, chip: dict, *,
+                            arg: Optional[str] = None,
+                            host_id: Optional[str] = None) -> dict:
+    """Read-only: is ``<title>`` in the library, monitored, downloaded? Looks
+    the movie up in ``/api/v3/movie``. Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0, "detail": "no movie title given — which movie?"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[radarr] INFO radarr_movie_info host={host_id} query={query!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v3/movie", headers=_headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"lookup failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        movies = r.json()
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    m = _find_in_library(movies, query)
+    if not m:
+        return {"ok": True, "status": 200,
+                "detail": f"❓ “{query}” is not in your Radarr library. (Ask me to add it.)"}
+    label = f"{str(m.get('title') or query)}{_year_suffix(m.get('year'))}"
+    monitored = bool(m.get("monitored"))
+    has_file = bool(m.get("hasFile"))
+    lines = [
+        f"🎬 {label}",
+        "📁 Monitored" if monitored else "🚫 Not monitored",
+        "✅ Downloaded" if has_file else "❓ Missing (no file yet)",
+    ]
+    if has_file:
+        mf = m.get("movieFile") if isinstance(m.get("movieFile"), dict) else {}
+        q = mf.get("quality") if isinstance(mf.get("quality"), dict) else {}
+        qq = q.get("quality") if isinstance(q.get("quality"), dict) else {}
+        qname = str(qq.get("name") or "").strip()
+        size_gib = safe_float(m.get("sizeOnDisk")) / _GIB
+        extra = " · ".join(p for p in (qname, _fmt_size_gib(size_gib) if size_gib > 0 else "") if p)
+        if extra:
+            lines.append(f"💾 {extra}")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+
+
+async def _add_movie_skill(host_row: dict, chip: dict, *,
+                           arg: Optional[str] = None,
+                           host_id: Optional[str] = None) -> dict:
+    """Action skill: add a movie BY TITLE (or TMDB id). Looks it up, resolves
+    a quality profile + the most-free root folder, then POSTs
+    ``/api/v3/movie`` with ``addOptions.searchForMovie``. Already-in-library
+    is a friendly ok. Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no movie title given — tell me which movie to add"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    label = query
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=25.0,
+                                     follow_redirects=True) as cli:
+            movie = await _radarr_lookup(cli, base, api_key, query)
+            if not movie:
+                return {"ok": False, "status": 404,
+                        "detail": f"no movie found matching “{query}”"}
+            label = f"{str(movie.get('title') or query)}{_year_suffix(movie.get('year'))}"
+            if safe_int(movie.get("id")) > 0:
+                return {"ok": True, "status": 200,
+                        "detail": f"🎬 {label} is already in your Radarr library."}
+            # Resolve a quality profile (first) + the most-free root folder.
+            qp = await cli.get(base + "/api/v3/qualityprofile", headers=_headers(api_key))
+            profiles = qp.json() if qp.status_code == 200 else []
+            if not isinstance(profiles, list) or not profiles:
+                return {"ok": False, "status": 0,
+                        "detail": "no quality profile configured in Radarr"}
+            profile_id = safe_int((profiles[0] or {}).get("id"))
+            rf = await cli.get(base + "/api/v3/rootfolder", headers=_headers(api_key))
+            folders = rf.json() if rf.status_code == 200 else []
+            folders = [f for f in folders if isinstance(f, dict) and f.get("path")] \
+                if isinstance(folders, list) else []
+            if not folders:
+                return {"ok": False, "status": 0,
+                        "detail": "no root folder configured in Radarr"}
+            best = max(folders, key=lambda f: safe_float(f.get("freeSpace")))
+            root_path = str(best.get("path") or "").strip()
+            payload = dict(movie)
+            payload.update({
+                "qualityProfileId": profile_id,
+                "rootFolderPath": root_path,
+                "monitored": True,
+                "minimumAvailability": "released",
+                "addOptions": {"searchForMovie": True},
+            })
+            print(f"[radarr] INFO radarr_add_movie host={host_id} title={label!r} "
+                  f"profile={profile_id} root={root_path!r}")
+            pr = await cli.post(base + "/api/v3/movie",
+                                headers=_headers(api_key), json=payload)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"add failed: {type(e).__name__}: {e}"}
+    if pr.status_code in (200, 201):
+        return {"ok": True, "status": pr.status_code,
+                "detail": f"🎬 Added {label} to Radarr — searching for a release now."}
+    if pr.status_code in (401, 403):
+        return {"ok": False, "status": pr.status_code, "detail": "auth failed (check api_key)"}
+    _body = ""
+    try:
+        _body = (pr.text or "")[:200]
+    except (ValueError, TypeError):
+        _body = ""
+    if pr.status_code == 400 and "exist" in _body.lower():
+        return {"ok": True, "status": 200,
+                "detail": f"🎬 {label} is already in your Radarr library."}
+    return {"ok": False, "status": pr.status_code,
+            "detail": f"Radarr returned HTTP {pr.status_code} adding {label}"
+                      + (f" — {_body}" if _body else "")}
+
+
+async def _remove_movie_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE action skill: remove a movie BY TITLE from the Radarr
+    library. Files on disk are KEPT (``deleteFiles=false``) — removing the
+    library entry is the action; deleting media is not. Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no movie title given — tell me which movie to remove"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v3/movie", headers=_headers(api_key))
+            if r.status_code in (401, 403):
+                return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+            if r.status_code != 200:
+                return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+            try:
+                movies = r.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            m = _find_in_library(movies, query)
+            if not m:
+                return {"ok": False, "status": 404,
+                        "detail": f"no movie matching “{query}” in your Radarr library"}
+            mid = safe_int(m.get("id"))
+            label = f"{str(m.get('title') or query)}{_year_suffix(m.get('year'))}"
+            print(f"[radarr] INFO radarr_remove_movie host={host_id} id={mid} title={label!r}")
+            dr = await cli.delete(base + f"/api/v3/movie/{mid}",
+                                  headers=_headers(api_key),
+                                  params={"deleteFiles": "false",
+                                          "addImportExclusion": "false"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"remove failed: {type(e).__name__}: {e}"}
+    if dr.status_code in (200, 202, 204):
+        return {"ok": True, "status": 200,
+                "detail": f"🗑️ Removed {label} from Radarr (files on disk kept)."}
+    if dr.status_code in (401, 403):
+        return {"ok": False, "status": dr.status_code, "detail": "auth failed (check api_key)"}
+    return {"ok": False, "status": dr.status_code,
+            "detail": f"Radarr returned HTTP {dr.status_code} removing {label}"}
