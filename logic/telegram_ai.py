@@ -433,6 +433,145 @@ def _shape_prayer_ctx(p: dict) -> dict:
 # cross-module-shim rationale. The directive above silences both
 # the protected-member warning AND the unresolved-reference
 # warning that the lazy-import shim triggers in PyCharm.
+async def resolve_host_status_rows() -> "tuple[dict, list]":
+    """Curated host rows with their EFFECTIVE status — the SAME view the
+    SPA Hosts page shows, now SHARED by the /hosts slash command + the AI
+    context so all three surfaces agree. Calls api_hosts_list() for the
+    snapshot status, reconciles a stale down/unknown to up when a
+    provider's latest probe succeeded, then RE-PROBES any still-flagged
+    host via the per-host path the SPA fans out. Returns (list_resp,
+    rows). Never raises (returns ({}, []) on failure).
+    """
+    # noinspection PyBroadException
+    try:
+        from main_pkg.hosts_routes import api_hosts_list
+        list_resp = await api_hosts_list()
+        if not isinstance(list_resp, dict):
+            list_resp = {}
+        api_hosts = list_resp.get("hosts") or []
+
+        # `api_hosts_list` is the SKELETON endpoint — it returns
+        # snapshot-derived status but doesn't fan out per-host probes
+        # (the SPA does that via `/api/hosts/one/{id}` after the list
+        # paints). The skeleton returns `unknown` for hosts whose
+        # snapshot is empty / stale OR whose providers haven't probed
+        # successfully yet — even when those hosts ARE up and being
+        # actively monitored. Operator-flagged: 10 of 11 "unknown"
+        # hosts (ftth, router5g, server, vcenter, nvr, stream,
+        # hdhomerun, winxpx64, win7x64, win10x64) are actually working
+        # in the SPA view. Reconcile by promoting `unknown` →
+        # `up` when ANY provider on the host has a `last_ok_ts`
+        # within the last hour in `host_provider_last_ok`. This
+        # matches the SPA Hosts view's effective rendering after
+        # the per-host fan-out lands.
+        try:
+            from main_pkg.hosts_routes import _get_provider_state_index
+            provider_state = _get_provider_state_index() or {}
+        # noinspection PyBroadException
+        except Exception as _idx_err:  # noqa: BLE001
+            print(f"[telegram_listener] provider state index unavailable: {_idx_err}")
+            provider_state = {}
+        # Reconcile a STALE snapshot-derived `down` / `unknown` to `up` when
+        # a provider's MOST-RECENT probe actually succeeded — matching the
+        # SPA Hosts view's effective rendering after its per-host
+        # `/api/hosts/one` fan-out (which the AI context can't afford to do).
+        # Operator-flagged TWICE: first `unknown` hosts (ftth / router / …),
+        # then `down` hosts (vpn2 / winserver / asusrtac3100 / switches /
+        # printers) read as outages in the AI while the web showed them up.
+        # Both classes are the same root cause: `/api/hosts/list` returns the
+        # cached/snapshot status, which lags the live per-host probe.
+        #
+        # Precise signal (not a loose recency heuristic): promote ONLY when
+        # some provider has `last_ok_ts >= last_failure_ts` (its latest probe
+        # was a SUCCESS, so the host is reachable NOW) AND that success is
+        # recent. A genuinely-down host has a MORE-recent failure than its
+        # last ok, so it is NOT promoted — it correctly stays `down`.
+        recent_ok_window_s = 3600  # last-ok must be within the last hour
+        _now_ts = time.time()
+        _stale_outage_statuses = {"unknown", "down"}
+        for row in api_hosts:
+            if (row.get("status") or "").lower() not in _stale_outage_statuses:
+                continue
+            hid = row.get("id") or ""
+            providers = provider_state.get(hid) or {}
+            up_now = False
+            for info in providers.values():
+                if not isinstance(info, dict):
+                    continue
+                ok_ts = int(info.get("last_ok_ts") or 0)
+                fail_ts = int(info.get("last_failure_ts") or 0)
+                if (ok_ts > 0 and ok_ts >= fail_ts
+                        and (_now_ts - ok_ts) < recent_ok_window_s):
+                    up_now = True
+                    break
+            if up_now:
+                row["status"] = "up"
+
+        # AUTHORITATIVE pass — re-probe the hosts STILL flagged down/unknown
+        # via the SAME per-host path the SPA fans out (`api_hosts_one` →
+        # `_hosts_one_inner` + `_shape_host_api_row`). `api_hosts_list` only
+        # returns the SNAPSHOT status; the SPA's /hosts page then re-probes
+        # each host and that's what the operator actually sees. The cheap
+        # last_ok reconcile above resolves the common case without I/O; this
+        # closes the rest (hosts that are genuinely up now but had no recent
+        # success recorded, e.g. SNMP/ping gear the SPA re-probed live but the
+        # AI's snapshot still calls down). Bounded: only the remaining problem
+        # hosts, capped, concurrency-limited, each with its own timeout, so a
+        # degraded fleet can't stall the Telegram reply. force=False reuses the
+        # 10s provider-state cache (cheap on repeat calls).
+        _reprobe_ids = [str(r.get("id") or "") for r in api_hosts
+                        if (r.get("status") or "").lower() in _stale_outage_statuses
+                        and r.get("id")][:25]
+        if _reprobe_ids:
+            # noinspection PyBroadException
+            try:
+                from main_pkg.hosts_routes import (
+                    _load_hosts_config as _lhc, _hosts_one_inner, _shape_host_api_row)
+                curated_by_id = {str(h.get("id") or ""): h for h in _lhc()}
+                _sem = asyncio.Semaphore(6)
+
+                async def _reprobe_one(hid: str):
+                    h = curated_by_id.get(hid)
+                    if not h:
+                        return hid, None
+                    # noinspection PyBroadException
+                    try:
+                        async with _sem:
+                            state, (merged, providers) = await asyncio.wait_for(
+                                _hosts_one_inner(h, force=False, client_id=None),
+                                timeout=15.0)
+                        row = _shape_host_api_row(
+                            h, merged, providers,
+                            any_provider_enabled=bool(state.get("active")),
+                            active=state.get("active"))
+                        return hid, str(row.get("status") or "")
+                    except Exception:  # noqa: BLE001
+                        return hid, None
+
+                # Outer budget so the whole re-probe pass can't stall the
+                # Telegram reply (a timeout falls through to the skeleton
+                # status — no worse than before this pass existed).
+                _results = await asyncio.wait_for(
+                    asyncio.gather(*[_reprobe_one(i) for i in _reprobe_ids],
+                                   return_exceptions=True),
+                    timeout=20.0)
+                _fresh = {hid: st for r in _results if isinstance(r, tuple)
+                          for (hid, st) in [r] if st}
+                if _fresh:
+                    for row in api_hosts:
+                        st = _fresh.get(str(row.get("id") or ""))
+                        if st:
+                            row["status"] = st
+                    print(f"[telegram_listener] host re-probe reconciled "
+                          f"{len(_fresh)}/{len(_reprobe_ids)} problem hosts to live status")
+            except Exception as _rp_err:  # noqa: BLE001
+                print(f"[telegram_listener] host re-probe pass skipped: {_rp_err}")
+        return list_resp, api_hosts
+    except Exception as _e:  # noqa: BLE001
+        print(f"[telegram_listener] resolve_host_status_rows failed: {_e}")
+        return {}, []
+
+
 async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     """Build the fleet-context block fed to the AI palette so it
     answers from real OmniGrid state instead of hallucinating host
@@ -611,10 +750,24 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["updatable_items"] = updatable[:60]
         ctx["other_items"] = other[:30]
         ctx["items"] = ctx["updatable_items"] + ctx["other_items"]
+        # Cleanup candidates — the AUTHORITATIVE removable set, computed the
+        # SAME way the /cleanup command does (`i.get("removable")` over the
+        # gather cache). Pre-fix the AI inferred the orphan/cleanup count from
+        # the capped `other_items` sample (30), so it under-reported (e.g.
+        # "1 orphan" when /cleanup found 3 — the other two fell outside the
+        # cap). Surfaced as its own block + `removable_total` so the model
+        # answers cleanup questions from the real list, not the sample.
+        removables = [i for i in items if i.get("removable")]
+        ctx["cleanup_candidates"] = [
+            {"name": i.get("name"), "type": i.get("type") or "container",
+             "stack": i.get("stack")}
+            for i in removables[:60]
+        ]
         ctx["items_summary"] = {
             "total": len(items),
             "updatable_total": len(updatable),
             "running_total": sum(1 for i in items if i.get("status") == "running"),
+            "removable_total": len(removables),
         }
     # noinspection PyBroadException
     except Exception as e:
@@ -622,7 +775,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         ctx["items"] = []
         ctx["updatable_items"] = []
         ctx["other_items"] = []
-        ctx["items_summary"] = {"total": 0, "updatable_total": 0, "running_total": 0}
+        ctx["cleanup_candidates"] = []
+        ctx["items_summary"] = {"total": 0, "updatable_total": 0,
+                                "running_total": 0, "removable_total": 0}
     # ---- Hosts: route through `api_hosts_list` ---------------------
     # The Telegram AI context now consumes the SAME response shape the
     # SPA's Hosts view does — `api_hosts_list` already runs the
@@ -642,136 +797,10 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # logic for free.
     sample_cap = 60
     try:
-        # `api_hosts_list` is a FastAPI handler but its body has no
-        # Request dependencies and `_admin: AdminUser = ...` is
-        # accepted at call time without an injected user (the body
-        # short-circuits when curated is empty); we're calling it
-        # internally from a context that already validated admin auth
-        # for the Telegram message. `force=False` reuses the cached
-        # provider state so we don't pay a hub re-probe on every AI
-        # call.
-        from main_pkg.hosts_routes import api_hosts_list
-        list_resp = await api_hosts_list()
-        if not isinstance(list_resp, dict):
-            list_resp = {}
-        api_hosts = list_resp.get("hosts") or []
-
-        # `api_hosts_list` is the SKELETON endpoint — it returns
-        # snapshot-derived status but doesn't fan out per-host probes
-        # (the SPA does that via `/api/hosts/one/{id}` after the list
-        # paints). The skeleton returns `unknown` for hosts whose
-        # snapshot is empty / stale OR whose providers haven't probed
-        # successfully yet — even when those hosts ARE up and being
-        # actively monitored. Operator-flagged: 10 of 11 "unknown"
-        # hosts (ftth, router5g, server, vcenter, nvr, stream,
-        # hdhomerun, winxpx64, win7x64, win10x64) are actually working
-        # in the SPA view. Reconcile by promoting `unknown` →
-        # `up` when ANY provider on the host has a `last_ok_ts`
-        # within the last hour in `host_provider_last_ok`. This
-        # matches the SPA Hosts view's effective rendering after
-        # the per-host fan-out lands.
-        try:
-            from main_pkg.hosts_routes import _get_provider_state_index
-            provider_state = _get_provider_state_index() or {}
-        # noinspection PyBroadException
-        except Exception as _idx_err:  # noqa: BLE001
-            print(f"[telegram_listener] provider state index unavailable: {_idx_err}")
-            provider_state = {}
-        # Reconcile a STALE snapshot-derived `down` / `unknown` to `up` when
-        # a provider's MOST-RECENT probe actually succeeded — matching the
-        # SPA Hosts view's effective rendering after its per-host
-        # `/api/hosts/one` fan-out (which the AI context can't afford to do).
-        # Operator-flagged TWICE: first `unknown` hosts (ftth / router / …),
-        # then `down` hosts (vpn2 / winserver / asusrtac3100 / switches /
-        # printers) read as outages in the AI while the web showed them up.
-        # Both classes are the same root cause: `/api/hosts/list` returns the
-        # cached/snapshot status, which lags the live per-host probe.
-        #
-        # Precise signal (not a loose recency heuristic): promote ONLY when
-        # some provider has `last_ok_ts >= last_failure_ts` (its latest probe
-        # was a SUCCESS, so the host is reachable NOW) AND that success is
-        # recent. A genuinely-down host has a MORE-recent failure than its
-        # last ok, so it is NOT promoted — it correctly stays `down`.
-        recent_ok_window_s = 3600  # last-ok must be within the last hour
-        _now_ts = time.time()
-        _stale_outage_statuses = {"unknown", "down"}
-        for row in api_hosts:
-            if (row.get("status") or "").lower() not in _stale_outage_statuses:
-                continue
-            hid = row.get("id") or ""
-            providers = provider_state.get(hid) or {}
-            up_now = False
-            for info in providers.values():
-                if not isinstance(info, dict):
-                    continue
-                ok_ts = int(info.get("last_ok_ts") or 0)
-                fail_ts = int(info.get("last_failure_ts") or 0)
-                if (ok_ts > 0 and ok_ts >= fail_ts
-                        and (_now_ts - ok_ts) < recent_ok_window_s):
-                    up_now = True
-                    break
-            if up_now:
-                row["status"] = "up"
-
-        # AUTHORITATIVE pass — re-probe the hosts STILL flagged down/unknown
-        # via the SAME per-host path the SPA fans out (`api_hosts_one` →
-        # `_hosts_one_inner` + `_shape_host_api_row`). `api_hosts_list` only
-        # returns the SNAPSHOT status; the SPA's /hosts page then re-probes
-        # each host and that's what the operator actually sees. The cheap
-        # last_ok reconcile above resolves the common case without I/O; this
-        # closes the rest (hosts that are genuinely up now but had no recent
-        # success recorded, e.g. SNMP/ping gear the SPA re-probed live but the
-        # AI's snapshot still calls down). Bounded: only the remaining problem
-        # hosts, capped, concurrency-limited, each with its own timeout, so a
-        # degraded fleet can't stall the Telegram reply. force=False reuses the
-        # 10s provider-state cache (cheap on repeat calls).
-        _reprobe_ids = [str(r.get("id") or "") for r in api_hosts
-                        if (r.get("status") or "").lower() in _stale_outage_statuses
-                        and r.get("id")][:25]
-        if _reprobe_ids:
-            # noinspection PyBroadException
-            try:
-                from main_pkg.hosts_routes import (
-                    _load_hosts_config as _lhc, _hosts_one_inner, _shape_host_api_row)
-                curated_by_id = {str(h.get("id") or ""): h for h in _lhc()}
-                _sem = asyncio.Semaphore(6)
-
-                async def _reprobe_one(hid: str):
-                    h = curated_by_id.get(hid)
-                    if not h:
-                        return hid, None
-                    # noinspection PyBroadException
-                    try:
-                        async with _sem:
-                            state, (merged, providers) = await asyncio.wait_for(
-                                _hosts_one_inner(h, force=False, client_id=None),
-                                timeout=15.0)
-                        row = _shape_host_api_row(
-                            h, merged, providers,
-                            any_provider_enabled=bool(state.get("active")),
-                            active=state.get("active"))
-                        return hid, str(row.get("status") or "")
-                    except Exception:  # noqa: BLE001
-                        return hid, None
-
-                # Outer budget so the whole re-probe pass can't stall the
-                # Telegram reply (a timeout falls through to the skeleton
-                # status — no worse than before this pass existed).
-                _results = await asyncio.wait_for(
-                    asyncio.gather(*[_reprobe_one(i) for i in _reprobe_ids],
-                                   return_exceptions=True),
-                    timeout=20.0)
-                _fresh = {hid: st for r in _results if isinstance(r, tuple)
-                          for (hid, st) in [r] if st}
-                if _fresh:
-                    for row in api_hosts:
-                        st = _fresh.get(str(row.get("id") or ""))
-                        if st:
-                            row["status"] = st
-                    print(f"[telegram_listener] host re-probe reconciled "
-                          f"{len(_fresh)}/{len(_reprobe_ids)} problem hosts to live status")
-            except Exception as _rp_err:  # noqa: BLE001
-                print(f"[telegram_listener] host re-probe pass skipped: {_rp_err}")
+        # Resolve curated host rows with their EFFECTIVE status (snapshot +
+        # reconcile + per-host re-probe) — shared with the /hosts command so
+        # all surfaces agree with the web. See resolve_host_status_rows().
+        list_resp, api_hosts = await resolve_host_status_rows()
 
         # Status taxonomy (canonical from `_shape_host_api_row`):
         # up / down / paused / loading / unconfigured / unknown
