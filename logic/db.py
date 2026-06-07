@@ -69,7 +69,7 @@ else:
 # rollback journal takes an EXCLUSIVE lock that blocks all readers for the
 # commit). It is PERSISTENT in the DB header, so it only needs setting ONCE
 # per database — and SWITCHING it acquires a write lock. Re-issuing it on
-# EVERY connection (the original #0148 mistake) created a thundering-herd of
+# EVERY connection (the original mistake this comment guards against) created a thundering-herd of
 # journal-switch lock attempts at startup (init + migrations + seed +
 # samplers all opening connections at once) AND during a start-first deploy
 # rollover (old + new container sharing the bind-mounted DB), which surfaced

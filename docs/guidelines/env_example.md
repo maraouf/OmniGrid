@@ -15,6 +15,13 @@ This file is a curated reference for every key OmniGrid reads, with docs inline.
 new env var to `main.py` or the `logic/` modules, add it here too so admins and future-you
 can see the full surface in one place.
 
+Key names are not bare strings in the code: every key reference goes through one of three typed
+registries — `logic/tuning.py:Tunable` (process tunables, DB > env > default), `logic/settings_keys.py:Settings`
+(plain DB-backed settings), and `logic/env_keys.py:EnvKey` (env-only values: secrets, bootstrap
+seeds, build-time paths). The enum member triggers a `NameError` at import time on a typo rather
+than silently reading an empty default at runtime. Adding a new env-only key means declaring an
+`EnvKey` member first, then routing the read through `env_get(EnvKey.X, default)`.
+
 A fresh deploy can boot with NO env vars at all — bootstrap admin via
 `POST /api/local-auth/bootstrap`, then configure Portainer and (optionally) OIDC / host-stats
 providers from the Settings UI. Every value below is either a transitional bootstrap aid or a

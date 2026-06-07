@@ -1368,8 +1368,9 @@ async def api_me(request: Request):
                 # action requires both the backend whitelist entry
                 # AND a matching SPA descriptor — the SPA's guard
                 # surfaces drift IMMEDIATELY rather than waiting for
-                # the operator to notice "AI claimed to do X but
-                # nothing happened" (the BUG-004 failure mode).
+                # someone to notice "AI claimed to do X but
+                # nothing happened" — the silent-drift failure mode
+                # this whitelist exists to prevent.
                 "palette_actions": sorted(_ai_palette_actions()),
             },
             # Per-app modules — slug list of catalog templates that

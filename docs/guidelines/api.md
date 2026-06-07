@@ -814,6 +814,7 @@ chip across every host).
 | `POST`   | `/api/services/catalog/seed`                            | Re-seed built-in templates. Idempotent — skips slugs that already exist OR have been deleted-on-purpose.                                                                                                                             |
 | `GET`    | `/api/services/catalog/export`                          | Export the full catalog as a portable JSON pack (for backup / sharing).                                                                                                                                                              |
 | `POST`   | `/api/services/catalog/import`                          | Import a catalog pack — upserts by slug.                                                                                                                                                                                             |
+| `POST`   | `/api/apps/catalog/{slug}/show-extras`                  | Toggle a catalog template's `show_extras` flag by slug. Body `{show_extras: bool}`. Controls whether the template's rich expanded card renders without unpinning the chip. (Per-instance overrides live on `hosts_config[].services[].show_extras`, tri-state: inherit / always / never.) |
 | `POST`   | `/api/services/catalog/{cid}/pin`                       | Pin a catalog template to a host. Body: `{host_id, port?, url?, name_override?, icon_override?}`. Creates a new entry under `hosts_config[].services[]`.                                                                             |
 | `POST`   | `/api/services/discover/{host_id}`                      | Run the discovery wizard for one host — matches the host's open-port set against catalog templates and returns a proposal list.                                                                                                      |
 | `POST`   | `/api/services/discover/{host_id}/apply`                | Bulk-apply a discovery proposal. Body: `{picks: [{catalog_id, port, ...}]}`.                                                                                                                                                         |
@@ -821,11 +822,57 @@ chip across every host).
 | `DELETE` | `/api/services/{host_id}/{service_idx}`                 | Remove a pinned instance from a host.                                                                                                                                                                                                |
 | `POST`   | `/api/services/{host_id}/{service_idx}/probe`           | Admin-only synchronous probe of one chip. Routes through the same TCP / HTTP probe helpers as the lifespan sampler; persists to `service_samples` so the SPA picks it up.                                                            |
 | `POST`   | `/api/services/{host_id}/{service_idx}/test-credential` | Per-app credential test (e.g. Speedtest Tracker API key, future per-app auth probes). Slug-keyed dispatcher resolves the chip's catalog template and routes to the matching `logic/apps/<slug>.py` module. Returns `{ok, detail}`.   |
+| `POST`   | `/api/services/{host_id}/{service_idx}/skill/{skill_id}` | Run one per-app SKILL — the same action surface the AI palette / Telegram bot invoke and the app-drawer skill buttons fire. Slug-keyed dispatcher resolves the chip's catalog template, validates `skill_id` against the module's `SKILLS` tuple, and delegates to `run_skill`. Body may carry `{arg}` for arg-taking skills (e.g. Radarr "add a movie"). Returns the skill's `{ok, detail, status?}`. Fleet skills (AdGuard / Pi-hole) act across every instance regardless of the chosen chip. Writes a `services_skill` history row. |
 | `GET`    | `/api/services/{host_id}/{service_idx}/app-data`        | Per-app expanded-card data (e.g. Speedtest Tracker latest / average / sparkline points; APC UPS battery / load / runtime). Slug-keyed dispatcher; returns the shape the matching `static/js/apps/<slug>.js` extras renderer expects. |
 | `GET`    | `/api/services/{host_id}/{service_idx}/debug`           | Per-chip diagnostics — resolved probe target, per-port outcomes, plain-language reason when probing is suppressed.                                                                                                                   |
 | `GET`    | `/api/services/{host_id}/{service_idx}/history`         | Per-chip probe-result time series.                                                                                                                                                                                                   |
 | `GET`    | `/api/container/{raw_id}/logs?lines=N`                  | Stream the last N log lines from a container linked to an app instance via Portainer. Routes through the Portainer agent so worker-node containers are reachable.                                                                    |
 | `GET`    | `/api/service/{raw_id}/logs?lines=N`                    | Same shape for a Swarm service.                                                                                                                                                                                                      |
+
+#### Per-app modules + skills
+
+Apps with custom logic (an auth-gated data fetch, a rich expanded card, or
+AI / Telegram skills) live in their own module under `logic/apps/<slug>.py`,
+paired with a frontend module (`static/js/apps/<slug>.js`) and HTML partials
+(`static/_partials/_components/apps/<slug>_editor.html` + `_extras.html`). The
+generic route layer stays slug-agnostic: the three slug-keyed dispatchers
+(`/test-credential`, `/app-data`, `/skill/{skill_id}`) resolve the chip's
+catalog template, look up the per-app module via `logic/apps/registry.py`, and
+delegate. Adding a new app is one module per layer plus one registration entry
+— no edits to the generic files.
+
+Each module declares a `SLUGS` tuple (catalog slugs it handles), an optional
+`requires_api_key()`, an optional `test_credential(...)`, an optional
+`fetch_data(...)` (the expanded-card payload), an optional `peek_latest(...)`
+(cache-only peek for the AI context), and an optional `SKILLS` tuple +
+`run_skill(...)` coroutine. Every skill is BOTH an app-drawer button AND an
+AI / Telegram action — but only surfaces when the app's extras are enabled and
+(if `requires_api_key()`) its api_key is set. Fleet modules
+(`FLEET_SKILLS = True`) run a skill across every pinned instance regardless of
+the chosen chip.
+
+Current per-app roster:
+
+| App | Slug(s) | Auth | Skills |
+| --- | --- | --- | --- |
+| Speedtest Tracker | `speedtest-tracker` | Bearer api_key | latest / run-test |
+| APC UPS | `apcupsd` (SNMP-backed) | none | battery / load / runtime (frontend-only extras) |
+| Radarr | `radarr` | api_key | status / upcoming / queue / look-up / add / remove / search-missing / refresh |
+| Sonarr | `sonarr` | api_key | status / upcoming / queue / look-up / add / remove / search-missing / refresh |
+| Lidarr | `lidarr` | api_key | status / upcoming / queue / artist look-up / add-artist / remove-artist / search-missing / refresh |
+| Readarr | `readarr` | api_key | status / upcoming / queue / author look-up / add-author / remove-author / search-missing / refresh |
+| Bazarr | `bazarr` | api_key | status / search-missing / list-missing |
+| Seerr (Overseerr / Jellyseerr) | `seerr` (+ `overseerr` / `jellyseerr`) | api_key (+ optional TMDB key) | status / request-movie / suggest-movie |
+| AdGuard Home | `adguardhome` (+ aliases) | HTTP Basic | fleet: status / enable / disable (+ timed) / refresh / re-enable |
+| Pi-hole | `pihole` (v6) | password-only (SID auth) | fleet: status / enable / disable (+ timed) / refresh / re-enable |
+| AdGuard Home Sync | `adguardhome-sync` (+ aliases) | HTTP Basic (optional) | status / sync-now / logs / clear-logs |
+| ddns-updater | `ddns-updater` | none (HTML-table scrape) | status / update-now |
+
+Two of these read from upstreams that expose **no JSON API**: ddns-updater
+parses its web-UI HTML table (each cell carries a `data-label` attribute), and
+AdGuard Home Sync best-effort scrapes its root page for the version string. The
+HTML-scrape pattern is a reusable convention for any future app whose only
+machine-readable surface is its rendered UI.
 
 ### HTTP probe one-shot (admin-only)
 
@@ -950,6 +997,19 @@ sampler that writes `weather_samples`.
 | `GET`  | `/api/weather?lat=<f>&lon=<f>&label=<s>`       | Weather proxy returning the compact widget shape `{temp_c, humidity, wind_kmh, code, condition, icon, forecast: [...]}`. Routes through whichever provider is active (Open-Meteo or WeatherAPI). |
 | `GET`  | `/api/weather/history?limit=N&lat=<f>&lon=<f>` | Cached historical samples for AI / Telegram retrospective questions (e.g. "what was the weather yesterday?"). Source is the lifespan `weather_sampler` writing into `weather_samples`.           |
 | `POST` | `/api/weather/test`                            | Admin-only. Probe the chosen provider with the form-provided credentials. Body shape `{provider, lat?, lon?, api_key?}` — Open-Meteo ignores `api_key`; WeatherAPI requires it.                  |
+
+### Prayer Times (dashboard widget + AI / Telegram context)
+
+Prayer Times is opt-in (default OFF — enabling authorises outbound calls to
+`api.aladhan.com`). All settings (master toggle, calculation method, Asr school,
+fallback location, lead time for reminders) live in the DB and are edited from
+Admin → Prayer Times.
+
+| Method | Route                                                       | Purpose                                                                                                                                                                                                                                |
+| ------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/api/prayer-times?lat=&lon=&label=&method=&school=&force=` | Today's five prayers + Sunrise + the Hijri date for one lat/lon. `method` / `school` default to the Admin → Prayer Times settings. No coordinates → falls back to the configured default location. `{configured: false}` when the feature is off; `{configured: true, no_location: true}` when enabled but no location is available. |
+| `GET`  | `/api/prayer-times/history?limit=N`                         | Cached daily prayer-time + Hijri-date samples (written once per day per location by the lifespan sampler). Powers the Admin → Prayer Times "Recent samples" panel and AI / Telegram retrospective questions.                          |
+| `POST` | `/api/prayer-times/test`                                    | Admin-only. Probe the AlAdhan API against the form-provided (or persisted-default) location + method/school. Stamps `last_test_success` for the shared og-test-connection component. Body `{lat?, lon?, label?, method?, school?}`.   |
 
 ### Login providers advertisement
 
