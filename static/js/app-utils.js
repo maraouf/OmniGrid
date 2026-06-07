@@ -308,6 +308,30 @@ export default {
     return v;  // invalid — let the input's `pattern` flag it
   },
 
+  // Generic external-image rewriter — route an external image URL through
+  // the server-side proxy (`/api/image-proxy?url=...`) so the browser loads
+  // it from OmniGrid's own domain. Use this for ANY feature that renders an
+  // external image whose host the deployment's clients may not be able to
+  // reach directly (private LAN with no egress) while the OmniGrid server
+  // can. The proxy is host-ALLOWLISTED server-side, so only URLs on a host
+  // the proxy accepts are rewritten; everything else (relative paths,
+  // internal / self-hosted images the browser can already reach, empty) is
+  // returned unchanged. The host gate here MUST mirror
+  // `_IMAGE_PROXY_ALLOWED_HOSTS` in `main_pkg/scan_routes.py`; to proxy a
+  // new external image source, add its host to BOTH this regex AND that
+  // backend allowlist. Current sources: TMDB poster art (tmdb.org /
+  // themoviedb.org) for Seerr suggestions.
+  proxiedImageUrl(url) {
+    const u = (url || '').toString().trim();
+    if (!u) {
+      return '';
+    }
+    if (/^https?:\/\/(?:[a-z0-9-]+\.)*(?:tmdb\.org|themoviedb\.org)\//i.test(u)) {
+      return '/api/image-proxy?url=' + encodeURIComponent(u);
+    }
+    return u;  // not a proxied host — leave direct (relative / internal / LAN)
+  },
+
   fmtDuration(seconds) {
     if (!seconds || seconds <= 0) {
       return '—';

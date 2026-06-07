@@ -1973,6 +1973,66 @@ async def api_weather(
     return await _weather_mod.fetch(float(lat), float(lon), label=label, force=force)
 
 
+# TMDB image hosts the proxy is allowed to fetch from. STRICT allowlist —
+# the route is NOT a general-purpose open proxy (that would be an SSRF
+# vector: an attacker could probe internal services via ?url=). Only the
+# poster-art hosts OmniGrid actually emits (Seerr suggestions build URLs
+# off `image.tmdb.org`). Mirror any new emitted host in the frontend's
+# `aiImageProxy` rewrite gate so the two stay in lock-step.
+_IMAGE_PROXY_ALLOWED_HOSTS = frozenset({
+    "image.tmdb.org", "www.themoviedb.org", "themoviedb.org",
+})
+# Cap the proxied body so a misbehaving / spoofed upstream can't balloon
+# memory — TMDB posters are well under 1 MB; 10 MB is a generous ceiling.
+_IMAGE_PROXY_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.get("/api/image-proxy")
+async def api_image_proxy(url: str):
+    """Server-side image proxy for external poster art (TMDB) so the
+    browser loads it from OmniGrid's own domain.
+
+    The deployment's browser clients may have no direct egress to
+    ``image.tmdb.org`` (private LAN), while the OmniGrid server does — it
+    already calls the TMDB API for Seerr suggestions. Without this, the AI
+    skill-panel poster ``<img>`` renders as a broken-image icon. Streams
+    the upstream bytes back with the upstream content-type + a 1-day
+    cache header (posters are immutable — the path carries a content hash).
+
+    Security: host-ALLOWLISTED to TMDB image hosts only (NOT an open proxy
+    — an unrestricted ?url= would be an SSRF vector), absolute-http(s)
+    only, non-image content-types rejected, oversized bodies rejected.
+    Auth is the standard ``/api/*`` middleware gate — an ``<img>`` request
+    carries the same-origin session cookie, so authed browsers pass."""
+    from urllib.parse import urlsplit
+    try:
+        parts = urlsplit((url or "").strip())
+    except (ValueError, TypeError):
+        raise HTTPException(400, "bad url")
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise HTTPException(400, "url must be an absolute http(s) URL")
+    host = (parts.hostname or "").lower()
+    if host not in _IMAGE_PROXY_ALLOWED_HOSTS:
+        raise HTTPException(400, f"image host not allowed: {host}")
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            r = await cli.get(url)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise HTTPException(502, f"upstream image fetch failed: {type(e).__name__}")
+    if r.status_code == 404:
+        raise HTTPException(404, "image not found upstream")
+    if r.status_code != 200:
+        raise HTTPException(502, f"upstream returned HTTP {r.status_code}")
+    ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower() or "image/jpeg"
+    if not ctype.startswith("image/"):
+        raise HTTPException(415, "upstream content is not an image")
+    body = r.content
+    if len(body) > _IMAGE_PROXY_MAX_BYTES:
+        raise HTTPException(413, "upstream image too large")
+    return Response(content=body, media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 # noinspection PyTypeChecker,PyUnresolvedReferences
 @app.post("/api/weather/test")
 async def api_weather_test(

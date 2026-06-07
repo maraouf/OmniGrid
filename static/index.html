@@ -10326,9 +10326,9 @@
                                      x-text="appSkillResult(inst, sk.id).detail"></div>
                               </template>
                               <template x-if="appSkillResult(inst, sk.id).image_url">
-                                <a :href="appSkillResult(inst, sk.id).image_url" target="_blank" rel="noopener"
+                                <a :href="proxiedImageUrl(appSkillResult(inst, sk.id).image_url)" target="_blank" rel="noopener"
                                    class="block mt-2">
-                                  <img :src="appSkillResult(inst, sk.id).image_url" alt=""
+                                  <img :src="proxiedImageUrl(appSkillResult(inst, sk.id).image_url)" alt=""
                                        loading="lazy"
                                        class="max-w-[200px] rounded border border-[var(--border)]"/>
                                 </a>
@@ -11786,7 +11786,7 @@
           <template x-if="turn.role === 'assistant' && turn.skill_panel">
             <div class="ai-skill-panel">
               <img x-show="turn.skill_panel.image_url"
-                   :src="turn.skill_panel.image_url" alt=""
+                   :src="proxiedImageUrl(turn.skill_panel.image_url)" alt=""
                    class="ai-skill-poster" loading="lazy">
               <div x-show="turn.skill_panel.detail"
                    class="ai-skill-detail"

@@ -997,6 +997,7 @@ sampler that writes `weather_samples`.
 | `GET`  | `/api/weather?lat=<f>&lon=<f>&label=<s>`       | Weather proxy returning the compact widget shape `{temp_c, humidity, wind_kmh, code, condition, icon, forecast: [...]}`. Routes through whichever provider is active (Open-Meteo or WeatherAPI). |
 | `GET`  | `/api/weather/history?limit=N&lat=<f>&lon=<f>` | Cached historical samples for AI / Telegram retrospective questions (e.g. "what was the weather yesterday?"). Source is the lifespan `weather_sampler` writing into `weather_samples`.           |
 | `POST` | `/api/weather/test`                            | Admin-only. Probe the chosen provider with the form-provided credentials. Body shape `{provider, lat?, lon?, api_key?}` — Open-Meteo ignores `api_key`; WeatherAPI requires it.                  |
+| `GET`  | `/api/image-proxy?url=<encoded>`               | Server-side image proxy for external poster art (TMDB) so the browser loads it from the app's own domain when clients have no direct egress to `image.tmdb.org`. Host-ALLOWLISTED to TMDB image hosts (NOT an open proxy — SSRF guard), absolute-http(s) only, non-image / oversized bodies rejected, 1-day cache. Used by the AI skill-panel + app-drawer Seerr-suggestion posters. |
 
 ### Prayer Times (dashboard widget + AI / Telegram context)
 
