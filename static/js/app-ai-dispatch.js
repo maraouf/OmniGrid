@@ -785,11 +785,19 @@ export default {
     if (!host || !skillId || isNaN(idx) || idx < 0) {
       this.showToast((this.t('apps.skills.failed') || 'Skill failed')
         + ': ACTION_DATA needs host_id + service_idx + skill_id', 'error');
-      return;
+      return null;
     }
-    if (typeof this.runAppSkill === 'function') {
-      await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg);
+    if (typeof this.runAppSkill !== 'function') {
+      return null;
     }
+    // From the sidebar, run silently (the caller stamps the result inline in
+    // the chat via skill_panel) and forward the confirm flag the destructive
+    // gate set upstream. From the modal palette, keep the toast + no confirm
+    // (non-destructive only there). Return the result so the caller can stamp
+    // skill_panel.
+    const fromSidebar = !!(opts && opts.surface === 'sidebar');
+    return await this.runAppSkill({host_id: host, service_idx: idx}, skillId, arg,
+      {silent: fromSidebar, confirm: !!(opts && opts.confirm)});
   },
 
   async _aiSendNotificationDispatch(opts) {

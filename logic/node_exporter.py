@@ -744,7 +744,7 @@ async def probe_node(
                 return None, (
                     f"{raw} — DNS resolution failed; the container's "
                     "resolver couldn't find this hostname. Use the FQDN "
-                    "(e.g. `host.home.lan`) instead of a short name, OR "
+                    "(e.g. `host.example.com`) instead of a short name, OR "
                     "add a Docker `--dns` / compose `extra_hosts:` entry "
                     "that covers this name."
                 )

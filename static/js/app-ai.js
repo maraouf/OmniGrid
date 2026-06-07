@@ -393,6 +393,65 @@ export default {
   // stamped on the turn's `skill_panel` so the template renders a one-click
   // button. Non-destructive skills only (destructive ones keep the
   // inline-confirm-chip path).
+  // True when the per-app skill named in `actionData.skill_id` declares
+  // `destructive: true` in the skill registry (me.client_config.app_skills,
+  // keyed by catalog slug). Skill ids are app-prefixed (radarr_remove_movie,
+  // pihole_disable…) so a flat scan across every slug's list is unambiguous.
+  // Used to gate the AI-emitted run_app_skill dispatch — the generic
+  // descriptor is destructive:false, so without this a destructive skill
+  // would fire with no inline-confirm chip / autonomous gate.
+  _appSkillIsDestructive(actionData) {
+    const sid = (actionData && actionData.skill_id ? actionData.skill_id : '')
+      .toString().trim();
+    if (!sid) {
+      return false;
+    }
+    const cc = (this.me && this.me.client_config) || {};
+    const map = (cc && cc.app_skills) || {};
+    for (const slug in map) {
+      const list = map[slug];
+      if (!Array.isArray(list)) {
+        continue;
+      }
+      for (const sk of list) {
+        if (sk && sk.id === sid) {
+          return !!sk.destructive;
+        }
+      }
+    }
+    return false;
+  },
+  // Stamp a per-app skill's result onto an assistant turn's `skill_panel`
+  // so its output (e.g. a Radarr status summary) renders inline in the chat
+  // instead of vanishing into a toast. Shared by the slash-selected app-skill
+  // path (_runCommandPaletteAction) and the approval-confirm path
+  // (confirmInlineAction). No-op when `ret` isn't a skill-result shape.
+  _stampSkillPanelFromResult(turn, ret) {
+    if (!turn || !ret || typeof ret !== 'object') {
+      return;
+    }
+    // Only a per-app skill result carries `detail` / `ok`; other action
+    // run() returns (undefined / navigation objects) are ignored.
+    if (typeof ret.detail !== 'string' && !('ok' in ret)) {
+      return;
+    }
+    const panel = {
+      ok: !!ret.ok,
+      detail: (ret.detail || '').toString(),
+      image_url: (ret.image_url || '').toString(),
+    };
+    if (ret.ok && ret.followup && typeof ret.followup === 'object'
+      && ret.followup.skill_id && ret.host_id != null && ret.service_idx != null) {
+      panel.followup = {
+        skill_id: String(ret.followup.skill_id),
+        arg: (ret.followup.arg != null) ? String(ret.followup.arg) : '',
+        label: (ret.followup.label || '').toString(),
+        host_id: String(ret.host_id),
+        service_idx: ret.service_idx,
+      };
+    }
+    turn.skill_panel = panel;
+  },
   async _aiSidebarRunSkill(turnIdx) {
     const turn = this.aiConversation[turnIdx];
     if (!turn || !turn.action_data || typeof this.runAppSkill !== 'function') {
@@ -1205,7 +1264,17 @@ export default {
       }
       const answer = (j.text || '').trim() || (this.t('command_palette.ai.empty_response') || '(empty response)');
       const actionId = (j.action || '').toString().trim();
-      const actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
+      let actionDesc = actionId ? this._actionDescriptorById(actionId) : null;
+      // The generic `run_app_skill` descriptor is destructive:false, but a
+      // per-app skill it dispatches (e.g. radarr_remove_movie) can be
+      // destructive. Resolve the REAL flag from the skill registry + clone
+      // the descriptor so the inline-confirm chip (approval mode) / immediate
+      // fire (autonomous mode) gate engages — declaring the flag in SKILLS is
+      // necessary but the AI-emitted path must consult it.
+      if (actionDesc && actionId === 'run_app_skill'
+        && this._appSkillIsDestructive(j.action_data)) {
+        actionDesc = Object.assign({}, actionDesc, {destructive: true});
+      }
       // `j.hosts` from the HOSTS protocol — when the AI's answer
       // references specific hosts by id, the SPA renders inline
       // disk-projection charts inside the assistant bubble.

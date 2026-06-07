@@ -589,7 +589,7 @@ async def probe_http_health(
             if not _ip:
                 # WARN, not INFO — a no-SNI retry SKIP means the
                 # container's libc resolver couldn't reach the
-                # hostname (typically a `.home.lan` zone the Docker
+                # hostname (typically a private LAN zone the Docker
                 # DNS doesn't know about). The "warning:" token in
                 # the message is what `logic.logs._severity_for`
                 # matches to bucket this as WARN (uvicorn-style

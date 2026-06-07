@@ -342,12 +342,18 @@ export default {
     let _result;
     try {
       // Optional free-form argument (e.g. Seerr request-a-movie title).
-      // Only send a body when there's an arg — the drawer buttons pass none.
+      // `opts.confirm` is the destructive-skill confirmation signal the
+      // backend route requires — set true by every confirmed dispatch path
+      // (inline-confirm chip Yes / autonomous mode / Cmd-K SweetAlert /
+      // fleet-card SweetAlert). Send a body when there's an arg OR a confirm
+      // so the backend sees the flag; drawer buttons for non-destructive
+      // skills pass neither.
       const _arg = (arg == null) ? '' : String(arg).trim();
+      const _confirm = !!(opts && opts.confirm);
       const _opts = {method: 'POST'};
-      if (_arg) {
+      if (_arg || _confirm) {
         _opts.headers = {'Content-Type': 'application/json'};
-        _opts.body = JSON.stringify({arg: _arg});
+        _opts.body = JSON.stringify({arg: _arg, confirm: _confirm});
       }
       const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
         + '/' + encodeURIComponent(inst.service_idx)
@@ -378,6 +384,10 @@ export default {
           followup: _fu,
           tmdb_id: (j && j.tmdb_id != null) ? j.tmdb_id : null,
           title: (j && j.title) ? String(j.title) : '',
+          // host_id + service_idx ride the result so a generic caller (the
+          // AI-sidebar capture path) can build the follow-up button without
+          // re-deriving the instance.
+          host_id: inst.host_id, service_idx: inst.service_idx,
         };
         // Toast stays minimal — the output now lives in the drawer.
         if (!silent) {
@@ -396,7 +406,8 @@ export default {
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
           [resKey]: {ok: false, detail: detail, image_url: '', at: Date.now()},
         });
-        _result = {ok: false, detail: detail, image_url: '', followup: null};
+        _result = {ok: false, detail: detail, image_url: '', followup: null,
+          host_id: inst.host_id, service_idx: inst.service_idx};
         if (!silent) {
           this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
         }
@@ -407,7 +418,8 @@ export default {
         ['res:' + this.appInstanceKey(inst) + ':' + skillId]:
           {ok: false, detail: String(msg), image_url: '', at: Date.now()},
       });
-      _result = {ok: false, detail: String(msg), image_url: '', followup: null};
+      _result = {ok: false, detail: String(msg), image_url: '', followup: null,
+        host_id: inst.host_id, service_idx: inst.service_idx};
       if (!silent) {
         this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
       }

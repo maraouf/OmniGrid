@@ -109,6 +109,18 @@ def skills_for_slug(slug: str) -> tuple[dict, ...]:
     return tuple(s for s in skills if isinstance(s, dict) and s.get("id"))
 
 
+def skill_is_destructive(slug: str, skill_id: str) -> bool:
+    """True when the named skill declares ``destructive: True`` in its module
+    SKILLS. The single source of truth every dispatch surface (web route /
+    Telegram slash / Telegram-AI / inline-button) consults to decide whether a
+    confirm gate applies. False for an unknown slug / skill (fail-open is safe —
+    a non-existent skill can't run anyway; the dispatcher rejects it first)."""
+    for s in skills_for_slug(slug):
+        if s.get("id") == skill_id:
+            return bool(s.get("destructive"))
+    return False
+
+
 def all_app_skills() -> dict[str, list[dict]]:
     """Map every registered slug that declares skills to its skill list —
     surfaced on ``/api/me``'s ``client_config.app_skills`` so the SPA (drawer

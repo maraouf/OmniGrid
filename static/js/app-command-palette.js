@@ -337,7 +337,14 @@ export default {
                 (appName || '').toLowerCase(),
                 String(sk.id || '').replace(/_/g, ' ')].filter(Boolean),
               destructive: !!sk.destructive,
-              run: (opts) => this.runAppSkill(inst, sk.id, opts),
+              // No-arg skill (arg-takers are filtered out of this list), so
+              // pass '' for arg. Run silently + forward the confirm flag when
+              // dispatched from the AI sidebar (the result is captured inline
+              // in the chat); the modal palette keeps its toast.
+              run: (opts) => this.runAppSkill(inst, sk.id, '', {
+                silent: !!(opts && opts.surface === 'sidebar'),
+                confirm: !!(opts && opts.confirm),
+              }),
             }));
           });
         })
@@ -1113,6 +1120,12 @@ export default {
     // directive — currently consumed by schedule_create /
     // schedule_update / schedule_delete. Pass-through verbatim.
     const actionData = (opts && opts.data) || (opts && opts.actionData) || null;
+    // Tracks whether the operator has confirmed THIS (destructive) action,
+    // forwarded to run(opts) as `confirm` so per-app skill dispatch can pass
+    // it to the backend's destructive-skill gate. Non-destructive actions are
+    // implicitly confirmed; an inbound skipConfirm (approval-mode Yes via
+    // confirmInlineAction, or a re-entrant autonomous call) also counts.
+    let actionConfirmed = (!action.destructive) || skipConfirm;
     // Some destructive actions wrap their OWN SweetAlert confirm
     // INSIDE `run()` and present a richer payload (e.g. the topbar
     // Cleanup flow lists every container by name). Opting in via
@@ -1134,8 +1147,10 @@ export default {
         if (this.aiSidebarMode === 'autonomous') {
           // Autonomous: action runs RIGHT NOW. Force skipConfirm=true
           // so the inner helper's SwAl (cleanup_stopped's listing,
-          // update_all_updatable's listing, etc.) doesn't pop.
+          // update_all_updatable's listing, etc.) doesn't pop. The
+          // operator opted into autonomous mode — that IS the confirm.
           skipConfirm = true;
+          actionConfirmed = true;
         } else {
           // Approval mode — stash the pending action on the most-
           // recent assistant turn; the inline chip in the chat
@@ -1167,6 +1182,12 @@ export default {
           if (!ok) {
             return;
           }
+          // The generic SweetAlert WAS the confirm.
+          actionConfirmed = true;
+        } else {
+          // defer_confirm_to_run — run()'s own data-rich confirm IS the
+          // confirmation; treat as confirmed for the backend skill gate.
+          actionConfirmed = true;
         }
       }
     }
@@ -1177,7 +1198,15 @@ export default {
       // Yes-click; false in modal palette where the generic SwAl
       // already confirmed). Inner helpers honour skipConfirm to
       // bypass their own SwAl popups — no double-confirm anywhere.
-      await action.run({skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem, data: actionData});
+      // `surface` lets per-app skill dispatch run silently (sidebar) +
+      // `confirm` carries the destructive-confirmation signal to the
+      // backend. The return value is captured so a skill result can
+      // render inline in the chat (parity with the AI-emitted path).
+      const _runRet = await action.run({
+        skipConfirm: skipConfirm, tag: actionTag, actionItem: actionItem,
+        data: actionData, surface: fromSidebar ? 'sidebar' : 'modal',
+        confirm: actionConfirmed,
+      });
       // Sidebar: flip the most-recent assistant turn's `action_ran`
       // to true so the green "Ran:" chip surfaces. Skip when this
       // call is from the modal palette path (no turn to update).
@@ -1186,6 +1215,11 @@ export default {
         const turn = this.aiConversation[idx];
         if (turn && turn.action_id === action.id) {
           turn.action_ran = true;
+          // A per-app skill returns {ok, detail, …} — stamp it on the turn
+          // so its output renders in the chat instead of vanishing.
+          if (typeof this._stampSkillPanelFromResult === 'function') {
+            this._stampSkillPanelFromResult(turn, _runRet);
+          }
           this.persistAiConversation();
         }
       }
