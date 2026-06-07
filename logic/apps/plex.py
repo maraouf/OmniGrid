@@ -51,7 +51,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import httpx
 
@@ -131,6 +133,107 @@ def requires_api_key() -> bool:
     """Plex authenticates every server endpoint via X-Plex-Token; the editor
     MUST render the token input (stored in the chip's api_key) + Test button."""
     return True
+
+
+# ---------------------------------------------------------------------------
+# "Sign in to Plex" — OAuth PIN device flow (auto-fetch the X-Plex-Token, the
+# same seamless flow Tautulli / Overseerr use instead of pasting a token).
+# The SPA calls start_auth() → opens auth_url in a popup → polls poll_auth()
+# until the user authorises and plex.tv hands back the authToken. No token to
+# copy by hand.
+# ---------------------------------------------------------------------------
+_PLEX_TV = "https://plex.tv"
+_PLEX_PRODUCT = "OmniGrid"
+
+
+def _client_identifier() -> str:
+    """Stable per-deployment ``X-Plex-Client-Identifier`` (a UUID), generated
+    ONCE and persisted so plex.tv recognises OmniGrid as the same "device"
+    across sign-ins. Stored in ``Settings.PLEX_CLIENT_IDENTIFIER``."""
+    from logic.db import get_setting, set_setting  # noqa: PLC0415
+    from logic.settings_keys import Settings  # noqa: PLC0415
+    cid = (get_setting(Settings.PLEX_CLIENT_IDENTIFIER, "") or "").strip()
+    if not cid:
+        cid = uuid.uuid4().hex
+        set_setting(Settings.PLEX_CLIENT_IDENTIFIER, cid)
+    return cid
+
+
+def _plex_tv_headers(cid: str) -> dict:
+    """plex.tv API headers — the product name + the stable client id identify
+    OmniGrid as the requesting device."""
+    return {
+        "Accept": "application/json",
+        "X-Plex-Product": _PLEX_PRODUCT,
+        "X-Plex-Client-Identifier": cid,
+    }
+
+
+async def start_auth() -> dict:
+    """Begin the Plex OAuth PIN flow. Requests a PIN from
+    ``POST plex.tv/api/v2/pins`` and returns ``{ok, pin_id, code, auth_url,
+    client_id}`` — the SPA opens ``auth_url`` in a popup (the user signs in on
+    plex.tv) and polls :func:`poll_auth` with ``pin_id`` + ``code`` until the
+    token lands. ``{ok: False, detail}`` on any failure. Never raises."""
+    cid = _client_identifier()
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            r = await cli.post(_PLEX_TV + "/api/v2/pins",
+                               headers=_plex_tv_headers(cid),
+                               data={"strong": "true"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"couldn't reach plex.tv: {type(e).__name__}: {e}"}
+    if r.status_code not in (200, 201):
+        return {"ok": False, "detail": f"plex.tv returned HTTP {r.status_code}"}
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return {"ok": False, "detail": "plex.tv returned non-JSON"}
+    pin_id = safe_int(body.get("id"))
+    code = str(body.get("code") or "").strip()
+    if not pin_id or not code:
+        return {"ok": False, "detail": "plex.tv didn't return a PIN"}
+    # The auth page the user signs in on. We POLL the PIN for the token rather
+    # than relying on a redirect, so a popup works without a forwardUrl.
+    qs = urlencode({
+        "clientID": cid,
+        "code": code,
+        "context[device][product]": _PLEX_PRODUCT,
+    })
+    print(f"[plex] INFO start_auth pin_id={pin_id} (OAuth PIN flow)")
+    return {"ok": True, "pin_id": pin_id, "code": code,
+            "auth_url": f"https://app.plex.tv/auth#?{qs}", "client_id": cid}
+
+
+async def poll_auth(pin_id: Any, code: str) -> dict:
+    """Poll a pending Plex OAuth PIN via ``GET plex.tv/api/v2/pins/<id>``.
+    Returns ``{ok: True, token}`` once the user has authorised in the popup,
+    ``{ok: True, pending: True}`` while still waiting, or
+    ``{ok: False, detail}`` on error / expiry. Never raises."""
+    pid = safe_int(pin_id)
+    if not pid:
+        return {"ok": False, "detail": "missing pin id"}
+    cid = _client_identifier()
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            r = await cli.get(f"{_PLEX_TV}/api/v2/pins/{pid}",
+                              headers=_plex_tv_headers(cid),
+                              params={"code": (code or "").strip()})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"couldn't reach plex.tv: {type(e).__name__}: {e}"}
+    if r.status_code == 404:
+        return {"ok": False, "detail": "the sign-in expired — start again"}
+    if r.status_code != 200:
+        return {"ok": False, "detail": f"plex.tv returned HTTP {r.status_code}"}
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return {"ok": False, "detail": "plex.tv returned non-JSON"}
+    token = str(body.get("authToken") or "").strip()
+    if token:
+        print(f"[plex] INFO poll_auth pin_id={pid} -> token received")
+        return {"ok": True, "token": token}
+    return {"ok": True, "pending": True}
 
 
 def _headers(token: str) -> dict:

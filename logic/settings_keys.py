@@ -163,6 +163,7 @@ class Settings(str, Enum):
     PING_DEFAULT_PORT = "ping_default_port"
     PING_ENABLED = "ping_enabled"
     PING_USE_ICMP = "ping_use_icmp"
+    PLEX_CLIENT_IDENTIFIER = "plex_client_identifier"
     PORTAINER_API_KEY = "portainer_api_key"
     PORTAINER_ENABLED = "portainer_enabled"
     PORTAINER_ENDPOINT_ID = "portainer_endpoint_id"

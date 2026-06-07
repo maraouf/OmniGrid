@@ -5726,7 +5726,15 @@
       "music": "Music",
       "now_playing": "Now playing",
       "libraries_footnote": "{n} libraries",
-      "loading": "Loading Plex data…"
+      "loading": "Loading Plex data…",
+      "signin_button": "Sign in to Plex",
+      "signin_waiting": "Waiting for Plex sign-in…",
+      "signin_hint": "Opens plex.tv to sign in and fetches your token automatically — or paste one below.",
+      "signin_opened": "Sign in to Plex in the new window…",
+      "signin_ok": "Signed in to Plex — token filled. Test + Save to finish.",
+      "signin_start_failed": "Couldn’t start Plex sign-in",
+      "signin_failed": "Plex sign-in failed",
+      "signin_timeout": "Plex sign-in timed out — try again"
     },
     "port_aria": "Port {port}/{proto} — {state}",
     "port_state_up": "open",

@@ -2,6 +2,9 @@
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
 // noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSUnresolvedReference,JSUnresolvedVariable
+//   ^ the OAuth start/poll responses are parsed JSON (no static type), so the
+//     analyzer can't resolve `.auth_url` / `.pin_id` / `.token` — they're real.
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
 /* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
 
@@ -69,6 +72,81 @@ function plexCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// "Sign in to Plex" — runs the Plex OAuth PIN device flow so the operator
+// never pastes an X-Plex-Token by hand (the same seamless flow Tautulli /
+// Overseerr use). POSTs /api/apps/plex/auth/start (the backend asks plex.tv
+// for a PIN), opens the returned auth URL in a popup for the user to sign in,
+// then polls /api/apps/plex/auth/poll until plex.tv hands back the token --
+// which is filled straight into the editor's api_key field. Returns a promise
+// so the button can show a busy spinner via its local x-data while it runs.
+// `this` is the Alpine component (merged in via `appsHelpers`).
+function plexSignIn() {
+  /* jshint validthis: true */
+  const self = this;
+  const tr = (k, fb) => (self.t && self.t(k)) || fb;
+
+  function _toast(msg, kind) {
+    if (typeof self.showToast === 'function') {
+      self.showToast(msg, kind);
+    }
+  }
+
+  // Best-effort popup close (cross-origin access can throw — swallow it).
+  function _closePopup(win) {
+    try {
+      if (win && !win.closed) {
+        win.close();
+      }
+    } catch (_) { /* cross-origin */
+    }
+  }
+
+  let popup = null;
+  return (async () => {
+    try {
+      const r = await fetch('/api/apps/plex/auth/start', {method: 'POST'});
+      const d = await r.json().catch(() => ({}));
+      const started = r.ok && d && d.ok;
+      if (!started || !d.auth_url) {
+        _toast((d && d.detail) || tr('apps.plex.signin_start_failed', 'Couldn’t start Plex sign-in'), 'error');
+        return;
+      }
+      // Open the plex.tv auth page for the user to sign in + authorise.
+      popup = window.open(d.auth_url, 'plexauth', 'width=820,height=740');
+      _toast(tr('apps.plex.signin_opened', 'Sign in to Plex in the new window…'), 'info');
+      // Poll the PIN for up to ~2 minutes (2s cadence). Build the poll URL once
+      // (single string — no line-break-before-+ readability nit).
+      const pollUrl = '/api/apps/plex/auth/poll?pin_id=' + encodeURIComponent(d.pin_id) + '&code=' + encodeURIComponent(d.code);
+      const deadline = Date.now() + 120000;
+      while (Date.now() < deadline) {
+        await new Promise((res) => setTimeout(res, 2000));
+        const pr = await fetch(pollUrl);
+        const pd = await pr.json().catch(() => ({}));
+        const pok = pr.ok && pd && pd.ok;
+        if (pok && pd.token) {
+          self.appsInstanceEditForm.api_key = pd.token;
+          self.appsInstanceEditForm.api_key_set = true;
+          _closePopup(popup);
+          _toast(tr('apps.plex.signin_ok', 'Signed in to Plex — token filled. Test + Save to finish.'), 'success');
+          return;
+        }
+        if (!(pok && pd.pending)) {
+          // A hard error (expired PIN / plex.tv unreachable) — not just "still
+          // waiting" — so stop polling and report it.
+          _toast((pd && pd.detail) || tr('apps.plex.signin_failed', 'Plex sign-in failed'), 'error');
+          return;
+        }
+        // else: still pending → keep polling until the deadline.
+      }
+      _toast(tr('apps.plex.signin_timeout', 'Plex sign-in timed out — try again'), 'error');
+    } catch (_e) {
+      _toast(tr('apps.plex.signin_failed', 'Plex sign-in failed'), 'error');
+    } finally {
+      _closePopup(popup);
+    }
+  })();
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Plex gets a 2-column
 // span so the 4-stat panel doesn't squeeze the per-instance host list, and a
@@ -90,4 +168,5 @@ export const helpers = {
   plexIsApp: isPlexApp,
   plexData: plexData,
   plexCount: plexCount,
+  plexSignIn: plexSignIn,
 };
