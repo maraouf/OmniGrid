@@ -557,8 +557,9 @@
        _scrollAppsEditorIntoView still focuses the first input on open
        (scrollIntoView is a harmless no-op on a position:fixed modal). -->
   <div x-show="appsCatalogEditOpen" x-cloak
+       x-effect="appsCatalogEditOpen && !$el.contains(document.activeElement) && $nextTick(() => { try { const f = $el.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled])'); if (f) f.focus(); } catch (e) { /* ignore */ } })"
        class="fixed inset-0 z-50 flex items-center justify-center"
-       role="dialog" aria-modal="true"
+       role="dialog" aria-modal="true" @keydown="_focusTrapKeydown($event, $el)"
        :aria-label="appsCatalogEdit.id ? (t('admin_apps.edit_title') || 'Edit template') : (t('admin_apps.new_title') || 'New template')"
        @keydown.escape.window="closeAppCatalogEditor()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeAppCatalogEditor()"></div>
@@ -692,8 +693,9 @@
        the whole partial. Uses the same .modal-backdrop / .modal-card
        pattern as the AI memory + SSH terminal modals. -->
   <div x-show="appsPinModalOpen" x-cloak
+       x-effect="appsPinModalOpen && !$el.contains(document.activeElement) && $nextTick(() => { try { const f = $el.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled])'); if (f) f.focus(); } catch (e) { /* ignore */ } })"
        class="fixed inset-0 z-50 flex items-center justify-center"
-       role="dialog" aria-modal="true"
+       role="dialog" aria-modal="true" @keydown="_focusTrapKeydown($event, $el)"
        :aria-label="t('admin_apps.pin_title') || 'Pin to host'"
        @keydown.escape.window="closeAppCatalogPin()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]"
@@ -822,8 +824,9 @@
        must run a port-scan on the host FIRST (Hosts view → drawer →
        Scan ports) for this wizard to have anything to match against. -->
   <div x-show="appsDiscoverOpen" x-cloak
+       x-effect="appsDiscoverOpen && !$el.contains(document.activeElement) && $nextTick(() => { try { const f = $el.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled])'); if (f) f.focus(); } catch (e) { /* ignore */ } })"
        class="fixed inset-0 z-50 flex items-center justify-center"
-       role="dialog" aria-modal="true"
+       role="dialog" aria-modal="true" @keydown="_focusTrapKeydown($event, $el)"
        :aria-label="t('admin_apps.discover_title') || 'Discover apps on host'"
        @keydown.escape.window="closeAppsDiscoverWizard()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]"
@@ -1006,8 +1009,9 @@
        probe. For a catalog-linked chip, clearing name / icon re-inherits
        from the template. Writes through PATCH /api/services/{host}/{idx}. -->
   <div x-show="appsInstanceEditOpen" x-cloak
+       x-effect="appsInstanceEditOpen && !$el.contains(document.activeElement) && $nextTick(() => { try { const f = $el.querySelector('input:not([type=hidden]):not([disabled]),select:not([disabled]),textarea:not([disabled])'); if (f) f.focus(); } catch (e) { /* ignore */ } })"
        class="fixed inset-0 z-50 flex items-center justify-center"
-       role="dialog" aria-modal="true"
+       role="dialog" aria-modal="true" @keydown="_focusTrapKeydown($event, $el)"
        :aria-label="t('admin_apps.instance_edit_title') || 'Edit app instance'"
        @keydown.escape.window="closeInstanceEdit()">
     <div class="absolute inset-0 bg-[var(--backdrop-strong)]" @click="closeInstanceEdit()"></div>
