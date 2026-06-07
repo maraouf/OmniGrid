@@ -408,8 +408,9 @@ export default {
     }
     const cc = (this.me && this.me.client_config) || {};
     const map = (cc && cc.app_skills) || {};
-    for (const slug in map) {
-      const list = map[slug];
+    // Object.values (not for…in) so we iterate own enumerable values only —
+    // no inherited-member leakage, and the slug key isn't needed here.
+    for (const list of Object.values(map)) {
       if (!Array.isArray(list)) {
         continue;
       }
@@ -497,7 +498,7 @@ export default {
     }
     turn.skill_panel = panel;
     if (typeof this.persistAiConversation === 'function') {
-      this.persistAiConversation();
+      void this.persistAiConversation();
     }
   },
 
@@ -534,7 +535,7 @@ export default {
       }
     }
     if (typeof this.persistAiConversation === 'function') {
-      this.persistAiConversation();
+      void this.persistAiConversation();
     }
   },
 
@@ -1344,6 +1345,10 @@ export default {
         action_id: actionId || null,
         action_label: actionDesc ? (actionDesc.label || actionId) : null,
         action_ran: false,
+        // Pre-declared so the "Working on it…" spinner (x-show on
+        // turn.skill_running) tracks the key from creation across every
+        // skill-dispatch path (_aiSidebarRunSkill + _runCommandPaletteAction).
+        skill_running: false,
         host_ids: hostIds,
         // Per-action parameters carried alongside the action_id so
         // confirmInlineAction (the inline-chip "Yes" handler) can
