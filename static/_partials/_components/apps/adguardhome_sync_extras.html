@@ -40,7 +40,7 @@
           <!-- Sync state (running / idle) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.adguardsync.sync_state') || 'Sync'"></div>
-            <div class="apps-card-ups-value"
+            <div class="apps-card-stat-value"
                  :class="adguardsyncData(inst).sync_running ? 'text-[var(--info)]' : ''"
                  x-text="adguardsyncData(inst).sync_running
                    ? (t('apps.adguardsync.running') || 'Running')
@@ -49,7 +49,7 @@
           <!-- Origin status -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.adguardsync.origin') || 'Origin'"></div>
-            <div class="apps-card-ups-value"
+            <div class="apps-card-stat-value"
                  :class="adguardsyncData(inst).origin_ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                  x-text="adguardsyncData(inst).origin_ok
                    ? (t('apps.adguardsync.ok') || 'OK')
@@ -58,7 +58,7 @@
           <!-- Replicas in sync (ok / total) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.adguardsync.replicas') || 'Replicas'"></div>
-            <div class="apps-card-ups-value"
+            <div class="apps-card-stat-value"
                  :class="adguardsyncAllOk(inst) ? 'text-[var(--success)]' : 'text-[var(--warning)]'"
                  x-text="adguardsyncCount(adguardsyncData(inst).replicas_ok) + ' / ' + adguardsyncCount(adguardsyncData(inst).replicas_total)"></div>
           </div>

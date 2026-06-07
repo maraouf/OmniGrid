@@ -22,17 +22,17 @@
           <!-- Records (total managed) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.ddns.records') || 'Records'"></div>
-            <div class="apps-card-ups-value" x-text="ddnsCount(ddnsData(inst).records_total)"></div>
+            <div class="apps-card-stat-value" x-text="ddnsCount(ddnsData(inst).records_total)"></div>
           </div>
           <!-- Up to date -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.ddns.up_to_date') || 'Up to date'"></div>
-            <div class="apps-card-ups-value text-[var(--success)]" x-text="ddnsCount(ddnsData(inst).up_count)"></div>
+            <div class="apps-card-stat-value text-[var(--success)]" x-text="ddnsCount(ddnsData(inst).up_count)"></div>
           </div>
           <!-- Failing -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.ddns.failing') || 'Failing'"></div>
-            <div class="apps-card-ups-value"
+            <div class="apps-card-stat-value"
                  :class="(Number(ddnsData(inst).fail_count) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
                  x-text="ddnsCount(ddnsData(inst).fail_count)"></div>
           </div>

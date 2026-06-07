@@ -25,22 +25,22 @@
           <!-- Libraries (always available) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.kavita.libraries') || 'Libraries'"></div>
-            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).libraries)"></div>
+            <div class="apps-card-stat-value" x-text="kavitaCount(kavitaData(inst).libraries)"></div>
           </div>
           <!-- Series (admin server stats) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.kavita.series') || 'Series'"></div>
-            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).series_count)"></div>
+            <div class="apps-card-stat-value" x-text="kavitaCount(kavitaData(inst).series_count)"></div>
           </div>
           <!-- Volumes (admin server stats) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.kavita.volumes') || 'Volumes'"></div>
-            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).volume_count)"></div>
+            <div class="apps-card-stat-value" x-text="kavitaCount(kavitaData(inst).volume_count)"></div>
           </div>
           <!-- Size (admin server stats) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.kavita.size') || 'Size'"></div>
-            <div class="apps-card-ups-value" x-text="kavitaSize(kavitaData(inst).total_size)"></div>
+            <div class="apps-card-stat-value" x-text="kavitaSize(kavitaData(inst).total_size)"></div>
           </div>
         </div>
         <!-- Footnote: version + chapter count. -->
