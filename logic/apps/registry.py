@@ -33,6 +33,7 @@ from . import ddns_updater
 from . import kavita
 from . import lidarr
 from . import pihole
+from . import plex
 from . import prowlarr
 from . import radarr
 from . import readarr
@@ -64,6 +65,7 @@ _register(ddns_updater)
 _register(kavita)
 _register(lidarr)
 _register(pihole)
+_register(plex)
 _register(prowlarr)
 _register(radarr)
 _register(readarr)
