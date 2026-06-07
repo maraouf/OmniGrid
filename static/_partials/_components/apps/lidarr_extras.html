@@ -48,7 +48,7 @@
         </div>
         <!-- Storage — every mount Lidarr reports, each with free / total + a
              usage bar. -->
-        <div x-show="lidarrDisks(inst).length" class="mt-2 space-y-1.5">
+        <div x-show="lidarrDisks(inst).length" class="mt-2 space-y-1.5 apps-card-storage">
           <div class="apps-card-ups-label" x-text="t('apps.lidarr.storage') || 'Storage'"></div>
           <template x-for="m in lidarrDisks(inst)" :key="m.path">
             <div>

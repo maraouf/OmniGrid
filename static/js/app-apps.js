@@ -4788,6 +4788,9 @@ export default {
       // pattern from the global-secrets convention).
       api_key: '',
       api_key_set: !!inst.api_key_set,
+      // Mirrors the live copy in app-apps-instances.js (which wins via the
+      // merge order) — kept in sync to avoid drift on the last-tested chip.
+      last_test_ok_ts: Number(inst.last_test_ok_ts) || 0,
     };
     this.appsInstanceEditError = '';
     // Seed the Link-to-Docker combobox input with the current link's label
