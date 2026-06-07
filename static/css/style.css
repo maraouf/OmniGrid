@@ -11533,15 +11533,13 @@ select.field-invalid {
 /* Fleet-app aggregated extras (app-level block on the Apps card) — shared
    by AdGuard Home + Pi-hole + any future N-host fleet DNS-blocker. The
    `.apps-fleet-*` names are canonical; the `.apps-adguard-*` aliases stay
-   so the AdGuard partial keeps working without a class rename. The stat
-   grid auto-fits 2-3 columns; each cell reuses `.apps-card-stat`. */
-.apps-adguard-statgrid,
-.apps-fleet-statgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-  gap: var(--s-2);
-}
-
+   so the AdGuard partial keeps working without a class rename.
+   NOTE: the fleet STAT GRID is no longer bespoke — fleet apps now render
+   their aggregated stats through the canonical `.apps-card-ups-*` tinted-chip
+   family (same as every other app's extras), so the stat grid reads
+   identically fleet-vs-non-fleet AND inherits the 1x1..4x2 custom-dashboard
+   size rules (which target `.apps-card-ups-*`). A future fleet app should do
+   the same. Only the fleet-specific dot + timed-disable presets live here. */
 .apps-adguard-dot,
 .apps-fleet-dot {
   width: 8px;

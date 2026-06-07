@@ -97,12 +97,22 @@ def _clean_cell(raw: str) -> str:
 
 
 def _classify(status: Any) -> str:
-    """Map a ddns-updater record status to ok / fail / pending."""
+    """Map a ddns-updater record status to ok / fail / pending.
+
+    SUBSTRING match (not exact): ddns-updater renders the status word with a
+    trailing relative-time / timestamp (``up to date, 5 minutes ago``) and
+    sometimes wraps it in a coloured ``<span>``, so after tag-stripping the
+    cell text carries more than the bare constant. Fail-first ordering so
+    ``failure`` (which contains no ok token) wins before the ok check; the
+    transient states (``updating`` / ``unset``) match neither and fall to
+    pending."""
     s = str(status or "").strip().lower()
-    if s in ("success", "up to date"):
-        return "ok"
-    if s in ("failure", "fail", "error"):
+    if not s:
+        return "pending"
+    if "fail" in s or "error" in s:
         return "fail"
+    if "up to date" in s or "success" in s:
+        return "ok"
     return "pending"  # updating / unset / unknown
 
 
@@ -117,14 +127,16 @@ def _parse_records(html_text: Any) -> list[dict]:
     for row in _ROW_RE.finditer(html_text):
         cells = {k.strip().lower(): _clean_cell(v)
                  for k, v in _CELL_RE.findall(row.group(1))}
-        if not cells or ("domain" not in cells and "update status" not in cells):
+        status = (cells.get("update status") or cells.get("status")
+                  or cells.get("update") or "")
+        if not cells or ("domain" not in cells and not status):
             continue
         out.append({
             "domain": cells.get("domain", ""),
             "owner": cells.get("owner", ""),
             "provider": cells.get("provider", ""),
             "ip_version": cells.get("ip version", ""),
-            "status": cells.get("update status", ""),
+            "status": status,
             "current_ip": cells.get("current ip", ""),
         })
     return out
@@ -213,8 +225,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         records = []
     shaped = _shape(records)
     out: dict[str, Any] = {"available": True, "fetched_at": int(now), **shaped}
+    _raw_statuses = sorted({str(r.get("status") or "").strip() for r in records} - {""})
     print(f"[ddns] INFO fetched host={host_id} records={out['records_total']} "
-          f"up={out['up_count']} fail={out['fail_count']} ip={out['public_ip']}")
+          f"up={out['up_count']} fail={out['fail_count']} ip={out['public_ip']} "
+          f"raw_statuses={_raw_statuses}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 

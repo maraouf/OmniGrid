@@ -27,45 +27,48 @@
     <!-- Compute the aggregate ONCE per render via a single-element x-for. -->
     <template x-for="agg in [piholeAggregate(app)]" :key="'agg'">
       <div class="space-y-2">
-        <!-- Stats grid (aggregated across every reachable host). -->
+        <!-- Stats grid (aggregated across every reachable host). Uses the
+             canonical `.apps-card-ups-*` tinted-chip family so Pi-hole reads
+             identically to every other app's extras AND inherits the
+             1x1..4x2 size rules (which target `.apps-card-ups-*`). -->
         <template x-if="agg.ready">
-          <div class="space-y-2">
-            <div class="apps-fleet-statgrid">
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
+          <div class="apps-card-ups">
+            <div class="apps-card-ups-grid">
+              <div class="apps-card-ups-stat">
+                <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.blocked_today') || 'Blocked today'"></div>
-                <div class="fs-md font-semibold">
+                <div class="apps-card-ups-value">
                   <span x-text="piholeInt(agg.blocked)"></span>
                   <span class="fs-2xs text-[var(--text-faint)]"
                         x-text="'(' + piholePct(agg.pct) + ')'"></span>
                 </div>
               </div>
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
+              <div class="apps-card-ups-stat">
+                <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.queries_today') || 'Queries today'"></div>
-                <div class="fs-md font-semibold" x-text="piholeInt(agg.queries)"></div>
+                <div class="apps-card-ups-value" x-text="piholeInt(agg.queries)"></div>
               </div>
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
+              <div class="apps-card-ups-stat">
+                <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.blocklist') || 'Blocklist domains'"></div>
-                <div class="fs-md font-semibold" x-text="piholeInt(agg.rules)"></div>
+                <div class="apps-card-ups-value" x-text="piholeInt(agg.rules)"></div>
               </div>
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
+              <div class="apps-card-ups-stat">
+                <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.clients') || 'Active clients'"></div>
-                <div class="fs-sm" x-text="piholeInt(agg.clients)"></div>
+                <div class="apps-card-ups-value" x-text="piholeInt(agg.clients)"></div>
               </div>
-              <div class="apps-card-stat" x-show="agg.topBlocked">
-                <div class="fs-2xs text-[var(--text-faint)]"
+              <div class="apps-card-ups-stat" x-show="agg.topBlocked">
+                <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.top_blocked') || 'Top blocked'"></div>
-                <div class="fs-sm truncate"
+                <div class="apps-card-ups-value truncate"
                      :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
                      x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
               </div>
             </div>
             <!-- Protection status — green when every host is ON, amber when
                  some are OFF (the actionable warning). -->
-            <div class="flex items-center gap-1.5 fs-2xs">
+            <div class="flex items-center gap-1.5 fs-2xs mt-1">
               <span class="apps-fleet-dot"
                     :class="agg.protOn === agg.protTotal ? 'apps-fleet-dot--on' : 'apps-fleet-dot--off'"
                     aria-hidden="true"></span>
@@ -74,9 +77,16 @@
               <span x-show="agg.protOn !== agg.protTotal" class="text-[var(--warning)]"
                     x-text="(t('apps.pihole.protection_partial') || 'Blocking OFF on') + ' ' + agg.protOffHosts.join(', ')"></span>
             </div>
+            <!-- Partial-failure footnote (some hosts down but totals shown). -->
+            <div x-show="agg.failedHosts.length" class="fs-2xs text-[var(--warning)] mt-1"
+                 x-text="(t('apps.pihole.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></div>
+            <!-- Version footnote (from the Pi-hole /api/info/version response). -->
+            <div x-show="agg.version" class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+                 x-text="'Pi-hole ' + (agg.version || '')"></div>
           </div>
         </template>
-        <!-- Loading / error states. -->
+        <!-- Loading / error states (plain text, outside the box — matches
+             every other app's extras placeholder pattern). -->
         <template x-if="!agg.ready && agg.loading">
           <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
             <span class="spin" aria-hidden="true"></span>
@@ -86,16 +96,6 @@
           <p class="fs-xs text-[var(--danger)] italic"
              x-text="(t('apps.pihole.all_unreachable') || 'No Pi-hole host reachable')
                + (agg.failedHosts.length ? ' — ' + agg.failedHosts.join(', ') : '')"></p>
-        </template>
-        <!-- Partial-failure footnote (some hosts down but totals shown). -->
-        <template x-if="agg.ready && agg.failedHosts.length">
-          <p class="fs-2xs text-[var(--warning)]"
-             x-text="(t('apps.pihole.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></p>
-        </template>
-        <!-- Version footnote (from the Pi-hole /api/info/version response). -->
-        <template x-if="agg.ready && agg.version">
-          <p class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-             x-text="'Pi-hole ' + agg.version"></p>
         </template>
 
         <!-- Fleet actions (admin-only; need at least one credentialed host).
