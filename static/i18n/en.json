@@ -5450,7 +5450,11 @@
       "prowlarr_status": "Prowlarr status",
       "prowlarr_indexers": "List indexers",
       "prowlarr_app_sync": "Sync indexers to apps",
-      "prowlarr_search": "Search indexers"
+      "prowlarr_search": "Search indexers",
+      "kavita_status": "Kavita status",
+      "kavita_libraries": "List libraries",
+      "kavita_search": "Search the library",
+      "kavita_scan": "Scan libraries"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5632,6 +5636,21 @@
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Prowlarr data…",
       "fetch_failed": "Prowlarr fetch failed"
+    },
+    "kavita": {
+      "api_key_label": "Kavita API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Kavita → Settings → Account",
+      "api_key_hint": "Required for the expanded card to fetch the library summary. Found in Kavita under Settings → Account → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Kavita (5–3600s). Leave blank for the app default (60s).",
+      "libraries": "Libraries",
+      "series": "Series",
+      "volumes": "Volumes",
+      "size": "Size",
+      "chapters_n": "{n} chapters",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Kavita data…",
+      "fetch_failed": "Kavita fetch failed"
     }
   }
 }

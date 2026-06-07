@@ -30,6 +30,7 @@ from . import adguardhome_sync
 from . import apc
 from . import bazarr
 from . import ddns_updater
+from . import kavita
 from . import lidarr
 from . import pihole
 from . import prowlarr
@@ -60,6 +61,7 @@ _register(adguardhome_sync)
 _register(apc)
 _register(bazarr)
 _register(ddns_updater)
+_register(kavita)
 _register(lidarr)
 _register(pihole)
 _register(prowlarr)
