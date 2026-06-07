@@ -166,6 +166,9 @@ with bold section headers + emoji prefixes:
     Profile → Weather)
   - `/moon` — Show today's moon phase + illumination (requires the
     WeatherAPI.com provider; Open-Meteo is moon-blind)
+  - `/prayer` — Show today's five prayer times + the next prayer
+    (requires Prayer Times enabled in Admin → Prayer Times)
+  - `/hijri` — Show today's Hijri (Islamic) calendar date
   - `/time` — Show the local time at your saved weather location
   - `/version` (aliases: `/ver`) — Show the running OmniGrid version
   - `/ip` — Show the deployment's public IP + ISP / ASN / country

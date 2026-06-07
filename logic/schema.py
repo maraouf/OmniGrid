@@ -515,9 +515,9 @@ def init_db():
         -- fail the executescript before migrations get to run.
         -- Composite (provider, last_ok_ts DESC) speeds up the
         -- "every host's freshness for ONE provider, newest first" read
-        -- pattern (chip-strip render across a 200-host fleet after
-        -- BUG-001 lands and the NE sampler also UPSERTs here every
-        -- tick). Additive — safe to run on existing deployments;
+        -- pattern (chip-strip render across a 200-host fleet, with
+        -- the NE sampler also UPSERTing here every tick).
+        -- Additive — safe to run on existing deployments;
         -- SQLite no-ops if the index already exists.
         CREATE INDEX IF NOT EXISTS idx_host_provider_last_ok_provider_ts
         ON host_provider_last_ok (provider, last_ok_ts DESC);

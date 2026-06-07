@@ -51,7 +51,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
 - **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
 - **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of templates (AdGuard Home, Plex, Sonarr, Authentik, …). Discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart/Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
-- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` (alias `/reboot`) / `/cleanup` / `/update` / `/link` / `/whoami` / `/weather` / `/moon` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
+- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` (alias `/reboot`) / `/cleanup` / `/update` / `/link` / `/whoami` / `/weather` / `/moon` / `/prayer` / `/hijri` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
 - **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) palette + multi-turn sidebar with persistent chat history, inline charts (`memory_history` / `cpu_history` / `disk_projection`), per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives), structured `ACTION:` directives the SPA dispatches inline, fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
 - **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
@@ -96,7 +96,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **`main.py`** — FastAPI backend (routes + lifespan + orchestration). Aggregates data from Portainer (services, tasks, nodes, stacks, containers), resolves remote digests in parallel, runs background update + prune + restart jobs, fires the in-app notification store + Apprise webhooks.
 - **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `http_probe` / `host_http_sampler`, `service_sampler`, `host_metrics_sampler`, `host_net_sampler`, `host_baseline` / `host_baseline_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `settings_keys` / `env_keys` (typed key registries), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`, `telegram_listener`, `notify_telegram`, `public_ip`, `config_export`, `datetime_fmt`, `i18n`.
 - **`static/index.html` + `static/js/app.js` + `static/css/style.css`** — single-page Alpine.js + Tailwind UI; no build step.
-- **`/opt/omnigrid/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, `host_snmp_samples`, `host_snmp_iface_samples`, `host_snmp_temp_samples`, `ping_samples`).
+- **`/opt/omnigrid/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, app catalog + pinned instances, AI usage + memory, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, the per-provider sampler tables `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `host_pulse_samples` / `host_webmin_samples` / `host_beszel_samples` / `host_http_samples` / `service_samples` / `ping_samples`, plus `weather_samples`, …).
 
 ## Deploy
 
@@ -392,12 +392,15 @@ POST                          /api/notify/send                        user-typed
 # Multi-tab activity sync (Admin → Sessions "active tabs" panel)
 GET / POST / DELETE          /api/tabs/activity                       SPA heartbeat / read / cleanup
 
-# Public IP / weather (topbar widgets + AI palette context block)
+# Public IP / weather / prayer times (topbar + dashboard widgets + AI palette context block)
 GET                           /api/public-ip                          admin-only; default OFF for privacy
 GET                           /api/public-ip/history?limit=N          admin-only; ordered most-recent-first
 GET                           /api/weather?lat=&lon=&label=           weather proxy (Open-Meteo or WeatherAPI per Admin → Weather)
 GET                           /api/weather/history?limit=N&lat=&lon=  cached historical samples for AI / Telegram retrospective questions
 POST                          /api/weather/test                       probe Open-Meteo or WeatherAPI credentials (admin)
+GET                           /api/prayer-times?lat=&lon=&label=&method=&school=  today's 5 prayers + Sunrise + Hijri date (AlAdhan; default OFF)
+GET                           /api/prayer-times/history?limit=N       cached daily prayer-time samples
+POST                          /api/prayer-times/test                  probe the AlAdhan API + Admin → Prayer Times settings (admin)
 
 # Login providers advertisement
 GET                           /api/auth/providers                     {local, oidc, ...} for login page rendering
@@ -422,7 +425,9 @@ POST                          /api/services/discover/{host_id}/apply bulk-apply 
 PATCH / DELETE                /api/services/{host_id}/{service_idx}  edit / remove one pinned instance
 POST                          /api/services/{host_id}/{service_idx}/probe   admin-only one-shot probe
 POST                          /api/services/{host_id}/{service_idx}/test-credential  per-app credential test (e.g. Speedtest Tracker API key)
+POST                          /api/services/{host_id}/{service_idx}/skill/{skill_id}  run one per-app SKILL (drawer button + AI / Telegram action)
 GET                           /api/services/{host_id}/{service_idx}/app-data        per-app expanded card data (per-slug dispatcher)
+POST                          /api/apps/catalog/{slug}/show-extras   toggle a catalog template's show_extras flag (admin)
 GET                           /api/services/{host_id}/{service_idx}/debug   per-chip diagnostics
 GET                           /api/services/{host_id}/{service_idx}/history per-chip probe-result series
 GET                           /api/container/{raw_id}/logs?lines=N   Portainer-routed container logs (admin)
