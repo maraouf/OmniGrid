@@ -3066,6 +3066,43 @@ export default {
       }
     } catch (_) { /* defensive */
     }
+    // Other open tabs — the cross-device session-handoff signal so the
+    // AI can answer "what was I looking at on the other tab / on my
+    // desktop?". Built from `this.tabActivity` (the live heartbeat map,
+    // keyed by client_id) minus THIS tab's own client_id. Each entry is
+    // already JSON-able + sanitised by the backend heartbeat handler
+    // (main_pkg/scan_routes.py); we forward a compact subset (title /
+    // view / rich_label / device label / seconds-ago) so the prompt
+    // stays small. Skipped cleanly when no sibling tab is open.
+    try {
+      const map = this.tabActivity || {};
+      const myId = window.__ogClientId;
+      const nowMs = Date.now();
+      const otherTabs = [];
+      for (const cid of Object.keys(map)) {
+        if (!cid || cid === myId) {
+          continue;
+        }
+        const e = map[cid] || {};
+        const tsMs = Number(e.ts || 0) * 1000;
+        otherTabs.push({
+          title: e.title || e.view || '',
+          view: e.view || '',
+          rich_label: e.rich_label || '',
+          device: (typeof this._tabActivityDeviceLabel === 'function')
+            ? this._tabActivityDeviceLabel(e.device) : '',
+          seconds_ago: tsMs ? Math.max(0, Math.round((nowMs - tsMs) / 1000)) : null,
+        });
+      }
+      // Newest first, capped — a power operator rarely has > a handful.
+      // null seconds_ago (no ts) sinks to the bottom via Infinity.
+      const _age = (t) => (t.seconds_ago == null ? Infinity : Number(t.seconds_ago));
+      otherTabs.sort((a, b) => (_age(a) - _age(b)));
+      if (otherTabs.length) {
+        ctx.other_tabs = otherTabs.slice(0, 8);
+      }
+    } catch (_) { /* never break ctx assembly on the tabs block */
+    }
     return ctx;
   },
 };
