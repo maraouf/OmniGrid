@@ -84,7 +84,7 @@
         <!-- Footnote: version + health issues (when reported). -->
         <div x-show="radarrData(inst).version || (Number(radarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="radarrData(inst).version" x-text="'Radarr ' + (radarrData(inst).version || '')"></span>
+          <span x-show="radarrData(inst).version" x-text="t('apps.version_footnote', { brand: 'Radarr', v: (radarrData(inst).version || '') })"></span>
           <span x-show="(Number(radarrData(inst).health_issues) || 0) > 0"
                 class="text-[var(--warning)]"
                 x-text="(radarrData(inst).version ? ' · ' : '') + (t('apps.radarr.health_issues_n', { n: radarrData(inst).health_issues }) || (radarrData(inst).health_issues + ' health issue(s)'))"></span>

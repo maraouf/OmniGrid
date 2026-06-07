@@ -610,8 +610,9 @@
            belong only to Admin → Config). -->
       <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-[var(--border)]">
         <button type="button" @click="saveAiSettings()"
-                :disabled="isReadonly() || aiSaving || !aiFormDirty()"
+                :disabled="isReadonly() || aiSaving || !aiFormDirty() || !canSaveAi()"
                 class="btn btn-primary fs-sm"
+                :title="!canSaveAi() ? (t('admin.ai.save_requires_test') || 'Run a successful Test connection before saving') : ''"
                 :class="aiFormDirty() ? 'ring-2 ring-[var(--warning)]' : ''">
           <span x-show="!aiSaving" x-text="t('actions.save')"></span>
           <span x-show="aiSaving" class="flex items-center gap-1"><span class="spin"></span><span x-text="t('actions.saving')"></span></span>
@@ -621,6 +622,9 @@
                 <span class="dot dot-warning dot-pulse" aria-hidden="true"></span>
                 <span class="unsaved-flash" x-text="t('common.unsaved')"></span>
               </span>
+        <span x-show="settings.ai_enabled && aiFormDirty() && !aiSaving && !canSaveAi()"
+              class="fs-2xs text-[var(--text-faint)]"
+              x-text="t('admin.ai.save_requires_test') || 'Run a successful Test connection before saving'"></span>
       </div>
     </div>
   </section>

@@ -69,7 +69,7 @@
         <!-- Footnote: version + health issues. -->
         <div x-show="readarrData(inst).version || (Number(readarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="readarrData(inst).version" x-text="'Readarr ' + (readarrData(inst).version || '')"></span>
+          <span x-show="readarrData(inst).version" x-text="t('apps.version_footnote', { brand: 'Readarr', v: (readarrData(inst).version || '') })"></span>
           <span x-show="(Number(readarrData(inst).health_issues) || 0) > 0"
                 class="text-[var(--warning)]"
                 x-text="(readarrData(inst).version ? ' · ' : '') + (t('apps.readarr.health_issues_n', { n: readarrData(inst).health_issues }) || (readarrData(inst).health_issues + ' health issue(s)'))"></span>

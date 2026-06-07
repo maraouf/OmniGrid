@@ -320,7 +320,8 @@
                          :target="hrf ? '_blank' : null"
                          rel="noopener"
                          @click.stop
-                         :title="appsPortTitle(pr)">
+                         :title="appsPortTitle(pr)"
+                         :aria-label="t('apps.port_aria', { port: pr.port, proto: (pr.protocol || 'tcp'), state: (t('apps.port_state_' + appsPortState(pr)) || appsPortState(pr)) })">
                         <span class="apps-card-dot apps-port-dot" :class="'apps-card-dot--' + appsPortState(pr)" aria-hidden="true"></span>
                         <span class="apps-port-num mono" x-text="pr.port"></span><span class="apps-port-proto mono" x-text="'/' + (pr.protocol || 'tcp')"></span>
                       </a>

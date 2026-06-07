@@ -46,7 +46,7 @@
         <!-- Footnote: version + chapter count. -->
         <div x-show="kavitaData(inst).version || (Number(kavitaData(inst).chapter_count) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="kavitaData(inst).version" x-text="'Kavita ' + (kavitaData(inst).version || '')"></span>
+          <span x-show="kavitaData(inst).version" x-text="t('apps.version_footnote', { brand: 'Kavita', v: (kavitaData(inst).version || '') })"></span>
           <span x-show="(Number(kavitaData(inst).chapter_count) || 0) > 0"
                 x-text="(kavitaData(inst).version ? ' · ' : '') + (t('apps.kavita.chapters_n', { n: kavitaData(inst).chapter_count }) || (kavitaData(inst).chapter_count + ' chapters'))"></span>
         </div>

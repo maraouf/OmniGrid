@@ -237,7 +237,7 @@ export default {
     const self = this;
     Swal.fire({
       title: h.target_name || h.op_type,
-      html: `${meta}<div class="swal-events">${rows}</div>${diagnoseBtn ? `<div class="mt-3 flex justify-end">${diagnoseBtn}</div>` : ''}`,
+      html: `${meta}<div class="swal-events scrollbar">${rows}</div>${diagnoseBtn ? `<div class="mt-3 flex justify-end">${diagnoseBtn}</div>` : ''}`,
       width: 720,
       showConfirmButton: false,
       showCloseButton: true,

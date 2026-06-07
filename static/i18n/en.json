@@ -459,7 +459,17 @@
         "col_rt": "Response",
         "empty": "No costed calls recorded.",
         "title_range": "Top 10 most expensive single calls (last {range})"
-      }
+      },
+      "kind_palette": "Command palette",
+      "kind_sidebar": "AI sidebar",
+      "kind_host_filter": "Host filter",
+      "kind_chart": "Chart",
+      "kind_host": "Host question",
+      "kind_ai_memory": "AI memory",
+      "kind_apps_catalog": "Apps catalog",
+      "kind_asset_inventory": "Asset inventory",
+      "kind_notify_template": "Notification template",
+      "kind_samples_table": "Samples table"
     },
     "samples": {
       "title": "Samples",
@@ -519,7 +529,19 @@
         "prune_confirm_ok": "Delete",
         "prune_success": "{count} rows deleted for {id}",
         "alias_image": "Container image (Portainer stats_samples uses container ids; the chip shows what image was running)"
-      }
+      },
+      "kind_ping": "Ping RTT / reachability",
+      "kind_host_snmp": "SNMP host",
+      "kind_host_snmp_iface": "SNMP per-interface",
+      "kind_host_snmp_temp": "SNMP per-probe",
+      "kind_host_beszel": "Beszel per-tick",
+      "kind_host_pulse": "Pulse per-tick",
+      "kind_host_webmin": "Webmin per-tick",
+      "kind_host_metrics": "node-exporter per-tick",
+      "kind_host_net": "node-exporter net rates",
+      "kind_service": "Service probe",
+      "kind_host_http": "HTTP probe",
+      "kind_host_port_scans": "Port scan"
     },
     "database": {
       "title": "Database",
@@ -1591,7 +1613,8 @@
         "col_pass_rate": "Pass rate",
         "col_accuracy": "Accuracy",
         "page_label": "Page {page} of {total}"
-      }
+      },
+      "save_requires_test": "Run a successful Test connection before saving — Save is gated until the active provider’s api key / base URL / model round-trip works."
     },
     "notifications": {
       "tunables_heading": "In-app notifications tunables",
@@ -5219,7 +5242,9 @@
           "forecast_label": "Forecast days",
           "show_conditions": "Display weather conditions"
         }
-      }
+      },
+      "bookmark_aria": "{name} — {url}",
+      "section_reorder_aria": "Reorder {name} — use arrow keys to move"
     },
     "status_up": "up",
     "status_down": "down",
@@ -5651,6 +5676,11 @@
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Kavita data…",
       "fetch_failed": "Kavita fetch failed"
-    }
+    },
+    "port_aria": "Port {port}/{proto} — {state}",
+    "port_state_up": "open",
+    "port_state_down": "closed",
+    "port_state_unknown": "unknown",
+    "version_footnote": "{brand} {v}"
   }
 }

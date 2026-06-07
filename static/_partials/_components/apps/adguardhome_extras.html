@@ -84,7 +84,7 @@
                  x-text="(t('apps.adguard.unreachable') || 'Unreachable') + ': ' + agg.failedHosts.join(', ')"></div>
             <!-- Version footnote (from the AdGuard /control/status response). -->
             <div x-show="agg.version" class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-                 x-text="'AdGuard Home ' + (agg.version || '')"></div>
+                 x-text="t('apps.version_footnote', { brand: 'AdGuard Home', v: (agg.version || '') })"></div>
           </div>
         </template>
         <!-- Loading / error states (plain text, outside the box — matches

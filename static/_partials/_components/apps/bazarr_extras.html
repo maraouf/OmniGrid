@@ -54,7 +54,7 @@
     <!-- Version footnote (when reported by /api/system/status). -->
     <div x-show="bazarrData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-         x-text="'Bazarr ' + (bazarrData(inst).version || '')"></div>
+         x-text="t('apps.version_footnote', { brand: 'Bazarr', v: (bazarrData(inst).version || '') })"></div>
   </div>
 </template>
 <!-- Loading — first fetch in flight (panel above gates on bazarrData). -->

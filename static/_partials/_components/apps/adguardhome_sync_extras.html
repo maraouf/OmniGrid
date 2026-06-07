@@ -70,7 +70,7 @@
         <!-- Version footnote (best-effort scrape from the sync web UI). -->
         <div x-show="adguardsyncData(inst).version"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-             x-text="'AdGuard Home Sync ' + (adguardsyncData(inst).version || '')"></div>
+             x-text="t('apps.version_footnote', { brand: 'AdGuard Home Sync', v: (adguardsyncData(inst).version || '') })"></div>
       </div>
     </template>
     <!-- Loading — first fetch in flight. -->
