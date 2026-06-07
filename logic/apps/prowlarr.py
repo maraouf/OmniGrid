@@ -59,6 +59,7 @@ Upstream API reference: <prowlarr-host>/api/v1 (Swagger at /api). Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from functools import partial as _partial
@@ -159,6 +160,33 @@ SKILLS: tuple[dict, ...] = (
         # only. Left non-destructive (frictionless add; the inverse — removing an
         # indexer — would be the destructive op) so the AI can add on request.
         "arg": True,
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_add_indexers_bulk",
+        "name": "Add indexers in bulk",
+        "ai_phrases": ("add all the english public indexers, add all public "
+                       "indexers, add every english indexer, bulk add indexers, "
+                       "mass add indexers, add all the missing public indexers, "
+                       "add all <language> <privacy> indexers, add all indexers "
+                       "matching <term>, add all the public english trackers, "
+                       "add the rest of the english indexers, add all <privacy> "
+                       "indexers not already added, add every public tracker"),
+        # arg = the SAME facet filter as prowlarr_available_indexers (privacy /
+        # language / name, or "all"). Adds EVERY matching definition that isn't
+        # already configured, auto-assigning FlareSolverr to any indexer Prowlarr
+        # rejects with a Cloudflare / challenge error. A live MULTI write to
+        # Prowlarr's config — arg-carrying so AI / Telegram only. Non-destructive
+        # like the single add (adding is frictionless; removing is the
+        # destructive inverse) so the AI can run it on request without per-
+        # indexer friction.
+        "arg": True,
+        "arg_hint": ("a facet filter selecting WHICH catalog indexers to add — a "
+                     "privacy (public / private / semi-private), a language "
+                     "(english / en), a combination (e.g. \"public english\"), an "
+                     "indexer-name fragment, or \"all\". Only definitions not "
+                     "already configured are added; FlareSolverr is auto-assigned "
+                     "to any indexer that needs it"),
         "destructive": False,
     },
 )
@@ -355,6 +383,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _available_indexers_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "prowlarr_add_indexer":
         return await _add_indexer_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "prowlarr_add_indexers_bulk":
+        return await _bulk_add_indexers_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -432,7 +462,7 @@ async def _indexers_skill(host_row: dict, chip: dict, *,
         items = []
     # Enabled first, then alphabetical — the disabled ones are the actionable tail.
     rows = [i for i in items if isinstance(i, dict)]
-    rows.sort(key=lambda i: (not i.get("enable"), str(i.get("name") or "").lower()))
+    rows.sort(key=lambda row: (not row.get("enable"), str(row.get("name") or "").lower()))
     enabled = sum(1 for i in rows if i.get("enable"))
     lines = []
     for i in rows[:25]:
@@ -507,7 +537,7 @@ async def _search_skill(host_row: dict, chip: dict, *,
     # Best results first — most seeders, then largest. Grabs/seeders live on the
     # release dict (key varies by protocol); fall back to 0 when absent.
     rows = [it for it in items if isinstance(it, dict)]
-    rows.sort(key=lambda it: (_release_seeders(it), safe_int(it.get("size"))), reverse=True)
+    rows.sort(key=lambda rel: (_release_seeders(rel), safe_int(rel.get("size"))), reverse=True)
     lines = []
     for it in rows[:10]:
         title = str(it.get("title") or "?").strip()
@@ -752,6 +782,25 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": head}
 
 
+async def _fetch_indexer_schema(cli: httpx.AsyncClient, base: str,
+                                key: str) -> "tuple[Optional[list], Optional[dict]]":
+    """GET ``/api/v1/indexer/schema`` → ``(definitions, None)`` on success, or
+    ``(None, error_response)`` when auth fails / non-200 / non-JSON. The error
+    response is the ready-to-return ``{ok, status, detail}`` skill dict. Shared
+    by the single-add + bulk-add skills (their guard blocks were identical)."""
+    sr = await cli.get(base + "/api/v1/indexer/schema", headers=_headers(key))
+    if sr.status_code in (401, 403):
+        return None, {"ok": False, "status": sr.status_code, "detail": "auth failed (check api_key)"}
+    if sr.status_code != 200:
+        return None, {"ok": False, "status": sr.status_code,
+                      "detail": f"could not read the indexer catalog (HTTP {sr.status_code})"}
+    try:
+        defs = sr.json()
+    except (ValueError, TypeError):
+        return None, {"ok": False, "status": 502, "detail": "non-JSON indexer catalog from upstream"}
+    return (defs if isinstance(defs, list) else []), None
+
+
 async def _add_indexer_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str] = None,
                              host_id: Optional[str] = None) -> dict:
@@ -778,17 +827,10 @@ async def _add_indexer_skill(host_row: dict, chip: dict, *,
         async with httpx.AsyncClient(verify=False, timeout=30.0,
                                      follow_redirects=True) as cli:
             # 1) Resolve the indexer definition (the schema) by name.
-            sr = await cli.get(base + "/api/v1/indexer/schema", headers=_headers(api_key))
-            if sr.status_code in (401, 403):
-                return {"ok": False, "status": sr.status_code, "detail": "auth failed (check api_key)"}
-            if sr.status_code != 200:
-                return {"ok": False, "status": sr.status_code,
-                        "detail": f"could not read the indexer catalog (HTTP {sr.status_code})"}
-            try:
-                defs = sr.json()
-            except (ValueError, TypeError):
-                return {"ok": False, "status": 502, "detail": "non-JSON indexer catalog from upstream"}
-            defs = defs if isinstance(defs, list) else []
+            defs, schema_err = await _fetch_indexer_schema(cli, base, api_key)
+            if schema_err is not None:
+                return schema_err
+            defs = defs or []
             nl = name.lower()
             match = next((d for d in defs if isinstance(d, dict)
                           and str(d.get("name") or "").strip().lower() == nl), None)
@@ -808,30 +850,14 @@ async def _add_indexer_skill(host_row: dict, chip: dict, *,
                         "detail": f"no indexer named “{name}” in the catalog — try "
                                   f"“what indexers can I add matching {name}”."}
             # 2) Default app profile (required on create) — first one.
-            app_profile_id = 1
-            try:
-                ar = await cli.get(base + "/api/v1/appprofile", headers=_headers(api_key))
-                if ar.status_code == 200:
-                    aps = ar.json()
-                    if isinstance(aps, list) and aps and isinstance(aps[0], dict) and aps[0].get("id"):
-                        app_profile_id = safe_int(aps[0].get("id")) or 1
-            except (httpx.HTTPError, OSError, ValueError, TypeError):
-                app_profile_id = 1
+            app_profile_id = await _default_app_profile_id(cli, base, api_key)
             # 3) Optional FlareSolverr proxy tag.
             flare_note = ""
             tag_ids: list = []
             if want_flare:
                 tag_ids, flare_note = await _flaresolverr_tag_ids(cli, base, api_key)
             # 4) Build the create body from the schema + essentials.
-            body = dict(match)
-            body["enable"] = True
-            body["appProfileId"] = app_profile_id
-            if not safe_int(body.get("priority")):
-                body["priority"] = 25
-            existing_tags = body.get("tags")
-            if not isinstance(existing_tags, list):
-                existing_tags = []
-            body["tags"] = sorted(set(existing_tags) | set(tag_ids))
+            body = _build_indexer_body(match, app_profile_id, tag_ids)
             # 5) Create.
             cr = await cli.post(base + "/api/v1/indexer", headers=_headers(api_key), json=body)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -861,3 +887,293 @@ async def _add_indexer_skill(host_row: dict, chip: dict, *,
             "detail": f"Prowlarr rejected the add (HTTP {cr.status_code})"
                       + (f": {_body}" if _body else "")
                       + " — it may need extra config; finish it in the Prowlarr UI."}
+
+
+# ---------------------------------------------------------------------------
+# Bulk add (one command adds EVERY matching not-yet-configured indexer)
+# ---------------------------------------------------------------------------
+# Add-failure messages that indicate a Cloudflare / anti-bot CHALLENGE — the
+# class of block FlareSolverr exists to solve. When a bulk add fails with one of
+# these AND a FlareSolverr proxy is configured, the add is auto-retried WITH the
+# proxy tag. Kept focused on the challenge family — deliberately NOT a bare
+# "403" (which also covers private-tracker-without-credentials failures that
+# FlareSolverr can't fix).
+_FLARE_ERROR_RE = re.compile(
+    r"cloudflare|flaresolverr|ddos.?guard|just a moment|attention required|"
+    r"cf[-_]?(?:clearance|ray|chl)|jschl|challenge|captcha|"
+    r"browser.{0,20}check", re.I)
+
+# Bulk-add safety bounds. Each add runs a live connectivity TEST against the
+# tracker, so concurrency stays low + a total cap + an overall wall-clock
+# budget keep one command from hammering dozens of trackers for minutes.
+_BULK_ADD_CONCURRENCY = 4
+_BULK_ADD_MAX = 60  # candidates attempted per run (rest deferred)
+_BULK_ADD_BUDGET_S = 150  # overall wall-clock budget for the whole batch
+
+
+async def _default_app_profile_id(cli: httpx.AsyncClient, base: str, key: str) -> int:
+    """Resolve the default Prowlarr app-profile id (required on indexer create).
+    Returns the first profile's id, falling back to 1 on any failure."""
+    try:
+        ar = await cli.get(base + "/api/v1/appprofile", headers=_headers(key))
+        if ar.status_code == 200:
+            aps = ar.json()
+            if isinstance(aps, list) and aps and isinstance(aps[0], dict) and aps[0].get("id"):
+                return safe_int(aps[0].get("id")) or 1
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        pass
+    return 1
+
+
+def _build_indexer_body(defn: dict, app_profile_id: int, extra_tag_ids: list) -> dict:
+    """Construct the ``POST /api/v1/indexer`` create body from a schema
+    definition + the resolved app-profile id + any extra tag ids (e.g. the
+    FlareSolverr proxy tag). Fills the create essentials (enable, appProfileId,
+    a default priority) and unions the extra tags onto the definition's own."""
+    body = dict(defn)
+    body["enable"] = True
+    body["appProfileId"] = app_profile_id
+    if not safe_int(body.get("priority")):
+        body["priority"] = 25
+    existing = body.get("tags")
+    if not isinstance(existing, list):
+        existing = []
+    body["tags"] = sorted(set(existing) | set(extra_tag_ids or []))
+    return body
+
+
+def _resp_text(r) -> str:
+    """First 400 chars of a response body (or '' on any failure)."""
+    try:
+        return (r.text or "")[:400]
+    except (ValueError, TypeError):
+        return ""
+
+
+def _short_reason(text: str) -> str:
+    """Condense a Prowlarr validation-error body into a short human reason.
+    Prowlarr returns a JSON array of ``{errorMessage}`` objects — pull the first
+    ``errorMessage``; else a trimmed snippet."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    m = re.search(r'"errorMessage"\s*:\s*"(?P<msg>[^"]{1,160})"', t)
+    if m:
+        return m.group("msg")
+    return t[:120]
+
+
+def _failed_reason(r: dict) -> str:
+    """Short human reason for a bulk-add result row — the upstream reason when
+    present, else ``HTTP <status>``. ``safe_int`` coerces the status so the
+    f-string formats a plain int (avoids ``str(object)`` on the loosely-typed
+    result dict's value)."""
+    return str(r.get("reason") or "") or f"HTTP {safe_int(r.get('status'))}"
+
+
+def _def_keys(defn: dict) -> "set[str]":
+    """Lowercased identifier keys for a schema definition (name + the cardigann
+    definitionName when present), used to test against the already-configured
+    set."""
+    keys = set()
+    for k in ("name", "definitionName"):
+        v = defn.get(k)
+        if isinstance(v, str) and v.strip():
+            keys.add(v.strip().lower())
+    return keys
+
+
+async def _added_indexer_keys(cli: httpx.AsyncClient, base: str, key: str) -> "set[str]":
+    """Lowercased identifiers of indexers ALREADY configured in Prowlarr (so the
+    bulk add can skip them). Collects both the cardigann ``definitionName`` AND
+    the (possibly renamed) display ``name`` from ``GET /api/v1/indexer``. Empty
+    set on failure — then nothing is pre-skipped, but a per-indexer add still
+    4xx's on a duplicate, so we never double-add."""
+    out: "set[str]" = set()
+    try:
+        r = await cli.get(base + "/api/v1/indexer", headers=_headers(key))
+        if r.status_code != 200:
+            return out
+        items = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return out
+    if not isinstance(items, list):
+        return out
+    for it in items:
+        if isinstance(it, dict):
+            out |= _def_keys(it)
+    return out
+
+
+async def _add_one_indexer(cli: httpx.AsyncClient, base: str, key: str, defn: dict,
+                           app_profile_id: int, flare_tag_ids: list) -> dict:
+    """Add ONE indexer definition. Tries WITHOUT FlareSolverr first; if Prowlarr
+    rejects it with a Cloudflare / challenge error AND a FlareSolverr proxy tag
+    is available, retries the add WITH the proxy tag. Returns
+    ``{name, ok, flare, status, reason}`` — never raises."""
+    name = str(defn.get("name") or "?").strip()
+    try:
+        cr = await cli.post(base + "/api/v1/indexer", headers=_headers(key),
+                            json=_build_indexer_body(defn, app_profile_id, []))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"name": name, "ok": False, "flare": False, "status": 0,
+                "reason": type(e).__name__}
+    if cr.status_code in (200, 201):
+        return {"name": name, "ok": True, "flare": False, "status": cr.status_code, "reason": ""}
+    text = _resp_text(cr)
+    # Cloudflare / challenge → retry WITH the FlareSolverr proxy tag.
+    if flare_tag_ids and _FLARE_ERROR_RE.search(text):
+        try:
+            cr2 = await cli.post(base + "/api/v1/indexer", headers=_headers(key),
+                                 json=_build_indexer_body(defn, app_profile_id, flare_tag_ids))
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            return {"name": name, "ok": False, "flare": True, "status": 0,
+                    "reason": f"flare retry {type(e).__name__}"}
+        if cr2.status_code in (200, 201):
+            return {"name": name, "ok": True, "flare": True, "status": cr2.status_code, "reason": ""}
+        return {"name": name, "ok": False, "flare": True, "status": cr2.status_code,
+                "reason": _short_reason(_resp_text(cr2))}
+    return {"name": name, "ok": False, "flare": False, "status": cr.status_code,
+            "reason": _short_reason(text)}
+
+
+def _facet_label(privacy: str, lang_term: str, want_lang: str, all_mode: bool) -> str:
+    """Human descriptor for the active bulk-add facets ('public english',
+    'public', 'addable', …) used in the summary header / empty message."""
+    if all_mode:
+        return "addable"
+    bits = []
+    if privacy:
+        bits.append(_PRIVACY_LABELS.get(privacy, privacy))
+    if want_lang:
+        bits.append(want_lang)
+    elif lang_term:
+        bits.append(lang_term)
+    return " ".join(bits) if bits else "matching"
+
+
+async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
+                                   arg: Optional[str] = None,
+                                   host_id: Optional[str] = None) -> dict:
+    """Live MULTI write: add EVERY catalog indexer matching the facet ``arg``
+    (privacy / language / name, or "all") that isn't already configured — in one
+    command. Auto-assigns FlareSolverr to any indexer Prowlarr rejects with a
+    Cloudflare / challenge error. Returns a summary (added / added-with-flare /
+    already-configured / failed). Never raises."""
+    term = (arg or "").strip().lower()
+    if not term:
+        return {"ok": False, "status": 0,
+                "detail": "tell me which indexers to add — e.g. “add all the public "
+                          "english indexers”, “add all public indexers”, or “add all "
+                          "indexers matching torrent”. (Say “all” to add every "
+                          "addable indexer not yet configured.)"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    all_mode = term in ("all", "everything", "every", "all of them", "the rest")
+    privacy, lang_term = ("", "") if all_mode else _extract_privacy(term)
+    want_lang = _lang_primary(lang_term) if lang_term else ""
+    print(f"[prowlarr] INFO prowlarr_add_indexers_bulk host={host_id} term={term!r} "
+          f"privacy={privacy!r} lang={want_lang!r} all={all_mode} (live BULK write)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            defs, schema_err = await _fetch_indexer_schema(cli, base, api_key)
+            if schema_err is not None:
+                return schema_err
+            defs = defs or []
+            added_keys = await _added_indexer_keys(cli, base, api_key)
+            app_profile_id = await _default_app_profile_id(cli, base, api_key)
+            flare_tag_ids, flare_note = await _flaresolverr_tag_ids(cli, base, api_key)
+            # Candidate selection: facet-match THEN drop already-configured.
+            facet_matched = 0
+            candidates: list[dict] = []
+            for d in defs:
+                if not isinstance(d, dict):
+                    continue
+                name = str(d.get("name") or "").strip()
+                if not name:
+                    continue
+                if privacy and _indexer_privacy(d) != privacy:
+                    continue
+                if lang_term and not all_mode:
+                    lang = _indexer_lang(d)
+                    name_hit = lang_term in name.lower()
+                    lang_sub = lang_term in lang.lower()
+                    lang_fam = bool(want_lang) and _lang_primary(lang) == want_lang
+                    if not (name_hit or lang_sub or lang_fam):
+                        continue
+                facet_matched += 1
+                if _def_keys(d) & added_keys:
+                    continue
+                candidates.append(d)
+            candidates.sort(key=lambda cand: str(cand.get("name") or "").lower())
+            skipped_existing = facet_matched - len(candidates)
+            total_to_add = len(candidates)
+            truncated = total_to_add > _BULK_ADD_MAX
+            candidates = candidates[:_BULK_ADD_MAX]
+            facet = _facet_label(privacy, lang_term, want_lang, all_mode)
+            if not candidates:
+                if skipped_existing:
+                    return {"ok": True, "status": 200,
+                            "detail": f"✅ Nothing to add — all {skipped_existing:,} {facet} "
+                                      f"indexers are already configured."}
+                return {"ok": True, "status": 200,
+                        "detail": f"🔍 No addable {facet} indexers matched. Try “what "
+                                  f"indexers can I add matching {term}” to see the catalog."}
+            # Bulk add: bounded concurrency + an overall wall-clock budget.
+            sem = asyncio.Semaphore(_BULK_ADD_CONCURRENCY)
+            deadline = time.time() + _BULK_ADD_BUDGET_S
+            not_attempted: list[str] = []
+
+            async def _worker(cand: dict) -> Optional[dict]:
+                async with sem:
+                    if time.time() >= deadline:
+                        not_attempted.append(str(cand.get("name") or "?").strip())
+                        return None
+                    return await _add_one_indexer(cli, base, api_key, cand,
+                                                  app_profile_id, flare_tag_ids)
+
+            res = await asyncio.gather(*[_worker(cand) for cand in candidates])
+            results = [r for r in res if isinstance(r, dict)]
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[prowlarr] warning: bulk add host={host_id} failed — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0, "detail": f"bulk add failed: {type(e).__name__}: {e}"}
+    added = [r for r in results if r.get("ok")]
+    added_flare = [r for r in added if r.get("flare")]
+    failed = [r for r in results if not r.get("ok")]
+    print(f"[prowlarr] INFO bulk add host={host_id} facet={facet!r} added={len(added)} "
+          f"(flare={len(added_flare)}) failed={len(failed)} skipped={skipped_existing} "
+          f"not_attempted={len(not_attempted)}")
+    lines = [
+        f"📦 Bulk-add ({facet} indexers):",
+        f"✅ Added: {len(added):,}"
+        + (f" ({len(added_flare):,} via FlareSolverr)" if added_flare else ""),
+    ]
+    if skipped_existing:
+        lines.append(f"⏭️ Already configured: {skipped_existing:,}")
+    if failed:
+        lines.append(f"⚠️ Failed: {len(failed):,}")
+    if not_attempted:
+        lines.append(f"⏳ Not attempted (time budget): {len(not_attempted):,}")
+    if added:
+        names = ", ".join(r["name"] + (" 🛡️" if r.get("flare") else "") for r in added[:30])
+        lines.append("➕ " + names + ("…" if len(added) > 30 else ""))
+    if failed:
+        det = [f"  • {r['name']}: {_failed_reason(r)}" for r in failed[:12]]
+        lines.append("Failed:\n" + "\n".join(det) + ("\n  …" if len(failed) > 12 else ""))
+    # When some failures look like Cloudflare blocks but no proxy could be used,
+    # tell the user how to enable the auto-FlareSolverr path.
+    if not flare_tag_ids and any(_FLARE_ERROR_RE.search(r.get("reason") or "") for r in failed):
+        lines.append(f"ℹ️ Some failures look like Cloudflare blocks but {flare_note}. "
+                     f"Add a FlareSolverr proxy in Prowlarr (Settings → Indexer "
+                     f"Proxies), then re-run to auto-assign it.")
+    if truncated:
+        lines.append(f"… {total_to_add - len(candidates):,} more matched but weren't "
+                     f"attempted this run (cap {_BULK_ADD_MAX}). Run again to add the rest.")
+    if added:
+        lines.append("Run “sync indexers to my apps” to push the new indexers to Radarr/Sonarr/etc.")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "added": len(added), "added_flaresolverr": len(added_flare),
+            "skipped_existing": skipped_existing, "failed": len(failed),
+            "not_attempted": len(not_attempted)}

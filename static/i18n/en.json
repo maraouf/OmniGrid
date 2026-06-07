@@ -650,6 +650,30 @@
         "label": "Apps with extras",
         "sub": "{active} active · rich expanded card (Radarr, Sonarr, Seerr, …)",
         "aria_label": "Apps with extras — {active} of {total} active"
+      },
+      "db_size": {
+        "label": "Database size",
+        "sub": "SQLite file on disk (incl. WAL)"
+      },
+      "total_samples": {
+        "label": "Total samples",
+        "sub": "rows across every sample table"
+      },
+      "incidents": {
+        "label": "Incidents (30d)",
+        "sub": "host failures in the last 30 days"
+      },
+      "network": {
+        "label": "Network (30d)",
+        "sub": "combined RX + TX, last 30 days"
+      },
+      "ai_cost": {
+        "label": "AI cost (30d)",
+        "sub": "total AI spend, last 30 days"
+      },
+      "ai_jobs": {
+        "label": "AI jobs (30d)",
+        "sub": "AI calls, last 30 days"
       }
     },
     "range": {
@@ -5486,7 +5510,8 @@
       "kavita_search": "Search the library",
       "kavita_scan": "Scan libraries",
       "prowlarr_available_indexers": "Find indexers to add",
-      "prowlarr_add_indexer": "Add an indexer"
+      "prowlarr_add_indexer": "Add an indexer",
+      "prowlarr_add_indexers_bulk": "Add indexers in bulk"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",

@@ -1361,6 +1361,27 @@ button:disabled {
   }
 }
 
+/* In-card skeleton — shown INSIDE a .stats-card while its data source
+   loads, so the Stats dashboard grid paints instantly (card icon + title
+   visible) with a shimmer placeholder per card instead of blocking the
+   whole grid on a single fetch. Reuses .skeleton-cell (+ its
+   reduced-motion fallback). Two bars: a taller one for the value, a
+   shorter one for the sub-line. */
+.stats-card-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+
+.stats-card-skel .skeleton-cell.tall {
+  width: 55%;
+}
+
+.stats-card-skel .skeleton-cell.short {
+  width: 80%;
+}
+
 /* ---------------------------------------------------------------------------
    Password strength meter + requirements checklist.
    Colour classes (.pw-*-danger / -warning / -primary / -success / -faint)

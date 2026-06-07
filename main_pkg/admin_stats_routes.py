@@ -122,6 +122,72 @@ def _unpack_jobs_summary(r) -> dict:
     }
 
 
+# Canonical roster of every sample-bearing table — single source of truth for
+# the Stats → Samples page AND the dashboard "Total samples" summary card, so a
+# new sample table added in one place can't drift the other. Each entry is
+# ``(table, provider, kind, ts_col, host_col)`` (host_col None for host-less
+# series). When a new persistent time-series / per-tick / per-event table
+# lands, add it HERE — both consumers pick it up automatically.
+_SAMPLE_TABLES_SPEC: list[tuple] = [
+    ("ping_samples", "ping", "ping rtt / reach", "ts", "host_id"),
+    ("host_snmp_samples", "snmp", "snmp host", "ts", "host_id"),
+    ("host_snmp_iface_samples", "snmp", "snmp per-iface", "ts", "host_id"),
+    ("host_snmp_temp_samples", "snmp", "snmp per-probe", "ts", "host_id"),
+    ("host_beszel_samples", "beszel", "beszel per-tick", "ts", "host_id"),
+    ("host_beszel_services", "beszel", "beszel systemd", "last_seen_ts", "host_id"),
+    ("host_pulse_samples", "pulse", "pulse per-tick", "ts", "host_id"),
+    ("host_webmin_samples", "webmin", "webmin per-tick", "ts", "host_id"),
+    ("host_metrics_samples", "node_exporter", "ne per-tick", "ts", "host_id"),
+    ("host_net_samples", "node_exporter", "ne net rates", "ts", "host_id"),
+    ("host_http_samples", "http_probe", "http probe per-tick", "ts", "host_id"),
+    ("service_samples", "service_probe", "service probe per-tick", "ts", "host_id"),
+    ("stats_samples", "portainer", "container stats", "ts", "item_id"),
+    ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
+    ("host_failure_events", "events", "failure log", "ts", "host_id"),
+    # Host-less time-series — host_col None so the per-host DISTINCT count +
+    # drill-down are skipped (the Samples page renders these as non-clickable
+    # summary rows).
+    ("db_size_samples", "db_size", "db size per-tick", "ts", None),
+    ("weather_samples", "weather", "weather per-tick", "ts", None),
+    ("public_ip_history", "public_ip", "public-ip change log", "ts", None),
+]
+
+# In-process cache for the dashboard summary card endpoint. The total-samples
+# count is a COUNT(*) full scan across every table in _SAMPLE_TABLES_SPEC
+# (genuinely heavy on a long-lived fleet), so the result is memoised for a
+# short TTL — repeated dashboard opens in quick succession don't re-scan.
+# Single-replica process so a plain module dict is correct.
+_STATS_SUMMARY_CACHE: dict = {"ts": 0.0, "data": None}
+_STATS_SUMMARY_TTL_S = 60.0
+
+
+def _build_ne_canonical_map() -> dict:
+    """host_id → canonical ``host:port`` key from each curated row's ``ne_url``,
+    so two curated rows scraping the SAME exporter collapse to one physical box
+    in the network roll-ups. Shared by the dashboard summary card + the Network
+    page (their inline builders were identical). Empty dict on any failure —
+    then each host_id stands alone."""
+    from urllib.parse import urlparse as _urlparse
+    out: dict = {}
+    try:
+        for h in _load_hosts_config():
+            hid = (h.get("id") or "").strip()
+            ne_url = (h.get("ne_url") or "").strip()
+            if not (hid and ne_url):
+                continue
+            try:
+                pr = _urlparse(ne_url)
+                host = (pr.hostname or "").strip().lower()
+                port = pr.port or (443 if pr.scheme == "https" else 80)
+                if host:
+                    out[hid] = f"{host}:{port}"
+            except (ValueError, AttributeError, KeyError):
+                pass
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return {}
+    return out
+
+
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
 # rest of the source via CI rsync — nothing in docker-compose.yml depends on
@@ -484,6 +550,132 @@ async def api_admin_stats_overview(
     return await asyncio.to_thread(_compute)
 
 
+@app.get("/api/admin/stats/summary")
+async def api_admin_stats_summary(
+    _admin: AdminUser,
+    force: bool = False,
+):
+    """Admin-only: six headline numbers for the Stats → Dashboard summary cards.
+
+    Surfaces the single most useful figure from each of the deeper Stats
+    sub-pages so the dashboard gives an at-a-glance read without opening them:
+
+      db_size_bytes   — current SQLite file size (DB page).
+      total_samples   — grand-total row count across every sample-bearing
+                        table (Samples page).
+      incidents_30d   — host failure (paused) events in the last 30 days
+                        (Incidents page).
+      network_30d     — combined fleet RX+TX bytes in the last 30 days,
+                        deduped by ne_url host:port (Network page).
+      ai_cost_30d     — total AI spend (USD) in the last 30 days (AI Cost page).
+      ai_jobs_30d     — AI calls in the last 30 days (AI Cost page).
+
+    The total-samples figure is a COUNT(*) full scan across ~18 tables, so the
+    whole result is memoised for ``_STATS_SUMMARY_TTL_S`` (repeated dashboard
+    opens don't re-scan). ``?force=true`` bypasses the cache. Computed in a
+    worker thread so the heavy scans can't block the event loop (+ the SSE
+    heartbeat + /api/healthz).
+    """
+    import time as _time
+    now = _time.time()
+    cached = _STATS_SUMMARY_CACHE.get("data")
+    if (not force and cached is not None
+        and (now - float(_STATS_SUMMARY_CACHE.get("ts") or 0)) < _STATS_SUMMARY_TTL_S):
+        return {**cached, "cached": True}
+    data = await asyncio.to_thread(_compute_admin_stats_summary)
+    _STATS_SUMMARY_CACHE["data"] = data
+    _STATS_SUMMARY_CACHE["ts"] = now
+    return {**data, "cached": False}
+
+
+def _compute_admin_stats_summary() -> dict:
+    import os as _os
+    import time as _time
+    now_ts = int(_time.time())
+    cutoff_30d = now_ts - 30 * 86400
+    out: dict = {
+        "db_size_bytes": 0,
+        "total_samples": 0,
+        "incidents_30d": 0,
+        "network_30d_bytes": 0,
+        "ai_cost_30d": 0.0,
+        "ai_jobs_30d": 0,
+        "window_days": 30,
+    }
+    # 1) DB file size (cheap — stat the file + WAL/SHM siblings).
+    try:
+        total_bytes = 0
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                total_bytes += _os.path.getsize(DB_PATH + suffix)
+            except OSError:
+                pass
+        out["db_size_bytes"] = total_bytes
+    except Exception as e:
+        out["db_size_error"] = str(e)
+    # Sampler cadence for integrating net rates → bytes (matches the Network page).
+    try:
+        cadence = max(60, int(tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)))
+    except (ValueError, TypeError, KeyError):
+        cadence = 300
+    # ne_url host:port canonical map so two curated rows scraping the same
+    # exporter collapse to one physical box (matches the Network page's dedupe).
+    canonical_map = _build_ne_canonical_map()
+    try:
+        with db_conn() as c:
+            # 2) Total samples — COUNT(*) across every sample-bearing table.
+            grand = 0
+            for spec in _SAMPLE_TABLES_SPEC:
+                table = spec[0]
+                try:
+                    grand += int(c.execute(
+                        f"SELECT COUNT(*) FROM \"{table}\""
+                    ).fetchone()[0] or 0)
+                except (sqlite3.Error, TypeError, ValueError):
+                    pass
+            out["total_samples"] = grand
+            # 3) Incidents (paused failure events) in the last 30 days.
+            try:
+                out["incidents_30d"] = int(c.execute(
+                    "SELECT COUNT(*) FROM host_failure_events "
+                    " WHERE kind='paused' AND ts >= ?", (cutoff_30d,)
+                ).fetchone()[0] or 0)
+            except (sqlite3.Error, TypeError, ValueError):
+                pass
+            # 4) Combined network bytes (RX+TX) over 30d, deduped by canonical key.
+            try:
+                rows = c.execute(
+                    "SELECT host_id, "
+                    "       SUM(rx_bytes_per_s) * ? AS bytes_rx, "
+                    "       SUM(tx_bytes_per_s) * ? AS bytes_tx "
+                    "  FROM host_net_samples WHERE ts >= ? GROUP BY host_id",
+                    (cadence, cadence, cutoff_30d),
+                ).fetchall()
+                ded: dict[str, tuple[int, int]] = {}
+                for r in rows:
+                    hid, bx, bt = _unpack_net_row(r)
+                    key = canonical_map.get(hid) or hid
+                    prev = ded.get(key)
+                    if prev is None or (bx + bt) > (prev[0] + prev[1]):
+                        ded[key] = (bx, bt)
+                out["network_30d_bytes"] = int(sum(v[0] + v[1] for v in ded.values()))
+            except (sqlite3.Error, TypeError, ValueError):
+                pass
+            # 5 + 6) AI cost + job count over 30d (ai_jobs is ts-indexed).
+            try:
+                r = c.execute(
+                    "SELECT COUNT(*) AS jobs, COALESCE(SUM(cost_usd), 0.0) AS cost "
+                    "  FROM ai_jobs WHERE ts >= ?", (cutoff_30d,)
+                ).fetchone()
+                out["ai_jobs_30d"] = int(_row_get(r, "jobs", 0) or 0)
+                out["ai_cost_30d"] = float(_row_get(r, "cost", 1) or 0.0)
+            except (sqlite3.Error, TypeError, ValueError):
+                pass
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/admin/stats/database")
 async def api_admin_stats_database(
     _admin: AdminUser,
@@ -819,27 +1011,8 @@ async def api_admin_stats_network(
     # the Top-N lists. Group by the canonical key (host:port) and
     # collapse duplicates client-side AFTER the SQL aggregation —
     # SQLite can't reach into JSON-blob settings to dedupe inline.
-    from urllib.parse import urlparse as _urlparse
-    canonical_map: dict = {}
-    try:
-        curated = _load_hosts_config()
-        for h in curated:
-            hid = (h.get("id") or "").strip()
-            if not hid:
-                continue
-            ne_url = (h.get("ne_url") or "").strip()
-            if not ne_url:
-                continue
-            try:
-                p = _urlparse(ne_url)
-                host = (p.hostname or "").strip().lower()
-                port = p.port or (443 if p.scheme == "https" else 80)
-                if host:
-                    canonical_map[hid] = f"{host}:{port}"
-            except (ValueError, AttributeError, KeyError):
-                pass
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as map_err:
-        out["canonical_map_error"] = str(map_err)
+    # host_id → canonical host:port (shared helper — see _build_ne_canonical_map).
+    canonical_map = _build_ne_canonical_map()
 
     def _canonical(canon_hid: str) -> str:
         """Return canonical dedupe key — ne_url host:port if mapped,
@@ -1462,38 +1635,12 @@ async def api_admin_stats_samples(
 
 
 def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
-    # Canonical roster of sample-bearing tables. Each entry knows
-    # which `ts` column to query for oldest/newest (most use `ts`
-    # but some legacy tables differ) and whether `host_id` exists.
-    spec = [
-        # (table, provider, kind, ts_col, host_col)
-        ("ping_samples", "ping", "ping rtt / reach", "ts", "host_id"),
-        ("host_snmp_samples", "snmp", "snmp host", "ts", "host_id"),
-        ("host_snmp_iface_samples", "snmp", "snmp per-iface", "ts", "host_id"),
-        ("host_snmp_temp_samples", "snmp", "snmp per-probe", "ts", "host_id"),
-        ("host_beszel_samples", "beszel", "beszel per-tick", "ts", "host_id"),
-        ("host_beszel_services", "beszel", "beszel systemd", "last_seen_ts", "host_id"),
-        ("host_pulse_samples", "pulse", "pulse per-tick", "ts", "host_id"),
-        ("host_webmin_samples", "webmin", "webmin per-tick", "ts", "host_id"),
-        ("host_metrics_samples", "node_exporter", "ne per-tick", "ts", "host_id"),
-        ("host_net_samples", "node_exporter", "ne net rates", "ts", "host_id"),
-        ("host_http_samples", "http_probe", "http probe per-tick", "ts", "host_id"),
-        ("service_samples", "service_probe", "service probe per-tick", "ts", "host_id"),
-        ("stats_samples", "portainer", "container stats", "ts", "item_id"),
-        ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
-        ("host_failure_events", "events", "failure log", "ts", "host_id"),
-        # Host-less time-series — written by samplers that aren't
-        # per-host (db-size rides stats_sampler; weather + public-ip
-        # have their own lifespan loops). host_col is None so the
-        # per-host DISTINCT count + the drill-down are skipped (the
-        # summary loop's `unique_hosts` query guards on host_col, and
-        # `_SAMPLES_TABLE_HOST_COL` deliberately omits them so the
-        # by-host endpoint 400s — these rows render as non-clickable
-        # summary rows on the Samples page).
-        ("db_size_samples", "db_size", "db size per-tick", "ts", None),
-        ("weather_samples", "weather", "weather per-tick", "ts", None),
-        ("public_ip_history", "public_ip", "public-ip change log", "ts", None),
-    ]
+    # Canonical roster of sample-bearing tables (single source of truth at
+    # module level — shared with the dashboard "Total samples" summary card so
+    # the two can't drift). Each entry knows which `ts` column to query for
+    # oldest/newest (most use `ts` but some legacy tables differ) and whether
+    # `host_id` exists.
+    spec = _SAMPLE_TABLES_SPEC
     # Bucket-totals — sample-INSERT counts summed across every
     # sample-bearing table, bucketed per the operator-selected range.
     # Operator-flagged 2026-05-11: chart needs proper axes + range

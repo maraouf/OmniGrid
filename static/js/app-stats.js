@@ -101,6 +101,14 @@ export default {
     return 'dashboard';
   })(),
   statsOverview: {},
+  // Stats → Dashboard summary cards (db size / total samples / incidents /
+  // network / AI cost / AI jobs over 30d). Loaded alongside the overview but
+  // from a SEPARATE endpoint (`/api/admin/stats/summary`) because the
+  // total-samples figure is a COUNT(*) scan across ~18 tables — kept off the
+  // fast overview fetch so the main grid paints immediately and the summary
+  // cards fill in when their (cached, 60s) result lands.
+  statsSummary: {},
+  statsSummaryLoaded: false,
   // Stats → Samplers (per-sampler tick + prune health). Lazy-loaded
   // on first tab activation; reloadable via the panel's Reload
   // button.
@@ -286,6 +294,14 @@ export default {
     });
   },
   async loadStatsOverview() {
+    // Fire the (slower, COUNT-scan-backed) summary fetch in PARALLEL — the
+    // trailing `.catch` marks the non-await as INTENTIONAL (matches the repo's
+    // fire-and-forget convention, e.g. loadHostsConfig().catch(...) in
+    // app-admin.js). The main overview grid paints immediately and the six
+    // summary cards fill in when their result lands; loadStatsSummary already
+    // swallows its own errors + sets its loaded flag, so this catch never fires.
+    this.loadStatsSummary().catch(() => { /* fire-and-forget */
+    });
     try {
       const r = await fetch('/api/admin/stats/overview');
       if (!r.ok) {
@@ -295,6 +311,22 @@ export default {
     } catch (_) {
     } finally {
       this.statsOverviewLoaded = true;
+    }
+  },
+  // Dashboard summary cards (db size / total samples / incidents / network /
+  // AI cost / AI jobs over 30d) from `/api/admin/stats/summary` (cached 60s
+  // server-side). Separate from loadStatsOverview so the heavy total-samples
+  // COUNT scan never delays the main grid's first paint.
+  async loadStatsSummary() {
+    try {
+      const r = await fetch('/api/admin/stats/summary');
+      if (!r.ok) {
+        return;
+      }
+      this.statsSummary = await r.json();
+    } catch (_) {
+    } finally {
+      this.statsSummaryLoaded = true;
     }
   },
   async loadStatsDatabase() {
