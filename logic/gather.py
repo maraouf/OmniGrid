@@ -831,20 +831,53 @@ _IMAGE_VERSION_LABEL_KEYS: tuple[str, ...] = (
 )
 
 
+# Non-version label values: branch / channel names that carry no version
+# signal (so we don't surface "main" as a version after ref-cleaning).
+_NON_VERSION_VALUES = frozenset({
+    "latest", "unknown", "stable", "edge", "nightly", "main", "master",
+    "develop", "dev", "head", "rolling",
+})
+
+
+def _clean_version_ref(v: str) -> str:
+    """Strip git-ref noise some CI label injectors leave on
+    ``org.opencontainers.image.version`` (GitHub's docker/metadata-action with
+    ``type=ref,event=tag`` writes the full ref). Examples:
+    ``refs/tags/version/2026.5.0`` → ``2026.5.0``; ``refs/tags/v1.2.3`` →
+    ``v1.2.3``. Leaves a plain version untouched."""
+    s = (v or "").strip()
+    for pre in ("refs/tags/", "refs/heads/", "refs/"):
+        if s.startswith(pre):
+            s = s[len(pre):]
+            break
+    # Drop a leading path segment used as a tag namespace (authentik tags as
+    # `version/<semver>`); only the first segment, and only known ones so a
+    # real version with a slash (rare) isn't mangled.
+    for pre in ("version/", "release/", "releases/", "tags/", "v/"):
+        if s.lower().startswith(pre):
+            s = s[len(pre):]
+            break
+    return s.strip().strip("/")
+
+
 def _extract_app_version(labels: Any) -> str:
     """Pull a human app version out of a Docker labels dict, trying the OCI
     version label first, then common fallbacks. Returns ``""`` when no label
-    is present or the value is a digest / obviously-not-a-version string.
-    Caps length so a stray long label can't bloat the item payload."""
+    is present or the value is a digest / branch / obviously-not-a-version
+    string. Caps length so a stray long label can't bloat the item payload."""
     if not isinstance(labels, dict):
         return ""
     for key in _IMAGE_VERSION_LABEL_KEYS:
         v = labels.get(key)
         if not isinstance(v, str):
             continue
-        v = v.strip()
-        # Reject empties, sha digests, and the useless 'latest' (no signal).
-        if not v or v.lower() in ("latest", "unknown") or v.startswith("sha256:"):
+        # Clean git-ref noise FIRST (refs/tags/version/X → X), then validate.
+        v = _clean_version_ref(v)
+        if not v or v.startswith("sha256:") or v.lower() in _NON_VERSION_VALUES:
+            continue
+        # A real version contains at least one digit — rejects bare branch /
+        # channel names (main / master / …) that survived ref-cleaning.
+        if not any(ch.isdigit() for ch in v):
             continue
         return v[:40]
     return ""
@@ -1929,9 +1962,24 @@ async def _gather_impl() -> None:
             for t in svc_tasks:
                 if t.get("DesiredState") == "shutdown":
                     continue
+                node_id = t.get("NodeID")
                 st = t.get("Status") or {}
+                state = (st.get("State") or "").lower()
+                # Skip tasks Swarm hasn't actually PLACED on a node yet — no
+                # NodeID AND still in a pre-run / unscheduled state
+                # (new / pending / allocated / assigned / accepted / preparing).
+                # These are transient or unschedulable task records, NOT real
+                # placements; without this filter they rendered as phantom
+                # "? — pending" rows in the drawer's Placement list alongside
+                # the genuinely-running nodes. A placed-but-pending task (has a
+                # NodeID) still shows, and a genuinely-failed task
+                # (rejected / failed) still shows so the failure is visible.
+                if not node_id and state in (
+                        "", "new", "pending", "allocated", "assigned",
+                        "accepted", "preparing"):
+                    continue
                 placements.append({
-                    "node": node_map.get(t.get("NodeID"), "?"),
+                    "node": node_map.get(node_id, "?"),
                     "state": st.get("State"),
                     "err": st.get("Err"),
                 })

@@ -34,7 +34,8 @@
     "unit_minutes_short": "m"
   },
   "item": {
-    "drawer_title": "Item details"
+    "drawer_title": "Item details",
+    "running_version": "Running version"
   },
   "warnings": {
     "session_secret_auto": {

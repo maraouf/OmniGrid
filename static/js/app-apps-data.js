@@ -214,7 +214,19 @@ export default {
       // test (the backend also persists chip.last_test_ok_ts, hydrated via
       // iter_instances on the next load) so the chip updates immediately.
       if (_ok && this.appsInstanceEditForm) {
-        this.appsInstanceEditForm.last_test_ok_ts = Math.floor(Date.now() / 1000);
+        const _ts = Math.floor(Date.now() / 1000);
+        this.appsInstanceEditForm.last_test_ok_ts = _ts;
+        // ALSO stamp the underlying instances list so REOPENING the editor
+        // from the Admin → Apps list (which doesn't re-fetch) shows the chip
+        // immediately — without this, the form's optimistic value was lost on
+        // close and the stale list row showed nothing until a full reload.
+        const _f = this.appsInstanceEditForm;
+        for (const _inst of (this.appsInstances || [])) {
+          if (_inst && _inst.host_id === _f.host_id && _inst.service_idx === _f.service_idx) {
+            _inst.last_test_ok_ts = _ts;
+            break;
+          }
+        }
       }
     } catch (err) {
       this.appsInstanceTestResult = {

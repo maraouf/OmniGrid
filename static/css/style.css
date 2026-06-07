@@ -10113,6 +10113,16 @@ select.field-invalid {
   font-size: var(--fs-xs);
 }
 
+/* 3x1 (size-double + short) — the per-mount Storage list (free/total bars per
+   mount) overflows the one-row tile and gets visually cut on the *arr cards.
+   Hide it ONLY for Radarr / Sonarr / Lidarr AND ONLY at this size; every other
+   app + every other size keeps Storage. Operator-requested. */
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-radarr .apps-card-storage,
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-sonarr .apps-card-storage,
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-lidarr .apps-card-storage {
+  display: none;
+}
+
 /* 4x1 (size-xlarge + short): the widest short tile. Hoist the host + ports OUT
    of the body so they sit HORIZONTALLY to the RIGHT of the logo (top region),
    and let the per-app extras take over the bottom row — starting at the tile's
