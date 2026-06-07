@@ -59,6 +59,7 @@ Upstream API reference: <prowlarr-host>/api/v1 (Swagger at /api). Endpoints:
 """
 from __future__ import annotations
 
+import re
 import time
 from functools import partial as _partial
 from typing import Any, Optional
@@ -121,6 +122,30 @@ SKILLS: tuple[dict, ...] = (
         # list (app-apps-drawer.js filters `sk.arg === true`) — a drawer button
         # has no way to provide the search term, so clicking it would just error
         # "no search term given". Mirrors the *arr info / add / remove arg skills.
+        "arg": True,
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_available_indexers",
+        "name": "Find indexers to add",
+        "ai_phrases": ("what indexers can i add, available indexers, find "
+                       "indexers to add, list addable indexers, search the "
+                       "indexer catalog for <term>, english indexers, what "
+                       "indexers are available to add"),
+        # arg = optional filter term (name / language). AI / Telegram only.
+        "arg": True,
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_add_indexer",
+        "name": "Add an indexer",
+        "ai_phrases": ("add indexer <name>, add <name> to prowlarr, set up "
+                       "indexer <name>, add <name> with flaresolverr, configure "
+                       "indexer <name>, enable indexer <name>"),
+        # arg = indexer name (+ optional "with flaresolverr"). A live write to
+        # Prowlarr's config (creating an indexer) — arg-carrying so AI / Telegram
+        # only. Left non-destructive (frictionless add; the inverse — removing an
+        # indexer — would be the destructive op) so the AI can add on request.
         "arg": True,
         "destructive": False,
     },
@@ -279,10 +304,12 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None,
-                    arg: Optional[str] = None,
-                    actor_username: Optional[str] = None, **_kw) -> dict:
+                    arg: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Raises ValueError on an unknown
-    skill id. ``arg`` carries the free-form search term (prowlarr_search)."""
+    skill id. ``arg`` carries the free-form search term (prowlarr_search) /
+    indexer name (prowlarr_add_indexer). ``actor_username`` (passed by the
+    route, absorbed by ``**_kw``) is unused — Prowlarr has no date-rendering
+    skill, so it needs no per-user format."""
     if skill_id == "prowlarr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
@@ -295,6 +322,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                     host_id=host_id)
     if skill_id == "prowlarr_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "prowlarr_available_indexers":
+        return await _available_indexers_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "prowlarr_add_indexer":
+        return await _add_indexer_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -336,6 +367,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
+# The auth-fail / non-200 / non-JSON guard block below is the deliberate
+# per-app encapsulation twin shared with the other read skills (CLAUDE.md) —
+# content differs only by app/endpoint, so it stays inline, not factored out.
 async def _indexers_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None) -> dict:
     """Read-only: list configured indexers + their enabled state from
@@ -392,6 +427,15 @@ def _fmt_bytes(n: Any) -> str:
     return f"{val:,.1f} {units[idx]}"
 
 
+def _release_seeders(it: Any) -> int:
+    """Seeder count for a search-result release (0 when absent / wrong shape).
+    Module-level (not nested) so the search-skill body stays flat."""
+    return safe_int(it.get("seeders")) if isinstance(it, dict) else 0
+
+
+# noinspection DuplicatedCode
+# Auth-fail / non-200 / non-JSON guard is the shared per-app read-skill twin
+# (see _indexers_skill) — kept inline per the encapsulation convention.
 async def _search_skill(host_row: dict, chip: dict, *,
                         arg: Optional[str] = None,
                         host_id: Optional[str] = None) -> dict:
@@ -425,10 +469,12 @@ async def _search_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not isinstance(items, list):
         items = []
+
     # Best results first — most seeders, then largest. Grabs/seeders live on the
     # release dict (key varies by protocol); fall back to 0 when absent.
     def _seeders(it):
         return safe_int(it.get("seeders")) if isinstance(it, dict) else 0
+
     rows = [it for it in items if isinstance(it, dict)]
     rows.sort(key=lambda it: (_seeders(it), safe_int(it.get("size"))), reverse=True)
     lines = []
@@ -448,3 +494,236 @@ async def _search_skill(host_row: dict, chip: dict, *,
                 "detail": f"🔍 No results across your indexers for “{term}”."}
     return {"ok": True, "status": 200,
             "detail": f"🔍 Top results for “{term}”:\n" + "\n".join(lines)}
+
+
+# ---------------------------------------------------------------------------
+# Add-indexer skills (live WRITE to Prowlarr config)
+# ---------------------------------------------------------------------------
+# FlareSolverr is configured in Prowlarr as a tag-based indexer PROXY
+# (Settings → Indexers → Indexer Proxies). An indexer "uses" FlareSolverr when
+# it shares a TAG with the proxy. So "assign FlareSolverr to this indexer" =
+# add the FlareSolverr proxy's tag to the indexer's `tags` array.
+_FLARE_HINT_RE = re.compile(r"flare\s*solverr|flaresolver", re.I)
+
+
+def _strip_flare_hint(arg: str) -> "tuple[str, bool]":
+    """Split a free-form add-indexer arg into (indexer_name, want_flaresolverr).
+    Recognises trailing/inline "with flaresolverr" / "+ flaresolverr" phrasing
+    and strips it + common connector words so the remainder is the bare name."""
+    want = bool(_FLARE_HINT_RE.search(arg or ""))
+    name = _FLARE_HINT_RE.sub("", arg or "")
+    # Drop the connector left behind ("X with", "X using", "X and") + tidy.
+    name = re.sub(r"\b(?:with|using|and|plus|\+|via)\b\s*$", "", name.strip(), flags=re.I)
+    return re.sub(r"\s+", " ", name).strip(" ,+-"), want
+
+
+async def _flaresolverr_tag_ids(cli: httpx.AsyncClient, base: str, key: str) -> "tuple[list, str]":
+    """Resolve the tag id(s) that map an indexer onto the FlareSolverr proxy.
+
+    Returns ``(tag_ids, note)``. ``tag_ids`` is empty when no FlareSolverr proxy
+    exists OR it carries no tag (Prowlarr applies a proxy to an indexer via a
+    SHARED tag, so a tagless proxy can't be auto-assigned); ``note`` explains
+    why so the caller can surface it. Best-effort — never raises."""
+    try:
+        r = await cli.get(base + "/api/v1/indexerProxy", headers=_headers(key))
+        if r.status_code != 200:
+            return [], f"could not read indexer proxies (HTTP {r.status_code})"
+        proxies = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError) as e:  # noqa: BLE001
+        return [], f"indexer-proxy lookup failed: {type(e).__name__}"
+    if not isinstance(proxies, list):
+        return [], "indexer-proxy list had an unexpected shape"
+    for px in proxies:
+        if not isinstance(px, dict):
+            continue
+        impl = str(px.get("implementation") or px.get("implementationName") or "").lower()
+        if "flaresolverr" in impl:
+            tags = px.get("tags") if isinstance(px.get("tags"), list) else []
+            if tags:
+                return tags, ""
+            return [], ("a FlareSolverr proxy exists but has no tag — add a tag to "
+                        "it in Prowlarr (Settings → Indexer Proxies) so indexers "
+                        "can be mapped onto it")
+    return [], ("no FlareSolverr proxy is configured in Prowlarr — add one under "
+                "Settings → Indexer Proxies first, then I can assign it")
+
+
+def _indexer_lang(defn: dict) -> str:
+    """Best-effort language label for an indexer schema definition (the field
+    name varies across Prowlarr versions)."""
+    for k in ("language", "indexerLanguage", "lang"):
+        v = defn.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
+# noinspection DuplicatedCode
+# Auth-fail / non-200 / non-JSON guard is the shared per-app read-skill twin
+# (see _indexers_skill) — kept inline per the encapsulation convention.
+async def _available_indexers_skill(host_row: dict, chip: dict, *,
+                                    arg: Optional[str] = None,
+                                    host_id: Optional[str] = None) -> dict:
+    """Read-only: list indexer definitions that CAN be added, from
+    ``GET /api/v1/indexer/schema``, optionally filtered by an arg term matched
+    against the name + language. Never raises. The catalog is large (~500), so
+    results are capped; the operator/AI narrows with a term."""
+    term = (arg or "").strip().lower()
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[prowlarr] INFO prowlarr_available_indexers host={host_id} term={term!r} (schema fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v1/indexer/schema", headers=_headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"schema fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        defs = r.json()
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not isinstance(defs, list):
+        defs = []
+    rows = []
+    for d in defs:
+        if not isinstance(d, dict):
+            continue
+        name = str(d.get("name") or "").strip()
+        if not name:
+            continue
+        lang = _indexer_lang(d)
+        if term and term not in name.lower() and term not in lang.lower():
+            continue
+        rows.append((name, lang, str(d.get("protocol") or "").strip()))
+    rows.sort(key=lambda t: t[0].lower())
+    total = len(rows)
+    lines = []
+    for name, lang, proto in rows[:25]:
+        meta = ", ".join(p for p in (proto, lang) if p)
+        lines.append(f"• {name}" + (f" ({meta})" if meta else ""))
+    if not lines:
+        return {"ok": True, "status": 200,
+                "detail": f"🔍 No addable indexers match “{arg}”." if term
+                else "🔍 No indexer definitions returned."}
+    head = (f"🧩 {total} addable indexer{'s' if total != 1 else ''}"
+            + (f" matching “{arg}”" if term else "")
+            + (f" (showing first {len(lines)})" if total > len(lines) else "") + ":")
+    head += "\n" + "\n".join(lines)
+    head += "\n\nTo add one, say “add <name> on prowlarr” (append “with flaresolverr” to route it through the FlareSolverr proxy)."
+    return {"ok": True, "status": 200, "detail": head}
+
+
+async def _add_indexer_skill(host_row: dict, chip: dict, *,
+                             arg: Optional[str] = None,
+                             host_id: Optional[str] = None) -> dict:
+    """Live WRITE: add an indexer to Prowlarr by name.
+
+    Resolves the named definition from ``GET /api/v1/indexer/schema``, fills the
+    essentials (``enable=true``, the default app profile, a default priority) +
+    optionally the FlareSolverr proxy tag when the arg mentions FlareSolverr,
+    then ``POST /api/v1/indexer``. Never raises. Per-indexer required fields are
+    left at the schema defaults Prowlarr supplies — an indexer that needs extra
+    config (login, a base-URL pick) will report the upstream validation error so
+    the operator finishes it in the Prowlarr UI; that's surfaced verbatim."""
+    raw = (arg or "").strip()
+    name, want_flare = _strip_flare_hint(raw)
+    if not name:
+        return {"ok": False, "status": 0,
+                "detail": "no indexer name given — say e.g. “add 1337x on prowlarr”"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[prowlarr] INFO prowlarr_add_indexer host={host_id} name={name!r} "
+          f"flaresolverr={want_flare} (live write)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            # 1) Resolve the indexer definition (the schema) by name.
+            sr = await cli.get(base + "/api/v1/indexer/schema", headers=_headers(api_key))
+            if sr.status_code in (401, 403):
+                return {"ok": False, "status": sr.status_code, "detail": "auth failed (check api_key)"}
+            if sr.status_code != 200:
+                return {"ok": False, "status": sr.status_code,
+                        "detail": f"could not read the indexer catalog (HTTP {sr.status_code})"}
+            try:
+                defs = sr.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON indexer catalog from upstream"}
+            defs = defs if isinstance(defs, list) else []
+            nl = name.lower()
+            match = next((d for d in defs if isinstance(d, dict)
+                          and str(d.get("name") or "").strip().lower() == nl), None)
+            if match is None:  # fall back to a unique substring match
+                subs = [d for d in defs if isinstance(d, dict)
+                        and nl in str(d.get("name") or "").strip().lower()]
+                if len(subs) == 1:
+                    match = subs[0]
+                elif len(subs) > 1:
+                    names = ", ".join(sorted(
+                        d["name"] for d in subs[:8] if isinstance(d.get("name"), str)))
+                    return {"ok": False, "status": 0,
+                            "detail": f"“{name}” matches several indexers ({names}…) — "
+                                      f"be more specific."}
+            if match is None:
+                return {"ok": False, "status": 0,
+                        "detail": f"no indexer named “{name}” in the catalog — try "
+                                  f"“what indexers can I add matching {name}”."}
+            # 2) Default app profile (required on create) — first one.
+            app_profile_id = 1
+            try:
+                ar = await cli.get(base + "/api/v1/appprofile", headers=_headers(api_key))
+                if ar.status_code == 200:
+                    aps = ar.json()
+                    if isinstance(aps, list) and aps and isinstance(aps[0], dict) and aps[0].get("id"):
+                        app_profile_id = safe_int(aps[0].get("id")) or 1
+            except (httpx.HTTPError, OSError, ValueError, TypeError):
+                app_profile_id = 1
+            # 3) Optional FlareSolverr proxy tag.
+            flare_note = ""
+            tag_ids: list = []
+            if want_flare:
+                tag_ids, flare_note = await _flaresolverr_tag_ids(cli, base, api_key)
+            # 4) Build the create body from the schema + essentials.
+            body = dict(match)
+            body["enable"] = True
+            body["appProfileId"] = app_profile_id
+            if not safe_int(body.get("priority")):
+                body["priority"] = 25
+            existing_tags = body.get("tags")
+            if not isinstance(existing_tags, list):
+                existing_tags = []
+            body["tags"] = sorted(set(existing_tags) | set(tag_ids))
+            # 5) Create.
+            cr = await cli.post(base + "/api/v1/indexer", headers=_headers(api_key), json=body)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[prowlarr] warning: add_indexer host={host_id} name={name!r} failed — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0, "detail": f"add failed: {type(e).__name__}: {e}"}
+    if cr.status_code in (200, 201):
+        detail = f"➕ Added “{name}” to Prowlarr."
+        if want_flare:
+            detail += (" 🛡️ FlareSolverr proxy assigned." if tag_ids
+                       else f" (FlareSolverr NOT assigned — {flare_note}.)")
+        detail += " Run “sync indexers to my apps” to push it to Radarr/Sonarr/etc."
+        print(f"[prowlarr] INFO add_indexer host={host_id} name={name!r} -> ok "
+              f"(flaresolverr_tags={tag_ids})")
+        return {"ok": True, "status": cr.status_code, "detail": detail}
+    if cr.status_code in (401, 403):
+        return {"ok": False, "status": cr.status_code, "detail": "auth failed (check api_key)"}
+    # Surface the upstream validation error verbatim — an indexer needing extra
+    # config (login / base-URL pick) fails here with a useful message.
+    _body = ""
+    try:
+        _body = (cr.text or "")[:300]
+    except (ValueError, TypeError):
+        _body = ""
+    print(f"[prowlarr] warning: add_indexer host={host_id} name={name!r} -> HTTP "
+          f"{cr.status_code} {_body}")
+    return {"ok": False, "status": cr.status_code,
+            "detail": f"Prowlarr rejected the add (HTTP {cr.status_code})"
+                      + (f": {_body}" if _body else "")
+                      + " — it may need extra config; finish it in the Prowlarr UI."}
