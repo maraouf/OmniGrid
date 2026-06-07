@@ -5479,7 +5479,9 @@
       "kavita_status": "Kavita status",
       "kavita_libraries": "List libraries",
       "kavita_search": "Search the library",
-      "kavita_scan": "Scan libraries"
+      "kavita_scan": "Scan libraries",
+      "prowlarr_available_indexers": "Find indexers to add",
+      "prowlarr_add_indexer": "Add an indexer"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
