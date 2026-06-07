@@ -240,10 +240,12 @@ def _version_str(info: Any) -> str:
     shape (``{version:{core:{local:{version}}}}``). Best-effort."""
     if not isinstance(info, dict):
         return ""
-    ver = info.get("version") if isinstance(info.get("version"), dict) else info
+    _ver = info.get("version")
+    ver = _ver if isinstance(_ver, dict) else info
     core = (ver or {}).get("core") if isinstance(ver, dict) else None
     if isinstance(core, dict):
-        local = core.get("local") if isinstance(core.get("local"), dict) else core
+        _local = core.get("local")
+        local = _local if isinstance(_local, dict) else core
         v = str((local or {}).get("version") or "").strip()
         if v:
             return v

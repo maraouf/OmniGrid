@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
+from logic.coerce import as_dict
 from typing import Any, Optional, cast
 
 import httpx
@@ -1871,7 +1872,7 @@ async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
     #   - Open-Meteo: top-level `timezone` (IANA name) + `timezone_abbrev`
     #   - WeatherAPI.com: nested under `location.tz_id` (IANA name)
     # Reading both keys covers either provider; first non-empty wins.
-    _loc = data.get("location") if isinstance(data.get("location"), dict) else {}
+    _loc = as_dict(data.get("location"))
     tz_name = (
         str(data.get("timezone") or "").strip()
         or str(_loc.get("tz_id") or "").strip()

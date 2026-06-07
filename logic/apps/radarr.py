@@ -59,7 +59,7 @@ from functools import partial as _partial
 
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
-from logic.coerce import safe_float, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Radarr's
 # api version (v3) + brand + id field, aliased to the historical underscore
@@ -302,7 +302,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "missing": safe_int(data.get("missing")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
-        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
+        "disks": as_list(data.get("disks")),
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -432,7 +432,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
-        mv = q.get("movie") if isinstance(q.get("movie"), dict) else {}
+        mv = as_dict(q.get("movie"))
         title = str(mv.get("title") or q.get("title") or "?").strip()
         total = safe_float(q.get("size"))
         left = safe_float(q.get("sizeleft"))
@@ -471,7 +471,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
-    disks = data.get("disks") if isinstance(data.get("disks"), list) else []
+    disks = as_list(data.get("disks"))
     lines = [
         f"🎬 Movies: {total:,}",
         f"📁 Monitored: {monitored:,}",
@@ -570,9 +570,9 @@ async def _movie_info_skill(host_row: dict, chip: dict, *,
         "✅ Downloaded" if has_file else "❓ Missing (no file yet)",
     ]
     if has_file:
-        mf = m.get("movieFile") if isinstance(m.get("movieFile"), dict) else {}
-        q = mf.get("quality") if isinstance(mf.get("quality"), dict) else {}
-        qq = q.get("quality") if isinstance(q.get("quality"), dict) else {}
+        mf = as_dict(m.get("movieFile"))
+        q = as_dict(mf.get("quality"))
+        qq = as_dict(q.get("quality"))
         qname = str(qq.get("name") or "").strip()
         size_gib = safe_float(m.get("sizeOnDisk")) / _GIB
         extra = " · ".join(p for p in (qname, _fmt_size_gib(size_gib) if size_gib > 0 else "") if p)

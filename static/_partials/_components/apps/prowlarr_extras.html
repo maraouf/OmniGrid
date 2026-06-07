@@ -24,23 +24,23 @@
         <div class="apps-card-ups-grid">
           <!-- Indexers (enabled / total) -->
           <div class="apps-card-ups-stat">
-            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.indexers') || 'Indexers'"></div>
+            <div class="apps-card-stat-label" x-text="t('apps.prowlarr.indexers') || 'Indexers'"></div>
             <div class="apps-card-stat-value" x-text="prowlarrIndexersLabel(inst)"></div>
           </div>
           <!-- Apps synced -->
           <div class="apps-card-ups-stat">
-            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.apps_synced') || 'Apps synced'"></div>
+            <div class="apps-card-stat-label" x-text="t('apps.prowlarr.apps_synced') || 'Apps synced'"></div>
             <div class="apps-card-stat-value" x-text="prowlarrCount(prowlarrData(inst).apps_synced)"
                  :title="prowlarrAppsNames(inst)"></div>
           </div>
           <!-- Queries (lifetime) -->
           <div class="apps-card-ups-stat">
-            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.queries') || 'Queries'"></div>
+            <div class="apps-card-stat-label" x-text="t('apps.prowlarr.queries') || 'Queries'"></div>
             <div class="apps-card-stat-value" x-text="prowlarrCount(prowlarrData(inst).queries)"></div>
           </div>
           <!-- Grabs (lifetime) -->
           <div class="apps-card-ups-stat">
-            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.grabs') || 'Grabs'"></div>
+            <div class="apps-card-stat-label" x-text="t('apps.prowlarr.grabs') || 'Grabs'"></div>
             <div class="apps-card-stat-value" x-text="prowlarrCount(prowlarrData(inst).grabs)"></div>
           </div>
         </div>

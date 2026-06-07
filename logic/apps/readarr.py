@@ -75,7 +75,7 @@ from functools import partial as _partial
 
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
-from logic.coerce import safe_float, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Readarr's
 # api version (v1) + brand, aliased to the historical underscore names so the
@@ -314,7 +314,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "missing": safe_int(data.get("missing")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
-        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
+        "disks": as_list(data.get("disks")),
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -413,7 +413,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
-    disks = data.get("disks") if isinstance(data.get("disks"), list) else []
+    disks = as_list(data.get("disks"))
     lines = [
         f"📚 Authors: {total:,}",
         f"📁 Monitored: {monitored:,}",
@@ -478,7 +478,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
     for bk in items[:12]:
         if not isinstance(bk, dict):
             continue
-        au = bk.get("author") if isinstance(bk.get("author"), dict) else {}
+        au = as_dict(bk.get("author"))
         author = str(au.get("authorName") or "?").strip()
         book = str(bk.get("title") or "?").strip()
         when = str(bk.get("releaseDate") or "")[:10]
@@ -523,8 +523,8 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
-        au = q.get("author") if isinstance(q.get("author"), dict) else {}
-        bk = q.get("book") if isinstance(q.get("book"), dict) else {}
+        au = as_dict(q.get("author"))
+        bk = as_dict(q.get("book"))
         author = str(au.get("authorName") or "?").strip()
         book = str(bk.get("title") or q.get("title") or "").strip()
         total = safe_float(q.get("size"))
@@ -593,7 +593,7 @@ async def _author_info_skill(host_row: dict, chip: dict, *,
                 "detail": f"❓ “{query}” is not in your Readarr library. (Ask me to add it.)"}
     label = str(a.get("authorName") or query)
     monitored = bool(a.get("monitored"))
-    stats = a.get("statistics") if isinstance(a.get("statistics"), dict) else {}
+    stats = as_dict(a.get("statistics"))
     have = safe_int(stats.get("bookFileCount"))
     total_books = safe_int(stats.get("bookCount"))
     pct = safe_int(stats.get("percentOfBooks"))

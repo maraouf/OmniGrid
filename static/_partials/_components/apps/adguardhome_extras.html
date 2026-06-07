@@ -32,7 +32,7 @@
           <div class="apps-card-ups">
             <div class="apps-card-ups-grid">
               <div class="apps-card-ups-stat">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.blocked_today') || 'Blocked today'"></div>
                 <div class="apps-card-stat-value">
                   <span x-text="adguardInt(agg.blocked)"></span>
@@ -41,27 +41,27 @@
                 </div>
               </div>
               <div class="apps-card-ups-stat">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.queries_today') || 'Queries today'"></div>
                 <div class="apps-card-stat-value" x-text="adguardInt(agg.queries)"></div>
               </div>
               <div class="apps-card-ups-stat">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.blocklist') || 'Blocklist domains'"></div>
                 <div class="apps-card-stat-value" x-text="adguardInt(agg.rules)"></div>
               </div>
               <div class="apps-card-ups-stat">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.clients') || 'Active clients'"></div>
                 <div class="apps-card-stat-value" x-text="adguardInt(agg.clients)"></div>
               </div>
               <div class="apps-card-ups-stat">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.avg_processing') || 'Avg processing'"></div>
                 <div class="apps-card-stat-value" x-text="adguardMs(agg.avgMs)"></div>
               </div>
               <div class="apps-card-ups-stat" x-show="agg.topBlocked">
-                <div class="apps-card-ups-label"
+                <div class="apps-card-stat-label"
                      x-text="t('apps.adguard.top_blocked') || 'Top blocked'"></div>
                 <div class="apps-card-stat-value truncate"
                      :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + adguardInt(agg.topBlocked.count) + ')') : ''"

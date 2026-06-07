@@ -69,7 +69,7 @@ import httpx
 
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
-from logic.coerce import safe_int
+from logic.coerce import as_list, safe_int
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Prowlarr's
 # api version (v1) + brand, aliased to the historical underscore names so the
@@ -187,6 +187,21 @@ SKILLS: tuple[dict, ...] = (
                      "indexer-name fragment, or \"all\". Only definitions not "
                      "already configured are added; FlareSolverr is auto-assigned "
                      "to any indexer that needs it"),
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_fix_flaresolverr",
+        "name": "Fix FlareSolverr tags",
+        "ai_phrases": ("fix flaresolverr, add flaresolverr tags, tag cloudflare "
+                       "indexers, which indexers need flaresolverr, assign "
+                       "flaresolverr to the indexers that need it, link "
+                       "flaresolverr to my indexers, apply flaresolverr proxy, "
+                       "fix the cloudflare indexers, check indexers for "
+                       "flaresolverr, flaresolverr tag"),
+        # No arg — scans EVERY configured indexer via testall and tags the ones
+        # that need FlareSolverr. A live write (PUT tags) to Prowlarr config,
+        # arg-less so it surfaces as a one-click drawer button too. Non-
+        # destructive (adds a proxy tag, removes nothing).
         "destructive": False,
     },
 )
@@ -346,7 +361,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "indexers_total": safe_int(data.get("indexers_total")),
         "indexers_enabled": safe_int(data.get("indexers_enabled")),
         "apps_synced": safe_int(data.get("apps_synced")),
-        "apps_names": data.get("apps_names") if isinstance(data.get("apps_names"), list) else [],
+        "apps_names": as_list(data.get("apps_names")),
         "queries": safe_int(data.get("queries")),
         "grabs": safe_int(data.get("grabs")),
         "health_issues": safe_int(data.get("health_issues")),
@@ -385,6 +400,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _add_indexer_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "prowlarr_add_indexers_bulk":
         return await _bulk_add_indexers_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "prowlarr_fix_flaresolverr":
+        return await _fix_flaresolverr_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -406,7 +423,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("indexers_total"))
     enabled = safe_int(data.get("indexers_enabled"))
     apps = safe_int(data.get("apps_synced"))
-    apps_names = data.get("apps_names") if isinstance(data.get("apps_names"), list) else []
+    apps_names = as_list(data.get("apps_names"))
     queries = safe_int(data.get("queries"))
     grabs = safe_int(data.get("grabs"))
     health = safe_int(data.get("health_issues"))
@@ -599,7 +616,7 @@ async def _flaresolverr_tag_ids(cli: httpx.AsyncClient, base: str, key: str) -> 
             continue
         impl = str(px.get("implementation") or px.get("implementationName") or "").lower()
         if "flaresolverr" in impl:
-            tags = px.get("tags") if isinstance(px.get("tags"), list) else []
+            tags = as_list(px.get("tags"))
             if tags:
                 return tags, ""
             return [], ("a FlareSolverr proxy exists but has no tag — add a tag to "
@@ -1005,21 +1022,32 @@ async def _added_indexer_keys(cli: httpx.AsyncClient, base: str, key: str) -> "s
     return out
 
 
+def _created_id(resp) -> int:
+    """Created indexer's ``id`` from a successful POST /api/v1/indexer response
+    body (0 on any parse failure)."""
+    try:
+        return safe_int((resp.json() or {}).get("id"))
+    except (ValueError, TypeError, AttributeError):
+        return 0
+
+
 async def _add_one_indexer(cli: httpx.AsyncClient, base: str, key: str, defn: dict,
                            app_profile_id: int, flare_tag_ids: list) -> dict:
     """Add ONE indexer definition. Tries WITHOUT FlareSolverr first; if Prowlarr
     rejects it with a Cloudflare / challenge error AND a FlareSolverr proxy tag
     is available, retries the add WITH the proxy tag. Returns
-    ``{name, ok, flare, status, reason}`` — never raises."""
+    ``{name, ok, flare, status, reason, id}`` — ``id`` is the created indexer's
+    id (0 when the add failed). Never raises."""
     name = str(defn.get("name") or "?").strip()
     try:
         cr = await cli.post(base + "/api/v1/indexer", headers=_headers(key),
                             json=_build_indexer_body(defn, app_profile_id, []))
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"name": name, "ok": False, "flare": False, "status": 0,
-                "reason": type(e).__name__}
+                "reason": type(e).__name__, "id": 0}
     if cr.status_code in (200, 201):
-        return {"name": name, "ok": True, "flare": False, "status": cr.status_code, "reason": ""}
+        return {"name": name, "ok": True, "flare": False, "status": cr.status_code,
+                "reason": "", "id": _created_id(cr)}
     text = _resp_text(cr)
     # Cloudflare / challenge → retry WITH the FlareSolverr proxy tag.
     if flare_tag_ids and _FLARE_ERROR_RE.search(text):
@@ -1028,13 +1056,87 @@ async def _add_one_indexer(cli: httpx.AsyncClient, base: str, key: str, defn: di
                                  json=_build_indexer_body(defn, app_profile_id, flare_tag_ids))
         except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
             return {"name": name, "ok": False, "flare": True, "status": 0,
-                    "reason": f"flare retry {type(e).__name__}"}
+                    "reason": f"flare retry {type(e).__name__}", "id": 0}
         if cr2.status_code in (200, 201):
-            return {"name": name, "ok": True, "flare": True, "status": cr2.status_code, "reason": ""}
+            return {"name": name, "ok": True, "flare": True, "status": cr2.status_code,
+                    "reason": "", "id": _created_id(cr2)}
         return {"name": name, "ok": False, "flare": True, "status": cr2.status_code,
-                "reason": _short_reason(_resp_text(cr2))}
+                "reason": _short_reason(_resp_text(cr2)), "id": 0}
     return {"name": name, "ok": False, "flare": False, "status": cr.status_code,
-            "reason": _short_reason(text)}
+            "reason": _short_reason(text), "id": 0}
+
+
+async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
+                                   flare_tag_ids: list, *,
+                                   only_ids: "Optional[set]" = None) -> dict:
+    """Find configured indexers that NEED FlareSolverr (Prowlarr's own
+    ``POST /api/v1/indexer/testall`` reports the "may use Cloudflare DDoS
+    Protection, therefore Prowlarr requires FlareSolverr" warning for them) and,
+    for any that don't already carry the proxy tag, PUT the tag onto them so they
+    link to the FlareSolverr indexer-proxy. ``only_ids`` (when given) scopes the
+    tagging to that id set (e.g. the just-bulk-added indexers); ``None`` = every
+    indexer. Returns ``{checked, needed, tagged, already_tagged, failed}``. Never
+    raises — best-effort, each step degrades to empty on failure."""
+    # 1) testall → per-indexer validation; scan for the FlareSolverr requirement.
+    try:
+        tr = await cli.post(base + "/api/v1/indexer/testall", headers=_headers(key))
+        results = tr.json() if tr.status_code in (200, 201) else []
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        results = []
+    if not isinstance(results, list):
+        results = []
+    need_ids: set = set()
+    for res in results:
+        if not isinstance(res, dict):
+            continue
+        rid = safe_int(res.get("id"))
+        if not rid or (only_ids is not None and rid not in only_ids):
+            continue
+        fails = res.get("validationFailures")
+        fails = fails if isinstance(fails, list) else []
+        msgs = " ".join(str((f or {}).get("errorMessage") or "")
+                        for f in fails if isinstance(f, dict))
+        if _FLARE_ERROR_RE.search(msgs):
+            need_ids.add(rid)
+    # 2) GET all indexers (full bodies — needed for the PUT + current tags).
+    idx_by_id: dict = {}
+    try:
+        ir = await cli.get(base + "/api/v1/indexer", headers=_headers(key))
+        items = ir.json() if ir.status_code == 200 else []
+        for it in (items if isinstance(items, list) else []):
+            if isinstance(it, dict) and safe_int(it.get("id")):
+                idx_by_id[safe_int(it.get("id"))] = it
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        idx_by_id = {}
+    # 3) PUT the FlareSolverr tag onto each indexer that needs it + lacks it.
+    flare_set = set(flare_tag_ids)
+    tagged: list[str] = []
+    already = 0
+    failed: list[str] = []
+    for rid in need_ids:
+        body = idx_by_id.get(rid)
+        if not isinstance(body, dict):
+            continue
+        _tags = body.get("tags")
+        cur_tags = _tags if isinstance(_tags, list) else []
+        if flare_set & set(cur_tags):
+            already += 1
+            continue
+        new_body = dict(body)
+        new_body["tags"] = sorted(set(cur_tags) | flare_set)
+        nm = str(body.get("name") or rid)
+        try:
+            pr = await cli.put(base + f"/api/v1/indexer/{rid}",
+                               headers=_headers(key), json=new_body)
+        except (httpx.HTTPError, OSError):
+            failed.append(nm)
+            continue
+        if pr.status_code in (200, 202):
+            tagged.append(nm)
+        else:
+            failed.append(nm)
+    return {"checked": len(results), "needed": len(need_ids),
+            "tagged": tagged, "already_tagged": already, "failed": failed}
 
 
 def _facet_label(privacy: str, lang_term: str, want_lang: str, all_mode: bool) -> str:
@@ -1142,8 +1244,26 @@ async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
     added = [r for r in results if r.get("ok")]
     added_flare = [r for r in added if r.get("flare")]
     failed = [r for r in results if not r.get("ok")]
+    # An indexer can ADD cleanly (HTTP 201) yet still NEED FlareSolverr — Prowlarr
+    # surfaces "this site may use Cloudflare DDoS Protection, therefore Prowlarr
+    # requires FlareSolverr" as a TEST warning, not an add error, so the
+    # retry-on-failure path above misses it. Run a testall pass scoped to the
+    # just-added indexers and PUT the proxy tag onto the ones that need it.
+    flare_tagged: list[str] = []
+    added_ids = {safe_int(r.get("id")) for r in added if safe_int(r.get("id"))}
+    if flare_tag_ids and added_ids:
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=90.0,
+                                         follow_redirects=True) as fcli:
+                fix = await _apply_flaresolverr_tags(fcli, base, api_key,
+                                                     flare_tag_ids, only_ids=added_ids)
+            flare_tagged = fix.get("tagged") or []
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            print(f"[prowlarr] warning: bulk flare-tag host={host_id} failed — "
+                  f"{type(e).__name__}: {e}")
     print(f"[prowlarr] INFO bulk add host={host_id} facet={facet!r} added={len(added)} "
-          f"(flare={len(added_flare)}) failed={len(failed)} skipped={skipped_existing} "
+          f"(flare={len(added_flare)}, flare_tagged={len(flare_tagged)}) "
+          f"failed={len(failed)} skipped={skipped_existing} "
           f"not_attempted={len(not_attempted)}")
     lines = [
         f"📦 Bulk-add ({facet} indexers):",
@@ -1159,6 +1279,10 @@ async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
     if added:
         names = ", ".join(r["name"] + (" 🛡️" if r.get("flare") else "") for r in added[:30])
         lines.append("➕ " + names + ("…" if len(added) > 30 else ""))
+    if flare_tagged:
+        lines.append(f"🛡️ FlareSolverr tag applied to {len(flare_tagged):,} cloudflare-"
+                     f"protected indexer(s): " + ", ".join(flare_tagged[:20])
+                     + ("…" if len(flare_tagged) > 20 else ""))
     if failed:
         det = [f"  • {r['name']}: {_failed_reason(r)}" for r in failed[:12]]
         lines.append("Failed:\n" + "\n".join(det) + ("\n  …" if len(failed) > 12 else ""))
@@ -1175,5 +1299,59 @@ async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
         lines.append("Run “sync indexers to my apps” to push the new indexers to Radarr/Sonarr/etc.")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "added": len(added), "added_flaresolverr": len(added_flare),
+            "flare_tagged": len(flare_tagged),
             "skipped_existing": skipped_existing, "failed": len(failed),
             "not_attempted": len(not_attempted)}
+
+
+async def _fix_flaresolverr_skill(host_row: dict, chip: dict, *,
+                                  host_id: Optional[str] = None) -> dict:
+    """Live WRITE: scan EVERY configured indexer (via Prowlarr's own
+    ``testall``), find the ones Prowlarr says need FlareSolverr ("this site may
+    use Cloudflare DDoS Protection, therefore Prowlarr requires FlareSolverr"),
+    and PUT the FlareSolverr proxy tag onto the ones missing it — so they link to
+    the proxy. Never raises. Use this after a bulk add, or to fix indexers that
+    were added before FlareSolverr was configured."""
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[prowlarr] INFO prowlarr_fix_flaresolverr host={host_id} (testall + tag)")
+    try:
+        # testall fans out a connectivity test to EVERY indexer — generous budget.
+        async with httpx.AsyncClient(verify=False, timeout=120.0,
+                                     follow_redirects=True) as cli:
+            flare_tag_ids, flare_note = await _flaresolverr_tag_ids(cli, base, api_key)
+            if not flare_tag_ids:
+                return {"ok": False, "status": 0,
+                        "detail": f"🛡️ Can't fix FlareSolverr tags — {flare_note}. Add a "
+                                  f"FlareSolverr proxy in Prowlarr (Settings → Indexer "
+                                  f"Proxies) first, then re-run."}
+            fix = await _apply_flaresolverr_tags(cli, base, api_key, flare_tag_ids)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[prowlarr] warning: fix_flaresolverr host={host_id} failed — "
+              f"{type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"FlareSolverr fix failed: {type(e).__name__}: {e}"}
+    tagged = fix.get("tagged") or []
+    already = safe_int(fix.get("already_tagged"))
+    failed = fix.get("failed") or []
+    needed = safe_int(fix.get("needed"))
+    print(f"[prowlarr] INFO fix_flaresolverr host={host_id} checked={fix.get('checked')} "
+          f"needed={needed} tagged={len(tagged)} already={already} failed={len(failed)}")
+    if not needed:
+        return {"ok": True, "status": 200,
+                "detail": "✅ No indexers need FlareSolverr right now — nothing to tag."}
+    lines = [f"🛡️ FlareSolverr check ({needed:,} indexer(s) need it):"]
+    if tagged:
+        lines.append(f"✅ Tagged: {len(tagged):,} — " + ", ".join(tagged[:25])
+                     + ("…" if len(tagged) > 25 else ""))
+    if already:
+        lines.append(f"⏭️ Already tagged: {already:,}")
+    if failed:
+        lines.append(f"⚠️ Couldn't tag: {len(failed):,} — " + ", ".join(failed[:12])
+                     + ("…" if len(failed) > 12 else ""))
+    if tagged:
+        lines.append("Run “sync indexers to my apps” to push the change to Radarr/Sonarr/etc.")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "needed": needed, "tagged": len(tagged),
+            "already_tagged": already, "failed": len(failed)}

@@ -74,7 +74,7 @@ from functools import partial as _partial
 
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
-from logic.coerce import safe_float, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Sonarr's
 # api version (v3) + brand + id field, aliased to the historical underscore
@@ -315,7 +315,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "missing": safe_int(data.get("missing")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
-        "disks": data.get("disks") if isinstance(data.get("disks"), list) else [],
+        "disks": as_list(data.get("disks")),
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -382,7 +382,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
-    disks = data.get("disks") if isinstance(data.get("disks"), list) else []
+    disks = as_list(data.get("disks"))
     lines = [
         f"📺 Series: {total:,}",
         f"📁 Monitored: {monitored:,}",
@@ -447,7 +447,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
     for ep in items[:12]:
         if not isinstance(ep, dict):
             continue
-        ser = ep.get("series") if isinstance(ep.get("series"), dict) else {}
+        ser = as_dict(ep.get("series"))
         title = str(ser.get("title") or ep.get("title") or "?").strip()
         sxe = ""
         sn = safe_int(ep.get("seasonNumber"))
@@ -496,7 +496,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
-        ser = q.get("series") if isinstance(q.get("series"), dict) else {}
+        ser = as_dict(q.get("series"))
         title = str(ser.get("title") or q.get("title") or "?").strip()
         total = safe_float(q.get("size"))
         left = safe_float(q.get("sizeleft"))
@@ -563,7 +563,7 @@ async def _series_info_skill(host_row: dict, chip: dict, *,
                 "detail": f"❓ “{query}” is not in your Sonarr library. (Ask me to add it.)"}
     label = f"{str(s.get('title') or query)}{_year_suffix(s.get('year'))}"
     monitored = bool(s.get("monitored"))
-    stats = s.get("statistics") if isinstance(s.get("statistics"), dict) else {}
+    stats = as_dict(s.get("statistics"))
     have = safe_int(stats.get("episodeFileCount"))
     total_eps = safe_int(stats.get("episodeCount"))
     pct = safe_int(stats.get("percentOfEpisodes"))

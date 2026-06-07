@@ -51,7 +51,7 @@ import httpx
 
 from logic.apps._common import (
     cache_key, fetch_preamble, peek_cache, resolve_base_url, resolve_cache_ttl)
-from logic.coerce import safe_int
+from logic.coerce import as_list, safe_int
 
 # Catalog template slug.
 SLUGS: tuple[str, ...] = ("ddns-updater",)
@@ -283,7 +283,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     up = safe_int(data.get("up_count"))
     fail = safe_int(data.get("fail_count"))
     ip = str(data.get("public_ip") or "").strip()
-    failing = data.get("failing_domains") if isinstance(data.get("failing_domains"), list) else []
+    failing = as_list(data.get("failing_domains"))
     lines = [
         f"{'✅' if fail == 0 and total else '⚠️'} Records: {up}/{total} up to date",
     ]

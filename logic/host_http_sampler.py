@@ -725,9 +725,12 @@ def populate_host_http_merge(host_id: str, merged: dict, *, _latest: Optional[di
     # (cert expired, hostname mismatch, broken chain). Drawer card
     # binds to all three so operators can spot a soon-to-expire cert
     # OR a misconfigured TLS endpoint at a glance.
-    merged["host_http_tls_subject"] = primary.get("tls_subject") if isinstance(primary.get("tls_subject"), str) else None
-    merged["host_http_tls_issuer"] = primary.get("tls_issuer") if isinstance(primary.get("tls_issuer"), str) else None
-    merged["host_http_tls_error"] = primary.get("tls_error") if isinstance(primary.get("tls_error"), str) else None
+    _tls_subject = primary.get("tls_subject")
+    merged["host_http_tls_subject"] = _tls_subject if isinstance(_tls_subject, str) else None
+    _tls_issuer = primary.get("tls_issuer")
+    merged["host_http_tls_issuer"] = _tls_issuer if isinstance(_tls_issuer, str) else None
+    _tls_error = primary.get("tls_error")
+    merged["host_http_tls_error"] = _tls_error if isinstance(_tls_error, str) else None
     merged["host_http_dns_resolved"] = bool(primary.get("dns_resolved"))
     merged["host_http_latency_ms"] = primary.get("latency_ms")
     merged["host_http_error"] = primary.get("error") or None

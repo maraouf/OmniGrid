@@ -5511,7 +5511,8 @@
       "kavita_scan": "Scan libraries",
       "prowlarr_available_indexers": "Find indexers to add",
       "prowlarr_add_indexer": "Add an indexer",
-      "prowlarr_add_indexers_bulk": "Add indexers in bulk"
+      "prowlarr_add_indexers_bulk": "Add indexers in bulk",
+      "prowlarr_fix_flaresolverr": "Fix FlareSolverr tags"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",

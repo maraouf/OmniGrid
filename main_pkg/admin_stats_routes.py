@@ -52,6 +52,7 @@ from main import *  # noqa: E402,F401,F403
 import asyncio
 import json
 import sqlite3
+from logic.coerce import as_dict
 
 # IDE contract: PyCharm/Pyright don't trace `from X import *`, so
 # every name resolved through the wildcard above would be flagged as
@@ -505,7 +506,7 @@ async def api_admin_stats_overview(
             extras = 0
             extras_active = 0
             for a in apps_list:
-                _cat = a.get("catalog") if isinstance(a.get("catalog"), dict) else {}
+                _cat = as_dict(a.get("catalog"))
                 _slug = str((_cat or {}).get("slug") or "").strip().lower()
                 if _slug and _module_for_slug(_slug) is not None:
                     extras += 1

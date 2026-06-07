@@ -60,6 +60,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from logic.coerce import as_list
 import time
 from typing import Any, Iterable, Optional
 
@@ -4369,7 +4370,7 @@ def _shape_host_api_row(
             or bool((h.get("url") or "").strip())
             or any(
             isinstance(svc, dict) and (svc.get("url") or "").strip()
-            for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+            for svc in (as_list(h.get("services")))
         )
         ),
         # Whether ANY curated service chip on this host has probe.enabled —
@@ -4380,7 +4381,7 @@ def _shape_host_api_row(
         "service_probe_has_targets": any(
             isinstance(svc, dict) and isinstance(svc.get("probe"), dict)
             and svc.get("probe", {}).get("enabled") is True
-            for svc in (h.get("services") if isinstance(h.get("services"), list) else [])
+            for svc in (as_list(h.get("services")))
         ),
         # Whether this host has ANY Webmin target — alias key (`webmin_name`)
         # OR direct per-host `webmin_url`. Mirrors `_merge_one_host`'s

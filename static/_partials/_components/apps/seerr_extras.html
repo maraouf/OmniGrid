@@ -29,25 +29,25 @@
     <div class="apps-card-ups-grid">
       <!-- Pending approval -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.seerr.pending') || 'Pending'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.pending') || 'Pending'"></div>
         <div class="apps-card-stat-value"
              :class="(Number(seerrData(inst).pending) || 0) > 0 ? 'text-[var(--warning)]' : ''"
              x-text="seerrCount(seerrData(inst).pending)"></div>
       </div>
       <!-- Processing (downloading) -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.seerr.processing') || 'Processing'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.processing') || 'Processing'"></div>
         <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).processing)"></div>
       </div>
       <!-- Available (fulfilled, in the library) -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.seerr.available') || 'Available'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.available') || 'Available'"></div>
         <div class="apps-card-stat-value text-[var(--success)]"
              x-text="seerrCount(seerrData(inst).available_count)"></div>
       </div>
       <!-- Total requests -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.seerr.total') || 'Total'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.total') || 'Total'"></div>
         <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).total)"></div>
       </div>
     </div>
