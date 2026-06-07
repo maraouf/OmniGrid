@@ -5430,6 +5430,7 @@
       "pihole_reenable": "Re-enable (cancel timed disable)",
       "bazarr_status": "Bazarr status",
       "seerr_status": "Seerr status",
+      "seerr_requests": "List requests",
       "seerr_request_movie": "Request a movie",
       "seerr_suggest_movie": "Suggest a movie",
       "seerr_set_filter": "Set a suggestion filter",
