@@ -327,14 +327,18 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None,
-                    arg: Optional[str] = None, **_kw) -> dict:
+                    arg: Optional[str] = None,
+                    actor_username: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Raises ValueError on an unknown
-    skill id. ``arg`` carries the free-form author name."""
+    skill id. ``arg`` carries the free-form author name. ``actor_username`` is
+    the invoking user — used to render dates in their Settings -> Profile ->
+    Formats date format."""
     if skill_id == "readarr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
     if skill_id == "readarr_upcoming":
-        return await _upcoming_skill(host_row, chip, host_id=host_id)
+        return await _upcoming_skill(host_row, chip, host_id=host_id,
+                                     actor_username=actor_username)
     if skill_id == "readarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
     if skill_id == "readarr_author_info":
@@ -438,7 +442,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
 
 
 async def _upcoming_skill(host_row: dict, chip: dict, *,
-                          host_id: Optional[str] = None) -> dict:
+                          host_id: Optional[str] = None,
+                          actor_username: Optional[str] = None) -> dict:
     """Read-only: the next ~30 days of upcoming book releases from
     ``/api/v1/calendar``. Never raises."""
     api_key, base, err = _resolve_skill_target(host_row, chip)
@@ -477,7 +482,8 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         author = str(au.get("authorName") or "?").strip()
         book = str(bk.get("title") or "?").strip()
         when = str(bk.get("releaseDate") or "")[:10]
-        lines.append(f"• {author} — {book}" + (f" ({when})" if when else ""))
+        when_fmt = _servarr.fmt_release_date(when, actor_username)
+        lines.append(f"• {author} — {book}" + (f" ({when_fmt})" if when_fmt else ""))
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "📚 No book releases in the next 30 days."}

@@ -123,6 +123,35 @@ def year_suffix(year: Any) -> str:
     return f" ({y})" if 1870 < y < 2100 else ""
 
 
+def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:
+    """Reformat an upstream release / air date to the invoking user's date
+    format (Settings -> Profile -> Formats).
+
+    ``when`` is whatever the *arr calendar returned — ``"2025-10-03"`` or a full
+    ISO timestamp (``"2025-10-03T00:00:00Z"``); we take the ``YYYY-MM-DD`` head.
+    ``actor_username`` is the user whose ``run_skill`` dispatch triggered this
+    (web: the authed user; Telegram: the linked user) — blank resolves to the
+    canonical default format. Date-only (time tokens stripped). Falls back to the
+    raw input on any parse / lookup failure, so a malformed or non-Gregorian
+    value passes through unchanged rather than rendering wrong. Best-effort
+    cosmetic — never raises."""
+    s = str(when or "").strip()
+    if not s:
+        return ""
+    from datetime import datetime
+    try:
+        d = datetime.strptime(s[:10], "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return s  # not a Gregorian YYYY-MM-DD head — leave untouched
+    try:
+        from logic.datetime_fmt import (
+            apply_datetime_format, get_user_datetime_format, strip_time_tokens)
+        fmt = strip_time_tokens(get_user_datetime_format(actor_username or ""))
+        return apply_datetime_format(d, fmt)
+    except (ValueError, TypeError, ImportError):
+        return s
+
+
 def norm_title(s: Any) -> str:
     """Normalise a title / query for matching: lowercase, strip a trailing
     ``" (YYYY)"`` year suffix (the apps + our own replies append it, but the
