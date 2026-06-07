@@ -17,8 +17,8 @@ constraint makes the dict-cache correct.
 Upstream API reference: https://docs.speedtest-tracker.dev/api/authorization
 Endpoints used (Speedtest Tracker v1.x — the resource is ``results``,
 NOT ``speedtests``; the older ``/api/v1/speedtests`` path 404s on
-current builds, operator-flagged from the deploy at
-``docker.home.lan:5050``):
+current builds, flagged from the deploy at
+``docker.example.com:5050``):
     GET /api/v1/results/latest  — test-credential probe
     GET /api/v1/results?perPage=60 — data fetch (latest + series + avg)
 """

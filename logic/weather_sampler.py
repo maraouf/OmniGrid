@@ -254,7 +254,10 @@ async def sampler_loop() -> None:
         now = time.time()
         if (now - last_prune_ts) >= 3600.0:
             _prune_t0 = time.perf_counter()
-            removed = prune_old_samples()
+            # Offload the DELETE to a worker thread — a synchronous prune on
+            # the event loop blocks the SSE heartbeat + /api/healthz for its
+            # duration (SQLite is single-writer). Matches prayer_times_sampler.
+            removed = await asyncio.to_thread(prune_old_samples)
             _record_prune("weather_sampler", removed,
                           (time.perf_counter() - _prune_t0) * 1000.0)
             last_prune_ts = now

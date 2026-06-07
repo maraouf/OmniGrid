@@ -685,7 +685,7 @@ async def _record_failure(
                     # being probed. The curated `id` is often a short
                     # alias (e.g. `wdmycloud`) while the resolved
                     # target is the real reachable address (e.g.
-                    # `wdmycloud.home.lan`) — operators need both at
+                    # `wdmycloud.example.com`) — both are needed at
                     # a glance in the email title + body. Resolution
                     # chain mirrors `_resolve_ping_target` /
                     # ping_sampler / SNMP / SSH per the canonical

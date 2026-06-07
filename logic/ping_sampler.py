@@ -244,12 +244,12 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
         # 100.0; the guard is forward-looking.
         loss_for_log = result.get("loss_pct") or 0
         # Include the resolved target (`host['host']`) AND port in the
-        # log line so the operator can verify the sampler is probing
+        # log line so it's possible to verify the sampler is probing
         # the RIGHT address (the curated `id` is often a short alias
         # like 'synology' while the resolved target may be an FQDN
-        # like `synology.home.lan` or an IP like `10.0.6.3`).
-        # Operator-flagged: "i need to see if system getting it right
-        # or wrong to troubleshoot".
+        # like `synology.example.com` or an IP like `192.X.X.X`).
+        # Surfaced to make "is the system getting it right or wrong"
+        # troubleshootable.
         target_blurb = f"target={host.get('host') or '?'}:{host.get('port') or '?'}"
         print(f"[ping_sampler] {host['id']!r} {target_blurb} "
               f"alive={result.get('alive')} loss={loss_for_log:.0f}% {rtt_blurb}")

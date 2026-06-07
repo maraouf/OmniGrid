@@ -1540,18 +1540,47 @@ async def _ai_reply(
                 sk_idx = int(_raw_idx) if isinstance(_raw_idx, (int, str)) else -1
             except (TypeError, ValueError):
                 sk_idx = -1
-            from logic.apps.registry import resolve_chip, run_app_skill
+            from logic.apps.registry import (resolve_chip, run_app_skill,
+                                             skill_is_destructive)
             host_row, chip, slug = (resolve_chip(sk_host, sk_idx)
                                     if (sk_host and sk_idx >= 0) else (None, None, ""))
             print(f"[app_skill] INFO telegram skill request host={sk_host!r} "
                   f"svc_idx={sk_idx} skill={sk_id!r} slug={slug!r} "
                   f"chip_found={isinstance(chip, dict)} actor={omnigrid_username or 'telegram'}")
+            # Destructive skills (e.g. an *arr remove, an AdGuard / Pi-hole
+            # disable) only fire from free-text AI when the operator has
+            # pre-approved via telegram_allow_destructive — same contract the
+            # host-touching tools (ssh_diag / docker_container_du) use above.
+            # Otherwise the bot refuses + points at the explicit slash command
+            # (which rides the typed-confirm flow). Telegram has no inline
+            # chip, so there's no mid-reply confirm to fall back to.
+            _sk_destructive = bool(slug and sk_id
+                                   and skill_is_destructive(slug, sk_id))
+            if _sk_destructive:
+                try:
+                    from logic.db import get_setting_bool as _gsb
+                    _sk_allowed = _gsb(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
+                except (ImportError, RuntimeError, ValueError, TypeError):
+                    _sk_allowed = False
+            else:
+                _sk_allowed = True
             if not (sk_host and sk_id and sk_idx >= 0 and isinstance(chip, dict) and slug):
                 print(f"[app_skill] warning: telegram skill skipped — unresolved app "
                       f"instance (host={sk_host!r} svc_idx={sk_idx} skill={sk_id!r} "
                       f"slug={slug!r} chip_found={isinstance(chip, dict)})")
                 action_outcome_line = ("\n\n⚠️ <i>Couldn't run that skill — missing or "
                                        "unknown app instance.</i>")
+            elif not _sk_allowed:
+                print(f"[app_skill] warning: telegram skill {sk_id!r} BLOCKED — "
+                      f"destructive + telegram_allow_destructive is off "
+                      f"(host={sk_host!r} svc_idx={sk_idx})")
+                action_outcome_line = (
+                    f"\n\n🛑 <b>{_listener()._escape(sk_id)}</b> is a destructive "
+                    "action. Run it with the explicit <code>/"
+                    f"{_listener()._escape(sk_id)}</code> command (it asks you to "
+                    "confirm first), or enable “Allow destructive commands” in "
+                    "Admin → Notifications → Telegram."
+                )
             else:
                 try:
                     sk_result = await run_app_skill(slug, sk_id, host_row, chip,

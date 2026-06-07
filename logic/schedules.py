@@ -2035,7 +2035,7 @@ async def _run_port_scan_refresh(
                 # and matches the on-demand /port-scan route). Pre-fix the
                 # schedule REQUIRED `address` and skipped every host without
                 # it — so a fleet whose hosts are addressed only by their
-                # host_id (a real hostname / FQDN like `opc.home.lan`) had the
+                # host_id (a real hostname / FQDN like `opc.example.com`) had the
                 # schedule silently skip ALL of them (0 eligible, 0 selected,
                 # 0m "success") while the on-demand drawer button worked fine.
                 # Only skip when there is genuinely NO target (neither address

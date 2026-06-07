@@ -6,7 +6,6 @@ Encapsulates everything Radarr-specific so the route layer
 
     SLUGS               — catalog slugs this module handles ("radarr").
     requires_api_key()  — True (Radarr authenticates via the X-Api-Key header).
-    resolve_base_url(host_row, chip) -> str   (shared helper)
     test_credential(host_row, chip, candidate_key) -> dict
     fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
     peek_latest(host_id, service_idx) -> dict | None    (AI context)
@@ -56,10 +55,27 @@ from typing import Any, Optional
 
 import httpx
 
-from logic.apps._common import (
-    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
-    resolve_credential_target)
+from functools import partial as _partial
+
+from logic.apps import _servarr
+from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
 from logic.coerce import safe_float, safe_int
+
+# Servarr-family shared helpers (logic/apps/_servarr.py) bound to Radarr's
+# api version (v3) + brand + id field, aliased to the historical underscore
+# names so the skill bodies' call sites stay unchanged.
+_headers = _servarr.headers
+_version_from = _servarr.version_from
+_fmt_size_gib = _servarr.fmt_size_gib
+_parse_disks = _servarr.parse_disks
+_primary_disk = _servarr.primary_disk
+_year_suffix = _servarr.year_suffix
+_norm_title = _servarr.norm_title
+_GIB = _servarr.GIB
+_fetch_version = _partial(_servarr.fetch_version, api_version="v3")
+_resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Radarr")
+_find_in_library = _partial(_servarr.find_in_library_titled, id_field="tmdbId")
+_command_skill = _partial(_servarr.command_skill, app_label="Radarr", api_version="v3")
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("radarr",)
@@ -151,10 +167,6 @@ SKILLS: tuple[dict, ...] = (
 DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}
 
-# 1 GiB in bytes — Radarr reports disk space in bytes; the card shows GiB
-# (matching Radarr's own UI).
-_GIB = 1024 ** 3
-
 
 def requires_api_key() -> bool:
     """Radarr authenticates every v3 endpoint via X-Api-Key; the editor
@@ -162,117 +174,11 @@ def requires_api_key() -> bool:
     return True
 
 
-def _headers(key: str) -> dict:
-    return {"X-Api-Key": key, "Accept": "application/json"}
-
-
-def _version_from(resp) -> str:
-    """Extract ``version`` from a ``/api/v3/system/status`` response.
-    Returns ``""`` on any non-200 / parse failure (version is a
-    nice-to-have, never load-bearing)."""
-    try:
-        if getattr(resp, "status_code", 0) != 200:
-            return ""
-        body = resp.json() or {}
-        return str(body.get("version") or "").strip()
-    except (ValueError, TypeError, AttributeError):
-        return ""
-
-
-async def _fetch_version(cli: httpx.AsyncClient, base: str, key: str) -> str:
-    """Best-effort Radarr version via ``GET /api/v3/system/status`` on an
-    already-open client — shared by the credential probe + the card fetch.
-    ``''`` on any failure (version is never load-bearing)."""
-    try:
-        return _version_from(await cli.get(base + "/api/v3/system/status",
-                                           headers=_headers(key)))
-    except (httpx.HTTPError, OSError):
-        return ""
-
-
-# noinspection DuplicatedCode
-# The probe-then-map-status shape is structurally shared with every per-app
-# module's test_credential (bazarr / seerr / …) — the deliberate per-app
-# encapsulation pattern (CLAUDE.md). The endpoint + app name differ, so it
-# stays inline rather than coupling the modules through a _common helper.
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
-    """Probe Radarr's auth-required ``/api/v3/system/status`` with the
-    supplied X-Api-Key. Returns ``{ok, detail, status}`` for direct SPA
-    consumption. Falls back to the chip's stored ``api_key`` when
-    ``candidate_key`` is blank so the operator can re-test after first save
-    without retyping."""
-    key, base, err = resolve_credential_target(host_row, chip, candidate_key)
-    if err:
-        return err
-    url = base + "/api/v3/system/status"
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.get(url, headers=_headers(key))
-    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
-    if r.status_code == 200:
-        ver = _version_from(r)
-        return {"ok": True, "detail": f"OK (Radarr {ver})" if ver else "OK",
-                "status": 200}
-    if r.status_code in (401, 403):
-        return {"ok": False, "detail": "auth failed (check api_key)",
-                "status": r.status_code}
-    return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
-
-
-# Cap on how many mounts the card surfaces — a Radarr with a long
-# remote-mount list shouldn't render an unbounded stack. Sorted by total
-# space descending first, so the largest (real library) volumes win.
-_DISK_DISPLAY_MAX = 8
-
-
-def _parse_disks(raw: Any) -> list[dict]:
-    """Shape a ``/api/v3/diskspace`` payload (list of ``{path, label,
-    freeSpace, totalSpace}``) into ``[{path, free_gb, total_gb}]`` for
-    EVERY mount Radarr reports, sorted by total space descending and
-    capped at ``_DISK_DISPLAY_MAX``. Skips entries with no path / a
-    zero-total (pseudo / unreadable mounts). Free / total are GiB floats
-    (Radarr reports bytes; the card renders GiB / TiB). ``[]`` on an
-    empty / malformed payload."""
-    if not isinstance(raw, list):
-        return []
-    out: list[dict] = []
-    for d in raw:
-        if not isinstance(d, dict):
-            continue
-        path = str(d.get("path") or "").strip()
-        total = safe_float(d.get("totalSpace"))
-        if not path or total <= 0:
-            continue
-        out.append({
-            "path": path,
-            "free_gb": round(safe_float(d.get("freeSpace")) / _GIB, 1),
-            "total_gb": round(total / _GIB, 1),
-        })
-    out.sort(key=lambda m: m.get("total_gb", 0.0), reverse=True)
-    return out[:_DISK_DISPLAY_MAX]
-
-
-def _primary_disk(disks: list[dict]) -> "tuple[float, float]":
-    """The largest mount's ``(free_gb, total_gb)`` — used by the status
-    skill's one-line summary + the AI peek. ``(0.0, 0.0)`` when empty.
-    ``disks`` is already sorted by total descending, so element 0 is it."""
-    if not disks:
-        return 0.0, 0.0
-    d0 = disks[0]
-    return safe_float(d0.get("free_gb")), safe_float(d0.get("total_gb"))
-
-
-def _fmt_size_gib(gib: Any) -> str:
-    """Render a GiB value as a human size, promoting to TiB at >= 1024 GiB
-    (matches Radarr's own GiB / TiB display). One decimal place. ``Any`` arg
-    type — callers pass raw ``dict.get(...)`` values (``Any | None``);
-    ``safe_float`` coerces (never raises), so a non-number falls back to 0."""
-    g = safe_float(gib)
-    if g >= 1024:
-        return f"{g / 1024:,.1f} TiB"
-    return f"{g:,.1f} GiB"
+    """Probe Radarr's auth-required ``/api/v3/system/status`` — delegates to
+    the shared Servarr probe bound to Radarr's brand + api version."""
+    return await _servarr.test_credential(host_row, chip, candidate_key,
+                                          app_label="Radarr", api_version="v3")
 
 
 # noinspection DuplicatedCode
@@ -440,24 +346,6 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
-# Shared opening for the arg / read skills: resolve (api_key, base) or return
-# a ready ``{ok: False, detail}``. Mirrors Seerr's _request_skill opening.
-def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
-    api_key = (chip.get("api_key") or "").strip()
-    if not api_key:
-        return "", "", {"ok": False, "status": 0, "detail": "Radarr api_key not set"}
-    base = resolve_base_url(host_row, chip)
-    if not base:
-        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
-    return api_key, base, None
-
-
-def _year_suffix(year: Any) -> str:
-    """`` (2024)`` when ``year`` is a plausible film year, else ``""``."""
-    y = safe_int(year)
-    return f" ({y})" if 1870 < y < 2100 else ""
-
-
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None) -> dict:
     """Read-only: the next ~14 days of upcoming movie releases from
@@ -607,50 +495,6 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
-# noinspection DuplicatedCode
-# The POST-then-map-status tail (auth-fail / body-snippet / HTTP-N fallback)
-# is structurally shared with seerr's _request_skill — the deliberate per-app
-# encapsulation pattern (CLAUDE.md). The command + app name differ, so it
-# stays inline rather than coupling the modules through a _common helper.
-async def _command_skill(host_row: dict, chip: dict, *, command: str,
-                         started_msg: str,
-                         host_id: Optional[str] = None) -> dict:
-    """Action skill: POST a non-destructive background command to Radarr's
-    ``/api/v3/command`` endpoint (e.g. ``MissingMoviesSearch`` /
-    ``RefreshMovie``). Never raises — every failure comes back as
-    ``{ok: False, detail}``."""
-    api_key = (chip.get("api_key") or "").strip()
-    if not api_key:
-        return {"ok": False, "status": 0, "detail": "Radarr api_key not set"}
-    base = resolve_base_url(host_row, chip)
-    if not base:
-        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
-    print(f"[radarr] INFO command host={host_id} name={command!r}")
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.post(base + "/api/v3/command",
-                               headers=_headers(api_key),
-                               json={"name": command})
-    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        print(f"[radarr] warning: command {command!r} failed — {type(e).__name__}: {e}")
-        return {"ok": False, "status": 0,
-                "detail": f"command failed: {type(e).__name__}: {e}"}
-    if r.status_code in (200, 201):
-        return {"ok": True, "status": r.status_code, "detail": started_msg}
-    if r.status_code in (401, 403):
-        return {"ok": False, "status": r.status_code,
-                "detail": "auth failed (check Radarr api_key)"}
-    _body = ""
-    try:
-        _body = (r.text or "")[:160]
-    except (ValueError, TypeError):
-        _body = ""
-    return {"ok": False, "status": r.status_code,
-            "detail": f"Radarr returned HTTP {r.status_code} for {command}"
-                      + (f" — {_body}" if _body else "")}
-
-
 async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
                          query: str) -> Optional[dict]:
     """Resolve a movie via Radarr's TMDB-backed lookup. A numeric ``query``
@@ -677,46 +521,6 @@ async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
         return None
     for m in arr:
         if isinstance(m, dict) and m.get("tmdbId"):
-            return m
-    return None
-
-
-def _norm_title(s: Any) -> str:
-    """Normalise a movie title / query for matching: lowercase, strip a
-    trailing ``" (YYYY)"`` year suffix (Radarr / our own replies append it,
-    but the library ``title`` field has no year), collapse whitespace. So
-    ``"Dora and the Lost City of Gold (2019)"`` matches the stored
-    ``"Dora and the Lost City of Gold"``."""
-    import re as _re
-    t = str(s or "").strip().lower()
-    t = _re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", t)  # drop a trailing (YYYY)
-    return _re.sub(r"\s+", " ", t).strip()
-
-
-def _find_in_library(movies: Any, query: str) -> Optional[dict]:
-    """Find a movie in the library list by numeric tmdbId, then normalised
-    exact title, then BIDIRECTIONAL substring (so ``"Title (2019)"`` matches
-    a stored ``"Title"`` and a partial query still hits). Returns the movie
-    dict or ``None``."""
-    if not isinstance(movies, list):
-        return None
-    raw = (query or "").strip()
-    q = _norm_title(raw)
-    if not q:
-        return None
-    if raw.isdigit():
-        tid = int(raw)
-        for m in movies:
-            if isinstance(m, dict) and safe_int(m.get("tmdbId")) == tid:
-                return m
-    for m in movies:
-        if isinstance(m, dict) and _norm_title(m.get("title")) == q:
-            return m
-    for m in movies:
-        if not isinstance(m, dict):
-            continue
-        t = _norm_title(m.get("title"))
-        if t and (q in t or t in q):
             return m
     return None
 

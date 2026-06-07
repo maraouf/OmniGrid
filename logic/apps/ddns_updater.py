@@ -286,21 +286,44 @@ async def _status_skill(host_row: dict, chip: dict, *,
 
 async def _update_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None) -> dict:
-    """Action: trigger an update of every record (GET /update). Never raises."""
+    """Action: trigger an update of every record (GET /update). Never raises.
+
+    ddns-updater's ``GET /update`` triggers the update then 302-redirects back
+    to the web-UI root. Some builds close the keep-alive connection right after
+    that 302, so a pooled connection reused for the FOLLOWED redirect surfaces
+    as ``RemoteProtocolError: Server disconnected without sending a response``.
+    Forcing a fresh connection per request (``max_keepalive_connections=0`` —
+    no socket is pooled, so the followed redirect opens a new one) plus one
+    retry on a transient protocol error recovers it; the update itself is
+    idempotent (re-pushes the current IP), so the retry is safe. A 3xx is
+    itself success — the update WAS triggered before the redirect fired.
+    """
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    url = base + "/update"
     print(f"[ddns] INFO ddns_update host={host_id}")
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=30.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.get(base + "/update")
-    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        print(f"[ddns] warning: update host={host_id} failed — {type(e).__name__}: {e}")
-        return {"ok": False, "status": 0, "detail": f"update failed: {type(e).__name__}: {e}"}
-    if r.status_code in (200, 201, 202, 204):
-        return {"ok": True, "status": r.status_code,
-                "detail": "🔄 Triggered a DNS update — ddns-updater is refreshing "
-                          "every record now."}
-    return {"ok": False, "status": r.status_code,
-            "detail": f"update returned HTTP {r.status_code}"}
+    limits = httpx.Limits(max_keepalive_connections=0)
+    last_err: Optional[Exception] = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                         follow_redirects=True,
+                                         limits=limits) as cli:
+                r = await cli.get(url)
+        except httpx.RemoteProtocolError as e:  # transient — retry once
+            last_err = e
+            print(f"[ddns] warning: update host={host_id} attempt {attempt + 1} "
+                  f"transient disconnect — {type(e).__name__}: {e}")
+            continue
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            print(f"[ddns] warning: update host={host_id} failed — {type(e).__name__}: {e}")
+            return {"ok": False, "status": 0, "detail": f"update failed: {type(e).__name__}: {e}"}
+        if 200 <= r.status_code < 400:
+            return {"ok": True, "status": r.status_code,
+                    "detail": "🔄 Triggered a DNS update — ddns-updater is refreshing "
+                              "every record now."}
+        return {"ok": False, "status": r.status_code,
+                "detail": f"update returned HTTP {r.status_code}"}
+    return {"ok": False, "status": 0,
+            "detail": f"update failed after retry: {type(last_err).__name__}: {last_err}"}

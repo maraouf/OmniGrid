@@ -713,13 +713,24 @@ export default {
       // popup would defeat the no-popup contract.
       // `tag` + `actionItem` are forwarded for parameterised
       // actions (currently retag_image only). Other actions
-      // ignore them.
-      await action.run({
+      // ignore them. `surface: 'sidebar'` + `confirm: true` let a
+      // per-app skill run silently + pass the backend destructive gate
+      // (the operator just clicked Yes — that IS the confirmation).
+      const _runRet = await action.run({
         skipConfirm: true,
         tag: (turn.action_tag || '').toString(),
         actionItem: (turn.action_item || '').toString(),
         data: (turn.action_data && typeof turn.action_data === 'object') ? turn.action_data : null,
+        surface: 'sidebar',
+        confirm: true,
       });
+      // Surface a per-app skill's output inline in the chat (parity with the
+      // non-destructive _aiSidebarRunSkill path) — e.g. a confirmed
+      // radarr_remove_movie shows its "Removed X" detail, not just the chip.
+      if (typeof this._stampSkillPanelFromResult === 'function') {
+        this._stampSkillPanelFromResult(turn, _runRet);
+        this.persistAiConversation();
+      }
     } catch (e) {
       if (typeof this.showToast === 'function') {
         this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');

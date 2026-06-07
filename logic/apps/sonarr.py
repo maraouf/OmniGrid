@@ -7,7 +7,6 @@ Encapsulates everything Sonarr-specific so the route layer
 
     SLUGS               — catalog slugs this module handles ("sonarr").
     requires_api_key()  — True (Sonarr authenticates via the X-Api-Key header).
-    resolve_base_url(host_row, chip) -> str   (shared helper)
     test_credential(host_row, chip, candidate_key) -> dict
     fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
     peek_latest(host_id, service_idx) -> dict | None    (AI context)
@@ -71,10 +70,27 @@ from typing import Any, Optional
 
 import httpx
 
-from logic.apps._common import (
-    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
-    resolve_credential_target)
+from functools import partial as _partial
+
+from logic.apps import _servarr
+from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
 from logic.coerce import safe_float, safe_int
+
+# Servarr-family shared helpers (logic/apps/_servarr.py) bound to Sonarr's
+# api version (v3) + brand + id field, aliased to the historical underscore
+# names so the skill bodies' call sites stay unchanged.
+_headers = _servarr.headers
+_version_from = _servarr.version_from
+_fmt_size_gib = _servarr.fmt_size_gib
+_parse_disks = _servarr.parse_disks
+_primary_disk = _servarr.primary_disk
+_year_suffix = _servarr.year_suffix
+_norm_title = _servarr.norm_title
+_GIB = _servarr.GIB
+_fetch_version = _partial(_servarr.fetch_version, api_version="v3")
+_resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Sonarr")
+_find_in_library = _partial(_servarr.find_in_library_titled, id_field="tvdbId")
+_command_skill = _partial(_servarr.command_skill, app_label="Sonarr", api_version="v3")
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("sonarr",)
@@ -162,13 +178,6 @@ SKILLS: tuple[dict, ...] = (
 DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}
 
-# 1 GiB in bytes — Sonarr reports disk space in bytes; the card shows GiB
-# (matching Sonarr's own UI).
-_GIB = 1024 ** 3
-
-# Cap on how many mounts the card surfaces.
-_DISK_DISPLAY_MAX = 8
-
 
 def requires_api_key() -> bool:
     """Sonarr authenticates every v3 endpoint via X-Api-Key; the editor MUST
@@ -176,96 +185,11 @@ def requires_api_key() -> bool:
     return True
 
 
-def _headers(key: str) -> dict:
-    return {"X-Api-Key": key, "Accept": "application/json"}
-
-
-def _version_from(resp) -> str:
-    """Extract ``version`` from a ``/api/v3/system/status`` response. ``""``
-    on any non-200 / parse failure (version is never load-bearing)."""
-    try:
-        if getattr(resp, "status_code", 0) != 200:
-            return ""
-        body = resp.json() or {}
-        return str(body.get("version") or "").strip()
-    except (ValueError, TypeError, AttributeError):
-        return ""
-
-
-async def _fetch_version(cli: httpx.AsyncClient, base: str, key: str) -> str:
-    """Best-effort Sonarr version via ``GET /api/v3/system/status``. ``''`` on
-    any failure (version is a nice-to-have)."""
-    try:
-        return _version_from(await cli.get(base + "/api/v3/system/status",
-                                           headers=_headers(key)))
-    except (httpx.HTTPError, OSError):
-        return ""
-
-
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
-    """Probe Sonarr's auth-required ``/api/v3/system/status`` with the supplied
-    X-Api-Key. Returns ``{ok, detail, status}``. Falls back to the chip's
-    stored ``api_key`` when ``candidate_key`` is blank so the operator can
-    re-test after first save without retyping."""
-    key, base, err = resolve_credential_target(host_row, chip, candidate_key)
-    if err:
-        return err
-    url = base + "/api/v3/system/status"
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.get(url, headers=_headers(key))
-    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
-    if r.status_code == 200:
-        ver = _version_from(r)
-        return {"ok": True, "detail": f"OK (Sonarr {ver})" if ver else "OK",
-                "status": 200}
-    if r.status_code in (401, 403):
-        return {"ok": False, "detail": "auth failed (check api_key)",
-                "status": r.status_code}
-    return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
-
-
-def _parse_disks(raw: Any) -> list[dict]:
-    """Shape a ``/api/v3/diskspace`` payload into ``[{path, free_gb,
-    total_gb}]`` for EVERY mount, sorted by total descending, capped at
-    ``_DISK_DISPLAY_MAX``. Skips no-path / zero-total entries."""
-    if not isinstance(raw, list):
-        return []
-    out: list[dict] = []
-    for d in raw:
-        if not isinstance(d, dict):
-            continue
-        path = str(d.get("path") or "").strip()
-        total = safe_float(d.get("totalSpace"))
-        if not path or total <= 0:
-            continue
-        out.append({
-            "path": path,
-            "free_gb": round(safe_float(d.get("freeSpace")) / _GIB, 1),
-            "total_gb": round(total / _GIB, 1),
-        })
-    out.sort(key=lambda m: m.get("total_gb", 0.0), reverse=True)
-    return out[:_DISK_DISPLAY_MAX]
-
-
-def _primary_disk(disks: list[dict]) -> "tuple[float, float]":
-    """The largest mount's ``(free_gb, total_gb)``; ``(0.0, 0.0)`` when empty."""
-    if not disks:
-        return 0.0, 0.0
-    d0 = disks[0]
-    return safe_float(d0.get("free_gb")), safe_float(d0.get("total_gb"))
-
-
-def _fmt_size_gib(gib: Any) -> str:
-    """Render a GiB value as a human size, promoting to TiB at >= 1024 GiB
-    (matches Sonarr's GiB / TiB display). ``Any`` arg — callers pass raw
-    ``dict.get(...)`` values; ``safe_float`` coerces (never raises)."""
-    g = safe_float(gib)
-    if g >= 1024:
-        return f"{g / 1024:,.1f} TiB"
-    return f"{g:,.1f} GiB"
+    """Probe Sonarr's auth-required ``/api/v3/system/status`` — delegates to the
+    shared Servarr probe bound to Sonarr's brand + api version."""
+    return await _servarr.test_credential(host_row, chip, candidate_key,
+                                          app_label="Sonarr", api_version="v3")
 
 
 async def _missing_episode_count(cli: httpx.AsyncClient, base: str, key: str) -> int:
@@ -433,59 +357,6 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
-def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
-    api_key = (chip.get("api_key") or "").strip()
-    if not api_key:
-        return "", "", {"ok": False, "status": 0, "detail": "Sonarr api_key not set"}
-    base = resolve_base_url(host_row, chip)
-    if not base:
-        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
-    return api_key, base, None
-
-
-def _year_suffix(year: Any) -> str:
-    """`` (2024)`` when ``year`` is a plausible series year, else ``""``."""
-    y = safe_int(year)
-    return f" ({y})" if 1870 < y < 2100 else ""
-
-
-def _norm_title(s: Any) -> str:
-    """Normalise a title / query for matching: lowercase, strip a trailing
-    ``" (YYYY)"`` year suffix (Sonarr / our replies append it, but the stored
-    ``title`` has no year), collapse whitespace."""
-    import re as _re
-    t = str(s or "").strip().lower()
-    t = _re.sub(r"\s*\((?:19|20)\d{2}\)\s*$", "", t)
-    return _re.sub(r"\s+", " ", t).strip()
-
-
-def _find_in_library(series: Any, query: str) -> Optional[dict]:
-    """Find a series in the library list by numeric tvdbId, then normalised
-    exact title, then BIDIRECTIONAL substring (so ``"Title (2019)"`` matches a
-    stored ``"Title"``). Returns the series dict or ``None``."""
-    if not isinstance(series, list):
-        return None
-    raw = (query or "").strip()
-    q = _norm_title(raw)
-    if not q:
-        return None
-    if raw.isdigit():
-        tid = int(raw)
-        for s in series:
-            if isinstance(s, dict) and safe_int(s.get("tvdbId")) == tid:
-                return s
-    for s in series:
-        if isinstance(s, dict) and _norm_title(s.get("title")) == q:
-            return s
-    for s in series:
-        if not isinstance(s, dict):
-            continue
-        t = _norm_title(s.get("title"))
-        if t and (q in t or t in q):
-            return s
-    return None
-
-
 # noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
@@ -629,37 +500,6 @@ async def _queue_skill(host_row: dict, chip: dict, *,
                      + (f" ({st})" if st and st != "downloading" else ""))
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
-
-
-async def _command_skill(host_row: dict, chip: dict, *, command: str,
-                         started_msg: str,
-                         host_id: Optional[str] = None) -> dict:
-    """Action skill: POST a non-destructive background command to Sonarr's
-    ``/api/v3/command`` endpoint. Never raises."""
-    api_key, base, err = _resolve_skill_target(host_row, chip)
-    if err:
-        return err
-    print(f"[sonarr] INFO command host={host_id} name={command!r}")
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.post(base + "/api/v3/command",
-                               headers=_headers(api_key), json={"name": command})
-    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        print(f"[sonarr] warning: command {command!r} failed — {type(e).__name__}: {e}")
-        return {"ok": False, "status": 0, "detail": f"command failed: {type(e).__name__}: {e}"}
-    if r.status_code in (200, 201):
-        return {"ok": True, "status": r.status_code, "detail": started_msg}
-    if r.status_code in (401, 403):
-        return {"ok": False, "status": r.status_code, "detail": "auth failed (check Sonarr api_key)"}
-    _body = ""
-    try:
-        _body = (r.text or "")[:160]
-    except (ValueError, TypeError):
-        _body = ""
-    return {"ok": False, "status": r.status_code,
-            "detail": f"Sonarr returned HTTP {r.status_code} for {command}"
-                      + (f" — {_body}" if _body else "")}
 
 
 async def _sonarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,

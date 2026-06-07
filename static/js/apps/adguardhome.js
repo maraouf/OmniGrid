@@ -208,9 +208,15 @@ async function adguardFleetSkill(app, skillId, opts) {
   }
   this._adguardSkillBusy[busyKey] = true;
   try {
+    // confirm:true — a destructive disable is gated by the SweetAlert above;
+    // by the time we POST the operator has confirmed (or it's a non-
+    // destructive fleet skill, for which the backend ignores the flag). The
+    // backend's destructive-skill gate requires it.
     const r = await fetch('/api/services/' + encodeURIComponent(target.host_id)
       + '/' + encodeURIComponent(target.service_idx)
-      + '/skill/' + encodeURIComponent(skillId), {method: 'POST'});
+      + '/skill/' + encodeURIComponent(skillId),
+      {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})});
     const j = await r.json().catch(() => ({}));
     if (r.ok && j && j.ok) {
       this.showToast((this.t('apps.adguard.action_ok') || 'Done')

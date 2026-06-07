@@ -889,13 +889,29 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
     # Optional free-form argument (e.g. Seerr's request-a-movie title).
     # Skills that don't declare `arg` simply ignore it. Body is optional —
     # the drawer button POSTs with no body; the AI dispatch sends {arg}.
+    # `confirm` is the destructive-skill gate (below): the SPA sends it only
+    # AFTER an operator confirm (inline chip / autonomous opt-in / Cmd-K
+    # SweetAlert / fleet-card SweetAlert).
     skill_arg = ""
+    skill_confirm = False
     try:
         _body = await request.json()
         if isinstance(_body, dict):
             skill_arg = str(_body.get("arg") or "").strip()[:512]
+            skill_confirm = bool(_body.get("confirm"))
     except (ValueError, TypeError, UnicodeDecodeError):
         skill_arg = ""
+    # Defence-in-depth: a destructive skill (e.g. an *arr remove, an AdGuard /
+    # Pi-hole disable) MUST carry an explicit confirm flag. Every UI surface
+    # confirms BEFORE dispatch — the inline-confirm chip (AI sidebar approval
+    # mode), the autonomous-mode opt-in, the Cmd-K SweetAlert, the fleet-card
+    # SweetAlert. This gate stops an un-confirmed AI dispatch from firing a
+    # destructive skill if a UI-side gate ever regresses (mirrors the SSH
+    # typed-confirm contract). Non-destructive skills are unaffected.
+    if skill.get("destructive") and not skill_confirm:
+        print(f"[app_skill] warning: web skill {skill_id!r} BLOCKED — destructive "
+              f"skill needs confirm=true (host={host_id} svc_idx={service_idx})")
+        raise HTTPException(409, f"destructive skill '{skill_id}' requires confirmation")
     try:
         result = await mod.run_skill(skill_id, host_row, chip,
                                      host_id=host_id, service_idx=service_idx,
