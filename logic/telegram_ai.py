@@ -530,23 +530,26 @@ async def resolve_host_status_rows() -> "tuple[dict, list]":
                 curated_by_id = {str(h.get("id") or ""): h for h in _lhc()}
                 _sem = asyncio.Semaphore(6)
 
-                async def _reprobe_one(hid: str):
-                    h = curated_by_id.get(hid)
+                async def _reprobe_one(host_id: str):
+                    # Local names are underscore-prefixed / uniquely named so
+                    # they don't shadow the enclosing function's `hid` / `row` /
+                    # `providers`. `client_id` is omitted (its default is None).
+                    h = curated_by_id.get(host_id)
                     if not h:
-                        return hid, None
+                        return host_id, None
                     # noinspection PyBroadException
                     try:
                         async with _sem:
-                            state, (merged, providers) = await asyncio.wait_for(
-                                _hosts_one_inner(h, force=False, client_id=None),
+                            state, (merged, _provs) = await asyncio.wait_for(
+                                _hosts_one_inner(h, force=False),
                                 timeout=15.0)
-                        row = _shape_host_api_row(
-                            h, merged, providers,
+                        _row = _shape_host_api_row(
+                            h, merged, _provs,
                             any_provider_enabled=bool(state.get("active")),
                             active=state.get("active"))
-                        return hid, str(row.get("status") or "")
+                        return host_id, str(_row.get("status") or "")
                     except Exception:  # noqa: BLE001
-                        return hid, None
+                        return host_id, None
 
                 # Outer budget so the whole re-probe pass can't stall the
                 # Telegram reply (a timeout falls through to the skeleton
@@ -635,6 +638,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     if username:
         try:
             from main_pkg.scan_routes import api_weather
+            # noinspection PyProtectedMember  — sanctioned cross-module access
+            # (same _listener()._<helper> lazy-resolve pattern used file-wide).
             loc = _listener()._load_user_weather_pref(username)
             if loc and loc.get("lat") is not None and loc.get("lon") is not None:
                 wx = await api_weather(
@@ -665,6 +670,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         try:
             from logic import prayer_times as _pt
             if _pt.is_enabled():
+                # noinspection PyProtectedMember  — sanctioned cross-module
+                # access (the file-wide _listener()._<helper> lazy pattern).
                 loc = _listener()._load_user_weather_pref(username)
                 if loc and loc.get("lat") is not None and loc.get("lon") is not None:
                     pdata = await _pt.fetch(
@@ -714,6 +721,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # this module read that key and silently filtered to an empty list.
     try:
         from logic import gather
+        # noinspection PyProtectedMember  — gather._cache is the documented
+        # shared in-memory coordinator snapshot (main.py mutates it directly too).
         items = list(gather._cache.get("items") or [])
 
         def _shape(i: dict) -> dict:
@@ -1668,13 +1677,22 @@ async def _ai_reply(
                     action_outcome_line = (
                         f"\n\n✅ Ran <b>{_listener()._escape(sk_id)}</b> on "
                         f"<code>{_listener()._escape(sk_host)}</code>"
-                        + (f" — {_listener()._escape(str(_d))}" if _d else "")
+                        # _d is NOT pre-escaped here: the final
+                        # _telegram_safe_escape pass (further down, which PRESERVES
+                        # the framing <b>/<code> tags) escapes it exactly once.
+                        # Pre-escaping would DOUBLE-escape the detail's content —
+                        # a skill detail's literal "<name>" reached the wire as
+                        # "&lt;name&gt;" (the & of &lt; got re-escaped to &amp;).
+                        + (f" — {str(_d)}" if _d else "")
                     )
                 else:
                     _d = (sk_result or {}).get("detail") or "failed"
                     action_outcome_line = (
                         f"\n\n❌ Skill <b>{_listener()._escape(sk_id)}</b> failed: "
-                        f"<code>{_listener()._escape(str(_d))}</code>"
+                        # _d NOT pre-escaped — _telegram_safe_escape handles it
+                        # once (preserving the <code> wrapper); see the success
+                        # branch above for the double-escape rationale.
+                        f"<code>{str(_d)}</code>"
                     )
                 # Audit-trail parity with the web skill route + the
                 # Telegram slash-command dispatch — an AI-initiated app

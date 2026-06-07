@@ -133,9 +133,19 @@ SKILLS: tuple[dict, ...] = (
                        "indexer catalog for <term>, english indexers, indexers "
                        "in english, <language> indexers, indexers in <language>, "
                        "english language indexers, en indexers, what "
-                       "indexers are available to add"),
-        # arg = optional filter term (name / language). AI / Telegram only.
+                       "indexers are available to add, public indexers, private "
+                       "indexers, semi-private indexers, public english indexers, "
+                       "english public indexers, what public indexers can i add, "
+                       "add all the english public indexers, list public "
+                       "torrent indexers, which private indexers are available"),
+        # arg = optional filter term. AI / Telegram only. Combine a privacy
+        # facet (public / private / semi-private), a language (english / en /
+        # en-US), and/or an indexer name — e.g. "english public", "public",
+        # "torrentgalaxy". The skill parses the facets out of the term.
         "arg": True,
+        "arg_hint": ("optional filter — a privacy (public / private / "
+                     "semi-private), a language (english / en), a combination "
+                     "(e.g. \"english public\"), or an indexer name"),
         "destructive": False,
     },
     {
@@ -614,6 +624,47 @@ def _lang_primary(s: str) -> str:
     return ""
 
 
+# Privacy facets Prowlarr's indexer schema reports in its ``privacy`` field
+# ("public" / "private" / "semiPrivate"). A free-text term like "public" /
+# "private" / "semi-private" should filter by privacy; the longer / compound
+# words are checked FIRST so "private" doesn't pre-match inside "semi-private".
+_PRIVACY_WORDS = (
+    ("semi-private", "semiprivate"), ("semi private", "semiprivate"),
+    ("semiprivate", "semiprivate"), ("private", "private"), ("public", "public"),
+)
+_PRIVACY_LABELS = {"public": "public", "private": "private",
+                   "semiprivate": "semi-private"}
+
+
+def _extract_privacy(term: str) -> "tuple[str, str]":
+    """Split a free-text term into ``(privacy, remainder)``. ``privacy`` is the
+    normalised facet ("public" / "private" / "semiprivate") when a privacy WORD
+    is present, else "". The matched word is removed from ``remainder`` so the
+    rest can still be matched as a language / name — so ``"english public"`` ->
+    ``("public", "english")``, ``"public"`` -> ``("public", "")``,
+    ``"torrentgalaxy"`` -> ``("", "torrentgalaxy")``. Word-boundary matched so a
+    name like "PublicHD" isn't mistaken for a privacy filter."""
+    t = (term or "").strip().lower()
+    if not t:
+        return "", ""
+    for word, norm in _PRIVACY_WORDS:
+        # `word` is a trusted constant ([a-z], space, hyphen) — no regex
+        # metacharacters that need escaping (a hyphen is literal outside a char
+        # class), so a plain \b...\b pattern is safe AND avoids re.escape's
+        # AnyStr (str | bytes) return widening the concatenation type.
+        pat = rf"\b{word}\b"
+        if re.search(pat, t):
+            return norm, re.sub(r"\s+", " ", re.sub(pat, " ", t)).strip()
+    return "", t
+
+
+def _indexer_privacy(defn: dict) -> str:
+    """Normalised privacy facet for a schema definition: "public" / "private" /
+    "semiprivate" (lower-cased, hyphen-stripped so Prowlarr's 'semiPrivate'
+    compares). "" when the field is absent."""
+    return str(defn.get("privacy") or "").strip().lower().replace("-", "")
+
+
 # noinspection DuplicatedCode
 # Auth-fail / non-200 / non-JSON guard is the shared per-app read-skill twin
 # (see _indexers_skill) — kept inline per the encapsulation convention.
@@ -645,12 +696,15 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not isinstance(defs, list):
         defs = []
-    # Language-aware matching: a term like "english" / "en" / "en-US" matches
-    # any indexer whose locale is in the SAME language family (en / en-US /
-    # en-GB / enAU / ...), not just a literal substring. `want_lang` is the
-    # primary subtag when the term looks language-ish ("" for a free-text name
-    # like "torrentgalaxy"), so a bare name search still works unchanged.
-    want_lang = _lang_primary(term) if term else ""
+    # Facet-aware matching. A term can combine a PRIVACY facet (public /
+    # private / semi-private), a LANGUAGE facet ("english" / "en" / "en-US"
+    # matches the whole en family — en-US / en-GB / enAU / ...), and / or a free
+    # text NAME fragment. "english public" -> privacy=public + lang=en; "public"
+    # -> privacy only; "torrentgalaxy" -> name only (a bare name search still
+    # works unchanged). `_extract_privacy` pulls the privacy word OUT so the
+    # remainder is matched as language / name.
+    privacy, lang_term = _extract_privacy(term)
+    want_lang = _lang_primary(lang_term) if lang_term else ""
     rows = []
     for d in defs:
         if not isinstance(d, dict):
@@ -659,33 +713,39 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
         if not name:
             continue
         lang = _indexer_lang(d)
-        if term:
-            name_hit = term in name.lower()
-            lang_sub = term in lang.lower()
+        priv = _indexer_privacy(d)
+        if privacy and priv != privacy:
+            continue
+        if lang_term:
+            name_hit = lang_term in name.lower()
+            lang_sub = lang_term in lang.lower()
             lang_fam = bool(want_lang) and _lang_primary(lang) == want_lang
             if not (name_hit or lang_sub or lang_fam):
                 continue
-        rows.append((name, lang, str(d.get("protocol") or "").strip()))
+        rows.append((name, lang, str(d.get("protocol") or "").strip(), priv))
     rows.sort(key=lambda t: t[0].lower())
     total = len(rows)
     lines = []
-    for name, lang, proto in rows[:25]:
-        meta = ", ".join(p for p in (proto, lang) if p)
+    for name, lang, proto, priv in rows[:25]:
+        meta = ", ".join(p for p in (proto, lang, _PRIVACY_LABELS.get(priv, priv)) if p)
         lines.append(f"• {name}" + (f" ({meta})" if meta else ""))
-    # When the term resolved to a language family, say so — "matching language
-    # en (en-US / en-GB / enAU / ...)" reads far clearer than "matching english".
-    match_desc = ""
-    if term:
+    # Describe the active facets in the header. A language facet reads clearest
+    # as "in language en (incl. en-US / en-GB / enAU / ...)"; a free-text
+    # remainder reads as "matching <term>".
+    priv_label = _PRIVACY_LABELS.get(privacy, "")
+    priv_prefix = f"{priv_label} " if priv_label else ""
+    lang_desc = ""
+    if lang_term:
         if want_lang:
-            match_desc = f" in language “{want_lang}” (incl. {want_lang}-US / {want_lang}-GB / {want_lang}AU etc.)"
+            lang_desc = f" in language “{want_lang}” (incl. {want_lang}-US / {want_lang}-GB / {want_lang}AU etc.)"
         else:
-            match_desc = f" matching “{arg}”"
+            lang_desc = f" matching “{lang_term}”"
     if not lines:
-        empty = (f"🔍 No addable indexers{match_desc}." if term
+        empty = (f"🔍 No addable {priv_prefix}indexers{lang_desc}." if term
                  else "🔍 No indexer definitions returned.")
         return {"ok": True, "status": 200, "detail": empty}
-    head = (f"🧩 {total} addable indexer{'s' if total != 1 else ''}"
-            + match_desc
+    head = (f"🧩 {total} addable {priv_prefix}indexer{'s' if total != 1 else ''}"
+            + lang_desc
             + (f" (showing first {len(lines)})" if total > len(lines) else "") + ":")
     head += "\n" + "\n".join(lines)
     head += "\n\nTo add one, say “add <name> on prowlarr” (append “with flaresolverr” to route it through the FlareSolverr proxy)."

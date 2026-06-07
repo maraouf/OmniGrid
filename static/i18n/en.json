@@ -3111,6 +3111,7 @@
     "hint": "Shortcuts are disabled while typing in an input field. Press <kbd class=\"kbd\">Esc</kbd> to exit a field.",
     "groups": {
       "navigate": "Navigate",
+      "goto": "Go to",
       "refresh_theme": "Refresh & theme",
       "selection": "Selection",
       "bulk": "Bulk actions (on current selection)",
@@ -3123,6 +3124,9 @@
       "view_nodes": "Nodes view",
       "view_hosts": "Hosts view",
       "view_history": "History view",
+      "open_profile": "Profile",
+      "view_stats": "Stats dashboard",
+      "open_admin": "Admin",
       "show_help": "Show this help",
       "notifications": "Open notifications",
       "close_clear": "Close / clear",

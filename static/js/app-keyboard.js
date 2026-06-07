@@ -62,20 +62,38 @@ export default {
     // (I = "items" / "available updates") to preserve text-edit
     // ergonomics.
     const _t = (k) => this.t(k);
+    const _isAdmin = (typeof this.isAdmin === 'function') && this.isAdmin();
     return [
       {
         title: _t('hotkeys.groups.navigate'),
         items: [
           {keys: ['Cmd/Ctrl', '/'], label: _t('hotkeys.items.focus_search'), run: () => this.$refs.searchBox?.focus()},
+          {keys: ['Cmd/Ctrl', 'Shift', '/'], label: _t('hotkeys.items.show_help'), run: () => void (this.showHotkeys = true)},
+          {keys: ['Cmd/Ctrl', 'B'], label: _t('hotkeys.items.notifications'), run: () => this.openNotificationsPopup()},
+          {keys: ['Cmd/Ctrl', 'K'], label: _t('hotkeys.items.command_palette'), run: () => this.openCommandPalette()},
+          {keys: ['Esc'], label: _t('hotkeys.items.close_clear'), run: null, note: _t('hotkeys.items.close_clear_note')},
+        ],
+      },
+      {
+        // The "Go to" group is the SECOND section (index 1) so it lands in the
+        // RIGHT column of the grid-cols-2 cheat sheet — moving the view jumps
+        // (Stacks first) off the long left column to balance the layout.
+        // View jumps are Cmd/Ctrl+1..5; the page jumps continue the sequence —
+        // Profile (6) for everyone, Stats (7) + Admin (8) ADMIN-ONLY (included +
+        // runnable only when isAdmin(), so non-admins can neither see nor fire
+        // them; the backend gates those pages regardless).
+        title: _t('hotkeys.groups.goto'),
+        items: [
           {keys: ['Cmd/Ctrl', '1'], label: _t('hotkeys.items.view_stacks'), run: () => void (this.view = 'stacks')},
           {keys: ['Cmd/Ctrl', '2'], label: _t('hotkeys.items.view_services'), run: () => void (this.view = 'services')},
           {keys: ['Cmd/Ctrl', '3'], label: _t('hotkeys.items.view_nodes'), run: () => void (this.view = 'nodes')},
           {keys: ['Cmd/Ctrl', '4'], label: _t('hotkeys.items.view_hosts'), run: () => void (this.view = 'hosts')},
           {keys: ['Cmd/Ctrl', '5'], label: _t('hotkeys.items.view_history'), run: () => void (this.view = 'history')},
-          {keys: ['Cmd/Ctrl', 'Shift', '/'], label: _t('hotkeys.items.show_help'), run: () => void (this.showHotkeys = true)},
-          {keys: ['Cmd/Ctrl', 'B'], label: _t('hotkeys.items.notifications'), run: () => this.openNotificationsPopup()},
-          {keys: ['Cmd/Ctrl', 'K'], label: _t('hotkeys.items.command_palette'), run: () => this.openCommandPalette()},
-          {keys: ['Esc'], label: _t('hotkeys.items.close_clear'), run: null, note: _t('hotkeys.items.close_clear_note')},
+          {keys: ['Cmd/Ctrl', '6'], label: _t('hotkeys.items.open_profile'), run: () => { this.view = 'settings'; this.settingsSection = 'profile'; }},
+          ...(_isAdmin ? [
+            {keys: ['Cmd/Ctrl', '7'], label: _t('hotkeys.items.view_stats'), run: () => { if (typeof this.openStatsTab === 'function') { this.openStatsTab('dashboard'); } else { this.view = 'stats'; } }},
+            {keys: ['Cmd/Ctrl', '8'], label: _t('hotkeys.items.open_admin'), run: () => void (this.view = 'admin')},
+          ] : []),
         ],
       },
       {
