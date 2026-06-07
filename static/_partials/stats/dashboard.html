@@ -1,7 +1,7 @@
 <!--suppress HtmlUnknownAttribute, HtmlUnknownTag -->
 <div x-show="statsTab==='dashboard'" class="space-y-4">
   <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md overflow-hidden"
-           :aria-busy="_loadBusy.stats_overview === true ? 'true' : 'false'">
+           :aria-busy="(_loadBusy.stats_overview === true || !statsOverviewLoaded || !statsSummaryLoaded) ? 'true' : 'false'">
     <div class="p-5 border-b border-[var(--border)] flex justify-between items-center">
       <div>
         <div class="flex items-center gap-2 mb-2">
@@ -14,17 +14,20 @@
       </div>
       <!-- Reload via the shared og-reload-button component — single source
            of truth for text / icon / spinner / busy wiring. stats_overview
-           is pre-declared in app-admin.js _loadBusy. -->
+           is pre-declared in app-admin.js _loadBusy. Reloads BOTH the
+           overview blob AND the summary cards. -->
       <div x-data="{ rbKey: 'stats_overview', rbOnClick: () => _runWithBusy('stats_overview', () => loadStatsOverview()) }">
         <!-- INCLUDE: _components/og-reload-button.html -->
       </div>
     </div>
-    <div x-show="!statsOverviewLoaded" class="loading-state">
-      <span class="spin-lg" aria-hidden="true"></span>
-      <span x-text="t('loading.section')"></span>
-    </div>
-    <div x-show="statsOverviewLoaded"
-         class="p-5 stats-card-grid">
+    <!-- The grid renders IMMEDIATELY — no full-section loading gate. Each
+         card paints its icon + title at once and shows an in-card skeleton
+         (.stats-card-skel) until ITS data source has loaded, so a slow
+         fetch (e.g. the COUNT-scan-backed summary cards) never blocks the
+         rest of the grid from painting. Overview cards gate on
+         statsOverviewLoaded; the six summary cards gate on
+         statsSummaryLoaded (loaded in parallel from a separate endpoint). -->
+    <div class="p-5 stats-card-grid">
 
       <!-- Users -->
       <button type="button"
@@ -45,17 +48,21 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.users.label')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
           <!-- Operator-flagged: render as `active/total` slash-
                format (same shape as Hosts / Schedules tiles) so
                the disabled count is visible at a glance instead
                of buried in the sub line. Sub now carries the
                admin-count tail only. -->
-          <div class="stats-card-value"
+          <div class="stats-card-value" x-show="statsOverviewLoaded"
                x-text="((statsOverview.users && statsOverview.users.active) || 0) + '/' + ((statsOverview.users && statsOverview.users.total) || 0)"></div>
           <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
                pattern so the operator reads the slash-format value's
                decomposition at a glance (e.g. "2/3" → "2 active · 1 disabled · 1 admin"). -->
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.users.sub', {
                        active: (statsOverview.users && statsOverview.users.active) || 0,
                        disabled: Math.max(0, ((statsOverview.users && statsOverview.users.total) || 0) - ((statsOverview.users && statsOverview.users.active) || 0)),
@@ -80,8 +87,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.sessions.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.sessions && statsOverview.sessions.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.sessions.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.sessions && statsOverview.sessions.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.sessions.sub')"></div>
         </div>
       </button>
 
@@ -103,13 +114,17 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.providers.label')"></div>
-          <div class="stats-card-value" x-text="((statsOverview.providers && statsOverview.providers.enabled) || []).length + ' / ' + ((statsOverview.providers && statsOverview.providers.total) || 0)"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="((statsOverview.providers && statsOverview.providers.enabled) || []).length + ' / ' + ((statsOverview.providers && statsOverview.providers.total) || 0)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.providers.sub', {
                        enabled: ((statsOverview.providers && statsOverview.providers.enabled) || []).length,
                        disabled: ((statsOverview.providers && statsOverview.providers.disabled) || []).length
                      })"></div>
-          <div class="flex flex-wrap gap-1 mt-1.5">
+          <div class="flex flex-wrap gap-1 mt-1.5" x-show="statsOverviewLoaded">
             <template x-for="p in ((statsOverview.providers && statsOverview.providers.enabled) || [])" :key="'on:'+p">
               <span class="chip pill-ok fs-3xs" x-text="p"></span>
             </template>
@@ -138,25 +153,26 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.hosts.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.hosts && statsOverview.hosts.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.hosts && statsOverview.hosts.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.hosts.sub', {
                        enabled: (statsOverview.hosts && statsOverview.hosts.enabled) || 0
                      })"></div>
         </div>
       </button>
 
-      <!-- Problem hosts — surfaces ONLY when problemHostCount > 0
-           (operators on a healthy fleet don't see the tile).
-           Click jumps to the Hosts view AND arms the problem-
-           hosts filter chip so the list narrows to the
-           actionable rows in one click. Same status set
-           (down / paused / unknown) the Telegram AI context's
-           `problem_hosts` block carries. Pill-error background
-           + alert-triangle icon so the tile reads as a triage
-           affordance at a glance. -->
+      <!-- Problem hosts — surfaces ONLY when problemHostCount() > 0
+           (operators on a healthy fleet don't see the tile). Click jumps to
+           the Hosts view AND arms the problem-hosts filter chip so the list
+           narrows to the actionable rows in one click. Only appears once the
+           overview has loaded (problemHostCount reads statsOverview), so it
+           needs no skeleton — it's a post-load triage affordance. -->
       <button type="button"
-              x-show="problemHostCount() > 0"
+              x-show="statsOverviewLoaded && problemHostCount() > 0"
               @click="view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {}"
               class="stats-card"
               style="border-color: var(--pill-error-br); background: var(--pill-error-bg);"
@@ -188,13 +204,17 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-folder"/>
           </svg>
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.host_groups.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.host_groups.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.host_groups && statsOverview.host_groups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.host_groups.sub')"></div>
         </div>
       </button>
 
@@ -214,8 +234,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.assets.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.assets.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.assets && statsOverview.assets.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.assets.sub')"></div>
         </div>
       </button>
 
@@ -235,8 +259,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.nodes.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.nodes.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.nodes && statsOverview.nodes.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.nodes.sub')"></div>
         </div>
       </button>
 
@@ -256,8 +284,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.stacks.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.stacks.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.stacks && statsOverview.stacks.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.stacks.sub')"></div>
         </div>
       </button>
 
@@ -277,8 +309,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.services.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.services.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.services && statsOverview.services.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.services.sub')"></div>
         </div>
       </button>
 
@@ -296,13 +332,17 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
           </svg>
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.containers.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.containers && statsOverview.containers.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.containers && statsOverview.containers.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.containers.sub', {
                        replicas: (statsOverview.containers && statsOverview.containers.replicas) || 0,
                        standalone: (statsOverview.containers && statsOverview.containers.standalone) || 0
@@ -329,17 +369,21 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.schedules.label')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
           <!-- Operator-flagged: render as `enabled/total` slash-
                format so the disabled count is visible at a
                glance (e.g. `7/7` when every schedule is
                enabled). Sub-line carries the descriptive
                "cron-style background jobs" tail only. -->
-          <div class="stats-card-value"
+          <div class="stats-card-value" x-show="statsOverviewLoaded"
                x-text="((statsOverview.schedules && statsOverview.schedules.enabled) || 0) + '/' + ((statsOverview.schedules && statsOverview.schedules.total) || 0)"></div>
           <!-- Sub-line mirrors Providers' "{enabled} enabled · {disabled} disabled"
                pattern so the operator reads the slash-format value's
                decomposition at a glance (e.g. "7/7" → "7 enabled · 0 disabled"). -->
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.schedules.sub', {
                        enabled: (statsOverview.schedules && statsOverview.schedules.enabled) || 0,
                        disabled: Math.max(0, ((statsOverview.schedules && statsOverview.schedules.total) || 0) - ((statsOverview.schedules && statsOverview.schedules.enabled) || 0))
@@ -363,8 +407,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.backups.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.backups.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.backups && statsOverview.backups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.backups.sub')"></div>
         </div>
       </button>
 
@@ -384,8 +432,12 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.config_backups.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-text="t('stats.cards.config_backups.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.config_backups && statsOverview.config_backups.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded" x-text="t('stats.cards.config_backups.sub')"></div>
         </div>
       </button>
 
@@ -406,14 +458,18 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-braces"/>
           </svg>
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.apps.label') || 'Apps'"></div>
-          <div class="stats-card-value"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded"
                x-text="((statsOverview.apps && statsOverview.apps.up) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.instances) || 0)"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.apps.sub', {
                          apps: (statsOverview.apps && statsOverview.apps.apps) || 0,
                          templates: (statsOverview.apps && statsOverview.apps.templates) || 0,
@@ -437,14 +493,18 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-tag"/>
           </svg>
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.apps_extras.label') || 'Apps with extras'"></div>
-          <div class="stats-card-value"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded"
                x-text="((statsOverview.apps && statsOverview.apps.extras_active) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.extras) || 0)"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.apps_extras.sub', {
                          active: (statsOverview.apps && statsOverview.apps.extras_active) || 0,
                          total: (statsOverview.apps && statsOverview.apps.extras) || 0
@@ -470,11 +530,175 @@
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.tunables.label')"></div>
-          <div class="stats-card-value" x-text="(statsOverview.tunables && statsOverview.tunables.total) || 0"></div>
-          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]"
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="(statsOverview.tunables && statsOverview.tunables.total) || 0"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.tunables.sub', {
                        overridden: (statsOverview.tunables && statsOverview.tunables.overridden) || 0
                      })"></div>
+        </div>
+      </button>
+
+      <!-- ============================================================
+           Summary cards — headline number lifted from each deeper
+           Stats sub-page so the dashboard gives a one-glance read on
+           everything. Loaded from /api/admin/stats/summary (separate
+           from the overview fetch; the total-samples figure is a
+           COUNT scan so it's cached 60s server-side). Each shows an
+           in-card skeleton until statsSummaryLoaded — independent of
+           the overview cards above.
+           ============================================================ -->
+
+      <!-- Database size -->
+      <button type="button"
+              @click="openStatsTab('database')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.db_size.label'),
+                              value: fmtBytes(statsSummary.db_size_bytes),
+                              sub: t('stats.cards.db_size.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.db_size.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="fmtBytes(statsSummary.db_size_bytes)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.db_size.sub')"></div>
+        </div>
+      </button>
+
+      <!-- Total samples (across every sample-bearing table) -->
+      <button type="button"
+              @click="openStatsTab('samples')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.total_samples.label'),
+                              value: ((statsSummary.total_samples || 0).toLocaleString()),
+                              sub: t('stats.cards.total_samples.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-history"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.total_samples.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="(statsSummary.total_samples || 0).toLocaleString()"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.total_samples.sub')"></div>
+        </div>
+      </button>
+
+      <!-- Incidents (last 30 days) -->
+      <button type="button"
+              @click="openStatsTab('incidents')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.incidents.label'),
+                              value: ((statsSummary.incidents_30d || 0).toLocaleString()),
+                              sub: t('stats.cards.incidents.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-bug"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.incidents.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="(statsSummary.incidents_30d || 0).toLocaleString()"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.incidents.sub')"></div>
+        </div>
+      </button>
+
+      <!-- Network traffic (combined RX+TX, last 30 days) -->
+      <button type="button"
+              @click="openStatsTab('network')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.network.label'),
+                              value: fmtBytes(statsSummary.network_30d_bytes),
+                              sub: t('stats.cards.network.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.network.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="fmtBytes(statsSummary.network_30d_bytes)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.network.sub')"></div>
+        </div>
+      </button>
+
+      <!-- AI cost (last 30 days) -->
+      <button type="button"
+              @click="openStatsTab('ai_cost')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.ai_cost.label'),
+                              value: ('$' + (statsSummary.ai_cost_30d || 0).toFixed(2)),
+                              sub: t('stats.cards.ai_cost.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trending-up"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.ai_cost.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="'$' + (statsSummary.ai_cost_30d || 0).toFixed(2)"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.ai_cost.sub')"></div>
+        </div>
+      </button>
+
+      <!-- AI jobs (last 30 days) -->
+      <button type="button"
+              @click="openStatsTab('ai_cost')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.ai_jobs.label'),
+                              value: ((statsSummary.ai_jobs_30d || 0).toLocaleString()),
+                              sub: t('stats.cards.ai_jobs.sub')
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-message-circle"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.ai_jobs.label')"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="(statsSummary.ai_jobs_30d || 0).toLocaleString()"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.ai_jobs.sub')"></div>
         </div>
       </button>
 
