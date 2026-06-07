@@ -1142,6 +1142,7 @@ from logic.telegram_handlers import (  # noqa: E402
     _cmd_moon,
     _cmd_prayer,
     _cmd_restart,
+    _cmd_skills,
     _cmd_time,
     _cmd_unlink,
     _cmd_update,
@@ -1277,6 +1278,13 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "description": "Alias of /restart — reboot a host via SSH (destructive — requires confirm)",
         "category": "ops",
         "access": "admin",
+    },
+    "/skills": {
+        "handler": _cmd_skills,
+        "usage": "/skills",
+        "description": "List the per-app skill roster (one tappable entry per pinned app — tap /<app> to see its commands, or just ask in plain text).",
+        "category": "ops",
+        "access": "linked",
     },
     "/cleanup": {
         "handler": _cmd_cleanup,

@@ -130,7 +130,9 @@ SKILLS: tuple[dict, ...] = (
         "name": "Find indexers to add",
         "ai_phrases": ("what indexers can i add, available indexers, find "
                        "indexers to add, list addable indexers, search the "
-                       "indexer catalog for <term>, english indexers, what "
+                       "indexer catalog for <term>, english indexers, indexers "
+                       "in english, <language> indexers, indexers in <language>, "
+                       "english language indexers, en indexers, what "
                        "indexers are available to add"),
         # arg = optional filter term (name / language). AI / Telegram only.
         "arg": True,
@@ -577,6 +579,41 @@ def _indexer_lang(defn: dict) -> str:
     return ""
 
 
+# Common language WORDS → ISO-639-1 primary code, so an operator who types
+# "english" matches indexers tagged en / en-US / en-GB / enAU / etc. (the
+# locale field varies wildly across Prowlarr's ~500 indexer definitions).
+_LANG_WORD_TO_CODE = {
+    "english": "en", "french": "fr", "german": "de", "spanish": "es",
+    "italian": "it", "portuguese": "pt", "russian": "ru", "dutch": "nl",
+    "polish": "pl", "japanese": "ja", "chinese": "zh", "korean": "ko",
+    "arabic": "ar", "turkish": "tr", "swedish": "sv", "norwegian": "no",
+    "danish": "da", "finnish": "fi", "czech": "cs", "greek": "el",
+    "hungarian": "hu", "romanian": "ro", "ukrainian": "uk", "hebrew": "he",
+    "hindi": "hi", "thai": "th", "vietnamese": "vi", "bulgarian": "bg",
+    "croatian": "hr", "serbian": "sr", "slovak": "sk", "slovenian": "sl",
+}
+
+
+def _lang_primary(s: str) -> str:
+    """Primary 2-letter language subtag from a locale CODE or a language WORD.
+    `en-US` / `en_us` / `enAU` / `engb` / `English` / `eng` / `en` all → `en`.
+    Returns "" when the string isn't language-shaped (so a free-text indexer
+    name like `torrentgalaxy` doesn't get mistaken for a locale)."""
+    t = (s or "").strip().lower()
+    if not t:
+        return ""
+    if t in _LANG_WORD_TO_CODE:
+        return _LANG_WORD_TO_CODE[t]
+    # head subtag = chars before any separator (`en-US` → `en`)
+    head = re.split(r"[-_ /]", t, maxsplit=1)[0]
+    # collapse a no-separator locale (`enau` / `engb`) to its first 2 letters
+    if re.fullmatch(r"[a-z]{4,6}", head):
+        head = head[:2]
+    if re.fullmatch(r"[a-z]{2,3}", head):
+        return head[:2]
+    return ""
+
+
 # noinspection DuplicatedCode
 # Auth-fail / non-200 / non-JSON guard is the shared per-app read-skill twin
 # (see _indexers_skill) — kept inline per the encapsulation convention.
@@ -608,6 +645,12 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not isinstance(defs, list):
         defs = []
+    # Language-aware matching: a term like "english" / "en" / "en-US" matches
+    # any indexer whose locale is in the SAME language family (en / en-US /
+    # en-GB / enAU / ...), not just a literal substring. `want_lang` is the
+    # primary subtag when the term looks language-ish ("" for a free-text name
+    # like "torrentgalaxy"), so a bare name search still works unchanged.
+    want_lang = _lang_primary(term) if term else ""
     rows = []
     for d in defs:
         if not isinstance(d, dict):
@@ -616,8 +659,12 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
         if not name:
             continue
         lang = _indexer_lang(d)
-        if term and term not in name.lower() and term not in lang.lower():
-            continue
+        if term:
+            name_hit = term in name.lower()
+            lang_sub = term in lang.lower()
+            lang_fam = bool(want_lang) and _lang_primary(lang) == want_lang
+            if not (name_hit or lang_sub or lang_fam):
+                continue
         rows.append((name, lang, str(d.get("protocol") or "").strip()))
     rows.sort(key=lambda t: t[0].lower())
     total = len(rows)
@@ -625,12 +672,20 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
     for name, lang, proto in rows[:25]:
         meta = ", ".join(p for p in (proto, lang) if p)
         lines.append(f"• {name}" + (f" ({meta})" if meta else ""))
+    # When the term resolved to a language family, say so — "matching language
+    # en (en-US / en-GB / enAU / ...)" reads far clearer than "matching english".
+    match_desc = ""
+    if term:
+        if want_lang:
+            match_desc = f" in language “{want_lang}” (incl. {want_lang}-US / {want_lang}-GB / {want_lang}AU etc.)"
+        else:
+            match_desc = f" matching “{arg}”"
     if not lines:
-        empty = (f"🔍 No addable indexers match “{arg}”." if term
+        empty = (f"🔍 No addable indexers{match_desc}." if term
                  else "🔍 No indexer definitions returned.")
         return {"ok": True, "status": 200, "detail": empty}
     head = (f"🧩 {total} addable indexer{'s' if total != 1 else ''}"
-            + (f" matching “{arg}”" if term else "")
+            + match_desc
             + (f" (showing first {len(lines)})" if total > len(lines) else "") + ":")
     head += "\n" + "\n".join(lines)
     head += "\n\nTo add one, say “add <name> on prowlarr” (append “with flaresolverr” to route it through the FlareSolverr proxy)."
