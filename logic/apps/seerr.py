@@ -30,7 +30,12 @@ breakdown Seerr shows on its own dashboard:
 
 AI / Telegram skills (the headline feature)
 -------------------------------------------
-* ``seerr_status``         — read-only request-queue summary.
+* ``seerr_status``         — read-only request-queue summary (counts).
+* ``seerr_requests``       — read-only LISTING of request TITLES (with year)
+  for the in-progress queue (Processing + Pending by default; an optional
+  ``arg`` narrows to processing / pending / approved / available / all).
+  Resolves each request's title via the movie / tv detail endpoint (the
+  request list carries only tmdbId / mediaType).
 * ``seerr_request_movie``  — request a movie BY TITLE (or by a numeric
   TMDB id). Resolves the title via Seerr's own ``/api/v1/search`` (which
   is TMDB-backed), picks the top movie hit, and POSTs ``/api/v1/request``.
@@ -97,6 +102,23 @@ SKILLS: tuple[dict, ...] = (
                        "request queue, what's downloading, pending approvals, "
                        "how many movies are available"),
         "destructive": False,
+    },
+    {
+        "id": "seerr_requests",
+        "name": "List requests",
+        "ai_phrases": ("what movies are processing on seerr, what's processing, "
+                       "what's downloading right now, what is being downloaded, "
+                       "list my requests, list pending requests, what's pending "
+                       "approval, what requests are in progress, show my requests, "
+                       "what titles are processing, which movies are pending, "
+                       "name the processing requests, what's in the queue, "
+                       "what shows are downloading"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("OPTIONAL status filter: 'processing' (downloading now) / "
+                     "'pending' (awaiting approval) / 'approved' / 'available' / "
+                     "'all'. Leave blank for the in-progress queue (processing + "
+                     "pending)"),
     },
     {
         "id": "seerr_request_movie",
@@ -831,6 +853,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "seerr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
+    if skill_id == "seerr_requests":
+        return await _requests_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "seerr_request_movie":
         return await _request_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "seerr_suggest_movie":
@@ -910,6 +934,181 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "pending": pend, "approved": appr, "processing": proc,
         "available_count": avail, "total": total, "issues_open": issues,
     }
+
+
+# ---------------------------------------------------------------------------
+# Request listing (titles + year, not just counts)
+# ---------------------------------------------------------------------------
+# Overseerr / Jellyseerr request-status filter tokens → display header + emoji.
+# Order is canonical (most-actionable first) regardless of how the arg names
+# them. `GET /api/v1/request?filter=<token>` accepts these.
+_REQUEST_FILTER_LABELS = {
+    "processing": "⬇️ Processing",
+    "pending": "⏳ Pending approval",
+    "approved": "✅ Approved",
+    "available": "🎬 Available",
+}
+_REQUEST_FILTER_ORDER = ("processing", "pending", "approved", "available")
+# Requests-per-status ceiling we resolve titles for — a bounded fan-out so a
+# big backlog can't trigger hundreds of per-title TMDB detail lookups.
+_REQUEST_LIST_TAKE = 30
+# Cap on concurrent per-title detail calls (movie/tv lookups run in parallel
+# but bounded so we don't hammer the upstream / TMDB proxy).
+_REQUEST_TITLE_CONCURRENCY = 8
+
+
+def _resolve_request_filters(arg: Optional[str]) -> list[str]:
+    """Map a free-text status arg to an ordered, de-duped list of Seerr
+    request-filter tokens. Blank → the in-progress queue the user usually
+    means (processing + pending). 'all' → every surfaced status."""
+    a = (arg or "").strip().lower()
+    if not a:
+        return ["processing", "pending"]
+    if "all" in a or "everything" in a:
+        return list(_REQUEST_FILTER_ORDER)
+    picked: set[str] = set()
+    if any(w in a for w in ("process", "download", "progress", "grabb", "in flight")):
+        picked.add("processing")
+    if any(w in a for w in ("pending", "await", "unapprov")):
+        picked.add("pending")
+    if "approved" in a:
+        picked.add("approved")
+    if "availab" in a:
+        picked.add("available")
+    out = [f for f in _REQUEST_FILTER_ORDER if f in picked]
+    return out or ["processing", "pending"]
+
+
+async def _seerr_media_label(cli: httpx.AsyncClient, base: str, api_key: str,
+                             media_type: str, tmdb_id: int) -> str:
+    """Resolve a request's media TITLE + year via the movie / tv detail
+    endpoint (the request list carries only tmdbId / mediaType). Returns
+    'Title (Year)' / 'Title' / '' on failure. Never raises."""
+    if not tmdb_id:
+        return ""
+    path = "tv" if (media_type or "").strip().lower() == "tv" else "movie"
+    try:
+        r = await cli.get(f"{base}/api/v1/{path}/{tmdb_id}",
+                          headers=_headers(api_key))
+    except (httpx.HTTPError, OSError):
+        return ""
+    if getattr(r, "status_code", 0) != 200:
+        return ""
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    if path == "tv":
+        title = str(body.get("name") or body.get("originalName") or "").strip()
+        year = _year_of(str(body.get("firstAirDate") or ""))
+    else:
+        title = str(body.get("title") or body.get("originalTitle") or "").strip()
+        year = _year_of(str(body.get("releaseDate") or ""))
+    if not title:
+        return ""
+    return title + (f" ({year})" if year else "")
+
+
+async def _seerr_list_requests(cli: httpx.AsyncClient, base: str, api_key: str,
+                               filt: str, take: int) -> list:
+    """One page of requests for a status filter. Returns the raw results list
+    (each a dict whose 'media' sub-object carries tmdbId / mediaType). [] on
+    any failure."""
+    try:
+        r = await cli.get(base + "/api/v1/request",
+                          headers=_headers(api_key),
+                          params={"take": take, "filter": filt, "sort": "added"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: request list ({filt}) failed — "
+              f"{type(e).__name__}: {e}")
+        return []
+    if r.status_code != 200:
+        print(f"[seerr] warning: request list ({filt}) HTTP {r.status_code}")
+        return []
+    try:
+        _raw = (r.json() or {}).get("results")
+        return _raw if isinstance(_raw, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+# noinspection DuplicatedCode
+# The force-fetch-then-format shape echoes the status skill above, but the
+# per-title resolution + grouped output is request-listing-specific, so it
+# stays inline (the per-app encapsulation pattern, CLAUDE.md).
+async def _requests_skill(host_row: dict, chip: dict, *,
+                          arg: Optional[str] = None,
+                          host_id: Optional[str] = None) -> dict:
+    """Read-only skill: list request TITLES (with year) for the in-progress
+    queue — by default the Processing + Pending-approval requests so the user
+    can see WHAT is being worked on, not just the counts. An optional ``arg``
+    narrows / widens the status ('processing' / 'pending' / 'approved' /
+    'available' / 'all'). Never raises — failures come back as
+    ``{ok: False, detail}``."""
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    filters = _resolve_request_filters(arg)
+    print(f"[seerr] INFO seerr_requests host={host_id} filters={filters} "
+          f"arg={arg!r}")
+    sections: list[str] = []
+    total_shown = 0
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=25.0,
+                                     follow_redirects=True) as cli:
+            sem = asyncio.Semaphore(_REQUEST_TITLE_CONCURRENCY)
+
+            async def _label(mt: str, tid: int) -> str:
+                async with sem:
+                    return await _seerr_media_label(cli, base, api_key, mt, tid)
+
+            for filt in filters:
+                results = await _seerr_list_requests(cli, base, api_key, filt,
+                                                     _REQUEST_LIST_TAKE)
+                # (media_type, tmdb_id) per request, de-duped, in list order.
+                items: list[tuple[str, int]] = []
+                seen: set[tuple[str, int]] = set()
+                for req in results:
+                    if not isinstance(req, dict):
+                        continue
+                    _media = req.get("media")
+                    media = _media if isinstance(_media, dict) else {}
+                    tmdb_id = safe_int(media.get("tmdbId"))
+                    mtype = str(media.get("mediaType") or "movie").strip().lower()
+                    if not tmdb_id or (mtype, tmdb_id) in seen:
+                        continue
+                    seen.add((mtype, tmdb_id))
+                    items.append((mtype, tmdb_id))
+                if not items:
+                    continue
+                labels = await asyncio.gather(*[_label(mt, tid) for mt, tid in items])
+                header = _REQUEST_FILTER_LABELS.get(filt, filt.title())
+                lines = [f"{header} ({len(items)}):"]
+                for (mt, tid), lbl in zip(items, labels):
+                    if not lbl:
+                        lbl = f"TMDB {tid}"
+                    icon = "📺" if mt == "tv" else "🎬"
+                    lines.append(f"  {icon} {lbl}")
+                    total_shown += 1
+                sections.append("\n".join(lines))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: seerr_requests host={host_id} failed — "
+              f"{type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"couldn't list requests: {type(e).__name__}: {e}"}
+    if not sections:
+        names = _join_human([_REQUEST_FILTER_LABELS.get(f, f).split(" ", 1)[-1].lower()
+                             for f in filters])
+        return {"ok": True, "status": 200,
+                "detail": f"📋 No {names} requests on Seerr right now."}
+    return {"ok": True, "status": 200,
+            "detail": "\n\n".join(sections), "count": total_shown}
 
 
 async def _seerr_search_movie(base: str, api_key: str, query: str) -> Optional[dict]:
