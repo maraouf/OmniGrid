@@ -1570,6 +1570,44 @@ def build_palette_user_prompt(query: str, ctx: dict | None,
                 # failure. Skip this block in either case — the prompt
                 # still works without this context section.
                 pass
+        # Other open tabs — the cross-device session-handoff signal
+        # (`other_tabs`, forwarded by the SPA from its live tab-activity
+        # heartbeat map minus THIS tab's own client_id). Lets the AI
+        # answer "what was I looking at on the other tab / on my
+        # desktop / on my phone?" instead of claiming it can't see other
+        # tabs. Each entry is {title, view, rich_label, device,
+        # seconds_ago}. Absent when no sibling tab is open — the
+        # GROUNDING-STRICT system-prompt rule then has the AI say it
+        # sees no other open tabs rather than inventing one.
+        other_tabs = _typed_field(ctx, "other_tabs", list)
+        if other_tabs:
+            ot_lines = [
+                "Other open OmniGrid tabs (this same operator's other browser "
+                "tabs / devices, newest first):"
+            ]
+            for ent in other_tabs[:8]:
+                if not isinstance(ent, dict):
+                    continue
+                title = str(ent.get("title") or ent.get("view") or "").strip()
+                rich = str(ent.get("rich_label") or "").strip()
+                dev = str(ent.get("device") or "").strip()
+                ago = ent.get("seconds_ago")
+                segs = [title or "(unknown view)"]
+                if rich:
+                    segs.append(rich)
+                if dev:
+                    segs.append(dev)
+                if isinstance(ago, (int, float)):
+                    segs.append(f"{int(ago)}s ago")
+                ot_lines.append("  - " + " · ".join(segs))
+            ot_lines.append(
+                "Use these to answer 'what was I looking at on the other tab / "
+                "desktop / phone?'. Each row is a DIFFERENT browser tab or device "
+                "this operator has open right now; `device` (when present) names "
+                "the machine + browser, `rich_label` carries that tab's filter / "
+                "selection state, `seconds_ago` is how long since it last beat."
+            )
+            parts.append("\n".join(ot_lines))
         stats = _typed_field(ctx, "stats", dict)
         if stats:
             try:
