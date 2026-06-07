@@ -1,0 +1,73 @@
+<!-- Per-app expanded-card extras -- Prowlarr (indexer manager).
+
+     Renders inside `apps-card.html` when the chip is the Prowlarr catalog
+     template AND extras are visible. Data from Prowlarr's `GET /api/v1/indexer`
+     (+ applications / indexerstats / health), via
+     `logic/apps/prowlarr.py:fetch_data`, read through the cache-backed
+     `appsAppData(inst)`. Mirrors lidarr_extras.html (canonical `.apps-card-ups-*`
+     stat grid + loading/error/no-api-key plain-text branches) but Prowlarr
+     manages no media library, so it shows Indexers / Apps synced / Queries /
+     Grabs and has NO Storage section.
+
+     Helpers used (all from `static/js/apps/prowlarr.js`):
+       prowlarrIsApp(app) / prowlarrData(inst) / prowlarrCount(v) /
+       prowlarrIndexersLabel(inst) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="prowlarrIsApp && prowlarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-prowlarr">
+    <template x-if="prowlarrData(inst)">
+      <div class="apps-card-ups" :data-prowlarr-host="inst.host_id">
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Indexers (enabled / total) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.indexers') || 'Indexers'"></div>
+            <div class="apps-card-ups-value" x-text="prowlarrIndexersLabel(inst)"></div>
+          </div>
+          <!-- Apps synced -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.apps_synced') || 'Apps synced'"></div>
+            <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).apps_synced)"></div>
+          </div>
+          <!-- Queries (lifetime) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.queries') || 'Queries'"></div>
+            <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).queries)"></div>
+          </div>
+          <!-- Grabs (lifetime) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.prowlarr.grabs') || 'Grabs'"></div>
+            <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).grabs)"></div>
+          </div>
+        </div>
+        <!-- Footnote: version + health issues. -->
+        <div x-show="prowlarrData(inst).version || (Number(prowlarrData(inst).health_issues) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-show="prowlarrData(inst).version" x-text="'Prowlarr ' + (prowlarrData(inst).version || '')"></span>
+          <span x-show="(Number(prowlarrData(inst).health_issues) || 0) > 0"
+                class="text-[var(--warning)]"
+                x-text="(prowlarrData(inst).version ? ' · ' : '') + (t('apps.prowlarr.health_issues_n', { n: prowlarrData(inst).health_issues }) || (prowlarrData(inst).health_issues + ' health issue(s)'))"></span>
+        </div>
+      </div>
+    </template>
+    <!-- No API key yet — idle and unconfigured. -->
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.prowlarr.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!prowlarrData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.prowlarr.loading') || 'Loading Prowlarr data…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!prowlarrData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.prowlarr.fetch_failed') || 'Prowlarr fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>

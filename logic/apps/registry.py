@@ -32,6 +32,7 @@ from . import bazarr
 from . import ddns_updater
 from . import lidarr
 from . import pihole
+from . import prowlarr
 from . import radarr
 from . import readarr
 from . import seerr
@@ -61,6 +62,7 @@ _register(bazarr)
 _register(ddns_updater)
 _register(lidarr)
 _register(pihole)
+_register(prowlarr)
 _register(radarr)
 _register(readarr)
 _register(seerr)
