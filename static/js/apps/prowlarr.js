@@ -61,6 +61,19 @@ function prowlarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Comma-joined list of the REAL connected *arr app names (Sonarr / Radarr /
+// Whisparr / …) so the drawer + tooltip show what's actually synced rather
+// than a bare count. '' when none / no data.
+function prowlarrAppsNames(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.prowlarrData ? this.prowlarrData(inst) : null);
+  if (!d || !Array.isArray(d.apps_names) || !d.apps_names.length) {
+    return '';
+  }
+  return d.apps_names.filter((n) => typeof n === 'string' && n).join(', ');
+}
+
 // "enabled / total" label for the Indexers stat cell. '—' when no data.
 function prowlarrIndexersLabel(inst) {
   // `this` is the Alpine component (merged in via `appsHelpers`).
@@ -92,5 +105,6 @@ export const helpers = {
   prowlarrIsApp: isProwlarrApp,
   prowlarrData: prowlarrData,
   prowlarrCount: prowlarrCount,
+  prowlarrAppsNames: prowlarrAppsNames,
   prowlarrIndexersLabel: prowlarrIndexersLabel,
 };
