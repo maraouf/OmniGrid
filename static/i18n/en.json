@@ -5436,7 +5436,17 @@
       "lidarr_add_artist": "Add an artist",
       "lidarr_remove_artist": "Remove an artist",
       "lidarr_search_missing": "Search for missing albums",
-      "lidarr_refresh": "Refresh music library"
+      "lidarr_refresh": "Refresh music library",
+      "readarr_status": "Readarr status",
+      "readarr_upcoming": "Upcoming books",
+      "readarr_queue": "Download queue",
+      "readarr_author_info": "Look up an author",
+      "readarr_add_author": "Add an author",
+      "readarr_remove_author": "Remove an author",
+      "readarr_search_missing": "Search for missing books",
+      "readarr_refresh": "Refresh book library",
+      "ddns_status": "DNS records status",
+      "ddns_update": "Update DNS now"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5576,6 +5586,33 @@
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Lidarr data…",
       "fetch_failed": "Lidarr fetch failed"
+    },
+    "readarr": {
+      "api_key_label": "Readarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Readarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch the library summary. Found in Readarr under Settings → General → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Readarr (5–3600s). Leave blank for the app default (60s).",
+      "authors": "Authors",
+      "missing": "Missing books",
+      "downloading": "Downloading",
+      "monitored": "Monitored",
+      "storage": "Storage",
+      "disk_free_short": "free",
+      "health_issues_n": "{n} health issue(s)",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Readarr data…",
+      "fetch_failed": "Readarr fetch failed"
+    },
+    "ddns": {
+      "no_auth_hint": "ddns-updater has no authentication — set the instance URL (its web UI root) above; no API key is needed.",
+      "cache_ttl_hint": "How long the parsed records summary is cached before re-querying ddns-updater (5–3600s). Leave blank for the app default (60s).",
+      "records": "Records",
+      "up_to_date": "Up to date",
+      "failing": "Failing",
+      "public_ip": "Public IP",
+      "loading": "Loading ddns-updater data…",
+      "fetch_failed": "ddns-updater fetch failed"
     }
   }
 }

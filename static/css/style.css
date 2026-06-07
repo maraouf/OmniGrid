@@ -10119,7 +10119,8 @@ select.field-invalid {
    app + every other size keeps Storage. Operator-requested. */
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-radarr .apps-card-storage,
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-sonarr .apps-card-storage,
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-lidarr .apps-card-storage {
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-lidarr .apps-card-storage,
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-readarr .apps-card-storage {
   display: none;
 }
 

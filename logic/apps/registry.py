@@ -29,9 +29,11 @@ from . import adguardhome
 from . import adguardhome_sync
 from . import apc
 from . import bazarr
+from . import ddns_updater
 from . import lidarr
 from . import pihole
 from . import radarr
+from . import readarr
 from . import seerr
 from . import sonarr
 from . import speedtest_tracker
@@ -56,9 +58,11 @@ _register(adguardhome)
 _register(adguardhome_sync)
 _register(apc)
 _register(bazarr)
+_register(ddns_updater)
 _register(lidarr)
 _register(pihole)
 _register(radarr)
+_register(readarr)
 _register(seerr)
 _register(sonarr)
 _register(speedtest_tracker)
