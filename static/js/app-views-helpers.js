@@ -969,6 +969,10 @@ export default {
       action_id: action.id,
       action_label: action.label || action.id,
       action_ran: !isDestructive,
+      // Pre-declared so the "Working on it…" spinner (x-show on
+      // turn.skill_running) tracks the key from creation when
+      // `_runCommandPaletteAction` flips it during the run.
+      skill_running: false,
       slash: !!slash,
       ts: Date.now(),
     });

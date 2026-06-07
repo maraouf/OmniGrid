@@ -1191,6 +1191,22 @@ export default {
         }
       }
     }
+    // Sidebar: surface the "Working on it…" spinner on the most-recent
+    // assistant turn while the action runs, so the slash-dispatched,
+    // approval-confirmed, and autonomous skill paths ALL get the same
+    // visible pending feedback the AI-emitted non-destructive path
+    // already shows via `_aiSidebarRunSkill`. Without this, a slash /
+    // confirmed skill run stamped its result (details rendered) but the
+    // operator saw NO waiting indicator while it ran. Cleared in
+    // `finally` so a throw can't leave the spinner stuck.
+    let _sidebarRunTurn = null;
+    if (fromSidebar) {
+      const _t = this.aiConversation[this.aiConversation.length - 1];
+      if (_t && _t.role === 'assistant') {
+        _sidebarRunTurn = _t;
+        _sidebarRunTurn.skill_running = true;
+      }
+    }
     try {
       // Forward parameterised-action params via the run(opts)
       // envelope. `skipConfirm` is forwarded (true in sidebar mode
@@ -1226,6 +1242,10 @@ export default {
     } catch (e) {
       if (typeof this.showToast === 'function') {
         this.showToast(this.t('toasts.failed_with_error', {error: e.message}), 'error');
+      }
+    } finally {
+      if (_sidebarRunTurn) {
+        _sidebarRunTurn.skill_running = false;
       }
     }
   },
