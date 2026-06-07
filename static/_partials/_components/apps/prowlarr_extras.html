@@ -30,7 +30,8 @@
           <!-- Apps synced -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-ups-label" x-text="t('apps.prowlarr.apps_synced') || 'Apps synced'"></div>
-            <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).apps_synced)"></div>
+            <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).apps_synced)"
+                 :title="prowlarrAppsNames(inst)"></div>
           </div>
           <!-- Queries (lifetime) -->
           <div class="apps-card-ups-stat">
@@ -43,6 +44,13 @@
             <div class="apps-card-ups-value" x-text="prowlarrCount(prowlarrData(inst).grabs)"></div>
           </div>
         </div>
+        <!-- Connected-app names: the REAL synced *arr apps (Sonarr / Radarr /
+             Whisparr / …), not just a count. Lives outside the stat-grid so
+             the 1x1..4x2 card-size rules are unaffected. -->
+        <div x-show="prowlarrAppsNames(inst)"
+             class="fs-3xs text-[var(--text-dim)] mt-1 truncate"
+             :title="prowlarrAppsNames(inst)"
+             x-text="(t('apps.prowlarr.apps_synced') || 'Apps synced') + ': ' + prowlarrAppsNames(inst)"></div>
         <!-- Footnote: version + health issues. -->
         <div x-show="prowlarrData(inst).version || (Number(prowlarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

@@ -216,14 +216,28 @@ async def fetch_data(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             r = await cli.get(indexer_url, headers=_headers(api_key))
             apps_synced = 0
+            apps_names: list[str] = []
             try:
                 ar = await cli.get(base + "/api/v1/applications",
                                    headers=_headers(api_key))
                 if ar.status_code == 200:
                     _aj = ar.json()
-                    apps_synced = len(_aj) if isinstance(_aj, list) else 0
+                    if isinstance(_aj, list):
+                        apps_synced = len(_aj)
+                        # Capture the REAL connected-app names so the AI
+                        # reports what's actually synced (Sonarr / Radarr /
+                        # Whisparr / …) instead of guessing. Prefer the
+                        # operator-set name; fall back to the *arr type
+                        # (`implementation`, e.g. "Sonarr").
+                        for _a in _aj:
+                            if not isinstance(_a, dict):
+                                continue
+                            _nm = (_a.get("name") or _a.get("implementation") or "")
+                            if isinstance(_nm, str) and _nm.strip():
+                                apps_names.append(_nm.strip())
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 apps_synced = 0
+                apps_names = []
             queries = grabs = 0
             try:
                 sr = await cli.get(base + "/api/v1/indexerstats",
@@ -267,6 +281,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "indexers_total": total,
         "indexers_enabled": enabled,
         "apps_synced": safe_int(apps_synced),
+        "apps_names": apps_names,
         "queries": safe_int(queries),
         "grabs": safe_int(grabs),
         "health_issues": safe_int(health_issues),
@@ -274,7 +289,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "fetched_at": int(now),
     }
     print(f"[prowlarr] INFO fetched host={host_id} indexers={enabled}/{total} "
-          f"apps={out['apps_synced']} queries={out['queries']} "
+          f"apps={out['apps_synced']}{('=' + ','.join(apps_names)) if apps_names else ''} "
+          f"queries={out['queries']} "
           f"grabs={out['grabs']} health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -290,6 +306,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "indexers_total": safe_int(data.get("indexers_total")),
         "indexers_enabled": safe_int(data.get("indexers_enabled")),
         "apps_synced": safe_int(data.get("apps_synced")),
+        "apps_names": data.get("apps_names") if isinstance(data.get("apps_names"), list) else [],
         "queries": safe_int(data.get("queries")),
         "grabs": safe_int(data.get("grabs")),
         "health_issues": safe_int(data.get("health_issues")),
@@ -347,12 +364,17 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("indexers_total"))
     enabled = safe_int(data.get("indexers_enabled"))
     apps = safe_int(data.get("apps_synced"))
+    apps_names = data.get("apps_names") if isinstance(data.get("apps_names"), list) else []
     queries = safe_int(data.get("queries"))
     grabs = safe_int(data.get("grabs"))
     health = safe_int(data.get("health_issues"))
+    # Spell out the actual connected apps so the AI never invents names.
+    apps_line = f"🔗 Apps synced: {apps:,}"
+    if apps_names:
+        apps_line += f" ({', '.join(apps_names)})"
     lines = [
         f"🔍 Indexers: {enabled:,} / {total:,} enabled",
-        f"🔗 Apps synced: {apps:,}",
+        apps_line,
         f"📊 Queries: {queries:,}",
         f"📥 Grabs: {grabs:,}",
         f"{'⚠️' if health else '✅'} Health issues: {health:,}",
@@ -362,7 +384,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "indexers_total": total, "indexers_enabled": enabled,
-        "apps_synced": apps, "queries": queries, "grabs": grabs,
+        "apps_synced": apps, "apps_names": apps_names,
+        "queries": queries, "grabs": grabs,
         "health_issues": health,
     }
 
@@ -469,20 +492,16 @@ async def _search_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not isinstance(items, list):
         items = []
-
     # Best results first — most seeders, then largest. Grabs/seeders live on the
     # release dict (key varies by protocol); fall back to 0 when absent.
-    def _seeders(it):
-        return safe_int(it.get("seeders")) if isinstance(it, dict) else 0
-
     rows = [it for it in items if isinstance(it, dict)]
-    rows.sort(key=lambda it: (_seeders(it), safe_int(it.get("size"))), reverse=True)
+    rows.sort(key=lambda it: (_release_seeders(it), safe_int(it.get("size"))), reverse=True)
     lines = []
     for it in rows[:10]:
         title = str(it.get("title") or "?").strip()
         indexer = str(it.get("indexer") or "").strip()
         size = _fmt_bytes(it.get("size"))
-        seeders = _seeders(it)
+        seeders = _release_seeders(it)
         meta = ", ".join(p for p in (
             indexer,
             size,
@@ -607,9 +626,9 @@ async def _available_indexers_skill(host_row: dict, chip: dict, *,
         meta = ", ".join(p for p in (proto, lang) if p)
         lines.append(f"• {name}" + (f" ({meta})" if meta else ""))
     if not lines:
-        return {"ok": True, "status": 200,
-                "detail": f"🔍 No addable indexers match “{arg}”." if term
-                else "🔍 No indexer definitions returned."}
+        empty = (f"🔍 No addable indexers match “{arg}”." if term
+                 else "🔍 No indexer definitions returned.")
+        return {"ok": True, "status": 200, "detail": empty}
     head = (f"🧩 {total} addable indexer{'s' if total != 1 else ''}"
             + (f" matching “{arg}”" if term else "")
             + (f" (showing first {len(lines)})" if total > len(lines) else "") + ":")
