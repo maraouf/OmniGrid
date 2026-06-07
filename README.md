@@ -11,7 +11,7 @@ A Portainer-native operations dashboard for Docker Swarm clusters **and the bare
 
 - **Updates** — scan every Swarm service, compare against remote registry digests (Docker Hub / GHCR / lscr.io / any v2 registry), one-click stack update, container recreate, service restart, orphan-task cleanup. All via the Portainer REST API — no direct Docker socket.
 - **Host telemetry** — live CPU / Memory / Disk / Disk I/O / Network / Load / Bandwidth time-series per curated host, sourced from any combination of Beszel, Pulse, node-exporter, Webmin, Ping (TCP/ICMP reachability + RTT), SNMP (managed switches / routers / UPSes), HTTP probe (per-URL TCP / TLS-cert / DNS health checks), and per-service reachability. Cross-provider fallback + per-host snapshots so a flaky agent doesn't blank the chart.
-- **Operations** — interactive xterm.js SSH terminal, admin-audited one-shot SSH runner with destructive-pattern guard, cron-like scheduled jobs (cache refresh / docker prune / SQLite + avatars backup / asset-inventory refresh), Apprise notifications, full audit log of every action.
+- **Operations** — interactive xterm.js SSH terminal, admin-audited one-shot SSH runner with destructive-pattern guard, cron-like scheduled jobs (cache refresh / docker prune / SQLite + avatars backup / asset-inventory refresh), a multi-provider AI assistant (palette + sidebar + Telegram), in-app + Apprise + Telegram notifications, full audit log of every action.
 - **Auth** — local accounts + API tokens, optional Authentik OIDC SSO, TOTP + WebAuthn passkey 2FA, two roles (admin / read-only), CSRF-hardened, rate-limited login, session revocation, self-service password change.
 
 Built as a friendlier replacement for Diun Dash plus the tab-jumping between Portainer / Beszel / Grafana / SSH that homelab clusters tend to grow. Diun only **observes**; OmniGrid **acts**.
@@ -28,7 +28,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Cluster updates & operations
 
-- **Seven views**: Stacks (grouped, default) · Services (flat sortable) · Nodes (per-host swarm grouping with HOST stats) · Hosts (curated inventory + telemetry) · Apps (per-host pinned services + catalog) · History (audit log) · Timeline (cross-host event timeline) — plus the **Stats** top-nav for cluster-wide dashboards (Overview / Database / Samples / Network / Incidents / AI Cost).
+- **Seven views**: Stacks (grouped, default) · Services (flat sortable) · Nodes (per-host swarm grouping with HOST stats) · Hosts (curated inventory + telemetry) · Apps (per-host pinned services + catalog) · History (audit log) · Timeline (cross-host event timeline) — plus the admin-only **Stats** top-nav for cluster-wide dashboards (Dashboard / Database / Samples / Samplers / Incidents / Network / AI Cost). The Stats → Dashboard lands on six headline summary cards (database size · total samples · incidents 30d · network 30d · AI cost 30d · AI jobs 30d), each with skeleton loading + a click-through to its deeper sub-page, backed by `GET /api/admin/stats/summary`.
 - **Digest-level update detection** — compares your running `image@sha256:...` against the remote manifest. Supports Docker Hub, GHCR, lscr.io, and any v2 registry. Token-cached www-authenticate dance for private registries.
 - **Click-to-act** — Update Stack (prune+repull+redeploy), Recreate container, Restart service (no pull), Remove offline / orphan containers, all via the Portainer REST API.
 - **Bulk operations** — checkbox multi-select; dedupes by stack so one stack = one update call.
@@ -43,21 +43,24 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Time-series charts** — CPU / Memory / Disk usage / Disk I/O (Linux + FreeBSD `node_devstat_*`) / Network In/Out / Bandwidth / Load 1m/5m/15m (rendered as % of cores) / Swap / Temperature (per-sensor lines from `stats.t`) / GPU Power / GPU Usage / GPU VRAM (NVIDIA / AMD via Beszel `stats.g`), with 1h / 6h / 24h / 7d range picker, dynamic unit chips that lock to one family (legend + Y-axis + chip stay aligned across magnitudes), permanently-flat charts auto-hide after a 1 h soak, and a live "Updated Xs ago" freshness label.
 - **Switch / managed-gear telemetry** (SNMP) — total throughput line chart, per-port throughput multi-line chart (top 5 by current rate, solid in / dashed out), per-port utilization line chart (% of link capacity from `ifHighSpeed`), uptime trend with reboot detection, hardware inventory rows from `entPhysicalTable` (model / serial / firmware), printer toner / ink supplies + lifetime page count headline + console message via Printer-MIB.
 - **Host drawer detail** — hardware (vendor / model / serial / OS / kernel / arch), network interfaces, mounted filesystems, package-update count, systemd service status, optional asset-inventory join (model / serial / location from a third-party asset API).
-- **Host groups** — admin-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199").
+- **Per-host drift baselines** — each Hosts row carries a `▲ / ▼ / ━` chip per metric (CPU% / Memory% / Disk% / Ping RTT) computed from a rolling median ± interquartile range over the host's own history, so "hotter / cooler than this box's normal" surfaces at a glance independent of the absolute amber / red stat-bar thresholds.
+- **Snapshot-first render** — the Hosts list paints instantly from the last-known `host_snapshots` blob (with stale-field markers) while a background per-host probe upgrades each row from cached to live — repeat visits skip the cold-cache cliff.
+- **Bulk host actions** — pause / resume sampling, apply an SNMP vendor whitelist, or push per-host SNMP tunable overrides across N selected hosts in one POST; each affected host fires its usual SSE event so other tabs catch up within one frame.
+- **Host groups** — admin-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199"), with an optional display `number` prefix rendered before the group name and 2-level nesting via `parent_name`.
 
 ### Operations & access
 
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
 - **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
-- **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of templates (AdGuard Home, Plex, Sonarr, Authentik, …). Discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart/Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
-- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll for `/help` / `/hosts` / `/host` / `/restart` (alias `/reboot`) / `/cleanup` / `/update` / `/link` / `/whoami` / `/weather` / `/moon` / `/prayer` / `/hijri` / `/time` / `/version` / `/ip`, free-form AI chat in authorised chats. Destructive commands gate on a typed-confirm two-step. Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
-- **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) palette + multi-turn sidebar with persistent chat history, inline charts (`memory_history` / `cpu_history` / `disk_projection`), per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives), structured `ACTION:` directives the SPA dispatches inline, fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
+- **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of ~80 templates (AdGuard Home, Plex, Sonarr, Authentik, …). A discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart / Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
+- **Per-app integrations + skills** — apps with a dedicated module light up an expanded card (live data) plus a set of **skills** exposed three ways at once: an app-drawer button, an AI palette/sidebar action, and a Telegram action the model can invoke from natural language. Apps with modules today: **Plex** (library + now-playing + recently-added + search + scan, with a seamless "Sign in to Plex" OAuth PIN flow — `POST /api/apps/plex/auth/start` + `GET /api/apps/plex/auth/poll`), **Radarr / Sonarr / Lidarr / Readarr / Bazarr / Prowlarr / Seerr** (the *arr + request stack), **Kavita**, **AdGuard Home** + **Pi-hole** (fleet apps — one aggregated card + fleet-wide enable / disable-for-N / refresh across every instance), **AdGuard Home Sync**, **ddns-updater**, **APC** (UPS via SNMP), and **Speedtest Tracker**. Notable rosters: Prowlarr (status / indexers / app-sync / search / find-available / add-indexer / add-indexers-in-bulk / fix-flaresolverr-tags), Seerr (status / list-requests / request-movie / suggest-movie / set-filter / show-filters), Kavita (status / libraries / search / scan). Per-instance credentials follow the keep-current-if-blank contract; destructive skills gate on confirm (and on `telegram_allow_destructive` over Telegram). Each skill is delivered via `POST /api/services/{host}/{idx}/skill/{id}`; per-app card data via `GET /api/services/{host}/{idx}/app-data`; credential tests via `POST /api/services/{host}/{idx}/test-credential`.
+- **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll (not webhook) for `/help` · `/start` · `/hosts` · `/host` · `/restart` (alias `/reboot`) · `/cleanup` · `/update` · `/skills` (lists every per-app skill across your pinned apps) · `/link` · `/unlink` · `/whoami` · `/myid` · `/weather` · `/moon` · `/prayer` · `/hijri` · `/time` · `/version` · `/ip`, plus free-form AI chat in authorised chats and natural-language per-app skill dispatch. Destructive commands gate on a typed-confirm two-step (or `telegram_allow_destructive`). Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
+- **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) Cmd-K palette + multi-turn sidebar. Chat history persists to `ui_prefs.ai_conversation` (survives reload / redeploy / cross-browser; Clear is screen-only — prior turns stay in the DB for learning). Inline charts (`memory_history` / `cpu_history` / `disk_projection`) render directly in assistant turns; structured `ACTION:` / `ACTION_HOSTS:` directives are dispatched inline (with an inline-confirm chip for destructive actions in **approval** mode, or fired immediately in **autonomous** mode — a per-user persisted toggle); a per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives) accumulates lessons across sessions. The same per-app `app_skills` context feeds both the web AI and the Telegram AI, so the model can invoke any runnable app skill. Fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
-- **Bulk host actions** — pause / resume sampling, apply SNMP vendor whitelist, apply per-host SNMP tunables across N hosts in one POST. Each affected host fires its usual SSE event so other tabs catch up within one frame.
 - **Audit log** — every operation (updates, restarts, ssh runs, schedule fires, backups, AI calls, port scans) persisted to SQLite with full event log. Filterable + CSV / JSON export. Timeline tab gives a unified per-host event view (state changes + sampler errors + bulk-action audit rows).
 - **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page. Tunable retention via `tuning_backup_retention_count` (0 = keep all; 7-30 typical).
-- **Notifications (in-app + Apprise)** — every write op + scheduled-job completion fires through TWO mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind) and the existing Apprise webhook fan-out. Per-medium master toggles + per-event admin gates + per-user opt-in/out. Admin-only template editor for per-event title + body overrides with curated `{name}` / `{type}` / `{actor}` / `{host}` / `{time}` / `{error}` / `{status}` placeholder whitelist.
+- **Notifications (in-app + Apprise + Telegram)** — every write op + scheduled-job completion fans out through THREE mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind), the Apprise webhook, and the Telegram bot. Per-medium master toggles + per-event admin gates + per-user opt-in/out. Admin-only template editor for per-event title + body overrides with a curated `{name}` / `{type}` / `{actor}` / `{host}` / `{time}` / `{error}` / `{status}` placeholder whitelist, a live preview pane, and a send-test button that fires a real notification through every enabled medium.
 - **Prometheus `/metrics`** — gather stats, op counts, cache age, host-stats provider health.
 
 ### Auth & UX
@@ -69,7 +72,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Two roles**: `admin` (all ops) · `readonly` (reads only). Write routes enforce server-side; UI hides write buttons for read-only users.
 - **CSRF** double-submit cookie, automatic on every cookie-authed write request.
 - **Self-service** — change password, manage TOTP enrolment + backup codes, revoke own sessions, manage avatar / display name / email / bio, opt in/out of individual notification events.
-- **Polish**: dark + light theme, English + Arabic with RTL support (more languages: drop a JSON in `static/i18n/`), global search (`/`), keyboard shortcuts (`?` for the cheat sheet), per-user view persistence.
+- **Polish**: dark + light theme, English + Arabic with RTL support (more languages: drop a JSON in `static/i18n/`), Cmd-K command palette, keyboard shortcuts (`Cmd/Ctrl+/` focus search, `Cmd/Ctrl+1..5` jump to Stacks / Services / Nodes / Hosts / History, `Cmd/Ctrl+6` Profile, `Cmd/Ctrl+7` Stats + `Cmd/Ctrl+8` Admin for admins, `Cmd/Ctrl+Shift+/` for the cheat sheet, `←` / `→` to step through the open drawer), per-user view persistence.
 
 ### Deploy story
 
@@ -79,24 +82,50 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ## Architecture
 
+OmniGrid is a **single FastAPI process** that acts as an in-memory coordinator in front of many external systems. It is pinned to **one replica** on purpose — the live fleet snapshot, operation log, and SSE bus all live in process memory, so horizontal scaling would split that state and is a correctness hazard, not a knob.
+
 ```
-┌───────────────┐       ┌──────────────┐       ┌──────────────┐
-│   Browser     │──────▶│   OmniGrid   │──────▶│  Portainer   │
-│ (Alpine+Tail) │  REST │   (FastAPI)  │  REST │   (Swarm)    │
-└───────────────┘       └──────┬───────┘       └──────────────┘
-                               │
-                               │ HEAD /v2/*/manifests/<tag>
-                               ▼
-                    ┌──────────────────────┐
-                    │  Docker registries   │
-                    │ (hub, ghcr, lscr, …) │
-                    └──────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Clients   Browser SPA (Alpine.js + Tailwind, no build step) · Telegram bot ·  │
+│            machine clients (API tokens)                                         │
+└───────────────────────────────────┬────────────────────────────────────────────┘
+                                     │  REST + Server-Sent Events
+                                     │  (session cookie / Bearer token)
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                 OmniGrid — single FastAPI process (1 replica)                   │
+│                                                                                  │
+│  main.py        thin shell: lifespan handler + the FastAPI app + orchestration   │
+│  main_pkg/*     route chunks (settings · admin-AI · apps · hosts · stats · auth  │
+│                 · …) star-imported into one app instance                         │
+│  logic/*        business logic (see below)                                       │
+│                                                                                  │
+│  RUNTIME STATE                       LIFESPAN WORKERS  (one per process)          │
+│  • _cache       fleet snapshot       • per-provider time-series samplers          │
+│  • _stats_cache short-TTL stats      • cron-like scheduler (gather / prune /      │
+│  • SSE event bus (events.py)           backup / port-scan / …)                    │
+│  • SQLite       durable state        • baseline / drift / metrics warmers         │
+│                                      • Telegram long-poll listener                │
+└───────────────────────────────────┬────────────────────────────────────────────┘
+                                     │  reads / writes (typed clients — no Docker socket)
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Portainer (Swarm REST) · Docker registries (manifest-digest probe) ·           │
+│  Host-stats providers: Beszel · Pulse · node-exporter · Webmin · SNMP · Ping ·  │
+│    HTTP-probe · service-probe ·                                                  │
+│  Per-app upstreams: Plex · Radarr / Sonarr / Lidarr / Readarr · Prowlarr ·      │
+│    Seerr · Bazarr · Kavita · AdGuard Home · Pi-hole · ddns-updater · … ·         │
+│  AI providers: Claude · Gemini · ChatGPT · DeepSeek ·                            │
+│  Telegram Bot API · Apprise · asset-inventory API · weather · plex.tv OAuth      │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **`main.py`** — FastAPI backend (routes + lifespan + orchestration). Aggregates data from Portainer (services, tasks, nodes, stacks, containers), resolves remote digests in parallel, runs background update + prune + restart jobs, fires the in-app notification store + Apprise webhooks.
-- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry`, `portainer`, `beszel`, `pulse`, `node_exporter`, `webmin`, `ping` / `ping_sampler`, `snmp`, `http_probe` / `host_http_sampler`, `service_sampler`, `host_metrics_sampler`, `host_net_sampler`, `host_baseline` / `host_baseline_sampler`, `schedules`, `backups`, `asset_inventory`, `events` (SSE bus), `tuning` (TUNABLES + 3-tier resolver), `settings_keys` / `env_keys` (typed key registries), `merge`, `cooldown`, `migrations`, `webauthn_helper`, `totp`, `telegram_listener`, `notify_telegram`, `public_ip`, `config_export`, `datetime_fmt`, `i18n`.
-- **`static/index.html` + `static/js/app.js` + `static/css/style.css`** — single-page Alpine.js + Tailwind UI; no build step.
-- **`/opt/omnigrid/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, app catalog + pinned instances, AI usage + memory, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, the per-provider sampler tables `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `host_pulse_samples` / `host_webmin_samples` / `host_beszel_samples` / `host_http_samples` / `service_samples` / `ping_samples`, plus `weather_samples`, …).
+- **`main.py` + `main_pkg/*`** — the FastAPI backend. `main.py` is a thin shell holding the lifespan handler (which starts/stops every background worker) and the `app` instance; the route handlers are split across `main_pkg/*` chunks (settings / admin-AI / apps / hosts / stats / auth / …) that star-import into the one app so decorators reach the shared `app`. Aggregates Portainer data (services / tasks / nodes / stacks / containers), resolves remote image digests in parallel, runs background update / prune / restart ops, and fans notifications out to the in-app store + Apprise + Telegram.
+- **`logic/`** — modular business logic: `gather`, `stats`, `ops`, `auth`, `oidc`, `registry` (Docker), `portainer`, the host-stats providers (`beszel`, `pulse`, `node_exporter`, `webmin`, `snmp`, `ping`, `http_probe`) + their lifespan samplers (`*_sampler`), `service_sampler`, `host_metrics_sampler`, `host_net_sampler`, `host_baseline` / `host_baseline_sampler`, `schedules` (scheduler), `backups`, `asset_inventory`, `events` (SSE bus), `ai` / `ai_extras` (multi-provider AI), `telegram_listener` / `telegram_handlers` / `telegram_ai` / `notify_telegram`, `tuning` (TUNABLES + 3-tier resolver), `settings_keys` / `env_keys` (typed key registries), `merge`, `coerce`, `cooldown`, `migrations`, `webauthn_helper`, `totp`, `public_ip`, `config_export`, `datetime_fmt`, `logs`, `port_scanner` / `port_scanner_udp`, `triage`, `url_safety`, `i18n`.
+- **`logic/apps/`** — the per-app integration registry. One module per app (`plex`, the *arr family, `seerr`, `bazarr`, `kavita`, `prowlarr`, `adguardhome`, `pihole`, …) exposes a uniform surface — `fetch_data` (the expanded card), `SKILLS` + `run_skill` (the AI / Telegram actions), `test_credential` — and `registry.py` maps each catalog slug to its module. Adding an app is a fixed-cost set of files (module + SPA module + editor/extras partials + catalog template), independent of how many already exist. Shared plumbing (URL resolve, fetch-cache, fleet helpers) lives in `_common.py`; the *arr family shares `_servarr.py`.
+- **Runtime model** — the last gathered fleet snapshot lives in an in-memory `_cache` (TTL-bounded, invalidated on every write op + `?force=true`); a separate short-TTL `_stats_cache` holds live CPU/mem/size. An in-process SSE pub/sub bus (`logic/events.py`, single-replica safe) pushes live updates to cookie-authed browsers; the SPA's polling loops idle while the stream is healthy and resume if it drops. Everything with a heartbeat — per-provider samplers, the scheduler, baseline / drift / metrics warmers, the Telegram listener — runs as a **lifespan-managed** asyncio task (started in the lifespan handler, cancelled on shutdown) so "one replica" stays a correctness property.
+- **`static/`** — single-page Alpine.js + Tailwind UI, no build step (`npm install`-managed deps are committed + served straight from `node_modules/`). Admin sub-tabs, the per-app card / editor / extras, and Settings sections are server-side-included from `static/_partials/` at request time.
+- **`/app/data/omnigrid.db`** — SQLite. Holds history, ignores, settings, users, sessions, API tokens, WebAuthn credentials, schedules, in-app notifications, host snapshots, per-(provider, host) failure state, the app catalog + pinned instances, AI usage + memory, and the time-series tables (`stats_samples`, `host_metrics_samples`, `host_net_samples`, the per-provider sampler tables `host_snmp_samples` / `host_snmp_iface_samples` / `host_snmp_temp_samples` / `host_pulse_samples` / `host_webmin_samples` / `host_beszel_samples` / `host_http_samples` / `service_samples` / `ping_samples`, plus `weather_samples`, …). Runs WAL + a per-connection busy-timeout; additive schema changes are idempotent, non-additive ones go through numbered migrations.
 
 ## Deploy
 
@@ -344,13 +373,13 @@ GET / POST / DELETE          /api/ai/memory[/{id}]                  AI memory CR
 POST                          /api/ai/memory/forget                  delete by exact-text match (`MEMORY-FORGET:` directive)
 
 # Stats dashboards (admin-only)
+GET                           /api/admin/stats/summary               six Dashboard headline cards (cached; ?force=true bypasses)
 GET                           /api/admin/stats/overview              cluster-wide quick-insight counts
 GET                           /api/admin/stats/database?range=24h    DB KPIs + daily-INSERT bar charts
 GET                           /api/admin/stats/network?range=24h     fleet-wide network throughput + burst-rate
 GET                           /api/admin/stats/incidents?range=24h   incident view of host_failure_events
 GET                           /api/admin/stats/ai-cost?range=24h     finance-style view of ai_jobs
 GET                           /api/admin/stats/samples?range=24h     per-sample-table KPIs
-GET / DELETE                  /api/admin/stats/samples/by-host       per-host drill-down (per sample table)
 GET                           /api/admin/stats/samplers              per-sampler live state + last-tick rows + last-prune rows
 
 # Admin tuning panel (admin-only)
@@ -428,6 +457,8 @@ POST                          /api/services/{host_id}/{service_idx}/probe   admi
 POST                          /api/services/{host_id}/{service_idx}/test-credential  per-app credential test (e.g. Speedtest Tracker API key)
 POST                          /api/services/{host_id}/{service_idx}/skill/{skill_id}  run one per-app SKILL (drawer button + AI / Telegram action)
 GET                           /api/services/{host_id}/{service_idx}/app-data        per-app expanded card data (per-slug dispatcher)
+POST                          /api/apps/plex/auth/start              begin a Plex OAuth PIN ("Sign in to Plex") → {pin_id, url}
+GET                           /api/apps/plex/auth/poll               poll the Plex PIN → {token} once the user authorises
 POST                          /api/apps/catalog/{slug}/show-extras   toggle a catalog template's show_extras flag (admin)
 GET                           /api/services/{host_id}/{service_idx}/debug   per-chip diagnostics
 GET                           /api/services/{host_id}/{service_idx}/history per-chip probe-result series

@@ -10,6 +10,26 @@
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="plexIsApp && plexIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <!-- Seamless "Sign in to Plex" — runs the OAuth PIN device flow so the
+         operator doesn't paste a token by hand (the same flow Tautulli /
+         Overseerr use). Fills the token field below on success. Manual paste
+         stays available as a fallback. Local x-data carries the busy spinner. -->
+    <div x-data="{ plexBusy: false }">
+      <button type="button"
+              class="btn btn-primary fs-sm inline-flex items-center gap-1.5"
+              :disabled="isReadonly() || plexBusy"
+              @click="plexBusy = true; plexSignIn().finally(() => plexBusy = false)">
+        <span x-show="plexBusy" class="spin" aria-hidden="true"></span>
+        <svg x-show="!plexBusy" width="14" height="14" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-key"/>
+        </svg>
+        <span x-text="plexBusy
+          ? (t('apps.plex.signin_waiting') || 'Waiting for Plex sign-in…')
+          : (t('apps.plex.signin_button') || 'Sign in to Plex')"></span>
+      </button>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.plex.signin_hint') || 'Opens plex.tv to sign in and fetches your token automatically — or paste one below.'"></p>
+    </div>
     <div>
       <label for="apps-instance-plex-api-key"
              class="block fs-xs text-[var(--text-faint)] mb-1"

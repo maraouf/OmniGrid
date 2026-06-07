@@ -808,6 +808,24 @@ async def api_service_test_credential(host_id: str, service_idx: int,
     return result
 
 
+@app.post("/api/apps/plex/auth/start")
+async def api_apps_plex_auth_start(_admin: AdminUser):
+    """Admin-only: begin the Plex "Sign in to Plex" OAuth PIN flow (the seamless
+    device flow Tautulli / Overseerr use). Returns the auth-page URL the SPA
+    opens in a popup + the pin id / code it polls — so the operator never has to
+    paste an X-Plex-Token by hand."""
+    from logic.apps import plex as _plex  # noqa: PLC0415
+    return await _plex.start_auth()
+
+
+@app.get("/api/apps/plex/auth/poll")
+async def api_apps_plex_auth_poll(_admin: AdminUser, pin_id: int = 0, code: str = ""):
+    """Admin-only: poll a pending Plex OAuth PIN. Returns ``{ok, token}`` once
+    the operator has authorised in the popup, ``{ok, pending}`` while waiting."""
+    from logic.apps import plex as _plex  # noqa: PLC0415
+    return await _plex.poll_auth(pin_id, code)
+
+
 @app.get("/api/services/{host_id}/{service_idx}/app-data")
 async def api_service_app_data(host_id: str, service_idx: int,
                                _admin: AdminUser,
