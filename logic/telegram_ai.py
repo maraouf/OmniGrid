@@ -501,7 +501,7 @@ async def resolve_host_status_rows() -> "tuple[dict, list]":
                 ok_ts = int(info.get("last_ok_ts") or 0)
                 fail_ts = int(info.get("last_failure_ts") or 0)
                 if (ok_ts > 0 and ok_ts >= fail_ts
-                        and (_now_ts - ok_ts) < recent_ok_window_s):
+                    and (_now_ts - ok_ts) < recent_ok_window_s):
                     up_now = True
                     break
             if up_now:
@@ -964,6 +964,56 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     except Exception as e:
         print(f"[telegram_listener] context app_skills build failed: {e}")
         ctx["app_skills"] = []
+    # ---- Other open web tabs (cross-device handoff) ---------------
+    # Lets the Telegram AI answer "what was I looking at on the other
+    # tab / on my desktop / on my phone?" FROM the operator's phone. The
+    # web SPA's tab-activity heartbeat registry (main_pkg/scan_routes:
+    # _tab_activity_registry) is server-side, keyed per client_id with an
+    # `actor` username, so this linked operator's currently-open browser
+    # tabs are visible here. Telegram itself isn't a browser tab, so
+    # nothing self-excludes — every live web tab for this user is
+    # "another tab". Empty when no web tab is open; the prompt builder
+    # then renders nothing and the GROUNDING-STRICT rule has the AI say
+    # it sees no other tabs rather than inventing one.
+    try:
+        import time as _time
+        # noinspection PyProtectedMember
+        from main_pkg.scan_routes import (
+            _tab_activity_registry, _tab_activity_prune,
+        )
+        _tab_activity_prune()
+        now = _time.time()
+        _ff_emoji = {"mobile": "📱", "tablet": "💻"}
+        other_tabs = []
+        for ent in _tab_activity_registry.values():
+            if not isinstance(ent, dict):
+                continue
+            if (ent.get("actor") or "") != (username or ""):
+                continue
+            _dev = ent.get("device")
+            dev = _dev if isinstance(_dev, dict) else {}
+            ff = str(dev.get("form_factor") or "").lower()
+            plat = str(dev.get("platform") or "").strip()
+            brow = str(dev.get("browser") or "").strip()
+            dev_bits = [p for p in (plat, brow) if p and p != "Other"]
+            dev_label = (_ff_emoji.get(ff, "🖥️") + " " + " · ".join(dev_bits)).strip()
+            _ts = ent.get("ts")
+            ts = float(_ts) if isinstance(_ts, (int, float)) else 0.0
+            other_tabs.append({
+                "title": ent.get("title") or ent.get("view") or "",
+                "view": ent.get("view") or "",
+                "rich_label": ent.get("rich_label") or "",
+                "device": dev_label,
+                "seconds_ago": max(0, int(now - ts)) if ts else None,
+            })
+        # newest first; a null seconds_ago (no ts) sinks to the bottom
+        other_tabs.sort(key=lambda t: (t["seconds_ago"]
+                                       if t["seconds_ago"] is not None else (1 << 30)))
+        if other_tabs:
+            ctx["other_tabs"] = other_tabs[:8]
+    # noinspection PyBroadException
+    except Exception as e:
+        print(f"[telegram_listener] context other_tabs build failed: {e}")
     return ctx
 
 

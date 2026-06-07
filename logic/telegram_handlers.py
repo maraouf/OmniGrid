@@ -538,6 +538,58 @@ async def _try_dispatch_skill_menu_command(
     return True
 
 
+def _app_skills_overview_lines(esc) -> "list[str]":
+    """The `🧠 App skills` overview block — one tappable entry per app
+    (tapping `/<app>` lists that app's skill commands). Shared by `/help`'s
+    app-skills section AND the standalone `/skills` command so the two never
+    drift. Returns [] when no pinned app has runnable skills."""
+    groups = _grouped_app_skills()
+    if not groups:
+        return []
+    out = [
+        "<b>🧠 App skills</b> <i>(tap an app to see its commands, "
+        "or just ask — I'll run them)</i>"
+    ]
+    for menu, g in groups:
+        loc = (" @ " + ", ".join(esc(h) for h in g["hosts"])) if g["hosts"] else ""
+        n = len(g["skills"])
+        out.append(
+            f"  • <b>{esc(g['app'])}</b>{loc} → /{esc(menu)} "
+            f"<i>({n} command{'s' if n != 1 else ''})</i>"
+        )
+    return out
+
+
+# noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
+# Telegram handlers have a fixed (client, args, msg) signature set by the
+# dispatcher; `args` is unused here (the roster takes no argument).
+async def _cmd_skills(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """`/skills` — the per-app skill roster on its own (the `🧠 App skills`
+    section of `/help`, nothing else). One tappable entry per pinned app;
+    tap `/<app>` to see that app's commands, or just ask in plain text and
+    the AI runs them. Linked-only — the skills are /link-gated, so an
+    unmapped sender can't invoke them and shouldn't see the menu."""
+    _tl = _listener()
+    sender_id = (msg.get("from") or {}).get("id") if isinstance(msg, dict) else None
+    linked_user = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    if not linked_user:
+        await _tl._send_reply(
+            client,
+            "🔒 Link your account first. Generate a code in OmniGrid → "
+            "Profile → Telegram, then reply with <code>/link &lt;code&gt;</code>.",
+        )
+        return
+    lines = _app_skills_overview_lines(_tl._escape)
+    if not lines:
+        await _tl._send_reply(
+            client,
+            "🧠 No app skills available yet. Pin an app with an API key under "
+            "OmniGrid → Admin → Apps, then its skills show up here.",
+        )
+        return
+    await _tl._send_reply(client, "\n".join(lines))
+
+
 # noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
 # Telegram handlers have a fixed (client, args, msg) signature
 # set by the dispatcher; not every handler uses all three. Every
@@ -842,20 +894,12 @@ async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
         # lines per ad-blocker). Bare (not <code>) so Telegram renders the
         # menu command as a one-tap command. Grouping is shared with the menu
         # dispatcher via _grouped_app_skills() so the two always agree.
-        _groups = _grouped_app_skills()
-        if _groups:
-            esc = _listener()._escape
-            lines.append(
-                "<b>🧠 App skills</b> <i>(tap an app to see its commands, "
-                "or just ask — I'll run them)</i>"
-            )
-            for _menu, _g in _groups:
-                _loc = (" @ " + ", ".join(esc(h) for h in _g["hosts"])) if _g["hosts"] else ""
-                _n = len(_g["skills"])
-                lines.append(
-                    f"  • <b>{esc(_g['app'])}</b>{_loc} → /{esc(_menu)} "
-                    f"<i>({_n} command{'s' if _n != 1 else ''})</i>"
-                )
+        _ov = _app_skills_overview_lines(_listener()._escape)
+        if _ov:
+            # Shared with the standalone /skills command (see
+            # _app_skills_overview_lines) so the two never drift. A
+            # trailing blank separates this block from the footer legend.
+            lines.extend(_ov)
             lines.append("")
 
     # Trailing legend — the 🔓 paragraph is for unmapped senders
