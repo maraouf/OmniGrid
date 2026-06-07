@@ -398,6 +398,7 @@ GET                           /api/public-ip/history?limit=N          admin-only
 GET                           /api/weather?lat=&lon=&label=           weather proxy (Open-Meteo or WeatherAPI per Admin → Weather)
 GET                           /api/weather/history?limit=N&lat=&lon=  cached historical samples for AI / Telegram retrospective questions
 POST                          /api/weather/test                       probe Open-Meteo or WeatherAPI credentials (admin)
+GET                           /api/image-proxy?url=                   server-side proxy for TMDB poster art (host-allowlisted; serves from the app domain)
 GET                           /api/prayer-times?lat=&lon=&label=&method=&school=  today's 5 prayers + Sunrise + Hijri date (AlAdhan; default OFF)
 GET                           /api/prayer-times/history?limit=N       cached daily prayer-time samples
 POST                          /api/prayer-times/test                  probe the AlAdhan API + Admin → Prayer Times settings (admin)
