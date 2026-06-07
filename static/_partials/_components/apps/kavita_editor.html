@@ -1,0 +1,68 @@
+<!-- Per-app editor fields -- Kavita (self-hosted digital library / reader).
+
+     Renders inside the Admin -> Apps per-instance editor as a conditional
+     `<template x-if="...">` so it only appears when the chip's catalog
+     template is Kavita. Kavita authenticates via an API key exchanged for a
+     JWT (Settings -> Account -> API Key). Mirrors lidarr_editor.html. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="kavitaIsApp && kavitaIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-kavita-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.kavita.api_key_label') || 'Kavita API key'"></label>
+      <input id="apps-instance-kavita-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.kavita.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.kavita.api_key_placeholder_unset') || 'API key from Kavita -> Settings -> Account')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.kavita.api_key_hint') || 'Required for the expanded card to fetch the library summary. Found in Kavita under Settings -> Account -> API Key. Leave blank to keep the stored key.'"></p>
+    </div>
+    <!-- Per-instance data-cache TTL. Blank = the app default (60s); backend
+         clamps 5..3600. -->
+    <div>
+      <label for="apps-instance-kavita-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-kavita-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>60</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.kavita.cache_ttl_hint') || 'How long the fetched library summary is cached before re-querying Kavita (5–3600s). Leave blank for the app default (60s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

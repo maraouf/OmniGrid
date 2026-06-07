@@ -116,6 +116,12 @@ SKILLS: tuple[dict, ...] = (
         "ai_phrases": ("search <term> on prowlarr, search my indexers for "
                        "<term>, manual search <term>, find <term> across "
                        "indexers, prowlarr search <term>"),
+        # arg-carrying → AI / Telegram only (the dispatch supplies the term from
+        # natural language). `arg: True` keeps it OUT of the app-drawer button
+        # list (app-apps-drawer.js filters `sk.arg === true`) — a drawer button
+        # has no way to provide the search term, so clicking it would just error
+        # "no search term given". Mirrors the *arr info / add / remove arg skills.
+        "arg": True,
         "destructive": False,
     },
 )

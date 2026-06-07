@@ -1,0 +1,72 @@
+<!-- Per-app expanded-card extras -- Kavita (self-hosted digital library).
+
+     Renders inside `apps-card.html` when the chip is the Kavita catalog
+     template AND extras are visible. Data from Kavita's `GET /api/Library`
+     (+ admin server stats), via `logic/apps/kavita.py:fetch_data`, read through
+     the cache-backed `appsAppData(inst)`. Mirrors lidarr_extras.html (canonical
+     `.apps-card-ups-*` stat grid + loading/error/no-api-key plain-text
+     branches) but Kavita has no per-mount disks, so it shows Libraries / Series
+     / Volumes / Size and has NO Storage section. Series / Volumes / Size come
+     from the ADMIN-only server-stats call, so they read 0 / — when the API key
+     isn't an admin's (the Libraries count is the always-available one).
+
+     Helpers used (all from `static/js/apps/kavita.js`):
+       kavitaIsApp(app) / kavitaData(inst) / kavitaCount(v) / kavitaSize(bytes) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="kavitaIsApp && kavitaIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-kavita">
+    <template x-if="kavitaData(inst)">
+      <div class="apps-card-ups" :data-kavita-host="inst.host_id">
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Libraries (always available) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.kavita.libraries') || 'Libraries'"></div>
+            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).libraries)"></div>
+          </div>
+          <!-- Series (admin server stats) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.kavita.series') || 'Series'"></div>
+            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).series_count)"></div>
+          </div>
+          <!-- Volumes (admin server stats) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.kavita.volumes') || 'Volumes'"></div>
+            <div class="apps-card-ups-value" x-text="kavitaCount(kavitaData(inst).volume_count)"></div>
+          </div>
+          <!-- Size (admin server stats) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-ups-label" x-text="t('apps.kavita.size') || 'Size'"></div>
+            <div class="apps-card-ups-value" x-text="kavitaSize(kavitaData(inst).total_size)"></div>
+          </div>
+        </div>
+        <!-- Footnote: version + chapter count. -->
+        <div x-show="kavitaData(inst).version || (Number(kavitaData(inst).chapter_count) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-show="kavitaData(inst).version" x-text="'Kavita ' + (kavitaData(inst).version || '')"></span>
+          <span x-show="(Number(kavitaData(inst).chapter_count) || 0) > 0"
+                x-text="(kavitaData(inst).version ? ' · ' : '') + (t('apps.kavita.chapters_n', { n: kavitaData(inst).chapter_count }) || (kavitaData(inst).chapter_count + ' chapters'))"></span>
+        </div>
+      </div>
+    </template>
+    <!-- No API key yet — idle and unconfigured. -->
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.kavita.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!kavitaData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.kavita.loading') || 'Loading Kavita data…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!kavitaData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.kavita.fetch_failed') || 'Kavita fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>
