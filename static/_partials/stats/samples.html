@@ -143,7 +143,7 @@
                                 x-text="tOr('settings.host_stats.source_' + row.provider, row.provider)"></span>
                 </td>
                 <td class="px-4 py-2 mono" x-text="row.name"></td>
-                <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="row.kind"></td>
+                <td class="px-4 py-2 fs-xs text-[var(--text-dim)]" x-text="tOr('stats.samples.kind_' + (row.name || '').replace(/_samples$/, ''), row.kind)"></td>
                 <td class="px-4 py-2 mono text-end font-semibold" x-text="Number(row.rows || 0).toLocaleString()"></td>
                 <td class="px-4 py-2 mono text-end" x-text="row.unique_hosts != null ? Number(row.unique_hosts).toLocaleString() : '—'"></td>
                 <td class="px-4 py-2 mono fs-xs text-[var(--text-dim)]"

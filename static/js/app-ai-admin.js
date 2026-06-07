@@ -153,6 +153,12 @@ export default {
   // text + as the pre-fill value when the saved setting is empty.
   aiDefaults: {},
   _aiBaselineSnapshot: '',
+  // Test-before-Save gate (canonical quartet, mirrors _appriseLastPassedTest):
+  // a JSON snapshot of the ACTIVE provider's form values stamped on a passing
+  // testAiProvider; canSaveAi() compares it to the live snapshot so Save is
+  // gated until the active provider's current api_key / base_url / model has
+  // passed a Test. Empty until the first pass.
+  _aiLastPassedTest: '',
   aiSaving: false,
   aiDashboard: null,
   aiDashboardLoading: false,
@@ -365,6 +371,32 @@ export default {
       'tuning_ai_http_timeout_seconds',
       'tuning_ai_extended_http_timeout_seconds',
     ];
+  },
+  // Test-before-Save snapshot of the ACTIVE provider's form values (mirrors
+  // _appriseTestSnapshot). Keyed on the active provider + its model / base_url
+  // / whether a key is set-or-typed + the master toggle, so editing any of
+  // those after a passing Test re-locks Save until a fresh Test passes.
+  _aiTestSnapshot() {
+    const s = this.settings || {};
+    const active = ((s.ai_active_provider || '')).toLowerCase();
+    const p = (this.aiForm && this.aiForm.providers && this.aiForm.providers[active]) || {};
+    return JSON.stringify({
+      enabled: !!s.ai_enabled,
+      active: active,
+      model: (p.model || '').trim(),
+      base_url: (p.base_url || '').trim(),
+      has_key: !!((p.api_key || '').trim()) || !!p.api_key_set,
+    });
+  },
+  // Save gate: when AI is disabled, Save freely (nothing goes anywhere).
+  // When enabled, Save is unblocked only after a passing Test of the active
+  // provider against the CURRENT form values. The dirty cue (ring + Unsaved)
+  // stays tied purely to aiFormDirty() — this only gates the Save button.
+  canSaveAi() {
+    if (!(this.settings || {}).ai_enabled) {
+      return true;
+    }
+    return this._aiLastPassedTest === this._aiTestSnapshot() && !!this._aiLastPassedTest;
   },
   async saveAiSettings() {
     if (this.aiSaving || this.isReadonly()) {
@@ -786,6 +818,12 @@ export default {
         // also persists last_test_success_ai_<name> for cross-reload).
         if (this.recordTestSuccess) {
           this.recordTestSuccess('ai_' + name);
+        }
+        // Test-before-Save: stamp the passing snapshot ONLY when the tested
+        // provider is the active one (the gate is about the active provider's
+        // credentials being verified before Save).
+        if (name === ((this.settings && this.settings.ai_active_provider) || '').toLowerCase()) {
+          this._aiLastPassedTest = this._aiTestSnapshot();
         }
         this.showToast(this.t('admin.ai.test_ok') + ' · ' + this.aiProviderDisplayName(name), 'success');
       } else {

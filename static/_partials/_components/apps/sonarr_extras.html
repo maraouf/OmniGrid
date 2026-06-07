@@ -69,7 +69,7 @@
         <!-- Footnote: version + health issues. -->
         <div x-show="sonarrData(inst).version || (Number(sonarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="sonarrData(inst).version" x-text="'Sonarr ' + (sonarrData(inst).version || '')"></span>
+          <span x-show="sonarrData(inst).version" x-text="t('apps.version_footnote', { brand: 'Sonarr', v: (sonarrData(inst).version || '') })"></span>
           <span x-show="(Number(sonarrData(inst).health_issues) || 0) > 0"
                 class="text-[var(--warning)]"
                 x-text="(sonarrData(inst).version ? ' · ' : '') + (t('apps.sonarr.health_issues_n', { n: sonarrData(inst).health_issues }) || (sonarrData(inst).health_issues + ' health issue(s)'))"></span>

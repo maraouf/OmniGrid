@@ -3051,6 +3051,65 @@ export default {
     }
   },
 
+  // Keyboard reorder for a focused edit-mode SECTION header (WCAG 2.1.1 —
+  // the section drag-and-drop is otherwise mouse/touch-only; tiles already
+  // got appsItemMove, sections were the gap). Moves the section one slot:
+  // dir -1 = earlier (Arrow Up/Left), +1 = later (Arrow Down/Right). No wrap.
+  // Mirrors appsSectionDrop's array-splice + persist. Returns true on a move.
+  appsSectionMove(sectionId, dir) {
+    const id = String(sectionId);
+    if (!id || (dir !== -1 && dir !== 1)) {
+      return false;
+    }
+    this._hydrateAppsCustomLayout();
+    const secs = this.appsCustomLayout.sections || [];
+    const i = secs.findIndex(s => s.id === id);
+    if (i < 0) {
+      return false;
+    }
+    const j = i + dir;
+    if (j < 0 || j >= secs.length) {
+      return false;
+    }
+    const tmp = secs[i];
+    secs[i] = secs[j];
+    secs[j] = tmp;
+    this._persistAppsCustomLayout();
+    // Restore focus to the moved section header after Alpine re-renders.
+    this.$nextTick(() => {
+      try {
+        const el = document.querySelector('[data-apps-section-id="' + id + '"]');
+        if (el && typeof el.focus === 'function') {
+          el.focus();
+        }
+      } catch (_e) { /* ignore */
+      }
+    });
+    return true;
+  },
+
+  // Arrow-key handler for a focused edit-mode section header → appsSectionMove.
+  // The `ev.target === ev.currentTarget` guard keeps caret-nav inside the
+  // rename input intact (the handler only fires when the header itself is
+  // focused). Mirrors _appsTileMoveKey.
+  _appsSectionMoveKey(ev, sectionId) {
+    if (!this.appsCustomEditMode || ev.target !== ev.currentTarget) {
+      return;
+    }
+    const k = ev.key;
+    let dir;
+    if (k === 'ArrowUp' || k === 'ArrowLeft') {
+      dir = -1;
+    } else if (k === 'ArrowDown' || k === 'ArrowRight') {
+      dir = 1;
+    } else {
+      return;
+    }
+    if (this.appsSectionMove(sectionId, dir)) {
+      ev.preventDefault();
+    }
+  },
+
   appsSectionDragStart(ev, sectionId) {
     this._appsDragSectionId = String(sectionId);
     this._appsDragUid = null;

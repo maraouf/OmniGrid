@@ -16,7 +16,9 @@
    :href="appsCustomEditMode ? null : (item.url || null)"
    :target="appsCustomEditMode ? null : '_blank'" rel="noopener"
    :draggable="appsCustomEditMode ? 'true' : 'false'"
-   :aria-label="(item.name || appsBookmarkHost(item.url)) + (item.url ? (' — ' + item.url) : '')"
+   :aria-label="item.url
+     ? t('apps.custom.bookmark_aria', { name: (item.name || appsBookmarkHost(item.url)), url: item.url })
+     : (item.name || appsBookmarkHost(item.url))"
    @dragstart="appsCustomEditMode ? appsItemDragStart($event, item.uid) : null"
    @dragover.prevent
    @drop.stop="appsCustomEditMode ? appsTileDrop(sec.id, item.uid) : null"

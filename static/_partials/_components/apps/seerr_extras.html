@@ -58,7 +58,7 @@
     <!-- Version footnote (when reported by /api/v1/status). -->
     <div x-show="seerrData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-         x-text="'Seerr ' + (seerrData(inst).version || '')"></div>
+         x-text="t('apps.version_footnote', { brand: 'Seerr', v: (seerrData(inst).version || '') })"></div>
   </div>
 </template>
 <!-- Loading — first fetch in flight (panel above gates on seerrData). -->

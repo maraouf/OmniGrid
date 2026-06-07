@@ -46,7 +46,7 @@
         <!-- Footnote: version + health issues. -->
         <div x-show="prowlarrData(inst).version || (Number(prowlarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="prowlarrData(inst).version" x-text="'Prowlarr ' + (prowlarrData(inst).version || '')"></span>
+          <span x-show="prowlarrData(inst).version" x-text="t('apps.version_footnote', { brand: 'Prowlarr', v: (prowlarrData(inst).version || '') })"></span>
           <span x-show="(Number(prowlarrData(inst).health_issues) || 0) > 0"
                 class="text-[var(--warning)]"
                 x-text="(prowlarrData(inst).version ? ' · ' : '') + (t('apps.prowlarr.health_issues_n', { n: prowlarrData(inst).health_issues }) || (prowlarrData(inst).health_issues + ' health issue(s)'))"></span>
