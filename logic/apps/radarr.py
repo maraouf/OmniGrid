@@ -315,16 +315,20 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None,
-                    arg: Optional[str] = None, **_kw) -> dict:
+                    arg: Optional[str] = None,
+                    actor_username: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``.
     Raises ValueError on an unknown skill id (route maps to HTTP 404). ``arg``
     carries the free-form argument (movie title / TMDB id) for the
-    add / remove / look-up skills."""
+    add / remove / look-up skills. ``actor_username`` is the invoking user
+    (web: authed user; Telegram: linked user) — used to render dates in their
+    Settings -> Profile -> Formats date format."""
     if skill_id == "radarr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
     if skill_id == "radarr_upcoming":
-        return await _upcoming_skill(host_row, chip, host_id=host_id)
+        return await _upcoming_skill(host_row, chip, host_id=host_id,
+                                     actor_username=actor_username)
     if skill_id == "radarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
     if skill_id == "radarr_movie_info":
@@ -347,7 +351,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
 
 
 async def _upcoming_skill(host_row: dict, chip: dict, *,
-                          host_id: Optional[str] = None) -> dict:
+                          host_id: Optional[str] = None,
+                          actor_username: Optional[str] = None) -> dict:
     """Read-only: the next ~14 days of upcoming movie releases from
     ``/api/v3/calendar``. Never raises."""
     api_key, base, err = _resolve_skill_target(host_row, chip)
@@ -386,8 +391,9 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         # cinema / physical / digital release dates — pick the soonest present.
         when = (str(m.get("digitalRelease") or m.get("physicalRelease")
                     or m.get("inCinemas") or "")[:10])
+        when_fmt = _servarr.fmt_release_date(when, actor_username)
         lines.append(f"• {title}{_year_suffix(m.get('year'))}"
-                     + (f" — {when}" if when else ""))
+                     + (f" — {when_fmt}" if when_fmt else ""))
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "🎬 No upcoming movie releases in the next 14 days."}
