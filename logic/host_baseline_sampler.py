@@ -19,6 +19,7 @@ import time
 from logic import host_baseline as _baseline
 from logic.db import iter_curated_hosts
 from logic.sampler_loop import lifespan_sampler_loop
+from logic.coerce import as_dict
 from logic.tuning import Tunable, tuning_int as _tuning_int
 
 
@@ -53,7 +54,7 @@ async def _baseline_tick(tick: int) -> None:
         # Resolution chain mirrors `_resolve_ping_target` /
         # ping_sampler / SNMP / SSH per the canonical contract:
         # address → ssh.fqdn → ssh.host → bare host_id.
-        _ssh = h.get("ssh") if isinstance(h.get("ssh"), dict) else {}
+        _ssh = as_dict(h.get("ssh"))
         host_targets[hid] = (
             (h.get("address") or "").strip()
             or (_ssh.get("fqdn") or "").strip()

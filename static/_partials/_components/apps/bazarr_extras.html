@@ -28,24 +28,24 @@
     <div class="apps-card-ups-grid">
       <!-- Episodes missing subtitles -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.bazarr.episodes_missing') || 'Episodes missing'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.bazarr.episodes_missing') || 'Episodes missing'"></div>
         <div class="apps-card-stat-value" x-text="bazarrCount(bazarrData(inst).episodes_missing)"></div>
       </div>
       <!-- Movies missing subtitles -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.bazarr.movies_missing') || 'Movies missing'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.bazarr.movies_missing') || 'Movies missing'"></div>
         <div class="apps-card-stat-value" x-text="bazarrCount(bazarrData(inst).movies_missing)"></div>
       </div>
       <!-- Throttled subtitle providers (0 = all good) -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.bazarr.providers_throttled') || 'Throttled providers'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.bazarr.providers_throttled') || 'Throttled providers'"></div>
         <div class="apps-card-stat-value"
              :class="(Number(bazarrData(inst).providers_throttled) || 0) > 0 ? 'text-[var(--warning)]' : ''"
              x-text="bazarrCount(bazarrData(inst).providers_throttled)"></div>
       </div>
       <!-- Health issues (0 = healthy) -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-ups-label" x-text="t('apps.bazarr.health_issues') || 'Health issues'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.bazarr.health_issues') || 'Health issues'"></div>
         <div class="apps-card-stat-value"
              :class="(Number(bazarrData(inst).health_issues) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
              x-text="bazarrCount(bazarrData(inst).health_issues)"></div>

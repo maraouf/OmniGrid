@@ -65,7 +65,7 @@ _VERSION_RE = re.compile(r'class="h6 text-muted mb-0"\s*>\s*(?P<version>[^<(]+?)
 
 from logic.apps._common import (
     cache_key, fetch_preamble, peek_cache, resolve_base_url, resolve_cache_ttl)
-from logic.coerce import safe_int
+from logic.coerce import as_list, safe_int
 
 # Catalog template slug + brand-variant aliases (operator-edited chips
 # that kept the brand but dropped the catalog link).
@@ -373,7 +373,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     origin_status = str(data.get("origin_status") or "").strip() or "unknown"
     rep_total = safe_int(data.get("replicas_total"))
     rep_ok = safe_int(data.get("replicas_ok"))
-    failed = data.get("failed_names") if isinstance(data.get("failed_names"), list) else []
+    failed = as_list(data.get("failed_names"))
     lines = [
         f"{'🔄' if running else '✅'} Sync: {'running now' if running else 'idle'}",
         f"{'✅' if origin_ok else '❌'} Origin: {origin_status}",

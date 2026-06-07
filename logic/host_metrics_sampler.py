@@ -44,6 +44,7 @@ from logic.coerce import (  # noqa: E402
     safe_float as _safe_float,
     int_or_none as _int_or_none,
     float_or_none as _float_or_none,
+    as_dict,
 )
 
 
@@ -325,7 +326,7 @@ def _resolve_target_for_log(host_id: str) -> str:
         for _h in iter_curated_hosts():
             if (_h.get("id") or "").strip() != host_id:
                 continue
-            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+            _ssh = as_dict(_h.get("ssh"))
             return (
                 (_h.get("address") or "").strip()
                 or (_ssh.get("fqdn") or "").strip()
@@ -695,7 +696,7 @@ async def _record_failure(
                         for _h in iter_curated_hosts():
                             if (_h.get("id") or "").strip() != bare_host:
                                 continue
-                            _ssh = _h.get("ssh") if isinstance(_h.get("ssh"), dict) else {}
+                            _ssh = as_dict(_h.get("ssh"))
                             target_fqdn = (
                                 (_h.get("address") or "").strip()
                                 or (_ssh.get("fqdn") or "").strip()

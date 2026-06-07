@@ -935,7 +935,8 @@ def shape_asset(a: dict) -> Optional[dict]:
             if not isinstance(inner, dict):
                 inner = {}
             name = str(inner.get("Name") or inner.get("name") or "").strip()
-            number = inner.get("Port") if isinstance(inner.get("Port"), int) else inner.get("port")
+            _port = inner.get("Port")
+            number = _port if isinstance(_port, int) else inner.get("port")
             if not name and number is None:
                 continue
             ports.append({
@@ -954,9 +955,12 @@ def shape_asset(a: dict) -> Optional[dict]:
         if _re.match(r"^NONE\d*$", raw_serial, _re.IGNORECASE):
             raw_serial = ""
 
-    brand_obj = a.get("Brand") if isinstance(a.get("Brand"), dict) else None
-    location_obj = a.get("Location") if isinstance(a.get("Location"), dict) else None
-    status_obj = a.get("Status") if isinstance(a.get("Status"), dict) else None
+    _brand = a.get("Brand")
+    brand_obj = _brand if isinstance(_brand, dict) else None
+    _location = a.get("Location")
+    location_obj = _location if isinstance(_location, dict) else None
+    _status = a.get("Status")
+    status_obj = _status if isinstance(_status, dict) else None
 
     # Type sub-object — walk every plausible "short form" key the
     # team has surfaced on <asset-api-host> payloads. Mirrors the JS frontend's

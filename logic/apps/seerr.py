@@ -84,7 +84,7 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_cache_ttl,
     resolve_credential_target)
-from logic.coerce import safe_float, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("seerr",)
@@ -1138,7 +1138,7 @@ async def _seerr_search_movie(base: str, api_key: str, query: str) -> Optional[d
             continue
         if (item.get("mediaType") or "").strip().lower() != "movie":
             continue
-        media_info = item.get("mediaInfo") if isinstance(item.get("mediaInfo"), dict) else {}
+        media_info = as_dict(item.get("mediaInfo"))
         return {
             "id": safe_int(item.get("id")),
             "title": str(item.get("title") or item.get("originalTitle") or "").strip(),
@@ -1654,7 +1654,7 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     title = pick.get("title") or ""
     year = pick.get("year") or ""
     rating = safe_float(pick.get("rating"))
-    genres = pick.get("genres") if isinstance(pick.get("genres"), list) else []
+    genres = as_list(pick.get("genres"))
     label = title + (f" ({year})" if year else "")
     overview = (pick.get("overview") or "").strip()
     if len(overview) > 300:
@@ -1664,7 +1664,7 @@ async def _suggest_skill(host_row: dict, chip: dict, *,
     if tmdb_id and cooldown_hours > 0:
         _record_suggestion(actor_username, tmdb_id)
     # Country comes from the pick's detail call (attached by _pick_not_in_library).
-    countries = pick.get("_countries") if isinstance(pick.get("_countries"), list) else []
+    countries = as_list(pick.get("_countries"))
     # Top-billed cast — one best-effort Seerr detail call for the FINAL pick
     # (Overseerr / Jellyseerr proxy TMDB credits). Never blocks the suggestion.
     cast = await _seerr_movie_cast(base, api_key, tmdb_id)

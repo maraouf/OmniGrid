@@ -11041,7 +11041,7 @@ select.field-invalid {
   border-radius: var(--r-sm);
 }
 
-.apps-card-ups-label {
+.apps-card-stat-label {
   font-size: var(--fs-3xs);
   color: var(--text-faint);
   text-transform: uppercase;

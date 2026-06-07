@@ -1771,8 +1771,10 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 "suggest_page_attempts": svc.get("suggest_page_attempts"),
                 "suggest_max_page": svc.get("suggest_max_page"),
                 # Per-instance show_extras tri-state.
-                "show_extras": (svc.get("show_extras")
-                                if isinstance(svc.get("show_extras"), bool)
+                # Single-eval via walrus so the `.get` isn't re-evaluated (which
+                # would lose narrowing) — can't hoist a statement inside a dict
+                # literal.
+                "show_extras": (_sx if isinstance((_sx := svc.get("show_extras")), bool)
                                 else None),
             }
 

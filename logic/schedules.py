@@ -35,6 +35,7 @@ import json
 import re
 import secrets
 import sqlite3
+from logic.coerce import as_dict
 import time
 from typing import Any, Awaitable, Callable, Optional
 
@@ -2014,7 +2015,7 @@ async def _run_port_scan_refresh(
                 hid = str(h.get("id") or "").strip()
                 if not hid:
                     continue
-                ps_cfg = h.get("port_scan") if isinstance(h.get("port_scan"), dict) else {}
+                ps_cfg = as_dict(h.get("port_scan"))
                 # Per-host gate — match the on-demand handler's
                 # forgiving semantics: only skip when the per-host
                 # `enabled` key is EXPLICITLY False. Absent / null
