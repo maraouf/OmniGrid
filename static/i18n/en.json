@@ -5446,7 +5446,11 @@
       "readarr_search_missing": "Search for missing books",
       "readarr_refresh": "Refresh book library",
       "ddns_status": "DNS records status",
-      "ddns_update": "Update DNS now"
+      "ddns_update": "Update DNS now",
+      "prowlarr_status": "Prowlarr status",
+      "prowlarr_indexers": "List indexers",
+      "prowlarr_app_sync": "Sync indexers to apps",
+      "prowlarr_search": "Search indexers"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5613,6 +5617,21 @@
       "public_ip": "Public IP",
       "loading": "Loading ddns-updater data…",
       "fetch_failed": "ddns-updater fetch failed"
+    },
+    "prowlarr": {
+      "api_key_label": "Prowlarr API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Prowlarr → Settings → General",
+      "api_key_hint": "Required for the expanded card to fetch the indexer summary. Found in Prowlarr under Settings → General → API Key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched indexer summary is cached before re-querying Prowlarr (5–3600s). Leave blank for the app default (60s).",
+      "indexers": "Indexers",
+      "apps_synced": "Apps synced",
+      "queries": "Queries",
+      "grabs": "Grabs",
+      "health_issues_n": "{n} health issue(s)",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Prowlarr data…",
+      "fetch_failed": "Prowlarr fetch failed"
     }
   }
 }
