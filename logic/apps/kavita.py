@@ -273,19 +273,28 @@ async def fetch_data(host_row: dict, chip: dict, *,
         print(f"[kavita] error: fetch host={host_id} url={lib_url} "
               f"failed — {type(e).__name__}: {e}")
         raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
-    if r.status_code != 200:
+    if r.status_code in (401, 403):
+        print(f"[kavita] error: fetch host={host_id} url={lib_url} returned "
+              f"HTTP {r.status_code} (auth — check api_key)")
+        raise RuntimeError(f"upstream auth failed: HTTP {r.status_code} — {lib_url}")
+    libraries: list = []
+    if r.status_code == 204:
+        # 204 No Content — a reachable Kavita with no libraries configured (or
+        # the endpoint answering empty). Treat as an empty list, NOT an error.
+        print(f"[kavita] INFO fetch host={host_id} url={lib_url} -> HTTP 204 "
+              f"(no libraries configured)")
+    elif r.status_code == 200:
+        try:
+            libraries = r.json()
+        except (ValueError, TypeError):  # noqa: BLE001
+            raise RuntimeError("upstream returned non-JSON")
+        if not isinstance(libraries, list):
+            libraries = []
+    else:
         print(f"[kavita] error: fetch host={host_id} url={lib_url} returned "
               f"HTTP {r.status_code} (check the chip URL points at the Kavita "
               f"root, e.g. https://kavita.example.com)")
-        if r.status_code in (401, 403):
-            raise RuntimeError(f"upstream auth failed: HTTP {r.status_code} — {lib_url}")
         raise RuntimeError(f"upstream returned HTTP {r.status_code} for {lib_url}")
-    try:
-        libraries = r.json()
-    except (ValueError, TypeError):  # noqa: BLE001
-        raise RuntimeError("upstream returned non-JSON")
-    if not isinstance(libraries, list):
-        libraries = []
     out: dict[str, Any] = {
         "available": True,
         "libraries": len(libraries),
@@ -409,14 +418,20 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": str(e)}
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"library fetch failed: {type(e).__name__}: {e}"}
-    if r.status_code != 200:
-        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
-    try:
-        items = r.json()
-    except (ValueError, TypeError):
-        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
-    if not isinstance(items, list):
+    # 204 No Content = reachable Kavita with no libraries (falls through to the
+    # "No libraries configured" reply below), not an error.
+    items: list = []
+    if r.status_code == 204:
         items = []
+    elif r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    else:
+        try:
+            items = r.json()
+        except (ValueError, TypeError):
+            return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+        if not isinstance(items, list):
+            items = []
     lines = []
     for lib in items[:25]:
         if not isinstance(lib, dict):
@@ -490,6 +505,10 @@ async def _scan_skill(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             token, _ = await _authenticate(cli, base, api_key)
             lr = await cli.get(base + "/api/Library", headers=_bearer(token))
+            # 204 No Content = no libraries configured — nothing to scan.
+            if lr.status_code == 204:
+                return {"ok": True, "status": 200,
+                        "detail": "📚 No libraries configured — nothing to scan."}
             if lr.status_code != 200:
                 return {"ok": False, "status": lr.status_code,
                         "detail": f"could not list libraries: HTTP {lr.status_code}"}
