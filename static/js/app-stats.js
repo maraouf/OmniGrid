@@ -294,6 +294,11 @@ export default {
     });
   },
   async loadStatsOverview() {
+    // Re-skeleton on every (re)load: flip the loaded flag OFF up front so a
+    // Reload click re-shows the in-card skeletons until the fresh data lands,
+    // instead of leaving the stale values on screen. The `finally` below flips
+    // it back true regardless of success/failure so the skeleton can't stick.
+    this.statsOverviewLoaded = false;
     // Fire the (slower, COUNT-scan-backed) summary fetch in PARALLEL — the
     // trailing `.catch` marks the non-await as INTENTIONAL (matches the repo's
     // fire-and-forget convention, e.g. loadHostsConfig().catch(...) in
@@ -318,6 +323,10 @@ export default {
   // server-side). Separate from loadStatsOverview so the heavy total-samples
   // COUNT scan never delays the main grid's first paint.
   async loadStatsSummary() {
+    // Re-skeleton the six summary cards on every (re)load — see the matching
+    // note in loadStatsOverview. The `finally` restores the flag so it can't
+    // stick on a failed fetch.
+    this.statsSummaryLoaded = false;
     try {
       const r = await fetch('/api/admin/stats/summary');
       if (!r.ok) {

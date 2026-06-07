@@ -10051,7 +10051,7 @@ select.field-invalid {
   gap: var(--s-1) var(--s-2);
 }
 
-.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+.apps-custom-cell.apps-card--height-short:not(.apps-card--editing) .apps-card-stat-value {
   font-size: var(--fs-sm);
 }
 
@@ -10088,7 +10088,7 @@ select.field-invalid {
   padding: 1px var(--s-1);
 }
 
-.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-card-stat-value {
   font-size: var(--fs-xs);
 }
 
@@ -10130,7 +10130,7 @@ select.field-invalid {
   padding: 1px var(--s-1);
 }
 
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-ups-value {
+.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-stat-value {
   font-size: var(--fs-xs);
 }
 
@@ -11049,9 +11049,9 @@ select.field-invalid {
   line-height: 1.1;
 }
 
-.apps-card-ups-value {
+.apps-card-stat-value {
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 200;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   line-height: 1.15;

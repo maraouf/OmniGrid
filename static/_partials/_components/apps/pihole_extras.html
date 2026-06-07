@@ -37,7 +37,7 @@
               <div class="apps-card-ups-stat">
                 <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.blocked_today') || 'Blocked today'"></div>
-                <div class="apps-card-ups-value">
+                <div class="apps-card-stat-value">
                   <span x-text="piholeInt(agg.blocked)"></span>
                   <span class="fs-2xs text-[var(--text-faint)]"
                         x-text="'(' + piholePct(agg.pct) + ')'"></span>
@@ -46,22 +46,22 @@
               <div class="apps-card-ups-stat">
                 <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.queries_today') || 'Queries today'"></div>
-                <div class="apps-card-ups-value" x-text="piholeInt(agg.queries)"></div>
+                <div class="apps-card-stat-value" x-text="piholeInt(agg.queries)"></div>
               </div>
               <div class="apps-card-ups-stat">
                 <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.blocklist') || 'Blocklist domains'"></div>
-                <div class="apps-card-ups-value" x-text="piholeInt(agg.rules)"></div>
+                <div class="apps-card-stat-value" x-text="piholeInt(agg.rules)"></div>
               </div>
               <div class="apps-card-ups-stat">
                 <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.clients') || 'Active clients'"></div>
-                <div class="apps-card-ups-value" x-text="piholeInt(agg.clients)"></div>
+                <div class="apps-card-stat-value" x-text="piholeInt(agg.clients)"></div>
               </div>
               <div class="apps-card-ups-stat" x-show="agg.topBlocked">
                 <div class="apps-card-ups-label"
                      x-text="t('apps.pihole.top_blocked') || 'Top blocked'"></div>
-                <div class="apps-card-ups-value truncate"
+                <div class="apps-card-stat-value truncate"
                      :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
                      x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
               </div>
