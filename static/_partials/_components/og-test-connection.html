@@ -75,6 +75,7 @@
     </span>
   </div>
   <div x-show="tcResult()"
+       role="status" aria-live="polite" aria-atomic="true"
        class="og-test-result fs-sm rounded-md px-3 py-2"
        :class="(tcResult() && tcResult().pending === true)
                  ? 'bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]'

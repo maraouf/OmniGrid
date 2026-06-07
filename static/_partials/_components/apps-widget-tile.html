@@ -353,7 +353,7 @@
                 </div>
               </div>
               <template x-if="appsWidgetWeatherForecast(item).length">
-                <div class="apps-widget-forecast apps-widget-forecast--col">
+                <div class="apps-widget-forecast apps-widget-forecast--col scrollbar">
                   <template x-for="day in appsWidgetWeatherForecast(item)" :key="day.name">
                     <div class="apps-widget-forecast-day">
                       <span class="apps-widget-forecast-name" x-text="day.name"></span>

@@ -191,7 +191,7 @@
       <div>
         <h4 class="font-semibold fs-sm mb-2" x-text="t('stats.incidents.heatmap.title')"></h4>
         <p class="fs-xs text-[var(--text-faint)] mb-2" x-text="t('stats.incidents.heatmap.hint')"></p>
-        <div class="incidents-heatmap" x-data="{
+        <div class="incidents-heatmap scrollbar" x-data="{
                   get _max() {
                     let m = 0;
                     const rows = (statsIncidents.heatmap || []);

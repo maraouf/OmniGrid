@@ -61,7 +61,7 @@ export default {
     // show the actual ports (chip strip in the host drawer shows
     // only the LATEST scan; this fetch lets the operator see a
     // historical scan's open-port set without time-travel).
-    const portsHtml = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
+    const portsHtml = '<div class="swal-events scrollbar"><span class="text-[var(--text-faint)]">' +
       esc(this.t('history.port_scan.loading_ports') || 'Loading open ports…') + '</span></div>';
     const containerId = 'port-scan-history-ports-' + (scanId || h.id || 'na');
     Swal.fire({
@@ -89,7 +89,7 @@ export default {
       const j = await r.json();
       const ports = Array.isArray(j.ports) ? j.ports : [];
       if (!ports.length) {
-        target_el.innerHTML = '<div class="swal-events"><span class="text-[var(--text-faint)]">' +
+        target_el.innerHTML = '<div class="swal-events scrollbar"><span class="text-[var(--text-faint)]">' +
           esc(this.t('history.port_scan.no_open') || 'No open ports recorded for this scan.') + '</span></div>';
         return;
       }
@@ -102,7 +102,7 @@ export default {
         return '<div class="swal-ev swal-ev-ok"><span class="swal-ev-ts mono">' + esc(portLabel) + '</span>'
           + '<span class="swal-ev-msg">' + esc(hint) + (banner ? ' — <span class="text-[var(--text-faint)]">' + esc(banner.slice(0, 80)) + '</span>' : '') + '</span></div>';
       }).join('');
-      target_el.innerHTML = '<div class="swal-events">' + rows + '</div>';
+      target_el.innerHTML = '<div class="swal-events scrollbar">' + rows + '</div>';
     } catch (e) {
       const el = document.getElementById(containerId);
       if (el) {

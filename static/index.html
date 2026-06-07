@@ -3676,6 +3676,10 @@
                    `cursor: pointer` on the header signals the affordance. -->
               <header class="apps-section-head flex items-center gap-2 px-2 py-1.5 cursor-pointer"
                       :draggable="appsCustomEditMode ? 'true' : 'false'"
+                      :data-apps-section-id="sec.id"
+                      :tabindex="appsCustomEditMode ? 0 : null"
+                      :aria-label="appsCustomEditMode ? (t('apps.custom.section_reorder_aria', { name: (sec.name || '') }) || 'Reorder section — use arrow keys to move') : null"
+                      @keydown="_appsSectionMoveKey($event, sec.id)"
                       @dragstart="appsCustomEditMode ? appsSectionDragStart($event, sec.id) : null"
                       @click="(($event.target.closest('input, select, textarea, button, a')) ? null : toggleAppsSectionCollapsed(sec.id))">
                 <button type="button" class="user-action-btn"
@@ -4908,7 +4912,7 @@
                                && !hostTimeline[h.id].error"
                      class="fs-xs text-[var(--text-faint)] italic"
                      x-text="t('host_drawer.timeline.empty')"></div>
-                <ul class="timeline-list" x-show="hostTimeline[h.id] && (hostTimeline[h.id].events || []).length > 0">
+                <ul class="timeline-list scrollbar" x-show="hostTimeline[h.id] && (hostTimeline[h.id].events || []).length > 0">
                   <template x-for="(ev, i) in (hostTimeline[h.id] ? hostTimeline[h.id].events : [])" :key="ev.kind + '|' + ev.ts + '|' + i">
                     <li class="timeline-row" :class="'timeline-row--' + (ev.severity || 'info')">
                       <div class="timeline-icon" :class="'timeline-icon--' + (ev.severity || 'info')"

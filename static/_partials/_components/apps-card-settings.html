@@ -99,7 +99,7 @@
       <div class="apps-card-settings-row">
         <span class="apps-card-settings-label"
               x-text="t('apps.custom.settings.clock.style_label') || 'Style'"></span>
-        <div class="inline-flex gap-1" role="radiogroup">
+        <div class="inline-flex gap-1" role="radiogroup" @keydown="_radiogroupArrowKey($event)">
           <template x-for="opt in ['digital', 'analog']" :key="opt">
             <button type="button" role="radio"
                     :aria-checked="effectiveClockOpts(item).style === opt ? 'true' : 'false'"
@@ -198,7 +198,7 @@
       <div class="apps-card-settings-row">
         <span class="apps-card-settings-label"
               x-text="t('apps.custom.settings.weather.units_label') || 'Units'"></span>
-        <div class="inline-flex gap-1" role="radiogroup">
+        <div class="inline-flex gap-1" role="radiogroup" @keydown="_radiogroupArrowKey($event)">
           <template x-for="opt in ['metric', 'imperial']" :key="opt">
             <button type="button" role="radio"
                     :aria-checked="((item.opts && item.opts.weather_units) || 'metric') === opt ? 'true' : 'false'"
