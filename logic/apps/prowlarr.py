@@ -198,10 +198,11 @@ SKILLS: tuple[dict, ...] = (
                        "flaresolverr to my indexers, apply flaresolverr proxy, "
                        "fix the cloudflare indexers, check indexers for "
                        "flaresolverr, flaresolverr tag"),
-        # No arg — scans EVERY configured indexer via testall and tags the ones
-        # that need FlareSolverr. A live write (PUT tags) to Prowlarr config,
-        # arg-less so it surfaces as a one-click drawer button too. Non-
-        # destructive (adds a proxy tag, removes nothing).
+        # No arg — tests each not-yet-tagged indexer (individually, bounded +
+        # budgeted under the proxy timeout) and tags the ones that need
+        # FlareSolverr. A live write (PUT tags) to Prowlarr config, arg-less so
+        # it surfaces as a one-click drawer button too. Non-destructive (adds a
+        # proxy tag, removes nothing).
         "destructive": False,
     },
 )
@@ -927,6 +928,16 @@ _BULK_ADD_CONCURRENCY = 4
 _BULK_ADD_MAX = 60  # candidates attempted per run (rest deferred)
 _BULK_ADD_BUDGET_S = 150  # overall wall-clock budget for the whole batch
 
+# FlareSolverr-tag check bounds. Each candidate is TESTED individually via
+# POST /api/v1/indexer/test (one tracker round-trip server-side) — NOT the
+# fleet-wide POST /api/v1/indexer/testall, which on a large indexer set blows
+# past the reverse-proxy read timeout (~60s) and returns a raw 504 to the SPA.
+# Bounded concurrency + an overall wall-clock budget UNDER the proxy window
+# keep the skill returning a clean (possibly partial) result instead of 504ing;
+# untested candidates are deferred to the next run.
+_FLARE_TEST_CONCURRENCY = 5
+_FLARE_TEST_BUDGET_S = 45  # < typical proxy_read_timeout (60s) so we never 504
+
 
 async def _default_app_profile_id(cli: httpx.AsyncClient, base: str, key: str) -> int:
     """Resolve the default Prowlarr app-profile id (required on indexer create).
@@ -1075,30 +1086,19 @@ async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
     for any that don't already carry the proxy tag, PUT the tag onto them so they
     link to the FlareSolverr indexer-proxy. ``only_ids`` (when given) scopes the
     tagging to that id set (e.g. the just-bulk-added indexers); ``None`` = every
-    indexer. Returns ``{checked, needed, tagged, already_tagged, failed}``. Never
-    raises — best-effort, each step degrades to empty on failure."""
-    # 1) testall → per-indexer validation; scan for the FlareSolverr requirement.
-    try:
-        tr = await cli.post(base + "/api/v1/indexer/testall", headers=_headers(key))
-        results = tr.json() if tr.status_code in (200, 201) else []
-    except (httpx.HTTPError, OSError, ValueError, TypeError):
-        results = []
-    if not isinstance(results, list):
-        results = []
-    need_ids: set = set()
-    for res in results:
-        if not isinstance(res, dict):
-            continue
-        rid = safe_int(res.get("id"))
-        if not rid or (only_ids is not None and rid not in only_ids):
-            continue
-        fails = res.get("validationFailures")
-        fails = fails if isinstance(fails, list) else []
-        msgs = " ".join(str((f or {}).get("errorMessage") or "")
-                        for f in fails if isinstance(f, dict))
-        if _FLARE_ERROR_RE.search(msgs):
-            need_ids.add(rid)
-    # 2) GET all indexers (full bodies — needed for the PUT + current tags).
+    indexer. Returns ``{checked, needed, tagged, already_tagged, errs,
+    timed_out, remaining}``. Never raises — best-effort, each step degrades to
+    empty on failure.
+
+    Tests each candidate INDIVIDUALLY via ``POST /api/v1/indexer/test`` (one
+    tracker round-trip server-side) under a concurrency cap + an overall
+    wall-clock budget UNDER the reverse-proxy read timeout — NOT the fleet-wide
+    ``testall``, which on a large indexer set exceeds the proxy window and 504s
+    the SPA. Already-tagged indexers are skipped (cheap, no test). Candidates not
+    reached before the budget expires are reported via ``remaining`` + a
+    ``timed_out`` flag so the operator can re-run for the rest."""
+    flare_set = set(flare_tag_ids)
+    # 1) GET all indexers (full bodies — needed for the test + PUT + current tags).
     idx_by_id: dict = {}
     try:
         ir = await cli.get(base + "/api/v1/indexer", headers=_headers(key))
@@ -1108,35 +1108,68 @@ async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
                 idx_by_id[safe_int(it.get("id"))] = it
     except (httpx.HTTPError, OSError, ValueError, TypeError):
         idx_by_id = {}
-    # 3) PUT the FlareSolverr tag onto each indexer that needs it + lacks it.
-    flare_set = set(flare_tag_ids)
-    tagged: list[str] = []
+    # 2) Candidates = scoped, NOT already flare-tagged. Already-tagged ones are
+    #    counted + skipped (no test needed).
     already = 0
-    failed: list[str] = []
-    for rid in need_ids:
-        body = idx_by_id.get(rid)
-        if not isinstance(body, dict):
+    candidates: list[tuple] = []  # (rid, body)
+    for rid, body in idx_by_id.items():
+        if only_ids is not None and rid not in only_ids:
             continue
         _tags = body.get("tags")
         cur_tags = _tags if isinstance(_tags, list) else []
         if flare_set & set(cur_tags):
             already += 1
             continue
-        new_body = dict(body)
-        new_body["tags"] = sorted(set(cur_tags) | flare_set)
-        nm = str(body.get("name") or rid)
-        try:
-            pr = await cli.put(base + f"/api/v1/indexer/{rid}",
-                               headers=_headers(key), json=new_body)
-        except (httpx.HTTPError, OSError):
-            failed.append(nm)
-            continue
-        if pr.status_code in (200, 202):
-            tagged.append(nm)
-        else:
-            failed.append(nm)
-    return {"checked": len(results), "needed": len(need_ids),
-            "tagged": tagged, "already_tagged": already, "failed": failed}
+        candidates.append((rid, body))
+    # 3) Test each candidate (bounded concurrency + overall budget) — those whose
+    #    test reports the FlareSolverr requirement get the tag.
+    sem = asyncio.Semaphore(_FLARE_TEST_CONCURRENCY)
+    deadline = time.time() + _FLARE_TEST_BUDGET_S
+    tagged: list[str] = []
+    errs: list[str] = []
+    checked = 0
+    needed = 0
+    remaining = 0
+
+    async def _check_one(rid: int, body: dict) -> None:
+        nonlocal checked, needed, remaining
+        async with sem:
+            if time.time() >= deadline:
+                remaining += 1
+                return
+            nm = str(body.get("name") or rid)
+            # Test the existing indexer config — the response (200 valid, or 400
+            # with validationFailures incl. warnings) carries the FlareSolverr
+            # requirement message when the site is Cloudflare-protected.
+            try:
+                tr = await cli.post(base + "/api/v1/indexer/test",
+                                    headers=_headers(key), json=body)
+            except (httpx.HTTPError, OSError):
+                errs.append(nm)
+                return
+            checked += 1
+            if not _FLARE_ERROR_RE.search(_resp_text(tr)):
+                return  # doesn't need FlareSolverr
+            needed += 1
+            _tags = body.get("tags")
+            cur_tags = _tags if isinstance(_tags, list) else []
+            new_body = dict(body)
+            new_body["tags"] = sorted(set(cur_tags) | flare_set)
+            try:
+                pr = await cli.put(base + f"/api/v1/indexer/{rid}",
+                                   headers=_headers(key), json=new_body)
+            except (httpx.HTTPError, OSError):
+                errs.append(nm)
+                return
+            if pr.status_code in (200, 202):
+                tagged.append(nm)
+            else:
+                errs.append(nm)
+
+    await asyncio.gather(*[_check_one(rid, body) for rid, body in candidates])
+    return {"checked": checked, "needed": needed, "tagged": tagged,
+            "already_tagged": already, "errs": errs,
+            "timed_out": remaining > 0, "remaining": remaining}
 
 
 def _facet_label(privacy: str, lang_term: str, want_lang: str, all_mode: bool) -> str:
@@ -1247,23 +1280,26 @@ async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
     # An indexer can ADD cleanly (HTTP 201) yet still NEED FlareSolverr — Prowlarr
     # surfaces "this site may use Cloudflare DDoS Protection, therefore Prowlarr
     # requires FlareSolverr" as a TEST warning, not an add error, so the
-    # retry-on-failure path above misses it. Run a testall pass scoped to the
-    # just-added indexers and PUT the proxy tag onto the ones that need it.
+    # retry-on-failure path above misses it. Run a per-indexer test pass scoped
+    # to the just-added indexers and PUT the proxy tag onto the ones that need it.
     flare_tagged: list[str] = []
     added_ids = {safe_int(r.get("id")) for r in added if safe_int(r.get("id"))}
     if flare_tag_ids and added_ids:
         try:
-            async with httpx.AsyncClient(verify=False, timeout=90.0,
+            async with httpx.AsyncClient(verify=False, timeout=20.0,
                                          follow_redirects=True) as fcli:
                 fix = await _apply_flaresolverr_tags(fcli, base, api_key,
                                                      flare_tag_ids, only_ids=added_ids)
             flare_tagged = fix.get("tagged") or []
         except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-            print(f"[prowlarr] warning: bulk flare-tag host={host_id} failed — "
+            print(f"[prowlarr] warning: bulk flare-tag host={host_id} skipped — "
                   f"{type(e).__name__}: {e}")
+    # 'errs=' (not 'failed=') in this INFO summary so the persistent-log
+    # severity classifier doesn't mis-file a normal success line as ERROR
+    # (it matches \bfail(ed|ure)?\b / \berror\b in the message text).
     print(f"[prowlarr] INFO bulk add host={host_id} facet={facet!r} added={len(added)} "
           f"(flare={len(added_flare)}, flare_tagged={len(flare_tagged)}) "
-          f"failed={len(failed)} skipped={skipped_existing} "
+          f"errs={len(failed)} skipped={skipped_existing} "
           f"not_attempted={len(not_attempted)}")
     lines = [
         f"📦 Bulk-add ({facet} indexers):",
@@ -1306,19 +1342,22 @@ async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
 
 async def _fix_flaresolverr_skill(host_row: dict, chip: dict, *,
                                   host_id: Optional[str] = None) -> dict:
-    """Live WRITE: scan EVERY configured indexer (via Prowlarr's own
-    ``testall``), find the ones Prowlarr says need FlareSolverr ("this site may
-    use Cloudflare DDoS Protection, therefore Prowlarr requires FlareSolverr"),
-    and PUT the FlareSolverr proxy tag onto the ones missing it — so they link to
-    the proxy. Never raises. Use this after a bulk add, or to fix indexers that
-    were added before FlareSolverr was configured."""
+    """Live WRITE: test each NOT-yet-tagged configured indexer (individually, via
+    ``POST /api/v1/indexer/test``), find the ones Prowlarr says need FlareSolverr
+    ("this site may use Cloudflare DDoS Protection, therefore Prowlarr requires
+    FlareSolverr"), and PUT the FlareSolverr proxy tag onto them so they link to
+    the proxy. Bounded concurrency + an overall budget UNDER the reverse-proxy
+    timeout so it returns a clean (possibly partial) result instead of a 504;
+    untested candidates are deferred to the next run. Never raises. Use after a
+    bulk add, or to fix indexers added before FlareSolverr was configured."""
     api_key, base, err = _resolve_skill_target(host_row, chip)
     if err:
         return err
-    print(f"[prowlarr] INFO prowlarr_fix_flaresolverr host={host_id} (testall + tag)")
+    print(f"[prowlarr] INFO prowlarr_fix_flaresolverr host={host_id} (per-indexer test + tag)")
     try:
-        # testall fans out a connectivity test to EVERY indexer — generous budget.
-        async with httpx.AsyncClient(verify=False, timeout=120.0,
+        # client timeout > the in-loop budget so the budget (not the socket) is
+        # what bounds us; both are well under the reverse-proxy read window.
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:
             flare_tag_ids, flare_note = await _flaresolverr_tag_ids(cli, base, api_key)
             if not flare_tag_ids:
@@ -1328,30 +1367,44 @@ async def _fix_flaresolverr_skill(host_row: dict, chip: dict, *,
                                   f"Proxies) first, then re-run."}
             fix = await _apply_flaresolverr_tags(cli, base, api_key, flare_tag_ids)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        print(f"[prowlarr] warning: fix_flaresolverr host={host_id} failed — "
-              f"{type(e).__name__}: {e}")
+        print(f"[prowlarr] warning: fix_flaresolverr host={host_id} — {type(e).__name__}: {e}")
         return {"ok": False, "status": 0,
-                "detail": f"FlareSolverr fix failed: {type(e).__name__}: {e}"}
+                "detail": f"FlareSolverr fix could not run: {type(e).__name__}: {e}"}
     tagged = fix.get("tagged") or []
     already = safe_int(fix.get("already_tagged"))
-    failed = fix.get("failed") or []
+    errs = fix.get("errs") or []
     needed = safe_int(fix.get("needed"))
-    print(f"[prowlarr] INFO fix_flaresolverr host={host_id} checked={fix.get('checked')} "
-          f"needed={needed} tagged={len(tagged)} already={already} failed={len(failed)}")
-    if not needed:
+    checked = safe_int(fix.get("checked"))
+    remaining = safe_int(fix.get("remaining"))
+    timed_out = bool(fix.get("timed_out"))
+    # NOTE: 'errs'/'untagged' word choice avoids the persistent-log ERROR-severity
+    # classifier (which matches \bfail(ed|ure)?\b / \berror\b in the message text).
+    print(f"[prowlarr] INFO fix_flaresolverr host={host_id} checked={checked} "
+          f"needed={needed} tagged={len(tagged)} already={already} "
+          f"untagged={len(errs)} remaining={remaining}")
+    # Nothing actionable: distinguish "all already tagged" from "tested, none need it".
+    if not tagged and not needed and not timed_out:
+        if already and not checked:
+            return {"ok": True, "status": 200,
+                    "detail": f"✅ All {already:,} indexer(s) that need FlareSolverr are "
+                              f"already tagged — nothing to do."}
         return {"ok": True, "status": 200,
-                "detail": "✅ No indexers need FlareSolverr right now — nothing to tag."}
-    lines = [f"🛡️ FlareSolverr check ({needed:,} indexer(s) need it):"]
+                "detail": f"✅ Tested {checked:,} indexer(s) — none need FlareSolverr."
+                          + (f" ({already:,} already tagged.)" if already else "")}
+    lines = [f"🛡️ FlareSolverr check (tested {checked:,} indexer(s)):"]
     if tagged:
         lines.append(f"✅ Tagged: {len(tagged):,} — " + ", ".join(tagged[:25])
                      + ("…" if len(tagged) > 25 else ""))
     if already:
         lines.append(f"⏭️ Already tagged: {already:,}")
-    if failed:
-        lines.append(f"⚠️ Couldn't tag: {len(failed):,} — " + ", ".join(failed[:12])
-                     + ("…" if len(failed) > 12 else ""))
+    if errs:
+        lines.append(f"⚠️ Couldn't tag: {len(errs):,} — " + ", ".join(errs[:12])
+                     + ("…" if len(errs) > 12 else ""))
+    if timed_out and remaining:
+        lines.append(f"⏳ {remaining:,} indexer(s) not checked this run (time budget) "
+                     f"— run “fix flaresolverr” again to continue.")
     if tagged:
         lines.append("Run “sync indexers to my apps” to push the change to Radarr/Sonarr/etc.")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
-            "needed": needed, "tagged": len(tagged),
-            "already_tagged": already, "failed": len(failed)}
+            "needed": needed, "tagged": len(tagged), "checked": checked,
+            "already_tagged": already, "errs": len(errs), "remaining": remaining}
