@@ -2059,77 +2059,6 @@
                x-text="appLogModal.text || (t('apps.drawer.logs_empty') || '(no log output)')"></pre>
         </div>
       </div>
-      <!-- DASHBOARD SETTINGS MODAL — unified rename + share for an Apps custom
-           view (replaces the two old SweetAlert popups). Name input + (owner-
-           only) a card-style sharing selector. -->
-      <div x-show="appsViewModal.open" x-cloak
-           class="fixed inset-0 z-50 flex items-center justify-center p-4"
-           :style="appsViewModal.open ? 'display:flex' : 'display:none'"
-           role="dialog" aria-modal="true"
-           :aria-label="t('apps.custom.view_settings') || 'Dashboard settings'"
-           @keydown="_focusTrapKeydown($event, $el)"
-           @keydown.escape.window="closeAppsViewSettings()">
-        <div class="absolute inset-0 backdrop" @click="closeAppsViewSettings()"></div>
-        <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-5 w-full max-w-md shadow-xl">
-          <div class="flex items-center justify-between gap-2 mb-4">
-            <h3 class="fs-md font-semibold inline-flex items-center gap-2">
-              <svg width="15" height="15" class="text-[var(--text-dim)]" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
-              </svg>
-              <span x-text="t('apps.custom.view_settings') || 'Dashboard settings'"></span>
-            </h3>
-            <button type="button" class="user-action-btn" @click="closeAppsViewSettings()"
-                    :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕
-            </button>
-          </div>
-          <!-- Name -->
-          <label class="block mb-4">
-            <span class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('apps.custom.view_name_label') || 'Name'"></span>
-            <input type="text" class="w-full" x-ref="appsViewName" x-model="appsViewModal.name"
-                   maxlength="64" autocapitalize="words"
-                   :placeholder="t('apps.custom.view_name_placeholder') || 'View name'"
-                   @keydown.enter.prevent="saveAppsViewSettings()">
-          </label>
-          <!-- Sharing (owner only) -->
-          <template x-if="appsViewModal.can_manage">
-            <div class="mb-5">
-              <span class="block fs-xs text-[var(--text-dim)] mb-2" x-text="t('apps.custom.share_label') || 'Who can see this dashboard?'"></span>
-              <div class="flex flex-col gap-2" role="radiogroup"
-                   :aria-label="t('apps.custom.share_label') || 'Who can see this dashboard?'"
-                   @keydown="_radiogroupArrowKey($event)">
-                <template x-for="opt in appsShareOptions()" :key="opt.value">
-                  <button type="button" role="radio" class="og-share-opt"
-                          :class="appsViewModal.choice === opt.value ? 'is-selected' : ''"
-                          :aria-checked="appsViewModal.choice === opt.value ? 'true' : 'false'"
-                          :tabindex="appsViewModal.choice === opt.value ? 0 : -1"
-                          @click="appsViewModal.choice = opt.value">
-                    <svg class="og-share-opt-icon" width="17" height="17" aria-hidden="true">
-                      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + opt.icon"/>
-                    </svg>
-                    <span class="og-share-opt-text">
-                      <span class="og-share-opt-title" x-text="opt.title"></span>
-                      <span class="og-share-opt-sub" x-text="opt.sub"></span>
-                    </span>
-                    <svg class="og-share-opt-check" width="16" height="16" aria-hidden="true"
-                         x-show="appsViewModal.choice === opt.value">
-                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
-                    </svg>
-                  </button>
-                </template>
-              </div>
-            </div>
-          </template>
-          <!-- Footer -->
-          <div class="flex items-center justify-end gap-2">
-            <button type="button" class="btn btn-ghost fs-sm" @click="closeAppsViewSettings()"
-                    x-text="t('actions.cancel') || 'Cancel'"></button>
-            <button type="button" class="btn btn-primary fs-sm"
-                    :disabled="appsViewModal.saving || !(appsViewModal.name || '').trim()"
-                    @click="saveAppsViewSettings()"
-                    x-text="t('actions.save') || 'Save'"></button>
-          </div>
-        </div>
-      </div>
       <!-- BULK SNMP VENDORS MODAL -->
       <div x-show="bulkSnmpVendorsModal.open"
            x-cloak
@@ -4577,6 +4506,77 @@
   </div>
 
 
+  <!-- DASHBOARD SETTINGS MODAL — unified rename + share for an Apps custom
+       view (replaces the two old SweetAlert popups). Name input + (owner-
+       only) a card-style sharing selector. -->
+  <div x-show="appsViewModal.open" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       :style="appsViewModal.open ? 'display:flex' : 'display:none'"
+       role="dialog" aria-modal="true"
+       :aria-label="t('apps.custom.view_settings') || 'Dashboard settings'"
+       @keydown="_focusTrapKeydown($event, $el)"
+       @keydown.escape.window="closeAppsViewSettings()">
+    <div class="absolute inset-0 backdrop" @click="closeAppsViewSettings()"></div>
+    <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-5 w-full max-w-md shadow-xl">
+      <div class="flex items-center justify-between gap-2 mb-4">
+        <h3 class="fs-md font-semibold inline-flex items-center gap-2">
+          <svg width="15" height="15" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+          </svg>
+          <span x-text="t('apps.custom.view_settings') || 'Dashboard settings'"></span>
+        </h3>
+        <button type="button" class="user-action-btn" @click="closeAppsViewSettings()"
+                :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕
+        </button>
+      </div>
+      <!-- Name -->
+      <label class="block mb-4">
+        <span class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('apps.custom.view_name_label') || 'Name'"></span>
+        <input type="text" class="w-full" x-ref="appsViewName" x-model="appsViewModal.name"
+               maxlength="64" autocapitalize="words"
+               :placeholder="t('apps.custom.view_name_placeholder') || 'View name'"
+               @keydown.enter.prevent="saveAppsViewSettings()">
+      </label>
+      <!-- Sharing (owner only) -->
+      <template x-if="appsViewModal.can_manage">
+        <div class="mb-5">
+          <span class="block fs-xs text-[var(--text-dim)] mb-2" x-text="t('apps.custom.share_label') || 'Who can see this dashboard?'"></span>
+          <div class="flex flex-col gap-2" role="radiogroup"
+               :aria-label="t('apps.custom.share_label') || 'Who can see this dashboard?'"
+               @keydown="_radiogroupArrowKey($event)">
+            <template x-for="opt in appsShareOptions()" :key="opt.value">
+              <button type="button" role="radio" class="og-share-opt"
+                      :class="appsViewModal.choice === opt.value ? 'is-selected' : ''"
+                      :aria-checked="appsViewModal.choice === opt.value ? 'true' : 'false'"
+                      :tabindex="appsViewModal.choice === opt.value ? 0 : -1"
+                      @click="appsViewModal.choice = opt.value">
+                <svg class="og-share-opt-icon" width="17" height="17" aria-hidden="true">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + opt.icon"/>
+                </svg>
+                <span class="og-share-opt-text">
+                      <span class="og-share-opt-title" x-text="opt.title"></span>
+                      <span class="og-share-opt-sub" x-text="opt.sub"></span>
+                    </span>
+                <svg class="og-share-opt-check" width="16" height="16" aria-hidden="true"
+                     x-show="appsViewModal.choice === opt.value">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+                </svg>
+              </button>
+            </template>
+          </div>
+        </div>
+      </template>
+      <!-- Footer -->
+      <div class="flex items-center justify-end gap-2">
+        <button type="button" class="btn btn-ghost fs-sm" @click="closeAppsViewSettings()"
+                x-text="t('actions.cancel') || 'Cancel'"></button>
+        <button type="button" class="btn btn-primary fs-sm"
+                :disabled="appsViewModal.saving || !(appsViewModal.name || '').trim()"
+                @click="saveAppsViewSettings()"
+                x-text="t('actions.save') || 'Save'"></button>
+      </div>
+    </div>
+  </div>
   <!-- ================== HOST DETAIL DRAWER ==================
        Slide-out panel that replaces the legacy inline row expansion.
        Lives at top-level (outside both .hosts-mobile-cards and
@@ -10422,7 +10422,7 @@
                               <template x-if="appSkillResult(inst, sk.id).ok">
                                 <div class="flex flex-col gap-1">
                                   <template x-for="(segs, li) in appSkillResultLines(appSkillResult(inst, sk.id))" :key="li">
-                                    <div class="apps-skill-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 fs-xs min-w-0">
+                                    <div class="apps-skill-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 fs-sm min-w-0">
                                       <template x-for="(seg, si) in segs" :key="si">
                                         <template x-for="p in [appSkillSegParts(seg)]" :key="'p'">
                                           <!-- Stat chips (icon segs, e.g. "⬇️ 185 Mbps") stay on one
@@ -10441,7 +10441,7 @@
                                 </div>
                               </template>
                               <template x-if="!appSkillResult(inst, sk.id).ok">
-                                <div class="fs-xs break-words text-[var(--danger)]"
+                                <div class="fs-sm break-words text-[var(--danger)]"
                                      x-text="appSkillResult(inst, sk.id).detail"></div>
                               </template>
                               <template x-if="appSkillResult(inst, sk.id).image_url">
@@ -10478,7 +10478,7 @@
                                 </button>
                               </template>
                               <template x-if="appSkillResult(inst, sk.id).followup_result">
-                                <div class="mt-2 fs-xs break-words"
+                                <div class="mt-2 fs-sm break-words"
                                      :class="appSkillResult(inst, sk.id).followup_result.ok ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
                                      x-text="appSkillResult(inst, sk.id).followup_result.detail"></div>
                               </template>
