@@ -638,8 +638,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     if username:
         try:
             from main_pkg.scan_routes import api_weather
-            # noinspection PyProtectedMember  — sanctioned cross-module access
-            # (same _listener()._<helper> lazy-resolve pattern used file-wide).
+            # noinspection PyProtectedMember
+            # Sanctioned cross-module access (same _listener()._<helper>
+            # lazy-resolve pattern used file-wide).
             loc = _listener()._load_user_weather_pref(username)
             if loc and loc.get("lat") is not None and loc.get("lon") is not None:
                 wx = await api_weather(
@@ -670,8 +671,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         try:
             from logic import prayer_times as _pt
             if _pt.is_enabled():
-                # noinspection PyProtectedMember  — sanctioned cross-module
-                # access (the file-wide _listener()._<helper> lazy pattern).
+                # noinspection PyProtectedMember
+                # Sanctioned cross-module access (the file-wide
+                # _listener()._<helper> lazy pattern).
                 loc = _listener()._load_user_weather_pref(username)
                 if loc and loc.get("lat") is not None and loc.get("lon") is not None:
                     pdata = await _pt.fetch(
@@ -721,8 +723,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
     # this module read that key and silently filtered to an empty list.
     try:
         from logic import gather
-        # noinspection PyProtectedMember  — gather._cache is the documented
-        # shared in-memory coordinator snapshot (main.py mutates it directly too).
+        # noinspection PyProtectedMember
+        # gather._cache is the documented shared in-memory coordinator
+        # snapshot (main.py mutates it directly too).
         items = list(gather._cache.get("items") or [])
 
         def _shape(i: dict) -> dict:
