@@ -562,7 +562,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         row: "dict[str, Any]" = {
             "title": label,
             "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": _servarr.local_poster_path(alb) or _servarr.local_poster_path(art),
+            "poster": _servarr.poster_proxy_path(alb) or _servarr.poster_proxy_path(art),
             "poster_proxy": True,
             "progress": pct}
         qid = safe_int(q.get("id"))

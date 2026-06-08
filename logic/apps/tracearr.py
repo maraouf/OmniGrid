@@ -1,0 +1,556 @@
+"""Tracearr per-app module.
+
+Encapsulates everything Tracearr-specific so the route layer
+(``main_pkg/apps_routes.py``) stays generic. Tracearr (github.com/connorgallopo/
+Tracearr) is a Tautulli-style monitoring dashboard for Plex / Jellyfin / Emby —
+real-time streams, playback analytics, and account-sharing ("violation")
+detection across multiple media servers from one dashboard. It is a member of
+the per-app family in SHAPE (SLUGS / requires_api_key / test_credential /
+fetch_data / peek_latest / SKILLS / run_skill) but BESPOKE, NOT a *arr — its
+auth model differs:
+
+  Auth model — a PUBLIC-API BEARER TOKEN (not an X-Api-Key header, not a query
+    param). Generate the token in Tracearr → Settings → API; it is prefixed
+    ``trr_pub_`` and rides ``Authorization: Bearer <token>`` on every call. The
+    read-only Public API lives under ``<base>/api/v1/public`` (Swagger at
+    ``/api-docs``). The key is stored per-instance + write-only (the SPA only
+    ever sees ``api_key_set: bool``). Stateless — the token goes on every
+    request, so the module is correct on rotation.
+
+The expanded card answers "what's my media fleet doing right now" at a glance,
+from ``GET /api/v1/public/stats`` (+ ``/health`` for the server roster):
+
+    active_streams    — currently active playback sessions   (/stats)
+    total_users       — distinct users across all servers     (/stats)
+    total_sessions    — plays in the last 30 days              (/stats)
+    recent_violations — account-sharing violations, last 7d    (/stats)
+    servers_online /   — media servers reporting healthy / total
+    servers_total                                              (/health)
+    version           — Tracearr version (best-effort)          (/health)
+
+The ``/stats`` call is the load-bearing one (confirms the token works);
+``/health`` is tolerated (an empty server roster never fails the fetch).
+
+AI / Telegram skills (all read-only — Tracearr is a monitor):
+* ``tracearr_status``     — fleet activity + violation summary (live fetch).
+* ``tracearr_streams``    — who's watching what right now (rich poster list).
+* ``tracearr_servers``    — media servers + online state + active streams each.
+* ``tracearr_violations`` — recent account-sharing violations.
+
+Single-instance app (NOT fleet) — one card per pinned chip.
+
+Upstream API reference: ``<base>/api/v1/public/<endpoint>``
+    GET /stats       — {activeStreams, totalUsers, totalSessions, recentViolations}
+    GET /health      — {status, version, servers:[{id,name,type,online,activeStreams}]}
+    GET /streams     — {data:[{username, userAvatarUrl, mediaTitle, mediaType,
+                              showTitle, seasonNumber, episodeNumber, posterUrl,
+                              durationMs, progressMs, state, isTranscode, ...}],
+                        summary:{total, transcodes, directStreams, directPlays}}
+    GET /violations  — {data:[{severity, user:{username,thumbUrl}, rule:{type,name},
+                              serverName, createdAt}], meta:{total}}
+Poster / avatar URLs from /streams are Tracearr's own ``/api/v1/images/proxy``
+RELATIVE paths (a PUBLIC route — no token needed) or absolute gravatar / plex.tv
+avatars; both are routed through the per-app image proxy so a cross-origin
+avatar still loads.
+"""
+from __future__ import annotations
+
+import time
+from typing import Any, Optional
+
+import httpx
+from logic.external_urls import ExternalURL
+
+from logic.apps._common import (
+    cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
+from logic.coerce import as_dict, safe_int
+
+# Catalog template slugs handled by this module.
+SLUGS: tuple[str, ...] = ("tracearr",)
+
+# Public API base path — every read-only endpoint lives under here.
+_PUB = "/api/v1/public"
+
+# Per-(host_id, service_idx) data cache for the expanded card. 60s default —
+# matches the rest of the family.
+DEFAULT_CACHE_TTL_S = 60
+_data_cache: dict[str, tuple[float, dict]] = {}
+
+# Account-sharing violation severity → emoji for the violations skill.
+_SEVERITY_EMOJI = {"high": "🚨", "warning": "⚠️", "low": "ℹ️"}
+
+# Absolute avatar hosts the per-app image proxy will fetch (Tracearr's
+# buildAvatarUrl emits a gravatar fallback or a plex.tv avatar for Plex users).
+_AVATAR_PROXY_HOSTS = (
+    ExternalURL.GRAVATAR_HOST, ExternalURL.PLEX_TV_HOST, ExternalURL.PLEX_DIRECT_HOST)
+
+
+def requires_api_key() -> bool:
+    """Tracearr's Public API needs the ``trr_pub_`` bearer token."""
+    return True
+
+
+def _headers(token: str) -> dict:
+    """Standard Tracearr auth headers — the public-API bearer token + a JSON
+    Accept. Shared by every call so the header shape lives in one place."""
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+async def _call(cli: httpx.AsyncClient, base: str, token: str,
+                endpoint: str, **params: Any) -> Any:
+    """One Tracearr public-API call: ``GET <base>/api/v1/public/<endpoint>``.
+
+    Returns the parsed JSON body on success. Raises ``RuntimeError`` on a
+    transport error, an auth failure (401 / 403 → bad / missing token), a
+    non-200 status, or non-JSON. Tracearr uses real HTTP status codes (unlike
+    Tautulli's always-200 shape), so the status IS the truth."""
+    url = base.rstrip("/") + _PUB + "/" + endpoint.lstrip("/")
+    qp = {k: v for k, v in params.items() if v is not None}
+    try:
+        r = await cli.get(url, headers=_headers(token), params=qp)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"request failed: {type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError("auth failed: invalid or missing API token (check api_key)")
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code} for {endpoint}")
+    try:
+        return r.json()
+    except (ValueError, TypeError):
+        raise RuntimeError("non-JSON from upstream")
+
+
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook — turn a Tracearr poster / avatar reference into
+    an absolute URL the OmniGrid server fetches.
+
+    Tracearr's ``/streams`` returns ``posterUrl`` / ``userAvatarUrl`` as either:
+      - a RELATIVE ``/api/v1/images/proxy?...`` path on Tracearr itself (a
+        PUBLIC image route — no token needed) → joined to the chip's OWN base,
+        fetched anonymously; OR
+      - an absolute gravatar / plex.tv avatar URL (the Plex-user fallback the
+        browser can't hotlink) → allowlisted host, fetched anonymously.
+
+    SSRF guard: an absolute URL on any OTHER host is rejected, and a relative
+    path must be a clean leading-``/`` path (no traversal)."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty image path")
+    if "://" in p:
+        host = (urlsplit(p).hostname or "").lower()
+        if not any(host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
+            raise ValueError(f"image host not allowed: {host}")
+        return p, {"Accept": "*/*"}
+    if not p.startswith("/") or ".." in p:
+        raise ValueError("image must be a clean Tracearr path")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    return base.rstrip("/") + p, {"Accept": "*/*"}
+
+
+async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
+    """Probe Tracearr by calling ``GET /api/v1/public/stats`` with the supplied
+    bearer token. Returns ``{ok, detail, status}`` for direct SPA consumption.
+    Falls back to the chip's stored ``api_key`` when ``candidate_key`` is blank
+    so a re-test after first save doesn't need a retype."""
+    key, base, err = resolve_credential_target(host_row, chip, candidate_key)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=10.0,
+                                     follow_redirects=True) as cli:
+            stats = await _call(cli, base, key, "stats")
+            version = await _fetch_version(cli, base, key)
+    except RuntimeError as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    streams = safe_int((stats or {}).get("activeStreams"))
+    detail = f"OK (Tracearr {version})" if version else "OK"
+    detail += f" — {streams} active stream{'s' if streams != 1 else ''}"
+    return {"ok": True, "detail": detail, "status": 200}
+
+
+async def _fetch_version(cli: httpx.AsyncClient, base: str, token: str) -> str:
+    """Best-effort Tracearr version via ``GET /health``. ``""`` on any failure
+    (never load-bearing)."""
+    try:
+        health = await _call(cli, base, token, "health")
+    except RuntimeError:
+        return ""
+    if isinstance(health, dict):
+        return str(health.get("version") or "").strip()
+    return ""
+
+
+def _health_servers(health: Any) -> list:
+    """Normalise ``/health``'s server roster → ``[{name, type, online,
+    active}]``. Empty list on any unexpected shape (tolerated)."""
+    if not isinstance(health, dict):
+        return []
+    servers = health.get("servers")
+    if not isinstance(servers, list):
+        return []
+    out = []
+    for s in servers:
+        if not isinstance(s, dict):
+            continue
+        out.append({
+            "name": str(s.get("name") or "?").strip(),
+            "type": str(s.get("type") or "").strip().lower(),
+            "online": bool(s.get("online")),
+            "active": safe_int(s.get("activeStreams")),
+        })
+    return out
+
+
+# noinspection DuplicatedCode
+# The upstream-error guard + cache block below is structurally shared with every
+# other per-app module's fetch_data — the deliberate per-app encapsulation
+# pattern (CLAUDE.md). Content differs (Tracearr bearer auth, endpoints,
+# fields), so it stays inline rather than coupling modules.
+async def fetch_data(host_row: dict, chip: dict, *,
+                     host_id: str, service_idx: int,
+                     force: bool = False) -> dict:
+    """Fetch Tracearr's fleet activity summary for the expanded card.
+
+    Returns ``{available, active_streams, total_users, total_sessions,
+    recent_violations, servers_total, servers_online, servers, version,
+    fetched_at}``. Raises ``ValueError`` / ``RuntimeError`` when the chip's
+    api_key is unset / the base URL won't resolve / auth fails / the stats call
+    errors. ``/stats`` is load-bearing; ``/health`` is tolerated (empty roster
+    when unavailable)."""
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        raise ValueError("api_key not set")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    now = time.time()
+    ttl = resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S)
+    ck = cache_key(host_id, service_idx)
+    cached = _data_cache.get(ck)
+    if cached and not force and (now - cached[0]) < ttl:
+        return cached[1]
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            stats = await _call(cli, base, api_key, "stats")
+            # Server roster — best-effort (an empty / odd /health never fails).
+            servers: list = []
+            version = ""
+            try:
+                health = await _call(cli, base, api_key, "health")
+                servers = _health_servers(health)
+                if isinstance(health, dict):
+                    version = str(health.get("version") or "").strip()
+            except RuntimeError:
+                servers = []
+    except RuntimeError as e:
+        print(f"[tracearr] error: fetch host={host_id} — {e}")
+        raise RuntimeError(str(e))
+    st = stats if isinstance(stats, dict) else {}
+    servers_online = sum(1 for s in servers if s.get("online"))
+    out: dict[str, Any] = {
+        "available": True,
+        "active_streams": safe_int(st.get("activeStreams")),
+        "total_users": safe_int(st.get("totalUsers")),
+        "total_sessions": safe_int(st.get("totalSessions")),
+        "recent_violations": safe_int(st.get("recentViolations")),
+        "servers_total": len(servers),
+        "servers_online": servers_online,
+        "servers": servers,
+        "version": version,
+        "fetched_at": int(now),
+    }
+    print(f"[tracearr] INFO fetched host={host_id} streams={out['active_streams']} "
+          f"users={out['total_users']} plays30d={out['total_sessions']} "
+          f"violations7d={out['recent_violations']} "
+          f"servers={servers_online}/{out['servers_total']}")
+    _data_cache[ck] = (now, out)
+    return out
+
+
+def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
+    """Cache-only peek (no upstream call) for the AI context's
+    ``app_skills[].last``."""
+    data = peek_cache(_data_cache, host_id, service_idx)
+    if not isinstance(data, dict) or not data.get("available"):
+        return None
+    return {
+        "active_streams": safe_int(data.get("active_streams")),
+        "total_users": safe_int(data.get("total_users")),
+        "total_sessions": safe_int(data.get("total_sessions")),
+        "recent_violations": safe_int(data.get("recent_violations")),
+        "servers_online": safe_int(data.get("servers_online")),
+        "servers_total": safe_int(data.get("servers_total")),
+        "version": data.get("version") or "",
+        "fetched_at": safe_int(data.get("fetched_at")),
+    }
+
+
+SKILLS: tuple[dict, ...] = (
+    {
+        "id": "tracearr_status",
+        "name": "Tracearr status",
+        "ai_phrases": ("tracearr status, media fleet activity, how many streams, "
+                       "plex jellyfin emby activity, who is watching, active "
+                       "streams across servers, account sharing summary, "
+                       "tracearr summary"),
+        "destructive": False,
+    },
+    {
+        "id": "tracearr_streams",
+        "name": "Who's watching now",
+        "ai_phrases": ("who is watching now, current streams, what is playing "
+                       "right now, active playback, now playing on tracearr, "
+                       "who's streaming, current activity"),
+        "destructive": False,
+    },
+    {
+        "id": "tracearr_servers",
+        "name": "List media servers",
+        "ai_phrases": ("list media servers, what servers are monitored, plex "
+                       "jellyfin emby servers, server health, are my servers "
+                       "online, tracearr servers"),
+        "destructive": False,
+    },
+    {
+        "id": "tracearr_violations",
+        "name": "Recent violations",
+        "ai_phrases": ("account sharing violations, recent violations, who is "
+                       "sharing their account, password sharing, flagged users, "
+                       "tracearr violations, sharing detections"),
+        "destructive": False,
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
+                    host_id: Optional[str] = None,
+                    service_idx: Optional[int] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id."""
+    if skill_id == "tracearr_status":
+        return await _status_skill(host_row, chip, host_id=host_id,
+                                   service_idx=service_idx)
+    if skill_id == "tracearr_streams":
+        return await _streams_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tracearr_servers":
+        return await _servers_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tracearr_violations":
+        return await _violations_skill(host_row, chip, host_id=host_id)
+    raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
+    """Resolve ``(api_key, base)`` or return a ready ``{ok: False, detail}`` —
+    the Tracearr analogue of the shared ``resolve_skill_target`` (Tracearr
+    doesn't use ``_servarr``)."""
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return "", "", {"ok": False, "status": 0, "detail": "Tracearr api_key not set"}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    return api_key, base, None
+
+
+# noinspection DuplicatedCode
+async def _status_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None,
+                        service_idx: Optional[int] = None) -> dict:
+    """Read-only: live-fetch the current fleet activity + violation summary
+    (force-bypasses the cache). Never raises."""
+    print(f"[tracearr] INFO tracearr_status host={host_id} svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip,
+                                host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0),
+                                force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[tracearr] warning: tracearr_status host={host_id} could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    streams = safe_int(data.get("active_streams"))
+    users = safe_int(data.get("total_users"))
+    plays = safe_int(data.get("total_sessions"))
+    viol = safe_int(data.get("recent_violations"))
+    s_on = safe_int(data.get("servers_online"))
+    s_tot = safe_int(data.get("servers_total"))
+    lines = [
+        f"▶️ Active streams: {streams:,}",
+        f"🖥️ Servers online: {s_on:,}/{s_tot:,}",
+        f"👥 Users: {users:,}",
+        f"📊 Plays (30d): {plays:,}",
+        f"🚨 Violations (7d): {viol:,}",
+    ]
+    return {
+        "ok": True,
+        "detail": "\n".join(lines),
+        "status": 200,
+        "active_streams": streams, "total_users": users,
+        "total_sessions": plays, "recent_violations": viol,
+        "servers_online": s_on, "servers_total": s_tot,
+    }
+
+
+def _stream_title_sub(s: dict) -> "tuple[str, str]":
+    """Build the rich-item ``(title, subtitle)`` for one active stream. Episodes
+    lead with the show + ``SxxEyy``; music leads with the artist + album; movies
+    are the bare title (+ year)."""
+    mtype = str(s.get("mediaType") or "").strip().lower()
+    title = str(s.get("mediaTitle") or "?").strip()
+    sub_parts: list = []
+    if mtype == "episode":
+        show = str(s.get("showTitle") or "").strip()
+        se = safe_int(s.get("seasonNumber"))
+        ep = safe_int(s.get("episodeNumber"))
+        if show:
+            tag = ""
+            if se or ep:
+                tag = f" S{se:02d}E{ep:02d}" if (se and ep) else (f" S{se:02d}" if se else f" E{ep:02d}")
+            title = show
+            sub_parts.append((str(s.get("mediaTitle") or "").strip() + tag).strip() or tag.strip())
+    elif mtype == "track":
+        artist = str(s.get("artistName") or "").strip()
+        album = str(s.get("albumName") or "").strip()
+        if artist:
+            title = artist
+        if album:
+            sub_parts.append(album)
+    else:
+        yr = str(s.get("year") or "").strip()
+        if len(yr) >= 4 and yr[:4].isdigit():
+            sub_parts.append(yr[:4])
+    return title, " · ".join(p for p in sub_parts if p)
+
+
+# noinspection DuplicatedCode
+async def _streams_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None) -> dict:
+    """Read-only: who's watching what right now (rich poster list) from
+    ``GET /streams``. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tracearr] INFO tracearr_streams host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            data = await _call(cli, base, api_key, "streams")
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    rows = data.get("data") if isinstance(data, dict) else None
+    streams = rows if isinstance(rows, list) else []
+    rich: list[dict] = []
+    lines: list[str] = []
+    for s in streams[:15]:
+        if not isinstance(s, dict):
+            continue
+        title, subtitle = _stream_title_sub(s)
+        user = str(s.get("username") or "?").strip()
+        server = str(s.get("serverName") or "").strip()
+        state = str(s.get("state") or "").strip().lower()
+        # State + transcode/direct flavour on the subtitle's tail.
+        flav: list = []
+        if state and state != "playing":
+            flav.append(state)
+        flav.append("transcode" if s.get("isTranscode") else "direct")
+        sub2 = " · ".join([p for p in [subtitle] if p] + flav)
+        row: "dict[str, Any]" = {"title": title, "subtitle": sub2}
+        if user and user != "?":
+            row["byline"] = user + (f" · {server}" if server else "")
+        poster = str(s.get("posterUrl") or "").strip()
+        if poster:
+            row["poster"] = poster
+            row["poster_proxy"] = True
+        avatar = str(s.get("userAvatarUrl") or "").strip()
+        if avatar:
+            row["avatar"] = avatar
+            row["avatar_proxy"] = True
+        dur = safe_int(s.get("durationMs"))
+        prog = safe_int(s.get("progressMs"))
+        if dur > 0 and prog >= 0:
+            row["progress"] = max(0, min(100, round(prog * 100.0 / dur)))
+        rich.append(row)
+        lines.append(f"• {user}{' (' + server + ')' if server else ''} — {title}"
+                     + (f" — {sub2}" if sub2 else ""))
+    if not rich:
+        return {"ok": True, "status": 200, "detail": "▶️ Nothing is playing right now."}
+    return {"ok": True, "status": 200,
+            "detail": "▶️ Now playing:\n" + "\n".join(lines),
+            "count": len(rich), "count_i18n": "apps.tracearr.streams_count",
+            "items": rich}
+
+
+async def _servers_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None) -> dict:
+    """Read-only: the monitored media servers + online state + active streams
+    each, from ``GET /health``. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tracearr] INFO tracearr_servers host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            health = await _call(cli, base, api_key, "health")
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    servers = _health_servers(health)
+    if not servers:
+        return {"ok": True, "status": 200, "detail": "🖥️ No media servers reported."}
+    lines = []
+    for s in servers:
+        dot = "🟢" if s.get("online") else "🔴"
+        typ = str(s.get("type") or "").strip()
+        n = safe_int(s.get("active"))
+        seg = f"{dot} {s.get('name')}"
+        if typ:
+            seg += f" ({typ})"
+        seg += f"  {n:,} active stream" + ("" if n == 1 else "s")
+        lines.append(seg)
+    online = sum(1 for s in servers if s.get("online"))
+    return {"ok": True, "status": 200,
+            "detail": f"🖥️ Media servers ({online}/{len(servers)} online):\n"
+                      + "\n".join(lines)}
+
+
+async def _violations_skill(host_row: dict, chip: dict, *,
+                            host_id: Optional[str] = None) -> dict:
+    """Read-only: the most recent account-sharing violations from
+    ``GET /violations``. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tracearr] INFO tracearr_violations host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            data = await _call(cli, base, api_key, "violations", pageSize=15)
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    rows = data.get("data") if isinstance(data, dict) else None
+    viols = rows if isinstance(rows, list) else []
+    lines = []
+    for v in viols[:15]:
+        if not isinstance(v, dict):
+            continue
+        sev = str(v.get("severity") or "").strip().lower()
+        emoji = _SEVERITY_EMOJI.get(sev, "⚠️")
+        user_obj = as_dict(v.get("user"))
+        user = str(user_obj.get("username") or "?").strip()
+        rule_obj = as_dict(v.get("rule"))
+        rule = str(rule_obj.get("name") or rule_obj.get("type") or "violation").strip()
+        server = str(v.get("serverName") or "").strip()
+        seg = f"{emoji} {user} — {rule}"
+        if server:
+            seg += f" ({server})"
+        lines.append(seg)
+    if not lines:
+        return {"ok": True, "status": 200, "detail": "✅ No recent violations."}
+    total = safe_int((data.get("meta") or {}).get("total")) if isinstance(data, dict) else 0
+    header = f"🚨 Recent violations ({total or len(lines):,}):"
+    return {"ok": True, "status": 200, "detail": header + "\n" + "\n".join(lines)}

@@ -420,7 +420,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         name = f"{title}{_year_suffix(m.get('year'))}"
         lines.append(f"• {name}" + (f" — {when_fmt}" if when_fmt else ""))
         rich.append({"title": name, "subtitle": when_fmt,
-                     "poster": _servarr.local_poster_path(m, id_fallback=True),
+                     "poster": _servarr.poster_proxy_path(m, id_fallback=True),
                      "poster_proxy": True})
     if not lines:
         return {"ok": True, "status": 200,
@@ -480,7 +480,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         row: "dict[str, Any]" = {
             "title": name,
             "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": _servarr.local_poster_path(mv, id_fallback=True), "poster_proxy": True,
+            "poster": _servarr.poster_proxy_path(mv, id_fallback=True), "poster_proxy": True,
             "progress": pct}
         qid = safe_int(q.get("id"))
         if qid:

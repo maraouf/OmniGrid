@@ -482,7 +482,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         lines.append(f"• {title}{sxe}" + (f" — {when_fmt}" if when_fmt else ""))
         sub = " · ".join(p for p in (sxe.strip(), when_fmt) if p)
         rich.append({"title": title, "subtitle": sub,
-                     "poster": _servarr.local_poster_path(ser), "poster_proxy": True})
+                     "poster": _servarr.poster_proxy_path(ser), "poster_proxy": True})
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "📺 No episodes airing in the next 14 days."}
@@ -539,7 +539,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         row: "dict[str, Any]" = {
             "title": title,
             "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": _servarr.local_poster_path(ser, id_fallback=True),
+            "poster": _servarr.poster_proxy_path(ser, id_fallback=True),
             "poster_proxy": True, "progress": pct}
         qid = safe_int(q.get("id"))
         if qid:

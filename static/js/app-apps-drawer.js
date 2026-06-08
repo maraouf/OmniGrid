@@ -515,12 +515,18 @@ export default {
         // count header reads them.
         const _count = (j && typeof j.count === 'number') ? j.count : null;
         const _countI18n = (j && j.count_i18n) ? String(j.count_i18n) : '';
+        // Render the result image wider when the skill asks for it (e.g. the
+        // Speedtest result graph reads too small at the default 200px). Must
+        // be carried through to the stored result or the `--wide` CSS class
+        // never applies.
+        const _imageWide = !!(j && j.image_wide);
         // Whole-map reassign (not per-key set) so re-running a skill reliably
         // re-renders — a per-key SET on an existing key desyncs Alpine effects.
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
           [resKey]: {
             ok: true, detail: detail, image_url: img, items: _items,
-            count: _count, count_i18n: _countI18n, followup: _fu, at: Date.now()
+            count: _count, count_i18n: _countI18n, image_wide: _imageWide,
+            followup: _fu, at: Date.now()
           },
         });
         _result = {

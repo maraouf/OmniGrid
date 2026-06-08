@@ -10510,8 +10510,12 @@
                                         <template x-for="p in [appSkillSegParts(seg)]" :key="'p'">
                                           <!-- Stat chips (icon segs, e.g. "⬇️ 185 Mbps") stay on one
                                                line; prose segs (a movie overview / "Say request …")
-                                               wrap + break so they never run off the narrow drawer. -->
-                                          <span :class="p.icon ? 'whitespace-nowrap' : 'break-words min-w-0'">
+                                               wrap + break so they never run off the narrow drawer.
+                                               A SHORT icon seg is a real stat chip → nowrap; a LONG
+                                               icon seg is prose that merely LEADS with a metric/status
+                                               emoji (e.g. "⬆️ VueTorrent X is installed — …") → must
+                                               wrap, so gate nowrap on the post-icon text length. -->
+                                          <span :class="(p.icon && p.text.length <= 24) ? 'whitespace-nowrap' : 'break-words min-w-0'">
                                             <span x-show="p.icon" class="font-semibold"
                                                   :style="p.color ? ('color: ' + p.color) : ''"
                                                   x-text="p.icon"></span><span

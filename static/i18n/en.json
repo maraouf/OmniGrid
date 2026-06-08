@@ -5567,6 +5567,10 @@
       "qbittorrent_pause_all": "Pause all torrents",
       "qbittorrent_vuetorrent_check": "Check VueTorrent version",
       "qbittorrent_vuetorrent_update": "Update VueTorrent WebUI",
+      "tracearr_status": "Tracearr status",
+      "tracearr_streams": "Who's watching now",
+      "tracearr_servers": "List media servers",
+      "tracearr_violations": "Recent violations",
       "skill_confirm_title": "Run \"{name}\"?",
       "skill_confirm_text": "This performs a change on the app. Continue?",
       "results_count": "{count} results",
@@ -5816,6 +5820,22 @@
       "group_series": "Series",
       "group_music": "Music",
       "group_other": "Other"
+    },
+    "tracearr": {
+      "api_key_label": "Tracearr API token",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "Public API token from Tracearr → Settings → API",
+      "api_key_hint": "Required for the expanded card to fetch fleet activity + violation counts. Generate it in Tracearr under Settings → API (the token is prefixed trr_pub_). Leave blank to keep the stored token.",
+      "cache_ttl_hint": "How long the fetched fleet activity + violation summary is cached before re-querying Tracearr (5–3600s). Leave blank for the app default (60s).",
+      "streams": "Streams",
+      "servers": "Servers",
+      "users": "Users",
+      "violations": "Violations",
+      "plays_n": "{n} plays (30d)",
+      "streams_count": "{count} streaming",
+      "no_api_key": "No API token set — add one in Admin → Apps to enable.",
+      "loading": "Loading Tracearr data…",
+      "fetch_failed": "Tracearr fetch failed"
     },
     "qbittorrent": {
       "username_label": "qBittorrent username",
