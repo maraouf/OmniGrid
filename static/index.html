@@ -10424,25 +10424,53 @@
                                    *arr api_key never hits the wire; a film-icon
                                    placeholder shows when an item has no poster. -->
                               <template x-if="appSkillResult(inst, sk.id).ok && appSkillResult(inst, sk.id).items">
-                                <ul class="apps-skill-items flex flex-col gap-1.5 max-h-[260px] overflow-y-auto scrollbar">
-                                  <template x-for="(it, ii) in appSkillResult(inst, sk.id).items" :key="ii">
-                                    <li class="apps-skill-item flex items-center gap-2 min-w-0">
-                                      <img x-show="it.poster" :src="proxiedImageUrl(it.poster)" alt="" loading="lazy"
-                                           class="apps-skill-item-poster shrink-0"
-                                           @error="$event.target.style.display='none'; $event.target.nextElementSibling && ($event.target.nextElementSibling.style.display='inline-flex')">
-                                      <span class="apps-skill-item-poster apps-skill-item-poster--ph shrink-0 inline-flex items-center justify-center"
-                                            :style="it.poster ? 'display:none' : ''" aria-hidden="true">
-                                        <svg width="12" height="12" class="text-[var(--text-faint)]">
-                                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
-                                        </svg>
-                                      </span>
-                                      <span class="flex flex-col min-w-0 leading-tight">
-                                        <span class="fs-sm font-medium truncate" x-text="it.title"></span>
-                                        <span x-show="it.subtitle" class="fs-2xs text-[var(--text-faint)] truncate" x-text="it.subtitle"></span>
-                                      </span>
-                                    </li>
-                                  </template>
-                                </ul>
+                                <div class="flex flex-col gap-1.5">
+                                  <!-- Count header (e.g. "12 requests"). The
+                                       i18n key is per-skill (count_i18n) so each
+                                       skill picks its own noun; defaults to
+                                       "N results". -->
+                                  <div class="fs-2xs text-[var(--text-faint)] font-medium"
+                                       x-text="t(appSkillResult(inst, sk.id).count_i18n || 'apps.skills.results_count', {count: appSkillItemsCount(inst, sk.id)})"></div>
+                                  <ul class="apps-skill-items flex flex-col gap-1.5 max-h-[300px] overflow-y-auto scrollbar">
+                                    <template x-for="(it, ii) in appSkillResult(inst, sk.id).items" :key="ii">
+                                      <li class="flex flex-col gap-0.5 min-w-0">
+                                        <!-- Group divider (e.g. Tautulli Movies /
+                                             Series) rendered at each group boundary. -->
+                                        <div x-show="appSkillItemShowGroup(inst, sk.id, ii)"
+                                             class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] font-semibold mt-1"
+                                             x-text="t(it.group)"></div>
+                                        <div class="apps-skill-item flex items-center gap-2 min-w-0">
+                                          <img x-show="it.poster" :src="appSkillItemPoster(inst, it)" alt="" loading="lazy"
+                                               class="apps-skill-item-poster shrink-0"
+                                               @error="$event.target.style.display='none'; $event.target.nextElementSibling && ($event.target.nextElementSibling.style.display='inline-flex')">
+                                          <span class="apps-skill-item-poster apps-skill-item-poster--ph shrink-0 inline-flex items-center justify-center"
+                                                :style="it.poster ? 'display:none' : ''" aria-hidden="true">
+                                            <svg width="12" height="12" class="text-[var(--text-faint)]">
+                                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+                                            </svg>
+                                          </span>
+                                          <span class="flex flex-col min-w-0 leading-tight flex-1">
+                                            <span class="fs-sm font-medium truncate" x-text="it.title"></span>
+                                            <span x-show="it.subtitle" class="fs-2xs text-[var(--text-faint)] truncate" x-text="it.subtitle"></span>
+                                            <!-- Requested-by byline + tiny user avatar (Seerr). -->
+                                            <span x-show="it.byline" class="flex items-center gap-1 mt-0.5 min-w-0">
+                                              <img x-show="it.avatar" :src="appSkillItemAvatar(inst, it)" alt="" loading="lazy"
+                                                   class="apps-skill-item-avatar shrink-0"
+                                                   @error="$event.target.style.display='none'">
+                                              <span class="fs-2xs text-[var(--text-faint)] truncate"
+                                                    x-text="it.byline_i18n ? t(it.byline_i18n, {name: it.byline}) : it.byline"></span>
+                                            </span>
+                                            <!-- Progress bar (download queues / qBittorrent). -->
+                                            <span x-show="it.progress != null" class="apps-skill-item-bar mt-1" role="progressbar"
+                                                  :aria-valuenow="it.progress" aria-valuemin="0" aria-valuemax="100">
+                                              <span class="apps-skill-item-bar-fill" :style="'width:' + Math.max(0, Math.min(100, Number(it.progress) || 0)) + '%'"></span>
+                                            </span>
+                                          </span>
+                                        </div>
+                                      </li>
+                                    </template>
+                                  </ul>
+                                </div>
                               </template>
                               <!-- OK (no structured items): render each detail line as
                                    ONE inline row — the stats flow together (plain text,

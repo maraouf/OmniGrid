@@ -138,6 +138,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
+# noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -245,6 +246,7 @@ def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Option
     return api_key, base, None
 
 
+# noinspection DuplicatedCode
 async def _search_wanted_skill(host_row: dict, chip: dict, *,
                                host_id: Optional[str] = None) -> dict:
     """Action skill: trigger Bazarr's "search for wanted subtitles" tasks
@@ -312,6 +314,52 @@ def _wanted_title(item: dict) -> str:
     return str(item.get("title") or item.get("radarrTitle") or "").strip()
 
 
+def _wanted_year(item: dict) -> str:
+    """Best-effort 4-digit year for a wanted row ('' when absent). Bazarr
+    movie rows carry ``year``; some shapes nest it as a string with extra
+    text, so we take the first 4-digit run."""
+    if not isinstance(item, dict):
+        return ""
+    raw = str(item.get("year") or "").strip()
+    if len(raw) >= 4 and raw[:4].isdigit():
+        return raw[:4]
+    return ""
+
+
+def _stamp_wanted_poster(row: dict, item: dict) -> None:
+    """Stamp a wanted row's poster onto a rich item IF Bazarr returned a poster
+    path. Bazarr serves posters off its own host behind the X-API-KEY, so we
+    flag ``poster_proxy`` to route the fetch through the per-app image proxy
+    (the api_key stays server-side). Tries the common movie / episode poster
+    keys; leaves the row poster-less (placeholder icon) when none are present."""
+    if not isinstance(item, dict):
+        return
+    for k in ("poster", "seriesPoster", "mediaPoster"):
+        p = str(item.get(k) or "").strip()
+        if p:
+            row["poster"] = p
+            row["poster_proxy"] = True
+            return
+
+
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook — resolve a Bazarr poster path to an absolute
+    upstream URL + the X-API-KEY header. Bazarr posters are relative paths
+    served off the chip's own host behind auth; we join them to the configured
+    base and attach the key server-side. SSRF guard: only a clean relative
+    ``/...`` path (no scheme, no traversal) is accepted."""
+    api_key = (chip.get("api_key") or "").strip()
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty poster path")
+    if "://" in p or not p.startswith("/") or ".." in p:
+        raise ValueError("poster must be a clean absolute path")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    return base.rstrip("/") + p, _headers(api_key)
+
+
 async def _wanted_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None) -> dict:
     """Read-only skill: list the items currently missing subtitles (top few
@@ -322,10 +370,10 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[bazarr] INFO bazarr_wanted host={host_id} (live fetch)")
 
-    async def _fetch_wanted(cli, path):
+    async def _fetch_wanted(client, sub_path):
         try:
-            r = await cli.get(base + path, headers=_headers(api_key),
-                              params={"length": "50", "start": "0"})
+            r = await client.get(base + sub_path, headers=_headers(api_key),
+                                 params={"length": "50", "start": "0"})
             if r.status_code != 200:
                 return [], 0, r.status_code
             body = r.json()
@@ -348,21 +396,43 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
     if m_total == 0 and e_total == 0:
         return {"ok": True, "status": 200, "detail": "✅ Nothing is missing subtitles."}
     lines = []
+    # Rich rows for the drawer's poster-thumbnail card — grouped Movies /
+    # Episodes. Bazarr posters need the X-API-KEY, so they route through the
+    # per-app image proxy (poster_proxy=true). Year (movies) shows in the
+    # subtitle; the title carries the series + SxxEyy label for episodes.
+    rich: list[dict] = []
     if m_total:
         lines.append(f"🎬 Movies missing subtitles: {m_total:,}")
-        for m in movies[:5]:
+        for m in movies[:8]:
+            if not isinstance(m, dict):
+                continue
             t = _wanted_title(m)
-            if t:
-                lines.append(f"  • {t}")
+            if not t:
+                continue
+            yr = _wanted_year(m)
+            lines.append(f"  • {t}" + (f" ({yr})" if yr else ""))
+            row = {"title": t, "subtitle": yr, "group": "apps.bazarr.group_movies"}
+            _stamp_wanted_poster(row, m)
+            rich.append(row)
     if e_total:
         lines.append(f"📺 Episodes missing subtitles: {e_total:,}")
-        for ep in eps[:5]:
+        for ep in eps[:8]:
+            if not isinstance(ep, dict):
+                continue
             t = _wanted_title(ep)
-            if t:
-                lines.append(f"  • {t}")
-    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+            if not t:
+                continue
+            yr = _wanted_year(ep)
+            lines.append(f"  • {t}")
+            row = {"title": t, "subtitle": yr, "group": "apps.bazarr.group_episodes"}
+            _stamp_wanted_poster(row, ep)
+            rich.append(row)
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "count": (m_total + e_total),
+            "count_i18n": "apps.bazarr.missing_count", "items": rich}
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:

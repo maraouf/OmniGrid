@@ -126,25 +126,29 @@ def year_suffix(year: Any) -> str:
 
 
 def poster_url(item: Any) -> str:
-    """Best-effort poster URL for a *arr item (movie / series / artist / book).
+    """Best-effort poster URL for a *arr item (movie / series / artist / book /
+    album).
 
     Every *arr item carries an ``images`` list of ``{coverType, url,
-    remoteUrl}``. We prefer ``remoteUrl`` — the TMDB / TVDB / etc. CDN URL —
-    because the SPA can fetch it through the in-app image proxy
+    remoteUrl}``. We prefer ``remoteUrl`` — the TMDB / TVDB / MusicBrainz CDN
+    URL — because the SPA can fetch it through the in-app image proxy
     (``proxiedImageUrl`` → ``/api/image-proxy``) without needing the *arr
     api_key; the local ``url`` (``/MediaCover/...``) would require the key on
-    the wire. Returns ``""`` when no poster image is present (graceful — the
+    the wire. Prefers ``poster`` art (movies / series / artists), then falls
+    back to ``cover`` (Lidarr ALBUM art uses coverType ``cover``, not
+    ``poster``). Returns ``""`` when no usable image is present (graceful — the
     UI then just shows the title with no thumbnail)."""
     if not isinstance(item, dict):
         return ""
     imgs = item.get("images")
     if not isinstance(imgs, list):
         return ""
-    for im in imgs:
-        if isinstance(im, dict) and str(im.get("coverType") or "").lower() == "poster":
-            url = str(im.get("remoteUrl") or "").strip()
-            if url:
-                return url
+    for want in ("poster", "cover"):
+        for im in imgs:
+            if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                url = str(im.get("remoteUrl") or "").strip()
+                if url:
+                    return url
     return ""
 
 

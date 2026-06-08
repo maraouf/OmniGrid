@@ -41,8 +41,6 @@ API reference: https://ftl.pi-hole.net/master/docs/
 from __future__ import annotations
 
 import asyncio
-import hmac
-import secrets
 import time
 from typing import Any, Optional
 
@@ -113,15 +111,10 @@ FLEET_SKILLS: bool = True
 DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
-# Session-ID cache: base|password-discriminator -> (sid, expires_at). Pi-hole
-# caps concurrent sessions, so we reuse a SID until ~expiry instead of
+# Session-ID cache: resolved-base-URL -> (sid, expires_at). Pi-hole caps
+# concurrent sessions, so we reuse a SID until ~expiry instead of
 # authenticating on every fetch.
 _sid_cache: dict[str, tuple[str, float]] = {}
-
-# Per-process random secret for the cache-key discriminator below. Generated
-# fresh each start, never persisted — the in-memory cache is per-process, so
-# a new secret just means an empty cache (no correctness impact).
-_SID_KEY_SECRET = secrets.token_bytes(32)
 
 
 def requires_api_key() -> bool:
@@ -136,23 +129,15 @@ def _password(chip: dict, *, candidate: Optional[str] = None) -> str:
     return (candidate if candidate is not None else "").strip() or (chip.get("api_key") or "").strip()
 
 
-def _sid_key(base: str, password: str) -> str:
-    """Cache-key discriminator for the SID cache — NOT password storage.
-
-    Uses a KEYED HMAC with a per-process random secret (`_SID_KEY_SECRET`)
-    rather than a bare password hash: the result changes when the password
-    changes (so a credential rotation re-authenticates) but is not reversible
-    / offline-brute-forceable without the secret, which never leaves memory.
-    Keyed HMAC is the appropriate construction here (a fast password hash like
-    bare SHA-256 would be wrong for password *storage*, but this is an
-    in-memory cache key, not stored credentials)."""
-    # codeql[py/weak-sensitive-data-hashing] — FALSE POSITIVE: this is a KEYED
-    # HMAC (per-process secret) used ONLY as an in-memory cache-key
-    # discriminator, NOT password storage. A slow/expensive password hash
-    # (bcrypt / argon2) would be WRONG here — it's recomputed on every request
-    # and the digest is never stored or logged. See the docstring above.
-    digest = hmac.new(_SID_KEY_SECRET, password.encode(), "sha256").hexdigest()  # codeql[py/weak-sensitive-data-hashing]
-    return base + "|" + digest[:16]
+def _sid_key(base: str) -> str:
+    """Cache-key for the per-process SID cache — the instance's resolved base
+    URL is its identity. One Pi-hole server has a single session password, so
+    the URL alone disambiguates instances; the password is deliberately NOT
+    part of the key (no secret material lands in a dict key, and no hashing of
+    sensitive data is needed). A password rotation is handled by the 401/403
+    re-auth retry in ``fetch_data`` — the stale SID is popped and we
+    re-authenticate with the new password."""
+    return base
 
 
 async def _authenticate(base: str, password: str) -> str:
@@ -175,14 +160,14 @@ async def _authenticate(base: str, password: str) -> str:
     if not sess.get("valid") or not sid:
         raise RuntimeError("auth rejected (check password)")
     validity = safe_int(sess.get("validity")) or 1800
-    _sid_cache[_sid_key(base, password)] = (sid, time.time() + max(60, validity - 60))
+    _sid_cache[_sid_key(base)] = (sid, time.time() + max(60, validity - 60))
     return sid
 
 
 async def _get_sid(base: str, password: str) -> str:
     """Return a valid SID — reuse the cached one until ~expiry, else
     authenticate. Raises RuntimeError on auth failure."""
-    cached = _sid_cache.get(_sid_key(base, password))
+    cached = _sid_cache.get(_sid_key(base))
     if cached and cached[1] > time.time():
         return cached[0]
     return await _authenticate(base, password)
@@ -282,7 +267,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # One re-auth retry if the cached SID went stale (401).
         sc, summary = await _authed_get(sid, "/api/stats/summary")
         if sc in (401, 403):
-            _sid_cache.pop(_sid_key(base, password), None)
+            _sid_cache.pop(_sid_key(base), None)
             sid = await _authenticate(base, password)
             sc, summary = await _authed_get(sid, "/api/stats/summary")
         if sc != 200 or not isinstance(summary, dict):
@@ -434,7 +419,7 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
         except RuntimeError as e:
             # A stale cached SID surfaces as "auth failed" — drop + one retry.
             if "auth failed" in str(e):
-                _sid_cache.pop(_sid_key(resolve_base_url(hrow, chip), password), None)
+                _sid_cache.pop(_sid_key(resolve_base_url(hrow, chip)), None)
             return hid, False, str(e)
         return hid, True, ""
 

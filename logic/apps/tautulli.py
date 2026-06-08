@@ -107,6 +107,29 @@ async def _call(cli: httpx.AsyncClient, base: str, api_key: str, cmd: str,
     return resp.get("data")
 
 
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook — turn a Plex metadata thumb path into a
+    Tautulli ``pms_image_proxy`` URL. The api_key rides the query string and is
+    resolved SERVER-SIDE (the OmniGrid server fetches it), so it never reaches
+    the browser. Tautulli then fetches the art from Plex internally — the only
+    host we contact is the configured Tautulli base, so there's no external
+    SSRF surface. Guard: only a Plex metadata path (``/...``, no scheme) is
+    accepted."""
+    from urllib.parse import urlencode  # noqa: PLC0415
+    api_key = (chip.get("api_key") or "").strip()
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty thumb path")
+    if "://" in p or not p.startswith("/"):
+        raise ValueError("thumb must be a Plex metadata path")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    qs = urlencode({"apikey": api_key, "cmd": "pms_image_proxy", "img": p,
+                    "width": 300, "height": 450, "fallback": "poster"})
+    return base.rstrip("/") + "/api/v2?" + qs, {}
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Tautulli by calling ``cmd=get_activity`` with the supplied API key.
     Returns ``{ok, detail, status}`` for direct SPA consumption. Falls back to
@@ -354,6 +377,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _activity_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None) -> dict:
     """Read-only: who's watching what right now (per-stream detail) from
@@ -424,6 +448,7 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
             "detail": f"📚 Plex libraries ({len(lines):,}):\n" + "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _recently_added_skill(host_row: dict, chip: dict, *,
                                 host_id: Optional[str] = None) -> dict:
     """Read-only: the most recently added items from ``cmd=get_recently_added``.
@@ -444,19 +469,63 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         items = _ra if isinstance(_ra, list) else []
     elif isinstance(data, list):
         items = data
-    lines = []
-    for it in items[:10]:
+    # Group into Movies vs Series (everything show/season/episode-shaped),
+    # preserving recency order within each group. Rich rows carry the Plex
+    # thumb (routed through the per-app image proxy — pms_image_proxy needs the
+    # api_key, which stays server-side) + the year on the title's subtitle.
+    movies: list[dict] = []
+    series: list[dict] = []
+    for it in items[:20]:
         if not isinstance(it, dict):
             continue
-        title = str(it.get("full_title") or it.get("title") or "?").strip()
-        lib = str(it.get("library_name") or "").strip()
-        lines.append(f"• {title}" + (f" ({lib})" if lib else ""))
-    if not lines:
+        mtype = str(it.get("media_type") or "").strip().lower()
+        is_movie = mtype == "movie"
+        if is_movie:
+            title = str(it.get("title") or it.get("full_title") or "?").strip()
+        else:
+            # Episode / season / show: lead with the series name.
+            title = str(it.get("grandparent_title") or it.get("parent_title")
+                        or it.get("title") or it.get("full_title") or "?").strip()
+        yr = str(it.get("year") or "").strip()
+        yr = yr[:4] if len(yr) >= 4 and yr[:4].isdigit() else ""
+        sub_parts = []
+        if not is_movie:
+            # Episode label, e.g. "S01 · Episode title" when present.
+            ep = str(it.get("title") or "").strip()
+            if ep and ep != title:
+                sub_parts.append(ep)
+        if yr:
+            sub_parts.append(yr)
+        thumb = str(it.get("thumb") or it.get("grandparent_thumb")
+                    or it.get("parent_thumb") or "").strip()
+        row: "dict[str, Any]" = {
+            "title": title + (f" ({yr})" if is_movie and yr else ""),
+            "subtitle": " · ".join(sub_parts),
+            "group": "apps.tautulli.group_movies" if is_movie
+            else "apps.tautulli.group_series"}
+        if thumb:
+            row["poster"] = thumb
+            row["poster_proxy"] = True
+        (movies if is_movie else series).append(row)
+    rich = movies + series
+    if not rich:
         return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added."}
+    # Plain text (AI / Telegram): grouped, with year.
+    lines: list[str] = []
+    if movies:
+        lines.append("🎬 Movies:")
+        lines += [f"  • {r['title']}" for r in movies]
+    if series:
+        lines.append("📺 Series:")
+        lines += [f"  • {r['title']}"
+                  + (f" — {r['subtitle']}" if r.get("subtitle") else "") for r in series]
     return {"ok": True, "status": 200,
-            "detail": "🆕 Recently added:\n" + "\n".join(lines)}
+            "detail": "🆕 Recently added:\n" + "\n".join(lines),
+            "count": len(rich), "count_i18n": "apps.tautulli.recent_count",
+            "items": rich}
 
 
+# noinspection DuplicatedCode
 async def _history_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
     """Read-only: the most recent watch history from ``cmd=get_history``.

@@ -5141,6 +5141,36 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   aspect-ratio: 2 / 3;
 }
 
+/* Tiny round user avatar next to a rich-item byline (e.g. Seerr "requested
+   by"). Loads direct — public avatar hosts (plex.tv / gravatar) or the
+   LAN Seerr host; hidden on load error so the byline text stands alone. */
+.apps-skill-item-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+/* Per-row progress bar for download-queue / torrent rich items. */
+.apps-skill-item-bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.apps-skill-item-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
    actions invoked from the AI sidebar. Wraps a warning icon, the
    action label, and Yes / Cancel buttons in one compact row attached
@@ -10040,6 +10070,15 @@ select.field-invalid {
 
 .apps-card--size-half .apps-card-meta {
   display: none;
+}
+
+/* …EXCEPT bookmark tiles: a bookmark's meta IS its URL — the primary content,
+   not the secondary stat detail an app / widget card hides at half width. The
+   horizontal tile (logo + text + gear) has room for the one-line truncated URL
+   at 1x1, so keep it visible (operator-flagged: URL hidden at 1x1 despite the
+   available space). Higher specificity (3 classes) beats the hide rule above. */
+.apps-card--size-half .apps-bookmark-tile .apps-card-meta {
+  display: block;
 }
 
 .apps-card--size-double {

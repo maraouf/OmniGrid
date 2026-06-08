@@ -5336,7 +5336,10 @@
       "movies_missing": "Movies missing",
       "providers_throttled": "Throttled providers",
       "health_issues": "Health issues",
-      "loading": "Loading Bazarr data…"
+      "loading": "Loading Bazarr data…",
+      "missing_count": "{count} missing subtitles",
+      "group_movies": "Movies",
+      "group_episodes": "Episodes"
     },
     "seerr": {
       "api_key_label": "Seerr API key",
@@ -5366,7 +5369,9 @@
       "top_requesters": "Top requesters",
       "issues_open": "Open issues",
       "request_btn": "Request on Seerr",
-      "loading": "Loading Seerr data…"
+      "loading": "Loading Seerr data…",
+      "requests_count": "{count} requests",
+      "requested_by": "Requested by {name}"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",
@@ -5553,7 +5558,10 @@
       "qbittorrent_list": "List torrents",
       "qbittorrent_add": "Add a torrent",
       "qbittorrent_resume_all": "Resume all torrents",
-      "qbittorrent_pause_all": "Pause all torrents"
+      "qbittorrent_pause_all": "Pause all torrents",
+      "results_count": "{count} results",
+      "downloading_count": "{count} downloading",
+      "qbittorrent_downloading": "What's downloading"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5764,7 +5772,11 @@
       "items_n": "{n} items",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Tautulli data…",
-      "fetch_failed": "Tautulli fetch failed"
+      "fetch_failed": "Tautulli fetch failed",
+      "recent_count": "{count} recently added",
+      "group_movies": "Movies",
+      "group_series": "Series",
+      "group_other": "Other"
     },
     "qbittorrent": {
       "username_label": "qBittorrent username",
@@ -5780,7 +5792,8 @@
       "total": "Total",
       "no_api_key": "No password set — add credentials in Admin → Apps to enable.",
       "loading": "Loading qBittorrent data…",
-      "fetch_failed": "qBittorrent fetch failed"
+      "fetch_failed": "qBittorrent fetch failed",
+      "downloading_now_count": "{count} downloading"
     },
     "plex": {
       "api_key_label": "Plex token",
