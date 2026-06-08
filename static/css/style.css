@@ -5094,6 +5094,21 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   color: var(--danger);
 }
 
+/* Drawer skill-result box — constrain to its container so a long detail line
+   (e.g. the VueTorrent "X installed — Y available. Run …" message) wraps INSIDE
+   the box instead of growing it past the drawer edge. min-width:0 lets it
+   shrink in its flex/grid parent; max-width:100% caps it; the detail line
+   forces wrapping (overflow-wrap:anywhere covers a long unbroken token). */
+.apps-skill-result {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.apps-skill-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Small ✕ in the corner of a drawer skill-result box — clears/hides the
    box (e.g. "latest speed test", Seerr suggestion filters) until the skill
    is run again. Subtle by default, brightens on hover. */
@@ -5133,6 +5148,19 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
   background: var(--surface-3);
+}
+
+/* Skill-result image preview (e.g. the Speedtest result graph). Real CSS
+   classes — NOT Tailwind arbitrary `max-w-[Npx]` — so the in-browser JIT
+   reliably applies them from an Alpine `:class` ternary (an arbitrary value
+   built at runtime isn't always picked up by the scanner). Default 200px;
+   `--wide` is for detailed charts (Speedtest) that read too small at 200. */
+.apps-skill-img {
+  max-width: 200px;
+}
+
+.apps-skill-img--wide {
+  max-width: 350px;
 }
 
 .apps-skill-item-poster--ph {

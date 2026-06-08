@@ -41,6 +41,8 @@ import time  # noqa: F401 — used at time.time() callsites below; IDE marks
 
 import httpx
 
+from logic.external_urls import ExternalURL
+
 # Canonical, ordered tuple of every AI provider OmniGrid speaks to.
 # CANONICAL source of truth — every other module that needs the list
 # (settings validators, /api/me's `client_config.ai.provider_names`,
@@ -52,10 +54,10 @@ import httpx
 SUPPORTED_PROVIDERS = ("claude", "gemini", "chatgpt", "deepseek")
 
 _DEFAULT_BASE_URLS = {
-    "claude": "https://api.anthropic.com",
-    "gemini": "https://generativelanguage.googleapis.com",
-    "chatgpt": "https://api.openai.com",
-    "deepseek": "https://api.deepseek.com",
+    "claude": ExternalURL.CLAUDE_API,
+    "gemini": ExternalURL.GEMINI_API,
+    "chatgpt": ExternalURL.OPENAI_API,
+    "deepseek": ExternalURL.DEEPSEEK_API,
 }
 
 _DEFAULT_MODELS = {

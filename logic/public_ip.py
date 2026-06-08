@@ -30,6 +30,7 @@ import time
 from typing import Optional
 
 import httpx
+from logic.external_urls import ExternalURL
 
 from logic.db import get_setting_bool
 from logic.settings_keys import Settings
@@ -53,7 +54,7 @@ _NEG_TTL_CAP_SECONDS = 60.0
 # (rate-limited without an API key), api.ipify.org (no ASN),
 # ip-api.com (no HTTPS without paid tier). ifconfig.co is the
 # simplest no-key option with ASN + ISP + country in one call.
-_DEFAULT_LOOKUP_URL = "https://ifconfig.co/json"
+_DEFAULT_LOOKUP_URL = ExternalURL.IFCONFIG_CO
 
 
 def _lookup_url() -> str:

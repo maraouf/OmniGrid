@@ -121,6 +121,8 @@ from main_pkg.hosts_routes import (  # noqa: E402,F401
     _load_hosts_config,
 )
 import asyncio  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
+import httpx  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
+from logic.external_urls import ExternalURL  # noqa: E402
 from typing import Optional
 
 
@@ -1980,7 +1982,7 @@ async def api_weather(
 # off `image.tmdb.org`). Mirror any new emitted host in the frontend's
 # `aiImageProxy` rewrite gate so the two stay in lock-step.
 _IMAGE_PROXY_ALLOWED_HOSTS = frozenset({
-    "image.tmdb.org", "www.themoviedb.org", "themoviedb.org",
+    ExternalURL.TMDB_IMAGE_HOST, ExternalURL.WWW_THEMOVIEDB_HOST, ExternalURL.THEMOVIEDB_HOST,
 })
 # Cap the proxied body so a misbehaving / spoofed upstream can't balloon
 # memory — TMDB posters are well under 1 MB; 10 MB is a generous ceiling.

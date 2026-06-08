@@ -325,6 +325,11 @@ SKILLS: tuple[dict, ...] = (
 
 # Notification body the test skill sends.
 _TEST_BODY = "Test notification from OmniGrid."
+# The test fires to OmniGrid's OWN Apprise tag (matches the APPRISE_TAG default
+# used by OmniGrid's deploy/op notifications) rather than every configured
+# endpoint — so a "test" doesn't spam every channel (and doesn't 424 just
+# because some unrelated endpoint is misconfigured).
+_TEST_TAG = "omnigrid"
 # Parse a leading "[tag]" or "tag=<tag>" / "tag:<tag>" selector off a notify arg.
 _TAG_BRACKET_RE = re.compile(r"^\s*\[(?P<tag>.+?)]\s*(?P<body>.*)$", re.S)
 _TAG_PREFIX_RE = re.compile(r"^\s*tag[=:](?P<tag>\S+)\s+(?P<body>.*)$", re.S | re.I)
@@ -365,7 +370,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
     if skill_id == "apprise_test":
-        return await _notify_skill(host_row, chip, body=_TEST_BODY, tag="",
+        return await _notify_skill(host_row, chip, body=_TEST_BODY, tag=_TEST_TAG,
                                    title="OmniGrid test", host_id=host_id)
     if skill_id == "apprise_notify":
         tag, body = _parse_notify_arg(arg)

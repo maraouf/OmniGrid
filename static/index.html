@@ -10532,8 +10532,8 @@
                                    class="block mt-2">
                                   <img :src="proxiedImageUrl(appSkillResult(inst, sk.id).image_url)" alt=""
                                        loading="lazy"
-                                       class="rounded border border-[var(--border)]"
-                                       :class="appSkillResult(inst, sk.id).image_wide ? 'max-w-[350px]' : 'max-w-[200px]'"/>
+                                       class="apps-skill-img rounded border border-[var(--border)]"
+                                       :class="appSkillResult(inst, sk.id).image_wide ? 'apps-skill-img--wide' : ''"/>
                                 </a>
                               </template>
                               <!-- One-click follow-up (e.g. Seerr suggest →

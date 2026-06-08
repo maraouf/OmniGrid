@@ -96,6 +96,8 @@ from main_pkg.ops_routes import SettingsIn  # noqa: E402,F401
 import json
 from typing import Any, Optional, cast
 
+from logic.external_urls import ExternalURL  # noqa: E402
+
 
 # Load .env BEFORE any os.getenv() calls (including those done at import time
 # in auth.py). The file lives in the /app bind-mount and travels with the
@@ -381,10 +383,10 @@ async def api_get_settings(request: Request):
                 for name in _ai_supported_providers()
             },
             "defaults": {
-                "claude": {"model": "claude-opus-4-7", "base_url": "https://api.anthropic.com"},
-                "gemini": {"model": "gemini-2.5-pro", "base_url": "https://generativelanguage.googleapis.com"},
-                "chatgpt": {"model": "gpt-4o", "base_url": "https://api.openai.com"},
-                "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com"},
+                "claude": {"model": "claude-opus-4-7", "base_url": ExternalURL.CLAUDE_API},
+                "gemini": {"model": "gemini-2.5-pro", "base_url": ExternalURL.GEMINI_API},
+                "chatgpt": {"model": "gpt-4o", "base_url": ExternalURL.OPENAI_API},
+                "deepseek": {"model": "deepseek-chat", "base_url": ExternalURL.DEEPSEEK_API},
             },
         },
         # Public-IP lookup block — standalone subsystem (NOT AI). Its

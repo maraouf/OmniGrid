@@ -28,14 +28,14 @@ DOCKERHUB_TOKEN = env_get(EnvKey.DOCKERHUB_TOKEN)
 # else (private mirrors, self-hosted Harbor, etc.) collapses into a single
 # `private` bucket. Add new public registries by appending to the set.
 _KNOWN_REGISTRIES = frozenset({
-    "registry-1.docker.io",  # canonical Docker Hub host
-    "docker.io",  # also used as a label by some clients
-    "ghcr.io",
-    "gcr.io",
-    "quay.io",
-    "lscr.io",
-    "mcr.microsoft.com",
-    "public.ecr.aws",
+    ExternalURL.DOCKER_REGISTRY_HOST,  # canonical Docker Hub host
+    ExternalURL.DOCKER_IO_HOST,  # also used as a label by some clients
+    ExternalURL.GHCR_HOST,
+    ExternalURL.GCR_HOST,
+    ExternalURL.QUAY_HOST,
+    ExternalURL.LSCR_HOST,
+    ExternalURL.MCR_HOST,
+    ExternalURL.ECR_PUBLIC_HOST,
 })
 
 
@@ -49,8 +49,8 @@ def _classify_registry(host: str) -> str:
     if not host:
         return "unknown"
     h = host.strip().lower()
-    if h == "registry-1.docker.io":
-        return "docker.io"
+    if h == ExternalURL.DOCKER_REGISTRY_HOST:
+        return ExternalURL.DOCKER_IO_HOST
     if h in _KNOWN_REGISTRIES:
         return h
     return "private"
@@ -94,7 +94,7 @@ def parse_image_ref(ref: str) -> tuple[str, str, str]:
     if is_reg and len(parts) == 2:
         registry, repo = first, parts[1]
     else:
-        registry = "registry-1.docker.io"
+        registry = ExternalURL.DOCKER_REGISTRY_HOST
         repo = ref if "/" in ref else f"library/{ref}"
     if ":" in repo.rsplit("/", 1)[-1]:
         repo, tag = repo.rsplit(":", 1)
@@ -113,14 +113,14 @@ def hub_link(image: str) -> Optional[str]:
         reg, repo, _ = parse_image_ref(image)
     except (ValueError, AttributeError):
         return None
-    if reg == "lscr.io" and repo.startswith("linuxserver/"):
+    if reg == ExternalURL.LSCR_HOST and repo.startswith("linuxserver/"):
         return f"{ExternalURL.GITHUB}/linuxserver/docker-{repo.split('/', 1)[1]}"
-    if reg == "ghcr.io":
+    if reg == ExternalURL.GHCR_HOST:
         return f"{ExternalURL.GITHUB}/{repo}"
-    if reg == "registry-1.docker.io":
+    if reg == ExternalURL.DOCKER_REGISTRY_HOST:
         if repo.startswith("library/"):
-            return f"https://hub.docker.com/_/{repo.split('/', 1)[1]}/tags"
-        return f"https://hub.docker.com/r/{repo}/tags"
+            return f"{ExternalURL.DOCKER_HUB}/_/{repo.split('/', 1)[1]}/tags"
+        return f"{ExternalURL.DOCKER_HUB}/r/{repo}/tags"
     return None
 
 
@@ -171,7 +171,7 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
         _host = (_urlparse(realm).hostname or "").lower()
     except (ValueError, ImportError):
         _host = ""
-    _is_dockerhub = (_host == "docker.io" or _host.endswith(".docker.io"))
+    _is_dockerhub = (_host == ExternalURL.DOCKER_IO_HOST or _host.endswith(".docker.io"))
     if _is_dockerhub and DOCKERHUB_USER and DOCKERHUB_TOKEN:
         auth = (DOCKERHUB_USER, DOCKERHUB_TOKEN)
     try:

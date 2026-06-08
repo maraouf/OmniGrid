@@ -37,6 +37,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
+from logic.external_urls import ExternalURL
 
 from logic.db import get_setting, get_setting_bool, read_location_setting
 from logic.env_keys import EnvKey, env_get
@@ -84,7 +85,7 @@ DEFAULT_SCHOOL = 0
 # AlAdhan REST base — resolved from ops config at call time (DB setting
 # → env var → well-known default), matching the weather provider's "no
 # static URLs baked as Python constants" discipline.
-_DEFAULT_BASE_URL = "https://api.aladhan.com/v1"
+_DEFAULT_BASE_URL = ExternalURL.ALADHAN_API
 
 # Display order of the five obligatory prayers (for the card + the
 # next-prayer computation). Sunrise is rendered as an informational row

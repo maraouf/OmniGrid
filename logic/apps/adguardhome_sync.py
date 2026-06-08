@@ -456,6 +456,21 @@ _CONSOLE_LEVEL_RE = re.compile(r"\b(?P<lvl>" + _LEVEL_ALT + r")\b", re.I)
 _CONSOLE_CALLER_RE = re.compile(r"^(?:\S+\s+)?\S+\.\w+:\d+\s+")
 _CONSOLE_CTX_RE = re.compile(r"\s*(?P<ctx>\{.*})\s*$")
 _CLOCK_RE = re.compile(r"(?P<clock>\d{2}:\d{2}:\d{2})")
+# Match a seconds token (s / ss) and a minute token (m / mm), not mid-word.
+_SECONDS_TOK_RE = re.compile(r"(?<![A-Za-z])s{1,2}(?![A-Za-z])")
+_MINUTE_TOK_RE = re.compile(r"(?<![A-Za-z])m{1,2}(?![A-Za-z])")
+
+
+def _force_seconds(fmt: str) -> str:
+    """Ensure a time-only format string includes SECONDS. Sync logs routinely
+    fire several lines within the same minute, so a user format like ``hh:mm a``
+    (no seconds) would collapse them to identical timestamps. If no seconds
+    token is present, insert ``:ss`` right after the minute token."""
+    f = str(fmt or "")
+    if not f or _SECONDS_TOK_RE.search(f):
+        return f
+    m = _MINUTE_TOK_RE.search(f)
+    return (f[:m.end()] + ":ss" + f[m.end():]) if m else f
 
 
 def _fmt_log_clock(ts_str: Any, time_fmt: Optional[str]) -> str:
@@ -603,7 +618,7 @@ async def _logs_skill(host_row: dict, chip: dict, *,
         try:
             from logic.datetime_fmt import (  # noqa: PLC0415
                 get_user_datetime_format, strip_date_tokens)
-            time_fmt = strip_date_tokens(get_user_datetime_format(actor_username))
+            time_fmt = _force_seconds(strip_date_tokens(get_user_datetime_format(actor_username)))
         except (ImportError, ValueError, TypeError, KeyError):
             time_fmt = ""
     print(f"[adguardsync] INFO adguardsync_logs host={host_id} (live fetch)")

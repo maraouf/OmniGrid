@@ -49,6 +49,12 @@ Endpoints:
 # including stdlib re-exports (json, os, re, sqlite3, time, Any, ...)
 # that main.py imports at its own top.
 from main import *  # noqa: E402,F401,F403
+from logic.settings_keys import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    ai_provider_enabled_key,
+    ai_provider_api_key_key,
+    ai_provider_model_key,
+    ai_provider_base_url_key,
+)
 import asyncio
 import json
 import sqlite3
@@ -860,13 +866,20 @@ def _compute_admin_stats_database() -> dict:
         out["tables_error"] = str(e)
     # 90-day growth projection, GROUNDED in real measured history.
     # `db_size_samples` (written ~daily by the lifespan stats sampler)
-    # gives the trailing size curve; we fit an OLS line over the last 30
-    # days and extrapolate 90 days forward from the LAST measured point
-    # (so the projection starts exactly where the actual line ends — no
-    # visual discontinuity at day 0). The forward band is a classic OLS
-    # prediction interval that widens with extrapolation distance. The
-    # chart spans -30..0 (actual, `out["actual"]`) and 0..+90
-    # (projection, `out["projection"]`), drawn in two distinct colours.
+    # gives the trailing size curve; we fit a ROBUST line over the last
+    # 30 days and extrapolate 90 days forward from the LAST measured
+    # point (so the projection starts exactly where the actual line ends
+    # — no visual discontinuity at day 0). The central slope is the
+    # Theil-Sen estimator (median of all pairwise slopes) rather than
+    # OLS: with only a handful of daily samples an early ramp point (the
+    # one-off initial-population spike a fresh deploy leaves at the start
+    # of the window) tilts an OLS line much steeper than the recent
+    # day-to-day pace, so the projection over-reads. The median-of-pairs
+    # slope ignores that single outlier and tracks the recent trend. The
+    # forward band is the prediction interval around the robust line,
+    # widening with extrapolation distance. The chart spans -30..0
+    # (actual, `out["actual"]`) and 0..+90 (projection,
+    # `out["projection"]`), drawn in two distinct colours.
     #
     # Cold-start fallback: with < 2 samples (fresh deploy, sampler hasn't
     # accumulated history yet) there's nothing to fit, so we emit the
@@ -876,6 +889,7 @@ def _compute_admin_stats_database() -> dict:
     try:
         import math as _math
         import time as _time
+        from statistics import median as _median
         from logic import stats as _stats_mod
         from logic import tuning as _tuning
         from logic.tuning import Tunable as _Tunable
@@ -891,25 +905,31 @@ def _compute_admin_stats_database() -> dict:
         actual = [p for p in history if p["ts"] >= cutoff_30]
         out["actual"] = actual
 
-        # Fit OLS over the trailing 30-day window (x = days relative to
-        # now, so x is negative for past samples / 0 at now; y = bytes).
+        # Fit over the trailing 30-day window (x = days relative to now,
+        # so x is negative for past samples / 0 at now; y = bytes).
         fit_pts = [((p["ts"] - now) / 86400.0, float(p["bytes"])) for p in actual]
         projection: list[dict] = []
         if len(fit_pts) >= 2:
             n = len(fit_pts)
-            sum_x = sum(x for x, _ in fit_pts)
-            sum_y = sum(y for _, y in fit_pts)
-            sum_xx = sum(x * x for x, _ in fit_pts)
-            sum_xy = sum(x * y for x, y in fit_pts)
-            denom = (n * sum_xx) - (sum_x * sum_x)
-            mean_x = sum_x / n
-            # slope (bytes/day); flat line if x has no spread (denom 0).
-            slope = ((n * sum_xy) - (sum_x * sum_y)) / denom if denom else 0.0
-            intercept = (sum_y - slope * sum_x) / n
-            # Residual std for the prediction interval.
+            xs = [x for x, _ in fit_pts]
+            ys = [y for _, y in fit_pts]
+            mean_x = sum(xs) / n
+            # Theil-Sen slope (bytes/day): median of all pairwise slopes.
+            # Robust to a single early-ramp outlier that OLS would let
+            # tilt the whole projection. Flat line if x has no spread.
+            pair_slopes = [
+                (ys[j] - ys[i]) / (xs[j] - xs[i])
+                for i in range(n)
+                for j in range(i + 1, n)
+                if xs[j] != xs[i]
+            ]
+            slope = _median(pair_slopes) if pair_slopes else 0.0
+            # Robust intercept: median of the per-point residual offsets.
+            intercept = _median([y - slope * x for x, y in fit_pts])
+            # Residual std around the robust line for the prediction interval.
             sse = sum((y - (intercept + slope * x)) ** 2 for x, y in fit_pts)
             sigma = _math.sqrt(sse / (n - 2)) if n > 2 else 0.0
-            sxx = sum((x - mean_x) ** 2 for x, _ in fit_pts) or 1e-9
+            sxx = sum((x - mean_x) ** 2 for x in xs) or 1e-9
             # Anchor the forward line at the LAST measured point so the
             # projection visually continues the actual curve.
             anchor_bytes = float(actual[-1]["bytes"])
