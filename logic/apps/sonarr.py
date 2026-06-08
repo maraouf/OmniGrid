@@ -128,6 +128,17 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "sonarr_queue_delete",
+        "name": "Remove from queue",
+        "ai_phrases": ("remove from sonarr queue, cancel a sonarr download, "
+                       "delete from download queue, cancel this download, "
+                       "remove queued download"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id to remove (also removes it from the "
+                     "download client); the drawer's per-row trash button supplies it"),
+    },
+    {
         "id": "sonarr_series_info",
         "name": "Look up a series",
         "ai_phrases": ("do i have <show>, is <show> in my library, "
@@ -345,6 +356,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      actor_username=actor_username)
     if skill_id == "sonarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
+    if skill_id == "sonarr_queue_delete":
+        return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
+                                                 app_label="Sonarr", api_version="v3",
+                                                 host_id=host_id)
     if skill_id == "sonarr_series_info":
         return await _series_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "sonarr_add_series":
@@ -506,6 +521,10 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     if not records:
         return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
     lines = []
+    # Rich rows — same {title, subtitle, poster, progress, row_action} shape as
+    # Radarr's queue: series poster (local MediaCover via the per-app proxy) +
+    # progress bar + a per-row delete (trash) button.
+    rich: list[dict] = []
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
@@ -517,8 +536,23 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         st = str(q.get("status") or "").strip().lower()
         lines.append(f"• {title} — {pct}%"
                      + (f" ({st})" if st and st != "downloading" else ""))
+        row: "dict[str, Any]" = {
+            "title": title,
+            "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+            "poster": _servarr.local_poster_path(ser, id_fallback=True),
+            "poster_proxy": True, "progress": pct}
+        qid = safe_int(q.get("id"))
+        if qid:
+            row["row_action"] = {
+                "skill_id": "sonarr_queue_delete", "arg": str(qid),
+                "icon": "trash-2", "destructive": True,
+                "confirm_i18n": "apps.sonarr.queue_delete_confirm",
+                "title_i18n": "apps.sonarr.queue_delete_title"}
+        rich.append(row)
     return {"ok": True, "status": 200,
-            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
+            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
+            "count": len(records), "count_i18n": "apps.skills.downloading_count",
+            "items": rich}
 
 
 async def _sonarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,

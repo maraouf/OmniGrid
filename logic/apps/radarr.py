@@ -115,6 +115,17 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "radarr_queue_delete",
+        "name": "Remove from queue",
+        "ai_phrases": ("remove from radarr queue, cancel a radarr download, "
+                       "delete from download queue, cancel this download, "
+                       "remove queued download"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id to remove (also removes it from the "
+                     "download client); the drawer's per-row trash button supplies it"),
+    },
+    {
         "id": "radarr_movie_info",
         "name": "Look up a movie",
         "ai_phrases": ("do i have <title>, is <title> in my library, "
@@ -335,6 +346,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      actor_username=actor_username)
     if skill_id == "radarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
+    if skill_id == "radarr_queue_delete":
+        return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
+                                                 app_label="Radarr", api_version="v3",
+                                                 host_id=host_id)
     if skill_id == "radarr_movie_info":
         return await _movie_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "radarr_add_movie":
@@ -405,7 +420,8 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         name = f"{title}{_year_suffix(m.get('year'))}"
         lines.append(f"• {name}" + (f" — {when_fmt}" if when_fmt else ""))
         rich.append({"title": name, "subtitle": when_fmt,
-                     "poster": _servarr.local_poster_path(m), "poster_proxy": True})
+                     "poster": _servarr.local_poster_path(m, id_fallback=True),
+                     "poster_proxy": True})
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "🎬 No upcoming movie releases in the next 14 days."}
@@ -461,10 +477,19 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         name = f"{title}{_year_suffix(mv.get('year'))}"
         st_suffix = f" ({st})" if st and st != "downloading" else ""
         lines.append(f"• {name} — {pct}%{st_suffix}")
-        rich.append({"title": name,
-                     "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-                     "poster": _servarr.local_poster_path(mv), "poster_proxy": True,
-                     "progress": pct})
+        row: "dict[str, Any]" = {
+            "title": name,
+            "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+            "poster": _servarr.local_poster_path(mv, id_fallback=True), "poster_proxy": True,
+            "progress": pct}
+        qid = safe_int(q.get("id"))
+        if qid:
+            row["row_action"] = {
+                "skill_id": "radarr_queue_delete", "arg": str(qid),
+                "icon": "trash-2", "destructive": True,
+                "confirm_i18n": "apps.radarr.queue_delete_confirm",
+                "title_i18n": "apps.radarr.queue_delete_title"}
+        rich.append(row)
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
             "count": len(records), "count_i18n": "apps.skills.downloading_count",

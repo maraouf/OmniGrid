@@ -5563,7 +5563,10 @@
       "downloading_count": "{count} downloading",
       "qbittorrent_downloading": "What's downloading",
       "qbittorrent_delete": "Delete a torrent",
-      "row_action_confirm": "Are you sure?"
+      "row_action_confirm": "Are you sure?",
+      "radarr_queue_delete": "Remove from queue",
+      "sonarr_queue_delete": "Remove from queue",
+      "lidarr_queue_delete": "Remove from queue"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5646,7 +5649,9 @@
       "loading": "Loading Radarr data…",
       "fetch_failed": "Radarr fetch failed",
       "storage": "Storage",
-      "disk_free_short": "free"
+      "disk_free_short": "free",
+      "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
+      "queue_delete_title": "Remove from queue"
     },
     "sonarr": {
       "api_key_label": "Sonarr API key",
@@ -5663,7 +5668,9 @@
       "health_issues_n": "{n} health issue(s)",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Sonarr data…",
-      "fetch_failed": "Sonarr fetch failed"
+      "fetch_failed": "Sonarr fetch failed",
+      "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
+      "queue_delete_title": "Remove from queue"
     },
     "adguardsync": {
       "username_label": "Username (optional)",
@@ -5702,7 +5709,9 @@
       "health_issues_n": "{n} health issue(s)",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Lidarr data…",
-      "fetch_failed": "Lidarr fetch failed"
+      "fetch_failed": "Lidarr fetch failed",
+      "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
+      "queue_delete_title": "Remove from queue"
     },
     "readarr": {
       "api_key_label": "Readarr API key",

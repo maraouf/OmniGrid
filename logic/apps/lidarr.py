@@ -126,6 +126,17 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "lidarr_queue_delete",
+        "name": "Remove from queue",
+        "ai_phrases": ("remove from lidarr queue, cancel a lidarr download, "
+                       "delete from download queue, cancel this download, "
+                       "remove queued download"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id to remove (also removes it from the "
+                     "download client); the drawer's per-row trash button supplies it"),
+    },
+    {
         "id": "lidarr_artist_info",
         "name": "Look up an artist",
         "ai_phrases": ("do i have <artist>, is <artist> in my library, "
@@ -343,6 +354,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      actor_username=actor_username)
     if skill_id == "lidarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
+    if skill_id == "lidarr_queue_delete":
+        return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
+                                                 app_label="Lidarr", api_version="v1",
+                                                 host_id=host_id)
     if skill_id == "lidarr_artist_info":
         return await _artist_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "lidarr_add_artist":
@@ -544,11 +559,20 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         label = f"{artist}" + (f" — {album}" if album else "")
         lines.append(f"• {label} — {pct}%"
                      + (f" ({st})" if st and st != "downloading" else ""))
-        rich.append({"title": label,
-                     "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-                     "poster": _servarr.local_poster_path(alb) or _servarr.local_poster_path(art),
-                     "poster_proxy": True,
-                     "progress": pct})
+        row: "dict[str, Any]" = {
+            "title": label,
+            "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+            "poster": _servarr.local_poster_path(alb) or _servarr.local_poster_path(art),
+            "poster_proxy": True,
+            "progress": pct}
+        qid = safe_int(q.get("id"))
+        if qid:
+            row["row_action"] = {
+                "skill_id": "lidarr_queue_delete", "arg": str(qid),
+                "icon": "trash-2", "destructive": True,
+                "confirm_i18n": "apps.lidarr.queue_delete_confirm",
+                "title_i18n": "apps.lidarr.queue_delete_title"}
+        rich.append(row)
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
             "count": len(records), "count_i18n": "apps.skills.downloading_count",
