@@ -36,6 +36,7 @@
 import * as adguardHome from './adguardhome.js?v=__APP_VERSION__';
 import * as adguardHomeSync from './adguardhome_sync.js?v=__APP_VERSION__';
 import * as apc from './apc.js?v=__APP_VERSION__';
+import * as apprise from './apprise.js?v=__APP_VERSION__';
 import * as bazarr from './bazarr.js?v=__APP_VERSION__';
 import * as ddnsUpdater from './ddns_updater.js?v=__APP_VERSION__';
 import * as kavita from './kavita.js?v=__APP_VERSION__';
@@ -54,7 +55,7 @@ import * as tautulli from './tautulli.js?v=__APP_VERSION__';
 // Add new per-app modules above (one import) and below (one
 // entry in `_modules`) -- the rest is fully generic.
 
-const _modules = [adguardHome, adguardHomeSync, apc, bazarr, ddnsUpdater, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker, tautulli];
+const _modules = [adguardHome, adguardHomeSync, apc, apprise, bazarr, ddnsUpdater, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker, tautulli];
 
 // Named extractors -- keep `.map(extract).filter(predicate)`
 // from firing PyCharm's anonymous-function / chained-call
