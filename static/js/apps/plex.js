@@ -101,9 +101,65 @@ function plexSignIn() {
     }
   }
 
-  let popup = null;
+  // Poll the PIN endpoint (2s cadence, ~2-min deadline) until plex.tv hands
+  // back the token, a hard error occurs, or the deadline passes. Fills the
+  // form + toasts the terminal outcome; `win` is the popup to close on
+  // success. Extracted from the main flow so the dispatcher below stays short.
+  async function _pollForToken(pinId, code, win) {
+    const pollUrl = '/api/apps/plex/auth/poll?pin_id=' + encodeURIComponent(pinId) + '&code=' + encodeURIComponent(code);
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 2000));
+      const pr = await fetch(pollUrl);
+      const pd = await pr.json().catch(() => ({}));
+      const pok = pr.ok && pd && pd.ok;
+      if (pok && pd.token) {
+        self.appsInstanceEditForm.api_key = pd.token;
+        self.appsInstanceEditForm.api_key_set = true;
+        _closePopup(win);
+        _toast(tr('apps.plex.signin_ok', 'Signed in to Plex — token filled. Test + Save to finish.'), 'success');
+        return;
+      }
+      if (!(pok && pd.pending)) {
+        // A hard error (expired PIN / plex.tv unreachable) — not just "still
+        // waiting" — so stop polling and report it.
+        _toast((pd && pd.detail) || tr('apps.plex.signin_failed', 'Plex sign-in failed'), 'error');
+        return;
+      }
+      // else: still pending → keep polling until the deadline.
+    }
+    _toast(tr('apps.plex.signin_timeout', 'Plex sign-in timed out — try again'), 'error');
+  }
+
+  // Open the popup SYNCHRONOUSLY here, inside the click-gesture call stack —
+  // browsers block window.open() once it runs after an `await` (the user-
+  // gesture context is gone), which is why the plex.tv window was being
+  // suppressed. We open a blank window now and redirect it to the real auth
+  // URL once the backend hands one back.
+  let popup = window.open('about:blank', 'plexauth', 'width=820,height=740');
+  if (popup) {
+    // Friendly placeholder while /auth/start resolves. Set via the DOM
+    // (about:blank already has a <body>) rather than the deprecated
+    // document.write.
+    try {
+      const pdoc = popup.document;
+      pdoc.title = 'Plex';
+      if (pdoc.body) {
+        pdoc.body.style.cssText = 'font:14px system-ui,sans-serif;margin:2rem;color:#333';
+        pdoc.body.textContent = 'Connecting to Plex…';
+      }
+    } catch (_) { /* not-yet-ready / cross-origin — ignore */
+    }
+  }
+
   return (async () => {
     try {
+      // Hard-blocked despite the synchronous open → don't spin the button for
+      // the full poll deadline; bail immediately with an actionable message.
+      if (!popup) {
+        _toast(tr('apps.plex.signin_popup_blocked', 'Your browser blocked the sign-in window. Allow pop-ups for this site, then click “Sign in to Plex” again.'), 'error');
+        return;
+      }
       const r = await fetch('/api/apps/plex/auth/start', {method: 'POST'});
       const d = await r.json().catch(() => ({}));
       const started = r.ok && d && d.ok;
@@ -111,34 +167,16 @@ function plexSignIn() {
         _toast((d && d.detail) || tr('apps.plex.signin_start_failed', 'Couldn’t start Plex sign-in'), 'error');
         return;
       }
-      // Open the plex.tv auth page for the user to sign in + authorise.
-      popup = window.open(d.auth_url, 'plexauth', 'width=820,height=740');
-      _toast(tr('apps.plex.signin_opened', 'Sign in to Plex in the new window…'), 'info');
-      // Poll the PIN for up to ~2 minutes (2s cadence). Build the poll URL once
-      // (single string — no line-break-before-+ readability nit).
-      const pollUrl = '/api/apps/plex/auth/poll?pin_id=' + encodeURIComponent(d.pin_id) + '&code=' + encodeURIComponent(d.code);
-      const deadline = Date.now() + 120000;
-      while (Date.now() < deadline) {
-        await new Promise((res) => setTimeout(res, 2000));
-        const pr = await fetch(pollUrl);
-        const pd = await pr.json().catch(() => ({}));
-        const pok = pr.ok && pd && pd.ok;
-        if (pok && pd.token) {
-          self.appsInstanceEditForm.api_key = pd.token;
-          self.appsInstanceEditForm.api_key_set = true;
-          _closePopup(popup);
-          _toast(tr('apps.plex.signin_ok', 'Signed in to Plex — token filled. Test + Save to finish.'), 'success');
-          return;
-        }
-        if (!(pok && pd.pending)) {
-          // A hard error (expired PIN / plex.tv unreachable) — not just "still
-          // waiting" — so stop polling and report it.
-          _toast((pd && pd.detail) || tr('apps.plex.signin_failed', 'Plex sign-in failed'), 'error');
-          return;
-        }
-        // else: still pending → keep polling until the deadline.
+      // Redirect the already-open popup to the plex.tv auth page.
+      try {
+        popup.location.href = d.auth_url;
+      } catch (_) {
+        // Some browsers null the handle on cross-origin redirect — re-open by
+        // name (reuses the same window) as a fallback.
+        popup = window.open(d.auth_url, 'plexauth');
       }
-      _toast(tr('apps.plex.signin_timeout', 'Plex sign-in timed out — try again'), 'error');
+      _toast(tr('apps.plex.signin_opened', 'Sign in to Plex in the new window…'), 'info');
+      await _pollForToken(d.pin_id, d.code, popup);
     } catch (_e) {
       _toast(tr('apps.plex.signin_failed', 'Plex sign-in failed'), 'error');
     } finally {

@@ -45,12 +45,52 @@
         <div class="apps-card-stat-value text-[var(--success)]"
              x-text="seerrCount(seerrData(inst).available_count)"></div>
       </div>
+      <!-- Declined (rejected) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.declined') || 'Declined'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(seerrData(inst).declined) || 0) > 0 ? 'text-[var(--danger)]' : ''"
+             x-text="seerrCount(seerrData(inst).declined)"></div>
+      </div>
+      <!-- Movie requests -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.movies') || 'Movies'"></div>
+        <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).movie_count)"></div>
+      </div>
+      <!-- TV requests -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.tv') || 'TV'"></div>
+        <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).tv_count)"></div>
+      </div>
       <!-- Total requests -->
       <div class="apps-card-ups-stat">
         <div class="apps-card-stat-label" x-text="t('apps.seerr.total') || 'Total'"></div>
         <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).total)"></div>
       </div>
     </div>
+    <!-- Top requesters — avatar + name + request count (from
+         GET /api/v1/user?sort=requests; hidden when none). -->
+    <template x-if="(seerrData(inst).top_users || []).length">
+      <div class="mt-2">
+        <div class="apps-card-stat-label mb-1" x-text="t('apps.seerr.top_requesters') || 'Top requesters'"></div>
+        <div class="flex flex-col gap-1">
+          <template x-for="u in (seerrData(inst).top_users || [])" :key="u.id + ':' + u.name">
+            <div class="flex items-center gap-1.5 fs-xs">
+              <template x-if="u.avatar">
+                <img :src="u.avatar" alt="" class="w-4 h-4 rounded-full object-cover flex-shrink-0" loading="lazy">
+              </template>
+              <template x-if="!u.avatar">
+                <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-users"/>
+                </svg>
+              </template>
+              <span class="truncate" x-text="u.name"></span>
+              <span class="ms-auto mono text-[var(--text-dim)]" x-text="seerrCount(u.count)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
     <!-- Open-issues footnote (only when > 0). -->
     <div x-show="(Number(seerrData(inst).issues_open) || 0) > 0"
          class="fs-3xs text-[var(--danger)] mt-1"

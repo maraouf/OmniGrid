@@ -3557,13 +3557,34 @@
            board can't be moved accidentally; EDIT mode swaps in condensed
            draggable tiles + section CRUD (native HTML5 DnD: tiles carry
            group_id, section headers carry the section id). -->
-      <template x-if="appsListLoaded && appsViewGroupBy === 'custom'">
+      <!-- Custom dashboards are server-backed (app_views table) so a view can
+           be shared public across users — gate the board on the collection
+           having loaded. -->
+      <template x-if="appsListLoaded && appsViewGroupBy === 'custom' && !appsViewsLoaded">
+        <div class="loading-state flex items-center justify-center gap-2 py-8 fs-sm text-[var(--text-faint)]"
+             x-effect="ensureAppViewsLoaded()">
+          <template x-if="!appsViewsLoadError">
+            <span class="inline-flex items-center gap-2">
+              <span class="spin" aria-hidden="true"></span>
+              <span x-text="t('apps.custom.views_loading') || 'Loading dashboards…'"></span>
+            </span>
+          </template>
+          <template x-if="appsViewsLoadError">
+            <span class="inline-flex items-center gap-2 text-[var(--danger)]">
+              <span x-text="t('apps.custom.views_load_failed') || 'Couldn’t load dashboards.'"></span>
+              <button type="button" class="btn btn-soft fs-xs" @click="ensureAppViewsLoaded(true)"
+                      x-text="t('actions.retry') || 'Retry'"></button>
+            </span>
+          </template>
+        </div>
+      </template>
+      <template x-if="appsListLoaded && appsViewGroupBy === 'custom' && appsViewsLoaded">
         <div class="space-y-3">
           <!-- Named-view picker — switch / create / rename / duplicate / delete
-               the user's custom dashboards. Each view holds its own sections +
-               layout (persisted per-user in ui_prefs.apps_custom_views). The
-               active view's layout is what every section / drag / collapse
-               control below operates on. -->
+               the user's custom dashboards + share them. Views live server-side
+               in the app_views table (owner_username + visibility +
+               edit_permission); the active view's layout is what every section /
+               drag / collapse control below operates on. -->
           <div class="flex items-center gap-1.5 flex-wrap px-1">
             <svg width="14" height="14" class="text-[var(--text-dim)] flex-shrink-0" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
@@ -3597,13 +3618,16 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/>
               </svg>
             </button>
-            <button type="button" class="user-action-btn" @click="appsPromptRenameView(appsActiveViewId())"
+            <!-- Rename — owner OR an editor of a public-editable view. -->
+            <button type="button" class="user-action-btn" x-show="appsCanEditActiveView()"
+                    @click="appsPromptRenameView(appsActiveViewId())"
                     :title="t('apps.custom.view_rename') || 'Rename view'"
                     :aria-label="t('apps.custom.view_rename') || 'Rename view'">
               <svg width="14" height="14" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
               </svg>
             </button>
+            <!-- Duplicate — always allowed (a copy becomes your own private view). -->
             <button type="button" class="user-action-btn" @click="appsDuplicateView(appsActiveViewId())"
                     :title="t('apps.custom.view_duplicate') || 'Duplicate view'"
                     :aria-label="t('apps.custom.view_duplicate') || 'Duplicate view'">
@@ -3611,22 +3635,50 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
               </svg>
             </button>
+            <!-- Share / visibility — owner only (Private / Public · Read-only /
+                 Public · Editable). -->
+            <button type="button" class="user-action-btn"
+                    x-show="appsActiveView() && appsActiveView().can_manage"
+                    @click="appsPromptShareView(appsActiveViewId())"
+                    :title="t('apps.custom.view_share') || 'Share / visibility'"
+                    :aria-label="t('apps.custom.view_share') || 'Share / visibility'">
+              <svg width="14" height="14" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
+              </svg>
+            </button>
+            <!-- Delete — owner only. Deleting the last view seeds a fresh
+                 default, so no min-one disable is needed. -->
             <button type="button" class="user-action-btn user-action-btn--danger"
+                    x-show="appsActiveView() && appsActiveView().can_manage"
                     @click="appsConfirmDeleteView(appsActiveViewId())"
-                    :disabled="appsViews().length <= 1"
                     :title="t('apps.custom.view_delete') || 'Delete view'"
                     :aria-label="t('apps.custom.view_delete') || 'Delete view'">
               <svg width="14" height="14" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash"/>
               </svg>
             </button>
+            <!-- Sharing-state badge: 'Shared by <owner>' for a view you don't
+                 own, 'Public · Editable/Read-only' for your own shared one. -->
+            <template x-if="appsViewShareLabel(appsActiveView())">
+              <span class="chip pill-info inline-flex items-center gap-1 fs-xs">
+                <svg width="11" height="11" aria-hidden="true">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + ((appsActiveView() && !appsActiveView().is_owner) ? 'icon-users' : 'icon-globe')"/>
+                </svg>
+                <span x-text="appsViewShareLabel(appsActiveView())"></span>
+              </span>
+            </template>
           </div>
           <div class="flex items-center justify-between gap-2 px-1">
             <p class="fs-xs text-[var(--text-faint)]"
-               x-text="appsCustomEditMode
-               ? (t('apps.custom.hint') || 'Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.')
-               : (t('apps.custom.locked_hint') || 'Your custom board. Click Edit to rearrange sections.')"></p>
-            <div class="flex items-center gap-2 flex-shrink-0">
+               x-text="!appsCanEditActiveView()
+               ? (t('apps.custom.readonly_hint') || 'This is a shared, read-only dashboard. Duplicate it to make your own editable copy.')
+               : (appsCustomEditMode
+                 ? (t('apps.custom.hint') || 'Drag app cards between sections to organise them. Drag a section header to reorder. Your layout is saved automatically.')
+                 : (t('apps.custom.locked_hint') || 'Your custom board. Click Edit to rearrange sections.'))"></p>
+            <!-- Edit / Add-section controls only when the caller may edit the
+                 active board (owner, or a non-readonly user on a public-
+                 editable view). Read-only viewers get no edit affordances. -->
+            <div class="flex items-center gap-2 flex-shrink-0" x-show="appsCanEditActiveView()">
               <button type="button" x-show="appsCustomEditMode"
                       class="btn btn-soft fs-sm inline-flex items-center gap-1"
                       @click="addAppsSection()">
@@ -10298,7 +10350,8 @@
                                         class="apps-skill-result-close shrink-0"
                                         @click.stop="clearAppSkillResult(inst, sk.id)"
                                         :title="t('actions.close') || 'Close'"
-                                        :aria-label="t('actions.close') || 'Close'">✕</button>
+                                        :aria-label="t('actions.close') || 'Close'">✕
+                                </button>
                               </div>
                               <!-- OK: render each detail line as ONE inline row —
                                    the stats flow together (plain text, not wide

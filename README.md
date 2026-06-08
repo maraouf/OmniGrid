@@ -48,16 +48,28 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 - **Bulk host actions** — pause / resume sampling, apply an SNMP vendor whitelist, or push per-host SNMP tunable overrides across N selected hosts in one POST; each affected host fires its usual SSE event so other tabs catch up within one frame.
 - **Host groups** — admin-assigned `custom_number` ranges bucket curated hosts into collapsible sections (e.g. "Gateways 1-4", "VMs 100-199"), with an optional display `number` prefix rendered before the group name and 2-level nesting via `parent_name`.
 
-### Operations & access
+### Remote access & execution
 
 - **Interactive SSH terminal** — admin-only xterm.js modal over WSS to a backend asyncssh PTY. PTY-forced (so sudo doesn't silently no-op), full audit row per session.
 - **One-shot SSH runner** — admin-audited dry-run-by-default runner with destructive-pattern guard (typed-hostname confirm for `rm` / `dd` / `reboot` / etc.) and per-(host, user) 5-min cool-down on auth failure.
 - **Port scanner** (TCP + optional UDP companion) — on-demand from the host drawer OR scheduled via the `port_scan_refresh` kind. Runs as a fire-and-forget asyncio task so reverse-proxy `proxy_read_timeout` settings don't trip on long scans; emits `port_scan:completed` over SSE; per-port detail + banner-grab persists to `host_port_scans`. Per-host opt-in via `hosts_config[].port_scan = {enabled}`.
+
+### Apps & integrations
+
 - **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of ~80 templates (AdGuard Home, Plex, Sonarr, Authentik, …). A discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart / Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
-- **Per-app integrations + skills** — apps with a dedicated module light up an expanded card (live data) plus a set of **skills** exposed three ways at once: an app-drawer button, an AI palette/sidebar action, and a Telegram action the model can invoke from natural language. Apps with modules today: **Plex** (library + now-playing + recently-added + search + scan, with a seamless "Sign in to Plex" OAuth PIN flow — `POST /api/apps/plex/auth/start` + `GET /api/apps/plex/auth/poll`), **Radarr / Sonarr / Lidarr / Readarr / Bazarr / Prowlarr / Seerr** (the *arr + request stack), **Kavita**, **AdGuard Home** + **Pi-hole** (fleet apps — one aggregated card + fleet-wide enable / disable-for-N / refresh across every instance), **AdGuard Home Sync**, **ddns-updater**, **APC** (UPS via SNMP), and **Speedtest Tracker**. Notable rosters: Prowlarr (status / indexers / app-sync / search / find-available / add-indexer / add-indexers-in-bulk / fix-flaresolverr-tags), Seerr (status / list-requests / request-movie / suggest-movie / set-filter / show-filters), Kavita (status / libraries / search / scan). Per-instance credentials follow the keep-current-if-blank contract; destructive skills gate on confirm (and on `telegram_allow_destructive` over Telegram). Each skill is delivered via `POST /api/services/{host}/{idx}/skill/{id}`; per-app card data via `GET /api/services/{host}/{idx}/app-data`; credential tests via `POST /api/services/{host}/{idx}/test-credential`.
+- **Per-app integrations + skills** — apps with a dedicated module light up an expanded card (live data) plus a set of **skills** exposed three ways at once: an app-drawer button, an AI palette/sidebar action, and a Telegram action the model can invoke from natural language. Apps with modules today: **Plex** (library + now-playing + recently-added + search + scan, with a seamless "Sign in to Plex" OAuth PIN flow — `POST /api/apps/plex/auth/start` + `GET /api/apps/plex/auth/poll`), **Radarr / Sonarr / Lidarr / Readarr / Bazarr / Prowlarr / Seerr** (the *arr + request stack), **Kavita**, **AdGuard Home** + **Pi-hole** (fleet apps — one aggregated card + fleet-wide enable / disable-for-N / refresh across every instance), **AdGuard Home Sync**, **ddns-updater**, **APC** (UPS via SNMP), and **Speedtest Tracker**. Notable rosters: Prowlarr (status / indexers / app-sync / search / find-available / add-indexer / add-indexers-in-bulk / fix-flaresolverr-tags), Seerr (status / list-requests /
+  request-movie / suggest-movie / set-filter / show-filters), Kavita (status / libraries / search / scan). Per-instance credentials follow the keep-current-if-blank contract; destructive skills gate on confirm (and on `telegram_allow_destructive` over Telegram). Each skill is delivered via `POST /api/services/{host}/{idx}/skill/{id}`; per-app card data via `GET /api/services/{host}/{idx}/app-data`; credential tests via `POST /api/services/{host}/{idx}/test-credential`.
+- **Custom dashboards (named, shareable "views")** — a Homarr-style board where you drag app cards / widgets / bookmarks into your own collapsible sections, with multiple named dashboards you can switch between. Each dashboard has a **visibility** (private / public) and, when public, an **edit permission** (read-only or editable-by-anyone-except-read-only-users); only the owner can delete it or change its sharing. Dashboards live server-side (`app_views` table) behind any-signed-in-user routes — `GET/POST /api/apps/views` + `PUT/DELETE /api/apps/views/{id}`.
+
+### Automation & AI
+
 - **Telegram bot** — outbound notifications as a third medium alongside in-app + Apprise, plus inbound long-poll (not webhook) for `/help` · `/start` · `/hosts` · `/host` · `/restart` (alias `/reboot`) · `/cleanup` · `/update` · `/skills` (lists every per-app skill across your pinned apps) · `/link` · `/unlink` · `/whoami` · `/myid` · `/weather` · `/moon` · `/prayer` · `/hijri` · `/time` · `/version` · `/ip`, plus free-form AI chat in authorised chats and natural-language per-app skill dispatch. Destructive commands gate on a typed-confirm two-step (or `telegram_allow_destructive`). Account linking via `POST /api/me/telegram-link-code` + the bot's `/link <code>` command. See [`docs/guidelines/telegram.md`](docs/guidelines/telegram.md).
-- **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) Cmd-K palette + multi-turn sidebar. Chat history persists to `ui_prefs.ai_conversation` (survives reload / redeploy / cross-browser; Clear is screen-only — prior turns stay in the DB for learning). Inline charts (`memory_history` / `cpu_history` / `disk_projection`) render directly in assistant turns; structured `ACTION:` / `ACTION_HOSTS:` directives are dispatched inline (with an inline-confirm chip for destructive actions in **approval** mode, or fired immediately in **autonomous** mode — a per-user persisted toggle); a per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives) accumulates lessons across sessions. The same per-app `app_skills` context feeds both the web AI and the Telegram AI, so the model can invoke any runnable app skill. Fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of error+warn lines, secret-redacted before injection). Admin-only.
+- **AI assistant** — multi-provider (Claude / Gemini / ChatGPT / DeepSeek) Cmd-K palette + multi-turn sidebar. Chat history persists to `ui_prefs.ai_conversation` (survives reload / redeploy / cross-browser; Clear is screen-only — prior turns stay in the DB for learning). Inline charts (`memory_history` / `cpu_history` / `disk_projection`) render directly in assistant turns; structured `ACTION:` / `ACTION_HOSTS:` directives are dispatched inline (with an inline-confirm chip for destructive actions in **approval** mode, or fired immediately in **autonomous** mode — a per-user persisted toggle); a per-deployment memory store (`MEMORY:` / `MEMORY-FORGET:` directives) accumulates lessons across sessions. The same per-app `app_skills` context feeds both the web AI and the Telegram AI, so the model can invoke any runnable app skill. Fallback chain on transient overload, retry-once-on-429/502/503/504 gate, per-call cost / latency / token-usage dashboard, log-context window (default 7 days of
+  error+warn lines, secret-redacted before injection). Admin-only.
 - **Auto-fix action buttons in drawers** — when a Swarm task error matches a known pattern (VXLAN sandbox-join, image-pull failure, etc.), the drawer surfaces one-click "Auto-fix" actions (Portainer-API-only when possible, falling back to SSH-with-pre-loaded-command). Destructive actions gate on a SweetAlert confirm + spinner overlay.
+
+### Audit, backups & notifications
+
 - **Audit log** — every operation (updates, restarts, ssh runs, schedule fires, backups, AI calls, port scans) persisted to SQLite with full event log. Filterable + CSV / JSON export. Timeline tab gives a unified per-host event view (state changes + sampler errors + bulk-action audit rows).
 - **Backups** — DB + avatars snapshot zips via SQLite's online `.backup()` API. Browseable + restorable from the Admin → Backups page. Tunable retention via `tuning_backup_retention_count` (0 = keep all; 7-30 typical).
 - **Notifications (in-app + Apprise + Telegram)** — every write op + scheduled-job completion fans out through THREE mediums in parallel: an SQLite-backed in-app store (Notifications popup behind the user-avatar dropdown, severity / event / unread filters, mark-read, retention via the `prune_notifications` schedule kind), the Apprise webhook, and the Telegram bot. Per-medium master toggles + per-event admin gates + per-user opt-in/out. Admin-only template editor for per-event title + body overrides with a curated `{name}` / `{type}` / `{actor}` / `{host}` / `{time}` / `{error}` / `{status}` placeholder whitelist, a live preview pane, and a send-test button that fires a real notification through every enabled medium.
@@ -85,39 +97,39 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 OmniGrid is a **single FastAPI process** that acts as an in-memory coordinator in front of many external systems. It is pinned to **one replica** on purpose — the live fleet snapshot, operation log, and SSE bus all live in process memory, so horizontal scaling would split that state and is a correctness hazard, not a knob.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Clients   Browser SPA (Alpine.js + Tailwind, no build step) · Telegram bot ·  │
-│            machine clients (API tokens)                                         │
-└───────────────────────────────────┬────────────────────────────────────────────┘
-                                     │  REST + Server-Sent Events
-                                     │  (session cookie / Bearer token)
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                 OmniGrid — single FastAPI process (1 replica)                   │
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  Clients   Browser SPA (Alpine.js + Tailwind, no build step) · Telegram bot ·    │
+│            machine clients (API tokens)                                          │
+└─────────────────────────────────────────┬────────────────────────────────────────┘
+                                          │  REST + Server-Sent Events
+                                          │  (session cookie / Bearer token)
+                                          ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                  OmniGrid — single FastAPI process (1 replica)                   │
 │                                                                                  │
 │  main.py        thin shell: lifespan handler + the FastAPI app + orchestration   │
 │  main_pkg/*     route chunks (settings · admin-AI · apps · hosts · stats · auth  │
 │                 · …) star-imported into one app instance                         │
 │  logic/*        business logic (see below)                                       │
 │                                                                                  │
-│  RUNTIME STATE                       LIFESPAN WORKERS  (one per process)          │
-│  • _cache       fleet snapshot       • per-provider time-series samplers          │
-│  • _stats_cache short-TTL stats      • cron-like scheduler (gather / prune /      │
-│  • SSE event bus (events.py)           backup / port-scan / …)                    │
-│  • SQLite       durable state        • baseline / drift / metrics warmers         │
-│                                      • Telegram long-poll listener                │
-└───────────────────────────────────┬────────────────────────────────────────────┘
-                                     │  reads / writes (typed clients — no Docker socket)
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Portainer (Swarm REST) · Docker registries (manifest-digest probe) ·           │
-│  Host-stats providers: Beszel · Pulse · node-exporter · Webmin · SNMP · Ping ·  │
+│  RUNTIME STATE                       LIFESPAN WORKERS  (one per process)         │
+│  • _cache       fleet snapshot       • per-provider time-series samplers         │
+│  • _stats_cache short-TTL stats      • cron-like scheduler (gather / prune /     │
+│  • SSE event bus (events.py)           backup / port-scan / …)                   │
+│  • SQLite       durable state        • baseline / drift / metrics warmers        │
+│                                       • Telegram long-poll listener              │
+└─────────────────────────────────────────┬────────────────────────────────────────┘
+                                          │  reads / writes (typed clients — no Docker socket)
+                                          ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  Portainer (Swarm REST) · Docker registries (manifest-digest probe) ·            │
+│  Host-stats providers: Beszel · Pulse · node-exporter · Webmin · SNMP · Ping ·   │
 │    HTTP-probe · service-probe ·                                                  │
-│  Per-app upstreams: Plex · Radarr / Sonarr / Lidarr / Readarr · Prowlarr ·      │
+│  Per-app upstreams: Plex · Radarr / Sonarr / Lidarr / Readarr · Prowlarr ·       │
 │    Seerr · Bazarr · Kavita · AdGuard Home · Pi-hole · ddns-updater · … ·         │
 │  AI providers: Claude · Gemini · ChatGPT · DeepSeek ·                            │
 │  Telegram Bot API · Apprise · asset-inventory API · weather · plex.tv OAuth      │
-└──────────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **`main.py` + `main_pkg/*`** — the FastAPI backend. `main.py` is a thin shell holding the lifespan handler (which starts/stops every background worker) and the `app` instance; the route handlers are split across `main_pkg/*` chunks (settings / admin-AI / apps / hosts / stats / auth / …) that star-import into the one app so decorators reach the shared `app`. Aggregates Portainer data (services / tasks / nodes / stacks / containers), resolves remote image digests in parallel, runs background update / prune / restart ops, and fans notifications out to the in-app store + Apprise + Telegram.
@@ -457,6 +469,10 @@ POST                          /api/services/{host_id}/{service_idx}/probe   admi
 POST                          /api/services/{host_id}/{service_idx}/test-credential  per-app credential test (e.g. Speedtest Tracker API key)
 POST                          /api/services/{host_id}/{service_idx}/skill/{skill_id}  run one per-app SKILL (drawer button + AI / Telegram action)
 GET                           /api/services/{host_id}/{service_idx}/app-data        per-app expanded card data (per-slug dispatcher)
+GET                           /api/apps/views                        custom dashboards visible to you — your own + every public one (any signed-in user)
+POST                          /api/apps/views                        create a custom dashboard (owner = you)
+PUT                           /api/apps/views/{id}                   update name/layout (editors) or visibility/edit-permission (owner only)
+DELETE                        /api/apps/views/{id}                   delete a custom dashboard (owner only)
 POST                          /api/apps/plex/auth/start              begin a Plex OAuth PIN ("Sign in to Plex") → {pin_id, url}
 GET                           /api/apps/plex/auth/poll               poll the Plex PIN → {token} once the user authorises
 POST                          /api/apps/catalog/{slug}/show-extras   toggle a catalog template's show_extras flag (admin)

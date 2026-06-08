@@ -948,6 +948,34 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_ai_memory_ts
             ON ai_memory(ts DESC);
+        -- Apps custom-dashboard named "views" — shareable across users.
+        -- Pre-this-table every view lived only in the owning user's
+        -- ui_prefs.apps_custom_views blob (private by construction). To let
+        -- a view be PUBLIC (readable — and optionally writable — by other
+        -- users) the views must live in a cross-user table.
+        --   id              — 'view-<uuid>', minted client-side.
+        --   owner_username  — the creator; the only one who can delete the
+        --                     view or change its sharing settings.
+        --   layout          — JSON {sections, unsectioned_collapsed}.
+        --   visibility      — 'private' (owner only) | 'public' (every
+        --                     signed-in user can see it).
+        --   edit_permission — 'owner' (read-only to non-owners) | 'all'
+        --                     (any non-readonly-role user can rearrange it).
+        --                     Only meaningful when visibility='public'.
+        CREATE TABLE IF NOT EXISTS app_views (
+            id              TEXT    PRIMARY KEY,
+            owner_username  TEXT    NOT NULL,
+            name            TEXT    NOT NULL,
+            layout          TEXT    NOT NULL DEFAULT '{}',
+            visibility      TEXT    NOT NULL DEFAULT 'private',
+            edit_permission TEXT    NOT NULL DEFAULT 'owner',
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_app_views_owner
+            ON app_views(owner_username);
+        CREATE INDEX IF NOT EXISTS idx_app_views_visibility
+            ON app_views(visibility);
         COMMIT;
         """)
         # Idempotent column additions for existing deployments. SQLite pre-3.35

@@ -714,6 +714,53 @@ async def _fetch_version(cli: httpx.AsyncClient, base: str, key: str) -> str:
         return ""
 
 
+# Top-requesters card list. The API sorts by request count descending, so we
+# pull a small page + surface the leaders.
+_TOP_USERS_TAKE = 10  # how many to pull (API sorts requests-desc)
+_TOP_USERS_DISPLAY = 5  # how many to surface on the card
+
+
+async def _fetch_top_users(cli: httpx.AsyncClient, base: str, key: str) -> list:
+    """Best-effort top requesting users via ``GET /api/v1/user?sort=requests``.
+    Returns up to ``_TOP_USERS_DISPLAY`` of ``{id, name, avatar, count}`` (an
+    absolute avatar URL — relative Seerr paths are resolved against ``base``),
+    sorted by request count descending. ``[]`` on any failure (never
+    load-bearing)."""
+    try:
+        r = await cli.get(base + "/api/v1/user", headers=_headers(key),
+                          params={"take": _TOP_USERS_TAKE, "skip": 0, "sort": "requests"})
+    except (httpx.HTTPError, OSError):
+        return []
+    if getattr(r, "status_code", 0) != 200:
+        return []
+    try:
+        results = as_list((r.json() or {}).get("results"))
+    except (ValueError, TypeError):
+        return []
+    out: list[dict] = []
+    for u in results:
+        if not isinstance(u, dict):
+            continue
+        cnt = safe_int(u.get("requestCount"))
+        if cnt <= 0:
+            continue
+        name = str(u.get("displayName") or u.get("username")
+                   or u.get("email") or "?").strip() or "?"
+        av = str(u.get("avatar") or "").strip()
+        if av and not av.lower().startswith("http"):
+            av = base.rstrip("/") + "/" + av.lstrip("/")
+        out.append({"id": safe_int(u.get("id")), "name": name, "avatar": av, "count": cnt})
+        if len(out) >= _TOP_USERS_DISPLAY:
+            break
+    return out
+
+
+# noinspection DuplicatedCode
+# The httpx-client + GET + upstream-error-guard shape below is structurally
+# shared with this module's fetch_data AND every sibling per-app module's
+# test_credential — the deliberate per-app encapsulation pattern (CLAUDE.md):
+# the auth/fetch boilerplate stays inline per module rather than coupling them
+# through a shared helper. Only the URL / fields differ.
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Seerr's auth-required ``/api/v1/request/count`` with the
     supplied X-Api-Key. Returns ``{ok, detail, status}`` for direct SPA
@@ -779,6 +826,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     issues_open = safe_int((ir.json() or {}).get("open"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 issues_open = 0
+            # Top requesters — tolerated; a failure must NOT fail the card.
+            top_users = await _fetch_top_users(cli, base, api_key)
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] error: fetch host={host_id} url={count_url} "
@@ -806,6 +855,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "processing": safe_int(body.get("processing")),
         "available_count": safe_int(body.get("available")),
         "declined": safe_int(body.get("declined")),
+        "movie_count": safe_int(body.get("movie")),
+        "tv_count": safe_int(body.get("tv")),
+        "top_users": top_users,
         "issues_open": safe_int(issues_open),
         "version": ver,
         "fetched_at": int(now),
@@ -829,7 +881,11 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "approved": safe_int(data.get("approved")),
         "processing": safe_int(data.get("processing")),
         "available_count": safe_int(data.get("available_count")),
+        "declined": safe_int(data.get("declined")),
+        "movie_count": safe_int(data.get("movie_count")),
+        "tv_count": safe_int(data.get("tv_count")),
         "total": safe_int(data.get("total")),
+        "top_users": as_list(data.get("top_users")),
         "issues_open": safe_int(data.get("issues_open")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
