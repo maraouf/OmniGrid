@@ -1077,6 +1077,21 @@
                  @change="appsInstanceEditForm.show_extras = $event.target.checked">
           <span x-text="t('admin_apps.instance_edit_show_extras') || 'Show extras on the app card'"></span>
         </label>
+        <!-- Scope note: AGGREGATE (fleet) apps — Pi-hole / AdGuard — render ONE
+             combined card for every instance, so this toggle governs them ALL;
+             non-aggregate apps (qBittorrent, the *arr family, …) keep it
+             per-instance. Tell the operator which applies. -->
+        <template x-if="appsTemplateSupportsExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)">
+          <p class="fs-2xs mt-1 ms-6 inline-flex items-start gap-1"
+             :class="appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name) ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'">
+            <svg width="11" height="11" class="flex-shrink-0 mt-0.5" aria-hidden="true">
+              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + (appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name) ? 'icon-users' : 'icon-info')"/>
+            </svg>
+            <span x-text="appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)
+              ? (t('admin_apps.instance_edit_show_extras_fleet') || 'This app shows one combined card for all its instances — changing this affects every instance.')
+              : (t('admin_apps.instance_edit_show_extras_per_instance') || 'Applies to this instance only — each instance of this app has its own setting.')"></span>
+          </p>
+        </template>
         <!-- Per-app editor-fields hook — every per-app partial under
              `_components/apps/` self-gates via its own
              `<template x-if="...IsApp({catalog:{slug:...}})...">` so

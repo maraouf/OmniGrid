@@ -1961,6 +1961,30 @@ export default {
     }
     return false;
   },
+  // Whether a given app TEMPLATE AGGREGATES its extras across instances —
+  // fleet apps (Pi-hole / AdGuard) render ONE combined card for every
+  // instance, so a single "Show extras" toggle governs them ALL. Registry-
+  // driven: the per-app extender sets `appLevelExtras: true`. Drives the
+  // Admin → Apps editor hint that toggling extras affects EVERY instance (vs.
+  // per-instance for non-aggregate apps). Same slug-substring match as
+  // appsTemplateSupportsExtras.
+  appsTemplateAggregatesExtras(slugOrName) {
+    const s = String(slugOrName || '').toLowerCase();
+    if (!s) {
+      return false;
+    }
+    const ext = (window.OG_APPS_EXTENDERS || []);
+    for (const e of ext) {
+      if (e && e.appLevelExtras === true && Array.isArray(e.slugs)) {
+        for (const slug of e.slugs) {
+          if (s.indexOf(String(slug).toLowerCase()) !== -1) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  },
   // Whether a given app TEMPLATE requires a per-instance api_key.
   // Slug-keyed lookup against the backend's per-app registry —
   // delivered via `/api/me`'s `client_config.apps_module_slugs`
