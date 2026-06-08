@@ -12190,14 +12190,18 @@ select.field-invalid {
   font-weight: 600;
 }
 
-/* Wide + short prayer tile (3x1 / 4x1 = width preset double / xlarge at
-   short height): lay the hero + Hijri on the LEFT and the full prayer
-   list on the RIGHT, filling the otherwise-empty horizontal space
-   (mirrors the weather hero/forecast split). Scoped to double/xlarge +
-   short ONLY — narrow tiles and every tall tile keep the default column
-   (list-below) layout untouched. The list gets the full tile height in
-   the row layout so all rows show (overflow clipped, no scroll — same as
-   the weather forecast column). */
+/* Wide + short prayer tile (2x1 / 3x1 / 4x1 = width preset normal /
+   double / xlarge at short height): lay the hero + Hijri on the LEFT and
+   the prayer list on the RIGHT, filling the otherwise-empty horizontal
+   space (mirrors the weather hero/forecast split). Since the 12-column
+   grid widened 2x1 (normal = span 3), it now has room for the side-by-side
+   layout too — previously the column layout clipped to ~1 row on a short
+   tile. Scoped to normal/double/xlarge + short ONLY — the 1x1 half tile and
+   every tall tile keep the default column (list-below) layout untouched.
+   The list shows a centred 3-row window (auto-focused on the next prayer)
+   via `_prayerWidgetVisibleCap`; overflow clipped, no scroll (same as the
+   weather forecast column). */
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-body,
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-body,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-body {
   flex-direction: row;
@@ -12206,6 +12210,7 @@ select.field-invalid {
   gap: var(--s-3);
 }
 
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-main,
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-main,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-main {
   flex: 0 1 auto;
@@ -12213,6 +12218,7 @@ select.field-invalid {
   justify-content: center;
 }
 
+.apps-custom-cell.apps-card--size-normal.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-list,
 .apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-list,
 .apps-custom-cell.apps-card--size-xlarge.apps-card--height-short:not(.apps-card--editing) .apps-widget-prayer-list {
   flex: 1 1 auto;
@@ -12428,15 +12434,17 @@ select.field-invalid {
   line-height: 1.15;
 }
 
-/* WIDE-but-SHORT pubip tile (3x1 / 4x1 = double / xlarge + short height):
-   the width-based 10cqi above pins the IP at its 48px cap, which on a
-   1-row-tall tile is too TALL — it shoves the ISP / country·ASN / changed
-   rows past the bottom (clipped), so only the IP + ISP show (operator-
-   flagged). Bind the IP to the tile HEIGHT (cqh) here so it stays modest
-   and the full detail stack fits; a 15-char IPv4 still sits on one line at
-   this size on a wide tile. Narrow short tiles (1x1 / 2x1) already fit via
-   the width-based 10cqi and are left untouched. */
-.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-widget-pubip-ip {
+/* WIDE-but-SHORT pubip tile (2x1 / 3x1 / 4x1 = normal / double / xlarge +
+   short height): the width-based 10cqi above pins the IP at its 48px cap,
+   which on a 1-row-tall tile is too TALL — it shoves the ISP / country·ASN /
+   changed rows past the bottom (clipped), so only the IP + ISP show
+   (operator-flagged). Bind the IP to the tile HEIGHT (cqh) here so it stays
+   modest and the full detail stack fits; a 15-char IPv4 still sits on one
+   line at this size on a wide tile. 2x1 (normal) joined this tier once the
+   12-column grid widened it (span 3) — its 10cqi was now maxing out and
+   hiding the details. The 1x1 half tile is still narrow enough to fit via
+   the width-based 10cqi and is left untouched. */
+.apps-custom-cell:is(.apps-card--size-normal, .apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-widget-pubip-ip {
   font-size: clamp(var(--fs-display-md), 20cqh, var(--fs-display-lg));
 }
 
