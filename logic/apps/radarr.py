@@ -460,9 +460,11 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         lines.append(f"• {name} — {pct}%{st_suffix}")
         rich.append({"title": name,
                      "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-                     "poster": _servarr.poster_url(mv)})
+                     "poster": _servarr.poster_url(mv),
+                     "progress": pct})
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
+            "count": len(records), "count_i18n": "apps.skills.downloading_count",
             "items": rich}
 
 

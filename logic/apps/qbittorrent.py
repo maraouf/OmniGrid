@@ -80,6 +80,16 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "qbittorrent_downloading",
+        "name": "What's downloading",
+        "ai_phrases": ("what's downloading on qbittorrent, what is downloading "
+                       "right now, show active downloads, download progress, "
+                       "torrents in progress, what's being downloaded, current "
+                       "downloads and progress, how far along are my downloads, "
+                       "show me what qbittorrent is downloading"),
+        "destructive": False,
+    },
+    {
         "id": "qbittorrent_list",
         "name": "List torrents",
         "ai_phrases": ("list my torrents, what torrents are downloading, show "
@@ -387,6 +397,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "qbittorrent_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
+    if skill_id == "qbittorrent_downloading":
+        return await _downloading_skill(host_row, chip, host_id=host_id)
     if skill_id == "qbittorrent_list":
         return await _list_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "qbittorrent_add":
@@ -470,7 +482,101 @@ def _resolve_list_filter(arg: Optional[str]) -> "tuple[set, str]":
 
 _LIST_TAKE = 30  # cap the listed torrents so a huge client doesn't flood chat
 
+# qBittorrent's "infinite" ETA sentinel (8640000 == 100 days) — treat as "no ETA".
+_ETA_INFINITE = 8640000
 
+
+def _fmt_eta(seconds: Any) -> str:
+    """Compact ETA from qBittorrent's ``eta`` (seconds). '' for the infinite
+    sentinel / non-positive values."""
+    s = safe_int(seconds)
+    if s <= 0 or s >= _ETA_INFINITE:
+        return ""
+    d, rem = divmod(s, 86400)
+    h, rem = divmod(rem, 3600)
+    m, _sec = divmod(rem, 60)
+    if d > 0:
+        return f"{d}d {h}h"
+    if h > 0:
+        return f"{h}h {m}m"
+    if m > 0:
+        return f"{m}m"
+    return f"{s}s"
+
+
+# noinspection DuplicatedCode
+async def _downloading_skill(host_row: dict, chip: dict, *,
+                             host_id: Optional[str] = None) -> dict:
+    """Read-only: what's currently downloading — name + state + progress % + the
+    live download rate (fastest first), rendered with a per-row progress bar in
+    the drawer. Plain ``detail`` for AI / Telegram. Never raises."""
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[qbittorrent] INFO qbittorrent_downloading host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            r = await cli.get(base + "/api/v2/torrents/info",
+                              params={"filter": "downloading"})
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check username / password)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        torrents = as_list(r.json())
+    except (ValueError, TypeError):
+        torrents = []
+    # Keep genuinely-downloading torrents (the ?filter=downloading view also
+    # includes stalledDL / metaDL — all 'downloading' under _classify); drop
+    # any that have already completed.
+    active = []
+    for t in torrents:
+        if not isinstance(t, dict):
+            continue
+        prog = safe_float(t.get("progress"))
+        if _classify(t.get("state")) != "downloading" or prog >= 1.0:
+            continue
+        active.append(t)
+    # Fastest first, then most-complete — the most "alive" downloads on top.
+    active.sort(key=lambda tr: (safe_int(tr.get("dlspeed")), safe_float(tr.get("progress"))),
+                reverse=True)
+    if not active:
+        return {"ok": True, "status": 200,
+                "detail": "📥 Nothing is downloading right now."}
+    lines = []
+    rich: list[dict] = []
+    for t in active[:_LIST_TAKE]:
+        name = str(t.get("name") or "?").strip()
+        prog = safe_float(t.get("progress"))
+        pct = int(round(min(1.0, max(0.0, prog)) * 100))
+        dl = safe_int(t.get("dlspeed"))
+        state = str(t.get("state") or "").strip()
+        stalled = state.lower().startswith("stalled") or dl <= 0
+        eta = _fmt_eta(t.get("eta"))
+        # Plain text (AI / Telegram).
+        speed_txt = "stalled" if stalled else _fmt_speed(dl)
+        lines.append(f"📥 {name} — {pct}% · {speed_txt}"
+                     + (f" · ETA {eta}" if eta and not stalled else ""))
+        # Rich row: subtitle = ↓ rate (+ ETA), progress bar = pct.
+        sub = "⏸ stalled" if stalled else ("↓ " + _fmt_speed(dl)
+                                           + (f" · ETA {eta}" if eta else ""))
+        rich.append({"title": name, "subtitle": sub, "progress": pct})
+    head = f"📥 Downloading ({len(active)}):"
+    return {"ok": True, "status": 200,
+            "detail": head + "\n" + "\n".join(lines),
+            "count": len(active),
+            "count_i18n": "apps.qbittorrent.downloading_now_count",
+            "items": rich}
+
+
+# noinspection DuplicatedCode
 async def _list_skill(host_row: dict, chip: dict, *,
                       arg: Optional[str] = None,
                       host_id: Optional[str] = None) -> dict:

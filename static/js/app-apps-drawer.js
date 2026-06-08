@@ -325,6 +325,66 @@ export default {
     return {icon: '', color: '', text: s};
   },
 
+  // Total count for a rich-items result header. Prefers the backend-supplied
+  // `count` (e.g. Seerr's total-shown across status groups) and falls back to
+  // the rendered item count.
+  appSkillItemsCount(inst, skillId) {
+    const res = this.appSkillResult(inst, skillId);
+    if (!res) {
+      return 0;
+    }
+    if (typeof res.count === 'number') {
+      return res.count;
+    }
+    return Array.isArray(res.items) ? res.items.length : 0;
+  },
+
+  // True when item `ii` starts a new group (its `group` differs from the
+  // previous item's) — drives the group divider (Tautulli Movies / Series).
+  appSkillItemShowGroup(inst, skillId, ii) {
+    const res = this.appSkillResult(inst, skillId);
+    const arr = (res && Array.isArray(res.items)) ? res.items : [];
+    const it = arr[ii];
+    if (!it || !it.group) {
+      return false;
+    }
+    return ii === 0 || (arr[ii - 1] && arr[ii - 1].group) !== it.group;
+  },
+
+  // Resolve a rich-item poster URL. A public CDN poster (the *arr family via
+  // TMDB remoteUrl, Seerr avatars) loads direct through proxiedImageUrl; an
+  // app-relative thumbnail flagged `poster_proxy` (Tautulli Plex art, Bazarr
+  // posters) routes through the per-app server-side image proxy so the app's
+  // api_key stays server-side.
+  appSkillItemPoster(inst, it) {
+    if (!it || !it.poster) {
+      return '';
+    }
+    if (it.poster_proxy && inst) {
+      return '/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx)
+        + '/image-proxy?path=' + encodeURIComponent(it.poster);
+    }
+    return this.proxiedImageUrl(it.poster);
+  },
+
+  // Resolve a rich-item avatar URL (e.g. Seerr "requested by" user thumbnail).
+  // A `avatar_proxy` flag routes it through the per-app server-side image proxy
+  // so the browser loads it from OmniGrid's domain instead of fetching the
+  // upstream avatar host directly (plex.tv blocks cross-origin hotlinks; LAN
+  // browsers may not reach it at all).
+  appSkillItemAvatar(inst, it) {
+    if (!it || !it.avatar) {
+      return '';
+    }
+    if (it.avatar_proxy && inst) {
+      return '/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx)
+        + '/image-proxy?path=' + encodeURIComponent(it.avatar);
+    }
+    return this.proxiedImageUrl(it.avatar);
+  },
+
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.
@@ -385,10 +445,18 @@ export default {
         // poster}]) for the poster-thumbnail card; null when the skill returns
         // only the plain-text `detail` (the text lines then render instead).
         const _items = (j && Array.isArray(j.items) && j.items.length) ? j.items : null;
+        // Optional rich-items header: a total count + the i18n key for its noun
+        // (e.g. "12 requests"). Ride alongside the items so the renderer's
+        // count header reads them.
+        const _count = (j && typeof j.count === 'number') ? j.count : null;
+        const _countI18n = (j && j.count_i18n) ? String(j.count_i18n) : '';
         // Whole-map reassign (not per-key set) so re-running a skill reliably
         // re-renders — a per-key SET on an existing key desyncs Alpine effects.
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
-          [resKey]: {ok: true, detail: detail, image_url: img, items: _items, followup: _fu, at: Date.now()},
+          [resKey]: {
+            ok: true, detail: detail, image_url: img, items: _items,
+            count: _count, count_i18n: _countI18n, followup: _fu, at: Date.now()
+          },
         });
         _result = {
           ok: true, detail: detail, image_url: img, items: _items,

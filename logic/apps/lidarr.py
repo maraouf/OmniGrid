@@ -441,6 +441,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None,
                           actor_username: Optional[str] = None) -> dict:
@@ -491,6 +492,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
             "detail": "🎵 Upcoming albums (next 30 days):\n" + "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _queue_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str] = None) -> dict:
     """Read-only: what's currently downloading + progress from
@@ -520,6 +522,12 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     if not records:
         return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
     lines = []
+    # Structured rows for the SPA's rich skill-result card — SAME
+    # {title, subtitle, poster, progress} contract Radarr queue uses. The queue
+    # record embeds the `album` (includeAlbum=true); _servarr.poster_url falls
+    # back to the album's `cover` art (coverartarchive / fanart remoteUrl,
+    # public CDN → loads direct).
+    rich: list[dict] = []
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
@@ -534,8 +542,14 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         label = f"{artist}" + (f" — {album}" if album else "")
         lines.append(f"• {label} — {pct}%"
                      + (f" ({st})" if st and st != "downloading" else ""))
+        rich.append({"title": label,
+                     "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+                     "poster": _servarr.poster_url(alb) or _servarr.poster_url(art),
+                     "progress": pct})
     return {"ok": True, "status": 200,
-            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
+            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
+            "count": len(records), "count_i18n": "apps.skills.downloading_count",
+            "items": rich}
 
 
 # noinspection DuplicatedCode
@@ -561,6 +575,7 @@ async def _lidarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
     return None
 
 
+# noinspection DuplicatedCode
 async def _artist_info_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str] = None,
                              host_id: Optional[str] = None) -> dict:
@@ -610,6 +625,7 @@ async def _artist_info_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _add_artist_skill(host_row: dict, chip: dict, *,
                             arg: Optional[str] = None,
                             host_id: Optional[str] = None) -> dict:
@@ -690,6 +706,7 @@ async def _add_artist_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
+# noinspection DuplicatedCode
 async def _remove_artist_skill(host_row: dict, chip: dict, *,
                                arg: Optional[str] = None,
                                host_id: Optional[str] = None) -> dict:

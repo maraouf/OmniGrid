@@ -181,7 +181,8 @@ def _chip_app_is_fleet(chip: dict) -> bool:
     # noinspection PyBroadException
     try:
         from logic.apps import registry as _reg  # noqa: PLC0415
-        slug = _reg._chip_slug(chip)
+        # noinspection PyProtectedMember
+        slug = _reg._chip_slug(chip)  # registry's canonical slug resolver (shared)
         mod = _reg.module_for_slug(slug) if slug else None
         return bool(getattr(mod, "FLEET_SKILLS", False))
     except Exception:  # noqa: BLE001
@@ -820,7 +821,7 @@ async def api_service_test_credential(host_id: str, service_idx: int,
             if tidx >= 0:
                 svcs = hosts[tidx].get("services") or []
                 if (isinstance(svcs, list) and 0 <= service_idx < len(svcs)
-                        and isinstance(svcs[service_idx], dict)):
+                    and isinstance(svcs[service_idx], dict)):
                     svcs[service_idx]["last_test_ok_ts"] = int(_time.time())
                     _persist_host_services(hosts, tidx, svcs)
         except Exception:  # noqa: BLE001
@@ -888,6 +889,70 @@ async def api_service_app_data(host_id: str, service_idx: int,
         print(f"[apps] error: app-data fetch failed host={host_id} "
               f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(502, str(e))
+
+
+# TMDB/CDN poster hosts the SPA loads DIRECT (no api_key needed); everything
+# else a per-app skill emits as a thumbnail (Plex art behind Tautulli, Bazarr
+# posters) needs the app's own credential to fetch — and that credential MUST
+# stay server-side. This route is the per-app analogue of the TMDB
+# `/api/image-proxy`: the OmniGrid SERVER fetches the upstream art using the
+# chip's stored key (built by the module's `image_proxy_url` hook), then
+# streams the bytes back so the api_key never reaches the browser DOM.
+_APP_IMAGE_PROXY_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.get("/api/services/{host_id}/{service_idx}/image-proxy")
+async def api_service_image_proxy(host_id: str, service_idx: int,
+                                  _admin: AdminUser, path: str = ""):
+    """Admin-only: proxy ONE authenticated thumbnail for a chip's app.
+
+    ``path`` is an OPAQUE, app-relative image reference that the chip's own
+    skill emitted in its rich-items result (e.g. a Plex metadata thumb key for
+    Tautulli, a ``/...`` poster path for Bazarr). The per-app module's
+    ``image_proxy_url(chip, base, path) -> (url, headers)`` hook validates the
+    path (rejecting absolute URLs / traversal — SSRF guard) and builds the
+    absolute upstream URL + auth headers against the chip's OWN base, so the
+    fetch can only ever hit the configured app host. We stream the bytes back
+    with the upstream content-type so the api_key never lands in the browser.
+
+    Apps whose thumbnails are public CDN URLs (the *arr family via TMDB
+    ``remoteUrl``, Seerr avatars via plex.tv) do NOT route here — the SPA loads
+    those direct. Apps without an ``image_proxy_url`` hook return 400."""
+    host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
+    if mod is None or not hasattr(mod, "image_proxy_url"):
+        raise HTTPException(400, "no image proxy for this app")
+    # The module resolves its own base URL internally (encapsulation — the
+    # route stays free of the apps package's internals) and raises ValueError
+    # on a bad / missing path or unconfigured URL.
+    try:
+        url, headers = mod.image_proxy_url(host_row, chip, path or "")
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, f"bad image path: {e}")
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    try:
+        parts = urlsplit((url or "").strip())
+    except (ValueError, TypeError):
+        raise HTTPException(400, "module produced a bad url")
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise HTTPException(400, "module produced a non-http url")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url, headers=headers or {})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise HTTPException(502, f"upstream image fetch failed: {type(e).__name__}")
+    if r.status_code == 404:
+        raise HTTPException(404, "image not found upstream")
+    if r.status_code != 200:
+        raise HTTPException(502, f"upstream returned HTTP {r.status_code}")
+    ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower() or "image/jpeg"
+    if not ctype.startswith("image/"):
+        raise HTTPException(415, "upstream content is not an image")
+    body = r.content
+    if len(body) > _APP_IMAGE_PROXY_MAX_BYTES:
+        raise HTTPException(413, "upstream image too large")
+    return Response(content=body, media_type=ctype,
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.post("/api/services/{host_id}/{service_idx}/skill/{skill_id}")

@@ -696,6 +696,64 @@ def _year_of(date_str: str) -> str:
     return s[:4] if len(s) >= 4 and s[:4].isdigit() else ""
 
 
+def _requested_by(req: dict) -> "tuple[str, str]":
+    """Resolve a request's requester ``(display_name, avatar_url)`` from the
+    Seerr ``requestedBy`` user object. The avatar is left RAW (relative
+    ``/avatarproxy/...`` or an absolute plex.tv / gravatar URL) — it is
+    resolved + fetched server-side by ``image_proxy_url`` so the api_key / a
+    cross-origin-blocked plex.tv hotlink never reaches the browser. ('','')
+    when the request carries no requester."""
+    _rb = req.get("requestedBy") if isinstance(req, dict) else None
+    rb = _rb if isinstance(_rb, dict) else {}
+    name = str(rb.get("displayName") or rb.get("plexUsername")
+               or rb.get("username") or rb.get("email") or "").strip()
+    avatar = str(rb.get("avatar") or "").strip()
+    return name, avatar
+
+
+# Public avatar hosts the per-app image proxy is allowed to fetch for Seerr
+# "requested by" thumbnails (plus the chip's own base host, checked at runtime).
+_AVATAR_PROXY_HOSTS = ("plex.tv", "gravatar.com")
+
+
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook (consumed by ``/api/services/.../image-proxy``).
+
+    Resolves a Seerr request-avatar reference to an absolute upstream URL +
+    request headers. SSRF guard — only three target classes are allowed:
+      * an absolute http(s) URL on a known public avatar host (plex.tv /
+        gravatar, incl. sub-domains) — fetched anonymously;
+      * an absolute http(s) URL on the chip's OWN configured base host (a
+        Seerr-self-hosted ``/avatarproxy/`` already absolutised) — fetched
+        with the api_key header;
+      * a relative ``/...`` path — joined to the configured base + the api_key
+        header.
+    Anything else raises ``ValueError`` so the route returns 400."""
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty avatar path")
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    api_key = (chip.get("api_key") or "").strip()
+    base_host = (urlsplit(base).hostname or "").lower()
+    if "://" in p:
+        parts = urlsplit(p)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("avatar must be an absolute http(s) URL")
+        host = (parts.hostname or "").lower()
+        if any(host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
+            return p, {}
+        if base_host and host == base_host:
+            return p, _headers(api_key)
+        raise ValueError(f"avatar host not allowed: {host}")
+    if not p.startswith("/") or ".." in p:
+        raise ValueError("relative avatar must be a clean absolute path")
+    return base.rstrip("/") + p, _headers(api_key)
+
+
 def _fmt_request_date(created: Any, actor_username: Optional[str]) -> str:
     """Reformat a Seerr request's ISO ``createdAt`` to the acting user's date
     format (Settings → Profile → Formats), date-only. Takes the ``YYYY-MM-DD``
@@ -1171,8 +1229,10 @@ async def _requests_skill(host_row: dict, chip: dict, *,
             for filt in filters:
                 results = await _seerr_list_requests(cli, base, api_key, filt,
                                                      _REQUEST_LIST_TAKE)
-                # (media_type, tmdb_id, created_at) per request, de-duped, in order.
-                items: list[tuple[str, int, str]] = []
+                # (media_type, tmdb_id, created_at, requester_name, avatar) per
+                # request, de-duped, in order. The requester comes from the
+                # first occurrence (same media requested twice keeps the first).
+                items: list[tuple[str, int, str, str, str]] = []
                 seen: set[tuple[str, int]] = set()
                 for req in results:
                     if not isinstance(req, dict):
@@ -1184,25 +1244,43 @@ async def _requests_skill(host_row: dict, chip: dict, *,
                     if not tmdb_id or (mtype, tmdb_id) in seen:
                         continue
                     seen.add((mtype, tmdb_id))
-                    items.append((mtype, tmdb_id, str(req.get("createdAt") or "")))
+                    req_name, req_avatar = _requested_by(req)
+                    items.append((mtype, tmdb_id, str(req.get("createdAt") or ""),
+                                  req_name, req_avatar))
                 if not items:
                     continue
-                details = await asyncio.gather(*[_detail(mt, tid) for mt, tid, _ in items])
+                details = await asyncio.gather(*[_detail(mt, tid) for mt, tid, _, _, _ in items])
                 header = _REQUEST_FILTER_LABELS.get(filt, filt.title())
                 # The status word for the rich-item subtitle (strip the leading
                 # emoji off the section header, e.g. "⬇️ Processing" → "Processing").
                 status_word = header.split(" ", 1)[-1] if " " in header else header
                 lines = [f"{header} ({len(items)}):"]
-                for (mt, tid, created), (lbl, poster_path) in zip(items, details):
+                for (mt, tid, created, rname, ravatar), (lbl, poster_path) in zip(items, details):
                     if not lbl:
                         lbl = f"TMDB {tid}"
                     icon = "📺" if mt == "tv" else "🎬"
-                    lines.append(f"  {icon} {lbl}")
+                    # Plain text (AI / Telegram): append "requested by X".
+                    lines.append(f"  {icon} {lbl}"
+                                 + (f" — requested by {rname}" if rname else ""))
                     total_shown += 1
                     when = _fmt_request_date(created, actor_username)
                     sub = " · ".join(p for p in (when, status_word) if p)
-                    rich.append({"title": lbl, "subtitle": sub,
-                                 "poster": _poster_url(image_base, poster_path)})
+                    item: "dict[str, Any]" = {
+                        "title": lbl, "subtitle": sub,
+                        "poster": _poster_url(image_base, poster_path)}
+                    if rname:
+                        # `byline` is the requester NAME (data); `byline_i18n`
+                        # the chrome key so the renderer shows "Requested by X"
+                        # in the operator's locale.
+                        item["byline"] = rname
+                        item["byline_i18n"] = "apps.seerr.requested_by"
+                    if ravatar:
+                        # Route the avatar through the per-app image proxy — a
+                        # plex.tv avatar is blocked cross-origin, and a Seerr
+                        # `/avatarproxy/` path is relative to the app host.
+                        item["avatar"] = ravatar
+                        item["avatar_proxy"] = True
+                    rich.append(item)
                 sections.append("\n".join(lines))
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] warning: seerr_requests host={host_id} failed — "
@@ -1215,7 +1293,8 @@ async def _requests_skill(host_row: dict, chip: dict, *,
         return {"ok": True, "status": 200,
                 "detail": f"📋 No {names} requests on Seerr right now."}
     return {"ok": True, "status": 200,
-            "detail": "\n\n".join(sections), "count": total_shown, "items": rich}
+            "detail": "\n\n".join(sections), "count": total_shown,
+            "count_i18n": "apps.seerr.requests_count", "items": rich}
 
 
 async def _seerr_search_movie(base: str, api_key: str, query: str) -> Optional[dict]:
