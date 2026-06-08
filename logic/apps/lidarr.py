@@ -90,6 +90,8 @@ _GIB = _servarr.GIB
 _fetch_version = _partial(_servarr.fetch_version, api_version="v1")
 _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Lidarr")
 _command_skill = _partial(_servarr.command_skill, app_label="Lidarr", api_version="v1")
+# Per-app image-proxy hook (local MediaCover via X-Api-Key, server-side).
+image_proxy_url = _servarr.image_proxy_url
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("lidarr",)
@@ -544,7 +546,8 @@ async def _queue_skill(host_row: dict, chip: dict, *,
                      + (f" ({st})" if st and st != "downloading" else ""))
         rich.append({"title": label,
                      "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-                     "poster": _servarr.poster_url(alb) or _servarr.poster_url(art),
+                     "poster": _servarr.local_poster_path(alb) or _servarr.local_poster_path(art),
+                     "poster_proxy": True,
                      "progress": pct})
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),

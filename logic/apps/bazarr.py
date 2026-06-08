@@ -278,7 +278,17 @@ async def _search_wanted_skill(host_row: dict, chip: dict, *,
                     continue
                 name = str(t.get("name") or "").lower()
                 jid = t.get("job_id") or t.get("id")
-                if jid and "wanted" in name:
+                jid_l = str(jid or "").lower()
+                # Bazarr's task NAME is "Search for Missing <Series|Movies>
+                # Subtitles" (the word "wanted" lives only in the JOB_ID,
+                # "wanted_search_missing_subtitles_<series|movies>"). Match
+                # EITHER side, version-tolerantly — the old name-only "wanted"
+                # match found nothing because the name says "Missing".
+                hay = name + " " + jid_l
+                is_wanted = ("subtitle" in hay
+                             and ("wanted" in hay or "missing" in hay)
+                             and ("serie" in hay or "movie" in hay))
+                if jid and is_wanted:
                     wanted.append((str(jid), str(t.get("name") or jid)))
             if not wanted:
                 return {"ok": False, "status": 404,
@@ -314,32 +324,66 @@ def _wanted_title(item: dict) -> str:
     return str(item.get("title") or item.get("radarrTitle") or "").strip()
 
 
-def _wanted_year(item: dict) -> str:
-    """Best-effort 4-digit year for a wanted row ('' when absent). Bazarr
-    movie rows carry ``year``; some shapes nest it as a string with extra
-    text, so we take the first 4-digit run."""
+def _missing_langs(item: dict) -> str:
+    """Compact list of the languages still missing for a wanted row, from the
+    ``missing_subtitles`` list ([{name, code2, ...}]). '' when none."""
     if not isinstance(item, dict):
         return ""
-    raw = str(item.get("year") or "").strip()
-    if len(raw) >= 4 and raw[:4].isdigit():
-        return raw[:4]
-    return ""
+    ms = item.get("missing_subtitles")
+    if not isinstance(ms, list):
+        return ""
+    names: list[str] = []
+    for s in ms:
+        if isinstance(s, dict):
+            n = str(s.get("name") or s.get("code2") or "").strip()
+            if n and n not in names:
+                names.append(n)
+    return ", ".join(names[:4])
 
 
-def _stamp_wanted_poster(row: dict, item: dict) -> None:
-    """Stamp a wanted row's poster onto a rich item IF Bazarr returned a poster
-    path. Bazarr serves posters off its own host behind the X-API-KEY, so we
-    flag ``poster_proxy`` to route the fetch through the per-app image proxy
-    (the api_key stays server-side). Tries the common movie / episode poster
-    keys; leaves the row poster-less (placeholder icon) when none are present."""
-    if not isinstance(item, dict):
-        return
-    for k in ("poster", "seriesPoster", "mediaPoster"):
-        p = str(item.get(k) or "").strip()
-        if p:
-            row["poster"] = p
-            row["poster_proxy"] = True
-            return
+async def _poster_map(client, base: str, api_key: str, endpoint: str,
+                      id_param: str, id_field: str, ids: list) -> dict:
+    """Batch-fetch ``{id: {poster, year}}`` for a set of ids from a Bazarr
+    metadata endpoint. The /api/movies/wanted + /api/episodes/wanted endpoints
+    carry NO poster (or year) — only the radarrId / sonarrSeriesId — so we
+    resolve them in ONE call via ``GET <endpoint>?<id_param>[]=...`` which DOES
+    return ``poster`` + ``year``. ``{}`` on any failure (posters are
+    best-effort; the row still renders title + missing-langs)."""
+    if not ids:
+        return {}
+    try:
+        params = [(id_param + "[]", i) for i in ids]
+        params.append(("length", "500"))
+        r = await client.get(base + endpoint, headers=_headers(api_key), params=params)
+        if r.status_code != 200:
+            return {}
+        body = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return {}
+    rows = body.get("data") if isinstance(body, dict) else body
+    rows = rows if isinstance(rows, list) else []
+    out: dict = {}
+    for m in rows:
+        if not isinstance(m, dict):
+            continue
+        mid = safe_int(m.get(id_field))
+        if not mid:
+            continue
+        poster = str(m.get("poster") or "").strip()
+        yr = str(m.get("year") or "").strip()
+        out[mid] = {"poster": poster,
+                    "year": yr[:4] if len(yr) >= 4 and yr[:4].isdigit() else ""}
+    return out
+
+
+def _stamp_poster(row: dict, meta: dict) -> None:
+    """Stamp a poster path from a metadata-map entry onto a rich item, routed
+    through the per-app image proxy (Bazarr serves the poster behind the
+    X-API-KEY). No-op when the entry has no poster."""
+    p = str((meta or {}).get("poster") or "").strip()
+    if p:
+        row["poster"] = p
+        row["poster_proxy"] = True
 
 
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
@@ -389,43 +433,56 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             movies, m_total, m_code = await _fetch_wanted(cli, "/api/movies/wanted")
             eps, e_total, e_code = await _fetch_wanted(cli, "/api/episodes/wanted")
+            if m_code in (401, 403) or e_code in (401, 403):
+                return {"ok": False, "status": 401, "detail": "auth failed (check api_key)"}
+            if m_total == 0 and e_total == 0:
+                return {"ok": True, "status": 200, "detail": "✅ Nothing is missing subtitles."}
+            # The wanted endpoints carry NO poster/year — only radarrId /
+            # sonarrSeriesId. Resolve posters + (movie) year in ONE batch call
+            # each from the metadata endpoints that DO return them.
+            shown_movies = [m for m in movies[:8] if isinstance(m, dict)]
+            shown_eps = [e for e in eps[:8] if isinstance(e, dict)]
+            movie_ids = [i for i in (safe_int(m.get("radarrId")) for m in shown_movies) if i]
+            series_ids = list({i for i in
+                               (safe_int(e.get("sonarrSeriesId")) for e in shown_eps) if i})
+            movie_meta = await _poster_map(cli, base, api_key, "/api/movies",
+                                           "radarrid", "radarrId", movie_ids)
+            series_meta = await _poster_map(cli, base, api_key, "/api/series",
+                                            "seriesid", "sonarrSeriesId", series_ids)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
-    if m_code in (401, 403) or e_code in (401, 403):
-        return {"ok": False, "status": 401, "detail": "auth failed (check api_key)"}
-    if m_total == 0 and e_total == 0:
-        return {"ok": True, "status": 200, "detail": "✅ Nothing is missing subtitles."}
     lines = []
     # Rich rows for the drawer's poster-thumbnail card — grouped Movies /
-    # Episodes. Bazarr posters need the X-API-KEY, so they route through the
-    # per-app image proxy (poster_proxy=true). Year (movies) shows in the
-    # subtitle; the title carries the series + SxxEyy label for episodes.
+    # Episodes. Posters route through the per-app image proxy (poster_proxy=true)
+    # so the X-API-KEY stays server-side. Subtitle = movie year + the languages
+    # still missing; episode title carries the series + SxxEyy label.
     rich: list[dict] = []
     if m_total:
         lines.append(f"🎬 Movies missing subtitles: {m_total:,}")
-        for m in movies[:8]:
-            if not isinstance(m, dict):
-                continue
+        for m in shown_movies:
             t = _wanted_title(m)
             if not t:
                 continue
-            yr = _wanted_year(m)
+            meta = movie_meta.get(safe_int(m.get("radarrId"))) or {}
+            yr = str(meta.get("year") or "").strip()
+            langs = _missing_langs(m)
             lines.append(f"  • {t}" + (f" ({yr})" if yr else ""))
-            row = {"title": t, "subtitle": yr, "group": "apps.bazarr.group_movies"}
-            _stamp_wanted_poster(row, m)
+            sub = " · ".join(p for p in (yr, (f"missing {langs}" if langs else "")) if p)
+            row: "dict[str, Any]" = {"title": t, "subtitle": sub,
+                                     "group": "apps.bazarr.group_movies"}
+            _stamp_poster(row, meta)
             rich.append(row)
     if e_total:
         lines.append(f"📺 Episodes missing subtitles: {e_total:,}")
-        for ep in eps[:8]:
-            if not isinstance(ep, dict):
-                continue
+        for ep in shown_eps:
             t = _wanted_title(ep)
             if not t:
                 continue
-            yr = _wanted_year(ep)
+            langs = _missing_langs(ep)
             lines.append(f"  • {t}")
-            row = {"title": t, "subtitle": yr, "group": "apps.bazarr.group_episodes"}
-            _stamp_wanted_poster(row, ep)
+            row = {"title": t, "subtitle": (f"missing {langs}" if langs else ""),
+                   "group": "apps.bazarr.group_episodes"}
+            _stamp_poster(row, series_meta.get(safe_int(ep.get("sonarrSeriesId"))) or {})
             rich.append(row)
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "count": (m_total + e_total),

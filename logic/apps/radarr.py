@@ -77,6 +77,9 @@ _fetch_version = _partial(_servarr.fetch_version, api_version="v3")
 _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Radarr")
 _find_in_library = _partial(_servarr.find_in_library_titled, id_field="tmdbId")
 _command_skill = _partial(_servarr.command_skill, app_label="Radarr", api_version="v3")
+# Per-app image-proxy hook (local MediaCover via X-Api-Key, server-side) — the
+# registry looks this up by name on the module, so re-export it here.
+image_proxy_url = _servarr.image_proxy_url
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("radarr",)
@@ -402,7 +405,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         name = f"{title}{_year_suffix(m.get('year'))}"
         lines.append(f"• {name}" + (f" — {when_fmt}" if when_fmt else ""))
         rich.append({"title": name, "subtitle": when_fmt,
-                     "poster": _servarr.poster_url(m)})
+                     "poster": _servarr.local_poster_path(m), "poster_proxy": True})
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "🎬 No upcoming movie releases in the next 14 days."}
@@ -460,7 +463,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         lines.append(f"• {name} — {pct}%{st_suffix}")
         rich.append({"title": name,
                      "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-                     "poster": _servarr.poster_url(mv),
+                     "poster": _servarr.local_poster_path(mv), "poster_proxy": True,
                      "progress": pct})
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),

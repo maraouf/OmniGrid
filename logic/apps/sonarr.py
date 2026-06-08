@@ -79,6 +79,7 @@ from logic.coerce import as_dict, as_list, safe_float, safe_int
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Sonarr's
 # api version (v3) + brand + id field, aliased to the historical underscore
 # names so the skill bodies' call sites stay unchanged.
+# noinspection DuplicatedCode
 _headers = _servarr.headers
 _version_from = _servarr.version_from
 _fmt_size_gib = _servarr.fmt_size_gib
@@ -91,6 +92,8 @@ _fetch_version = _partial(_servarr.fetch_version, api_version="v3")
 _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Sonarr")
 _find_in_library = _partial(_servarr.find_in_library_titled, id_field="tvdbId")
 _command_skill = _partial(_servarr.command_skill, app_label="Sonarr", api_version="v3")
+# Per-app image-proxy hook (local MediaCover via X-Api-Key, server-side).
+image_proxy_url = _servarr.image_proxy_url
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("sonarr",)
@@ -410,6 +413,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None,
                           actor_username: Optional[str] = None) -> dict:
@@ -444,6 +448,10 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
     if not isinstance(items, list):
         items = []
     lines = []
+    # Rich rows for the drawer's poster-thumbnail card — the series poster
+    # (local MediaCover via the per-app image proxy) + the episode label +
+    # air date. Mirrors Radarr's upcoming card.
+    rich: list[dict] = []
     for ep in items[:12]:
         if not isinstance(ep, dict):
             continue
@@ -457,13 +465,18 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         when = str(ep.get("airDateUtc") or ep.get("airDate") or "")[:10]
         when_fmt = _servarr.fmt_release_date(when, actor_username)
         lines.append(f"• {title}{sxe}" + (f" — {when_fmt}" if when_fmt else ""))
+        sub = " · ".join(p for p in (sxe.strip(), when_fmt) if p)
+        rich.append({"title": title, "subtitle": sub,
+                     "poster": _servarr.local_poster_path(ser), "poster_proxy": True})
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "📺 No episodes airing in the next 14 days."}
     return {"ok": True, "status": 200,
-            "detail": "📺 Upcoming episodes (next 14 days):\n" + "\n".join(lines)}
+            "detail": "📺 Upcoming episodes (next 14 days):\n" + "\n".join(lines),
+            "count": len(rich), "items": rich}
 
 
+# noinspection DuplicatedCode
 async def _queue_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str] = None) -> dict:
     """Read-only: what's currently downloading + progress from
@@ -531,6 +544,7 @@ async def _sonarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
     return None
 
 
+# noinspection DuplicatedCode
 async def _series_info_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str] = None,
                              host_id: Optional[str] = None) -> dict:
@@ -578,6 +592,7 @@ async def _series_info_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _add_series_skill(host_row: dict, chip: dict, *,
                             arg: Optional[str] = None,
                             host_id: Optional[str] = None) -> dict:
@@ -660,6 +675,7 @@ async def _add_series_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
+# noinspection DuplicatedCode
 async def _remove_series_skill(host_row: dict, chip: dict, *,
                                arg: Optional[str] = None,
                                host_id: Optional[str] = None) -> dict:

@@ -385,6 +385,44 @@ export default {
     return this.proxiedImageUrl(it.avatar);
   },
 
+  // Per-row action button (e.g. qBittorrent's delete-torrent trash icon). The
+  // item carries `row_action = {skill_id, arg, destructive, confirm_i18n,
+  // title_i18n}`. A destructive action confirms via SweetAlert (matching the
+  // admin users-table delete), then runs the skill with confirm=true and
+  // re-runs the PARENT skill so the row disappears from the list.
+  async appSkillRowAction(inst, sk, it) {
+    const ra = it && it.row_action;
+    if (!ra || !ra.skill_id || !inst) {
+      return;
+    }
+    if (ra.destructive) {
+      const ok = await this.confirmDialog({
+        title: this.t(ra.confirm_i18n || 'apps.skills.row_action_confirm') || 'Are you sure?',
+        html: this._logEscape ? this._logEscape(it.title || '') : (it.title || ''),
+        icon: 'warning',
+        confirmText: this.t('actions.delete') || 'Delete',
+        confirmColor: this._cssVar ? this._cssVar('--danger') : undefined,
+        focusConfirm: false,
+      });
+      if (!ok) {
+        return;
+      }
+    }
+    const res = await this.runAppSkill(inst, ra.skill_id, ra.arg, {confirm: true, silent: true});
+    if (res && res.ok) {
+      this.showToast(this.t('apps.skills.ran_ok') || 'Done', 'success');
+      // Refresh the parent list so the actioned row drops out (fire-and-forget;
+      // runAppSkill never rejects, the no-op catch just marks intent + clears
+      // the "missing await" inspection).
+      if (sk && sk.id) {
+        this.runAppSkill(inst, sk.id, null, {silent: true}).catch(() => undefined);
+      }
+    } else {
+      const d = (res && res.detail) ? (': ' + res.detail) : '';
+      this.showToast((this.t('apps.skills.failed') || 'Failed') + d, 'error');
+    }
+  },
+
   // Run one app skill (e.g. Speedtest run_speedtest) on a chip. POSTs the
   // generic skill endpoint, toasts the outcome, and refreshes the per-app
   // data a few seconds later so a freshly-queued result shows once it lands.

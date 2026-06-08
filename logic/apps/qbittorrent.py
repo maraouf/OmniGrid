@@ -57,6 +57,7 @@ Upstream API reference: <qbit-host>/api/v2 (WebUI API). Endpoints:
 """
 from __future__ import annotations
 
+import re as _re
 import time
 from typing import Any, Optional
 
@@ -112,6 +113,17 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
         "arg": True,
         "arg_hint": "a magnet: link or an http(s) URL to a .torrent file",
+    },
+    {
+        "id": "qbittorrent_delete",
+        "name": "Delete a torrent",
+        "ai_phrases": ("delete a torrent, remove a torrent, cancel a download, "
+                       "delete this download, remove torrent <hash>, cancel "
+                       "torrent, stop and delete a torrent"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the torrent HASH to delete (also removes its downloaded "
+                     "files); the drawer's per-row trash button supplies it"),
     },
     {
         "id": "qbittorrent_resume_all",
@@ -403,6 +415,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _list_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "qbittorrent_add":
         return await _add_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "qbittorrent_delete":
+        return await _delete_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "qbittorrent_resume_all":
         return await _set_all_skill(host_row, chip, resume=True, host_id=host_id)
     if skill_id == "qbittorrent_pause_all":
@@ -564,10 +578,20 @@ async def _downloading_skill(host_row: dict, chip: dict, *,
         speed_txt = "stalled" if stalled else _fmt_speed(dl)
         lines.append(f"📥 {name} — {pct}% · {speed_txt}"
                      + (f" · ETA {eta}" if eta and not stalled else ""))
-        # Rich row: subtitle = ↓ rate (+ ETA), progress bar = pct.
+        # Rich row: subtitle = ↓ rate (+ ETA), progress bar = pct, and a
+        # per-row delete affordance (trash button) carrying THIS torrent's hash
+        # so the drawer can remove it (destructive — the SPA confirms first).
         sub = "⏸ stalled" if stalled else ("↓ " + _fmt_speed(dl)
                                            + (f" · ETA {eta}" if eta else ""))
-        rich.append({"title": name, "subtitle": sub, "progress": pct})
+        thash = str(t.get("hash") or "").strip()
+        row: "dict[str, Any]" = {"title": name, "subtitle": sub, "progress": pct}
+        if thash:
+            row["row_action"] = {
+                "skill_id": "qbittorrent_delete", "arg": thash,
+                "icon": "trash-2", "destructive": True,
+                "confirm_i18n": "apps.qbittorrent.delete_confirm",
+                "title_i18n": "apps.qbittorrent.delete_title"}
+        rich.append(row)
     head = f"📥 Downloading ({len(active)}):"
     return {"ok": True, "status": 200,
             "detail": head + "\n" + "\n".join(lines),
@@ -667,6 +691,42 @@ async def _add_skill(host_row: dict, chip: dict, *,
     if r.status_code == 415:
         return {"ok": False, "status": 415,
                 "detail": "qBittorrent rejected it (not a valid torrent / magnet)"}
+    return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+
+
+_HASH_RE = _re.compile(r"^[A-Fa-f0-9]{40}$|^[A-Za-z0-9]{32}$")
+
+
+async def _delete_skill(host_row: dict, chip: dict, *,
+                        arg: Optional[str] = None,
+                        host_id: Optional[str] = None) -> dict:
+    """Destructive action: delete ONE torrent by its hash (also removes the
+    downloaded files — a partial download's data is useless). The drawer's
+    per-row trash button supplies the hash; gated by the standard destructive
+    confirm. Never raises."""
+    h = (arg or "").strip()
+    if not _HASH_RE.match(h):
+        return {"ok": False, "status": 0,
+                "detail": "no valid torrent hash given (the trash button supplies it)"}
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[qbittorrent] INFO qbittorrent_delete host={host_id} hash={h[:12]}…")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            r = await cli.post(base + "/api/v2/torrents/delete",
+                               data={"hashes": h.lower(), "deleteFiles": "true"})
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"delete failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check username / password)"}
+    if 200 <= r.status_code < 300:
+        return {"ok": True, "status": 200, "detail": "🗑️ Deleted the torrent (and its files)."}
     return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
 
 
