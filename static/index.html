@@ -3837,13 +3837,14 @@
                    probing resumes only when the section is back in view. -->
               <template x-if="!sec.collapsed">
                 <!-- BOTH edit AND locked mode use the span-aware
-                     `.apps-section-grid` (fine 90px auto-fill track) so the
+                     `.apps-section-grid` (fixed 12-column grid) so the
                      per-card width presets (half=span 2 / normal=span 3 /
-                     double=span 5) render at the SAME width in both modes.
-                     Locked mode previously used a Tailwind equal-column grid
-                     that ignored the span classes entirely, so a width set
-                     while editing silently reverted the moment edit mode
-                     closed (reported on bookmark tiles). -->
+                     double=span 4 / xlarge=span 6 — even 12-fractions that
+                     tile flush, no right-edge gap) render at the SAME width
+                     in both modes. Locked mode previously used a Tailwind
+                     equal-column grid that ignored the span classes entirely,
+                     so a width set while editing silently reverted the moment
+                     edit mode closed (reported on bookmark tiles). -->
                 <div class="apps-section-body-grid apps-section-grid"
                      @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop(sec.id, null) : null">
                   <template x-for="item in sec.items" :key="item.uid">
@@ -3980,7 +3981,7 @@
                 <span class="fs-2xs text-[var(--text-faint)]" x-text="appsCustomUnsectioned().length"></span>
               </header>
               <div x-show="!appsUnsectionedCollapsed()"
-                   :class="appsCustomEditMode ? 'apps-section-grid' : 'grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 p-2'"
+                   class="apps-section-grid"
                    @dragover.prevent @drop="appsCustomEditMode ? appsTileDrop('__unsectioned', null) : null">
                 <template x-for="app in appsCustomUnsectioned()" :key="app.group_id">
                   <div class="apps-custom-cell min-w-0">
