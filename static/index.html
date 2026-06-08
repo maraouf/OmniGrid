@@ -10466,6 +10466,17 @@
                                               <span class="apps-skill-item-bar-fill" :style="'width:' + Math.max(0, Math.min(100, Number(it.progress) || 0)) + '%'"></span>
                                             </span>
                                           </span>
+                                          <!-- Per-row action (e.g. qBittorrent delete-torrent), styled like the
+                                               admin users-table delete action. -->
+                                          <button x-show="it.row_action" type="button"
+                                                  class="user-action-btn user-action-btn--danger shrink-0"
+                                                  @click.stop="appSkillRowAction(inst, sk, it)"
+                                                  :title="t((it.row_action && it.row_action.title_i18n) || 'actions.delete') || 'Delete'"
+                                                  :aria-label="t((it.row_action && it.row_action.title_i18n) || 'actions.delete') || 'Delete'">
+                                            <svg width="14" height="14" aria-hidden="true">
+                                              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + ((it.row_action && it.row_action.icon) || 'trash-2')"/>
+                                            </svg>
+                                          </button>
                                         </div>
                                       </li>
                                     </template>

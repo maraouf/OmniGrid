@@ -5561,7 +5561,9 @@
       "qbittorrent_pause_all": "Pause all torrents",
       "results_count": "{count} results",
       "downloading_count": "{count} downloading",
-      "qbittorrent_downloading": "What's downloading"
+      "qbittorrent_downloading": "What's downloading",
+      "qbittorrent_delete": "Delete a torrent",
+      "row_action_confirm": "Are you sure?"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5793,7 +5795,9 @@
       "no_api_key": "No password set — add credentials in Admin → Apps to enable.",
       "loading": "Loading qBittorrent data…",
       "fetch_failed": "qBittorrent fetch failed",
-      "downloading_now_count": "{count} downloading"
+      "downloading_now_count": "{count} downloading",
+      "delete_confirm": "Delete this torrent and its downloaded files?",
+      "delete_title": "Delete torrent"
     },
     "plex": {
       "api_key_label": "Plex token",

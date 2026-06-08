@@ -107,21 +107,32 @@ async def _call(cli: httpx.AsyncClient, base: str, api_key: str, cmd: str,
     return resp.get("data")
 
 
+_AVATAR_PROXY_HOSTS = ("plex.tv", "plex.direct")
+
+
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
-    """Per-app image-proxy hook — turn a Plex metadata thumb path into a
-    Tautulli ``pms_image_proxy`` URL. The api_key rides the query string and is
-    resolved SERVER-SIDE (the OmniGrid server fetches it), so it never reaches
-    the browser. Tautulli then fetches the art from Plex internally — the only
-    host we contact is the configured Tautulli base, so there's no external
-    SSRF surface. Guard: only a Plex metadata path (``/...``, no scheme) is
-    accepted."""
-    from urllib.parse import urlencode  # noqa: PLC0415
+    """Per-app image-proxy hook — turn a Plex image reference into a Tautulli
+    ``pms_image_proxy`` URL. The api_key rides the query string and is resolved
+    SERVER-SIDE (the OmniGrid server fetches it), so it never reaches the
+    browser. Tautulli then fetches the art internally.
+
+    Accepts either a relative Plex metadata path (``/library/...`` poster /
+    thumb) OR an absolute Plex avatar URL on a known Plex host (``plex.tv`` /
+    ``plex.direct`` — the watch-history ``user_thumb`` is a plex.tv avatar that
+    the browser can't hotlink). Both are passed to ``pms_image_proxy`` as the
+    ``img`` param. SSRF guard: an absolute URL on any OTHER host is rejected so
+    Tautulli can't be turned into an open image proxy."""
+    from urllib.parse import urlencode, urlsplit  # noqa: PLC0415
     api_key = (chip.get("api_key") or "").strip()
     p = (path or "").strip()
     if not p:
-        raise ValueError("empty thumb path")
-    if "://" in p or not p.startswith("/"):
-        raise ValueError("thumb must be a Plex metadata path")
+        raise ValueError("empty image path")
+    if "://" in p:
+        host = (urlsplit(p).hostname or "").lower()
+        if not any(host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
+            raise ValueError(f"image host not allowed: {host}")
+    elif not p.startswith("/") or ".." in p:
+        raise ValueError("image must be a clean Plex path")
     base = resolve_base_url(host_row, chip)
     if not base:
         raise ValueError("no upstream URL configured")
@@ -496,8 +507,14 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
                 sub_parts.append(ep)
         if yr:
             sub_parts.append(yr)
-        thumb = str(it.get("thumb") or it.get("grandparent_thumb")
-                    or it.get("parent_thumb") or "").strip()
+        # Movies → the item's own poster (`thumb`). Series/episodes → the SHOW
+        # poster (`grandparent_thumb`) NOT the episode still (`thumb`), so the
+        # card shows recognisable series art.
+        if is_movie:
+            thumb = str(it.get("thumb") or it.get("parent_thumb") or "").strip()
+        else:
+            thumb = str(it.get("grandparent_thumb") or it.get("parent_thumb")
+                        or it.get("thumb") or "").strip()
         row: "dict[str, Any]" = {
             "title": title + (f" ({yr})" if is_movie and yr else ""),
             "subtitle": " · ".join(sub_parts),
@@ -545,13 +562,40 @@ async def _history_skill(host_row: dict, chip: dict, *,
         _hist = data.get("data")
         rows = _hist if isinstance(_hist, list) else []
     lines = []
-    for h in rows[:10]:
+    # Rich rows: the media poster thumbnail + the title, with the watching USER
+    # as a byline + their Plex avatar (both via the per-app image proxy so the
+    # api_key / a cross-origin-blocked plex.tv avatar stays server-side).
+    rich: list[dict] = []
+    for h in rows[:12]:
         if not isinstance(h, dict):
             continue
-        title = str(h.get("full_title") or h.get("title") or "?").strip()
+        mtype = str(h.get("media_type") or "").strip().lower()
+        if mtype == "episode":
+            title = str(h.get("grandparent_title") or h.get("full_title")
+                        or h.get("title") or "?").strip()
+        else:
+            title = str(h.get("full_title") or h.get("title") or "?").strip()
         user = str(h.get("friendly_name") or h.get("user") or "?").strip()
         lines.append(f"• {user} — {title}")
+        # Movie poster / show poster (not the episode still).
+        if mtype == "movie":
+            thumb = str(h.get("thumb") or "").strip()
+        else:
+            thumb = str(h.get("grandparent_thumb") or h.get("parent_thumb")
+                        or h.get("thumb") or "").strip()
+        avatar = str(h.get("user_thumb") or "").strip()
+        row: "dict[str, Any]" = {"title": title, "subtitle": ""}
+        if user and user != "?":
+            row["byline"] = user
+        if thumb:
+            row["poster"] = thumb
+            row["poster_proxy"] = True
+        if avatar:
+            row["avatar"] = avatar
+            row["avatar_proxy"] = True
+        rich.append(row)
     if not lines:
         return {"ok": True, "status": 200, "detail": "🕑 No watch history yet."}
     return {"ok": True, "status": 200,
-            "detail": "🕑 Recent watch history:\n" + "\n".join(lines)}
+            "detail": "🕑 Recent watch history:\n" + "\n".join(lines),
+            "count": len(rich), "items": rich}

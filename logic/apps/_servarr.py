@@ -152,6 +152,53 @@ def poster_url(item: Any) -> str:
     return ""
 
 
+def local_poster_path(item: Any) -> str:
+    """Return a *arr item's LOCAL poster image path (``/MediaCover/...``), to be
+    fetched server-side through the per-app image proxy with the api_key.
+
+    Unlike ``poster_url`` (the external ``remoteUrl`` CDN link, which is often
+    MISSING — Lidarr albums frequently have no ``remoteUrl``, and Sonarr's TVDB
+    ``remoteUrl`` host isn't in the browser-side TMDB proxy allowlist), every
+    *arr ALWAYS serves its own cached cover at the local ``url`` behind the
+    ``X-Api-Key``. Prefers ``poster`` then ``cover`` art. The returned path is
+    normalised to a leading ``/`` (some builds return it slash-less); any
+    ``?lastWrite=`` cache-buster query is preserved. ``""`` when no image."""
+    if not isinstance(item, dict):
+        return ""
+    imgs = item.get("images")
+    if not isinstance(imgs, list):
+        return ""
+    for want in ("poster", "cover"):
+        for im in imgs:
+            if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                url = str(im.get("url") or "").strip()
+                if url:
+                    # Local MediaCover only — never proxy an absolute remote URL
+                    # through the credentialed per-app proxy (SSRF hardening).
+                    if "://" in url:
+                        continue
+                    return url if url.startswith("/") else "/" + url
+    return ""
+
+
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook shared by every *arr module — resolve a LOCAL
+    ``/MediaCover/...`` path to ``(absolute_url, headers)`` so the OmniGrid
+    server fetches the cover with the ``X-Api-Key`` and the key never reaches
+    the browser. SSRF guard: only a clean relative path (no scheme, no
+    traversal) joined to the chip's OWN base is allowed."""
+    api_key = (chip.get("api_key") or "").strip()
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty image path")
+    if "://" in p or not p.startswith("/") or ".." in p:
+        raise ValueError("image must be a clean local path")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    return base.rstrip("/") + p, headers(api_key)
+
+
 def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:
     """Reformat an upstream release / air date to the invoking user's date
     format (Settings -> Profile -> Formats).
