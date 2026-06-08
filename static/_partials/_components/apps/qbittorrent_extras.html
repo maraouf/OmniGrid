@@ -1,0 +1,82 @@
+<!-- Per-app expanded-card extras -- qBittorrent (BitTorrent client Web UI).
+
+     Renders inside `apps-card.html` when the chip is the qBittorrent catalog
+     template AND extras are visible. Data from qBittorrent's
+     `GET /api/v2/transfer/info` (+ torrents/info), via
+     `logic/apps/qbittorrent.py:fetch_data`, read through the cache-backed
+     `appsAppData(inst)`. Mirrors the canonical `.apps-card-ups-*` stat grid +
+     loading/error/no-api-key plain-text branches; shows Downloading / Seeding /
+     Paused / Total counts + a live ⬇/⬆ transfer-speed row. No Storage section.
+
+     Helpers used (all from `static/js/apps/qbittorrent.js`):
+       qbittorrentIsApp(app) / qbittorrentData(inst) / qbittorrentCount(v) /
+       qbittorrentSpeed(bytesPerS) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="qbittorrentIsApp && qbittorrentIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-qbittorrent">
+    <template x-if="qbittorrentData(inst)">
+      <div class="apps-card-ups" :data-qbittorrent-host="inst.host_id">
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Downloading -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.qbittorrent.downloading') || 'Downloading'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(qbittorrentData(inst).downloading) || 0) > 0 ? 'text-[var(--info)]' : ''"
+                 x-text="qbittorrentCount(qbittorrentData(inst).downloading)"></div>
+          </div>
+          <!-- Seeding -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.qbittorrent.seeding') || 'Seeding'"></div>
+            <div class="apps-card-stat-value text-[var(--success)]"
+                 x-text="qbittorrentCount(qbittorrentData(inst).seeding)"></div>
+          </div>
+          <!-- Paused -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.qbittorrent.paused') || 'Paused'"></div>
+            <div class="apps-card-stat-value" x-text="qbittorrentCount(qbittorrentData(inst).paused)"></div>
+          </div>
+          <!-- Total torrents -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.qbittorrent.total') || 'Total'"></div>
+            <div class="apps-card-stat-value" x-text="qbittorrentCount(qbittorrentData(inst).torrents_total)"></div>
+          </div>
+        </div>
+        <!-- Live transfer speeds. -->
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-0.5 fs-xs mt-1.5">
+          <span class="inline-flex items-center gap-1">
+            <span class="text-[var(--info)]" aria-hidden="true">⬇️</span>
+            <span class="mono" x-text="qbittorrentSpeed(qbittorrentData(inst).dl_speed)"></span>
+          </span>
+          <span class="inline-flex items-center gap-1">
+            <span class="text-[var(--success)]" aria-hidden="true">⬆️</span>
+            <span class="mono" x-text="qbittorrentSpeed(qbittorrentData(inst).up_speed)"></span>
+          </span>
+        </div>
+        <!-- Footnote: version. -->
+        <div x-show="qbittorrentData(inst).version"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+             x-text="t('apps.version_footnote', { brand: 'qBittorrent', v: (qbittorrentData(inst).version || '') })"></div>
+      </div>
+    </template>
+    <!-- No password yet — idle and unconfigured. -->
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.qbittorrent.no_api_key') || 'No password set -- add credentials in Admin -> Apps to enable.'"></p>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!qbittorrentData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.qbittorrent.loading') || 'Loading qBittorrent data…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!qbittorrentData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.qbittorrent.fetch_failed') || 'qBittorrent fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>

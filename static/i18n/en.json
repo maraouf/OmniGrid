@@ -5545,7 +5545,12 @@
       "prowlarr_available_indexers": "Find indexers to add",
       "prowlarr_add_indexer": "Add an indexer",
       "prowlarr_add_indexers_bulk": "Add indexers in bulk",
-      "prowlarr_fix_flaresolverr": "Fix FlareSolverr tags"
+      "prowlarr_fix_flaresolverr": "Fix FlareSolverr tags",
+      "qbittorrent_status": "qBittorrent status",
+      "qbittorrent_list": "List torrents",
+      "qbittorrent_add": "Add a torrent",
+      "qbittorrent_resume_all": "Resume all torrents",
+      "qbittorrent_pause_all": "Pause all torrents"
     },
     "cache_ttl_label": "Data cache TTL (seconds)",
     "cache_ttl_placeholder": "App default",
@@ -5742,6 +5747,22 @@
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Kavita data…",
       "fetch_failed": "Kavita fetch failed"
+    },
+    "qbittorrent": {
+      "username_label": "qBittorrent username",
+      "username_placeholder": "WebUI username (default: admin)",
+      "password_label": "qBittorrent password",
+      "password_placeholder_saved": "Saved — leave blank to keep",
+      "password_placeholder_unset": "WebUI password",
+      "creds_hint": "qBittorrent → Tools → Options → Web UI. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Leave both blank only if the WebUI bypasses auth for this host.",
+      "cache_ttl_hint": "How long fetched transfer stats are cached before re-querying qBittorrent (5–3600s). Leave blank for the app default (15s).",
+      "downloading": "Downloading",
+      "seeding": "Seeding",
+      "paused": "Paused",
+      "total": "Total",
+      "no_api_key": "No password set — add credentials in Admin → Apps to enable.",
+      "loading": "Loading qBittorrent data…",
+      "fetch_failed": "qBittorrent fetch failed"
     },
     "plex": {
       "api_key_label": "Plex token",
