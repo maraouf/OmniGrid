@@ -473,6 +473,11 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
         "latest": latest,
         "averages": avg,
         "image_url": image_url,
+        # Render the Speedtest result graph WIDER than the default skill-image
+        # preview (it's a detailed chart, not a small poster). The generic
+        # renderer reads this flag — other apps' skill images stay at the
+        # default width.
+        "image_wide": True,
     }
 
 

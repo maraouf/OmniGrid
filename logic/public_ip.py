@@ -25,6 +25,7 @@ disabled-by-default path doesn't even create an HTTP client.
 """
 from __future__ import annotations
 
+import sqlite3
 import time
 from typing import Optional
 
@@ -72,6 +73,10 @@ def is_enabled() -> bool:
     (default OFF for privacy: fetching reveals the deploy reaches
     ifconfig.co)."""
     try:
+        # Explicit default=False is the documented privacy convention (the
+        # public-IP lookup is OFF until the operator opts in) — keep it visible
+        # at the call site even though it matches get_setting_bool's default.
+        # noinspection PyArgumentEqualDefault
         return get_setting_bool(Settings.PUBLIC_IP_ENABLED, False)
     except (KeyError, ValueError, TypeError):
         return False
@@ -143,6 +148,12 @@ async def fetch(force: bool = False, bypass_gate: bool = False) -> Optional[dict
         "country": str(j.get("country") or "").strip(),
         "country_code": str(j.get("country_iso") or "").strip().upper(),
         "city": str(j.get("city") or "").strip(),
+        # When this value was actually fetched from the upstream (epoch
+        # seconds). Cached into the payload so a cache HIT returns the
+        # ORIGINAL fetch time — the widget's "Updated X ago" then ages from
+        # the real fetch, not from when the SPA last polled. Matches the
+        # weather / prayer-times `fetched_at` shape.
+        "fetched_at": int(now),
     }
     # Cache even when the upstream returned partial data — the AI
     # prompt block gates per-field on truthy so missing fields just
@@ -253,7 +264,8 @@ def last_change() -> Optional[dict]:
                 "SELECT ts, ip, isp, asn, country, city, country_code "
                 "FROM public_ip_history ORDER BY ts DESC LIMIT 2"
             ).fetchall()
-    except Exception:  # noqa: BLE001 — history is a nicety, never fatal
+    except (sqlite3.Error, OSError, ImportError, ValueError, TypeError):
+        # History is a nicety, never fatal — any DB / import error → no history.
         return None
     if not rows:
         return None

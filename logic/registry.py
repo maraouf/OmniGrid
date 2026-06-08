@@ -14,6 +14,7 @@ import httpx
 
 from logic import metrics
 from logic.env_keys import EnvKey, env_get
+from logic.external_urls import ExternalURL
 from logic.url_safety import is_safe_http_url
 
 DOCKERHUB_USER = env_get(EnvKey.DOCKERHUB_USER)
@@ -113,9 +114,9 @@ def hub_link(image: str) -> Optional[str]:
     except (ValueError, AttributeError):
         return None
     if reg == "lscr.io" and repo.startswith("linuxserver/"):
-        return f"https://github.com/linuxserver/docker-{repo.split('/', 1)[1]}"
+        return f"{ExternalURL.GITHUB}/linuxserver/docker-{repo.split('/', 1)[1]}"
     if reg == "ghcr.io":
-        return f"https://github.com/{repo}"
+        return f"{ExternalURL.GITHUB}/{repo}"
     if reg == "registry-1.docker.io":
         if repo.startswith("library/"):
             return f"https://hub.docker.com/_/{repo.split('/', 1)[1]}/tags"
@@ -337,7 +338,6 @@ _ROLLING_TAG_SENTINELS = frozenset({
     "", "none",
 })
 
-
 # ---------------------------------------------------------------------
 # Known-image → GitHub-repo fallback map.
 #
@@ -420,7 +420,7 @@ async def _fetch_github_latest_release(
     if gh_tok:
         h["Authorization"] = f"Bearer {gh_tok}"
     try:
-        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+        url = f"{ExternalURL.GITHUB_API}/repos/{owner}/{repo}/releases/latest"
         r = await client.get(url, headers=h, follow_redirects=True)
         if r.status_code == 200:
             body = r.json()
@@ -428,7 +428,7 @@ async def _fetch_github_latest_release(
             return {
                 "name": body.get("name") or tag or "latest",
                 "body": body.get("body") or "",
-                "html_url": body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/latest",
+                "html_url": body.get("html_url") or f"{ExternalURL.GITHUB}/{owner}/{repo}/releases/latest",
                 "published_at": body.get("published_at") or "",
                 "tag": tag,
             }
@@ -464,14 +464,14 @@ async def _fetch_github_release_notes(
         h["Authorization"] = f"Bearer {gh_tok}"
     for cand in candidates:
         try:
-            url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{cand}"
+            url = f"{ExternalURL.GITHUB_API}/repos/{owner}/{repo}/releases/tags/{cand}"
             r = await client.get(url, headers=h, follow_redirects=True)
             if r.status_code == 200:
                 body = r.json()
                 return {
                     "name": body.get("name") or cand,
                     "body": body.get("body") or "",
-                    "html_url": body.get("html_url") or f"https://github.com/{owner}/{repo}/releases/tag/{cand}",
+                    "html_url": body.get("html_url") or f"{ExternalURL.GITHUB}/{owner}/{repo}/releases/tag/{cand}",
                     "published_at": body.get("published_at") or "",
                 }
         except Exception as e:
@@ -545,12 +545,12 @@ async def get_release_notes(image: str) -> dict:
             mapped = _KNOWN_IMAGE_SOURCES.get(repo.lower())
             if mapped is not None:
                 gh_fallback = mapped
-                source_url = f"https://github.com/{mapped[0]}/{mapped[1]}"
+                source_url = f"{ExternalURL.GITHUB}/{mapped[0]}/{mapped[1]}"
             else:
                 guess = _docker_hub_to_github_guess(repo)
                 if guess is not None:
                     gh_fallback = guess
-                    source_url = f"https://github.com/{guess[0]}/{guess[1]}"
+                    source_url = f"{ExternalURL.GITHUB}/{guess[0]}/{guess[1]}"
 
         # Identify "specific" vs "rolling" tag values. A tag is specific
         # when it points at a real release (e.g. `1.45.6`, `v2.0.0`,

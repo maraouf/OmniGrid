@@ -431,6 +431,33 @@ export default {
   // suggest→request flow — can render the outcome + a follow-up button.
   // `opts.silent` suppresses the toasts (the AI sidebar shows the result
   // inline in the chat instead).
+
+  // Skill BUTTON click handler. A non-destructive skill runs immediately; a
+  // DESTRUCTIVE one (e.g. qBittorrent "Pause all" / "Update VueTorrent WebUI")
+  // confirms via SweetAlert FIRST, then dispatches with confirm:true — the
+  // backend 409s a destructive skill without it. Arg-skills never reach here
+  // (they're filtered out of the button list — AI / Telegram supply the arg).
+  async runSkillButton(inst, sk) {
+    if (!sk) {
+      return null;
+    }
+    if (sk.destructive) {
+      const ok = await this.confirmDialog({
+        title: this.t('apps.skills.skill_confirm_title', {name: this.appSkillLabel(sk)})
+          || ('Run "' + this.appSkillLabel(sk) + '"?'),
+        text: this.t('apps.skills.skill_confirm_text')
+          || 'This performs a change on the app. Continue?',
+        confirmText: this.t('actions.confirm') || 'Confirm',
+        confirmColor: this._cssVar ? this._cssVar('--danger') : undefined,
+      });
+      if (!ok) {
+        return null;
+      }
+      return this.runAppSkill(inst, sk.id, null, {confirm: true});
+    }
+    return this.runAppSkill(inst, sk.id);
+  },
+
   async runAppSkill(inst, skillId, arg, opts) {
     const silent = !!(opts && opts.silent);
     if (!inst || !skillId) {

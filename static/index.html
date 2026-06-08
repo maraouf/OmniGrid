@@ -10399,7 +10399,7 @@
                         <div class="flex items-center gap-2 flex-wrap">
                           <template x-for="sk in appInstanceSkills(inst)" :key="sk.id">
                             <button type="button"
-                                    @click.stop="runAppSkill(inst, sk.id)"
+                                    @click.stop="runSkillButton(inst, sk)"
                                     :disabled="appSkillBusy(inst, sk.id)"
                                     class="apps-card-action-pill whitespace-nowrap">
                               <svg width="13" height="13" :class="appSkillBusy(inst, sk.id) ? 'spin-md' : ''" aria-hidden="true">
@@ -10532,7 +10532,8 @@
                                    class="block mt-2">
                                   <img :src="proxiedImageUrl(appSkillResult(inst, sk.id).image_url)" alt=""
                                        loading="lazy"
-                                       class="max-w-[200px] rounded border border-[var(--border)]"/>
+                                       class="rounded border border-[var(--border)]"
+                                       :class="appSkillResult(inst, sk.id).image_wide ? 'max-w-[350px]' : 'max-w-[200px]'"/>
                                 </a>
                               </template>
                               <!-- One-click follow-up (e.g. Seerr suggest →

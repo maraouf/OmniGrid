@@ -982,6 +982,19 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         # fetch) is a real 415.
         sniffed = _sniff_image_type(body)
         if not sniffed:
+            # Diagnostic — a non-image 200 almost always means the upstream
+            # served an HTML auth / login / SPA shell because the image fetch
+            # wasn't authenticated (e.g. an *arr MediaCover route that wants the
+            # apikey in the QUERY, not just the header). Log the content-type +
+            # the first bytes (escaped) + the host so the 415 is actionable.
+            snippet = ""
+            try:
+                snippet = body[:80].decode("utf-8", "replace").replace("\n", " ").strip()
+            except (ValueError, TypeError):
+                snippet = repr(body[:80])
+            print(f"[image-proxy] warning: non-image 200 from host={parts.netloc} "
+                  f"path={parts.path} content-type={ctype or '(none)'} "
+                  f"bytes={len(body)} first80={snippet!r}")
             raise HTTPException(415, "upstream content is not an image")
         ctype = sniffed
     return Response(content=body, media_type=ctype,

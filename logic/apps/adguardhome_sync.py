@@ -53,6 +53,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -345,7 +346,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "adguardsync_sync":
         return await _sync_skill(host_row, chip, host_id=host_id)
     if skill_id == "adguardsync_logs":
-        return await _logs_skill(host_row, chip, host_id=host_id)
+        return await _logs_skill(host_row, chip, host_id=host_id,
+                                 actor_username=_kw.get("actor_username"))
     if skill_id == "adguardsync_clear_logs":
         return await _clear_logs_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -456,7 +458,29 @@ _CONSOLE_CTX_RE = re.compile(r"\s*(?P<ctx>\{.*})\s*$")
 _CLOCK_RE = re.compile(r"(?P<clock>\d{2}:\d{2}:\d{2})")
 
 
-def _format_console_log_line(line: str) -> str:
+def _fmt_log_clock(ts_str: Any, time_fmt: Optional[str]) -> str:
+    """Format a log line's timestamp for display. With ``time_fmt`` (the
+    viewing user's time-only date-format string) the full ISO timestamp is
+    parsed and rendered in the user's preferred clock format (12h / 24h /
+    seconds-or-not); without it (AI / Telegram, or a parse failure) it falls
+    back to the bare ``HH:MM:SS`` lifted from the string."""
+    raw = str(ts_str or "").strip()
+    if not raw:
+        return ""
+    if time_fmt:
+        try:
+            dt = datetime.fromisoformat(raw)
+            from logic.datetime_fmt import apply_datetime_format  # noqa: PLC0415
+            out = apply_datetime_format(dt, time_fmt)
+            if out:
+                return out
+        except (ValueError, TypeError):
+            pass
+    m = _CLOCK_RE.search(raw)
+    return m.group("clock") if m else ""
+
+
+def _format_console_log_line(line: str, time_fmt: Optional[str] = None) -> str:
     """Best-effort prettify of a console-formatted (non-JSON) zerolog line.
 
     adguardhome-sync's console format is
@@ -476,8 +500,7 @@ def _format_console_log_line(line: str) -> str:
             return f"{_LOG_LEVEL_EMOJI.get(lm.group('lvl').lower(), '•')} {s}"
         return s
     emoji = _LOG_LEVEL_EMOJI.get(m.group("lvl").lower(), "•")
-    clk = _CLOCK_RE.search(m.group("ts"))
-    clock = clk.group("clock") if clk else ""
+    clock = _fmt_log_clock(m.group("ts"), time_fmt)
     rest = _CONSOLE_CALLER_RE.sub("", m.group("rest")).strip()
     ctx_m = _CONSOLE_CTX_RE.search(rest)
     if ctx_m:
@@ -492,13 +515,12 @@ def _format_console_log_line(line: str) -> str:
     return (head + "  " + rest) if rest else head
 
 
-def _format_sync_log_entry(entry: dict) -> str:
+def _format_sync_log_entry(entry: dict, time_fmt: Optional[str] = None) -> str:
     """One structured zerolog entry -> "<emoji> HH:MM:SS  <message>  (ctx)"."""
     level = str(entry.get("level") or "").strip().lower()
     emoji = _LOG_LEVEL_EMOJI.get(level, "•")
     ts = str(entry.get("time") or entry.get("ts") or entry.get("timestamp") or "").strip()
-    clock_m = re.search(r"(?P<clock>\d{2}:\d{2}:\d{2})", ts)
-    clock = clock_m.group("clock") if clock_m else ""
+    clock = _fmt_log_clock(ts, time_fmt)
     msg = _collapse_ws(entry.get("message") or entry.get("msg"))
     # Surface a few common zerolog context fields when present (e.g. the error
     # detail on a failed sync, or which instance/host the line is about).
@@ -517,9 +539,10 @@ def _format_sync_log_entry(entry: dict) -> str:
     return line
 
 
-def _format_sync_log_lines(text: str) -> list:
+def _format_sync_log_lines(text: str, time_fmt: Optional[str] = None) -> list:
     """Normalise adguardhome-sync's /api/v1/logs buffer into clean, human
-    "<emoji> HH:MM:SS  <message>" lines.
+    "<emoji> HH:MM:SS  <message>" lines. ``time_fmt`` (the viewing user's
+    time-only date-format) renders each line's clock in their preferred format.
 
     The endpoint returns the raw zerolog buffer, which across builds is EITHER a
     JSON array of ``{level, time, message, ...}`` objects, OR newline-delimited
@@ -554,22 +577,35 @@ def _format_sync_log_lines(text: str) -> list:
     for entry in entries:
         raw = entry.get("_raw")
         if raw is not None:
-            formatted = _format_console_log_line(str(raw))
+            formatted = _format_console_log_line(str(raw), time_fmt)
         else:
-            formatted = _format_sync_log_entry(entry)
+            formatted = _format_sync_log_entry(entry, time_fmt)
         if formatted:
             out.append(formatted)
     return out
 
 
 async def _logs_skill(host_row: dict, chip: dict, *,
-                      host_id: Optional[str] = None) -> dict:
+                      host_id: Optional[str] = None,
+                      actor_username: Optional[str] = None) -> dict:
     """Read-only: the most recent sync log lines (GET /api/v1/logs). Parses the
     zerolog buffer (JSON array / NDJSON / console text) into clean, level-emoji
-    lines and returns the last ~25. Never raises."""
+    lines and returns the last ~25, with each line's clock rendered in the
+    requesting user's date-time format. Never raises."""
     base, auth, err = _resolve_target(host_row, chip)
     if err:
         return err
+    # Resolve the requesting user's TIME format (12h / 24h / seconds) so the
+    # log clocks match their Settings → Profile → Formats preference. Blank /
+    # no user (AI / Telegram) → bare HH:MM:SS.
+    time_fmt = ""
+    if actor_username:
+        try:
+            from logic.datetime_fmt import (  # noqa: PLC0415
+                get_user_datetime_format, strip_date_tokens)
+            time_fmt = strip_date_tokens(get_user_datetime_format(actor_username))
+        except (ImportError, ValueError, TypeError, KeyError):
+            time_fmt = ""
     print(f"[adguardsync] INFO adguardsync_logs host={host_id} (live fetch)")
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
@@ -587,7 +623,7 @@ async def _logs_skill(host_row: dict, chip: dict, *,
         text = ""
     if not text:
         return {"ok": True, "status": 200, "detail": "📜 No recent sync log entries."}
-    lines = _format_sync_log_lines(text)[-25:]
+    lines = _format_sync_log_lines(text, time_fmt or None)[-25:]
     if not lines:
         return {"ok": True, "status": 200, "detail": "📜 No recent sync log entries."}
     return {"ok": True, "status": 200, "detail": "📜 Recent sync log:\n" + "\n".join(lines)}

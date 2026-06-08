@@ -619,13 +619,24 @@ export default {
   // empty state covers that case).
   widgetFreshnessLabel(kind) {
     const now = this.hostHistoryNow || Date.now();
+    // Read the BACKEND's `fetched_at` (epoch SECONDS — when the data was
+    // actually fetched / cached server-side), NOT a local "received at"
+    // stamp. The SPA polls these widgets on a short loop and the backend
+    // serves a cached value between fetches, so a local receive-time stamp
+    // always reads ~0s ("Updated 0s ago"). The backend timestamp ages the
+    // label from the real fetch — weather / moon / prayer / public-IP all
+    // carry `fetched_at`. (×1000 → ms to match `now`.)
+    const fetchedMs = (obj) => {
+      const v = obj && Number(obj.fetched_at);
+      return (Number.isFinite(v) && v > 0) ? v * 1000 : 0;
+    };
     let ts = 0;
     if (kind === 'weather' || kind === 'moon') {
-      ts = this._weatherFetchedAt || 0;
+      ts = fetchedMs(this.weather);
     } else if (kind === 'public_ip') {
-      ts = this._publicIpFetchedAt || 0;
+      ts = fetchedMs(this.publicIp);
     } else if (kind === 'prayer_times') {
-      ts = this._prayerFetchedAt || 0;
+      ts = fetchedMs(this.prayer);
     }
     if (!ts) {
       return '';

@@ -541,7 +541,13 @@
       "kind_host_net": "node-exporter net rates",
       "kind_service": "Service probe",
       "kind_host_http": "HTTP probe",
-      "kind_host_port_scans": "Port scan"
+      "kind_host_port_scans": "Port scan",
+      "kind_stats": "Container stats",
+      "kind_host_beszel_services": "Beszel services",
+      "kind_weather": "Weather",
+      "kind_host_failure_events": "Host failure events",
+      "kind_public_ip_history": "Public IP history",
+      "kind_db_size": "Database size"
     },
     "database": {
       "title": "Database",
@@ -5559,6 +5565,10 @@
       "qbittorrent_add": "Add a torrent",
       "qbittorrent_resume_all": "Resume all torrents",
       "qbittorrent_pause_all": "Pause all torrents",
+      "qbittorrent_vuetorrent_check": "Check VueTorrent version",
+      "qbittorrent_vuetorrent_update": "Update VueTorrent WebUI",
+      "skill_confirm_title": "Run \"{name}\"?",
+      "skill_confirm_text": "This performs a change on the app. Continue?",
       "results_count": "{count} results",
       "downloading_count": "{count} downloading",
       "qbittorrent_downloading": "What's downloading",
