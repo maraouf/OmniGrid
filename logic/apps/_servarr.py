@@ -51,9 +51,13 @@ _REMOTE_POSTER_HOST_SUFFIXES = (
     "coverartarchive.org",  # Lidarr (MusicBrainz cover art)
     "archive.org",  # coverartarchive redirects to ia*.archive.org
     "theaudiodb.com",  # Lidarr (TheAudioDB)
-    "gr-assets.com",  # Readarr (Goodreads)
+    "gr-assets.com",  # Readarr (Goodreads asset CDN)
+    "goodreads.com",  # Readarr (Goodreads)
     "media-amazon.com",  # Readarr (Amazon book covers)
     "ssl-images-amazon.com",  # Readarr (Amazon book covers)
+    "openlibrary.org",  # Readarr (Open Library covers)
+    "books.google.com",  # Readarr (Google Books covers)
+    "googleusercontent.com",  # Readarr (Google Books image CDN)
 )
 
 
@@ -63,6 +67,27 @@ def _is_remote_poster_host(host: str) -> bool:
     h = (host or "").strip().lower()
     return bool(h) and any(h == s or h.endswith("." + s)
                            for s in _REMOTE_POSTER_HOST_SUFFIXES)
+
+
+def image_debug(item: Any) -> str:
+    """Compact ``coverType=host`` summary of a *arr item's ``images`` remote
+    hosts — for a one-line diagnostic log when a poster won't resolve, so the
+    exact CDN host to allowlist is visible without guessing. ``'no-images'``
+    when the embed carries none."""
+    if not isinstance(item, dict):
+        return "not-a-dict"
+    imgs = item.get("images")
+    if not isinstance(imgs, list) or not imgs:
+        return "no-images"
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    parts = []
+    for im in imgs[:4]:
+        if not isinstance(im, dict):
+            continue
+        ct = str(im.get("coverType") or "?").strip().lower()
+        host = (urlsplit(str(im.get("remoteUrl") or "")).hostname or "local").lower()
+        parts.append(f"{ct}={host}")
+    return ", ".join(parts) or "no-images"
 
 
 # 1 GiB in bytes — the *arr apps report disk space in bytes; the cards render
@@ -184,6 +209,48 @@ def poster_url(item: Any) -> str:
     return ""
 
 
+def remote_poster_url(item: Any) -> str:
+    """The allowlisted PUBLIC-CDN ``remoteUrl`` for a *arr item (``poster`` then
+    ``cover`` art), or ``""`` when none. This is the RELIABLE half of
+    ``poster_proxy_path`` — fetched anonymously by the per-app proxy, no api_key,
+    no ``/MediaCover`` auth quirk. Exposed separately so a music / book module
+    can PREFER it over a derived public fallback (Cover Art Archive) and only
+    drop to the 415-prone local path last."""
+    if not isinstance(item, dict):
+        return ""
+    imgs = item.get("images")
+    if not isinstance(imgs, list):
+        return ""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    for want in ("poster", "cover"):
+        for im in imgs:
+            if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                rurl = str(im.get("remoteUrl") or "").strip()
+                if rurl and "://" in rurl and _is_remote_poster_host(urlsplit(rurl).hostname or ""):
+                    return rurl
+    return ""
+
+
+def local_poster_path_only(item: Any, *, id_fallback: bool = False) -> str:
+    """The LOCAL ``/MediaCover/...`` poster path for a *arr item (``poster`` then
+    ``cover``), or ``""``. The 415-prone half of ``poster_proxy_path`` — used
+    only as a last resort after the remote + derived-public options."""
+    if isinstance(item, dict):
+        imgs = item.get("images")
+        if isinstance(imgs, list):
+            for want in ("poster", "cover"):
+                for im in imgs:
+                    if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                        url = str(im.get("url") or "").strip()
+                        if url and "://" not in url:
+                            return url if url.startswith("/") else "/" + url
+        if id_fallback:
+            mid = safe_int(item.get("id"))
+            if mid:
+                return f"/MediaCover/{mid}/poster.jpg"
+    return ""
+
+
 def poster_proxy_path(item: Any, *, id_fallback: bool = False) -> str:
     """Return a *arr item's poster reference to be routed through the per-app
     image proxy. REMOTE-FIRST:
@@ -204,31 +271,8 @@ def poster_proxy_path(item: Any, *, id_fallback: bool = False) -> str:
     Prefers ``poster`` then ``cover`` art (Lidarr ALBUM art is ``cover``).
     ``""`` when nothing usable. Pairs with ``poster_proxy: True`` on the rich
     item so the SPA routes it through ``/api/services/.../image-proxy``."""
-    if isinstance(item, dict):
-        imgs = item.get("images")
-        if isinstance(imgs, list):
-            # 1. Remote-first — an allowlisted public CDN remoteUrl.
-            for want in ("poster", "cover"):
-                for im in imgs:
-                    if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
-                        rurl = str(im.get("remoteUrl") or "").strip()
-                        if rurl and "://" in rurl:
-                            from urllib.parse import urlsplit  # noqa: PLC0415
-                            if _is_remote_poster_host(urlsplit(rurl).hostname or ""):
-                                return rurl
-            # 2. Local MediaCover fallback.
-            for want in ("poster", "cover"):
-                for im in imgs:
-                    if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
-                        url = str(im.get("url") or "").strip()
-                        if url and "://" not in url:
-                            return url if url.startswith("/") else "/" + url
-        # 3. id-derived local path.
-        if id_fallback:
-            mid = safe_int(item.get("id"))
-            if mid:
-                return f"/MediaCover/{mid}/poster.jpg"
-    return ""
+    return (remote_poster_url(item)
+            or local_poster_path_only(item, id_fallback=id_fallback))
 
 
 # Back-compat alias — older call sites referenced ``local_poster_path`` before

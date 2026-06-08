@@ -76,6 +76,27 @@ from functools import partial as _partial
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
 from logic.coerce import as_dict, as_list, safe_float, safe_int
+from logic.external_urls import ExternalURL
+
+
+def _album_poster(alb: dict, art: dict) -> str:
+    """Resolve a Lidarr album's poster, MOST-RELIABLE-FIRST. Album / artist art
+    frequently has NO allowlisted public CDN ``remoteUrl`` in the queue embed,
+    and the local ``/MediaCover`` path 415s on auth-mismatched setups — so when
+    there's no public remote cover, derive one from the MusicBrainz Cover Art
+    Archive using the album's ``foreignAlbumId`` (release-group MBID), which is
+    a PUBLIC, no-auth image. Order: remote(album) → remote(artist) →
+    coverart(MBID) → local(album) → local(artist)."""
+    remote = _servarr.remote_poster_url(alb) or _servarr.remote_poster_url(art)
+    if remote:
+        return remote
+    mbid = str(alb.get("foreignAlbumId") or "").strip()
+    if mbid:
+        # front-500: the 500px front cover (307-redirects to archive.org; the
+        # per-app proxy follows redirects). 404s gracefully when no art exists.
+        return f"{ExternalURL.COVERART_ARCHIVE}/release-group/{mbid}/front-500"
+    return (_servarr.local_poster_path_only(alb)
+            or _servarr.local_poster_path_only(art))
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Lidarr's
 # api version (v1) + brand, aliased to the historical underscore names so the
@@ -562,7 +583,7 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         row: "dict[str, Any]" = {
             "title": label,
             "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": _servarr.poster_proxy_path(alb) or _servarr.poster_proxy_path(art),
+            "poster": _album_poster(alb, art),
             "poster_proxy": True,
             "progress": pct}
         qid = safe_int(q.get("id"))
@@ -573,6 +594,11 @@ async def _queue_skill(host_row: dict, chip: dict, *,
                 "confirm_i18n": "apps.lidarr.queue_delete_confirm",
                 "title_i18n": "apps.lidarr.queue_delete_title"}
         rich.append(row)
+    if rich:
+        _a0 = as_dict(records[0].get("album"))
+        print(f"[lidarr] INFO queue posters host={host_id} "
+              f"first_poster={rich[0].get('poster') or 'none'!r} "
+              f"album_images=[{_servarr.image_debug(_a0)}]")
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
             "count": len(records), "count_i18n": "apps.skills.downloading_count",

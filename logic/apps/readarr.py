@@ -560,7 +560,9 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         row: "dict[str, Any]" = {
             "title": label,
             "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": _servarr.poster_proxy_path(bk) or _servarr.poster_proxy_path(au),
+            "poster": (_servarr.remote_poster_url(bk) or _servarr.remote_poster_url(au)
+                       or _servarr.local_poster_path_only(bk)
+                       or _servarr.local_poster_path_only(au)),
             "poster_proxy": True,
             "progress": pct}
         qid = safe_int(q.get("id"))
@@ -571,6 +573,11 @@ async def _queue_skill(host_row: dict, chip: dict, *,
                 "confirm_i18n": "apps.readarr.queue_delete_confirm",
                 "title_i18n": "apps.readarr.queue_delete_title"}
         rich.append(row)
+    if rich:
+        _b0 = as_dict(records[0].get("book"))
+        print(f"[readarr] INFO queue posters host={host_id} "
+              f"first_poster={rich[0].get('poster') or 'none'!r} "
+              f"book_images=[{_servarr.image_debug(_b0)}]")
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
             "count": len(records), "count_i18n": "apps.skills.downloading_count",

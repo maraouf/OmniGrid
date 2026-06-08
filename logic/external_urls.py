@@ -37,6 +37,11 @@ class ExternalURL:
     WWW_THEMOVIEDB_HOST = "www.themoviedb.org"
     THEMOVIEDB_API = "https://api.themoviedb.org/3"
 
+    # MusicBrainz Cover Art Archive — public album art by release-group MBID
+    # (Lidarr ``foreignAlbumId``). Used as a reliable poster fallback when a
+    # queue record's embedded album lacks an allowlisted remote CDN cover.
+    COVERART_ARCHIVE = "https://coverartarchive.org"
+
     # --- Plex ----------------------------------------------------------
     PLEX_TV = "https://plex.tv"
     PLEX_TV_HOST = "plex.tv"

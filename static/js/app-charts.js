@@ -871,11 +871,15 @@ export default {
     const legFcast = esc(this.t('stats.database.projection.forecast_label') || 'Projection');
     const lx = PAD_L + 6;
     const ly = PAD_T + 9;
-    const lx2 = PAD_L + 130;
+    // Actual legend sits in the measured-past (left) half; the Projection
+    // legend is anchored just to the RIGHT of the "Today" divider so it sits
+    // over the forecast region it labels instead of straddling the divider
+    // line (operator-flagged: the word + marker were on top of the separator).
+    const lx2 = X(now) + 10;
     svg += '<line x1="' + lx + '" y1="' + ly + '" x2="' + (lx + 16) + '" y2="' + ly + '" stroke="var(--success)" stroke-width="1.75"></line>';
     svg += '<text x="' + (lx + 21) + '" y="' + (ly + 3.5) + '" fill="var(--text-faint)" class="stats-chart-axis">' + legActual + '</text>';
-    svg += '<line x1="' + lx2 + '" y1="' + ly + '" x2="' + (lx2 + 16) + '" y2="' + ly + '" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></line>';
-    svg += '<text x="' + (lx2 + 21) + '" y="' + (ly + 3.5) + '" fill="var(--text-faint)" class="stats-chart-axis">' + legFcast + '</text>';
+    svg += '<line x1="' + lx2.toFixed(1) + '" y1="' + ly + '" x2="' + (lx2 + 16).toFixed(1) + '" y2="' + ly + '" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="4,2"></line>';
+    svg += '<text x="' + (lx2 + 21).toFixed(1) + '" y="' + (ly + 3.5) + '" fill="var(--text-faint)" class="stats-chart-axis">' + legFcast + '</text>';
     svg += '</svg>';
     return svg;
   },
