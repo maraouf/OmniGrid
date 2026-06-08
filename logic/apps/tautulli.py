@@ -67,9 +67,46 @@ SLUGS: tuple[str, ...] = ("tautulli",)
 # with Series).
 _SERIES_TYPES = frozenset({"show", "season", "episode"})
 _MUSIC_TYPES = frozenset({"artist", "album", "track"})
-# Per-library section_type → emoji + friendly label for the libraries list.
+# Per-library section_type → emoji fallback for the libraries list. Used only
+# when the NAME-keyword scan below finds nothing — many Plex libraries share a
+# type (e.g. "Music Videos" + "Personal" are both ``movie``), so keying purely
+# on type repeats the icon. Name keywords give each library a distinct glyph.
 _LIB_EMOJI = {"movie": "🎬", "show": "📺", "artist": "🎵",
               "photo": "🖼️", "video": "🎞️", "clip": "🎞️"}
+
+# NAME-keyword → emoji (longer / more-specific phrases FIRST; first match wins,
+# same load-bearing ordering rule as the host-icon keyword resolver). Lets
+# "Music Videos" / "Personal" / "Anime" / "4K" read distinctly even when their
+# Plex section_type is the same generic ``movie``.
+_LIB_NAME_EMOJI = (
+    ("music video", "🎤"), ("home video", "🏠"), ("audiobook", "🎧"),
+    ("documentar", "🎓"), ("stand", "🎭"), ("comedy", "🎭"),
+    ("podcast", "🎙️"), ("concert", "🎤"), ("workout", "🏋️"),
+    ("fitness", "🏋️"), ("course", "🎓"), ("tutorial", "🎓"),
+    ("anime", "🍥"), ("cartoon", "🧸"), ("kid", "🧸"), ("child", "🧸"),
+    ("family", "🧸"), ("holiday", "🎄"), ("christmas", "🎄"),
+    ("sport", "🏟️"), ("news", "📰"), ("personal", "🏠"), ("home", "🏠"),
+    ("4k", "📀"), ("uhd", "📀"), ("music", "🎵"), ("photo", "🖼️"),
+    ("picture", "🖼️"), ("book", "📚"), ("video", "🎞️"), ("clip", "🎞️"),
+    ("movie", "🎬"), ("film", "🎬"), ("series", "📺"), ("show", "📺"),
+    ("tv", "📺"),
+)
+
+# Distinct-glyph fallback pool — when two libraries would otherwise resolve to
+# the SAME emoji (e.g. two unlabelled ``movie`` libraries), the second+ get the
+# next UNUSED glyph from here so no icon repeats within one list render.
+_LIB_DEDUP_POOL = ("🗂️", "🎯", "🔖", "📦", "🧩", "🗃️", "📂", "🏷️", "💿", "🎲")
+
+
+def _lib_emoji_for(name: str, ltype: str) -> str:
+    """Pick a per-library emoji: NAME keyword first (so "Music Videos" ≠
+    "Personal" even though both are ``movie``), then the section_type fallback,
+    then a generic folder. De-dup across a list is the caller's job."""
+    low = (name or "").lower()
+    for kw, emoji in _LIB_NAME_EMOJI:
+        if kw in low:
+            return emoji
+    return _LIB_EMOJI.get((ltype or "").strip().lower(), "📁")
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
 # matches the rest of the family.
@@ -453,13 +490,24 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": str(e)}
     libs = data if isinstance(data, list) else []
     lines = []
+    used: set[str] = set()       # glyphs already taken — keep each library distinct
+    pool = iter(_LIB_DEDUP_POOL)
     for lib in libs[:25]:
         if not isinstance(lib, dict):
             continue
         name = str(lib.get("section_name") or "?").strip()
         ltype = str(lib.get("section_type") or "").strip().lower()
         n = safe_int(lib.get("count"))
-        emoji = _LIB_EMOJI.get(ltype, "📁")
+        emoji = _lib_emoji_for(name, ltype)
+        # De-dup: if this glyph is already used, take the next unused pool glyph
+        # so no two libraries share an icon (falls back to the original on
+        # pool exhaustion — better a rare repeat than a blank).
+        if emoji in used:
+            for cand in pool:
+                if cand not in used:
+                    emoji = cand
+                    break
+        used.add(emoji)
         # "<emoji> <name>  <N items>" — the 2-space gap makes the count a
         # right-hand segment in the drawer's detail renderer (a clean two-col
         # read) while staying one readable line for AI / Telegram.

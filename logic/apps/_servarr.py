@@ -28,10 +28,42 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-import httpx
+import httpx 
 
 from logic.apps._common import resolve_base_url, resolve_credential_target
 from logic.coerce import safe_float, safe_int
+from logic.external_urls import ExternalURL
+
+# Public image-CDN host SUFFIXES that *arr ``remoteUrl`` posters point at
+# (TMDB for Radarr, TheTVDB for Sonarr, fanart / coverart / TheAudioDB for the
+# music + book apps). These are PUBLIC images, so the per-app image proxy
+# fetches them anonymously (NO api_key) — not an SSRF / credential-leak concern.
+# Remote-first is far more reliable than the local ``/MediaCover`` path, which
+# authenticates differently across *arr versions / reverse-proxy setups (a
+# header-or-query mismatch makes the app serve its 200 HTML SPA shell for the
+# image route → the proxy 415s → an empty poster). Suffix match so any subdomain
+# (``artworks.thetvdb.com`` / ``assets.fanart.tv`` / ``ia800.us.archive.org``)
+# passes.
+_REMOTE_POSTER_HOST_SUFFIXES = (
+    ExternalURL.TMDB_IMAGE_HOST,  # image.tmdb.org — Radarr (TMDB)
+    "thetvdb.com",  # Sonarr (TVDB artworks)
+    "fanart.tv",  # Radarr / Sonarr fanart
+    "coverartarchive.org",  # Lidarr (MusicBrainz cover art)
+    "archive.org",  # coverartarchive redirects to ia*.archive.org
+    "theaudiodb.com",  # Lidarr (TheAudioDB)
+    "gr-assets.com",  # Readarr (Goodreads)
+    "media-amazon.com",  # Readarr (Amazon book covers)
+    "ssl-images-amazon.com",  # Readarr (Amazon book covers)
+)
+
+
+def _is_remote_poster_host(host: str) -> bool:
+    """True when ``host`` is (a subdomain of) a known public image CDN — the
+    only absolute URLs the per-app image proxy will fetch for a *arr poster."""
+    h = (host or "").strip().lower()
+    return bool(h) and any(h == s or h.endswith("." + s)
+                           for s in _REMOTE_POSTER_HOST_SUFFIXES)
+
 
 # 1 GiB in bytes — the *arr apps report disk space in bytes; the cards render
 # GiB (matching each app's own UI).
@@ -152,35 +184,46 @@ def poster_url(item: Any) -> str:
     return ""
 
 
-def local_poster_path(item: Any, *, id_fallback: bool = False) -> str:
-    """Return a *arr item's LOCAL poster image path (``/MediaCover/...``), to be
-    fetched server-side through the per-app image proxy with the api_key.
+def poster_proxy_path(item: Any, *, id_fallback: bool = False) -> str:
+    """Return a *arr item's poster reference to be routed through the per-app
+    image proxy. REMOTE-FIRST:
 
-    Unlike ``poster_url`` (the external ``remoteUrl`` CDN link, which is often
-    MISSING — Radarr's CALENDAR omits ``remoteUrl`` for unreleased films, Lidarr
-    albums frequently have none, and Sonarr's TVDB ``remoteUrl`` host isn't in
-    the browser-side TMDB proxy allowlist), every *arr ALWAYS serves its own
-    cached cover at the local ``url`` behind the ``X-Api-Key``. Prefers
-    ``poster`` then ``cover`` art. The path is normalised to a leading ``/``;
-    any ``?lastWrite=`` cache-buster query is preserved.
+    1. Prefer the absolute ``remoteUrl`` (TMDB / TheTVDB / fanart / coverart
+       CDN) when its host is a known PUBLIC image CDN — the proxy fetches those
+       anonymously, which is FAR more reliable than the local ``/MediaCover``
+       path. ``/MediaCover`` authenticates differently across *arr versions /
+       reverse-proxy setups (a header-or-query mismatch makes the app serve its
+       200 HTML SPA shell for the image route → the proxy 415s → empty poster).
+    2. Fall back to the local ``/MediaCover/...`` path (fetched server-side with
+       the api_key) when no usable remote URL exists. Path normalised to a
+       leading ``/``; any ``?lastWrite=`` cache-buster is preserved.
+    3. ``id_fallback`` (Radarr movie / Sonarr series — both use the flat
+       ``/MediaCover/<id>/poster.jpg`` scheme): build the local path straight
+       from the item's own ``id`` when the ``images`` array is absent / trimmed.
 
-    ``id_fallback`` (Radarr movie / Sonarr series — both use the flat
-    ``/MediaCover/<id>/poster.jpg`` scheme): when the ``images`` array is absent
-    or carries no usable local ``url``, build the path straight from the item's
-    own ``id``. This is the canonical Radarr/Sonarr MediaCover route, so the
-    poster resolves even when the response trims the images list. ``""`` when no
-    image and no id."""
+    Prefers ``poster`` then ``cover`` art (Lidarr ALBUM art is ``cover``).
+    ``""`` when nothing usable. Pairs with ``poster_proxy: True`` on the rich
+    item so the SPA routes it through ``/api/services/.../image-proxy``."""
     if isinstance(item, dict):
         imgs = item.get("images")
         if isinstance(imgs, list):
+            # 1. Remote-first — an allowlisted public CDN remoteUrl.
+            for want in ("poster", "cover"):
+                for im in imgs:
+                    if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                        rurl = str(im.get("remoteUrl") or "").strip()
+                        if rurl and "://" in rurl:
+                            from urllib.parse import urlsplit  # noqa: PLC0415
+                            if _is_remote_poster_host(urlsplit(rurl).hostname or ""):
+                                return rurl
+            # 2. Local MediaCover fallback.
             for want in ("poster", "cover"):
                 for im in imgs:
                     if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
                         url = str(im.get("url") or "").strip()
-                        # Local MediaCover only — never proxy an absolute remote
-                        # URL through the credentialed per-app proxy (SSRF).
                         if url and "://" not in url:
                             return url if url.startswith("/") else "/" + url
+        # 3. id-derived local path.
         if id_fallback:
             mid = safe_int(item.get("id"))
             if mid:
@@ -188,17 +231,40 @@ def local_poster_path(item: Any, *, id_fallback: bool = False) -> str:
     return ""
 
 
+# Back-compat alias — older call sites referenced ``local_poster_path`` before
+# the remote-first switch. Keep the name resolvable so any straggler import
+# doesn't break; new code uses ``poster_proxy_path``.
+local_poster_path = poster_proxy_path
+
+
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
-    """Per-app image-proxy hook shared by every *arr module — resolve a LOCAL
-    ``/MediaCover/...`` path to ``(absolute_url, headers)`` so the OmniGrid
-    server fetches the cover with the ``X-Api-Key`` and the key never reaches
-    the browser. SSRF guard: only a clean relative path (no scheme, no
-    traversal) joined to the chip's OWN base is allowed."""
+    """Per-app image-proxy hook shared by every *arr module. Resolves a poster
+    reference (from ``poster_proxy_path``) to ``(absolute_url, headers)`` for a
+    server-side fetch. TWO shapes:
+
+    1. An ABSOLUTE ``remoteUrl`` whose host is an allowlisted PUBLIC image CDN
+       (TMDB / TheTVDB / fanart / coverart / Amazon) → fetched anonymously, NO
+       api_key. This is the reliable path (the CDN needs no auth) and the
+       remote-first default from ``poster_proxy_path``.
+    2. A clean LOCAL ``/MediaCover/...`` path → joined to the chip's OWN base
+       and fetched with the ``X-Api-Key`` (header + ``apikey`` query for the
+       versions that only honour one), so the key never reaches the browser.
+
+    SSRF guard: an absolute URL is rejected unless its host is on the public-CDN
+    allowlist; a relative path is rejected if it escapes (``..``) or isn't a
+    leading-``/`` local path."""
     api_key = (chip.get("api_key") or "").strip()
     p = (path or "").strip()
     if not p:
         raise ValueError("empty image path")
-    if "://" in p or not p.startswith("/") or ".." in p:
+    # 1. Absolute remoteUrl — public CDN allowlist, fetched anonymously.
+    if "://" in p:
+        from urllib.parse import urlsplit  # noqa: PLC0415
+        if not _is_remote_poster_host(urlsplit(p).hostname or ""):
+            raise ValueError("remote image host not allowed")
+        return p, {"Accept": "*/*"}
+    # 2. Local MediaCover path — joined to the chip base, fetched with the key.
+    if not p.startswith("/") or ".." in p:
         raise ValueError("image must be a clean local path")
     base = resolve_base_url(host_row, chip)
     if not base:

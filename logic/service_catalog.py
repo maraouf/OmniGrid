@@ -134,9 +134,9 @@ _BUILTIN: list[dict[str, Any]] = [
     },
     {
         "name": "Tracearr", "slug": "tracearr", "icon": "tracearr",
-        "description": "Media-request tracing dashboard",
+        "description": "Plex / Jellyfin / Emby fleet monitoring + sharing detection",
         "default_ports": [
-            {"port": 3003, "protocol": "http", "label": "Web UI",
+            {"port": 3000, "protocol": "http", "label": "Web UI",
              "probe_path": "/", "probe_status": 0},
         ],
     },
