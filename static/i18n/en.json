@@ -5750,6 +5750,21 @@
       "loading": "Loading Kavita data…",
       "fetch_failed": "Kavita fetch failed"
     },
+    "tautulli": {
+      "api_key_label": "Tautulli API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "API key from Tautulli → Settings → Web Interface",
+      "api_key_hint": "Required for the expanded card to fetch Plex activity + library counts. Found in Tautulli under Settings → Web Interface → API key. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched activity + library summary is cached before re-querying Tautulli (5–3600s). Leave blank for the app default (60s).",
+      "streams": "Streams",
+      "transcodes": "Transcodes",
+      "bandwidth": "Bandwidth",
+      "libraries": "Libraries",
+      "items_n": "{n} items",
+      "no_api_key": "No API key set — add one in Admin → Apps to enable.",
+      "loading": "Loading Tautulli data…",
+      "fetch_failed": "Tautulli fetch failed"
+    },
     "qbittorrent": {
       "username_label": "qBittorrent username",
       "username_placeholder": "WebUI username (default: admin)",

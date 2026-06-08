@@ -41,6 +41,7 @@ from . import readarr
 from . import seerr
 from . import sonarr
 from . import speedtest_tracker
+from . import tautulli
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
 # templates it handles; we explode that here so a single dict
@@ -74,6 +75,7 @@ _register(readarr)
 _register(seerr)
 _register(sonarr)
 _register(speedtest_tracker)
+_register(tautulli)
 
 
 def module_for_slug(slug: str) -> Optional[ModuleType]:
