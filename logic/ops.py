@@ -260,6 +260,14 @@ OP_TYPES: frozenset[str] = frozenset({
     # forwards to the per-app module's `run_skill(...)` coroutine. The
     # audit row records which skill was run on which chip + the outcome.
     "services_skill",
+    # Apps custom-dashboard "view" CRUD (the named, optionally-shared
+    # dashboards in the Apps tab). Views moved from per-user ui_prefs into
+    # the cross-user `app_views` table so they can be made public; every
+    # create / update / delete writes a `history` row via the route's
+    # `assert_op_type` + INSERT per the canonical audit-trail rule.
+    "app_view_create",
+    "app_view_update",
+    "app_view_delete",
     # Per-(table, host_id) sample-row prune. Drives the
     # Stats → Samples drill-down "Delete orphan rows" button so
     # operators can clean up rows left behind when a curated host
@@ -654,6 +662,7 @@ def samples_for_event(event: Optional[str]) -> dict:
     if event:
         base.update(NOTIFY_TEMPLATE_SAMPLES_BY_EVENT.get(event, {}))
     return base
+
 
 # Per-event hard-coded defaults. Each value mirrors the string the
 # corresponding `_do_*` handler used to pass to `notify()` BEFORE the

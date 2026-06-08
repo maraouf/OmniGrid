@@ -178,6 +178,15 @@ export default {
       this.appsList.sort((a, b) => (a.name || '').toLowerCase()
         .localeCompare((b.name || '').toLowerCase()));
       this.appsListLoaded = true;
+      // If the user is already on the custom board (restored from
+      // localStorage), kick the server-backed views load now. Single-flight +
+      // me.ui_prefs-guarded internally; cheap on repeat calls (loaded-guard
+      // returns immediately). The apps grid is already painted above
+      // (appsListLoaded = true), so awaiting here only defers this method's
+      // resolution on the first custom-board load.
+      if (this.appsViewGroupBy === 'custom') {
+        await this.ensureAppViewsLoaded();
+      }
     } catch (err) {
       this.appsListError = err && err.message ? err.message : String(err);
       // Don't wholesale-replace on error — keep existing rows.
@@ -986,6 +995,10 @@ export default {
     } catch (_) {
       // private mode — in-memory only
     }
+    // Custom dashboards are server-backed (shareable) — they load lazily when
+    // the custom board mounts: the loading pane's x-effect AND loadAppsList
+    // both call ensureAppViewsLoaded (single-flight + me.ui_prefs-guarded), so
+    // no explicit trigger is needed here.
   },
 
   // -------------------------------------------------------------------
@@ -1015,6 +1028,12 @@ export default {
   appsViewSwitching: false,
   // Bound to the rename input in the view-picker (null = not renaming).
   appsViewRenaming: null,
+  // Views now live server-side in the `app_views` table (so a view can be
+  // shared public across users), loaded once via GET /api/apps/views. These
+  // gate the custom board until the collection has landed.
+  appsViewsLoaded: false,   // true once the server collection is adopted
+  appsViewsLoadError: '',   // non-empty → load/migrate failed
+  _appViewsLoading: false,  // single-flight guard for ensureAppViewsLoaded
 
   // Stable widget kinds the user can drop into a section (Phase-1 info
   // tiles, all pure-frontend / reuse existing endpoints). Adding a kind
@@ -2592,6 +2611,12 @@ export default {
   // seed a default) and point appsCustomLayout at the active view's layout.
   // Re-callable: once built (≥1 view) it only re-points appsCustomLayout and
   // returns, so it never clobbers an in-flight drag.
+  // Sync re-point of appsCustomLayout to the active view's layout. The views
+  // collection itself is loaded ASYNCHRONOUSLY from the server (app_views) by
+  // ensureAppViewsLoaded() — views moved out of ui_prefs so they can be shared
+  // public across users. Until the collection lands we keep a valid empty
+  // layout so consumers (the build memo) never hit null, and opportunistically
+  // kick the loader when the user is on the custom board.
   _hydrateAppsCustomViews() {
     if (this.appsCustomViews && Array.isArray(this.appsCustomViews.views) && this.appsCustomViews.views.length) {
       const av = this._appsActiveViewObj();
@@ -2600,43 +2625,205 @@ export default {
       }
       return;
     }
-    let savedViews = null, savedLegacy = null;
-    try {
-      savedViews = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_views) || null;
-      savedLegacy = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_custom_layout) || null;
-    } catch (_) { /* both already default to null */
+    if (!this.appsCustomLayout || !Array.isArray(this.appsCustomLayout.sections)) {
+      this.appsCustomLayout = this._normAppsLayout({});
     }
-    const me_ready = !!(this.me && this.me.ui_prefs);
-    let views;
-    let activeId;
-    if (savedViews && Array.isArray(savedViews.views) && savedViews.views.length) {
-      views = savedViews.views
-        .filter(v => v && typeof v === 'object' && v.id)
-        .map(v => ({
-          id: String(v.id),
-          name: (typeof v.name === 'string' && v.name.trim()) ? v.name : this._appsViewDefaultName(),
-          layout: this._normAppsLayout(v.layout || {}),
-        }));
-      activeId = (savedViews.active_id && views.some(v => v.id === savedViews.active_id))
-        ? String(savedViews.active_id)
-        : (views[0] && views[0].id);
-    } else if (savedLegacy && Array.isArray(savedLegacy.sections) && savedLegacy.sections.length) {
-      // Migrate the legacy single layout into one named view.
-      const id = this._newId('view-');
-      views = [{id, name: this._appsViewDefaultName(), layout: this._normAppsLayout(savedLegacy)}];
-      activeId = id;
-    } else if (me_ready) {
-      // Settled empty (no saved views, no legacy content) — seed one default.
-      const id = this._newId('view-');
-      views = [{id, name: this._appsViewDefaultName(), layout: this._normAppsLayout({})}];
-      activeId = id;
-    } else {
-      // me.ui_prefs not landed yet — leave unbuilt; a later call re-hydrates.
-      return;
+    if (!this.appsViewsLoaded && !this._appViewsLoading
+      && this.appsViewGroupBy === 'custom' && this.me && this.me.ui_prefs) {
+      // fire-and-forget — single-flight guarded inside ensureAppViewsLoaded
+      this.ensureAppViewsLoaded();
+    }
+  },
+
+  // Map a server app_views row into the local view object (normalised layout
+  // + the resolved permission flags the UI gates on).
+  _normServerView(sv) {
+    const s = sv || {};
+    return {
+      id: String(s.id || ''),
+      name: (typeof s.name === 'string' && s.name.trim()) ? s.name : this._appsViewDefaultName(),
+      layout: this._normAppsLayout(s.layout || {}),
+      visibility: s.visibility === 'public' ? 'public' : 'private',
+      edit_permission: s.edit_permission === 'all' ? 'all' : 'owner',
+      owner_username: s.owner_username || '',
+      is_owner: !!s.is_owner,
+      can_edit: s.can_edit !== false,
+      can_manage: !!s.can_manage,
+      updated_at: s.updated_at || 0,
+    };
+  },
+
+  // Adopt a server-returned views array as the live collection + pick the
+  // active view (persisted per-user in ui_prefs.apps_active_view_id).
+  _adoptServerViews(serverViews) {
+    const views = (Array.isArray(serverViews) ? serverViews : [])
+      .filter(v => v && v.id)
+      .map(v => this._normServerView(v));
+    let activeId = null;
+    try {
+      activeId = (this.me && this.me.ui_prefs && this.me.ui_prefs.apps_active_view_id) || null;
+    } catch (_) { /* default null */
+    }
+    if (!activeId || !views.some(v => v.id === activeId)) {
+      activeId = views.length ? views[0].id : null;
     }
     this.appsCustomViews = {active_id: activeId, views};
     const av = this._appsActiveViewObj();
     this.appsCustomLayout = av ? av.layout : this._normAppsLayout({});
+    _appsCustomBuildCache = null;
+  },
+
+  // Load the user's app-dashboard views from the server once. On an empty
+  // server (fresh user OR a deployment upgrading from the old ui_prefs-only
+  // storage) it migrates the user's existing local views into owned-private
+  // rows, or seeds a single default. Single-flight + idempotent.
+  async ensureAppViewsLoaded(force = false) {
+    if (this._appViewsLoading) {
+      return;
+    }
+    if (this.appsViewsLoaded && !force) {
+      return;
+    }
+    // Migration reads me.ui_prefs (the user's pre-existing local views) — wait
+    // until /api/me has landed so we don't prematurely seed a default and skip
+    // the import. Reading me.ui_prefs here also registers it as an x-effect
+    // dependency, so the loading-pane's x-effect re-fires this once it lands.
+    if (!(this.me && this.me.ui_prefs)) {
+      return;
+    }
+    this._appViewsLoading = true;
+    this.appsViewsLoadError = '';
+    try {
+      const r = await fetch('/api/apps/views');
+      if (!r.ok) {
+        if (r.status === 401) {
+          return;
+        }
+        throw new Error(await this.fmtResponseError(r));
+      }
+      const j = await r.json();
+      let serverViews = Array.isArray(j.views) ? j.views : [];
+      if (!serverViews.length) {
+        serverViews = await this._migrateOrSeedAppViews();
+      }
+      this._adoptServerViews(serverViews);
+      this.appsViewsLoaded = true;
+    } catch (err) {
+      this.appsViewsLoadError = (err && err.message) ? err.message : String(err);
+    } finally {
+      this._appViewsLoading = false;
+    }
+  },
+
+  // First-load bootstrap when the server has no views for this user: migrate
+  // any pre-existing local (ui_prefs) views into owned-private rows, else seed
+  // one default. Returns the server-shaped rows for _adoptServerViews.
+  async _migrateOrSeedAppViews() {
+    let localViews = [];
+    let activeId = null;
+    try {
+      const up = (this.me && this.me.ui_prefs) || {};
+      const migrated = !!up.apps_views_migrated;
+      const saved = up.apps_custom_views;
+      const legacy = up.apps_custom_layout;
+      if (!migrated && saved && Array.isArray(saved.views) && saved.views.length) {
+        localViews = saved.views.filter(v => v && v.id).map(v => ({
+          id: String(v.id),
+          name: (typeof v.name === 'string' && v.name.trim()) ? v.name.slice(0, 64) : this._appsViewDefaultName(),
+          layout: this._normAppsLayout(v.layout || {}),
+        }));
+        activeId = saved.active_id || null;
+      } else if (!migrated && legacy && Array.isArray(legacy.sections) && legacy.sections.length) {
+        localViews = [{id: this._newId('view-'), name: this._appsViewDefaultName(), layout: this._normAppsLayout(legacy)}];
+      }
+    } catch (_) { /* fall through to seed */
+    }
+
+    const out = [];
+    if (localViews.length) {
+      for (const lv of localViews) {
+        const row = await this._postAppView({
+          id: lv.id,
+          name: lv.name,
+          layout: {sections: lv.layout.sections || [], unsectioned_collapsed: !!lv.layout.unsectioned_collapsed},
+          visibility: 'private',
+          edit_permission: 'owner',
+        });
+        if (row) {
+          out.push(row);
+        }
+      }
+      // Mark migrated + carry the previously-active id forward so the same
+      // dashboard stays selected.
+      const prefs = {apps_views_migrated: true};
+      if (activeId) {
+        prefs.apps_active_view_id = activeId;
+      }
+      this._patchUiPrefs(prefs);
+    }
+    if (!out.length) {
+      // Fresh user (or migration produced nothing) — seed one default view.
+      const row = await this._postAppView({
+        name: this._appsViewDefaultName(),
+        layout: {sections: [], unsectioned_collapsed: false},
+        visibility: 'private',
+        edit_permission: 'owner',
+      });
+      if (row) {
+        out.push(row);
+      }
+    }
+    return out;
+  },
+
+  // POST one view to the server; returns the server row (or null on failure).
+  async _postAppView(body) {
+    try {
+      const r = await fetch('/api/apps/views', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      const j = await r.json();
+      return j.view || null;
+    } catch (err) {
+      this._appViewError(err);
+      return null;
+    }
+  },
+
+  // Fire-and-forget ui_prefs merge (active-view id, migrated flag) — same
+  // channel + shape the rest of the SPA uses for ui_prefs scalars.
+  _patchUiPrefs(prefs) {
+    if (this.me) {
+      if (!this.me.ui_prefs) {
+        this.me.ui_prefs = {};
+      }
+      Object.assign(this.me.ui_prefs, prefs);
+    }
+    try {
+      fetch('/api/me/ui-prefs', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({prefs}),
+      }).catch(() => { /* in-memory already updated */
+      });
+    } catch (_) { /* ignore */
+    }
+  },
+
+  _persistActiveViewId(id) {
+    this._patchUiPrefs({apps_active_view_id: id});
+  },
+
+  _appViewError(err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    if (typeof this.showToast === 'function') {
+      this.showToast(msg, 'error');
+    }
   },
 
   // Lazy entry point kept for every existing caller. Ensures the views
@@ -3663,49 +3850,33 @@ export default {
     ];
   },
 
-  // Fire-and-forget PATCH to the existing ui-prefs channel + immediate
-  // local me.ui_prefs sync so a re-render (or a same-session view switch)
-  // reads the fresh layout without waiting for the round-trip.
+  // Persist the ACTIVE view's layout to the server (app_views) — fire-and-
+  // forget PUT, called by every board mutator (drag / drop / resize / collapse
+  // / section CRUD). appsCustomLayout is a live reference to the active view's
+  // layout so it's already current; we sync it onto the active view object
+  // then PUT just that view. NO-OP when the active view is read-only to the
+  // caller (a public read-only view, or a read-only-role user on a public-
+  // editable view) — the UI also blocks those edits; this is defence-in-depth.
   _persistAppsCustomLayout() {
     this._hydrateAppsCustomLayout();
-    // appsCustomLayout is a live reference to the active view's layout, so it's
-    // already current — sync it back onto the active view object, then serialize
-    // the WHOLE views collection. Also keep writing the legacy single
-    // apps_custom_layout key (= active view's layout) so an older client / a
-    // rollback still shows the active board.
-    const activeLayout = {
-      sections: this.appsCustomLayout.sections,
-      unsectioned_collapsed: !!this.appsCustomLayout.unsectioned_collapsed,
-    };
     const av = this._appsActiveViewObj();
-    if (av) {
-      av.layout = this.appsCustomLayout;
+    if (!av || !av.id) {
+      return;
     }
-    const viewsPayload = {
-      active_id: this.appsCustomViews ? this.appsCustomViews.active_id : null,
-      views: (this.appsCustomViews && Array.isArray(this.appsCustomViews.views) ? this.appsCustomViews.views : [])
-        .map(v => ({
-          id: v.id,
-          name: v.name,
-          layout: {
-            sections: (v.layout && v.layout.sections) || [],
-            unsectioned_collapsed: !!(v.layout && v.layout.unsectioned_collapsed),
-          },
-        })),
+    if (av.can_edit === false) {
+      return;  // view-only — nothing to persist
+    }
+    av.layout = this.appsCustomLayout;
+    const layout = {
+      sections: av.layout.sections || [],
+      unsectioned_collapsed: !!av.layout.unsectioned_collapsed,
     };
-    if (this.me) {
-      if (!this.me.ui_prefs) {
-        this.me.ui_prefs = {};
-      }
-      this.me.ui_prefs.apps_custom_views = viewsPayload;
-      this.me.ui_prefs.apps_custom_layout = activeLayout;
-    }
     try {
-      fetch('/api/me/ui-prefs', {
-        method: 'PATCH',
+      fetch('/api/apps/views/' + encodeURIComponent(av.id), {
+        method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({prefs: {apps_custom_views: viewsPayload, apps_custom_layout: activeLayout}}),
-      }).catch(() => { /* silent — me.ui_prefs already updated in-memory */
+        body: JSON.stringify({layout}),
+      }).catch(() => { /* in-memory already updated */
       });
     } catch (_) { /* ignore */
     }
@@ -3751,7 +3922,12 @@ export default {
       this.appsCustomLayout = target.layout;
       _appsCustomBuildCache = null;  // force rebuild for the new active layout
       this.appsViewRenaming = null;
-      this._persistAppsCustomLayout();
+      // A read-only view (public read-only you don't own, or a readonly-role
+      // user on a public-editable one) can't be edited — drop out of edit mode.
+      if (target.can_edit === false) {
+        this.appsCustomEditMode = false;
+      }
+      this._persistActiveViewId(id);  // remember the selection per-user
       // Drop the spinner after the new board has had a frame to paint
       // its first tiles (the per-tile lazy-mount queue handles the rest
       // with its own skeletons).
@@ -3833,60 +4009,98 @@ export default {
     _appsCustomBuildCache = null;
     this._persistAppsCustomLayout();
   },
-  appsCreateView(name) {
+  // The active view object (with visibility / edit_permission / ownership
+  // flags) — the UI binds the Share control + badges + read-only gating to it.
+  appsActiveView() {
     this._hydrateAppsCustomLayout();
+    return this._appsActiveViewObj();
+  },
+  // Whether the caller may rearrange the ACTIVE board. False for a public
+  // read-only view you don't own, or a read-only-role user on an editable
+  // public view. Gates the Edit toggle + every board mutator. Defaults true
+  // while the collection is still loading (no destructive edits possible yet).
+  appsCanEditActiveView() {
+    const av = this.appsActiveView();
+    return !av || av.can_edit !== false;
+  },
+  async appsCreateView(name) {
+    const nm = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : this._appsViewDefaultName();
+    const row = await this._postAppView({
+      name: nm,
+      layout: {sections: [], unsectioned_collapsed: false},
+      visibility: 'private',
+      edit_permission: 'owner',
+    });
+    if (!row) {
+      return null;
+    }
+    const v = this._normServerView(row);
     if (!this.appsCustomViews) {
       this.appsCustomViews = {active_id: null, views: []};
     }
-    const id = this._newId('view-');
-    const nm = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : this._appsViewDefaultName();
-    const layout = this._normAppsLayout({});
-    this.appsCustomViews.views.push({id, name: nm, layout});
-    this.appsCustomViews.active_id = id;
-    this.appsCustomLayout = layout;
+    this.appsCustomViews.views.push(v);
+    this.appsCustomViews.active_id = v.id;
+    this.appsCustomLayout = v.layout;
     _appsCustomBuildCache = null;
-    this._persistAppsCustomLayout();
-    return id;
+    this._persistActiveViewId(v.id);
+    return v.id;
   },
-  appsRenameView(id, name) {
-    this._hydrateAppsCustomLayout();
+  async appsRenameView(id, name) {
     const v = this.appsCustomViews && this.appsCustomViews.views.find(x => x && x.id === id);
     if (!v) {
       return;
     }
-    v.name = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : v.name;
+    const nm = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : v.name;
     this.appsViewRenaming = null;
-    this._persistAppsCustomLayout();
-  },
-  appsDeleteView(id) {
-    this._hydrateAppsCustomLayout();
-    if (!this.appsCustomViews || this.appsCustomViews.views.length <= 1) {
-      return;  // always keep at least one view
+    const updated = await this._putAppView(id, {name: nm});
+    if (updated) {
+      this._applyServerViewUpdate(updated);
     }
-    const i = this.appsCustomViews.views.findIndex(v => v && v.id === id);
+  },
+  async appsDeleteView(id) {
+    const v = this.appsCustomViews && this.appsCustomViews.views.find(x => x && x.id === id);
+    if (!v) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/apps/views/' + encodeURIComponent(id), {method: 'DELETE'});
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+    } catch (err) {
+      this._appViewError(err);
+      return;
+    }
+    const i = this.appsCustomViews.views.findIndex(x => x && x.id === id);
     if (i < 0) {
       return;
     }
     const wasActive = this.appsCustomViews.active_id === id;
     this.appsCustomViews.views.splice(i, 1);
+    this.appsViewRenaming = null;
+    if (!this.appsCustomViews.views.length) {
+      // Deleted the last visible view — seed a fresh default so the board is
+      // never empty.
+      await this.appsCreateView('');
+      return;
+    }
     if (wasActive) {
-      // Switch to the neighbour (prefer the previous, else the new first).
       const next = this.appsCustomViews.views[Math.max(0, i - 1)];
       this.appsCustomViews.active_id = next.id;
       this.appsCustomLayout = next.layout;
       _appsCustomBuildCache = null;
+      this._persistActiveViewId(next.id);
     }
-    this.appsViewRenaming = null;
-    this._persistAppsCustomLayout();
   },
-  appsDuplicateView(id) {
-    this._hydrateAppsCustomLayout();
+  async appsDuplicateView(id) {
     const src = this.appsCustomViews && this.appsCustomViews.views.find(v => v && v.id === id);
     if (!src) {
-      return;
+      return null;
     }
-    // Deep-clone the layout through the normaliser, re-minting section + item
-    // uids so the copy is fully independent (no shared :key collisions).
+    // Deep-clone the layout, re-minting section + item uids so the copy is
+    // fully independent (no shared :key collisions). The copy is always a NEW
+    // PRIVATE view owned by the caller — duplicating a public view you don't
+    // own gives you your own editable private copy.
     const cloneSrc = {
       sections: (src.layout.sections || []).map(s => ({
         id: this._newId('sec-'),
@@ -3896,14 +4110,128 @@ export default {
       })),
       unsectioned_collapsed: !!src.layout.unsectioned_collapsed,
     };
-    const newId = this._newId('view-');
     const copyName = ((this.t && this.t('apps.custom.view_copy_suffix', {name: src.name})) || (src.name + ' (copy)')).slice(0, 64);
-    this.appsCustomViews.views.push({id: newId, name: copyName, layout: cloneSrc});
-    this.appsCustomViews.active_id = newId;
-    this.appsCustomLayout = cloneSrc;
+    const row = await this._postAppView({
+      name: copyName,
+      layout: cloneSrc,
+      visibility: 'private',
+      edit_permission: 'owner',
+    });
+    if (!row) {
+      return null;
+    }
+    const v = this._normServerView(row);
+    this.appsCustomViews.views.push(v);
+    this.appsCustomViews.active_id = v.id;
+    this.appsCustomLayout = v.layout;
     _appsCustomBuildCache = null;
-    this._persistAppsCustomLayout();
-    return newId;
+    this._persistActiveViewId(v.id);
+    return v.id;
+  },
+  // ── Sharing control (owner only — the route enforces it too) ───────────
+  // One 3-way choice maps to (visibility, edit_permission):
+  //   private          → (private, owner)
+  //   public_readonly  → (public,  owner)   everyone can view, only owner edits
+  //   public_editable  → (public,  all)     anyone except read-only-role edits
+  async appsPromptShareView(id) {
+    const v = this.appsViews().find(x => x && x.id === id);
+    if (!v || !v.can_manage) {
+      return;  // owner only
+    }
+    const current = v.visibility !== 'public'
+      ? 'private'
+      : (v.edit_permission === 'all' ? 'public_editable' : 'public_readonly');
+    const result = await Swal.fire({
+      title: this.t('apps.custom.share_title') || 'Share dashboard',
+      input: 'radio',
+      inputValue: current,
+      inputOptions: {
+        private: this.t('apps.custom.share_private') || 'Private — only you can see it',
+        public_readonly: this.t('apps.custom.share_public_readonly') || 'Public — everyone can view, only you can edit',
+        public_editable: this.t('apps.custom.share_public_editable') || 'Public — everyone can view, anyone (except read-only users) can edit',
+      },
+      showCancelButton: true,
+      confirmButtonText: this.t('actions.save') || 'Save',
+      cancelButtonText: this.t('actions.cancel') || 'Cancel',
+      background: this._cssVar('--surface'),
+      color: this._cssVar('--text'),
+      confirmButtonColor: this._cssVar('--primary'),
+      cancelButtonColor: this._cssVar('--btn-cancel-bg'),
+    });
+    if (!result.isConfirmed || !result.value) {
+      return;
+    }
+    const choice = result.value;
+    const visibility = choice === 'private' ? 'private' : 'public';
+    const editPermission = choice === 'public_editable' ? 'all' : 'owner';
+    const updated = await this._putAppView(id, {visibility, edit_permission: editPermission});
+    if (updated) {
+      this._applyServerViewUpdate(updated);
+    }
+  },
+  // A short i18n label for the active view's sharing state — drives the badge
+  // in the picker. Returns '' for a private owned view (no badge needed).
+  appsViewShareLabel(v) {
+    if (!v) {
+      return '';
+    }
+    if (!v.is_owner) {
+      // Someone else's public view — show who shared it.
+      return (this.t && this.t('apps.custom.shared_by', {owner: v.owner_username || '?'}))
+        || ('Shared by ' + (v.owner_username || '?'));
+    }
+    if (v.visibility === 'public') {
+      return v.edit_permission === 'all'
+        ? (this.t('apps.custom.badge_public_editable') || 'Public · Editable')
+        : (this.t('apps.custom.badge_public_readonly') || 'Public · Read-only');
+    }
+    return '';  // private + owned — no badge
+  },
+  // PUT one view; returns the server row (or null on failure).
+  async _putAppView(id, body) {
+    try {
+      const r = await fetch('/api/apps/views/' + encodeURIComponent(id), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      const j = await r.json();
+      return j.view || null;
+    } catch (err) {
+      this._appViewError(err);
+      return null;
+    }
+  },
+  // Merge a server-returned view row back onto the live collection in place
+  // (preserves the array identity Alpine tracks). Re-points appsCustomLayout
+  // when the updated view is the active one.
+  _applyServerViewUpdate(serverView) {
+    if (!this.appsCustomViews || !serverView || !serverView.id) {
+      return;
+    }
+    const nv = this._normServerView(serverView);
+    const existing = this.appsCustomViews.views.find(v => v && v.id === nv.id);
+    if (existing) {
+      existing.name = nv.name;
+      existing.visibility = nv.visibility;
+      existing.edit_permission = nv.edit_permission;
+      existing.owner_username = nv.owner_username;
+      existing.is_owner = nv.is_owner;
+      existing.can_edit = nv.can_edit;
+      existing.can_manage = nv.can_manage;
+      existing.updated_at = nv.updated_at;
+    } else {
+      this.appsCustomViews.views.push(nv);
+    }
+    if (this.appsCustomViews.active_id === nv.id) {
+      const av = this._appsActiveViewObj();
+      if (av) {
+        this.appsCustomLayout = av.layout;
+      }
+    }
   },
 
   // UI handlers — themed Swal prompt / confirm wrappers the picker binds to.
@@ -3924,7 +4252,7 @@ export default {
     if (!result.isConfirmed) {
       return;
     }
-    this.appsCreateView(result.value || '');
+    await this.appsCreateView(result.value || '');
   },
   async appsPromptRenameView(id) {
     const v = this.appsViews().find(x => x && x.id === id);
@@ -3948,25 +4276,16 @@ export default {
     if (!result.isConfirmed) {
       return;
     }
-    this.appsRenameView(id, result.value || '');
+    await this.appsRenameView(id, result.value || '');
   },
   async appsConfirmDeleteView(id) {
     const v = this.appsViews().find(x => x && x.id === id);
     if (!v) {
       return;
     }
-    if (this.appsViews().length <= 1) {
-      await Swal.fire({
-        title: this.t('apps.custom.view_min_one_title') || 'Cannot delete',
-        text: this.t('apps.custom.view_min_one') || 'You must keep at least one custom view.',
-        icon: 'info',
-        confirmButtonText: this.t('actions.ok') || 'OK',
-        background: this._cssVar('--surface'),
-        color: this._cssVar('--text'),
-        confirmButtonColor: this._cssVar('--primary'),
-      });
-      return;
-    }
+    // Deleting the last view seeds a fresh default (see appsDeleteView), so
+    // there's no "keep at least one" gate anymore. Ownership is enforced by
+    // the route + the button is hidden for non-owners; this is the confirm.
     const ok = await this.confirmDialog({
       title: this.t('apps.custom.view_delete_title') || 'Delete view',
       html: (this.t('apps.custom.view_delete_confirm', {name: v.name}) || ('Delete the "' + v.name + '" view? Its layout will be lost.')),
@@ -3975,7 +4294,7 @@ export default {
       confirmColor: this._cssVar('--danger'),
     });
     if (ok) {
-      this.appsDeleteView(id);
+      await this.appsDeleteView(id);
     }
   },
 

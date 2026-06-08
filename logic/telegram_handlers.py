@@ -525,9 +525,12 @@ async def _try_dispatch_skill_menu_command(
     lines = [f"<b>🧠 {esc(g['app'])} skills</b>{loc}"]
     for sid, sname, sfleet, sarg in g["skills"]:
         if sarg:
-            # Takes a free-form argument (e.g. a movie title) — render as
-            # copyable code the user edits, not a one-tap command.
-            lines.append(f"<code>/{esc(sid)} &lt;…&gt;</code> — {esc(sname)}")
+            # Takes a free-form argument (e.g. a movie title). Keep ONLY the
+            # bare command inside <code> so a tap/copy yields a clean
+            # "/cmd " the user appends their term to — the &lt;…&gt; arg hint
+            # sits OUTSIDE the code span (visual cue, never copied) so the
+            # user no longer has to delete a placeholder every time.
+            lines.append(f"<code>/{esc(sid)}</code> &lt;…&gt; — {esc(sname)}")
         else:
             # No-arg (fleet OR host-disambiguated) — bare so Telegram makes
             # it a one-tap command; a multi-host per-instance skill tapped

@@ -74,6 +74,7 @@ from typing import Any, Iterable, Optional
 # safe no-op runtime-wise + a full silencing of the IDE.
 from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     AdminUser,
+    CurrentUser,
     HTTPException,
     Request,
     Settings,
@@ -4443,6 +4444,247 @@ def _shape_host_api_row(
         # probe`) keys off it. Empty list = host has no chips pinned.
         "apps": _shape_host_apps(h, _latest_map=_apps_latest_map, _per_port_map=_apps_per_port_map),
     }
+
+
+# ── Apps custom-dashboard "views" — shareable named dashboards ──────────────
+#
+# Views moved out of per-user ``ui_prefs`` into the cross-user ``app_views``
+# table (logic/schema.py:init_db) so a view can be made PUBLIC — readable, and
+# optionally writable, by OTHER users. Every view is owned by its creator; the
+# owner is the only one who can delete it or change its sharing settings.
+# Other users' PRIVATE views are never exposed — not even to admins.
+#
+# Permission model (resolved by ``_app_view_perms``):
+#   is_owner   — the creator.
+#   can_view   — owner, OR any signed-in user when the view is public.
+#   can_edit   — owner, OR a public view with edit_permission='all' AND the
+#                caller is NOT a global read-only-role user.
+#   can_manage — owner ONLY (delete + change visibility / edit_permission).
+
+_APP_VIEW_COLS = (
+    "id, owner_username, name, layout, visibility, "
+    "edit_permission, created_at, updated_at"
+)
+_APP_VIEW_VISIBILITY = ("private", "public")
+_APP_VIEW_EDIT_PERM = ("owner", "all")
+_APP_VIEW_NAME_MAX = 64
+_APP_VIEW_LAYOUT_MAX_BYTES = 256 * 1024  # reject pathologically large layouts
+
+
+def _mint_app_view_id() -> str:
+    """Server-side fallback id when the client doesn't supply one — mirrors
+    the SPA's ``view-<token>`` shape."""
+    return "view-" + os.urandom(8).hex()
+
+
+def _app_view_perms(row, user) -> dict:
+    """Resolve the caller's rights on one ``app_views`` row. See the module
+    banner above for the four flags' semantics."""
+    is_owner = (row["owner_username"] or "") == (user.username or "")
+    is_public = row["visibility"] == "public"
+    can_edit = is_owner or (
+        is_public
+        and row["edit_permission"] == "all"
+        and getattr(user, "role", "") != "readonly"
+    )
+    return {
+        "is_owner": is_owner,
+        "can_view": is_owner or is_public,
+        "can_edit": can_edit,
+        "can_manage": is_owner,
+    }
+
+
+def _shape_app_view(row, user) -> dict:
+    """API shape for one ``app_views`` row + the caller's resolved rights."""
+    perms = _app_view_perms(row, user)
+    try:
+        layout = json.loads(row["layout"] or "{}")
+    except (ValueError, TypeError):
+        layout = {}
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "layout": layout,
+        "visibility": row["visibility"],
+        "edit_permission": row["edit_permission"],
+        "owner_username": row["owner_username"],
+        "is_owner": perms["is_owner"],
+        "can_edit": perms["can_edit"],
+        "can_manage": perms["can_manage"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _clean_app_view_name(raw, fallback: str = "View") -> str:
+    nm = (raw or "").strip() if isinstance(raw, str) else ""
+    if not nm:
+        nm = fallback
+    return nm[:_APP_VIEW_NAME_MAX]
+
+
+def _clean_app_view_layout(raw) -> str:
+    """Validate + compactly serialize a layout dict; 400 if invalid, 413 if
+    pathologically large."""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="layout must be an object")
+    try:
+        blob = json.dumps(raw, separators=(",", ":"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="layout is not JSON-serialisable")
+    if len(blob.encode()) > _APP_VIEW_LAYOUT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="layout too large")
+    return blob
+
+
+def _validate_app_view_visibility(v) -> None:
+    if v not in _APP_VIEW_VISIBILITY:
+        raise HTTPException(status_code=400, detail="visibility must be 'private' or 'public'")
+
+
+def _validate_app_view_edit_perm(p) -> None:
+    if p not in _APP_VIEW_EDIT_PERM:
+        raise HTTPException(status_code=400, detail="edit_permission must be 'owner' or 'all'")
+
+
+@app.get("/api/apps/views")
+async def api_app_views_list(_user: CurrentUser):
+    """List the app-dashboard views visible to the caller: their OWN (any
+    visibility) PLUS every public view. Other users' private views are never
+    returned — not even to admins (the WHERE clause excludes them)."""
+    me = _user.username or ""
+    with db_conn() as c:
+        rows = c.execute(
+            f"SELECT {_APP_VIEW_COLS} FROM app_views "
+            "WHERE owner_username = ? OR visibility = 'public' "
+            "ORDER BY (owner_username = ?) DESC, name COLLATE NOCASE ASC",
+            (me, me),
+        ).fetchall()
+    return {"views": [_shape_app_view(r, _user) for r in rows]}
+
+
+@app.post("/api/apps/views")
+async def api_app_views_create(payload: dict[str, Any], _user: CurrentUser):
+    """Create a view owned by the caller. Also the path the SPA uses to
+    migrate a user's pre-existing local (ui_prefs) views into owned-private
+    rows on first load — idempotent on a same-owner re-POST of the same id."""
+    me = _user.username or ""
+    vid = payload.get("id")
+    vid = vid.strip()[:80] if (isinstance(vid, str) and vid.strip()) else _mint_app_view_id()
+    name = _clean_app_view_name(payload.get("name"))
+    layout_blob = _clean_app_view_layout(payload.get("layout"))
+    visibility = payload.get("visibility") or "private"
+    edit_perm = payload.get("edit_permission") or "owner"
+    _validate_app_view_visibility(visibility)
+    _validate_app_view_edit_perm(edit_perm)
+    now = int(time.time())
+    with db_conn() as c:
+        existing = c.execute(
+            "SELECT owner_username FROM app_views WHERE id = ?", (vid,)
+        ).fetchone()
+        if existing is not None and (existing["owner_username"] or "") != me:
+            raise HTTPException(status_code=409, detail="view id already exists")
+        if existing is None:
+            c.execute(
+                f"INSERT INTO app_views ({_APP_VIEW_COLS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (vid, me, name, layout_blob, visibility, edit_perm, now, now),
+            )
+        else:
+            # Same-owner re-POST → refresh metadata, preserve created_at.
+            c.execute(
+                "UPDATE app_views SET name = ?, layout = ?, visibility = ?, "
+                "edit_permission = ?, updated_at = ? WHERE id = ?",
+                (name, layout_blob, visibility, edit_perm, now, vid),
+            )
+        _ops_mod.write_admin_audit(
+            c, "app_view_create",
+            target_kind="app_view", target_id=vid, target_name=name, actor=me,
+        )
+        row = c.execute(
+            f"SELECT {_APP_VIEW_COLS} FROM app_views WHERE id = ?", (vid,)
+        ).fetchone()
+    return {"view": _shape_app_view(row, _user)}
+
+
+@app.put("/api/apps/views/{view_id}")
+async def api_app_views_update(view_id: str, payload: dict[str, Any], _user: CurrentUser):
+    """Update a view. ``name`` / ``layout`` require edit rights (owner, or a
+    public 'all'-editable view for non-readonly users); ``visibility`` /
+    ``edit_permission`` require ownership."""
+    with db_conn() as c:
+        row = c.execute(
+            f"SELECT {_APP_VIEW_COLS} FROM app_views WHERE id = ?", (view_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="view not found")
+        perms = _app_view_perms(row, _user)
+        if not perms["can_view"]:
+            # Don't reveal the existence of another user's private view.
+            raise HTTPException(status_code=404, detail="view not found")
+        touches_sharing = ("visibility" in payload) or ("edit_permission" in payload)
+        touches_content = ("name" in payload) or ("layout" in payload)
+        if touches_sharing and not perms["can_manage"]:
+            raise HTTPException(status_code=403, detail="only the owner can change sharing settings")
+        if touches_content and not perms["can_edit"]:
+            raise HTTPException(status_code=403, detail="you don't have edit access to this view")
+
+        sets, args = [], []
+        if "name" in payload:
+            sets.append("name = ?")
+            args.append(_clean_app_view_name(payload.get("name"), fallback=row["name"]))
+        if "layout" in payload:
+            sets.append("layout = ?")
+            args.append(_clean_app_view_layout(payload.get("layout")))
+        if "visibility" in payload:
+            _validate_app_view_visibility(payload.get("visibility"))
+            sets.append("visibility = ?")
+            args.append(payload.get("visibility"))
+        if "edit_permission" in payload:
+            _validate_app_view_edit_perm(payload.get("edit_permission"))
+            sets.append("edit_permission = ?")
+            args.append(payload.get("edit_permission"))
+        if not sets:
+            return {"view": _shape_app_view(row, _user)}
+        sets.append("updated_at = ?")
+        args.append(int(time.time()))
+        args.append(view_id)
+        # Every column name in `sets` is a controlled literal — no injection.
+        c.execute(f"UPDATE app_views SET {', '.join(sets)} WHERE id = ?", args)
+        _ops_mod.write_admin_audit(
+            c, "app_view_update",
+            target_kind="app_view", target_id=view_id,
+            target_name=row["name"], actor=_user.username or "",
+        )
+        new_row = c.execute(
+            f"SELECT {_APP_VIEW_COLS} FROM app_views WHERE id = ?", (view_id,)
+        ).fetchone()
+    return {"view": _shape_app_view(new_row, _user)}
+
+
+@app.delete("/api/apps/views/{view_id}")
+async def api_app_views_delete(view_id: str, _user: CurrentUser):
+    """Delete a view. Owner only."""
+    with db_conn() as c:
+        row = c.execute(
+            f"SELECT {_APP_VIEW_COLS} FROM app_views WHERE id = ?", (view_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="view not found")
+        perms = _app_view_perms(row, _user)
+        if not perms["can_view"]:
+            raise HTTPException(status_code=404, detail="view not found")
+        if not perms["can_manage"]:
+            raise HTTPException(status_code=403, detail="only the owner can delete this view")
+        c.execute("DELETE FROM app_views WHERE id = ?", (view_id,))
+        _ops_mod.write_admin_audit(
+            c, "app_view_delete",
+            target_kind="app_view", target_id=view_id,
+            target_name=row["name"], actor=_user.username or "",
+        )
+    return {"ok": True}
 
 
 # noinspection DuplicatedCode
