@@ -1082,12 +1082,12 @@
              non-aggregate apps (qBittorrent, the *arr family, …) keep it
              per-instance. Tell the operator which applies. -->
         <template x-if="appsTemplateSupportsExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)">
-          <p class="fs-2xs mt-1 ms-6 inline-flex items-start gap-1"
+          <p class="fs-2xs mt-1 ms-6 flex items-start gap-1 text-start"
              :class="appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name) ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'">
             <svg width="11" height="11" class="flex-shrink-0 mt-0.5" aria-hidden="true">
               <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + (appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name) ? 'icon-users' : 'icon-info')"/>
             </svg>
-            <span x-text="appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)
+            <span class="flex-1 min-w-0" x-text="appsTemplateAggregatesExtras(appsInstanceEditForm.catalog_slug || appsInstanceEditForm.catalog_name)
               ? (t('admin_apps.instance_edit_show_extras_fleet') || 'This app shows one combined card for all its instances — changing this affects every instance.')
               : (t('admin_apps.instance_edit_show_extras_per_instance') || 'Applies to this instance only — each instance of this app has its own setting.')"></span>
           </p>
