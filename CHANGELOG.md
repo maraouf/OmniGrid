@@ -28,6 +28,10 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Added
 
+- **Apps — poster thumbnails in media-list skill results.** Skills that list media now render each title with a small poster thumbnail + date instead of a plain text list — a richer at-a-glance view. Live for Radarr **Upcoming movies** and **Download queue**, and Seerr **List requests** (which is now also a one-click drawer button showing your processing / pending requests). Posters load through the in-app image proxy; titles without a poster show a placeholder.
+
+- **Admin → Apps — "has extra features" indicator.** Each instance in the Apps list now shows a small lightning icon when that app has a built-in integration (live card data + AI / Telegram skills) — alongside the existing Docker-link icon — so it's clear at a glance which pinned apps offer the extras.
+
 - **Apps — Tautulli integration (Plex activity + statistics).** Tautulli instances pinned via Admin → Apps gain a per-instance **API key** field (Tautulli → Settings → Web Interface → API key) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows active **Streams**, **Transcodes**, total **Bandwidth**, and **Libraries**, plus a Tautulli version + total-items footnote. The AI assistant and Telegram bot get a Tautulli skill set: **Tautulli status**, **Who's watching now** (current Plex streams), **List Plex libraries**, **Recently added**, and **Watch history**.
 
 - **Apps dashboard — tiles now fill the row cleanly (no wasted right-edge gap).** The custom-dashboard grid moved to a fixed 12-column layout so the four tile widths always tile flush — e.g. three 3-wide tiles fill the row edge-to-edge instead of leaving an empty strip on the right. Narrow screens collapse to 2-up, then a single stacked column. The Prayer Times and Public IP widgets adapt to the now-wider 2x1 tile: prayers show as a side list focused on the next prayer, and the public IP shrinks so the ISP / ASN / location details stay visible.

@@ -61,14 +61,21 @@ export default {
       .map((i) => ({host_id: i.host_id, service_idx: i.service_idx}));
     this._appDrawerRefreshing[gid] = true;
     try {
-      const probeP = (typeof this.probeAllInstances === 'function')
-        ? this.probeAllInstances(app)
-        : Promise.resolve();
-      const dataP = Promise.all(targets.map((t) =>
-        (typeof this.loadAppData === 'function')
-          ? this.loadAppData(t, true)
-          : Promise.resolve()));
-      await Promise.all([probeP, dataP]);
+      // Collect the probe + per-instance data refreshes and run them
+      // CONCURRENTLY. Each promise is PUSHED into the array (consumed by
+      // Promise.all) rather than assigned to a bare const — so the analyzer
+      // sees the promise as used, not an ignored/un-awaited async call, while
+      // the behaviour is identical (everything fans out, then one await).
+      const tasks = [];
+      if (typeof this.probeAllInstances === 'function') {
+        tasks.push(this.probeAllInstances(app));
+      }
+      if (typeof this.loadAppData === 'function') {
+        for (const t of targets) {
+          tasks.push(this.loadAppData(t, true));
+        }
+      }
+      await Promise.all(tasks);
     } finally {
       this._appDrawerRefreshing[gid] = false;
     }
@@ -374,13 +381,17 @@ export default {
         // Stash the followup (e.g. Seerr suggest → request) so the drawer can
         // render a one-click Request button under the result, like the AI.
         const _fu = (j && j.followup && typeof j.followup === 'object') ? j.followup : null;
+        // Structured rich rows (e.g. Radarr upcoming → [{title, subtitle,
+        // poster}]) for the poster-thumbnail card; null when the skill returns
+        // only the plain-text `detail` (the text lines then render instead).
+        const _items = (j && Array.isArray(j.items) && j.items.length) ? j.items : null;
         // Whole-map reassign (not per-key set) so re-running a skill reliably
         // re-renders — a per-key SET on an existing key desyncs Alpine effects.
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
-          [resKey]: {ok: true, detail: detail, image_url: img, followup: _fu, at: Date.now()},
+          [resKey]: {ok: true, detail: detail, image_url: img, items: _items, followup: _fu, at: Date.now()},
         });
         _result = {
-          ok: true, detail: detail, image_url: img,
+          ok: true, detail: detail, image_url: img, items: _items,
           followup: _fu,
           tmdb_id: (j && j.tmdb_id != null) ? j.tmdb_id : null,
           title: (j && j.title) ? String(j.title) : '',
@@ -406,8 +417,10 @@ export default {
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
           [resKey]: {ok: false, detail: detail, image_url: '', at: Date.now()},
         });
-        _result = {ok: false, detail: detail, image_url: '', followup: null,
-          host_id: inst.host_id, service_idx: inst.service_idx};
+        _result = {
+          ok: false, detail: detail, image_url: '', followup: null,
+          host_id: inst.host_id, service_idx: inst.service_idx
+        };
         if (!silent) {
           this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + detail, 'error');
         }
@@ -418,8 +431,10 @@ export default {
         ['res:' + this.appInstanceKey(inst) + ':' + skillId]:
           {ok: false, detail: String(msg), image_url: '', at: Date.now()},
       });
-      _result = {ok: false, detail: String(msg), image_url: '', followup: null,
-        host_id: inst.host_id, service_idx: inst.service_idx};
+      _result = {
+        ok: false, detail: String(msg), image_url: '', followup: null,
+        host_id: inst.host_id, service_idx: inst.service_idx
+      };
       if (!silent) {
         this.showToast((this.t('apps.skills.failed') || 'Skill failed') + ': ' + msg, 'error');
       }

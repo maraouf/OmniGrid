@@ -43,6 +43,8 @@ DISK_DISPLAY_MAX = 8
 
 
 def headers(key: str) -> dict:
+    """Standard *arr auth headers — the API key in ``X-Api-Key`` + a JSON
+    Accept. Shared by every *arr module so the header shape lives in one place."""
     return {"X-Api-Key": key, "Accept": "application/json"}
 
 
@@ -121,6 +123,29 @@ def year_suffix(year: Any) -> str:
     """`` (2024)`` when ``year`` is a plausible film / show year, else ``""``."""
     y = safe_int(year)
     return f" ({y})" if 1870 < y < 2100 else ""
+
+
+def poster_url(item: Any) -> str:
+    """Best-effort poster URL for a *arr item (movie / series / artist / book).
+
+    Every *arr item carries an ``images`` list of ``{coverType, url,
+    remoteUrl}``. We prefer ``remoteUrl`` — the TMDB / TVDB / etc. CDN URL —
+    because the SPA can fetch it through the in-app image proxy
+    (``proxiedImageUrl`` → ``/api/image-proxy``) without needing the *arr
+    api_key; the local ``url`` (``/MediaCover/...``) would require the key on
+    the wire. Returns ``""`` when no poster image is present (graceful — the
+    UI then just shows the title with no thumbnail)."""
+    if not isinstance(item, dict):
+        return ""
+    imgs = item.get("images")
+    if not isinstance(imgs, list):
+        return ""
+    for im in imgs:
+        if isinstance(im, dict) and str(im.get("coverType") or "").lower() == "poster":
+            url = str(im.get("remoteUrl") or "").strip()
+            if url:
+                return url
+    return ""
 
 
 def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:
@@ -208,11 +233,15 @@ def resolve_skill_target(host_row: dict, chip: dict,
 
 
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
-                          app_label: str, api_version: str = "v3") -> dict:
+                          app_label: str, api_version: str) -> dict:
     """Probe an *arr's auth-required ``/api/<v>/system/status`` with the supplied
     X-Api-Key. Returns ``{ok, detail, status}`` for direct SPA consumption.
     Falls back to the chip's stored ``api_key`` when ``candidate_key`` is blank
-    so a re-test after first save doesn't need a retype."""
+    so a re-test after first save doesn't need a retype. ``api_version`` is
+    REQUIRED (no default) — every *arr caller already passes its own (v3 for
+    Radarr / Sonarr, v1 for Lidarr / Readarr / Prowlarr); a default would both
+    flag the v3 callers as 'argument equals default' AND silently mis-probe a
+    v1 app that forgot to pass it."""
     key, base, err = resolve_credential_target(host_row, chip, candidate_key)
     if err:
         return err
