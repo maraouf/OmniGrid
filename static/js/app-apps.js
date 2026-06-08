@@ -1584,13 +1584,15 @@ export default {
     return out;
   },
   // How many prayer rows the tile can actually show. The wide+short
-  // row-layout (size double/xlarge at short height) clips the list to ~3
-  // rows; every other layout fits the full set. Drives whether
-  // `prayerWidgetRows` returns a centred 3-row window or all rows.
+  // row-layout (size normal/double/xlarge at short height) clips the list
+  // to ~3 rows; every other layout fits the full set. Drives whether
+  // `prayerWidgetRows` returns a centred 3-row window (auto-focused on the
+  // next prayer) or all rows. `normal` joined the row-layout once the
+  // 12-column grid widened it (span 3) enough for the side-by-side view.
   _prayerWidgetVisibleCap(item) {
     const size = (item && item.opts && item.opts.size) || 'normal';
     const tall = (item && item.opts && item.opts.height) === 'tall';
-    if (!tall && (size === 'double' || size === 'xlarge')) {
+    if (!tall && (size === 'normal' || size === 'double' || size === 'xlarge')) {
       return 3;
     }
     return 6;
