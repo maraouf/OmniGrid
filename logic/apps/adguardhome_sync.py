@@ -50,6 +50,7 @@ API reference: https://github.com/bakito/adguardhome-sync
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any, Optional
@@ -417,10 +418,114 @@ async def _sync_skill(host_row: dict, chip: dict, *,
             "detail": f"sync returned HTTP {r.status_code}"}
 
 
+# Log-level -> colour-carrying emoji for the drawer's log list. Covers the
+# zerolog JSON word ("info" / "warn" / ...) AND the 3-letter console abbrev
+# ("INF" / "WRN" / ...). The emoji renders natively coloured, so info / warn /
+# error stand out with NO special-casing in the generic detail-line renderer.
+_LOG_LEVEL_EMOJI = {
+    "error": "❌", "err": "❌", "fatal": "❌", "ftl": "❌",
+    "panic": "❌", "pnc": "❌",
+    "warn": "⚠️", "warning": "⚠️", "wrn": "⚠️",
+    "info": "ℹ️", "inf": "ℹ️",
+    "debug": "·", "dbg": "·", "trace": "·", "trc": "·",
+}
+
+
+def _collapse_ws(value: Any) -> str:
+    """Collapse all runs of whitespace to a single space + strip. Keeps a log
+    message on ONE line so the 2+-space segment split in the drawer's detail
+    renderer never fragments it accidentally."""
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _format_console_log_line(line: str) -> str:
+    """Best-effort prettify of a console-formatted (non-JSON) zerolog line:
+    prefix the matching level emoji when a 3-letter level token is present,
+    else pass the line through unchanged."""
+    s = _collapse_ws(line)
+    if not s:
+        return ""
+    m = re.search(r"\b(?P<lvl>TRC|DBG|INF|WRN|ERR|FTL|PNC)\b", s)
+    if m:
+        return f"{_LOG_LEVEL_EMOJI.get(m.group('lvl').lower(), '•')} {s}"
+    return s
+
+
+def _format_sync_log_entry(entry: dict) -> str:
+    """One structured zerolog entry -> "<emoji> HH:MM:SS  <message>  (ctx)"."""
+    level = str(entry.get("level") or "").strip().lower()
+    emoji = _LOG_LEVEL_EMOJI.get(level, "•")
+    ts = str(entry.get("time") or entry.get("ts") or entry.get("timestamp") or "").strip()
+    clock_m = re.search(r"(?P<clock>\d{2}:\d{2}:\d{2})", ts)
+    clock = clock_m.group("clock") if clock_m else ""
+    msg = _collapse_ws(entry.get("message") or entry.get("msg"))
+    # Surface a few common zerolog context fields when present (e.g. the error
+    # detail on a failed sync, or which instance/host the line is about).
+    extra = []
+    for key in ("error", "instance", "host", "origin", "replica"):
+        val = entry.get(key)
+        if val not in (None, "", [], {}):
+            extra.append(f"{key}={_collapse_ws(val)}")
+    # The drawer's detail renderer splits a line on 2+ spaces into segments, so
+    # the "<emoji> <clock>" group reads as a left timestamp column and the
+    # message + context wrap to the right.
+    head = emoji + (f" {clock}" if clock else "")
+    line = (head + "  " + msg) if msg else head
+    if extra:
+        line += "  (" + ", ".join(extra) + ")"
+    return line
+
+
+def _format_sync_log_lines(text: str) -> list:
+    """Normalise adguardhome-sync's /api/v1/logs buffer into clean, human
+    "<emoji> HH:MM:SS  <message>" lines.
+
+    The endpoint returns the raw zerolog buffer, which across builds is EITHER a
+    JSON array of ``{level, time, message, ...}`` objects, OR newline-delimited
+    JSON (zerolog's default), OR console-formatted plain text. We parse all
+    three and fall back to the raw line for anything we can't structure, so an
+    upstream format change degrades to "still readable" rather than a raw JSON
+    dump. The leading level emoji renders natively coloured (info / warn / error
+    stand out) — no SPA renderer change needed."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return []
+    entries: list = []
+    try:
+        whole = json.loads(stripped)
+    except (ValueError, TypeError):
+        whole = None
+    if isinstance(whole, list):
+        entries = [e if isinstance(e, dict) else {"_raw": str(e)} for e in whole]
+    else:
+        for raw_ln in stripped.splitlines():
+            ln = raw_ln.strip()
+            if not ln:
+                continue
+            obj = None
+            if ln.startswith("{"):
+                try:
+                    obj = json.loads(ln)
+                except (ValueError, TypeError):
+                    obj = None
+            entries.append(obj if isinstance(obj, dict) else {"_raw": ln})
+    out: list = []
+    for entry in entries:
+        raw = entry.get("_raw")
+        if raw is not None:
+            formatted = _format_console_log_line(str(raw))
+        else:
+            formatted = _format_sync_log_entry(entry)
+        if formatted:
+            out.append(formatted)
+    return out
+
+
 async def _logs_skill(host_row: dict, chip: dict, *,
                       host_id: Optional[str] = None) -> dict:
-    """Read-only: the most recent sync log lines (GET /api/v1/logs, plain
-    text). Returns the last ~25 lines. Never raises."""
+    """Read-only: the most recent sync log lines (GET /api/v1/logs). Parses the
+    zerolog buffer (JSON array / NDJSON / console text) into clean, level-emoji
+    lines and returns the last ~25. Never raises."""
     base, auth, err = _resolve_target(host_row, chip)
     if err:
         return err
@@ -441,8 +546,10 @@ async def _logs_skill(host_row: dict, chip: dict, *,
         text = ""
     if not text:
         return {"ok": True, "status": 200, "detail": "📜 No recent sync log entries."}
-    tail = "\n".join(text.splitlines()[-25:])
-    return {"ok": True, "status": 200, "detail": "📜 Recent sync log:\n" + tail}
+    lines = _format_sync_log_lines(text)[-25:]
+    if not lines:
+        return {"ok": True, "status": 200, "detail": "📜 No recent sync log entries."}
+    return {"ok": True, "status": 200, "detail": "📜 Recent sync log:\n" + "\n".join(lines)}
 
 
 async def _clear_logs_skill(host_row: dict, chip: dict, *,

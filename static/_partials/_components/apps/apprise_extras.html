@@ -1,0 +1,89 @@
+<!-- Per-app expanded-card extras -- Apprise (caronc/apprise-api).
+
+     Renders inside `apps-card.html` as the per-instance host row when the
+     chip is the Apprise catalog template AND the operator hasn't hidden
+     extras via the per-instance `show_extras` toggle. The data comes from
+     apprise-api's `GET /json/urls/<key>?privacy=1` (via
+     `logic/apps/apprise.py:fetch_data`), read through the generic,
+     cache-backed `appsAppData(inst)` -- so the card never triggers a
+     per-card round-trip on the hot path.
+
+     Shows how many notification endpoints are configured, which services
+     they route to (Telegram / Discord / Email / …), and the routing tags
+     the operator (or the AI) can target.
+
+     Helpers used (all from `static/js/apps/apprise.js`):
+       appriseIsApp(app)     -- gate "is this an Apprise chip"
+       appriseData(inst)     -- per-instance summary payload
+       appriseCount(v)       -- integer formatter
+       appriseServices(inst) -- [{scheme, name, count}] configured services
+       appriseTags(inst)     -- routing tags (drops the implicit "all") -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="appriseIsApp && appriseIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <!-- Neutral wrapper (NOT the accent-tinted box) so the loading / error
+       placeholders render as plain text. Only the populated panel sits
+       inside the boxed `.apps-card-ups`. -->
+  <div class="apps-card-apprise">
+    <!-- Data present — render the summary panel. -->
+    <template x-if="appriseData(inst)">
+      <div class="apps-card-ups" :data-apprise-host="inst.host_id">
+        <!-- Per-host header (host name only when the app has > 1 instance). -->
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Configured notification endpoints -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.apprise.endpoints') || 'Endpoints'"></div>
+            <div class="apps-card-stat-value" x-text="appriseCount(appriseData(inst).endpoints)"></div>
+          </div>
+          <!-- Distinct notification services -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.apprise.services') || 'Services'"></div>
+            <div class="apps-card-stat-value" x-text="appriseCount(appriseServices(inst).length)"></div>
+          </div>
+          <!-- Routing tags (operator-meaningful, excludes the implicit "all") -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.apprise.tags') || 'Tags'"></div>
+            <div class="apps-card-stat-value" x-text="appriseCount(appriseTags(inst).length)"></div>
+          </div>
+        </div>
+        <!-- Service chips (Telegram / Discord / Email / …) with per-service
+             count when more than one endpoint shares a service. -->
+        <div x-show="appriseServices(inst).length" class="apps-apprise-row">
+          <span class="apps-apprise-row-label"
+                x-text="(t('apps.apprise.services') || 'Services') + ':'"></span>
+          <span class="apps-apprise-chips">
+            <template x-for="svc in appriseServices(inst)" :key="svc.scheme">
+              <span class="apps-apprise-chip"
+                    x-text="svc.name + (svc.count > 1 ? ' ×' + svc.count : '')"></span>
+            </template>
+          </span>
+        </div>
+        <!-- Routing-tag chips — the tags the AI / operator can target with a
+             notification ("send a notification to [admins] …"). -->
+        <div x-show="appriseTags(inst).length" class="apps-apprise-row">
+          <span class="apps-apprise-row-label"
+                x-text="(t('apps.apprise.tags') || 'Tags') + ':'"></span>
+          <span class="apps-apprise-chips">
+            <template x-for="tg in appriseTags(inst)" :key="tg">
+              <span class="apps-apprise-chip apps-apprise-chip--tag" x-text="'#' + tg"></span>
+            </template>
+          </span>
+        </div>
+      </div>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!appriseData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.apprise.loading') || 'Loading Apprise config…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!appriseData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.apprise.fetch_failed') || 'Apprise fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>

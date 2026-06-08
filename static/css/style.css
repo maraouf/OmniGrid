@@ -10291,6 +10291,48 @@ select.field-invalid {
   object-fit: contain;
 }
 
+/* Apprise extras — service + routing-tag chip strips (configured notification
+   services like Telegram / Discord / Email, and the tags the AI can target). */
+.apps-apprise-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.apps-apprise-row-label {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.apps-apprise-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.apps-apprise-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.apps-apprise-chip--tag {
+  color: var(--primary);
+  border-color: var(--primary-soft);
+  font-family: var(--font-mono);
+}
+
 /* 4x1 (size-xlarge + short): the widest short tile. Hoist the host + ports OUT
    of the body so they sit HORIZONTALLY to the RIGHT of the logo (top region),
    and let the per-app extras take over the bottom row — starting at the tile's

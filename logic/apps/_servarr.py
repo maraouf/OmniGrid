@@ -203,7 +203,13 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     base = resolve_base_url(host_row, chip)
     if not base:
         raise ValueError("no upstream URL configured")
-    return base.rstrip("/") + p, headers(api_key)
+    # Image fetch headers — the api_key ONLY. Do NOT reuse headers() here: it
+    # sends Accept: application/json, which makes a strict *arr (or a reverse
+    # proxy in front of it) answer the /MediaCover image fetch with 406 / a JSON
+    # error body instead of the JPEG bytes — the proxy route's image/* content
+    # check then rejects it and the poster renders empty. Accept: */* can never
+    # 406, so the server always returns the cover and the route streams it.
+    return base.rstrip("/") + p, {"X-Api-Key": api_key, "Accept": "*/*"}
 
 
 def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:

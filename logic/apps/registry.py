@@ -28,6 +28,7 @@ from logic.coerce import int_or_none
 from . import adguardhome
 from . import adguardhome_sync
 from . import apc
+from . import apprise
 from . import bazarr
 from . import ddns_updater
 from . import kavita
@@ -59,23 +60,12 @@ def _register(module: ModuleType) -> None:
             _APPS[s] = module
 
 
-_register(adguardhome)
-_register(adguardhome_sync)
-_register(apc)
-_register(bazarr)
-_register(ddns_updater)
-_register(kavita)
-_register(lidarr)
-_register(pihole)
-_register(plex)
-_register(prowlarr)
-_register(qbittorrent)
-_register(radarr)
-_register(readarr)
-_register(seerr)
-_register(sonarr)
-_register(speedtest_tracker)
-_register(tautulli)
+# Register every per-app module. Loop (not 18 repeated `_register(...)` lines)
+# so adding a module is a one-line edit to the tuple + its import above.
+for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
+             kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr,
+             seerr, sonarr, speedtest_tracker, tautulli):
+    _register(_mod)
 
 
 def module_for_slug(slug: str) -> Optional[ModuleType]:

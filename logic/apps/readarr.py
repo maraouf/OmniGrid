@@ -124,6 +124,17 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "readarr_queue_delete",
+        "name": "Remove from queue",
+        "ai_phrases": ("remove from readarr queue, cancel a readarr download, "
+                       "delete from download queue, cancel this download, "
+                       "remove queued download"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id to remove (also removes it from the "
+                     "download client); the drawer's per-row trash button supplies it"),
+    },
+    {
         "id": "readarr_author_info",
         "name": "Look up an author",
         "ai_phrases": ("do i have <author>, is <author> in my library, "
@@ -341,6 +352,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      actor_username=actor_username)
     if skill_id == "readarr_queue":
         return await _queue_skill(host_row, chip, host_id=host_id)
+    if skill_id == "readarr_queue_delete":
+        return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
+                                                 app_label="Readarr", api_version="v1",
+                                                 host_id=host_id)
     if skill_id == "readarr_author_info":
         return await _author_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "readarr_add_author":
@@ -441,6 +456,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None,
                           actor_username: Optional[str] = None) -> dict:
@@ -491,6 +507,7 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
             "detail": "📚 Upcoming books (next 30 days):\n" + "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _queue_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str] = None) -> dict:
     """Read-only: what's currently downloading + progress from
@@ -520,6 +537,12 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     if not records:
         return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
     lines = []
+    # Structured rows for the SPA's rich skill-result card — SAME
+    # {title, subtitle, poster, progress} + per-row delete contract the rest of
+    # the *arr family's download queues use. The queue record embeds the `book`
+    # + `author` (includeBook / includeAuthor=true); the poster comes from the
+    # book's own cover art, falling back to the author poster.
+    rich: list[dict] = []
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
@@ -534,8 +557,24 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         label = f"{author}" + (f" — {book}" if book else "")
         lines.append(f"• {label} — {pct}%"
                      + (f" ({st})" if st and st != "downloading" else ""))
+        row: "dict[str, Any]" = {
+            "title": label,
+            "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+            "poster": _servarr.local_poster_path(bk) or _servarr.local_poster_path(au),
+            "poster_proxy": True,
+            "progress": pct}
+        qid = safe_int(q.get("id"))
+        if qid:
+            row["row_action"] = {
+                "skill_id": "readarr_queue_delete", "arg": str(qid),
+                "icon": "trash-2", "destructive": True,
+                "confirm_i18n": "apps.readarr.queue_delete_confirm",
+                "title_i18n": "apps.readarr.queue_delete_title"}
+        rich.append(row)
     return {"ok": True, "status": 200,
-            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
+            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
+            "count": len(records), "count_i18n": "apps.skills.downloading_count",
+            "items": rich}
 
 
 # noinspection DuplicatedCode
@@ -561,6 +600,7 @@ async def _readarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
     return None
 
 
+# noinspection DuplicatedCode
 async def _author_info_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str] = None,
                              host_id: Optional[str] = None) -> dict:
@@ -608,6 +648,7 @@ async def _author_info_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _add_author_skill(host_row: dict, chip: dict, *,
                             arg: Optional[str] = None,
                             host_id: Optional[str] = None) -> dict:
@@ -688,6 +729,7 @@ async def _add_author_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
+# noinspection DuplicatedCode
 async def _remove_author_skill(host_row: dict, chip: dict, *,
                                arg: Optional[str] = None,
                                host_id: Optional[str] = None) -> dict:
