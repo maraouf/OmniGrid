@@ -80,6 +80,7 @@ import time
 from typing import Any, Collection, Optional
 
 import httpx
+from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_cache_ttl,
@@ -185,8 +186,8 @@ _data_cache: dict[str, tuple[float, dict]] = {}
 # `_tmdb_api_url` is tolerant of EITHER form (with or without the trailing
 # `/3`) so a host-root base works too. The image base + a width segment
 # build a poster URL: `{image_base}/w500{path}`.
-_TMDB_BASE_DEFAULT = "https://api.themoviedb.org/3"
-_TMDB_IMAGE_BASE_DEFAULT = "https://image.tmdb.org/t/p"
+_TMDB_BASE_DEFAULT = ExternalURL.THEMOVIEDB_API
+_TMDB_IMAGE_BASE_DEFAULT = ExternalURL.TMDB_IMAGE_BASE
 _TMDB_POSTER_SIZE = "w500"
 # Random-page ceiling for the discover suggestion. Popular movies are sorted
 # popularity-descending, so page 1 is the most mainstream (= most likely the
@@ -713,7 +714,7 @@ def _requested_by(req: dict) -> "tuple[str, str]":
 
 # Public avatar hosts the per-app image proxy is allowed to fetch for Seerr
 # "requested by" thumbnails (plus the chip's own base host, checked at runtime).
-_AVATAR_PROXY_HOSTS = ("plex.tv", "gravatar.com")
+_AVATAR_PROXY_HOSTS = (ExternalURL.PLEX_TV_HOST, ExternalURL.GRAVATAR_HOST)
 
 
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":

@@ -52,6 +52,7 @@ import time
 from typing import Any, Optional
 
 import httpx
+from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
@@ -117,7 +118,7 @@ async def _call(cli: httpx.AsyncClient, base: str, api_key: str, cmd: str,
     return resp.get("data")
 
 
-_AVATAR_PROXY_HOSTS = ("plex.tv", "plex.direct")
+_AVATAR_PROXY_HOSTS = (ExternalURL.PLEX_TV_HOST, ExternalURL.PLEX_DIRECT_HOST)
 
 
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":

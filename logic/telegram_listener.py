@@ -108,6 +108,7 @@ from typing import Any, Optional
 import httpx
 
 from logic.cooldown import Cooldown as _Cooldown
+from logic.external_urls import ExternalURL
 from logic.settings_keys import Settings
 
 # ----------------------------------------------------------------------------
@@ -118,7 +119,7 @@ from logic.settings_keys import Settings
 # helpers in `_telegram_api_base()` / `_telegram_long_poll_timeout()` /
 # `_telegram_http_timeout()` (per-call reads so a UI edit takes effect
 # on the next iteration without restart).
-_TELEGRAM_API_BASE_DEFAULT = "https://api.telegram.org"
+_TELEGRAM_API_BASE_DEFAULT = ExternalURL.TELEGRAM_API
 
 
 def _telegram_api_base() -> str:

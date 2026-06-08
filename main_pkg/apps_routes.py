@@ -56,6 +56,7 @@ Endpoints:
 # Iterable, Optional, ...) that main.py imports at its own top.
 from main import *  # noqa: E402,F401,F403
 import asyncio
+import httpx  # noqa: F401,F811  (used at runtime; star-import shadow flags as unresolved)
 import hashlib
 import json
 import os
@@ -77,6 +78,7 @@ from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
     CurrentUser,
     HTTPException,
     Request,
+    Response,
     Settings,
     Tunable,
     _actor_from,
@@ -987,15 +989,21 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
             # wasn't authenticated (e.g. an *arr MediaCover route that wants the
             # apikey in the QUERY, not just the header). Log the content-type +
             # the first bytes (escaped) + the host so the 415 is actionable.
-            snippet = ""
             try:
-                snippet = body[:80].decode("utf-8", "replace").replace("\n", " ").strip()
+                snippet = body[:80].decode(errors="replace").replace("\n", " ").strip()
             except (ValueError, TypeError):
                 snippet = repr(body[:80])
             print(f"[image-proxy] warning: non-image 200 from host={parts.netloc} "
                   f"path={parts.path} content-type={ctype or '(none)'} "
                   f"bytes={len(body)} first80={snippet!r}")
-            raise HTTPException(415, "upstream content is not an image")
+            # Surface the diagnostic in the response body too (visible in the
+            # browser Network tab) so the operator can see WHAT the upstream
+            # returned without digging through Admin → Logs.
+            raise HTTPException(
+                415,
+                f"upstream returned non-image (content-type={ctype or 'none'}, "
+                f"{len(body)} bytes, starts: {snippet[:60]!r}) — if this is HTML "
+                f"the upstream isn't authenticating the image fetch")
         ctype = sniffed
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400"})

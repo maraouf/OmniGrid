@@ -56,6 +56,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import httpx
+from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
@@ -148,7 +149,7 @@ def requires_api_key() -> bool:
 # until the user authorises and plex.tv hands back the authToken. No token to
 # copy by hand.
 # ---------------------------------------------------------------------------
-_PLEX_TV = "https://plex.tv"
+_PLEX_TV = ExternalURL.PLEX_TV
 _PLEX_PRODUCT = "OmniGrid"
 
 
@@ -208,7 +209,7 @@ async def start_auth() -> dict:
     })
     print(f"[plex] INFO start_auth pin_id={pin_id} (OAuth PIN flow)")
     return {"ok": True, "pin_id": pin_id, "code": code,
-            "auth_url": f"https://app.plex.tv/auth#?{qs}", "client_id": cid}
+            "auth_url": f"{ExternalURL.APP_PLEX_TV}/auth#?{qs}", "client_id": cid}
 
 
 async def poll_auth(pin_id: Any, code: str) -> dict:
