@@ -10261,6 +10261,21 @@
                           </svg>
                           <span x-text="t('apps.drawer.logs') || 'Logs'"></span>
                         </button>
+                        <!-- Open in Stacks — when the chip is linked to a
+                             Docker container / stack, jump straight to that
+                             target's detail drawer in the Stacks view.
+                             Navigation only (read-only), so it's NOT
+                             admin-gated; shown only when the link resolves to
+                             an item in the current list. -->
+                        <button type="button"
+                                x-show="(inst.docker_container || inst.docker_stack) && appDrawerCanOpenStack(inst)"
+                                @click.stop="appDrawerOpenStackDrawer(inst)"
+                                class="btn btn-soft fs-xs inline-flex items-center gap-1.5">
+                          <svg width="13" height="13" aria-hidden="true">
+                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+                          </svg>
+                          <span x-text="t('apps.drawer.open_stack') || 'Open in Stacks'"></span>
+                        </button>
                         <!-- Show debug — admin-only AND gated on the Admin →
                              Debug `debug_panel_enabled` tunable, matching the
                              host / node / item drawers (the /debug endpoint is
@@ -10438,7 +10453,7 @@
                                              Series) rendered at each group boundary. -->
                                         <div x-show="appSkillItemShowGroup(inst, sk.id, ii)"
                                              class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] font-semibold mt-1"
-                                             x-text="t(it.group)"></div>
+                                             x-text="it.group ? t(it.group) : ''"></div>
                                         <div class="apps-skill-item flex items-center gap-2 min-w-0">
                                           <img x-show="it.poster" :src="appSkillItemPoster(inst, it)" alt="" loading="lazy"
                                                class="apps-skill-item-poster shrink-0"

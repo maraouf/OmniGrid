@@ -60,6 +60,16 @@ from logic.coerce import safe_int
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("tautulli",)
 
+# Plex/Tautulli media_type → group bucket. Movies are `movie`; TV is
+# show/season/episode; music is artist/album/track. Used to bucket the
+# recently-added list into Movies / Series / Music (so music isn't lumped in
+# with Series).
+_SERIES_TYPES = frozenset({"show", "season", "episode"})
+_MUSIC_TYPES = frozenset({"artist", "album", "track"})
+# Per-library section_type → emoji + friendly label for the libraries list.
+_LIB_EMOJI = {"movie": "🎬", "show": "📺", "artist": "🎵",
+              "photo": "🖼️", "video": "🎞️", "clip": "🎞️"}
+
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
 # matches the rest of the family.
 DEFAULT_CACHE_TTL_S = 60
@@ -446,12 +456,15 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         if not isinstance(lib, dict):
             continue
         name = str(lib.get("section_name") or "?").strip()
-        ltype = str(lib.get("section_type") or "").strip()
+        ltype = str(lib.get("section_type") or "").strip().lower()
         n = safe_int(lib.get("count"))
-        seg = f"• {name}"
-        meta = " · ".join(p for p in (ltype, f"{n:,} items" if n else "") if p)
-        if meta:
-            seg += f" ({meta})"
+        emoji = _LIB_EMOJI.get(ltype, "📁")
+        # "<emoji> <name>  <N items>" — the 2-space gap makes the count a
+        # right-hand segment in the drawer's detail renderer (a clean two-col
+        # read) while staying one readable line for AI / Telegram.
+        seg = f"{emoji} {name}"
+        if n:
+            seg += f"  {n:,} item" + ("" if n == 1 else "s")
         lines.append(seg)
     if not lines:
         return {"ok": True, "status": 200, "detail": "📚 No Plex libraries reported."}
@@ -480,51 +493,66 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         items = _ra if isinstance(_ra, list) else []
     elif isinstance(data, list):
         items = data
-    # Group into Movies vs Series (everything show/season/episode-shaped),
-    # preserving recency order within each group. Rich rows carry the Plex
-    # thumb (routed through the per-app image proxy — pms_image_proxy needs the
+    # Group into Movies / Series / Music, preserving recency order within each
+    # group. Plex/Tautulli media_type is movie | show/season/episode | artist/
+    # album/track — bucket all three (the old code put everything non-movie into
+    # Series, so music showed under Series). Rich rows carry the Plex thumb
+    # (routed through the per-app image proxy — pms_image_proxy needs the
     # api_key, which stays server-side) + the year on the title's subtitle.
     movies: list[dict] = []
     series: list[dict] = []
+    music: list[dict] = []
     for it in items[:20]:
         if not isinstance(it, dict):
             continue
         mtype = str(it.get("media_type") or "").strip().lower()
-        is_movie = mtype == "movie"
-        if is_movie:
-            title = str(it.get("title") or it.get("full_title") or "?").strip()
+        if mtype == "movie":
+            grp = "movie"
+        elif mtype in _MUSIC_TYPES:
+            grp = "music"
+        elif mtype in _SERIES_TYPES:
+            grp = "series"
         else:
-            # Episode / season / show: lead with the series name.
-            title = str(it.get("grandparent_title") or it.get("parent_title")
-                        or it.get("title") or it.get("full_title") or "?").strip()
+            grp = "movie"  # photo / clip / other → own-title style
         yr = str(it.get("year") or "").strip()
         yr = yr[:4] if len(yr) >= 4 and yr[:4].isdigit() else ""
-        sub_parts = []
-        if not is_movie:
-            # Episode label, e.g. "S01 · Episode title" when present.
+        sub_parts: list = []
+        if grp == "movie":
+            title = str(it.get("title") or it.get("full_title") or "?").strip()
+            thumb = str(it.get("thumb") or it.get("parent_thumb") or "").strip()
+            if yr:
+                sub_parts.append(yr)
+        elif grp == "music":
+            # Lead with the artist; the album / track is the subtitle.
+            title = str(it.get("grandparent_title") or it.get("parent_title")
+                        or it.get("title") or "?").strip()
+            detail_name = str(it.get("title") or "").strip()
+            if detail_name and detail_name != title:
+                sub_parts.append(detail_name)
+            thumb = str(it.get("thumb") or it.get("parent_thumb")
+                        or it.get("grandparent_thumb") or "").strip()
+        else:  # series — lead with the show name, episode title as subtitle.
+            title = str(it.get("grandparent_title") or it.get("parent_title")
+                        or it.get("title") or it.get("full_title") or "?").strip()
             ep = str(it.get("title") or "").strip()
             if ep and ep != title:
                 sub_parts.append(ep)
-        if yr:
-            sub_parts.append(yr)
-        # Movies → the item's own poster (`thumb`). Series/episodes → the SHOW
-        # poster (`grandparent_thumb`) NOT the episode still (`thumb`), so the
-        # card shows recognisable series art.
-        if is_movie:
-            thumb = str(it.get("thumb") or it.get("parent_thumb") or "").strip()
-        else:
+            if yr:
+                sub_parts.append(yr)
             thumb = str(it.get("grandparent_thumb") or it.get("parent_thumb")
                         or it.get("thumb") or "").strip()
+        group_key = ("apps.tautulli.group_movies" if grp == "movie"
+                     else "apps.tautulli.group_music" if grp == "music"
+        else "apps.tautulli.group_series")
         row: "dict[str, Any]" = {
-            "title": title + (f" ({yr})" if is_movie and yr else ""),
+            "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
             "subtitle": " · ".join(sub_parts),
-            "group": "apps.tautulli.group_movies" if is_movie
-            else "apps.tautulli.group_series"}
+            "group": group_key}
         if thumb:
             row["poster"] = thumb
             row["poster_proxy"] = True
-        (movies if is_movie else series).append(row)
-    rich = movies + series
+        (movies if grp == "movie" else music if grp == "music" else series).append(row)
+    rich = movies + series + music
     if not rich:
         return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added."}
     # Plain text (AI / Telegram): grouped, with year.
@@ -536,6 +564,10 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         lines.append("📺 Series:")
         lines += [f"  • {r['title']}"
                   + (f" — {r['subtitle']}" if r.get("subtitle") else "") for r in series]
+    if music:
+        lines.append("🎵 Music:")
+        lines += [f"  • {r['title']}"
+                  + (f" — {r['subtitle']}" if r.get("subtitle") else "") for r in music]
     return {"ok": True, "status": 200,
             "detail": "🆕 Recently added:\n" + "\n".join(lines),
             "count": len(rich), "count_i18n": "apps.tautulli.recent_count",

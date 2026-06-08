@@ -741,6 +741,38 @@ export default {
     return !!(target && (target.raw_id || target.id));
   },
 
+  // True when the chip resolves to a Docker target (container / service) in
+  // the current items list — gates the App-drawer "Open in Stacks" button so
+  // it only shows when there's a stack/service drawer to jump to.
+  appDrawerCanOpenStack(inst) {
+    return !!this._appDrawerResolveItem(inst);
+  },
+
+  // Jump from the App drawer to the linked Docker target's drawer in the
+  // Stacks view: resolve the chip to its item, close the app drawer, switch
+  // to the Stacks view, and open that item's detail drawer. Navigation only
+  // (no write op) — available to every signed-in user.
+  appDrawerOpenStackDrawer(inst) {
+    const target = this._appDrawerResolveItem(inst);
+    if (!target) {
+      if (typeof this.showToast === 'function') {
+        this.showToast(this.t('apps.drawer.open_stack_no_match') || 'Linked Docker target not found in the current items list', 'error');
+      }
+      return;
+    }
+    // Close the app drawer first so the item drawer isn't stacked behind it,
+    // land on the Stacks view for context, then open the item drawer.
+    if (typeof this.closeAppDrawer === 'function') {
+      this.closeAppDrawer();
+    }
+    this.view = 'stacks';
+    if (typeof this.openDrawer === 'function') {
+      this.openDrawer(target);
+    } else {
+      this.drawerItem = target;
+    }
+  },
+
   // Open the logs modal for a Docker-linked chip + fetch the tail.
   // Resolves the chip in /api/items: a CONTAINER hits the
   // /api/container/{raw_id}/logs proxy (carrying node for agent-target

@@ -435,15 +435,35 @@ async def _notify_skill(host_row: dict, chip: dict, *, body: str, tag: str,
     if r.status_code == 404:
         return {"ok": False, "status": 404,
                 "detail": f"no Apprise config under key '{key}' (nothing to notify)"}
-    # apprise-api returns 424 when no endpoint matched the tag, or a notifier
-    # failed — surface the upstream body (short) so the operator can see why.
+    # Pull the apprise-api error string out of the JSON body for a clear
+    # message (it dumps a verbose {"error":..., "details":[...]} blob otherwise).
+    err_text = ""
     try:
-        detail = (r.text or "").strip()[:200]
+        jbody = r.json()
     except (ValueError, TypeError):
-        detail = ""
-    suffix = f" — {detail}" if detail else ""
-    if r.status_code == 424 and tag:
-        return {"ok": False, "status": 424,
-                "detail": f"no endpoint is tagged '{tag}'{suffix}"}
+        jbody = None
+    if isinstance(jbody, dict):
+        err_text = str(jbody.get("error") or "").strip()
+    if not err_text:
+        try:
+            err_text = (r.text or "").strip()[:200]
+        except (ValueError, TypeError):
+            err_text = ""
+    # HTTP 424 = apprise ACCEPTED the request but at least one endpoint failed
+    # to deliver (the others may have succeeded). When a tag was given AND the
+    # error names the tag, it usually means no endpoint carries that tag.
+    # Surface a clear partial-delivery message, NOT a scary "send failed".
+    if r.status_code == 424:
+        if tag:
+            return {"ok": False, "status": 424,
+                    "detail": f"⚠️ Apprise reported a delivery problem for tag "
+                              f"'{tag}' (HTTP 424) — check that an endpoint is "
+                              f"tagged '{tag}' and its config is valid."}
+        detail = ("⚠️ Apprise accepted the notification but reported that one or "
+                  "more endpoints failed to deliver (HTTP 424). The others may "
+                  "have been sent — check the failing endpoint's config in "
+                  "Apprise (e.g. a bad token or unreachable service).")
+        return {"ok": False, "status": 424, "detail": detail}
+    suffix = f" — {err_text}" if err_text else ""
     return {"ok": False, "status": r.status_code,
             "detail": f"send failed: HTTP {r.status_code}{suffix}"}

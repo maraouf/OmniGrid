@@ -124,6 +124,12 @@ SKILLS: tuple[dict, ...] = (
 DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
+# Plex item `type` → group bucket for the recently-added list. Movies are
+# `movie`; TV is show/season/episode; music is artist/album/track. Bucketing
+# all three keeps Music out of the Series group.
+_SERIES_TYPES = frozenset({"show", "season", "episode"})
+_MUSIC_TYPES = frozenset({"artist", "album", "track"})
+
 # Cap on the per-section count calls in fetch_data — a Plex server usually has a
 # handful of sections; this bounds a pathological config.
 _MAX_SECTIONS = 30
@@ -602,49 +608,67 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not meta:
         return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added to Plex."}
-    # Group into Movies vs Series (everything show/season/episode-shaped) and
-    # emit rich rows — poster thumbnail (Plex art via the per-app image proxy,
-    # token server-side) + the year — matching the Radarr / Tautulli card style.
+    # Group into Movies / Series / Music and emit rich rows — poster thumbnail
+    # (Plex art via the per-app image proxy, token server-side) + the year —
+    # matching the Radarr / Tautulli card style. Plex `type` is movie |
+    # show/season/episode | artist/album/track; bucketing all three keeps Music
+    # out of the Series group (the old code lumped everything non-movie there).
     movies: list[dict] = []
     series: list[dict] = []
+    music: list[dict] = []
     for item in meta[:20]:
         if not isinstance(item, dict):
             continue
         typ = str(item.get("type") or "").lower()
-        is_movie = typ == "movie"
-        if is_movie:
-            title = str(item.get("title") or "?").strip()
+        if typ == "movie":
+            grp = "movie"
+        elif typ in _MUSIC_TYPES:
+            grp = "music"
+        elif typ in _SERIES_TYPES:
+            grp = "series"
         else:
-            title = str(item.get("grandparentTitle") or item.get("parentTitle")
-                        or item.get("title") or "?").strip()
-        if not title or title == "?":
-            continue
+            grp = "movie"  # clip / photo / other → own-title style
         yr = str(item.get("year") or "").strip()
         yr = yr[:4] if len(yr) >= 4 and yr[:4].isdigit() else ""
         sub_parts = []
-        if not is_movie:
+        if grp == "movie":
+            title = str(item.get("title") or "?").strip()
+            thumb = str(item.get("thumb") or item.get("art") or "").strip()
+            if yr:
+                sub_parts.append(yr)
+        elif grp == "music":
+            # Lead with the artist; the album / track is the subtitle.
+            title = str(item.get("grandparentTitle") or item.get("parentTitle")
+                        or item.get("title") or "?").strip()
+            detail_name = str(item.get("title") or "").strip()
+            if detail_name and detail_name != title:
+                sub_parts.append(detail_name)
+            thumb = str(item.get("thumb") or item.get("parentThumb")
+                        or item.get("grandparentThumb") or "").strip()
+        else:  # series — lead with the show, episode title as subtitle.
+            title = str(item.get("grandparentTitle") or item.get("parentTitle")
+                        or item.get("title") or "?").strip()
             ep = str(item.get("title") or "").strip()
             if ep and ep != title:
                 sub_parts.append(ep)
-        if yr:
-            sub_parts.append(yr)
-        # Movie → its own poster (thumb). Series/episode → the SHOW poster
-        # (grandparentThumb) not the episode still (thumb).
-        if is_movie:
-            thumb = str(item.get("thumb") or item.get("art") or "").strip()
-        else:
+            if yr:
+                sub_parts.append(yr)
             thumb = str(item.get("grandparentThumb") or item.get("parentThumb")
                         or item.get("thumb") or "").strip()
+        if not title or title == "?":
+            continue
+        group_key = ("apps.tautulli.group_movies" if grp == "movie"
+                     else "apps.tautulli.group_music" if grp == "music"
+        else "apps.tautulli.group_series")
         row: "dict[str, Any]" = {
-            "title": title + (f" ({yr})" if is_movie and yr else ""),
+            "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
             "subtitle": " · ".join(sub_parts),
-            "group": "apps.tautulli.group_movies" if is_movie
-            else "apps.tautulli.group_series"}
+            "group": group_key}
         if thumb:
             row["poster"] = thumb
             row["poster_proxy"] = True
-        (movies if is_movie else series).append(row)
-    rich = movies + series
+        (movies if grp == "movie" else music if grp == "music" else series).append(row)
+    rich = movies + series + music
     if not rich:
         return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added to Plex."}
     lines = []
@@ -655,6 +679,10 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         lines.append("📺 Series:")
         lines += [f"  • {sr['title']}"
                   + (f" — {sr['subtitle']}" if sr.get("subtitle") else "") for sr in series]
+    if music:
+        lines.append("🎵 Music:")
+        lines += [f"  • {mu['title']}"
+                  + (f" — {mu['subtitle']}" if mu.get("subtitle") else "") for mu in music]
     return {"ok": True, "status": 200,
             "detail": "🆕 Recently added to Plex:\n" + "\n".join(lines),
             "count": len(rich), "count_i18n": "apps.tautulli.recent_count",

@@ -901,6 +901,31 @@ async def api_service_app_data(host_id: str, service_idx: int,
 _APP_IMAGE_PROXY_MAX_BYTES = 10 * 1024 * 1024
 
 
+def _sniff_image_type(data: bytes) -> str:
+    """Best-effort image content-type from magic bytes (JPEG / PNG / GIF / WebP
+    / BMP / ICO). Returns ``""`` when the bytes aren't a recognised image.
+
+    Defence for upstreams (or a reverse proxy) that serve a valid image with a
+    wrong / generic content-type (``application/octet-stream``, ``text/plain``)
+    — without it the proxy's ``image/*`` check would 415 a perfectly good
+    cover."""
+    if not data or len(data) < 12:
+        return ""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] == b"BM":
+        return "image/bmp"
+    if data[:4] == b"\x00\x00\x01\x00":
+        return "image/x-icon"
+    return ""
+
+
 @app.get("/api/services/{host_id}/{service_idx}/image-proxy")
 async def api_service_image_proxy(host_id: str, service_idx: int,
                                   _admin: AdminUser, path: str = ""):
@@ -945,12 +970,20 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         raise HTTPException(404, "image not found upstream")
     if r.status_code != 200:
         raise HTTPException(502, f"upstream returned HTTP {r.status_code}")
-    ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower() or "image/jpeg"
-    if not ctype.startswith("image/"):
-        raise HTTPException(415, "upstream content is not an image")
     body = r.content
     if len(body) > _APP_IMAGE_PROXY_MAX_BYTES:
         raise HTTPException(413, "upstream image too large")
+    ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if not ctype.startswith("image/"):
+        # The content-type isn't image/* — but some upstreams mislabel a valid
+        # image (octet-stream / text/plain), so sniff the magic bytes before
+        # rejecting. A genuine image serves with the sniffed type; anything else
+        # (e.g. an HTML login / SPA shell returned 200 for a bad-auth image
+        # fetch) is a real 415.
+        sniffed = _sniff_image_type(body)
+        if not sniffed:
+            raise HTTPException(415, "upstream content is not an image")
+        ctype = sniffed
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400"})
 

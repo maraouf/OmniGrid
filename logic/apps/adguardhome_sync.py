@@ -419,9 +419,10 @@ async def _sync_skill(host_row: dict, chip: dict, *,
 
 
 # Log-level -> colour-carrying emoji for the drawer's log list. Covers the
-# zerolog JSON word ("info" / "warn" / ...) AND the 3-letter console abbrev
-# ("INF" / "WRN" / ...). The emoji renders natively coloured, so info / warn /
-# error stand out with NO special-casing in the generic detail-line renderer.
+# zerolog JSON word ("info" / "warn" / ...), the FULL console word ("INFO" /
+# "WARNING" / ...), AND the 3-letter console abbrev ("INF" / "WRN" / ...). The
+# emoji renders natively coloured, so info / warn / error stand out with NO
+# special-casing in the generic detail-line renderer.
 _LOG_LEVEL_EMOJI = {
     "error": "❌", "err": "❌", "fatal": "❌", "ftl": "❌",
     "panic": "❌", "pnc": "❌",
@@ -438,17 +439,57 @@ def _collapse_ws(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+# Level token: FULL word (INFO / WARNING / …) OR 3-letter abbrev (INF / WRN /
+# …). Longer alternatives first so WARNING wins over WARN. Used both to parse a
+# full console line and to colour an unrecognised one.
+_LEVEL_ALT = (r"TRACE|DEBUG|INFO|WARNING|WARN|ERROR|FATAL|PANIC"
+              r"|TRC|DBG|INF|WRN|ERR|FTL|PNC")
+# adguardhome-sync console line:
+#   <ISO ts> <LEVEL> <component> <file.go:line> <message> <{json ctx}>
+_CONSOLE_LINE_RE = re.compile(
+    r"^(?P<ts>\S+)\s+(?P<lvl>" + _LEVEL_ALT + r")\b\s*(?P<rest>.*)$", re.I)
+_CONSOLE_LEVEL_RE = re.compile(r"\b(?P<lvl>" + _LEVEL_ALT + r")\b", re.I)
+# The zerolog caller prefix on the message: an optional component word + a
+# "<path>.<ext>:<line>" token (e.g. "sync sync/sync.go:311 ").
+_CONSOLE_CALLER_RE = re.compile(r"^(?:\S+\s+)?\S+\.\w+:\d+\s+")
+_CONSOLE_CTX_RE = re.compile(r"\s*(?P<ctx>\{.*})\s*$")
+_CLOCK_RE = re.compile(r"(?P<clock>\d{2}:\d{2}:\d{2})")
+
+
 def _format_console_log_line(line: str) -> str:
-    """Best-effort prettify of a console-formatted (non-JSON) zerolog line:
-    prefix the matching level emoji when a 3-letter level token is present,
-    else pass the line through unchanged."""
+    """Best-effort prettify of a console-formatted (non-JSON) zerolog line.
+
+    adguardhome-sync's console format is
+    ``<ISO ts> <LEVEL> <component> <file.go:line> <message> <{json ctx}>`` where
+    LEVEL is the FULL word (``INFO``), not the 3-letter abbrev. We map the level
+    to a colour-carrying emoji, keep just ``HH:MM:SS`` from the timestamp, drop
+    the verbose caller, and fold any trailing JSON context into ``(k=v, …)`` so
+    the line reads as ``<emoji> HH:MM:SS  <message>  (ctx)``. Falls back to an
+    emoji prefix (or the raw line) when the shape isn't recognised."""
     s = _collapse_ws(line)
     if not s:
         return ""
-    m = re.search(r"\b(?P<lvl>TRC|DBG|INF|WRN|ERR|FTL|PNC)\b", s)
-    if m:
-        return f"{_LOG_LEVEL_EMOJI.get(m.group('lvl').lower(), '•')} {s}"
-    return s
+    m = _CONSOLE_LINE_RE.match(s)
+    if not m:
+        lm = _CONSOLE_LEVEL_RE.search(s)
+        if lm:
+            return f"{_LOG_LEVEL_EMOJI.get(lm.group('lvl').lower(), '•')} {s}"
+        return s
+    emoji = _LOG_LEVEL_EMOJI.get(m.group("lvl").lower(), "•")
+    clk = _CLOCK_RE.search(m.group("ts"))
+    clock = clk.group("clock") if clk else ""
+    rest = _CONSOLE_CALLER_RE.sub("", m.group("rest")).strip()
+    ctx_m = _CONSOLE_CTX_RE.search(rest)
+    if ctx_m:
+        try:
+            ctx = json.loads(ctx_m.group("ctx"))
+        except (ValueError, TypeError):
+            ctx = None
+        if isinstance(ctx, dict) and ctx:
+            pairs = ", ".join(f"{k}={_collapse_ws(ctx[k])}" for k in ctx)
+            rest = (rest[:ctx_m.start()].strip() + " (" + pairs + ")").strip()
+    head = emoji + (f" {clock}" if clock else "")
+    return (head + "  " + rest) if rest else head
 
 
 def _format_sync_log_entry(entry: dict) -> str:
