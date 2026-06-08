@@ -10134,15 +10134,60 @@ select.field-invalid {
   font-size: var(--fs-xs);
 }
 
-/* 3x1 (size-double + short) — the per-mount Storage list (free/total bars per
-   mount) overflows the one-row tile and gets visually cut on the *arr cards.
-   Hide it ONLY for Radarr / Sonarr / Lidarr AND ONLY at this size; every other
-   app + every other size keeps Storage. Operator-requested. */
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-radarr .apps-card-storage,
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-sonarr .apps-card-storage,
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-lidarr .apps-card-storage,
-.apps-custom-cell.apps-card--size-double.apps-card--height-short:not(.apps-card--editing) .apps-card-readarr .apps-card-storage {
+/* 3x1 (size-double) AND 4x1 (size-xlarge), both at height-short — the per-mount
+   Storage list (free/total bars per mount) overflows the one-row tile and gets
+   visually cut on the *arr cards. Hide it ONLY for Radarr / Sonarr / Lidarr /
+   Readarr AND ONLY at these two widest short sizes; every other app + every
+   other size keeps Storage. Operator-requested. */
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-card-radarr .apps-card-storage,
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-card-sonarr .apps-card-storage,
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-card-lidarr .apps-card-storage,
+.apps-custom-cell:is(.apps-card--size-double, .apps-card--size-xlarge).apps-card--height-short:not(.apps-card--editing) .apps-card-readarr .apps-card-storage {
   display: none;
+}
+
+/* Prowlarr "Apps synced" — render the connected *arr apps as brand-icon chips
+   instead of a raw comma-joined text line. */
+.apps-prowlarr-synced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+
+.apps-prowlarr-synced-label {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.apps-prowlarr-synced-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+
+.apps-prowlarr-app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 1px var(--s-3) 1px var(--s-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.apps-prowlarr-app-chip-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 /* 4x1 (size-xlarge + short): the widest short tile. Hoist the host + ports OUT
@@ -10913,6 +10958,72 @@ select.field-invalid {
   background: var(--primary);
   color: var(--text-on-primary);
   border-color: var(--primary);
+}
+
+/* Card-style sharing selector in the Dashboard-settings modal (rename + share).
+   A radiogroup of selectable option cards (icon + title + subtitle), replacing
+   SweetAlert's bare radio inputs. */
+.og-share-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  width: 100%;
+  text-align: start;
+  padding: var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.og-share-opt:hover:not(.is-selected) {
+  background: var(--surface-3);
+  border-color: var(--border-bright);
+}
+
+.og-share-opt.is-selected {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.og-share-opt:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.og-share-opt-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.og-share-opt.is-selected .og-share-opt-icon {
+  color: var(--primary);
+}
+
+.og-share-opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.og-share-opt-title {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+
+.og-share-opt-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+.og-share-opt-check {
+  flex-shrink: 0;
+  color: var(--primary);
 }
 
 /* Front-face gear button — top-right corner of the card header. */

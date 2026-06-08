@@ -1028,6 +1028,13 @@ export default {
   appsViewSwitching: false,
   // Bound to the rename input in the view-picker (null = not renaming).
   appsViewRenaming: null,
+  // Unified "Dashboard settings" modal — rename + share in ONE dialog
+  // (replaces the two old SweetAlert popups). `choice` is the 3-way sharing
+  // selector value: 'private' | 'public_readonly' | 'public_editable'.
+  appsViewModal: {
+    open: false, id: '', name: '', choice: 'private',
+    orig_name: '', orig_choice: 'private', can_manage: false, saving: false,
+  },
   // Views now live server-side in the `app_views` table (so a view can be
   // shared public across users), loaded once via GET /api/apps/views. These
   // gate the custom board until the collection has landed.
@@ -4045,18 +4052,6 @@ export default {
     this._persistActiveViewId(v.id);
     return v.id;
   },
-  async appsRenameView(id, name) {
-    const v = this.appsCustomViews && this.appsCustomViews.views.find(x => x && x.id === id);
-    if (!v) {
-      return;
-    }
-    const nm = (typeof name === 'string' && name.trim()) ? name.trim().slice(0, 64) : v.name;
-    this.appsViewRenaming = null;
-    const updated = await this._putAppView(id, {name: nm});
-    if (updated) {
-      this._applyServerViewUpdate(updated);
-    }
-  },
   async appsDeleteView(id) {
     const v = this.appsCustomViews && this.appsCustomViews.views.find(x => x && x.id === id);
     if (!v) {
@@ -4133,40 +4128,101 @@ export default {
   //   private          → (private, owner)
   //   public_readonly  → (public,  owner)   everyone can view, only owner edits
   //   public_editable  → (public,  all)     anyone except read-only-role edits
-  async appsPromptShareView(id) {
-    const v = this.appsViews().find(x => x && x.id === id);
-    if (!v || !v.can_manage) {
-      return;  // owner only
+  // ── Unified "Dashboard settings" modal (rename + share in one dialog) ──────
+  // The 3-way sharing choice maps to (visibility, edit_permission):
+  //   private          → (private, owner)
+  //   public_readonly  → (public,  owner)   everyone views, only owner edits
+  //   public_editable  → (public,  all)     anyone except read-only-role edits
+  _viewChoiceFrom(v) {
+    if (!v || v.visibility !== 'public') {
+      return 'private';
     }
-    const current = v.visibility !== 'public'
-      ? 'private'
-      : (v.edit_permission === 'all' ? 'public_editable' : 'public_readonly');
-    const result = await Swal.fire({
-      title: this.t('apps.custom.share_title') || 'Share dashboard',
-      input: 'radio',
-      inputValue: current,
-      inputOptions: {
-        private: this.t('apps.custom.share_private') || 'Private — only you can see it',
-        public_readonly: this.t('apps.custom.share_public_readonly') || 'Public — everyone can view, only you can edit',
-        public_editable: this.t('apps.custom.share_public_editable') || 'Public — everyone can view, anyone (except read-only users) can edit',
+    return v.edit_permission === 'all' ? 'public_editable' : 'public_readonly';
+  },
+  // The sharing-option descriptors the modal's radiogroup renders (icon +
+  // title + subtitle, all i18n'd). One place so the list + labels stay DRY.
+  appsShareOptions() {
+    const t = (k, fb) => (this.t && this.t(k)) || fb;
+    return [
+      {
+        value: 'private', icon: 'icon-lock',
+        title: t('apps.custom.share_opt_private_title', 'Private'),
+        sub: t('apps.custom.share_opt_private_sub', 'Only you can see this dashboard.'),
       },
-      showCancelButton: true,
-      confirmButtonText: this.t('actions.save') || 'Save',
-      cancelButtonText: this.t('actions.cancel') || 'Cancel',
-      background: this._cssVar('--surface'),
-      color: this._cssVar('--text'),
-      confirmButtonColor: this._cssVar('--primary'),
-      cancelButtonColor: this._cssVar('--btn-cancel-bg'),
+      {
+        value: 'public_readonly', icon: 'icon-eye',
+        title: t('apps.custom.share_opt_readonly_title', 'Public · Read-only'),
+        sub: t('apps.custom.share_opt_readonly_sub', 'Everyone can view it; only you can change it.'),
+      },
+      {
+        value: 'public_editable', icon: 'icon-users',
+        title: t('apps.custom.share_opt_editable_title', 'Public · Editable'),
+        sub: t('apps.custom.share_opt_editable_sub', 'Everyone can view it; anyone except read-only users can rearrange it.'),
+      },
+    ];
+  },
+  // Open the settings modal for a view the caller may edit (owner sees the
+  // sharing section; an editor sees the name only). Seeds focus on the name.
+  openAppsViewSettings(id) {
+    const v = this.appsViews().find(x => x && x.id === id);
+    if (!v || v.can_edit === false) {
+      return;  // read-only viewers can't edit
+    }
+    const choice = this._viewChoiceFrom(v);
+    this.appsViewModal = {
+      open: true,
+      id: v.id,
+      name: v.name || '',
+      choice,
+      orig_name: v.name || '',
+      orig_choice: choice,
+      can_manage: !!v.can_manage,
+      saving: false,
+    };
+    this.$nextTick(() => {
+      const el = this.$refs && this.$refs.appsViewName;
+      if (el) {
+        el.focus();
+        el.select();
+      }
     });
-    if (!result.isConfirmed || !result.value) {
+  },
+  closeAppsViewSettings() {
+    this.appsViewModal.open = false;
+  },
+  async saveAppsViewSettings() {
+    const m = this.appsViewModal;
+    if (!m || !m.open || m.saving) {
       return;
     }
-    const choice = result.value;
-    const visibility = choice === 'private' ? 'private' : 'public';
-    const editPermission = choice === 'public_editable' ? 'all' : 'owner';
-    const updated = await this._putAppView(id, {visibility, edit_permission: editPermission});
-    if (updated) {
-      this._applyServerViewUpdate(updated);
+    const name = (m.name || '').trim().slice(0, 64);
+    if (!name) {
+      return;  // name is required (Save button is also disabled when blank)
+    }
+    // Build a single PUT with only the changed fields. name/layout edits are
+    // allowed for editors; visibility/edit_permission are owner-only (and the
+    // sharing section only renders for can_manage), so we only send them then.
+    const body = {};
+    if (name !== m.orig_name) {
+      body.name = name;
+    }
+    if (m.can_manage && m.choice !== m.orig_choice) {
+      body.visibility = m.choice === 'private' ? 'private' : 'public';
+      body.edit_permission = m.choice === 'public_editable' ? 'all' : 'owner';
+    }
+    if (!Object.keys(body).length) {
+      this.closeAppsViewSettings();  // nothing changed
+      return;
+    }
+    m.saving = true;
+    try {
+      const updated = await this._putAppView(m.id, body);
+      if (updated) {
+        this._applyServerViewUpdate(updated);
+        this.closeAppsViewSettings();
+      }
+    } finally {
+      m.saving = false;
     }
   },
   // A short i18n label for the active view's sharing state — drives the badge
@@ -4253,30 +4309,6 @@ export default {
       return;
     }
     await this.appsCreateView(result.value || '');
-  },
-  async appsPromptRenameView(id) {
-    const v = this.appsViews().find(x => x && x.id === id);
-    if (!v) {
-      return;
-    }
-    const result = await Swal.fire({
-      title: this.t('apps.custom.view_rename_title') || 'Rename view',
-      input: 'text',
-      inputValue: v.name || '',
-      inputPlaceholder: this.t('apps.custom.view_name_placeholder') || 'View name',
-      inputAttributes: {maxlength: '64', autocapitalize: 'words'},
-      showCancelButton: true,
-      confirmButtonText: this.t('actions.save') || 'Save',
-      cancelButtonText: this.t('actions.cancel') || 'Cancel',
-      background: this._cssVar('--surface'),
-      color: this._cssVar('--text'),
-      confirmButtonColor: this._cssVar('--primary'),
-      cancelButtonColor: this._cssVar('--btn-cancel-bg'),
-    });
-    if (!result.isConfirmed) {
-      return;
-    }
-    await this.appsRenameView(id, result.value || '');
   },
   async appsConfirmDeleteView(id) {
     const v = this.appsViews().find(x => x && x.id === id);

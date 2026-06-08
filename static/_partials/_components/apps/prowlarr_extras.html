@@ -45,12 +45,25 @@
           </div>
         </div>
         <!-- Connected-app names: the REAL synced *arr apps (Sonarr / Radarr /
-             Whisparr / …), not just a count. Lives outside the stat-grid so
-             the 1x1..4x2 card-size rules are unaffected. -->
-        <div x-show="prowlarrAppsNames(inst)"
-             class="fs-3xs text-[var(--text-dim)] mt-1 truncate"
-             :title="prowlarrAppsNames(inst)"
-             x-text="(t('apps.prowlarr.apps_synced') || 'Apps synced') + ': ' + prowlarrAppsNames(inst)"></div>
+             Whisparr / …), rendered as brand-icon chips rather than a raw
+             comma-joined string. Lives outside the stat-grid so the 1x1..4x2
+             card-size rules are unaffected. -->
+        <template x-if="prowlarrAppsList(inst).length">
+          <div class="apps-prowlarr-synced" :title="prowlarrAppsNames(inst)">
+            <span class="apps-prowlarr-synced-label"
+                  x-text="(t('apps.prowlarr.apps_synced') || 'Apps synced') + ':'"></span>
+            <span class="apps-prowlarr-synced-chips">
+              <template x-for="ap in prowlarrAppsList(inst)" :key="ap.name">
+                <span class="apps-prowlarr-app-chip">
+                  <img x-show="ap.icon" :src="ap.icon" alt="" loading="lazy"
+                       class="apps-prowlarr-app-chip-icon"
+                       @error="$event.target.style.display='none'">
+                  <span x-text="ap.name"></span>
+                </span>
+              </template>
+            </span>
+          </div>
+        </template>
         <!-- Footnote: version + health issues. -->
         <div x-show="prowlarrData(inst).version || (Number(prowlarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
