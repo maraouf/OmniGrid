@@ -35,6 +35,7 @@ from . import lidarr
 from . import pihole
 from . import plex
 from . import prowlarr
+from . import qbittorrent
 from . import radarr
 from . import readarr
 from . import seerr
@@ -67,6 +68,7 @@ _register(lidarr)
 _register(pihole)
 _register(plex)
 _register(prowlarr)
+_register(qbittorrent)
 _register(radarr)
 _register(readarr)
 _register(seerr)
