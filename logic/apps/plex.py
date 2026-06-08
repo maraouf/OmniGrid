@@ -152,7 +152,7 @@ def _client_identifier() -> str:
     across sign-ins. Stored in ``Settings.PLEX_CLIENT_IDENTIFIER``."""
     from logic.db import get_setting, set_setting  # noqa: PLC0415
     from logic.settings_keys import Settings  # noqa: PLC0415
-    cid = (get_setting(Settings.PLEX_CLIENT_IDENTIFIER, "") or "").strip()
+    cid = (get_setting(Settings.PLEX_CLIENT_IDENTIFIER) or "").strip()
     if not cid:
         cid = uuid.uuid4().hex
         set_setting(Settings.PLEX_CLIENT_IDENTIFIER, cid)
@@ -241,6 +241,29 @@ def _headers(token: str) -> dict:
     return {"X-Plex-Token": token, "Accept": "application/json"}
 
 
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook — fetch a Plex poster/thumb server-side so the
+    X-Plex-Token never reaches the browser. ``path`` is a Plex metadata image
+    path (``/library/metadata/<id>/thumb/<ts>``); we serve it via Plex's
+    photo-transcode endpoint (``/photo/:/transcode``) sized for the card, with
+    the token in the (server-side) query. SSRF guard: only a relative Plex
+    ``/...`` path is accepted."""
+    from urllib.parse import urlencode  # noqa: PLC0415
+    token = (chip.get("api_key") or "").strip()
+    p = (path or "").strip()
+    if not p:
+        raise ValueError("empty thumb path")
+    if "://" in p or not p.startswith("/") or ".." in p:
+        raise ValueError("thumb must be a Plex metadata path")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    base = base.rstrip("/")
+    qs = urlencode({"width": 300, "height": 450, "minSize": 1, "upscale": 1,
+                    "url": p, "X-Plex-Token": token})
+    return base + "/photo/:/transcode?" + qs, {"X-Plex-Token": token}
+
+
 def _mc(body: Any) -> dict:
     """Unwrap Plex's top-level ``MediaContainer`` envelope ({} on any shape)."""
     if not isinstance(body, dict):
@@ -268,6 +291,7 @@ async def _fetch_version(cli: httpx.AsyncClient, base: str, token: str) -> str:
         return ""
 
 
+# noinspection DuplicatedCode
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Plex's auth-required ``/library/sections`` with the supplied
     X-Plex-Token. Returns ``{ok, detail, status}`` for direct SPA consumption.
@@ -309,6 +333,7 @@ async def _section_total(cli: httpx.AsyncClient, base: str, token: str,
         return 0
 
 
+# noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -446,6 +471,7 @@ def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Option
     return token, base, None
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
@@ -500,6 +526,7 @@ def _session_line(item: dict) -> str:
     return f"▶️ {who} — {label}{pct}{where}"
 
 
+# noinspection DuplicatedCode
 async def _now_playing_skill(host_row: dict, chip: dict, *,
                              host_id: Optional[str] = None) -> dict:
     """Read-only: list the active playback sessions (who's watching what) from
@@ -548,6 +575,7 @@ def _media_title(item: dict) -> str:
     return title + (f" ({year})" if year else "")
 
 
+# noinspection DuplicatedCode
 async def _recently_added_skill(host_row: dict, chip: dict, *,
                                 host_id: Optional[str] = None) -> dict:
     """Read-only: list the most recently added items from
@@ -574,13 +602,63 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not meta:
         return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added to Plex."}
-    lines = ["🆕 Recently added to Plex:"]
-    for item in meta[:12]:
-        t = _media_title(item)
-        if t:
-            icon = "📺" if str(item.get("type") or "").lower() in ("episode", "show", "season") else "🎬"
-            lines.append(f"  {icon} {t}")
-    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+    # Group into Movies vs Series (everything show/season/episode-shaped) and
+    # emit rich rows — poster thumbnail (Plex art via the per-app image proxy,
+    # token server-side) + the year — matching the Radarr / Tautulli card style.
+    movies: list[dict] = []
+    series: list[dict] = []
+    for item in meta[:20]:
+        if not isinstance(item, dict):
+            continue
+        typ = str(item.get("type") or "").lower()
+        is_movie = typ == "movie"
+        if is_movie:
+            title = str(item.get("title") or "?").strip()
+        else:
+            title = str(item.get("grandparentTitle") or item.get("parentTitle")
+                        or item.get("title") or "?").strip()
+        if not title or title == "?":
+            continue
+        yr = str(item.get("year") or "").strip()
+        yr = yr[:4] if len(yr) >= 4 and yr[:4].isdigit() else ""
+        sub_parts = []
+        if not is_movie:
+            ep = str(item.get("title") or "").strip()
+            if ep and ep != title:
+                sub_parts.append(ep)
+        if yr:
+            sub_parts.append(yr)
+        # Movie → its own poster (thumb). Series/episode → the SHOW poster
+        # (grandparentThumb) not the episode still (thumb).
+        if is_movie:
+            thumb = str(item.get("thumb") or item.get("art") or "").strip()
+        else:
+            thumb = str(item.get("grandparentThumb") or item.get("parentThumb")
+                        or item.get("thumb") or "").strip()
+        row: "dict[str, Any]" = {
+            "title": title + (f" ({yr})" if is_movie and yr else ""),
+            "subtitle": " · ".join(sub_parts),
+            "group": "apps.tautulli.group_movies" if is_movie
+            else "apps.tautulli.group_series"}
+        if thumb:
+            row["poster"] = thumb
+            row["poster_proxy"] = True
+        (movies if is_movie else series).append(row)
+    rich = movies + series
+    if not rich:
+        return {"ok": True, "status": 200, "detail": "🆕 Nothing recently added to Plex."}
+    lines = []
+    if movies:
+        lines.append("🎬 Movies:")
+        lines += [f"  • {mv['title']}" for mv in movies]
+    if series:
+        lines.append("📺 Series:")
+        lines += [f"  • {sr['title']}"
+                  + (f" — {sr['subtitle']}" if sr.get("subtitle") else "") for sr in series]
+    return {"ok": True, "status": 200,
+            "detail": "🆕 Recently added to Plex:\n" + "\n".join(lines),
+            "count": len(rich), "count_i18n": "apps.tautulli.recent_count",
+            "items": rich}
 
 
 async def _search_skill(host_row: dict, chip: dict, *,

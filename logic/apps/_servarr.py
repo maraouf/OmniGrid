@@ -152,32 +152,39 @@ def poster_url(item: Any) -> str:
     return ""
 
 
-def local_poster_path(item: Any) -> str:
+def local_poster_path(item: Any, *, id_fallback: bool = False) -> str:
     """Return a *arr item's LOCAL poster image path (``/MediaCover/...``), to be
     fetched server-side through the per-app image proxy with the api_key.
 
     Unlike ``poster_url`` (the external ``remoteUrl`` CDN link, which is often
-    MISSING — Lidarr albums frequently have no ``remoteUrl``, and Sonarr's TVDB
-    ``remoteUrl`` host isn't in the browser-side TMDB proxy allowlist), every
-    *arr ALWAYS serves its own cached cover at the local ``url`` behind the
-    ``X-Api-Key``. Prefers ``poster`` then ``cover`` art. The returned path is
-    normalised to a leading ``/`` (some builds return it slash-less); any
-    ``?lastWrite=`` cache-buster query is preserved. ``""`` when no image."""
-    if not isinstance(item, dict):
-        return ""
-    imgs = item.get("images")
-    if not isinstance(imgs, list):
-        return ""
-    for want in ("poster", "cover"):
-        for im in imgs:
-            if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
-                url = str(im.get("url") or "").strip()
-                if url:
-                    # Local MediaCover only — never proxy an absolute remote URL
-                    # through the credentialed per-app proxy (SSRF hardening).
-                    if "://" in url:
-                        continue
-                    return url if url.startswith("/") else "/" + url
+    MISSING — Radarr's CALENDAR omits ``remoteUrl`` for unreleased films, Lidarr
+    albums frequently have none, and Sonarr's TVDB ``remoteUrl`` host isn't in
+    the browser-side TMDB proxy allowlist), every *arr ALWAYS serves its own
+    cached cover at the local ``url`` behind the ``X-Api-Key``. Prefers
+    ``poster`` then ``cover`` art. The path is normalised to a leading ``/``;
+    any ``?lastWrite=`` cache-buster query is preserved.
+
+    ``id_fallback`` (Radarr movie / Sonarr series — both use the flat
+    ``/MediaCover/<id>/poster.jpg`` scheme): when the ``images`` array is absent
+    or carries no usable local ``url``, build the path straight from the item's
+    own ``id``. This is the canonical Radarr/Sonarr MediaCover route, so the
+    poster resolves even when the response trims the images list. ``""`` when no
+    image and no id."""
+    if isinstance(item, dict):
+        imgs = item.get("images")
+        if isinstance(imgs, list):
+            for want in ("poster", "cover"):
+                for im in imgs:
+                    if isinstance(im, dict) and str(im.get("coverType") or "").lower() == want:
+                        url = str(im.get("url") or "").strip()
+                        # Local MediaCover only — never proxy an absolute remote
+                        # URL through the credentialed per-app proxy (SSRF).
+                        if url and "://" not in url:
+                            return url if url.startswith("/") else "/" + url
+        if id_fallback:
+            mid = safe_int(item.get("id"))
+            if mid:
+                return f"/MediaCover/{mid}/poster.jpg"
     return ""
 
 
@@ -349,3 +356,35 @@ async def command_skill(host_row: dict, chip: dict, *, command: str,
     return {"ok": False, "status": r.status_code,
             "detail": f"{app_label} returned HTTP {r.status_code} for {command}"
                       + (f" — {_body}" if _body else "")}
+
+
+async def queue_delete_skill(host_row: dict, chip: dict, *, arg: Optional[str],
+                             app_label: str, api_version: str,
+                             host_id: Optional[str] = None) -> dict:
+    """Destructive action shared by every *arr: remove ONE record from the
+    download queue (``DELETE /api/<v>/queue/<id>?removeFromClient=true&
+    blocklist=false``). The drawer's per-row trash button supplies the numeric
+    queue-record id. Never raises."""
+    tag = app_label.lower()
+    qid = (arg or "").strip()
+    if not qid.isdigit():
+        return {"ok": False, "status": 0,
+                "detail": "no valid queue id given (the trash button supplies it)"}
+    api_key, base, err = resolve_skill_target(host_row, chip, app_label)
+    if err:
+        return err
+    print(f"[{tag}] INFO queue_delete host={host_id} id={qid}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.delete(base + f"/api/{api_version}/queue/{qid}",
+                                 headers=headers(api_key),
+                                 params={"removeFromClient": "true", "blocklist": "false"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"delete failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": f"auth failed (check {app_label} api_key)"}
+    if 200 <= r.status_code < 300:
+        return {"ok": True, "status": 200, "detail": "🗑️ Removed from the download queue."}
+    return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
