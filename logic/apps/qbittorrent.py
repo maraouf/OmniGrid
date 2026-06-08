@@ -57,6 +57,8 @@ Upstream API reference: <qbit-host>/api/v2 (WebUI API). Endpoints:
 """
 from __future__ import annotations
 
+import json as _json
+import posixpath as _posixpath
 import re as _re
 import time
 from typing import Any, Optional
@@ -64,6 +66,20 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import resolve_base_url, resolve_cache_ttl
+from logic.external_urls import ExternalURL
+
+# VueTorrent WebUI auto-update (the alternative qBittorrent WebUI). The check
+# skill compares the running version (served at /version.txt, or parsed from the
+# alternative_webui_path) against the latest GitHub release; the update skill
+# SSHes to the host, downloads + extracts the new release next to the current
+# one, and points qBittorrent's alternative WebUI at it via the API.
+_VUETORRENT_REPO = "VueTorrent/VueTorrent"
+_SEMVER_RE = _re.compile(r"(?P<v>\d+\.\d+\.\d+)")
+# Strict guards for the values interpolated into the SSH command (defence
+# against shell injection — the version comes from a GitHub tag, the dir from
+# qBittorrent's own prefs, but both are validated before they reach the shell).
+_STRICT_SEMVER_RE = _re.compile(r"^\d+\.\d+\.\d+$")
+_SAFE_PATH_RE = _re.compile(r"^/[A-Za-z0-9_./ -]+$")
 from logic.apps._common import cache_key, peek_cache
 from logic.coerce import as_list, safe_float, safe_int
 
@@ -138,6 +154,25 @@ SKILLS: tuple[dict, ...] = (
         "name": "Pause all torrents",
         "ai_phrases": ("pause all torrents, stop all torrents, pause everything, "
                        "stop downloading, halt all torrents, pause downloads"),
+        "destructive": True,
+    },
+    {
+        "id": "qbittorrent_vuetorrent_check",
+        "name": "Check VueTorrent version",
+        "ai_phrases": ("what vuetorrent version, is vuetorrent up to date, check "
+                       "the vuetorrent webui version, is my qbittorrent webui "
+                       "current, vuetorrent update available, check for a "
+                       "vuetorrent update, what's the latest vuetorrent"),
+        "destructive": False,
+    },
+    {
+        "id": "qbittorrent_vuetorrent_update",
+        "name": "Update VueTorrent WebUI",
+        "ai_phrases": ("update vuetorrent, upgrade the qbittorrent webui, install "
+                       "the latest vuetorrent, update my qbittorrent webui to the "
+                       "latest, bring vuetorrent up to date"),
+        # Destructive: it SSHes to the host, downloads + extracts a new WebUI
+        # release, and repoints qBittorrent's alternative WebUI at it.
         "destructive": True,
     },
 )
@@ -421,6 +456,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _set_all_skill(host_row, chip, resume=True, host_id=host_id)
     if skill_id == "qbittorrent_pause_all":
         return await _set_all_skill(host_row, chip, resume=False, host_id=host_id)
+    if skill_id == "qbittorrent_vuetorrent_check":
+        return await _vuetorrent_check_skill(host_row, chip, host_id=host_id)
+    if skill_id == "qbittorrent_vuetorrent_update":
+        return await _vuetorrent_update_skill(host_row, chip, host_id=host_id,
+                                              actor_username=_kw.get("actor_username"))
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -432,6 +472,273 @@ def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, str, Optiona
     if not base:
         return "", "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
     return username, password, base, None
+
+
+# ---------------------------------------------------------------------------
+# VueTorrent WebUI version check + auto-update
+# ---------------------------------------------------------------------------
+def _semver_tuple(s: Any) -> tuple:
+    """``"2.34.0"`` → ``(2, 34, 0)`` for ordering. Missing / bad parts → 0."""
+    out: list = []
+    for part in str(s or "").split(".")[:3]:
+        try:
+            out.append(int(part))
+        except (TypeError, ValueError):
+            out.append(0)
+    while len(out) < 3:
+        out.append(0)
+    return tuple(out)
+
+
+async def _qbit_prefs(cli: httpx.AsyncClient, base: str) -> dict:
+    """``GET /api/v2/app/preferences`` (authenticated). ``{}`` on any failure."""
+    try:
+        r = await cli.get(base + "/api/v2/app/preferences")
+        if r.status_code == 200:
+            body = r.json()
+            return body if isinstance(body, dict) else {}
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return {}
+    return {}
+
+
+async def _current_vuetorrent(cli: httpx.AsyncClient, base: str,
+                              prefs: dict) -> "tuple[str, str]":
+    """Detect the RUNNING VueTorrent version + its WebUI root folder.
+
+    Returns ``(version, root_folder)``. Version comes from ``/version.txt`` (the
+    VueTorrent build ships it at its dist root, served by qBittorrent from the
+    alternative-WebUI root); falls back to parsing the version out of the
+    ``alternative_webui_path`` dir name (e.g. ``…/VueTorrent.2.34.0``)."""
+    ver = ""
+    try:
+        r = await cli.get(base + "/version.txt")
+        if r.status_code == 200:
+            m = _SEMVER_RE.search((r.text or "").strip())
+            if m:
+                ver = m.group("v")
+    except (httpx.HTTPError, OSError):
+        ver = ""
+    root = str((prefs or {}).get("alternative_webui_path") or "").strip()
+    if not ver and root:
+        m = _SEMVER_RE.search(root)
+        if m:
+            ver = m.group("v")
+    return ver, root
+
+
+async def _latest_vuetorrent() -> "tuple[str, str, str]":
+    """Latest VueTorrent release from GitHub. Returns ``(version, zip_url,
+    error)`` — ``error`` is non-empty on failure (rate limit / network)."""
+    url = f"{ExternalURL.GITHUB_API}/repos/{_VUETORRENT_REPO}/releases/latest"
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "OmniGrid"}
+    from logic.env_keys import EnvKey, env_get  # noqa: PLC0415
+    tok = (env_get(EnvKey.GITHUB_TOKEN) or "").strip()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+            r = await cli.get(url, headers=headers)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return "", "", f"GitHub fetch failed: {type(e).__name__}: {e}"
+    if r.status_code != 200:
+        return "", "", f"GitHub returned HTTP {r.status_code}"
+    try:
+        body = r.json()
+    except (ValueError, TypeError):
+        return "", "", "GitHub returned non-JSON"
+    tag = str((body or {}).get("tag_name") or "").strip()
+    m = _SEMVER_RE.search(tag)
+    if not m:
+        return "", "", "could not parse the latest release tag"
+    ver = m.group("v")
+    zip_url = ""
+    assets = body.get("assets") if isinstance(body, dict) else None
+    for a in (assets if isinstance(assets, list) else []):
+        if isinstance(a, dict) and str(a.get("name") or "").lower() == "vuetorrent.zip":
+            zip_url = str(a.get("browser_download_url") or "").strip()
+            break
+    if not zip_url:
+        zip_url = (f"{ExternalURL.GITHUB}/{_VUETORRENT_REPO}/releases/download/"
+                   f"{tag}/vuetorrent.zip")
+    return ver, zip_url, ""
+
+
+def _vuetorrent_install_script(install_dir: str, version: str, zip_url: str) -> str:
+    """Build the one SSH command that downloads + extracts the VueTorrent
+    release next to the current install. Every interpolated value is strict-
+    regex-validated by the caller (no quotes / shell metacharacters), and the
+    values are single-quoted, so this is injection-safe. curl→wget and
+    unzip→python3 fallbacks cover minimal hosts. Echoes ``INSTALLED:<dir>`` on
+    success so the caller can confirm."""
+    z = f"VueTorrent.{version}.zip"
+    dest = f"VueTorrent.{version}"
+    return (
+        "set -e; "
+        f"cd '{install_dir}'; "
+        f"URL='{zip_url}'; ZIP='{z}'; DEST='{dest}'; "
+        'if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$ZIP" "$URL"; '
+        'else wget -qO "$ZIP" "$URL"; fi; '
+        'rm -rf "$DEST" "$DEST.tmp"; mkdir -p "$DEST.tmp"; '
+        'if command -v unzip >/dev/null 2>&1; then unzip -q -o "$ZIP" -d "$DEST.tmp"; '
+        'else python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$ZIP" "$DEST.tmp"; fi; '
+        'if [ -d "$DEST.tmp/vuetorrent" ]; then mv "$DEST.tmp/vuetorrent" "$DEST"; rm -rf "$DEST.tmp"; '
+        'else mv "$DEST.tmp" "$DEST"; fi; '
+        'rm -f "$ZIP"; '
+        'echo "INSTALLED:$DEST"'
+    )
+
+
+async def _run_host_ssh(host_id: Optional[str], command: str,
+                        actor_username: Optional[str], *,
+                        timeout: float = 120.0) -> dict:
+    """Run ONE command on the chip's host over SSH (real run) + write the
+    ``ssh_run`` audit row, mirroring the manual SSH-runner route. Returns the
+    ``logic.ssh.run_command`` result dict (never raises). SSH must be enabled
+    for the host (per-host opt-in + global master switch) or the result carries
+    an ``error``."""
+    from logic import ssh as _ssh  # noqa: PLC0415
+    from logic.db import get_setting  # noqa: PLC0415
+    from logic.settings_keys import Settings  # noqa: PLC0415
+    try:
+        cfg = _json.loads(get_setting(Settings.HOSTS_CONFIG) or "[]")
+        if not isinstance(cfg, list):
+            cfg = []
+    except (ValueError, TypeError):
+        cfg = []
+    result = await _ssh.run_command(host_id=str(host_id or ""), command=command,
+                                    hosts_config=cfg, timeout=timeout)
+    try:
+        import uuid as _uuid  # noqa: PLC0415
+        # NOTE: _ssh_write_audit_row lives in main_pkg.hosts_ssh_routes (the SSH
+        # route module), NOT in main — importing from main silently ImportErrors
+        # and the ssh_run audit row never gets written.
+        # noinspection PyProtectedMember
+        from main_pkg.hosts_ssh_routes import _ssh_write_audit_row  # noqa: PLC0415
+        _ssh_write_audit_row(op_id=_uuid.uuid4().hex[:8],
+                             actor=(actor_username or "ai/telegram"),
+                             host_id=str(host_id or ""), command=command, result=result)
+    except (ImportError, RuntimeError, OSError, ValueError, TypeError):
+        pass  # audit is best-effort — never fail the skill on a logging miss
+    return result
+
+
+# noinspection DuplicatedCode
+async def _vuetorrent_check_skill(host_row: dict, chip: dict, *,
+                                  host_id: Optional[str] = None) -> dict:
+    """Read-only: compare the running VueTorrent WebUI version against the
+    latest GitHub release. Never raises."""
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[qbittorrent] INFO qbittorrent_vuetorrent_check host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            prefs = await _qbit_prefs(cli, base)
+            current, _root = await _current_vuetorrent(cli, base, prefs)
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    latest, _zip, gh_err = await _latest_vuetorrent()
+    if gh_err:
+        return {"ok": False, "status": 0,
+                "detail": f"Current VueTorrent: {current or 'unknown'}. Couldn't "
+                          f"check the latest release — {gh_err}."}
+    if not current:
+        return {"ok": True, "status": 200,
+                "detail": f"⚠️ Couldn't detect the running VueTorrent version (is "
+                          f"qBittorrent's alternative WebUI enabled?). Latest "
+                          f"release is {latest}."}
+    if _semver_tuple(current) >= _semver_tuple(latest):
+        return {"ok": True, "status": 200,
+                "detail": f"✅ VueTorrent is up to date ({current}).",
+                "current": current, "latest": latest, "outdated": False}
+    return {"ok": True, "status": 200,
+            "detail": f"⬆️ VueTorrent {current} is installed — {latest} is "
+                      f"available. Run 'Update VueTorrent WebUI' to upgrade.",
+            "current": current, "latest": latest, "outdated": True}
+
+
+# noinspection DuplicatedCode
+async def _vuetorrent_update_skill(host_row: dict, chip: dict, *,
+                                   host_id: Optional[str] = None,
+                                   actor_username: Optional[str] = None) -> dict:
+    """Destructive: when VueTorrent is behind, SSH to the host, download +
+    extract the latest release next to the current install, and repoint
+    qBittorrent's alternative WebUI at it via the API. Never raises."""
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[qbittorrent] INFO qbittorrent_vuetorrent_update host={host_id} (live)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            prefs = await _qbit_prefs(cli, base)
+            current, root = await _current_vuetorrent(cli, base, prefs)
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    latest, zip_url, gh_err = await _latest_vuetorrent()
+    if gh_err:
+        return {"ok": False, "status": 0,
+                "detail": f"couldn't check the latest release — {gh_err}"}
+    if current and _semver_tuple(current) >= _semver_tuple(latest):
+        return {"ok": True, "status": 200,
+                "detail": f"✅ VueTorrent is already up to date ({current}). Nothing to do."}
+    if not root:
+        return {"ok": False, "status": 0,
+                "detail": "qBittorrent has no alternative WebUI path set, so I can't "
+                          "tell where VueTorrent lives. Set Web UI → 'Use alternative "
+                          "WebUI' to the VueTorrent folder once, then re-run."}
+    install_dir = _posixpath.dirname(root.rstrip("/"))
+    new_dir = f"{install_dir}/VueTorrent.{latest}"
+    # Validate everything that reaches the shell (defence-in-depth — these come
+    # from a GitHub tag + qBittorrent's own prefs, but never trust either).
+    if not _STRICT_SEMVER_RE.match(latest):
+        return {"ok": False, "status": 0,
+                "detail": f"refusing to run — unexpected version '{latest}'"}
+    if not _SAFE_PATH_RE.match(install_dir):
+        return {"ok": False, "status": 0,
+                "detail": f"refusing to run — unsafe install directory '{install_dir}'"}
+    if not zip_url.startswith(ExternalURL.GITHUB + "/"):
+        return {"ok": False, "status": 0,
+                "detail": "refusing to run — the download URL isn't a github.com release"}
+    # 1) SSH: download + extract.
+    script = _vuetorrent_install_script(install_dir, latest, zip_url)
+    ssh_result = await _run_host_ssh(host_id, script, actor_username, timeout=180.0)
+    if not ssh_result.get("ok"):
+        detail = (ssh_result.get("error") or ssh_result.get("stderr")
+                  or "SSH command failed")
+        return {"ok": False, "status": 0,
+                "detail": f"download/extract over SSH failed: {str(detail)[:300]} "
+                          f"(is SSH enabled for this host in Admin → Hosts?)"}
+    if "INSTALLED:" not in str(ssh_result.get("stdout") or ""):
+        tail = str(ssh_result.get("stdout") or "")[-300:] or "(no output)"
+        return {"ok": False, "status": 0,
+                "detail": f"the install step didn't confirm success: {tail}"}
+    # 2) Repoint qBittorrent's alternative WebUI at the new dir (API — no conf
+    #    edit, no restart; qBittorrent persists + applies it).
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            payload = _json.dumps({"alternative_webui_enabled": True,
+                                   "alternative_webui_path": new_dir})
+            r = await cli.post(base + "/api/v2/app/setPreferences",
+                               data={"json": payload},
+                               headers={"Referer": base, "Origin": base})
+            if r.status_code != 200:
+                raise RuntimeError(f"setPreferences returned HTTP {r.status_code}")
+    except (httpx.HTTPError, OSError, RuntimeError) as e:
+        return {"ok": False, "status": 0,
+                "detail": f"installed {latest} to {new_dir} but couldn't repoint "
+                          f"qBittorrent ({e}). Set the alternative WebUI path to "
+                          f"{new_dir} manually."}
+    return {"ok": True, "status": 200,
+            "detail": f"✅ Updated VueTorrent {current or '?'} → {latest}. "
+                      f"qBittorrent's WebUI now serves from {new_dir}. Reload the "
+                      f"WebUI to see it (restart qBittorrent if it doesn't switch)."}
 
 
 # noinspection DuplicatedCode
