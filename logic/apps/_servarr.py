@@ -203,13 +203,18 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     base = resolve_base_url(host_row, chip)
     if not base:
         raise ValueError("no upstream URL configured")
-    # Image fetch headers — the api_key ONLY. Do NOT reuse headers() here: it
-    # sends Accept: application/json, which makes a strict *arr (or a reverse
-    # proxy in front of it) answer the /MediaCover image fetch with 406 / a JSON
-    # error body instead of the JPEG bytes — the proxy route's image/* content
-    # check then rejects it and the poster renders empty. Accept: */* can never
-    # 406, so the server always returns the cover and the route streams it.
-    return base.rstrip("/") + p, {"X-Api-Key": api_key, "Accept": "*/*"}
+    from urllib.parse import quote  # noqa: PLC0415
+    # *arr MediaCover / static image routes authenticate via the `apikey` QUERY
+    # param, NOT the X-Api-Key HEADER — the header authenticates the /api/<v>/
+    # JSON routes only. Header-only, Radarr/Sonarr serve their 200 text/html SPA
+    # shell for the image path, and the proxy route's image/* content check then
+    # 415s → the poster renders empty. So append apikey to the path's query
+    # (preserving any existing ?lastWrite= cache-buster). Keep the header too —
+    # harmless, and helps any version that DOES honour it. Accept: */* (never
+    # the headers() JSON Accept, which would 406 the binary fetch).
+    sep = "&" if "?" in p else "?"
+    url = base.rstrip("/") + p + sep + "apikey=" + quote(api_key, safe="")
+    return url, {"X-Api-Key": api_key, "Accept": "*/*"}
 
 
 def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:

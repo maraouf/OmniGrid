@@ -5603,6 +5603,8 @@
       "logs_tail_n": "{n} lines",
       "logs_empty": "(no log output)",
       "logs_no_container": "Logs are available only for container-linked apps",
+      "open_stack": "Open in Stacks",
+      "open_stack_no_match": "Linked Docker target not found in the current items list",
       "restart_no_match": "Linked Docker target not found in the current items list",
       "show_debug": "Show debug",
       "hide_debug": "Hide debug",
@@ -5802,6 +5804,7 @@
       "recent_count": "{count} recently added",
       "group_movies": "Movies",
       "group_series": "Series",
+      "group_music": "Music",
       "group_other": "Other"
     },
     "qbittorrent": {
