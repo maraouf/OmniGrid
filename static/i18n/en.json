@@ -4962,6 +4962,8 @@
     "template_show_extras": "Show extras on app cards by default",
     "template_show_extras_hint": "Per-instance overrides take precedence. Uncheck here to hide by default but allow individual hosts to opt in.",
     "instance_edit_show_extras": "Show extras on the app card",
+    "instance_edit_show_extras_fleet": "This app shows one combined card for all its instances — changing this affects every instance.",
+    "instance_edit_show_extras_per_instance": "Applies to this instance only — each instance of this app has its own setting.",
     "intro": "Reusable service templates. Each row carries default ports + probe paths + brand-icon slug so a chip in Admin → Hosts can inherit recipe defaults via catalog_id instead of redefining per host. Built-in seed covers ~15 essentials; add operator-authored templates for in-house services.",
     "templates_pill": "templates",
     "tunables_intro": "In-process caches and first-paint render cadence for the Apps view. Per-use reads, so an edit takes effect on the next render without a restart.",

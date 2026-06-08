@@ -172,19 +172,35 @@ def _persist_host_services(hosts: list, target_idx: int, services: list) -> None
         pass
 
 
+def _chip_app_is_fleet(chip: dict) -> bool:
+    """True when the chip's app AGGREGATES across instances (declares
+    ``FLEET_SKILLS``) — Pi-hole / AdGuard. Those apps render ONE aggregated
+    card for every instance, so a single ``show_extras`` is shared across all
+    of them. Every other app (qBittorrent, the *arr family, …) renders a card
+    PER instance and keeps ``show_extras`` per-instance."""
+    # noinspection PyBroadException
+    try:
+        from logic.apps import registry as _reg  # noqa: PLC0415
+        slug = _reg._chip_slug(chip)
+        mod = _reg.module_for_slug(slug) if slug else None
+        return bool(getattr(mod, "FLEET_SKILLS", False))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _sync_show_extras_across_app(hosts: list, source_chip: dict, value: Any) -> None:
     """Mirror a per-instance ``show_extras`` override onto EVERY chip of the
-    same app (same ``catalog_id``) across ALL hosts, so the per-app card's
-    gear-flip "Show extras" toggle and the Admin -> Apps instance editor are
-    ONE control: editing either surface (which both write per-instance
-    show_extras through the PATCH handler) updates every instance, and the
-    per-app card (which aggregates instances) reflects the change no matter
-    which instance was edited. ``value`` is the bool to set on every sibling,
-    or a non-bool (the SPA's inherit sentinel) to CLEAR the override on every
-    sibling. Mutates the in-place ``hosts`` list; the caller persists the
-    whole config via ``_persist_host_services`` (which json.dumps all hosts).
-    Chips with no ``catalog_id`` (manual, not catalog-linked) are left alone
-    — there's no sibling set to sync to.
+    same app (same ``catalog_id``) across ALL hosts — but ONLY for AGGREGATE
+    (fleet) apps (Pi-hole / AdGuard), whose card is ONE aggregated block for
+    every instance, so a single "Show extras" control governs the whole app.
+    Every NON-aggregate app (qBittorrent, the *arr family, …) renders a card
+    PER instance, so its ``show_extras`` stays PER-INSTANCE and is NOT synced —
+    editing one instance's extras must not touch the others.
+
+    ``value`` is the bool to set on every sibling, or a non-bool (the SPA's
+    inherit sentinel) to CLEAR the override. Mutates ``hosts`` in place; the
+    caller persists the whole config via ``_persist_host_services``. Chips with
+    no ``catalog_id`` (manual, not catalog-linked) are left alone.
 
     Only an EXPLICIT show/hide (``value`` is a bool) propagates. A
     clear-to-inherit (non-bool sentinel) stays per-instance so saving an
@@ -195,6 +211,9 @@ def _sync_show_extras_across_app(hosts: list, source_chip: dict, value: Any) -> 
         return
     cid = _coerce_int_local(source_chip.get("catalog_id"))
     if cid is None:
+        return
+    # Non-aggregate apps keep show_extras per-instance — do NOT propagate.
+    if not _chip_app_is_fleet(source_chip):
         return
     for h in hosts:
         if not isinstance(h, dict):
