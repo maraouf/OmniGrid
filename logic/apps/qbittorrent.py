@@ -22,10 +22,12 @@ header):
      caching the SID across the process — stateless + correct on a credential
      rotation, same rationale as Kavita's JWT. The PASSWORD is the secret
      (``api_key``, keep-current-if-blank); the USERNAME is the plain second
-     field (like AdGuard). When BOTH are blank we skip login and try the API
-     directly, so a WebUI with "Bypass authentication for clients on localhost /
-     whitelisted IPs" still works; a 403 then tells the operator to set
-     credentials.
+     field (like AdGuard). EACH instance has its OWN login — credentials are
+     per-chip (the per-instance editor saves this chip's ``username`` +
+     ``api_key`` independently), so two pinned qBittorrents each need their own.
+     ``fetch_data`` requires the password (a chip without one isn't configured
+     yet — the card says so, per-instance, instead of attempting the API and
+     surfacing a confusing 403).
 
 The expanded card answers "what's this client doing right now" at a glance:
     dl_speed / up_speed   — live transfer rates       (GET /api/v2/transfer/info)
@@ -271,6 +273,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
     base = resolve_base_url(host_row, chip)
     if not base:
         raise ValueError("no upstream URL configured")
+    # Each qBittorrent instance has its OWN login — a chip with no password
+    # isn't configured yet. Fail early with an actionable, per-instance message
+    # (instead of attempting the API and surfacing a confusing 403) so the card
+    # tells the operator to set THIS instance's credentials.
+    if not password:
+        raise ValueError("no password set for this qBittorrent instance — add a "
+                         "username + password in Admin → Apps (each instance has "
+                         "its own login)")
     now = time.time()
     ttl = resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S)
     ck = cache_key(host_id, service_idx)
@@ -294,9 +304,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
     if tr.status_code in (401, 403):
         print(f"[qbittorrent] error: fetch host={host_id} url={info_url} returned "
-              f"HTTP {tr.status_code} (auth — check username / password)")
-        raise RuntimeError(f"upstream auth failed: HTTP {tr.status_code} "
-                           f"(check username / password) — {info_url}")
+              f"HTTP {tr.status_code} (auth — check this instance's username / password)")
+        raise RuntimeError(f"auth failed: HTTP {tr.status_code} — check THIS instance's "
+                           f"qBittorrent username / password (each instance has its own login)")
     if tr.status_code != 200:
         print(f"[qbittorrent] error: fetch host={host_id} url={info_url} returned "
               f"HTTP {tr.status_code} (check the chip URL points at the qBittorrent "
