@@ -94,7 +94,7 @@ webauthn>=2.7.1
 # full HTML UI for both. When that happens ``logic/webmin.py`` parses
 # the HTML to extract the table data rather than failing hard. Pulled
 # in only for the scrape path; the XML and JSON branches don't touch it.
-beautifulsoup4>=4.14.3
+beautifulsoup4>=4.15.0
 # Optional ICMP transport for the Ping host-stats provider.
 # logic/ping.py imports this LAZILY and falls back to TCP-connect
 # probes when the package is missing — so this dep is genuinely
