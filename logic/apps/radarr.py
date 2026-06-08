@@ -64,6 +64,7 @@ from logic.coerce import as_dict, as_list, safe_float, safe_int
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Radarr's
 # api version (v3) + brand + id field, aliased to the historical underscore
 # names so the skill bodies' call sites stay unchanged.
+# noinspection DuplicatedCode
 _headers = _servarr.headers
 _version_from = _servarr.version_from
 _fmt_size_gib = _servarr.fmt_size_gib
@@ -350,6 +351,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None,
                           actor_username: Optional[str] = None) -> dict:
@@ -384,6 +386,11 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
     if not isinstance(items, list):
         items = []
     lines = []
+    # Structured rows for the SPA's rich skill-result card — each carries the
+    # title, the formatted release date (subtitle) and a poster URL so the
+    # drawer can render a small thumbnail next to the name. The plain-text
+    # `detail` is kept verbatim for AI / Telegram (no image surface there).
+    rich: list[dict] = []
     for m in items[:12]:
         if not isinstance(m, dict):
             continue
@@ -392,15 +399,19 @@ async def _upcoming_skill(host_row: dict, chip: dict, *,
         when = (str(m.get("digitalRelease") or m.get("physicalRelease")
                     or m.get("inCinemas") or "")[:10])
         when_fmt = _servarr.fmt_release_date(when, actor_username)
-        lines.append(f"• {title}{_year_suffix(m.get('year'))}"
-                     + (f" — {when_fmt}" if when_fmt else ""))
+        name = f"{title}{_year_suffix(m.get('year'))}"
+        lines.append(f"• {name}" + (f" — {when_fmt}" if when_fmt else ""))
+        rich.append({"title": name, "subtitle": when_fmt,
+                     "poster": _servarr.poster_url(m)})
     if not lines:
         return {"ok": True, "status": 200,
                 "detail": "🎬 No upcoming movie releases in the next 14 days."}
     return {"ok": True, "status": 200,
-            "detail": "🎬 Upcoming movies (next 14 days):\n" + "\n".join(lines)}
+            "detail": "🎬 Upcoming movies (next 14 days):\n" + "\n".join(lines),
+            "items": rich}
 
 
+# noinspection DuplicatedCode
 async def _queue_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str] = None) -> dict:
     """Read-only: what's currently downloading + progress from
@@ -429,6 +440,12 @@ async def _queue_skill(host_row: dict, chip: dict, *,
     if not records:
         return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
     lines = []
+    # Structured rows for the SPA's rich skill-result card — SAME
+    # {title, subtitle, poster} contract the upcoming skill uses, so the one
+    # generic renderer (poster thumbnail + title + subtitle) draws both with
+    # no per-skill UI. The queue record embeds the `movie` (includeMovie=true),
+    # so the poster comes from the same _servarr.poster_url helper.
+    rich: list[dict] = []
     for q in records[:12]:
         if not isinstance(q, dict):
             continue
@@ -438,10 +455,15 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         left = safe_float(q.get("sizeleft"))
         pct = int(round((1 - left / total) * 100)) if total > 0 else 0
         st = str(q.get("status") or "").strip().lower()
-        lines.append(f"• {title}{_year_suffix(mv.get('year'))} — {pct}%"
-                     + (f" ({st})" if st and st != "downloading" else ""))
+        name = f"{title}{_year_suffix(mv.get('year'))}"
+        st_suffix = f" ({st})" if st and st != "downloading" else ""
+        lines.append(f"• {name} — {pct}%{st_suffix}")
+        rich.append({"title": name,
+                     "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+                     "poster": _servarr.poster_url(mv)})
     return {"ok": True, "status": 200,
-            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines)}
+            "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),
+            "items": rich}
 
 
 # noinspection DuplicatedCode
@@ -501,6 +523,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
                          query: str) -> Optional[dict]:
     """Resolve a movie via Radarr's TMDB-backed lookup. A numeric ``query``
@@ -531,6 +554,7 @@ async def _radarr_lookup(cli: httpx.AsyncClient, base: str, api_key: str,
     return None
 
 
+# noinspection DuplicatedCode
 async def _movie_info_skill(host_row: dict, chip: dict, *,
                             arg: Optional[str] = None,
                             host_id: Optional[str] = None) -> dict:
@@ -581,6 +605,7 @@ async def _movie_info_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _add_movie_skill(host_row: dict, chip: dict, *,
                            arg: Optional[str] = None,
                            host_id: Optional[str] = None) -> dict:
@@ -655,6 +680,7 @@ async def _add_movie_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
+# noinspection DuplicatedCode
 async def _remove_movie_skill(host_row: dict, chip: dict, *,
                               arg: Optional[str] = None,
                               host_id: Optional[str] = None) -> dict:

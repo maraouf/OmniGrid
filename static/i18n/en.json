@@ -5022,6 +5022,7 @@
     "instance_edit_docker_search": "Type to search containers / services…",
     "instance_edit_docker_no_match": "No containers / services match",
     "docker_linked_title": "Linked to Docker: {target}",
+    "has_extras_title": "Has extra features — live card data + AI / Telegram skills",
     "instance_edit_docker_linked": "Linked",
     "instance_edit_docker_unresolved": "Linked target not in the current items snapshot",
     "instance_inherit_hint": "Leave blank to inherit from template:",

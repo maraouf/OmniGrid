@@ -10416,11 +10416,39 @@
                                         :aria-label="t('actions.close') || 'Close'">✕
                                 </button>
                               </div>
-                              <!-- OK: render each detail line as ONE inline row —
-                                   the stats flow together (plain text, not wide
-                                   per-stat chips) so ⬇️/⬆️/🏓 stay on a single line
-                                   in the narrow drawer instead of stacking. -->
-                              <template x-if="appSkillResult(inst, sk.id).ok">
+                              <!-- OK + structured items (e.g. Radarr upcoming →
+                                   [{title, subtitle, poster}]): render a rich
+                                   list with a small poster thumbnail next to
+                                   each title + its date. Scrolls when long.
+                                   Poster via the in-app image proxy so the
+                                   *arr api_key never hits the wire; a film-icon
+                                   placeholder shows when an item has no poster. -->
+                              <template x-if="appSkillResult(inst, sk.id).ok && appSkillResult(inst, sk.id).items">
+                                <ul class="apps-skill-items flex flex-col gap-1.5 max-h-[260px] overflow-y-auto scrollbar">
+                                  <template x-for="(it, ii) in appSkillResult(inst, sk.id).items" :key="ii">
+                                    <li class="apps-skill-item flex items-center gap-2 min-w-0">
+                                      <img x-show="it.poster" :src="proxiedImageUrl(it.poster)" alt="" loading="lazy"
+                                           class="apps-skill-item-poster shrink-0"
+                                           @error="$event.target.style.display='none'; $event.target.nextElementSibling && ($event.target.nextElementSibling.style.display='inline-flex')">
+                                      <span class="apps-skill-item-poster apps-skill-item-poster--ph shrink-0 inline-flex items-center justify-center"
+                                            :style="it.poster ? 'display:none' : ''" aria-hidden="true">
+                                        <svg width="12" height="12" class="text-[var(--text-faint)]">
+                                          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-play"/>
+                                        </svg>
+                                      </span>
+                                      <span class="flex flex-col min-w-0 leading-tight">
+                                        <span class="fs-sm font-medium truncate" x-text="it.title"></span>
+                                        <span x-show="it.subtitle" class="fs-2xs text-[var(--text-faint)] truncate" x-text="it.subtitle"></span>
+                                      </span>
+                                    </li>
+                                  </template>
+                                </ul>
+                              </template>
+                              <!-- OK (no structured items): render each detail line as
+                                   ONE inline row — the stats flow together (plain text,
+                                   not wide per-stat chips) so ⬇️/⬆️/🏓 stay on a single
+                                   line in the narrow drawer instead of stacking. -->
+                              <template x-if="appSkillResult(inst, sk.id).ok && !appSkillResult(inst, sk.id).items">
                                 <div class="flex flex-col gap-1">
                                   <template x-for="(segs, li) in appSkillResultLines(appSkillResult(inst, sk.id))" :key="li">
                                     <div class="apps-skill-line flex flex-wrap items-baseline gap-x-3 gap-y-0.5 fs-sm min-w-0">

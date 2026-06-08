@@ -461,6 +461,18 @@
                    :title="t('admin_apps.docker_linked_title', { target: inst.docker_container || inst.docker_stack }) || ('Linked to Docker: ' + (inst.docker_container || inst.docker_stack))">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-link"/>
               </svg>
+              <!-- Tiny "has extra features" indicator — shows when the chip's
+                   catalog template has a per-app module (live expanded-card
+                   data + AI / Telegram skills). Registry-driven via
+                   appsTemplateSupportsExtras (walks OG_APPS_EXTENDERS). A
+                   distinct --info accent so it reads apart from the --primary
+                   Docker-link chain icon when both are present. -->
+              <svg x-show="appsTemplateSupportsExtras(inst.catalog_slug || inst.catalog_name)"
+                   width="11" height="11" class="inline-block ms-1 text-[var(--info)] align-[-1px]"
+                   aria-hidden="true"
+                   :title="t('admin_apps.has_extras_title') || 'Has extra features — live card data + AI / Telegram skills'">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+              </svg>
             </td>
             <td class="py-2">
               <code class="fs-xs text-[var(--text-dim)]"

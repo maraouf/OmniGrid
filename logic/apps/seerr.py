@@ -114,7 +114,12 @@ SKILLS: tuple[dict, ...] = (
                        "name the processing requests, what's in the queue, "
                        "what shows are downloading"),
         "destructive": False,
-        "arg": True,
+        # NOT arg:True — the status filter is OPTIONAL (blank → the in-progress
+        # processing + pending queue), so this is a LIST skill that SHOWS as a
+        # one-click drawer button (runs the default queue with posters). The AI
+        # / Telegram can still pass the optional `arg` filter; `arg_hint`
+        # documents it. (Per the arg-skill rule, only skills whose arg is
+        # REQUIRED — search / add by term — carry arg:True to stay drawer-hidden.)
         "arg_hint": ("OPTIONAL status filter: 'processing' (downloading now) / "
                      "'pending' (awaiting approval) / 'approved' / 'available' / "
                      "'all'. Leave blank for the in-progress queue (processing + "
@@ -691,6 +696,30 @@ def _year_of(date_str: str) -> str:
     return s[:4] if len(s) >= 4 and s[:4].isdigit() else ""
 
 
+def _fmt_request_date(created: Any, actor_username: Optional[str]) -> str:
+    """Reformat a Seerr request's ISO ``createdAt`` to the acting user's date
+    format (Settings → Profile → Formats), date-only. Takes the ``YYYY-MM-DD``
+    head; falls back to that head on any parse / lookup failure. '' when no
+    date. Mirrors ``_servarr.fmt_release_date`` but uses the canonical
+    ``logic.datetime_fmt`` directly so Seerr stays decoupled from ``_servarr``.
+    Best-effort cosmetic — never raises."""
+    s = str(created or "").strip()
+    if not s:
+        return ""
+    from datetime import datetime
+    try:
+        d = datetime.strptime(s[:10], "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return s[:10]
+    try:
+        from logic.datetime_fmt import (
+            apply_datetime_format, get_user_datetime_format, strip_time_tokens)
+        fmt = strip_time_tokens(get_user_datetime_format(actor_username or ""))
+        return apply_datetime_format(d, fmt)
+    except (ValueError, TypeError, ImportError):
+        return s[:10]
+
+
 def _version_from(resp) -> str:
     """Extract ``version`` from a ``/api/v1/status`` response. Returns ''
     on any non-200 / parse failure (version is never load-bearing)."""
@@ -910,7 +939,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
     if skill_id == "seerr_requests":
-        return await _requests_skill(host_row, chip, arg=arg, host_id=host_id)
+        return await _requests_skill(host_row, chip, arg=arg, host_id=host_id,
+                                     actor_username=actor_username)
     if skill_id == "seerr_request_movie":
         return await _request_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "seerr_suggest_movie":
@@ -1035,38 +1065,41 @@ def _resolve_request_filters(arg: Optional[str]) -> list[str]:
     return out or ["processing", "pending"]
 
 
-async def _seerr_media_label(cli: httpx.AsyncClient, base: str, api_key: str,
-                             media_type: str, tmdb_id: int) -> str:
-    """Resolve a request's media TITLE + year via the movie / tv detail
-    endpoint (the request list carries only tmdbId / mediaType). Returns
-    'Title (Year)' / 'Title' / '' on failure. Never raises."""
+async def _seerr_media_detail(cli: httpx.AsyncClient, base: str, api_key: str,
+                              media_type: str, tmdb_id: int) -> "tuple[str, str]":
+    """Resolve a request's media TITLE (with year) AND poster path via the
+    movie / tv detail endpoint (the request list carries only tmdbId /
+    mediaType). Returns ``(label, poster_path)`` — either may be ``""`` on a
+    miss. Never raises. Used by the rich `items` rendering (poster + title +
+    date) AND for the plain-text request list (the label half)."""
     if not tmdb_id:
-        return ""
+        return "", ""
     path = "tv" if (media_type or "").strip().lower() == "tv" else "movie"
     try:
         r = await cli.get(f"{base}/api/v1/{path}/{tmdb_id}",
                           headers=_headers(api_key))
     except (httpx.HTTPError, OSError):
-        return ""
+        return "", ""
     if getattr(r, "status_code", 0) != 200:
-        return ""
+        return "", ""
     try:
         body = r.json() or {}
     except (ValueError, TypeError):
-        return ""
+        return "", ""
     if not isinstance(body, dict):
-        return ""
+        return "", ""
     if path == "tv":
         title = str(body.get("name") or body.get("originalName") or "").strip()
         year = _year_of(str(body.get("firstAirDate") or ""))
     else:
         title = str(body.get("title") or body.get("originalTitle") or "").strip()
         year = _year_of(str(body.get("releaseDate") or ""))
-    if not title:
-        return ""
-    return title + (f" ({year})" if year else "")
+    poster = str(body.get("posterPath") or "").strip()
+    label = (title + (f" ({year})" if year else "")) if title else ""
+    return label, poster
 
 
+# noinspection DuplicatedCode
 async def _seerr_list_requests(cli: httpx.AsyncClient, base: str, api_key: str,
                                filt: str, take: int) -> list:
     """One page of requests for a status filter. Returns the raw results list
@@ -1096,13 +1129,19 @@ async def _seerr_list_requests(cli: httpx.AsyncClient, base: str, api_key: str,
 # stays inline (the per-app encapsulation pattern, CLAUDE.md).
 async def _requests_skill(host_row: dict, chip: dict, *,
                           arg: Optional[str] = None,
-                          host_id: Optional[str] = None) -> dict:
+                          host_id: Optional[str] = None,
+                          actor_username: Optional[str] = None) -> dict:
     """Read-only skill: list request TITLES (with year) for the in-progress
     queue — by default the Processing + Pending-approval requests so the user
     can see WHAT is being worked on, not just the counts. An optional ``arg``
     narrows / widens the status ('processing' / 'pending' / 'approved' /
     'available' / 'all'). Never raises — failures come back as
-    ``{ok: False, detail}``."""
+    ``{ok: False, detail}``.
+
+    Returns a plain-text ``detail`` (grouped by status, for AI / Telegram) AND
+    a structured ``items`` array (flat, ``[{title, subtitle, poster}]``) so the
+    drawer renders each request with its poster thumbnail + the request date +
+    status — the SAME rich-items contract Radarr upcoming / queue use."""
     api_key = (chip.get("api_key") or "").strip()
     if not api_key:
         return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
@@ -1110,25 +1149,30 @@ async def _requests_skill(host_row: dict, chip: dict, *,
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    # Poster image base — the per-chip TMDB image base (defaults to
+    # image.tmdb.org/t/p even WITHOUT a TMDB api_key, since Seerr's own movie /
+    # tv detail endpoint returns the posterPath and the proxy fetches the art).
+    _, _, image_base = _tmdb_cfg(chip)
     filters = _resolve_request_filters(arg)
     print(f"[seerr] INFO seerr_requests host={host_id} filters={filters} "
           f"arg={arg!r}")
     sections: list[str] = []
+    rich: list[dict] = []
     total_shown = 0
     try:
         async with httpx.AsyncClient(verify=False, timeout=25.0,
                                      follow_redirects=True) as cli:
             sem = asyncio.Semaphore(_REQUEST_TITLE_CONCURRENCY)
 
-            async def _label(mt: str, tid: int) -> str:
+            async def _detail(mt: str, tid: int) -> "tuple[str, str]":
                 async with sem:
-                    return await _seerr_media_label(cli, base, api_key, mt, tid)
+                    return await _seerr_media_detail(cli, base, api_key, mt, tid)
 
             for filt in filters:
                 results = await _seerr_list_requests(cli, base, api_key, filt,
                                                      _REQUEST_LIST_TAKE)
-                # (media_type, tmdb_id) per request, de-duped, in list order.
-                items: list[tuple[str, int]] = []
+                # (media_type, tmdb_id, created_at) per request, de-duped, in order.
+                items: list[tuple[str, int, str]] = []
                 seen: set[tuple[str, int]] = set()
                 for req in results:
                     if not isinstance(req, dict):
@@ -1140,18 +1184,25 @@ async def _requests_skill(host_row: dict, chip: dict, *,
                     if not tmdb_id or (mtype, tmdb_id) in seen:
                         continue
                     seen.add((mtype, tmdb_id))
-                    items.append((mtype, tmdb_id))
+                    items.append((mtype, tmdb_id, str(req.get("createdAt") or "")))
                 if not items:
                     continue
-                labels = await asyncio.gather(*[_label(mt, tid) for mt, tid in items])
+                details = await asyncio.gather(*[_detail(mt, tid) for mt, tid, _ in items])
                 header = _REQUEST_FILTER_LABELS.get(filt, filt.title())
+                # The status word for the rich-item subtitle (strip the leading
+                # emoji off the section header, e.g. "⬇️ Processing" → "Processing").
+                status_word = header.split(" ", 1)[-1] if " " in header else header
                 lines = [f"{header} ({len(items)}):"]
-                for (mt, tid), lbl in zip(items, labels):
+                for (mt, tid, created), (lbl, poster_path) in zip(items, details):
                     if not lbl:
                         lbl = f"TMDB {tid}"
                     icon = "📺" if mt == "tv" else "🎬"
                     lines.append(f"  {icon} {lbl}")
                     total_shown += 1
+                    when = _fmt_request_date(created, actor_username)
+                    sub = " · ".join(p for p in (when, status_word) if p)
+                    rich.append({"title": lbl, "subtitle": sub,
+                                 "poster": _poster_url(image_base, poster_path)})
                 sections.append("\n".join(lines))
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] warning: seerr_requests host={host_id} failed — "
@@ -1164,7 +1215,7 @@ async def _requests_skill(host_row: dict, chip: dict, *,
         return {"ok": True, "status": 200,
                 "detail": f"📋 No {names} requests on Seerr right now."}
     return {"ok": True, "status": 200,
-            "detail": "\n\n".join(sections), "count": total_shown}
+            "detail": "\n\n".join(sections), "count": total_shown, "items": rich}
 
 
 async def _seerr_search_movie(base: str, api_key: str, query: str) -> Optional[dict]:

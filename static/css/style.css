@@ -5123,6 +5123,24 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   outline-offset: 1px;
 }
 
+/* Rich skill-result rows (poster + title + date) — e.g. Radarr "Upcoming
+   movies". A small 2:3 movie-poster thumbnail sits left of the title; the
+   placeholder (no poster) keeps the same footprint so rows stay aligned. */
+.apps-skill-item-poster {
+  width: 30px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.apps-skill-item-poster--ph {
+  /* Placeholder box for an item with no poster — same size as the <img>. */
+  width: 30px;
+  aspect-ratio: 2 / 3;
+}
+
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive
    actions invoked from the AI sidebar. Wraps a warning icon, the
    action label, and Yes / Cancel buttons in one compact row attached
