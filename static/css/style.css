@@ -9945,14 +9945,16 @@ select.field-invalid {
      per-app `cardSpan(app)` extender). When BOTH classes are
      set the effect is identical (idempotent); the size class
      takes precedence semantically. */
-/* `.apps-section-grid` (a fine 90px-track auto-fill grid) backs BOTH
-   edit AND locked mode now, so the three sizes map to DISTINCT column
-   spans — half / normal / double render as visibly different widths in
-   either mode. (Locked mode used to use a Tailwind equal-column grid
-   that ignored these spans, so a width set while editing reverted on
-   save — reported on bookmark tiles.) The child combinator keeps the
-   spans scoped to this grid so an app's extender-driven
-   `.apps-card--span-2` request elsewhere is unaffected. */
+/* `.apps-section-grid` (a fixed 12-column grid) backs BOTH edit AND
+   locked mode, so the four sizes map to DISTINCT even 12-fractions that
+   tile flush with no right-edge gap — half / normal / double / xlarge
+   render as visibly different widths in either mode. (Locked mode used to
+   use a Tailwind equal-column grid that ignored these spans, so a width
+   set while editing reverted on save — reported on bookmark tiles.) The
+   child combinator keeps the spans scoped to this grid so an app's
+   extender-driven `.apps-card--span-2` request elsewhere is unaffected.
+   Spans (12-col): half=2 (6/row) · normal=3 (4/row) · double=4 (3/row,
+   fills the row) · xlarge=6 (2/row). */
 .apps-section-grid > .apps-card--size-half {
   grid-column: span 2;
 }
@@ -9962,11 +9964,53 @@ select.field-invalid {
 }
 
 .apps-section-grid > .apps-card--size-double {
-  grid-column: span 5;
+  grid-column: span 4;
 }
 
 .apps-section-grid > .apps-card--size-xlarge {
-  grid-column: span 7;
+  grid-column: span 6;
+}
+
+/* Responsive collapse — the fixed 12-column grid is a DESKTOP layout; on
+   narrower viewports it would either shrink every tile to a sliver (a
+   span-2 half = 1/6 of a phone) or let a span-6 xlarge overflow the row.
+   The old auto-fill grid adapted for free; the fixed grid must do it with
+   breakpoints. Two tiers:
+     • ≤900px (tablet): 2 equal columns. half / normal → 1 col (2 per row);
+       double / xlarge → full row. The width ladder collapses to
+       "half-or-normal vs full" — fine detail isn't useful at this width.
+     • ≤560px (phone): single column, every tile full-width (stacked).
+   Spans are overridden (not the base columns alone) so nothing exceeds the
+   reduced column count and overflows. */
+@media (max-width: 900px) {
+  .apps-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .apps-section-grid > .apps-card--size-half,
+  .apps-section-grid > .apps-card--size-normal {
+    grid-column: auto;
+  }
+
+  .apps-section-grid > .apps-card--size-double,
+  .apps-section-grid > .apps-card--size-xlarge,
+  .apps-section--unsectioned .apps-section-grid .apps-tile {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .apps-section-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .apps-section-grid > .apps-card--size-half,
+  .apps-section-grid > .apps-card--size-normal,
+  .apps-section-grid > .apps-card--size-double,
+  .apps-section-grid > .apps-card--size-xlarge,
+  .apps-section--unsectioned .apps-section-grid .apps-tile {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Half cards stay compact (body + meta hidden) but KEEP the title and
@@ -11617,25 +11661,30 @@ select.field-invalid {
 
 .apps-section-grid {
   display: grid;
-  /* Fine base track so the three size presets (half=span 2, normal=span
-     3, double=span 5 — see the `.apps-section-grid > .apps-card--size-*`
-     rules) render as visibly distinct widths. A coarse 180px track only
-     allowed whole-card spans, so half couldn't be narrower than normal. */
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  /* FIXED 12-column grid so every width preset divides the row evenly and
+     tiles ALWAYS tile flush — no floating-auto-fill leftover strip on the
+     right. The four presets map to even 12-fractions (half=span 2 → 6/row,
+     normal=span 3 → 4/row, double=span 4 → 3/row, xlarge=span 6 → 2/row),
+     so e.g. three `double` tiles fill the row edge-to-edge. (Was
+     `repeat(auto-fill, minmax(90px,1fr))` with spans 2/3/5/7, which left a
+     wasted right-edge gap because the column count floated with the
+     viewport and 3×span rarely landed on a multiple.) */
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--s-2);
   padding: var(--s-2);
   min-height: 56px;
 }
 
-/* Unsectioned staging tiles (edit mode) carry no size class, so they
-   default to a single 90px track — too narrow for the app name, which
-   truncated to a few characters. Span TWO tracks so the staging tile is
-   double the width and the name reads in full; height is content-driven
-   and unchanged (operator-flagged). NB: the wrapping `.apps-custom-cell`
-   is `display: contents` (generates no box), so the real grid item is the
-   `.apps-tile` itself — the span MUST land on it, not on the cell. */
+/* Unsectioned staging tiles (edit mode) carry no size class, so on the
+   fixed 12-column grid they'd default to a single column (1/12 ≈ 8%) —
+   far too narrow for the app name, which truncated to a few characters.
+   Span THREE columns (1/4 of the row, 4 per row) so the staging tile reads
+   in full; height is content-driven and unchanged (operator-flagged). NB:
+   the wrapping `.apps-custom-cell` is `display: contents` (generates no
+   box), so the real grid item is the `.apps-tile` itself — the span MUST
+   land on it, not on the cell. */
 .apps-section--unsectioned .apps-section-grid .apps-tile {
-  grid-column: span 2;
+  grid-column: span 3;
 }
 
 .apps-section-empty {
