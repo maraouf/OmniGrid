@@ -20,7 +20,7 @@ pydantic>=2.13.4
 # over a FastAPI WebSocket). Local dev runs `uvicorn main:app --reload`;
 # prod runs the same single-replica process behind NPM's reverse proxy.
 
-uvicorn[standard]>=0.48.0
+uvicorn[standard]>=0.49.0
 # Async HTTP client used for EVERY outbound call: Portainer REST API
 # (services / containers / stacks / registries proxy), Beszel Hub
 # (Pocketbase auth + paginated fetches), Pulse, Webmin (with cookie
@@ -50,7 +50,7 @@ bcrypt>=5.0.0
 # same parser path), and the bootstrap admin form. Pinned because
 # FastAPI's parameter validation occasionally couples to specific
 # python-multipart versions during major bumps.
-python-multipart>=0.0.30
+python-multipart>=0.0.32
 # .env loader — reads /app/.env (or `ENV_FILE_PATH` override) at
 # startup. main.py's first real line is `load_dotenv("/app/.env",
 # override=False)` so every os.environ.get() in main / logic resolves
@@ -69,7 +69,7 @@ PyJWT[crypto]>=2.13.0
 # key parsing, and fingerprint exposure natively so we don't shell out
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
-asyncssh>=2.23.0
+asyncssh>=2.23.1
 # TOTP-based 2FA for local-auth users. pyotp implements RFC 6238
 # (~150 lines, no native deps); cryptography supplies Fernet for at-rest
 # encryption of TOTP secrets + backup codes (key derived via HKDF-SHA256
@@ -94,7 +94,7 @@ webauthn>=2.7.1
 # full HTML UI for both. When that happens ``logic/webmin.py`` parses
 # the HTML to extract the table data rather than failing hard. Pulled
 # in only for the scrape path; the XML and JSON branches don't touch it.
-beautifulsoup4>=4.14.3
+beautifulsoup4>=4.15.0
 # Optional ICMP transport for the Ping host-stats provider.
 # logic/ping.py imports this LAZILY and falls back to TCP-connect
 # probes when the package is missing — so this dep is genuinely

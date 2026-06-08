@@ -1,0 +1,72 @@
+<!-- Per-app expanded-card extras -- Tautulli (Plex monitoring + statistics).
+
+     Renders inside `apps-card.html` when the chip is the Tautulli catalog
+     template AND extras are visible. Data from Tautulli's `cmd=get_activity`
+     (+ get_libraries / get_tautulli_info), via
+     `logic/apps/tautulli.py:fetch_data`, read through the cache-backed
+     `appsAppData(inst)`. Mirrors kavita_extras.html (canonical
+     `.apps-card-ups-*` stat grid + loading/error/no-api-key plain-text
+     branches) but Tautulli monitors Plex, so it shows Streams / Transcodes /
+     Bandwidth / Libraries and has NO Storage section.
+
+     Helpers used (all from `static/js/apps/tautulli.js`):
+       tautulliIsApp(app) / tautulliData(inst) / tautulliCount(v) /
+       tautulliBandwidth(kbps) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="tautulliIsApp && tautulliIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-tautulli">
+    <template x-if="tautulliData(inst)">
+      <div class="apps-card-ups" :data-tautulli-host="inst.host_id">
+        <div x-show="(app.instances || []).length > 1"
+             class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+             x-text="inst.host_address || inst.host_id"></div>
+        <div class="apps-card-ups-grid">
+          <!-- Active streams -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.streams') || 'Streams'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).streams)"></div>
+          </div>
+          <!-- Transcodes -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.transcodes') || 'Transcodes'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).transcodes)"></div>
+          </div>
+          <!-- Bandwidth -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.bandwidth') || 'Bandwidth'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliBandwidth(tautulliData(inst).bandwidth_kbps)"></div>
+          </div>
+          <!-- Libraries -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.libraries') || 'Libraries'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).libraries)"></div>
+          </div>
+        </div>
+        <!-- Footnote: version + total library items. -->
+        <div x-show="tautulliData(inst).version || (Number(tautulliData(inst).total_items) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-show="tautulliData(inst).version" x-text="t('apps.version_footnote', { brand: 'Tautulli', v: (tautulliData(inst).version || '') })"></span>
+          <span x-show="(Number(tautulliData(inst).total_items) || 0) > 0"
+                x-text="(tautulliData(inst).version ? ' · ' : '') + (t('apps.tautulli.items_n', { n: tautulliData(inst).total_items }) || (tautulliData(inst).total_items + ' items'))"></span>
+        </div>
+      </div>
+    </template>
+    <!-- No API key yet — idle and unconfigured. -->
+    <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+      <p class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('apps.tautulli.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+    </template>
+    <!-- Loading — first fetch in flight. -->
+    <template x-if="!tautulliData(inst) && appsAppDataStatus(inst) === 'pending'">
+      <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('apps.tautulli.loading') || 'Loading Tautulli data…'"></span></p>
+    </template>
+    <!-- Error — upstream fetch failed. -->
+    <template x-if="!tautulliData(inst) && appsAppDataStatus(inst) === 'error'">
+      <p class="fs-xs text-[var(--danger)] italic"
+         x-text="(t('apps.tautulli.fetch_failed') || 'Tautulli fetch failed') + ': ' + appsAppDataError(inst)"></p>
+    </template>
+  </div>
+</template>

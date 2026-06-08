@@ -49,11 +49,12 @@ import * as readarr from './readarr.js?v=__APP_VERSION__';
 import * as seerr from './seerr.js?v=__APP_VERSION__';
 import * as sonarr from './sonarr.js?v=__APP_VERSION__';
 import * as speedtestTracker from './speedtest_tracker.js?v=__APP_VERSION__';
+import * as tautulli from './tautulli.js?v=__APP_VERSION__';
 
 // Add new per-app modules above (one import) and below (one
 // entry in `_modules`) -- the rest is fully generic.
 
-const _modules = [adguardHome, adguardHomeSync, apc, bazarr, ddnsUpdater, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker];
+const _modules = [adguardHome, adguardHomeSync, apc, bazarr, ddnsUpdater, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker, tautulli];
 
 // Named extractors -- keep `.map(extract).filter(predicate)`
 // from firing PyCharm's anonymous-function / chained-call
