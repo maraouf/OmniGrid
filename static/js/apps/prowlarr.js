@@ -74,6 +74,26 @@ function prowlarrAppsNames(inst) {
   return d.apps_names.filter((n) => typeof n === 'string' && n).join(', ');
 }
 
+// The synced *arr apps as styled-chip descriptors ({name, icon}) — one per
+// connected application, brand icon resolved via the shared iconUrlFor()
+// resolver. Drives the chip strip in the card (replaces the old raw
+// comma-joined text). [] when nothing is synced / no data.
+function prowlarrAppsList(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.prowlarrData ? this.prowlarrData(inst) : null);
+  if (!d || !Array.isArray(d.apps_names)) {
+    return [];
+  }
+  const resolve = (typeof this.iconUrlFor === 'function') ? (n) => this.iconUrlFor(n) : () => '';
+  return d.apps_names
+    .filter((n) => typeof n === 'string' && n.trim())
+    .map((n) => {
+      const name = n.trim();
+      return {name: name, icon: resolve(name) || ''};
+    });
+}
+
 // "enabled / total" label for the Indexers stat cell. '—' when no data.
 function prowlarrIndexersLabel(inst) {
   // `this` is the Alpine component (merged in via `appsHelpers`).
@@ -106,5 +126,6 @@ export const helpers = {
   prowlarrData: prowlarrData,
   prowlarrCount: prowlarrCount,
   prowlarrAppsNames: prowlarrAppsNames,
+  prowlarrAppsList: prowlarrAppsList,
   prowlarrIndexersLabel: prowlarrIndexersLabel,
 };

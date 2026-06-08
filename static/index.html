@@ -2059,6 +2059,77 @@
                x-text="appLogModal.text || (t('apps.drawer.logs_empty') || '(no log output)')"></pre>
         </div>
       </div>
+      <!-- DASHBOARD SETTINGS MODAL — unified rename + share for an Apps custom
+           view (replaces the two old SweetAlert popups). Name input + (owner-
+           only) a card-style sharing selector. -->
+      <div x-show="appsViewModal.open" x-cloak
+           class="fixed inset-0 z-50 flex items-center justify-center p-4"
+           :style="appsViewModal.open ? 'display:flex' : 'display:none'"
+           role="dialog" aria-modal="true"
+           :aria-label="t('apps.custom.view_settings') || 'Dashboard settings'"
+           @keydown="_focusTrapKeydown($event, $el)"
+           @keydown.escape.window="closeAppsViewSettings()">
+        <div class="absolute inset-0 backdrop" @click="closeAppsViewSettings()"></div>
+        <div class="relative bg-[var(--surface)] border border-[var(--border-bright)] rounded-md p-5 w-full max-w-md shadow-xl">
+          <div class="flex items-center justify-between gap-2 mb-4">
+            <h3 class="fs-md font-semibold inline-flex items-center gap-2">
+              <svg width="15" height="15" class="text-[var(--text-dim)]" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
+              </svg>
+              <span x-text="t('apps.custom.view_settings') || 'Dashboard settings'"></span>
+            </h3>
+            <button type="button" class="user-action-btn" @click="closeAppsViewSettings()"
+                    :aria-label="t('actions.close') || 'Close'" :title="t('actions.close') || 'Close'">✕
+            </button>
+          </div>
+          <!-- Name -->
+          <label class="block mb-4">
+            <span class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('apps.custom.view_name_label') || 'Name'"></span>
+            <input type="text" class="w-full" x-ref="appsViewName" x-model="appsViewModal.name"
+                   maxlength="64" autocapitalize="words"
+                   :placeholder="t('apps.custom.view_name_placeholder') || 'View name'"
+                   @keydown.enter.prevent="saveAppsViewSettings()">
+          </label>
+          <!-- Sharing (owner only) -->
+          <template x-if="appsViewModal.can_manage">
+            <div class="mb-5">
+              <span class="block fs-xs text-[var(--text-dim)] mb-2" x-text="t('apps.custom.share_label') || 'Who can see this dashboard?'"></span>
+              <div class="flex flex-col gap-2" role="radiogroup"
+                   :aria-label="t('apps.custom.share_label') || 'Who can see this dashboard?'"
+                   @keydown="_radiogroupArrowKey($event)">
+                <template x-for="opt in appsShareOptions()" :key="opt.value">
+                  <button type="button" role="radio" class="og-share-opt"
+                          :class="appsViewModal.choice === opt.value ? 'is-selected' : ''"
+                          :aria-checked="appsViewModal.choice === opt.value ? 'true' : 'false'"
+                          :tabindex="appsViewModal.choice === opt.value ? 0 : -1"
+                          @click="appsViewModal.choice = opt.value">
+                    <svg class="og-share-opt-icon" width="17" height="17" aria-hidden="true">
+                      <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + opt.icon"/>
+                    </svg>
+                    <span class="og-share-opt-text">
+                      <span class="og-share-opt-title" x-text="opt.title"></span>
+                      <span class="og-share-opt-sub" x-text="opt.sub"></span>
+                    </span>
+                    <svg class="og-share-opt-check" width="16" height="16" aria-hidden="true"
+                         x-show="appsViewModal.choice === opt.value">
+                      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
+                    </svg>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </template>
+          <!-- Footer -->
+          <div class="flex items-center justify-end gap-2">
+            <button type="button" class="btn btn-ghost fs-sm" @click="closeAppsViewSettings()"
+                    x-text="t('actions.cancel') || 'Cancel'"></button>
+            <button type="button" class="btn btn-primary fs-sm"
+                    :disabled="appsViewModal.saving || !(appsViewModal.name || '').trim()"
+                    @click="saveAppsViewSettings()"
+                    x-text="t('actions.save') || 'Save'"></button>
+          </div>
+        </div>
+      </div>
       <!-- BULK SNMP VENDORS MODAL -->
       <div x-show="bulkSnmpVendorsModal.open"
            x-cloak
@@ -3448,8 +3519,16 @@
            the SAME grid layout as the real card grids below so there's no
            layout shift on swap. aria-hidden — the load state is conveyed by
            the visible shimmer, not announced. -->
-      <div x-show="!appsListLoaded && !appsListError"
+      <!-- The skeleton ALSO stays up while a custom dashboard's server-backed
+           views collection is still loading (appsViewsLoaded false), so the
+           flow is one continuous skeleton → board instead of skeleton → a
+           separate "loading dashboards" spinner → board. The x-effect kicks the
+           views load the moment the skeleton renders in custom mode, so it runs
+           in parallel with the /api/apps fetch (single-flight + me.ui_prefs-
+           guarded inside ensureAppViewsLoaded). -->
+      <div x-show="(!appsListLoaded || (appsViewGroupBy === 'custom' && !appsViewsLoaded && !appsViewsLoadError)) && !appsListError"
            class="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+           x-effect="appsViewGroupBy === 'custom' && ensureAppViewsLoaded()"
            aria-hidden="true">
         <template x-for="i in 8" :key="'apps-skel-' + i">
           <div class="apps-card border border-[var(--border)] rounded-md p-3 flex items-start gap-3">
@@ -3558,24 +3637,16 @@
            draggable tiles + section CRUD (native HTML5 DnD: tiles carry
            group_id, section headers carry the section id). -->
       <!-- Custom dashboards are server-backed (app_views table) so a view can
-           be shared public across users — gate the board on the collection
-           having loaded. -->
-      <template x-if="appsListLoaded && appsViewGroupBy === 'custom' && !appsViewsLoaded">
-        <div class="loading-state flex items-center justify-center gap-2 py-8 fs-sm text-[var(--text-faint)]"
-             x-effect="ensureAppViewsLoaded()">
-          <template x-if="!appsViewsLoadError">
-            <span class="inline-flex items-center gap-2">
-              <span class="spin" aria-hidden="true"></span>
-              <span x-text="t('apps.custom.views_loading') || 'Loading dashboards…'"></span>
-            </span>
-          </template>
-          <template x-if="appsViewsLoadError">
-            <span class="inline-flex items-center gap-2 text-[var(--danger)]">
-              <span x-text="t('apps.custom.views_load_failed') || 'Couldn’t load dashboards.'"></span>
-              <button type="button" class="btn btn-soft fs-xs" @click="ensureAppViewsLoaded(true)"
-                      x-text="t('actions.retry') || 'Retry'"></button>
-            </span>
-          </template>
+           be shared public across users. The loading state is the shared
+           skeleton above (continuous skeleton → board); this pane only appears
+           if the views collection FAILS to load, offering a retry. -->
+      <template x-if="appsListLoaded && appsViewGroupBy === 'custom' && !appsViewsLoaded && appsViewsLoadError">
+        <div class="loading-state flex items-center justify-center gap-2 py-8 fs-sm">
+          <span class="inline-flex items-center gap-2 text-[var(--danger)]">
+            <span x-text="t('apps.custom.views_load_failed') || 'Couldn’t load dashboards.'"></span>
+            <button type="button" class="btn btn-soft fs-xs" @click="ensureAppViewsLoaded(true)"
+                    x-text="t('actions.retry') || 'Retry'"></button>
+          </span>
         </div>
       </template>
       <template x-if="appsListLoaded && appsViewGroupBy === 'custom' && appsViewsLoaded">
@@ -3618,13 +3689,15 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-plus"/>
               </svg>
             </button>
-            <!-- Rename — owner OR an editor of a public-editable view. -->
+            <!-- Settings — unified rename + share (one dialog). Shown to anyone
+                 who can edit the active board (owner sees the sharing section;
+                 an editor sees the name only). -->
             <button type="button" class="user-action-btn" x-show="appsCanEditActiveView()"
-                    @click="appsPromptRenameView(appsActiveViewId())"
-                    :title="t('apps.custom.view_rename') || 'Rename view'"
-                    :aria-label="t('apps.custom.view_rename') || 'Rename view'">
+                    @click="openAppsViewSettings(appsActiveViewId())"
+                    :title="t('apps.custom.view_settings') || 'Dashboard settings'"
+                    :aria-label="t('apps.custom.view_settings') || 'Dashboard settings'">
               <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-edit"/>
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-settings"/>
               </svg>
             </button>
             <!-- Duplicate — always allowed (a copy becomes your own private view). -->
@@ -3633,17 +3706,6 @@
                     :aria-label="t('apps.custom.view_duplicate') || 'Duplicate view'">
               <svg width="14" height="14" aria-hidden="true">
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-              </svg>
-            </button>
-            <!-- Share / visibility — owner only (Private / Public · Read-only /
-                 Public · Editable). -->
-            <button type="button" class="user-action-btn"
-                    x-show="appsActiveView() && appsActiveView().can_manage"
-                    @click="appsPromptShareView(appsActiveViewId())"
-                    :title="t('apps.custom.view_share') || 'Share / visibility'"
-                    :aria-label="t('apps.custom.view_share') || 'Share / visibility'">
-              <svg width="14" height="14" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>
               </svg>
             </button>
             <!-- Delete — owner only. Deleting the last view seeds a fresh
