@@ -488,6 +488,7 @@ export default {
     'tuning_port_scan_default_concurrency',
     'tuning_port_scan_max_seconds',
     'tuning_port_scan_banner_read_seconds',
+    'tuning_port_scan_retention_days',
     // Stage 2 — UDP tunables. Surfaced from Admin → Port Scan
     // alongside their TCP counterparts; both flow through the
     // generic tuning form so the bounds-chips UI lights up.

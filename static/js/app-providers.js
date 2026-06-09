@@ -334,6 +334,7 @@ export default {
       'tuning_port_scan_default_concurrency',
       'tuning_port_scan_max_seconds',
       'tuning_port_scan_banner_read_seconds',
+      'tuning_port_scan_retention_days',
       'tuning_port_scan_udp_default_timeout_seconds',
       'tuning_port_scan_udp_default_concurrency',
       // Scheduled port-scan refresh — knobs feeding

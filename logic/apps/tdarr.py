@@ -551,6 +551,15 @@ SKILLS: tuple[dict, ...] = (
                        "re-process bloated"),
         "destructive": True,
     },
+    {
+        "id": "tdarr_requeue_failed",
+        "name": "Requeue failed transcodes",
+        "ai_phrases": ("requeue failed, requeue cancelled, retry failed "
+                       "transcodes, re-queue errored files, requeue transcode "
+                       "errors, fix failed transcodes, retry cancelled transcodes, "
+                       "requeue all failed, re-process failed transcodes"),
+        "destructive": True,
+    },
 )
 
 
@@ -568,6 +577,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _bloated_skill(host_row, chip, host_id=host_id)
     if skill_id == "tdarr_requeue_bloated":
         return await _requeue_bloated_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tdarr_requeue_failed":
+        return await _requeue_failed_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -943,6 +954,95 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "pending": True,
             "detail": (f"⏳ Requeueing {n}bloated file(s) in the background… progress "
                        "will update here automatically.")}
+
+
+# Tdarr FileJSONDB `TranscodeDecisionMaker` values that mean a transcode did
+# NOT complete cleanly — the StatisticsJSONDB `table3` ("transcode failed")
+# bucket. Cancelling a worker in Tdarr lands the file here too, so this covers
+# both "failed" and "cancelled" transcodes. Tuple so it's trivially extensible
+# if a Tdarr build uses an additional error label.
+_FAILED_STATUSES = ("Transcode error",)
+# Max files requeued per failed-requeue invocation — bounds the synchronous
+# operation under the per-app route budget. The failed set is normally small (a
+# filtered getAll returns only error files, NOT the whole library like the
+# bloated scan), so this rarely bites; a larger backlog clears over repeat runs.
+_FAILED_REQUEUE_CAP = 1000
+
+
+async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
+    """Every file whose transcode FAILED / was cancelled (``TranscodeDecisionMaker``
+    in ``_FAILED_STATUSES``), de-duped by ``_id``. A FILTERED ``getAll`` — Tdarr
+    returns only the matching error files (small), so this is fast (unlike
+    ``_find_bloated`` which walks the full library to compute ratios)."""
+    raw: list = []
+    for status in _FAILED_STATUSES:
+        r = await _cruddb(cli, base, api_key, {
+            "collection": "FileJSONDB", "mode": "getAll",
+            "filters": [{"id": f"filter-{status.replace(' ', '-')}",
+                         "key": "TranscodeDecisionMaker", "value": status}]})
+        raw.extend(as_list(r))
+    uniq = {f.get("_id"): f for f in raw if isinstance(f, dict) and f.get("_id")}
+    return list(uniq.values())
+
+
+async def _requeue_failed_skill(host_row: dict, chip: dict, *,
+                                host_id: Optional[str] = None) -> dict:
+    """Destructive "requeue failed": reset every FAILED / cancelled transcode's
+    DB status back to ``Queued`` so Tdarr retries it. Synchronous (the failed set
+    is small — a filtered getAll), bounded by ``_FAILED_REQUEUE_CAP`` per call.
+    The backend route already gated the destructive-confirm. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    hid = str(host_id or "")
+    print(f"[tdarr] INFO tdarr_requeue_failed host={hid}")
+    done = 0
+    failed = 0
+    last_err = ""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
+                                     follow_redirects=True) as cli:
+            files = await _find_failed(cli, base, api_key)
+            total = len(files)
+            if total == 0:
+                return {"ok": True, "status": 200,
+                        "detail": "✅ No failed transcodes to requeue."}
+            capped = files[:_FAILED_REQUEUE_CAP]
+            for f in capped:
+                fid = f.get("_id")
+                if not fid:
+                    continue
+                try:
+                    # WRITE — a successful Tdarr cruddb update returns 200 with a
+                    # non-JSON / empty body, so parse_json=False (else every
+                    # successful update misreads as "non-JSON from upstream").
+                    await _cruddb(cli, base, api_key, {
+                        "collection": "FileJSONDB", "mode": "update", "docID": fid,
+                        "obj": {"TranscodeDecisionMaker": "Queued",
+                                "HealthCheck": "Queued"}}, parse_json=False)
+                    done += 1
+                except RuntimeError as e:
+                    failed += 1
+                    last_err = str(e)
+                    print(f"[tdarr] warning: requeue-failed update failed for {fid} — {e}")
+    except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"⚠️ Requeue-failed errored: {type(e).__name__}: {e}"}
+    print(f"[tdarr] INFO requeue-failed done host={hid} {done:,}/{total:,} (failed={failed})")
+    if done == 0:
+        # Every update failed — surface WHY (mirrors the bloated-requeue path).
+        msg = f"⚠️ Requeued 0 of {total:,} failed transcode(s) — every update failed."
+        if last_err:
+            msg += f" Tdarr said: {last_err}."
+        msg += (" Check that Tdarr isn't read-only / that the API key (if auth is "
+                "on) has write access.")
+        return {"ok": False, "status": 200, "detail": msg}
+    more = total - len(capped)
+    tail = (f" ({failed:,} failed: {last_err})" if failed and last_err
+            else (f" ({failed:,} failed)" if failed else ""))
+    extra = f" {more:,} more remain — run again to continue." if more > 0 else ""
+    return {"ok": True, "status": 200,
+            "detail": f"♻️ Requeued {done:,} failed transcode(s) for retry{tail}.{extra}"}
 
 
 def _fmt_gb(gb: Any) -> str:

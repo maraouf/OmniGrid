@@ -46,7 +46,7 @@ import httpx
 from logic import node_exporter as _ne
 from logic import tuning
 from logic.tuning import Tunable
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 from logic.sampler_loop import lifespan_sampler_loop
 
 # Sanity bounds for accepting a counter delta as a valid rate.
@@ -361,9 +361,9 @@ def _prune_old_samples() -> int:
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
-        with db_conn() as c:
-            cur = c.execute("DELETE FROM host_net_samples WHERE ts < ?", (cutoff,))
-            return cur.rowcount or 0
+        # Chunked delete (writer lock released per chunk) instead of one big
+        # DELETE — same predicate, bounded lock-hold, seeks idx_host_net_samples_ts.
+        return prune_rows_older_than("host_net_samples", cutoff)
     except Exception as e:
         print(f"[host_net_sampler] prune failed: {e}")
         return 0

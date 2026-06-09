@@ -5204,6 +5204,27 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   transition: width 0.3s ease;
 }
 
+/* Progress row: the bar fills the remaining width with the % label pinned
+   to its right (e.g. Tdarr status — each transcoding worker's progress). */
+.apps-skill-item-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.apps-skill-item-progress .apps-skill-item-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.apps-skill-item-progress-pct {
+  flex: 0 0 auto;
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Enhanced *arr storage panel (shared _components/apps/_arr_storage.html) —
    one card per mount: path + icon + colour-coded used% on the head row, a
    rounded usage bar, then "free / total" beneath. Replaces the old cramped

@@ -12,6 +12,7 @@ trigger the expensive registry-digest pass. Driven by:
 Cache dict is exposed as ``_stats_cache`` for main.py's /api/stats route.
 """
 import asyncio
+import socket
 import time
 from typing import Any, Optional
 
@@ -21,7 +22,7 @@ from logic import gather as _gather_mod
 from logic import portainer
 from logic import tuning
 from logic.tuning import Tunable
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 
 # The cache main.py's /api/stats route reads. Structure:
 # stats: {item_id: {cpu_percent, mem_usage, mem_limit, size_root, size_rw,
@@ -166,10 +167,9 @@ def _snapshot_stats_to_db() -> int:
 def _prune_old_samples() -> int:
     """Delete rows older than the current history-days setting. Returns rows removed."""
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
-    cutoff = time.time() - days * 86400
-    with db_conn() as c:
-        cur = c.execute("DELETE FROM stats_samples WHERE ts < ?", (cutoff,))
-        return cur.rowcount or 0
+    cutoff = int(time.time() - days * 86400)
+    # Chunked delete (writer lock released per chunk) — seeks idx_stats_samples_ts.
+    return prune_rows_older_than("stats_samples", cutoff)
 
 
 def _snapshot_db_size_to_db() -> bool:
@@ -208,15 +208,14 @@ def _snapshot_db_size_to_db() -> bool:
 
 
 def _prune_db_size_samples() -> int:
-    """Delete db_size_samples rows older than DB_SIZE_HISTORY_DAYS. Returns rows removed.
-    Tiny table (one row/day, capped at the retention window) so a direct
-    DELETE is cheap — no worker-thread offload needed (unlike the per-tick
-    sample tables)."""
+    """Delete db_size_samples rows older than DB_SIZE_HISTORY_DAYS. Returns rows
+    removed. Tiny table (one row/day, capped at the retention window) so the
+    chunked delete is effectively one chunk — routed through prune_rows_older_than
+    for consistency (and so it never holds the lock behind a bigger delete)."""
     days = tuning.tuning_int(Tunable.DB_SIZE_HISTORY_DAYS)
     cutoff = int(time.time()) - days * 86400
-    with db_conn() as c:
-        cur = c.execute("DELETE FROM db_size_samples WHERE ts < ?", (cutoff,))
-        return cur.rowcount or 0
+    # Seeks idx_db_size_samples_ts.
+    return prune_rows_older_than("db_size_samples", cutoff)
 
 
 def db_size_history(days: int) -> list[dict]:
@@ -602,17 +601,16 @@ async def gather_stats() -> None:
                         # a wrong DNS entry would silently route to
                         # a different host. Best-effort; fall back
                         # to "unresolved" on lookup failure.
-                        import socket as _socket
                         try:
-                            _addr = _socket.gethostbyname(h)
+                            _addr = socket.gethostbyname(h)
                             _addr_str = f"{h}({_addr})" if _addr != h else h
-                        except (OSError, _socket.gaierror):
+                        except (OSError, socket.gaierror):
                             _addr_str = f"{h}(unresolved)"
                         # Defence-in-depth on empty exception body —
                         # ConnectTimeout sometimes stringifies blank.
-                        _err_str = str(node_err).strip() or node_err.__class__.__name__
+                        _node_err_str = str(node_err).strip() or node_err.__class__.__name__
                         print(f"[stats] gather_stats: per-node list for {_addr_str} FAILED: "
-                              f"{type(node_err).__name__}: {_err_str} "
+                              f"{type(node_err).__name__}: {_node_err_str} "
                               f"(suppressing repeat logs for {int(_unreach_ttl)}s)")
                         return h, []
 
@@ -634,15 +632,14 @@ async def gather_stats() -> None:
                 # effort: skip resolution that fails (the DNS-skip
                 # cache absorbs the cost) and fall back to the bare
                 # hostname when the lookup raises.
-                import socket as _socket
                 hosts_with_addr = []
                 for _hn in hostnames:
                     try:
-                        _ip = _socket.gethostbyname(_hn)
+                        _ip = socket.gethostbyname(_hn)
                         hosts_with_addr.append(
                             f"{_hn}({_ip})" if _ip != _hn else _hn,
                         )
-                    except (OSError, _socket.gaierror):
+                    except (OSError, socket.gaierror):
                         hosts_with_addr.append(f"{_hn}(unresolved)")
                 print(f"[stats] gather_stats: per-node sweep hosts={hosts_with_addr} "
                       f"sizes={[len(lst) for _, lst in per_node]} "

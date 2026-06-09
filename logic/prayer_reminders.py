@@ -31,7 +31,7 @@ import json
 import time
 from typing import Optional
 
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 from logic.tuning import Tunable, tuning_int
 from logic import prayer_times as _pt
 
@@ -197,11 +197,9 @@ def _mark_sent(username: str, greg_date: str, prayer_key: str) -> None:
 def _prune_dedup() -> int:
     cutoff = int(time.time()) - _DEDUP_RETENTION_DAYS * 86400
     try:
-        with db_conn() as c:
-            cur = c.execute(
-                "DELETE FROM prayer_reminders_sent WHERE ts < ?", (cutoff,)
-            )
-            return int(cur.rowcount or 0)
+        # Chunked delete (writer lock released per chunk) — seeks
+        # idx_prayer_reminders_sent_ts.
+        return prune_rows_older_than("prayer_reminders_sent", cutoff)
     except Exception as e:  # noqa: BLE001
         print(f"[prayer_reminders] prune failed: {e}", flush=True)
         return 0
