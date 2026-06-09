@@ -46,7 +46,9 @@ Single-instance app (NOT fleet) — one card per pinned chip.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import sqlite3
 import time
 from typing import Any, Optional
 
@@ -55,6 +57,8 @@ import httpx
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl)
 from logic.coerce import as_dict, as_list, safe_float, safe_int
+from logic.db import get_setting, set_setting
+from logic.settings_keys import Settings
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("tdarr",)
@@ -125,6 +129,21 @@ _bloated_state: dict[str, dict[str, Any]] = {}
 # replicated locally to avoid a logic→main import cycle).
 _BG_TASKS: set = set()
 
+# Total wall-clock budget for the expanded-CARD fetch (fetch_data). The card's
+# per-request timeout is generous (_CARD_TIMEOUT) but several sequential calls
+# (cruddb + status + get-nodes + bounded pies) can add up — and while a bloated
+# scan is streaming FileJSONDB, Tdarr is slow on ALL of them. This bounds the
+# WHOLE fetch so the card serves its last-good cached value FAST instead of
+# letting the request run long enough to trip the generic per-app route budget
+# (tuning_apps_route_budget_seconds, default 50s) and 504 the card. Kept well
+# under that default.
+_CARD_TOTAL_BUDGET_S = 35.0
+
+# Per-host bloated-scan wall-clock history (persisted JSON map host_id ->
+# [seconds,...]) so the "Scanning…" message shows a MEASURED average ETA
+# instead of static copy. Last N kept per host.
+_SCAN_DURATION_HISTORY = 10
+
 
 def _spawn(coro) -> "asyncio.Task":
     """Fire-and-forget a background coroutine, keeping a strong ref until done."""
@@ -132,6 +151,67 @@ def _spawn(coro) -> "asyncio.Task":
     _BG_TASKS.add(t)
     t.add_done_callback(_BG_TASKS.discard)
     return t
+
+
+def _load_scan_durations() -> dict:
+    """The persisted ``{host_id: [seconds,...]}`` scan-duration map (``{}`` on
+    any error)."""
+    try:
+        raw = get_setting(Settings.TDARR_SCAN_DURATIONS)
+        if not raw:
+            return {}
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else {}
+    except (ValueError, TypeError, OSError, RuntimeError, sqlite3.Error):
+        return {}
+
+
+def _record_scan_duration(host_id: str, seconds: float) -> None:
+    """Append a completed scan's wall-clock to the host's rolling history (last
+    ``_SCAN_DURATION_HISTORY``) and persist. Best-effort."""
+    if not host_id or seconds <= 0:
+        return
+    try:
+        m = _load_scan_durations()
+        hist = m.get(host_id)
+        if not isinstance(hist, list):
+            hist = []
+        hist.append(round(float(seconds), 1))
+        m[host_id] = hist[-_SCAN_DURATION_HISTORY:]
+        set_setting(Settings.TDARR_SCAN_DURATIONS, json.dumps(m))
+    except (ValueError, TypeError, OSError, RuntimeError, sqlite3.Error):
+        pass
+
+
+def _scan_eta(host_id: str) -> "tuple[Optional[float], int]":
+    """``(average scan seconds, sample count)`` from the host's history, or
+    ``(None, 0)`` when there's no measured history yet."""
+    hist = _load_scan_durations().get(host_id)
+    if not isinstance(hist, list):
+        return None, 0
+    vals = [safe_float(x) for x in hist if safe_float(x) > 0]
+    if not vals:
+        return None, 0
+    return sum(vals) / len(vals), len(vals)
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Humanise a seconds figure: ``45s`` / ``1m 30s`` / ``2m``."""
+    s = int(round(seconds))
+    if s < 60:
+        return f"{s}s"
+    m, sec = divmod(s, 60)
+    return f"{m}m" + (f" {sec}s" if sec else "")
+
+
+def _scan_eta_phrase(host_id: str) -> str:
+    """The ETA sentence for a 'Scanning…' message — a MEASURED average when this
+    host has history, else the static fallback."""
+    avg, n = _scan_eta(host_id)
+    if avg:
+        return (f"This usually takes ~{_fmt_duration(avg)} "
+                f"(average of the last {n} scan{'s' if n != 1 else ''})")
+    return "This takes ~1–2 minutes on a large library"
 
 
 def requires_api_key() -> bool:
@@ -165,9 +245,17 @@ async def _get(cli: httpx.AsyncClient, base: str, api_key: str, path: str) -> An
         raise RuntimeError("non-JSON from upstream")
 
 
-async def _cruddb(cli: httpx.AsyncClient, base: str, api_key: str, data: dict) -> Any:
+async def _cruddb(cli: httpx.AsyncClient, base: str, api_key: str, data: dict,
+                  *, parse_json: bool = True) -> Any:
     """One ``POST /api/v2/cruddb`` with the ``{"data": <data>}`` envelope.
-    Raises ``RuntimeError`` on transport / auth / non-200 / non-JSON."""
+    Raises ``RuntimeError`` on transport / auth / non-200.
+
+    ``parse_json=True`` (the default, for READS — getById / getAll) parses + returns
+    the JSON body, raising on a non-JSON body. ``parse_json=False`` is for WRITES
+    (``mode=update``): Tdarr answers a successful cruddb update with a 200 and a
+    NON-JSON / empty body, so requiring JSON there would misread every successful
+    update as a failure (the reference bot just checks the 200 status). With
+    ``parse_json=False`` a 200 is success regardless of body."""
     try:
         r = await cli.post(base.rstrip("/") + _API + "/cruddb",
                            headers=_headers(api_key), json={"data": data})
@@ -177,6 +265,8 @@ async def _cruddb(cli: httpx.AsyncClient, base: str, api_key: str, data: dict) -
         raise RuntimeError("auth failed: Tdarr requires an API key (set it in the editor)")
     if r.status_code != 200:
         raise RuntimeError(f"HTTP {r.status_code} for cruddb")
+    if not parse_json:
+        return None
     try:
         return r.json()
     except (ValueError, TypeError):
@@ -338,39 +428,56 @@ async def fetch_data(host_row: dict, chip: dict, *,
     cached = _data_cache.get(ck)
     if cached and not force and (now - cached[0]) < ttl:
         return cached[1]
-    try:
+
+    async def _collect():
+        """The network section — bounded as a whole by _CARD_TOTAL_BUDGET_S
+        (below) so a Tdarr that's slow on every call while a bloated scan
+        streams can't run the card past the per-app route budget."""
         async with httpx.AsyncClient(verify=False, timeout=_CARD_TIMEOUT,
                                      follow_redirects=True) as cli:
-            stats = _stats_doc(await _cruddb(cli, base, api_key, {
+            _stats = _stats_doc(await _cruddb(cli, base, api_key, {
                 "collection": "StatisticsJSONDB", "mode": "getById",
                 "docID": "statistics", "obj": {}}))
             try:
-                version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
+                _version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
             except RuntimeError:
-                version = ""
-            workers_active, nodes, worker_list = 0, 0, []
+                _version = ""
+            _wa, _nodes, _wl = 0, 0, []
             try:
                 nd = await _get(cli, base, api_key, "/get-nodes")
-                workers_active, nodes = _count_workers(nd)
-                worker_list = _worker_list(nd)
+                _wa, _nodes = _count_workers(nd)
+                _wl = _worker_list(nd)
             except RuntimeError:
-                workers_active, nodes, worker_list = 0, 0, []
+                _wa, _nodes, _wl = 0, 0, []
             # Library breakdowns (resolutions / codecs / containers) — best-effort
             # per-library get-pies aggregation, BOUNDED so a slow library can't
             # time out the whole card; empty on timeout (the card hides them).
             try:
-                pies = await asyncio.wait_for(
+                _pies = await asyncio.wait_for(
                     _fetch_pies(cli, base, api_key), timeout=_PIES_BUDGET_S)
             except (asyncio.TimeoutError, RuntimeError):
-                pies = {"resolutions": [], "codecs": [], "containers": []}
-    except RuntimeError as e:
+                _pies = {"resolutions": [], "codecs": [], "containers": []}
+            return _stats, _version, _wa, _nodes, _wl, _pies
+
+    try:
+        stats, version, workers_active, nodes, worker_list, pies = \
+            await asyncio.wait_for(_collect(), timeout=_CARD_TOTAL_BUDGET_S)
+    except (RuntimeError, asyncio.TimeoutError) as e:
         # Transient upstream slowness (e.g. Tdarr busy while a bloated scan
         # streams FileJSONDB) — serve the LAST-GOOD card instead of erroring on
         # every poll. Only hard-fail when there's nothing cached to fall back to.
+        timed_out = isinstance(e, asyncio.TimeoutError)
         if cached is not None:
-            print(f"[tdarr] warning: fetch host={host_id} failed ({e}) — serving "
+            why = (f"timed out (> {_CARD_TOTAL_BUDGET_S:.0f}s)" if timed_out
+                   else f"failed ({e})")
+            print(f"[tdarr] warning: fetch host={host_id} {why} — serving "
                   f"cached card ({int(now - cached[0])}s old)")
             return cached[1]
+        if timed_out:
+            print(f"[tdarr] error: fetch host={host_id} — exceeded "
+                  f"{_CARD_TOTAL_BUDGET_S:.0f}s total budget (Tdarr too slow, "
+                  f"likely a bloated scan in progress)")
+            raise RuntimeError(f"card fetch exceeded {_CARD_TOTAL_BUDGET_S:.0f}s budget")
         print(f"[tdarr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
     out: dict[str, Any] = {
@@ -560,12 +667,17 @@ async def _run_bloated_scan(base: str, api_key: str, host_id: str) -> None:
     skill invocation to serve. Never raises out (logged + recorded on the
     state)."""
     st = _bloated_state.setdefault(host_id, {})
+    started = safe_float(st.get("started")) or time.time()
     try:
         async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
             bloated = await _find_bloated(cli, base, api_key)
         st.update({"files": bloated, "ts": time.time(), "error": None})
-        print(f"[tdarr] INFO bloated scan done host={host_id} found={len(bloated):,}")
+        # Record the measured wall-clock so the next "Scanning…" message can show
+        # a real average ETA instead of static "~1–2 minutes" copy.
+        _record_scan_duration(host_id, time.time() - started)
+        print(f"[tdarr] INFO bloated scan done host={host_id} found={len(bloated):,} "
+              f"in {_fmt_duration(time.time() - started)}")
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -687,14 +799,13 @@ async def _bloated_skill(host_row: dict, chip: dict, *,
     if running:
         return {"ok": True, "status": 200, "pending": True,
                 "detail": (f"🔍 Scanning for bloated files… started "
-                           f"{int(now - st.get('started', now))}s ago. This takes "
-                           "~1–2 minutes on a large library — results will appear "
+                           f"{int(now - st.get('started', now))}s ago. "
+                           f"{_scan_eta_phrase(hid)} — results will appear "
                            "here automatically when ready.")}
     _ensure_bloated_scan(base, api_key, hid)
     return {"ok": True, "status": 200, "pending": True,
-            "detail": ("🔍 Scanning for bloated files… this takes ~1–2 minutes on "
-                       "a large library. Results will appear here automatically "
-                       "when ready.")}
+            "detail": (f"🔍 Scanning for bloated files… {_scan_eta_phrase(hid)}. "
+                       "Results will appear here automatically when ready.")}
 
 
 async def _run_requeue(base: str, api_key: str, host_id: str,
@@ -722,10 +833,13 @@ async def _run_requeue(base: str, api_key: str, host_id: str,
                 if not fid:
                     continue
                 try:
+                    # WRITE — a successful Tdarr cruddb update returns a 200 with
+                    # a non-JSON / empty body, so parse_json=False (else every
+                    # successful update misreads as "non-JSON from upstream").
                     await _cruddb(cli, base, api_key, {
                         "collection": "FileJSONDB", "mode": "update", "docID": fid,
                         "obj": {"TranscodeDecisionMaker": "Queued",
-                                "HealthCheck": "Queued"}})
+                                "HealthCheck": "Queued"}}, parse_json=False)
                     done += 1
                     rq["done"] = done
                 except RuntimeError as e:

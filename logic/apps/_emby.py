@@ -26,6 +26,7 @@ binder can import it without a cycle.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, NamedTuple, Optional
 from urllib.parse import urlencode
@@ -41,18 +42,6 @@ from logic.coerce import as_dict, as_list, safe_int
 # `cache_ttl` field). 30s — the library counts move slowly; now-playing is
 # fetched live by its own skill.
 DEFAULT_CACHE_TTL_S = 30
-
-# Item Type → group bucket for recently-added. Movie is `Movie`; TV is
-# Series/Season/Episode; music is MusicArtist/MusicAlbum/Audio.
-_SERIES_TYPES = frozenset({"series", "season", "episode"})
-_MUSIC_TYPES = frozenset({"musicartist", "musicalbum", "audio"})
-
-# group bucket → i18n heading key (shared with the Tautulli recently-added view).
-_GROUP_I18N = {
-    "movie": "apps.tautulli.group_movies",
-    "music": "apps.tautulli.group_music",
-    "series": "apps.tautulli.group_series",
-}
 
 
 class Config(NamedTuple):
@@ -111,7 +100,6 @@ _COUNT_FIELDS = ("MovieCount", "SeriesCount", "EpisodeCount", "AlbumCount",
                  "SongCount", "ArtistCount", "MusicVideoCount", "BoxSetCount",
                  "BookCount", "TrailerCount", "ProgramCount")
 
-
 # Library CollectionType → the top-grid stat it feeds. Only these three map to
 # a grid cell; every other type (homevideos / photos / books / boxsets / mixed /
 # custom) still counts toward the grand total + shows in the per-library list.
@@ -152,13 +140,11 @@ def _counts_from_libraries(library_list: list) -> dict:
     return out
 
 
-async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
-                        scheme: str) -> list:
-    """Every library as ``[{name, type, count}]`` — ``/Library/VirtualFolders``
-    for the name + collection type, plus a bounded per-library Recursive item
-    count (``/Items?ParentId=<id>&Limit=0&EnableTotalRecordCount=true`` →
-    ``TotalRecordCount``). Best-effort: a failed per-library count yields 0; an
-    errored / empty VirtualFolders yields []. Capped at 30 libraries."""
+async def _virtual_folders(cli: "httpx.AsyncClient", base: str, key: str,
+                           scheme: str) -> list:
+    """Every library as ``[{id, name, type}]`` from ``/Library/VirtualFolders``
+    (the library's ``ItemId`` is needed to fetch its items by ``ParentId``).
+    Best-effort: ``[]`` on a non-200 / parse failure. Capped at 30 libraries."""
     try:
         vr = await cli.get(base + "/Library/VirtualFolders",
                            headers=headers(key, scheme))
@@ -174,7 +160,21 @@ async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
         name = str(vf.get("Name") or "").strip()
         if not name:
             continue
-        item_id = str(vf.get("ItemId") or "").strip()
+        out.append({"id": str(vf.get("ItemId") or "").strip(),
+                    "name": name,
+                    "type": str(vf.get("CollectionType") or "").strip()})
+    return out
+
+
+async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
+                        scheme: str) -> list:
+    """Every library as ``[{name, type, count}]`` — the ``_virtual_folders``
+    name + collection type, plus a bounded per-library Recursive item count
+    (``/Items?ParentId=<id>&Limit=0&EnableTotalRecordCount=true`` →
+    ``TotalRecordCount``). Best-effort: a failed per-library count yields 0."""
+    out: list = []
+    for vf in await _virtual_folders(cli, base, key, scheme):
+        item_id = vf.get("id") or ""
         count = 0
         if item_id:
             try:
@@ -186,8 +186,8 @@ async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
                     count = safe_int(as_dict(ir.json()).get("TotalRecordCount"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 count = 0
-        out.append({"name": name,
-                    "type": str(vf.get("CollectionType") or "").strip(),
+        out.append({"name": vf.get("name") or "?",
+                    "type": vf.get("type") or "",
                     "count": count})
     return out
 
@@ -425,11 +425,28 @@ async def _fetch_items(base: str, path: str, *, key: str, cfg: Config,
     return _parse_items(r)
 
 
+def _lib_icon(coll_type: str) -> str:
+    """A per-library-type emoji for the status breakdown."""
+    t = (coll_type or "").lower()
+    if t == "movies":
+        return "🎬"
+    if t == "tvshows":
+        return "📺"
+    if t == "music":
+        return "🎵"
+    if t in ("homevideos", "photos"):
+        return "📷"
+    if t == "books":
+        return "📚"
+    return "🗂️"
+
+
 async def status_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str], service_idx: Optional[int],
                        cfg: Config, cache: dict) -> dict:
     """Read-only: live-fetch the library summary (force-bypasses the cache) and
-    return a formatted ``detail``. Never raises."""
+    return a formatted ``detail`` — the aggregate counts PLUS every library
+    listed individually (name + item count). Never raises."""
     print(f"[{cfg.log_tag}] INFO {cfg.slug}_status host={host_id} svc_idx={service_idx} (live fetch)")
     try:
         data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
@@ -443,6 +460,7 @@ async def status_skill(host_row: dict, chip: dict, *,
     episodes = safe_int(data.get("episodes"))
     songs = safe_int(data.get("songs"))
     sessions = safe_int(data.get("sessions_active"))
+    items_total = safe_int(data.get("items_total"))
     lines = [
         f"🎬 Movies: {movies:,}",
         f"📺 Series: {series:,} ({episodes:,} episodes)",
@@ -450,6 +468,18 @@ async def status_skill(host_row: dict, chip: dict, *,
     if songs:
         lines.append(f"🎵 Songs: {songs:,}")
     lines.append(f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}")
+    # Per-library breakdown — list EVERY library (name + item count), not just
+    # the three aggregate buckets, so custom / mixed libraries are visible.
+    lib_list = as_list(data.get("library_list"))
+    if lib_list:
+        lines.append(f"📚 Libraries ({len(lib_list)}, {items_total:,} items total):")
+        for lib in lib_list:
+            if not isinstance(lib, dict):
+                continue
+            nm = str(lib.get("name") or "?").strip()
+            cnt = safe_int(lib.get("count"))
+            coll = str(lib.get("type") or "").strip()
+            lines.append(f"  {_lib_icon(coll)} {nm}: {cnt:,}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -556,106 +586,165 @@ async def now_playing_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, f"apps.{cfg.slug}.now_playing_count")
 
 
-def _item_group(typ: str) -> str:
-    """Bucket an item Type into movie / series / music."""
-    t = (typ or "").lower()
-    if t == "movie":
-        return "movie"
-    if t in _MUSIC_TYPES:
-        return "music"
-    if t in _SERIES_TYPES:
-        return "series"
-    return "movie"
+# Recently-added: per-library fetch breadth. Items are pulled PER library (by
+# ParentId) so each is correctly attributed to the library it lives in — a flat
+# /Items pull only knows an item's TYPE (movie/episode/…), not which (possibly
+# custom-named) library it belongs to.
+_RECENT_PER_LIB = 6  # items pulled per library
+_RECENT_LIB_CAP = 12  # max libraries queried (bounds the fan-out)
+_RECENT_TOTAL_CAP = 30  # max rich items returned across all libraries
+_RECENT_ITEM_TYPES = "Movie,Episode,Series,MusicAlbum,MusicVideo,Video,Audio"
 
 
-def _group_lines(heading: str, rows: list, *, with_subtitle: bool) -> list:
-    """One recently-added group's text lines: ``heading`` then a ``• title``
-    bullet per row (appending `` — subtitle`` when ``with_subtitle`` and the row
-    has one). [] for an empty group. Shared by the Movies / Series / Music
-    sections so they don't repeat the bullet-building."""
+def _recent_row(item: dict) -> Optional[dict]:
+    """Build one recently-added rich row (poster + title + subtitle) from a
+    media item. ``None`` for a container / unnamed item. The caller stamps the
+    library ``group``."""
+    if not isinstance(item, dict):
+        return None
+    typ = str(item.get("Type") or "").lower()
+    yr = str(item.get("ProductionYear") or "").strip()
+    sub_parts: list[str] = []
+    if typ in ("episode", "season"):
+        title = str(item.get("SeriesName") or item.get("Name") or "?").strip()
+        ep = str(item.get("Name") or "").strip()
+        if ep and ep != title:
+            sub_parts.append(ep)
+        poster_id = str(item.get("SeriesId") or item.get("Id") or "").strip()
+    elif typ in ("musicalbum", "audio", "musicartist"):
+        title = str(item.get("AlbumArtist") or item.get("Name") or "?").strip()
+        album = str(item.get("Name") or "").strip()
+        if album and album != title:
+            sub_parts.append(album)
+        poster_id = str(item.get("Id") or "").strip()
+    else:  # movie / series / video / musicvideo / anything else
+        title = str(item.get("Name") or "?").strip()
+        if yr:
+            sub_parts.append(yr)
+        poster_id = str(item.get("Id") or "").strip()
+    if not title or title == "?":
+        return None
+    row: "dict[str, Any]" = {
+        "title": title + (f" ({yr})" if typ == "movie" and yr else ""),
+        "subtitle": " · ".join(sub_parts)}
+    if poster_id:
+        row["poster"] = f"/Items/{poster_id}/Images/Primary"
+        row["poster_proxy"] = True
+    return row
+
+
+async def _fetch_lib_recent(cli: "httpx.AsyncClient", base: str, key: str,
+                            cfg: Config, vf: dict) -> Optional[dict]:
+    """Most-recently-added items for ONE library (``ParentId=<lib id>`` sorted by
+    DateCreated desc). Returns ``{name, rows, newest}`` or ``None`` (no id / no
+    items / a per-library failure — best-effort)."""
+    lib_id = (vf.get("id") or "").strip()
+    name = str(vf.get("name") or "").strip()
+    if not lib_id or not name:
+        return None
+    try:
+        r = await cli.get(base + "/Items", headers=headers(key, cfg.scheme), params={
+            "ParentId": lib_id, "Recursive": "true",
+            "SortBy": "DateCreated,SortName", "SortOrder": "Descending",
+            "Limit": str(_RECENT_PER_LIB),
+            "IncludeItemTypes": _RECENT_ITEM_TYPES,
+            "Fields": "ProductionYear,SeriesName,DateCreated",
+            "ImageTypeLimit": "1"})
+        if r.status_code != 200:
+            return None
+        items = as_list(as_dict(r.json()).get("Items"))
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return None
+    rows: list = []
+    newest = ""
+    for item in items:
+        row = _recent_row(item)
+        if not row:
+            continue
+        row["group"] = name  # the actual library name (raw text divider)
+        row["group_raw"] = True  # render verbatim, not via t()
+        rows.append(row)
+        dc = str(as_dict(item).get("DateCreated") or "")
+        if dc > newest:
+            newest = dc
     if not rows:
-        return []
-    out = [heading]
-    if with_subtitle:
-        out += [f"  • {r['title']}" + (f" — {r['subtitle']}" if r.get("subtitle") else "")
-                for r in rows]
-    else:
-        out += [f"  • {r['title']}" for r in rows]
-    return out
+        return None
+    return {"name": name, "rows": rows, "newest": newest}
+
+
+async def _recent_flat(cli: "httpx.AsyncClient", base: str, key: str,
+                       cfg: Config) -> dict:
+    """Fallback recently-added — a single flat date-sorted list (no library
+    grouping) used only when ``/Library/VirtualFolders`` is unavailable."""
+    try:
+        r = await cli.get(base + "/Items", headers=headers(key, cfg.scheme), params={
+            "SortBy": "DateCreated,SortName", "SortOrder": "Descending",
+            "Recursive": "true", "Limit": str(_RECENT_TOTAL_CAP),
+            "IncludeItemTypes": _RECENT_ITEM_TYPES,
+            "Fields": "ProductionYear,SeriesName,DateCreated", "ImageTypeLimit": "1"})
+        if r.status_code != 200:
+            return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+        items = as_list(as_dict(r.json()).get("Items"))
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return {"ok": False, "status": 0, "detail": "fetch failed"}
+    rows: list = []
+    for item in items:
+        row = _recent_row(item)
+        if row:
+            rows.append(row)
+        if len(rows) >= _RECENT_TOTAL_CAP:
+            break
+    if not rows:
+        return {"ok": True, "status": 200, "detail": f"🆕 Nothing recently added to {cfg.brand}."}
+    lines = [f"  • {r['title']}" + (f" — {r['subtitle']}" if r.get("subtitle") else "")
+             for r in rows]
+    out: dict = {"ok": True, "status": 200,
+                 "detail": f"🆕 Recently added to {cfg.brand}:\n" + "\n".join(lines)}
+    return _attach_items(out, rows, "apps.tautulli.recent_count")
 
 
 async def recently_added_skill(host_row: dict, chip: dict, *,
                                host_id: Optional[str], cfg: Config) -> dict:
-    """Read-only: list the most recently added items (``GET /Items`` sorted by
-    DateCreated desc), grouped Movies / Series / Music with poster thumbnails.
-    Never raises."""
+    """Read-only: the most recently added items, grouped by the actual LIBRARY
+    they belong to (each library queried by ParentId so the attribution is
+    correct), newest-library first, with poster thumbnails. Never raises."""
     key, base, err = _resolve_skill_target(host_row, chip, cfg=cfg)
     if err:
         return err
-    print(f"[{cfg.log_tag}] INFO {cfg.slug}_recently_added host={host_id} (live fetch)")
-    params = {
-        "SortBy": "DateCreated,SortName",
-        "SortOrder": "Descending",
-        "Recursive": "true",
-        "Limit": "20",
-        # Broad set so items from custom-typed libraries (home video / mixed /
-        # music-video) show too — not just Movie/Episode/MusicAlbum. _item_group
-        # buckets anything unrecognised into Movies so they still render.
-        "IncludeItemTypes": "Movie,Episode,Series,MusicAlbum,MusicVideo,Video,Audio",
-        "Fields": "ProductionYear,SeriesName",
-        "ImageTypeLimit": "1",
-    }
-    meta = await _fetch_items(base, "/Items", key=key, cfg=cfg,
-                              timeout=15.0, verb="fetch", params=params)
-    if isinstance(meta, dict):
-        return meta
-    if not meta:
+    print(f"[{cfg.log_tag}] INFO {cfg.slug}_recently_added host={host_id} (live fetch, per-library)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            folders = await _virtual_folders(cli, base, key, cfg.scheme)
+            if not folders:
+                # No library list — fall back to a flat ungrouped pull.
+                return await _recent_flat(cli, base, key, cfg)
+            results = await asyncio.gather(
+                *[_fetch_lib_recent(cli, base, key, cfg, vf)
+                  for vf in folders[:_RECENT_LIB_CAP]],
+                return_exceptions=True)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    libs = [x for x in results if isinstance(x, dict) and x.get("rows")]
+    if not libs:
         return {"ok": True, "status": 200, "detail": f"🆕 Nothing recently added to {cfg.brand}."}
-    movies: list[dict] = []
-    series: list[dict] = []
-    music: list[dict] = []
-    for item in meta[:20]:
-        if not isinstance(item, dict):
+    # Newest-library first (the library with the most recent addition leads).
+    libs.sort(key=lambda x: x.get("newest") or "", reverse=True)
+    rich: list = []
+    text_lines: list = []
+    for lib in libs:
+        if len(rich) >= _RECENT_TOTAL_CAP:
+            break
+        rows = lib["rows"][:_RECENT_TOTAL_CAP - len(rich)]
+        if not rows:
             continue
-        grp = _item_group(str(item.get("Type") or ""))
-        yr = str(item.get("ProductionYear") or "").strip()
-        sub_parts: list[str] = []
-        if grp == "series":
-            title = str(item.get("SeriesName") or item.get("Name") or "?").strip()
-            ep = str(item.get("Name") or "").strip()
-            if ep and ep != title:
-                sub_parts.append(ep)
-            poster_id = str(item.get("SeriesId") or item.get("Id") or "").strip()
-        elif grp == "music":
-            title = str(item.get("AlbumArtist") or item.get("Name") or "?").strip()
-            album = str(item.get("Name") or "").strip()
-            if album and album != title:
-                sub_parts.append(album)
-            poster_id = str(item.get("Id") or "").strip()
-        else:  # movie
-            title = str(item.get("Name") or "?").strip()
-            if yr:
-                sub_parts.append(yr)
-            poster_id = str(item.get("Id") or "").strip()
-        if not title or title == "?":
-            continue
-        group_key = _GROUP_I18N.get(grp, "apps.tautulli.group_movies")
-        row: "dict[str, Any]" = {
-            "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
-            "subtitle": " · ".join(sub_parts),
-            "group": group_key}
-        if poster_id:
-            row["poster"] = f"/Items/{poster_id}/Images/Primary"
-            row["poster_proxy"] = True
-        (movies if grp == "movie" else music if grp == "music" else series).append(row)
-    rich = movies + series + music
-    if not rich:
-        return {"ok": True, "status": 200, "detail": f"🆕 Nothing recently added to {cfg.brand}."}
-    lines = (_group_lines("🎬 Movies:", movies, with_subtitle=False)
-             + _group_lines("📺 Series:", series, with_subtitle=True)
-             + _group_lines("🎵 Music:", music, with_subtitle=True))
+        rich.extend(rows)
+        text_lines.append(f"📚 {lib['name']}:")
+        text_lines += [f"  • {r['title']}" + (f" — {r['subtitle']}" if r.get("subtitle") else "")
+                       for r in rows]
     out: dict = {"ok": True, "status": 200,
-                 "detail": f"🆕 Recently added to {cfg.brand}:\n" + "\n".join(lines)}
+                 "detail": f"🆕 Recently added to {cfg.brand}:\n" + "\n".join(text_lines)}
     return _attach_items(out, rich, "apps.tautulli.recent_count")
 
 

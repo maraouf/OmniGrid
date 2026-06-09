@@ -10475,7 +10475,7 @@
                                              Series) rendered at each group boundary. -->
                                         <div x-show="appSkillItemShowGroup(inst, sk.id, ii)"
                                              class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] font-semibold mt-1"
-                                             x-text="it.group ? t(it.group) : ''"></div>
+                                             x-text="it.group ? (it.group_raw ? it.group : t(it.group)) : ''"></div>
                                         <div class="apps-skill-item flex items-center gap-2 min-w-0">
                                           <img x-show="it.poster" :src="appSkillItemPoster(inst, it)" alt="" loading="lazy"
                                                class="apps-skill-item-poster shrink-0"

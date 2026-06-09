@@ -219,6 +219,7 @@ class Settings(str, Enum):
     SWARM_AUTOHEAL_LAST_NOTIFY_SET = "swarm_autoheal_last_notify_set"
     SWARM_AUTOHEAL_LAST_NOTIFY_TS = "swarm_autoheal_last_notify_ts"
     SWARM_AUTOHEAL_LAST_RESTART_TS = "swarm_autoheal_last_restart_ts"
+    TDARR_SCAN_DURATIONS = "tdarr_scan_durations"
     TELEGRAM_ALLOW_DESTRUCTIVE = "telegram_allow_destructive"
     TELEGRAM_API_BASE = "telegram_api_base"
     TELEGRAM_AUTHORIZED_USER_IDS = "telegram_authorized_user_ids"
