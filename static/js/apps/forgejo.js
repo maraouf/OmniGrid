@@ -5,9 +5,9 @@
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
 /* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
 
-// Per-app SPA module -- Radarr (movie collection manager).
+// Per-app SPA module -- Forgejo (self-hosted Git service).
 //
-// Encapsulates every Radarr-specific helper so the generic
+// Encapsulates every Forgejo-specific helper so the generic
 // `static/js/app-apps.js` stays app-agnostic. Loaded by
 // `static/js/apps/_registry.js`, which merges every per-app module's
 // `helpers` into the Alpine component AND exposes the extender record
@@ -15,39 +15,36 @@
 // `window.OG_APPS_EXTENDERS`.
 //
 // Data source
-//   Radarr chips render a 4-stat panel (movies / missing / downloading /
-//   disk free) sourced from Radarr's `GET /api/v3/movie` + queue / disk
-//   / health endpoints. The card reads the per-app data the generic
-//   dispatcher fetched via `logic/apps/radarr.py:fetch_data`, so it never
-//   triggers a per-card round-trip on the hot path. `radarrData(inst)`
-//   reads it via the cache-backed `appsAppData(inst)` helper (same path
-//   Bazarr / Seerr / Speedtest / APC use).
+//   Forgejo chips render a 4-stat panel (repos / open PRs / open issues /
+//   notifications) sourced from the Gitea-compatible REST API (user/repos +
+//   issues/search + notifications) via `logic/apps/forgejo.py:fetch_data`. The
+//   card reads the per-app data the generic dispatcher fetched, so it never
+//   triggers a per-card round-trip on the hot path. `forgejoData(inst)` reads
+//   it via the cache-backed `appsAppData(inst)` helper (same path Plex uses).
 //
-// File-scope IDE directives: see `bazarr.js`'s header for the full
+// File-scope IDE directives: see `speedtest_tracker.js`'s header for the full
 // rationale -- same per-file JSHint + PyCharm conventions.
 
-// True when `app` is the Radarr catalog template (matched via slug; falls
+// True when `app` is the Forgejo catalog template (matched via slug; falls
 // back to a substring check on `app.name` so an operator-edited chip that
 // dropped the catalog link but kept the brand still resolves).
-function isRadarrApp(app) {
+function isForgejoApp(app) {
   if (!app) {
     return false;
   }
   const cat = app.catalog || {};
   const slug = String(cat.slug || '').trim().toLowerCase();
-  if (slug === 'radarr') {
+  if (slug === 'forgejo') {
     return true;
   }
-  return (String(app.name || '').toLowerCase().indexOf('radarr') !== -1);
+  return (String(app.name || '').toLowerCase().indexOf('forgejo') !== -1);
 }
 
-// Per-instance Radarr data lookup -- reads the per-app data the generic
-// dispatcher fetched from `GET /api/v3/movie` (via
-// `logic/apps/radarr.py:fetch_data`). Returns null while idle / pending /
-// errored OR when the payload isn't available, so the panel gate hides
-// cleanly. No module-scope memo needed: `this.appsAppData(inst)` is itself
-// cache-backed and only READS during render.
-function radarrData(inst) {
+// Per-instance Forgejo data lookup -- reads the per-app data the generic
+// dispatcher fetched (via `logic/apps/forgejo.py:fetch_data`). Returns null
+// while idle / pending / errored OR when the payload isn't available, so the
+// panel gate hides cleanly.
+function forgejoData(inst) {
   // `this` is the Alpine component (merged in via `appsHelpers`).
   /* jshint validthis: true */
   if (!inst || !this.appsAppData) {
@@ -61,7 +58,7 @@ function radarrData(inst) {
 }
 
 // Format an integer count with thousand separators; '—' for missing.
-function radarrCount(v) {
+function forgejoCount(v) {
   if (v == null) {
     return '—';
   }
@@ -72,35 +69,25 @@ function radarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
-// Format a GiB value as a compact "N.N GB" label; '—' for missing / zero.
-function radarrGb(v) {
-  const n = Number(v);
-  if (v == null || !isFinite(n) || n <= 0) {
-    return '—';
-  }
-  return n.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' GB';
-}
-
 // Extender record -- consumed by the generic helpers in
-// `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Radarr gets a
+// `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Forgejo gets a
 // 2-column span so the 4-stat panel doesn't squeeze the per-instance host
-// list, and a vertical telemetry-card layout like Bazarr / Seerr / APC.
+// list, and a vertical telemetry-card layout like Plex / Jellyfin / Bazarr.
 export const extender = {
-  slugs: ['radarr'],
+  slugs: ['forgejo'],
   requiresApiKey: true,
   eyebrowTitle: true,
   verticalLayout: true,
   cardSpan(app) {
-    return isRadarrApp(app) ? 2 : 1;
+    return isForgejoApp(app) ? 2 : 1;
   },
 };
 
 // Helpers attached to the Alpine `app()` component via the merge in
-// `static/js/apps/_registry.js`. Names are prefixed `radarr*` so they
-// don't collide with other per-app modules' helpers.
+// `static/js/apps/_registry.js`. Names are prefixed `forgejo*` so they don't
+// collide with other per-app modules' helpers.
 export const helpers = {
-  radarrIsApp: isRadarrApp,
-  radarrData: radarrData,
-  radarrCount: radarrCount,
-  radarrGb: radarrGb,
+  forgejoIsApp: isForgejoApp,
+  forgejoData: forgejoData,
+  forgejoCount: forgejoCount,
 };

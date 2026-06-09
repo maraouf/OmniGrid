@@ -333,7 +333,6 @@ async def fetch_data(host_row: dict, chip: dict, *,
             stats = _stats_doc(await _cruddb(cli, base, api_key, {
                 "collection": "StatisticsJSONDB", "mode": "getById",
                 "docID": "statistics", "obj": {}}))
-            version = ""
             try:
                 version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
             except RuntimeError:
@@ -607,7 +606,19 @@ def _fmt_bloated_result(files: list, note: str = "", pending: bool = False) -> d
             "progress": min(100, max(0, round(ratio - 100))),
         })
     out = {"ok": True, "status": 200, "detail": detail, "items": items,
-           "count": len(files), "count_i18n": "apps.tdarr.bloated_count"}
+           "count": len(files), "count_i18n": "apps.tdarr.bloated_count",
+           # One-click follow-up: requeue every bloated file straight from the
+           # result (web AI button / Telegram inline button). `destructive` so
+           # the web surface threads the confirm flag; the explicit labelled
+           # button / tap IS the confirmation. Generic shape {skill_id, arg,
+           # label, destructive, emoji}.
+           "followup": {
+               "skill_id": "tdarr_requeue_bloated",
+               "arg": "",
+               "label": f"Requeue {len(files):,} bloated file(s)",
+               "destructive": True,
+               "emoji": "♻️",
+           }}
     if pending:
         out["pending"] = True
     return out

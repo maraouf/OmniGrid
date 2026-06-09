@@ -9,8 +9,9 @@
      loading/error/no-api-key plain-text branches).
 
      Helpers used (all from `static/js/apps/lidarr.js`):
-       lidarrIsApp(app) / lidarrData(inst) / lidarrCount(v) /
-       lidarrDisks(inst) / lidarrSize(gib) / lidarrDiskUsedPct(m) -->
+       lidarrIsApp(app) / lidarrData(inst) / lidarrCount(v).
+     Storage uses the shared _components/apps/_arr_storage.html include
+     (generic appsDisks / appsDiskUsedPct / appsFmtSize helpers). -->
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="lidarrIsApp && lidarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
@@ -46,26 +47,10 @@
             <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).monitored)"></div>
           </div>
         </div>
-        <!-- Storage — every mount Lidarr reports, each with free / total + a
-             usage bar. -->
-        <div x-show="lidarrDisks(inst).length" class="mt-2 space-y-1.5 apps-card-storage">
-          <div class="apps-card-stat-label" x-text="t('apps.lidarr.storage') || 'Storage'"></div>
-          <template x-for="m in lidarrDisks(inst)" :key="m.path">
-            <div>
-              <div class="flex items-center justify-between gap-2 fs-3xs">
-                <span class="mono truncate text-[var(--text-dim)]" :title="m.path" x-text="m.path"></span>
-                <span class="mono text-[var(--text-faint)] flex-shrink-0"
-                      x-text="(t('apps.lidarr.disk_free_short') || 'free') + ' ' + lidarrSize(m.free_gb) + ' / ' + lidarrSize(m.total_gb)"></span>
-              </div>
-              <div class="stat-bar mt-0.5" :class="barLevel(lidarrDiskUsedPct(m))"
-                   role="progressbar" :aria-valuenow="lidarrDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
-                   :aria-label="m.path + ' ' + lidarrDiskUsedPct(m) + '% used'"
-                   :style="'--w: ' + lidarrDiskUsedPct(m) + '%'">
-                <div class="fill"></div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <!-- Storage — every mount the app reports, each as a clean card
+             with free / total + a colour-coded usage bar. Shared across
+             the *arr family. -->
+        <!-- INCLUDE: _components/apps/_arr_storage.html -->
         <!-- Footnote: version + health issues. -->
         <div x-show="lidarrData(inst).version || (Number(lidarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

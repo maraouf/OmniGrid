@@ -19,11 +19,12 @@
      2-column stat panel APC / Bazarr render) so the responsive tile-size
      rules apply for free.
 
-     Helpers used (all from `static/js/apps/radarr.js`):
+     Helpers used (from `static/js/apps/radarr.js`):
        radarrIsApp(app)   -- gate "is this a Radarr chip"
        radarrData(inst)   -- per-instance library-summary payload
        radarrCount(v)     -- thousands-separated integer formatter
-       radarrGb(v)        -- "N.N GB" disk-free formatter -->
+     Storage uses the shared `_components/apps/_arr_storage.html` include
+     (generic appsDisks / appsDiskUsedPct / appsFmtSize helpers). -->
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="radarrIsApp && radarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
@@ -59,28 +60,10 @@
                  x-text="radarrCount(radarrData(inst).queue)"></div>
           </div>
         </div>
-        <!-- Storage — every mount Radarr reports (root / library volume /
-             remote shares), each with free / total + a usage bar. Replaces
-             the single largest-disk stat so multi-disk libraries show in
-             full. -->
-        <div x-show="radarrDisks(inst).length" class="mt-2 space-y-1.5 apps-card-storage">
-          <div class="apps-card-stat-label" x-text="t('apps.radarr.storage') || 'Storage'"></div>
-          <template x-for="m in radarrDisks(inst)" :key="m.path">
-            <div>
-              <div class="flex items-center justify-between gap-2 fs-3xs">
-                <span class="mono truncate text-[var(--text-dim)]" :title="m.path" x-text="m.path"></span>
-                <span class="mono text-[var(--text-faint)] flex-shrink-0"
-                      x-text="(t('apps.radarr.disk_free_short') || 'free') + ' ' + radarrSize(m.free_gb) + ' / ' + radarrSize(m.total_gb)"></span>
-              </div>
-              <div class="stat-bar mt-0.5" :class="barLevel(radarrDiskUsedPct(m))"
-                   role="progressbar" :aria-valuenow="radarrDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
-                   :aria-label="m.path + ' ' + radarrDiskUsedPct(m) + '% used'"
-                   :style="'--w: ' + radarrDiskUsedPct(m) + '%'">
-                <div class="fill"></div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <!-- Storage — every mount the app reports (root / library volume /
+             remote shares), each as a clean card with free / total + a
+             colour-coded usage bar. Shared across the *arr family. -->
+        <!-- INCLUDE: _components/apps/_arr_storage.html -->
         <!-- Footnote: version + health issues (when reported). -->
         <div x-show="radarrData(inst).version || (Number(radarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

@@ -9,8 +9,9 @@
      no-api-key plain-text branches).
 
      Helpers used (all from `static/js/apps/sonarr.js`):
-       sonarrIsApp(app) / sonarrData(inst) / sonarrCount(v) /
-       sonarrDisks(inst) / sonarrSize(gib) / sonarrDiskUsedPct(m) -->
+       sonarrIsApp(app) / sonarrData(inst) / sonarrCount(v).
+     Storage uses the shared _components/apps/_arr_storage.html include
+     (generic appsDisks / appsDiskUsedPct / appsFmtSize helpers). -->
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="sonarrIsApp && sonarrIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
@@ -46,26 +47,10 @@
             <div class="apps-card-stat-value" x-text="sonarrCount(sonarrData(inst).monitored)"></div>
           </div>
         </div>
-        <!-- Storage — every mount Sonarr reports, each with free / total + a
-             usage bar. -->
-        <div x-show="sonarrDisks(inst).length" class="mt-2 space-y-1.5 apps-card-storage">
-          <div class="apps-card-stat-label" x-text="t('apps.sonarr.storage') || 'Storage'"></div>
-          <template x-for="m in sonarrDisks(inst)" :key="m.path">
-            <div>
-              <div class="flex items-center justify-between gap-2 fs-3xs">
-                <span class="mono truncate text-[var(--text-dim)]" :title="m.path" x-text="m.path"></span>
-                <span class="mono text-[var(--text-faint)] flex-shrink-0"
-                      x-text="(t('apps.sonarr.disk_free_short') || 'free') + ' ' + sonarrSize(m.free_gb) + ' / ' + sonarrSize(m.total_gb)"></span>
-              </div>
-              <div class="stat-bar mt-0.5" :class="barLevel(sonarrDiskUsedPct(m))"
-                   role="progressbar" :aria-valuenow="sonarrDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
-                   :aria-label="m.path + ' ' + sonarrDiskUsedPct(m) + '% used'"
-                   :style="'--w: ' + sonarrDiskUsedPct(m) + '%'">
-                <div class="fill"></div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <!-- Storage — every mount the app reports, each as a clean card
+             with free / total + a colour-coded usage bar. Shared across
+             the *arr family. -->
+        <!-- INCLUDE: _components/apps/_arr_storage.html -->
         <!-- Footnote: version + health issues. -->
         <div x-show="sonarrData(inst).version || (Number(sonarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

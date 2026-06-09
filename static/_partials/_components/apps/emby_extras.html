@@ -1,0 +1,78 @@
+<!-- Per-app expanded-card extras -- Emby (media server).
+
+     Renders inside `apps-card.html` as the per-instance host row when the
+     chip is the Emby catalog template AND the operator hasn't hidden extras
+     via the per-instance `show_extras` toggle. The data comes from the Emby
+     REST API (Items/Counts + Sessions + System/Info) via `logic/apps/emby.py`
+     (a thin binder over the shared `logic/apps/_emby.py` base), read through
+     the generic, cache-backed `appsAppData(inst)` -- so the card never
+     triggers a per-card round-trip on the hot path.
+
+     Reuses the shared `.apps-card-ups-*` stat-grid component (the same
+     2-column stat panel Jellyfin / Plex / Bazarr render).
+
+     Helpers used (all from `static/js/apps/emby.js`):
+       embyIsApp(app)   -- gate "is this an Emby chip"
+       embyData(inst)   -- per-instance library payload
+       embyCount(v)     -- thousands-separated integer formatter -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="embyIsApp && embyIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && embyData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-emby-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Movies -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.emby.movies') || 'Movies'"></div>
+        <div class="apps-card-stat-value" x-text="embyCount(embyData(inst).movies)"></div>
+      </div>
+      <!-- Series -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.emby.series') || 'Series'"></div>
+        <div class="apps-card-stat-value" x-text="embyCount(embyData(inst).series)"></div>
+      </div>
+      <!-- Songs -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.emby.songs') || 'Songs'"></div>
+        <div class="apps-card-stat-value" x-text="embyCount(embyData(inst).songs)"></div>
+      </div>
+      <!-- Now playing (active streams) -- highlighted when > 0 -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.emby.now_playing') || 'Now playing'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(embyData(inst).sessions_active) || 0) > 0 ? 'text-[var(--success)]' : ''"
+             x-text="embyCount(embyData(inst).sessions_active)"></div>
+      </div>
+    </div>
+    <!-- Libraries + episodes + version footnote. -->
+    <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
+      <span x-text="t('apps.emby.libraries_footnote', { n: (Number(embyData(inst).libraries) || 0) })"></span>
+      <span x-show="(Number(embyData(inst).episodes) || 0) > 0"
+            x-text="t('apps.emby.episodes_footnote', { n: (Number(embyData(inst).episodes) || 0) })"></span>
+      <span x-show="embyData(inst).version"
+            x-text="t('apps.version_footnote', { brand: 'Emby', v: (embyData(inst).version || '') })"></span>
+    </div>
+  </div>
+</template>
+<!-- No API key yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="embyIsApp && embyIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.emby.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on embyData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="embyIsApp && embyIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !embyData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.emby.loading') || 'Loading Emby data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="embyIsApp && embyIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !embyData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.emby.fetch_failed') || 'Emby fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

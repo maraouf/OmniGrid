@@ -5156,11 +5156,16 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    built at runtime isn't always picked up by the scanner). Default 200px;
    `--wide` is for detailed charts (Speedtest) that read too small at 200. */
 .apps-skill-img {
-  max-width: 200px;
+  /* Never exceed the drawer width — min() caps at the intrinsic size on
+     desktop but shrinks to fit a narrow mobile drawer (the Speedtest result
+     image was clipping off the right edge on phones). height: auto keeps the
+     aspect ratio while the width scales down. */
+  max-width: min(200px, 100%);
+  height: auto;
 }
 
 .apps-skill-img--wide {
-  max-width: 350px;
+  max-width: min(350px, 100%);
 }
 
 .apps-skill-item-poster--ph {
@@ -5197,6 +5202,98 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   border-radius: 999px;
   background: var(--primary);
   transition: width 0.3s ease;
+}
+
+/* Enhanced *arr storage panel (shared _components/apps/_arr_storage.html) —
+   one card per mount: path + icon + colour-coded used% on the head row, a
+   rounded usage bar, then "free / total" beneath. Replaces the old cramped
+   single-line "path … free X / Y" + thin stat-bar layout. */
+.apps-storage-row {
+  margin-top: var(--s-3);
+}
+
+.apps-storage-row:first-of-type {
+  margin-top: 0;
+}
+
+.apps-storage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.apps-storage-path {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-3xs);
+  color: var(--text-dim);
+}
+
+.apps-storage-path svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.apps-storage-pct {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: var(--fs-2xs);
+}
+
+.apps-storage-pct--ok {
+  color: var(--success);
+}
+
+.apps-storage-pct--warn {
+  color: var(--warning);
+}
+
+.apps-storage-pct--crit {
+  color: var(--danger);
+}
+
+.apps-storage-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin-top: var(--s-1);
+}
+
+.apps-storage-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.apps-storage-bar-fill--ok {
+  background: var(--success);
+}
+
+.apps-storage-bar-fill--warn {
+  background: var(--warning);
+}
+
+.apps-storage-bar-fill--crit {
+  background: var(--danger);
+}
+
+.apps-storage-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+  font-size: var(--fs-3xs);
+  color: var(--text-dim);
+}
+
+.apps-storage-meta-total {
+  color: var(--text-faint);
 }
 
 /* Inline-confirm chip — replaces the SweetAlert popup for destructive

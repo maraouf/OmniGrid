@@ -728,7 +728,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # snapshot (main.py mutates it directly too).
         items = list(gather._cache.get("items") or [])
 
-        def _shape(i: dict) -> dict:
+        def _shape_item(i: dict) -> dict:
             # `update_available` excludes orphans for the same reason
             # the /update preview does — they're leftover Swarm task
             # containers awaiting removal, not items the operator can
@@ -755,8 +755,8 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                 and (i.get("type") or "") != "orphan"
             )
 
-        updatable = [_shape(i) for i in items if _is_updatable(i)]
-        other = [_shape(i) for i in items if not _is_updatable(i)]
+        updatable = [_shape_item(i) for i in items if _is_updatable(i)]
+        other = [_shape_item(i) for i in items if not _is_updatable(i)]
         # Cap each list independently so a fleet with many updates
         # gets the FULL list even at the cost of "other_items" tail.
         ctx["updatable_items"] = updatable[:60]
@@ -844,7 +844,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # uses for grounding. `address` lets the AI match operator-
         # typed targets; the `*_name` aliases let it match by
         # provider-specific aliases.
-        def _shape(r: dict) -> dict:
+        def _shape_host(r: dict) -> dict:
             d = {
                 "id": r.get("id") or "",
                 "label": r.get("label") or r.get("id") or "",
@@ -884,7 +884,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             }
             return {k: v for k, v in d.items() if v is not None and v != ""}
 
-        host_records = [_shape(r) for r in api_hosts_sorted[:sample_cap]]
+        host_records = [_shape_host(r) for r in api_hosts_sorted[:sample_cap]]
 
         # `problem_hosts` block — the FULL list of every host whose
         # status is anything OTHER than `up`, regardless of sample
@@ -895,11 +895,11 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         # very degraded fleet; in practice <30 problem hosts is the
         # common case so the cap rarely fires. Each entry carries the
         # minimum fields the AI needs to identify the host (id +
-        # label + status + address + provider aliases). Same `_shape`
+        # label + status + address + provider aliases). Same `_shape_host`
         # function as the main hosts[] sample.
         problem_statuses = {"down", "unknown", "paused"}
         problem_hosts = [
-            _shape(r) for r in api_hosts
+            _shape_host(r) for r in api_hosts
             if (r.get("status") or "unknown").lower() in problem_statuses
         ][:200]
 
@@ -1606,6 +1606,11 @@ async def _ai_reply(
                                              skill_is_destructive)
             host_row, chip, slug = (resolve_chip(sk_host, sk_idx)
                                     if (sk_host and sk_idx >= 0) else (None, None, ""))
+            # Coerce to a concrete dict (resolve_chip returns host_row + chip
+            # together, so when the chip is found host_row is a dict too — the
+            # downstream guard gates on `isinstance(chip, dict)`; this keeps the
+            # type checker happy on the run_app_skill / poll calls below).
+            host_row = host_row if isinstance(host_row, dict) else {}
             print(f"[app_skill] INFO telegram skill request host={sk_host!r} "
                   f"svc_idx={sk_idx} skill={sk_id!r} slug={slug!r} "
                   f"chip_found={isinstance(chip, dict)} actor={omnigrid_username or 'telegram'}")
@@ -1654,6 +1659,14 @@ async def _ai_reply(
                 if isinstance(sk_result, dict) and sk_result.get("ok"):
                     _d = sk_result.get("detail")
                     action_image_url = str(sk_result.get("image_url") or "").strip()
+                    # Background job (e.g. Tdarr requeue) that returned pending →
+                    # poll it to completion and send the final count to this chat
+                    # (the Telegram analogue of the web auto-poll). Spawned
+                    # in-context so the inbound-chat ContextVar is inherited.
+                    if sk_result.get("pending"):
+                        _listener()._spawn_bg(_listener()._poll_pending_skill(
+                            client, slug, sk_id, host_row, chip, sk_host, sk_idx,
+                            omnigrid_username or ""))
                     # Capture a follow-up action (e.g. Seerr suggest → request)
                     # so we can attach a one-tap inline button to the reply.
                     _fu = sk_result.get("followup")
@@ -1664,11 +1677,13 @@ async def _ai_reply(
                         _sid = _fu.get("skill_id")
                         _arg = _fu.get("arg")
                         _label = _fu.get("label")
+                        _emoji = _fu.get("emoji")
                         action_followup = {
                             "host_id": sk_host, "service_idx": sk_idx,
                             "skill_id": _sid if isinstance(_sid, str) else "",
                             "arg": _arg if isinstance(_arg, str) else "",
                             "label": _label if isinstance(_label, str) else "Request on Seerr",
+                            "emoji": _emoji if isinstance(_emoji, str) and _emoji else "🎬",
                         }
                     # Drop the image URL line out of the TEXT (it's sent as a
                     # photo) so the reply doesn't carry a bare dead link.
@@ -1792,6 +1807,11 @@ async def _ai_reply(
         # server-side under a short token (callback_data is 64-byte capped);
         # the callback handler in telegram_listener pops it + dispatches.
         _reply_markup = None
+        # Hoisted defaults so the fallback branch below always has them bound
+        # (the type checker can't see that `_reply_markup` truthiness implies
+        # `action_followup` was truthy).
+        _fu_emoji = "🎬"
+        _fu_label = ""
         if action_followup:
             _token = _listener().register_pending_action({
                 "host_id": action_followup["host_id"],
@@ -1799,10 +1819,12 @@ async def _ai_reply(
                 "skill_id": action_followup["skill_id"],
                 "arg": action_followup["arg"],
             })
+            _fu_emoji = action_followup.get("emoji") or "🎬"
+            _fu_label = str(action_followup.get("label") or "")
             _reply_markup = {"inline_keyboard": [[{
                 # Telegram inline buttons can't be colour-styled via the Bot
                 # API, so a leading emoji makes the button stand out.
-                "text": "🎬 " + action_followup["label"][:116],
+                "text": _fu_emoji + " " + _fu_label[:116],
                 "callback_data": "ssr:" + _token,
             }]]}
         # A skill that returned an explicit image_url (e.g. Seerr's
@@ -1814,9 +1836,9 @@ async def _ai_reply(
                                           reply_markup=_reply_markup)
         elif _reply_markup:
             # No poster but we DO have a follow-up — send the button on a
-            # minimal prompt so the operator can still tap to request.
+            # minimal prompt so the operator can still tap to act.
             await _listener()._send_reply(
-                client, "🎬 " + _listener()._escape(action_followup["label"]),
+                client, _fu_emoji + " " + _listener()._escape(_fu_label),
                 reply_markup=_reply_markup)
         else:
             import re as _re_img

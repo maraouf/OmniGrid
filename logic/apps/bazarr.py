@@ -162,7 +162,6 @@ async def fetch_data(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             r = await cli.get(badges_url, headers=_headers(api_key))
             # Version is a nice-to-have; a failure here must NOT fail the card.
-            ver = ""
             try:
                 ver = _version_from(await cli.get(base + "/api/system/status",
                                                   headers=_headers(api_key)))

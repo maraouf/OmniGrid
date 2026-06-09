@@ -447,6 +447,7 @@ export default {
         skill_id: String(ret.followup.skill_id),
         arg: (ret.followup.arg != null) ? String(ret.followup.arg) : '',
         label: (ret.followup.label || '').toString(),
+        destructive: !!ret.followup.destructive,
         host_id: String(ret.host_id),
         service_idx: ret.service_idx,
       };
@@ -492,6 +493,7 @@ export default {
         skill_id: String(res.followup.skill_id),
         arg: (res.followup.arg != null) ? String(res.followup.arg) : '',
         label: (res.followup.label || '').toString(),
+        destructive: !!res.followup.destructive,
         host_id: host,
         service_idx: idx,
       };
@@ -516,6 +518,20 @@ export default {
       return;
     }
     const fu = sp.followup;
+    // Destructive follow-up (e.g. Tdarr requeue) respects the sidebar mode:
+    // in APPROVAL (normal) mode the first click renders an inline Yes/Cancel
+    // confirm chip (no popup — sidebar contract) and waits; AUTONOMOUS mode
+    // fires immediately. Non-destructive follow-ups (Seerr request) never gate.
+    // The chip's Yes button re-invokes this handler — `followup_confirming` is
+    // then true so the gate is skipped and the run proceeds.
+    if (fu.destructive && this.aiSidebarMode !== 'autonomous' && !sp.followup_confirming) {
+      sp.followup_confirming = true;
+      if (typeof this.persistAiConversation === 'function') {
+        void this.persistAiConversation();
+      }
+      return;
+    }
+    sp.followup_confirming = false;
     sp.followup_busy = true;
     // No initializer — `res` is assigned in the try before any read (a throw
     // exits the function via the propagated exception, never reaching the
@@ -524,7 +540,10 @@ export default {
     try {
       res = await this.runAppSkill(
         {host_id: fu.host_id, service_idx: fu.service_idx},
-        fu.skill_id, fu.arg, {silent: true});
+        // The labelled follow-up button click IS the confirmation for a
+        // destructive follow-up (e.g. requeue) — thread confirm so the backend
+        // route doesn't 409 it.
+        fu.skill_id, fu.arg, {silent: true, confirm: !!fu.destructive});
     } finally {
       sp.followup_busy = false;
     }
@@ -534,6 +553,19 @@ export default {
         sp.followup_done = true;
       }
     }
+    if (typeof this.persistAiConversation === 'function') {
+      void this.persistAiConversation();
+    }
+  },
+
+  // Cancel the inline confirm for a destructive follow-up (approval mode) —
+  // dismisses the Yes/Cancel chip and restores the follow-up button.
+  aiCancelSkillFollowup(turnIdx) {
+    const turn = this.aiConversation[turnIdx];
+    if (!turn || !turn.skill_panel) {
+      return;
+    }
+    turn.skill_panel.followup_confirming = false;
     if (typeof this.persistAiConversation === 'function') {
       void this.persistAiConversation();
     }

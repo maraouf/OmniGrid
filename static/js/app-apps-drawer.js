@@ -403,7 +403,7 @@ export default {
       return '';
     }
     return it.poster_proxy ? this.appsImageProxyUrl(inst, it.poster)
-                           : this.proxiedImageUrl(it.poster);
+      : this.proxiedImageUrl(it.poster);
   },
 
   // Resolve a rich-item avatar URL (e.g. Seerr "requested by" user thumbnail).
@@ -416,7 +416,7 @@ export default {
       return '';
     }
     return it.avatar_proxy ? this.appsImageProxyUrl(inst, it.avatar)
-                           : this.proxiedImageUrl(it.avatar);
+      : this.proxiedImageUrl(it.avatar);
   },
 
   // Build the per-app server-side image-proxy URL for an app-relative or
@@ -654,6 +654,22 @@ export default {
     if (!entry || entry.followup_busy || entry.followup_done) {
       return;
     }
+    // A destructive follow-up (e.g. requeue) confirms via the drawer's
+    // SweetAlert first — same gate as the drawer's other destructive skill
+    // buttons (the drawer is NOT the AI sidebar, so a popup is fine here).
+    if (followup.destructive) {
+      const ok = await this.confirmDialog({
+        title: this.t('apps.skills.skill_confirm_title', {name: followup.label})
+          || (followup.label + '?'),
+        text: this.t('apps.skills.skill_confirm_text')
+          || 'This performs a change on the app. Continue?',
+        confirmText: this.t('actions.confirm') || 'Confirm',
+        confirmColor: this._cssVar ? this._cssVar('--danger') : undefined,
+      });
+      if (!ok) {
+        return;
+      }
+    }
     // Reactive-safe state writes. Adding a NEW key to `_appSkillResult`
     // (the initial result) re-renders fine, but a per-key SET on an
     // EXISTING key did NOT reliably re-run the button's `:disabled` /
@@ -672,7 +688,10 @@ export default {
     // exits via the propagated exception, never reaching the read below).
     let res;
     try {
-      res = await this.runAppSkill(inst, followup.skill_id, followup.arg, {silent: true});
+      // A destructive follow-up (e.g. requeue bloated) threads confirm — the
+      // explicit labelled button click is the confirmation.
+      res = await this.runAppSkill(inst, followup.skill_id, followup.arg,
+        {silent: true, confirm: !!followup.destructive});
     } finally {
       const done = !!(res && typeof res === 'object' && res.ok);
       patch({

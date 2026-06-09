@@ -894,7 +894,6 @@ async def _add_indexer_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": cr.status_code, "detail": "auth failed (check api_key)"}
     # Surface the upstream validation error verbatim — an indexer needing extra
     # config (login / base-URL pick) fails here with a useful message.
-    _body = ""
     try:
         _body = (cr.text or "")[:300]
     except (ValueError, TypeError):

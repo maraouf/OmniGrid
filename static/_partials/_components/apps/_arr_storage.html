@@ -1,0 +1,39 @@
+<!-- Shared *arr storage panel — included by the radarr / sonarr / lidarr /
+     readarr extras partials. Renders every mount the app reports as a clean
+     card (path + colour-coded used% + a rounded usage bar + "free / total"),
+     replacing the old cramped "path … free X / Y" + thin bar layout.
+
+     Requires `inst` in the template scope (the including partial's per-host
+     loop variable). Reads the generic {path, free_gb, total_gb} disk shape via
+     the shared helpers in `static/js/app-apps-data.js`:
+       appsDisks(inst) / appsDiskUsedPct(m) / appsFmtSize(gib) + barLevel(pct).
+     i18n: apps.arr.storage / apps.arr.free. -->
+<div x-show="appsDisks(inst).length" class="mt-2 apps-storage apps-card-storage">
+  <div class="apps-card-stat-label mb-1" x-text="t('apps.arr.storage') || 'Storage'"></div>
+  <template x-for="m in appsDisks(inst)" :key="m.path">
+    <div class="apps-storage-row">
+      <div class="apps-storage-head">
+        <span class="apps-storage-path" :title="m.path">
+          <svg width="11" height="11" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+          </svg>
+          <span class="truncate" x-text="m.path"></span>
+        </span>
+        <span class="apps-storage-pct"
+              :class="'apps-storage-pct--' + (barLevel(appsDiskUsedPct(m)) || 'ok')"
+              x-text="appsDiskUsedPct(m) + '%'"></span>
+      </div>
+      <div class="apps-storage-bar" role="progressbar"
+           :aria-valuenow="appsDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
+           :aria-label="m.path + ' ' + appsDiskUsedPct(m) + '%'">
+        <div class="apps-storage-bar-fill"
+             :class="'apps-storage-bar-fill--' + (barLevel(appsDiskUsedPct(m)) || 'ok')"
+             :style="'width:' + appsDiskUsedPct(m) + '%'"></div>
+      </div>
+      <div class="apps-storage-meta">
+        <span x-text="appsFmtSize(m.free_gb) + ' ' + (t('apps.arr.free') || 'free')"></span>
+        <span class="apps-storage-meta-total" x-text="appsFmtSize(m.total_gb)"></span>
+      </div>
+    </div>
+  </template>
+</div>

@@ -777,7 +777,6 @@ async def _add_author_skill(host_row: dict, chip: dict, *,
                 "detail": f"📚 Added {label} to Readarr — searching for books now."}
     if pr.status_code in (401, 403):
         return {"ok": False, "status": pr.status_code, "detail": "auth failed (check api_key)"}
-    _body = ""
     try:
         _body = (pr.text or "")[:200]
     except (ValueError, TypeError):

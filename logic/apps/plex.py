@@ -720,7 +720,7 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
             continue
         group_key = ("apps.tautulli.group_movies" if grp == "movie"
                      else "apps.tautulli.group_music" if grp == "music"
-        else "apps.tautulli.group_series")
+                     else "apps.tautulli.group_series")
         row: "dict[str, Any]" = {
             "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
             "subtitle": " · ".join(sub_parts),

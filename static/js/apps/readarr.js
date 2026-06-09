@@ -61,44 +61,6 @@ function readarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
-// The per-mount disk list (every volume Readarr reports). Returns [] when none.
-function readarrDisks(inst) {
-  // `this` is the Alpine component (merged in via `appsHelpers`).
-  /* jshint validthis: true */
-  const d = (this.readarrData ? this.readarrData(inst) : null);
-  if (!d || !Array.isArray(d.disks)) {
-    return [];
-  }
-  return d.disks;
-}
-
-// Format a GiB float as a human size, promoting to TiB at >= 1024 GiB
-// (matches Readarr's own GiB / TiB display). '—' for missing / zero.
-function readarrSize(gib) {
-  const n = Number(gib);
-  if (gib == null || !isFinite(n) || n <= 0) {
-    return '—';
-  }
-  if (n >= 1024) {
-    return (n / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' TiB';
-  }
-  return n.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' GiB';
-}
-
-// Used-percent for a mount's usage bar (0..100); 0 when total is unknown.
-function readarrDiskUsedPct(m) {
-  if (!m) {
-    return 0;
-  }
-  const total = Number(m.total_gb);
-  const free = Number(m.free_gb);
-  if (!isFinite(total) || total <= 0 || !isFinite(free)) {
-    return 0;
-  }
-  const pct = ((total - free) / total) * 100;
-  return Math.max(0, Math.min(100, Math.round(pct)));
-}
-
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Readarr gets a
 // 2-column span + a vertical telemetry-card layout like Lidarr / Sonarr.
@@ -118,7 +80,4 @@ export const helpers = {
   readarrIsApp: isReadarrApp,
   readarrData: readarrData,
   readarrCount: readarrCount,
-  readarrDisks: readarrDisks,
-  readarrSize: readarrSize,
-  readarrDiskUsedPct: readarrDiskUsedPct,
 };

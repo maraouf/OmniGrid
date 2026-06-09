@@ -446,6 +446,16 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Emby", "slug": "emby", "icon": "emby",
+        "description": "Personal media server (movies / TV / music)",
+        "default_ports": [
+            {"port": 8096, "protocol": "http", "label": "HTTP",
+             "probe_path": "/System/Info/Public", "probe_status": 200},
+            {"port": 8920, "protocol": "tcp", "label": "HTTPS",
+             "probe_path": "/System/Info/Public", "probe_status": 200},
+        ],
+    },
+    {
         "name": "Radarr", "slug": "radarr", "icon": "radarr",
         "description": "Movie collection manager (*arr stack)",
         "default_ports": [
@@ -825,7 +835,10 @@ def _coerce_ports(raw: Any) -> list[dict]:
     return out
 
 
-def _row_to_dict(row: sqlite3.Row | tuple) -> dict[str, Any]:
+# `row` is a dynamically-indexed SQLite row (sqlite3.Row or a plain tuple from
+# a cursor) — typed Any so the checker doesn't narrow its length on the
+# `len(row) > 9` guard below and then reject the fixed-index reads.
+def _row_to_dict(row: Any) -> dict[str, Any]:
     """Materialise a `service_catalog` row into the API shape."""
     try:
         ports_raw = json.loads(row[5] or "[]")
@@ -1528,8 +1541,12 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 svc = dict(svc)
                 svc["last_probe"] = sample
             gid, gname, gicon = _service_signature(svc, catalog_by_id)
-            grp = groups.get(gid)
-            if grp is None:
+            # Separate lookup var (NOT `grp`) so the annotated `grp` below
+            # keeps a clean `dict[str, Any]` declared type — assigning the
+            # Optional `groups.get(...)` straight into `grp` conflicts with
+            # that annotation for the type checker.
+            _existing_grp = groups.get(gid)
+            if _existing_grp is None:
                 # Explicit dict[str, Any] annotation so the per-key
                 # value types stay heterogeneous (group_id/name/icon
                 # → str, catalog → Optional[dict], instances → list).
@@ -1553,6 +1570,8 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                     if cid_lookup is not None:
                         grp["catalog"] = catalog_by_id.get(cid_lookup)
                 groups[gid] = grp
+            else:
+                grp = _existing_grp
             probe_cfg = svc.get("probe") or {}
             inst_status = _instance_status(svc)
             # Per-port display = the chip's CONFIGURED ports merged with

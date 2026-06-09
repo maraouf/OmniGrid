@@ -1614,6 +1614,54 @@ async def _clear_callback_markup(client: httpx.AsyncClient, cb_msg: dict) -> Non
         log_label="clear_markup", silent_failure=True)
 
 
+# Strong refs to in-flight pending-skill poll tasks so asyncio's GC can't
+# collect one mid-run (the _spawn_background_task contract, replicated locally
+# to avoid a logic→main import cycle).
+_BG_TASKS: set = set()
+
+
+def _spawn_bg(coro) -> "asyncio.Task":
+    """Fire-and-forget a background coroutine, keeping a strong ref until done."""
+    t = asyncio.create_task(coro)
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
+    return t
+
+
+async def _poll_pending_skill(client: httpx.AsyncClient, slug: str, skill_id: str,
+                              host_row: dict, chip: dict, host_id: str, sidx: int,
+                              actor: str) -> None:
+    """Telegram analogue of the web SPA's skill auto-poll: a skill that returned
+    ``pending: true`` (a background job — e.g. Tdarr's bloated scan / requeue)
+    is silently re-run every few seconds until it completes, then its FINAL
+    result (e.g. "✅ Requeued N bloated files") is sent to the same chat. This
+    is why the in-progress message can honestly say "updates here automatically"
+    on Telegram too. Capped so a never-completing job can't poll forever. Runs
+    in a task that inherits the inbound chat ContextVar, so the reply lands in
+    the right chat / forum topic. Never raises out."""
+    from logic.apps.registry import run_app_skill  # noqa: PLC0415
+    for _ in range(90):  # ~6 min at a 4s cadence
+        await asyncio.sleep(4)
+        try:
+            r = await run_app_skill(slug, skill_id, host_row, chip,
+                                    host_id=host_id, service_idx=sidx, arg="",
+                                    actor_username=actor)
+        except (ValueError, RuntimeError):
+            return
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        if not (isinstance(r, dict) and r.get("pending")):
+            ok = bool(isinstance(r, dict) and r.get("ok"))
+            detail = str((r or {}).get("detail") or ("done" if ok else "failed"))
+            # The pending skills' completion detail already carries its own
+            # status emoji (✅ Requeued N / 🐘 N bloated files), so don't
+            # double-prefix on success.
+            await _send_reply(client, _escape(detail) if ok
+            else f"❌ {_escape(detail)}")
+            return
+    await _send_reply(client, "⏳ Still working — re-run the skill to check the latest.")
+
+
 async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
     """Handle an inline-button press (currently the Seerr "Request on Seerr"
     button after an AI movie suggestion). Authorizes the presser the same
@@ -1652,13 +1700,34 @@ async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
     sidx = sidx if isinstance(sidx, int) else -1
     skill_id = str(payload.get("skill_id") or "")
     arg = str(payload.get("arg") or "")
-    from logic.apps.registry import resolve_chip, run_app_skill  # noqa: PLC0415
+    from logic.apps.registry import (  # noqa: PLC0415
+        resolve_chip, run_app_skill, skill_is_destructive)
     host_row, chip, slug = resolve_chip(host_id, sidx)
     if not (isinstance(chip, dict) and slug and skill_id):
         await _answer_callback(client, cb_id, "App instance not found")
         await _clear_callback_markup(client, cb_msg)
         return
-    await _answer_callback(client, cb_id, "Requesting…")
+    # Coerce host_row to a concrete dict — resolve_chip returns host_row + chip
+    # together, so the chip-found guard above implies host_row is a dict; this
+    # keeps the type checker happy on the run_app_skill / poll calls below.
+    host_row = host_row if isinstance(host_row, dict) else {}
+    # A destructive follow-up (e.g. Tdarr requeue) tapped from an inline button
+    # respects the SAME "Allow destructive commands" checkbox as free-text AI —
+    # the deliberate tap is the confirmation, but only when the operator has
+    # pre-approved destructive actions. Otherwise refuse + point at the explicit
+    # command (which rides the typed-confirm flow).
+    if skill_is_destructive(slug, skill_id) and not _allow_destructive():
+        print(f"[telegram_listener] warning: callback skill {skill_id!r} BLOCKED "
+              f"— destructive + telegram_allow_destructive is off (host={host_id})")
+        await _answer_callback(client, cb_id, "Destructive — enable in settings")
+        await _clear_callback_markup(client, cb_msg)
+        await _send_reply(client, (
+            f"🛑 <b>{_escape(skill_id)}</b> is a destructive action. Run it with the "
+            f"explicit <code>/{_escape(skill_id)}</code> command (it asks you to "
+            "confirm first), or enable “Allow destructive commands” in "
+            "Admin → Notifications → Telegram."))
+        return
+    await _answer_callback(client, cb_id, "Working…")
     await _clear_callback_markup(client, cb_msg)
     try:
         res = await run_app_skill(slug, skill_id, host_row, chip,
@@ -1670,6 +1739,12 @@ async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
     detail = str((res or {}).get("detail") or ("done" if ran_ok else "failed"))
     await _send_reply(client, (f"✅ {_escape(detail)}" if ran_ok
                                else f"❌ {_escape(detail)}"))
+    # Background job (e.g. Tdarr requeue) that returned pending → poll it to
+    # completion and send the final count to this chat. Spawned in-context so
+    # the inbound-chat ContextVar is inherited.
+    if ran_ok and isinstance(res, dict) and res.get("pending"):
+        _spawn_bg(_poll_pending_skill(client, slug, skill_id, host_row, chip,
+                                      host_id, sidx, mapped))
     # Audit-trail parity with the web + slash + AI skill dispatch paths.
     # noinspection PyBroadException
     try:
