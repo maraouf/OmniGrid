@@ -384,6 +384,26 @@ async def fleet_fan_out(insts: list, one_fn, *, app_label: str, verb: str,
     return out
 
 
+async def fleet_blocker_action(insts: list, one_fn, *, action: str, seconds: int,
+                               app_label: str, log_tag: str,
+                               refresh_verb: str) -> dict:
+    """``_skill_fleet_action`` shell for a fleet DNS-blocker: derive the
+    past-tense ``verb`` from ``action`` (``enable``→enabled / ``disable``→
+    disabled / ``refresh``→``refresh_verb``; a timed disable becomes
+    ``disabled for Ns``), then delegate to ``fleet_fan_out`` with the
+    standard ``action=… seconds=…`` log_extra. ``one_fn`` is the module's
+    app-specific per-host closure (the auth model — SID vs Basic — is the
+    only real divergence between fleet blockers); ``refresh_verb`` is the
+    one word that differs ("gravity updated" vs "refreshed")."""
+    verb = {"enable": "enabled", "disable": "disabled",
+            "refresh": refresh_verb}.get(action, action)
+    if action == "disable" and seconds > 0:
+        verb = f"disabled for {seconds}s"
+    return await fleet_fan_out(insts, one_fn, app_label=app_label, verb=verb,
+                               log_tag=log_tag,
+                               log_extra=f"action={action} seconds={seconds}")
+
+
 async def fleet_run_skill(skill_id: str, *, prefix: str, status_fn, action_fn,
                           skills) -> dict:
     """The shared ``run_skill`` dispatch ladder for a fleet DNS-blocker.
