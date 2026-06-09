@@ -814,6 +814,14 @@ APPS_EXTRAS_TTL_SECONDS = 90
 # the batch readied per tick. Higher fills the grid faster, lower yields
 # more to the browser between batches. Default 4. Range 1..20.
 APPS_TILE_RENDER_BATCH = 4
+# Per-app route wall-clock budget (seconds) — the expanded-card data fetch
+# (/api/services/{host}/{idx}/app-data) and the per-app skill dispatch each
+# wrap their work in this budget. A slow upstream (e.g. Tdarr mid-bloated-scan)
+# fails with OmniGrid's OWN logged HTTP 504 instead of hanging until the front
+# reverse proxy emits an unlogged gateway 504 with no trace of which app/host
+# timed out. Keep UNDER your reverse-proxy proxy_read_timeout (commonly 60s) so
+# OmniGrid's identifiable error fires first. Default 50. Range 5..300.
+APPS_ROUTE_BUDGET_SECONDS = 50
 
 # Config-backup retention count — analogous knob for the new
 # `config_backup` schedule kind (Settings-as-Code snapshots under
@@ -1122,6 +1130,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `AI_EXTENDED_HTTP_TIMEOUT_SECONDS`             | Runtime    | `30`                    | AI provider HTTP timeout — extended tier (long-form multi-tool conversations). Range 5..300.                                                                                                                                                                                                                                                                                                  |
 | `APPS_EXTRAS_TTL_SECONDS`                      | Runtime    | `90`                    | Per-app expanded-card extras (Speedtest / APC) freshness TTL — the SPA background-refreshes a cached `/app-data` entry older than this (stale-while-revalidate). 0 = fetch-once. Range 0..3600.                                                                                                                                                                                               |
 | `APPS_TILE_RENDER_BATCH`                       | Runtime    | `4`                     | How many Apps cards the view readies per render tick (the staged tile-render queue). Higher fills the grid faster; lower yields more to the browser between batches. Range 1..20.                                                                                                                                                                                                             |
+| `APPS_ROUTE_BUDGET_SECONDS`                    | Runtime    | `50`                    | Per-app route wall-clock budget — app-data fetch + skill dispatch fail with OmniGrid's own logged HTTP 504 under this instead of hanging until the reverse proxy emits an unlogged gateway 504. Keep under proxy_read_timeout (commonly 60s). Range 5..300.                                                                                                                                    |
 | `BACKUP_RETENTION_COUNT`                       | Runtime    | `0`                     | Number of recent backup zips the `backup` schedule kind keeps after a successful create (0 = keep all). Range 0..1000.                                                                                                                                                                                                                                                                        |
 | `BACKEND_UNREACHABLE_THRESHOLD_SECONDS`        | Runtime    | `30`                    | Seconds of silence before the SPA's "Backend unreachable" top banner appears (0 disables). Range 0..600.                                                                                                                                                                                                                                                                                      |
 | `CONFIG_BACKUP_RETENTION_COUNT`                | Runtime    | `30`                    | Number of `config_backup` snapshots retained under `/app/data/config_backups/`. 0 = unlimited. Range 0..1000.                                                                                                                                                                                                                                                                                 |

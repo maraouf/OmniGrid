@@ -120,6 +120,11 @@ export default {
     'tuning_sse_idle_threshold_seconds',
     'tuning_pollops_sse_keepalive_seconds',
     'tuning_load_busy_max_seconds',
+    // Per-app route wall-clock budget — the expanded-card /app-data fetch
+    // and the per-app skill dispatch each fail with OmniGrid's own logged
+    // 504 under this, instead of hanging until the reverse proxy emits an
+    // unlogged gateway 504. Keep under proxy_read_timeout.
+    'tuning_apps_route_budget_seconds',
     // login rate-limit policy.
     'tuning_rate_limit_max_failures',
     'tuning_rate_limit_window_seconds',
