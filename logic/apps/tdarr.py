@@ -565,10 +565,30 @@ def _ensure_bloated_scan(base: str, api_key: str, host_id: str) -> bool:
     return True
 
 
-def _fmt_bloated_result(files: list, note: str = "") -> dict:
-    """Shape a completed bloated scan (list of file docs) into a skill result."""
+def _bloat_severity_emoji(ratio: float) -> str:
+    """Severity dot for a bloat ratio (100 = same size): red ≥200% / amber
+    ≥150% / yellow otherwise."""
+    if ratio >= 200:
+        return "🔴"
+    if ratio >= 150:
+        return "🟠"
+    return "🟡"
+
+
+def _fmt_bloated_result(files: list, note: str = "", pending: bool = False) -> dict:
+    """Shape a completed bloated scan (list of file docs) into a skill result.
+
+    Returns BOTH a text ``detail`` (AI / Telegram — no visual surface) AND rich
+    ``items`` so the web drawer renders one clean row per file (filename +
+    a severity-coloured ratio subtitle + a "how bloated" bar) instead of a wall
+    of wrapped text. ``pending=True`` marks an in-progress scan so the SPA keeps
+    auto-polling."""
     if not files:
-        return {"ok": True, "status": 200, "detail": "✅ No bloated files found." + note}
+        out: dict = {"ok": True, "status": 200,
+                     "detail": "✅ No bloated files found." + note}
+        if pending:
+            out["pending"] = True
+        return out
     lines = [f"• {os.path.basename(str(f.get('file') or '?'))}  "
              f"{safe_float(f.get('newVsOldRatio')):.1f}%"
              for f in files[:25]]
@@ -576,8 +596,21 @@ def _fmt_bloated_result(files: list, note: str = "") -> dict:
     detail = (f"🐘 {len(files):,} bloated file(s) (larger after transcode):\n"
               + "\n".join(lines) + more + note
               + "\n\nUse \"Requeue bloated files\" to re-transcode them.")
-    return {"ok": True, "status": 200, "detail": detail,
-            "count": len(files), "count_i18n": "apps.tdarr.bloated_count"}
+    items = []
+    for f in files[:25]:
+        ratio = safe_float(f.get("newVsOldRatio"))
+        items.append({
+            "title": os.path.basename(str(f.get("file") or "?")),
+            "subtitle": f"{_bloat_severity_emoji(ratio)} {ratio:.0f}% of original size",
+            # Bar = how far OVER the original size (clamped) — 0 at 100% (same
+            # size), full at ≥200% (double). Gives an at-a-glance bloat gauge.
+            "progress": min(100, max(0, round(ratio - 100))),
+        })
+    out = {"ok": True, "status": 200, "detail": detail, "items": items,
+           "count": len(files), "count_i18n": "apps.tdarr.bloated_count"}
+    if pending:
+        out["pending"] = True
+    return out
 
 
 async def _bloated_skill(host_row: dict, chip: dict, *,
@@ -605,28 +638,29 @@ async def _bloated_skill(host_row: dict, chip: dict, *,
             return _fmt_bloated_result(st["files"])
         if running:
             note = (f"\n\n⏳ Refreshing… (scan started "
-                    f"{int(now - st.get('started', now))}s ago — re-run shortly)")
-            return _fmt_bloated_result(st["files"], note)
+                    f"{int(now - st.get('started', now))}s ago)")
+            return _fmt_bloated_result(st["files"], note, pending=True)
         # Stale (or last scan errored) and nothing running → kick a refresh and
         # serve what we have with a note.
         _ensure_bloated_scan(base, api_key, hid)
         if st.get("error"):
-            return {"ok": True, "status": 200,
+            return {"ok": True, "status": 200, "pending": True,
                     "detail": (f"⚠️ Last scan errored: {st['error']}\n\n"
-                               "🔍 Re-scanning now — re-run in ~1–2 min.")}
+                               "🔍 Re-scanning now — results will appear here "
+                               "automatically.")}
         return _fmt_bloated_result(
-            st["files"], "\n\n⏳ Data may be stale — re-scanning; re-run shortly.")
+            st["files"], "\n\n⏳ Data may be stale — re-scanning…", pending=True)
     if running:
-        return {"ok": True, "status": 200,
+        return {"ok": True, "status": 200, "pending": True,
                 "detail": (f"🔍 Scanning for bloated files… started "
                            f"{int(now - st.get('started', now))}s ago. This takes "
-                           "~1–2 minutes on a large library — re-run "
-                           "\"Check bloated files\" in a moment to see the results.")}
+                           "~1–2 minutes on a large library — results will appear "
+                           "here automatically when ready.")}
     _ensure_bloated_scan(base, api_key, hid)
-    return {"ok": True, "status": 200,
+    return {"ok": True, "status": 200, "pending": True,
             "detail": ("🔍 Scanning for bloated files… this takes ~1–2 minutes on "
-                       "a large library. Re-run \"Check bloated files\" in a moment "
-                       "to see the results.")}
+                       "a large library. Results will appear here automatically "
+                       "when ready.")}
 
 
 async def _run_requeue(base: str, api_key: str, host_id: str,
@@ -706,10 +740,13 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
         done = safe_int(rq.get("done"))
         total = safe_int(rq.get("total"))
         prog = f"{done:,}/{total:,}" if total else f"{done:,}"
-        return {"ok": True, "status": 200,
-                "detail": (f"⏳ Requeue in progress… {prog} done (started "
-                           f"{int(now - rq.get('started', now))}s ago). Re-run "
-                           "\"Requeue bloated files\" to check progress.")}
+        out: dict = {"ok": True, "status": 200, "pending": True,
+                     "detail": (f"⏳ Requeueing… {prog} done (started "
+                                f"{int(now - rq.get('started', now))}s ago). This "
+                                "updates here automatically.")}
+        if total:
+            out["progress"] = min(100, round(done / total * 100)) if total else 0
+        return out
     if rq.get("ts") and (now - rq["ts"]) < 30 and not rq.get("error"):
         return {"ok": True, "status": 200,
                 "detail": f"✅ Requeued {safe_int(rq.get('done')):,} bloated "
@@ -728,9 +765,9 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
           f"(background, {'cached list' if files else 'scan-then-requeue'})")
     _ensure_requeue(base, api_key, hid, files)
     n = f"{len(files):,} " if files else ""
-    return {"ok": True, "status": 200,
-            "detail": (f"⏳ Requeueing {n}bloated file(s) in the background… re-run "
-                       "\"Requeue bloated files\" to check progress.")}
+    return {"ok": True, "status": 200, "pending": True,
+            "detail": (f"⏳ Requeueing {n}bloated file(s) in the background… progress "
+                       "will update here automatically.")}
 
 
 def _fmt_gb(gb: Any) -> str:
