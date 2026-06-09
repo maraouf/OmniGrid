@@ -73,6 +73,13 @@ function tracearrServers(d) {
   return Math.round(on).toLocaleString() + '/' + Math.round(tot).toLocaleString();
 }
 
+// Total stream bandwidth — already a human string from Tracearr's
+// formatBitrate (e.g. "12.3 Mbps"). '—' when nothing is streaming.
+function tracearrBandwidth(d) {
+  const s = d && d.bandwidth ? String(d.bandwidth).trim() : '';
+  return s || '—';
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tracearr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -93,4 +100,5 @@ export const helpers = {
   tracearrData: tracearrData,
   tracearrCount: tracearrCount,
   tracearrServers: tracearrServers,
+  tracearrBandwidth: tracearrBandwidth,
 };

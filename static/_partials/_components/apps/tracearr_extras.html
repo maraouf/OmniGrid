@@ -26,6 +26,16 @@
             <div class="apps-card-stat-label" x-text="t('apps.tracearr.streams') || 'Streams'"></div>
             <div class="apps-card-stat-value" x-text="tracearrCount(tracearrData(inst).active_streams)"></div>
           </div>
+          <!-- Transcodes -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tracearr.transcodes') || 'Transcodes'"></div>
+            <div class="apps-card-stat-value" x-text="tracearrCount(tracearrData(inst).transcodes)"></div>
+          </div>
+          <!-- Bandwidth -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tracearr.bandwidth') || 'Bandwidth'"></div>
+            <div class="apps-card-stat-value" x-text="tracearrBandwidth(tracearrData(inst))"></div>
+          </div>
           <!-- Servers online/total -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tracearr.servers') || 'Servers'"></div>

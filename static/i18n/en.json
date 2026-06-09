@@ -1975,6 +1975,14 @@
           "label": "Incidents retention (days)",
           "help": "How long rows in host_failure_events (the Stats → Incidents view + Timeline tab + the inline similar-incident grouping in the host drawer) are kept before the host_metrics_sampler prune loop deletes them. Rows are sparse (a few per host per outage) but a noisy fleet accumulates faster than a quiet one. Default 90 days — a quarter's worth of post-mortem learning material without the table growing unbounded over years. Set to 0 to disable pruning entirely (legacy keep-every-incident-forever behaviour); set to a smaller value (e.g. 30) on tiny deployments where the SQLite file itself is the bottleneck. Range 0..3650 enforced at write-time + clamped at read-time so a corrupt DB row can't disable the sweep entirely. Takes effect on the next prune sweep (within ~1 hour)."
         },
+        "tuning_image_proxy_cache_ttl_seconds": {
+          "label": "Image cache TTL (seconds)",
+          "help": "How long a server-side-fetched image (a TMDB poster behind /api/image-proxy, or a per-app cover / avatar behind the app image proxy) is served from the on-disk cache before it's re-downloaded from upstream. The cache lets the same picture — e.g. a movie poster shown in Radarr AND Seerr AND Tracearr, all pointing at the identical image.tmdb.org URL — download once and load instantly everywhere after. Default 604800 (7 days): posters and avatars are effectively immutable, so a long TTL maximises the cross-provider dedup win with no real staleness risk. Set to 0 to DISABLE the cache (every view re-fetches). Range 0..2592000 (30 days), clamped at read-time. Takes effect immediately (per-use read)."
+        },
+        "tuning_image_proxy_cache_max_entries": {
+          "label": "Image cache max entries",
+          "help": "Hard cap on how many images the disk cache keeps. When exceeded, the oldest entries are pruned so the cache directory (under the data volume) can't grow unbounded. Default 5000 — a large fleet's full poster + avatar set fits comfortably (roughly 0.5–1 GB at typical poster sizes). Set to 0 for no cap (rely on the TTL alone). Range 0..100000, clamped at read-time. Pruning runs opportunistically on cache writes."
+        },
         "tuning_notification_page_size": {
           "label": "Notifications page size",
           "help": "How many notifications the in-app popup loads per fetch. Default 25 — operators on busy fleets where every gather emits new entries reported the previous 50 felt overwhelming. Lower it (toward 5) for a tighter scroll-less popup; raise it (toward 200) when you want to see a longer slice of recent events without paginating. Range 5..200 enforced at write-time + clamped at read-time. Takes effect on the next /api/me round-trip + the next time the popup opens (existing open popup keeps its current value until reload)."
@@ -5571,6 +5579,7 @@
       "tracearr_streams": "Who's watching now",
       "tracearr_servers": "List media servers",
       "tracearr_violations": "Recent violations",
+      "tracearr_terminate": "Terminate a stream",
       "skill_confirm_title": "Run \"{name}\"?",
       "skill_confirm_text": "This performs a change on the app. Continue?",
       "results_count": "{count} results",
@@ -5828,11 +5837,15 @@
       "api_key_hint": "Required for the expanded card to fetch fleet activity + violation counts. Generate it in Tracearr under Settings → API (the token is prefixed trr_pub_). Leave blank to keep the stored token.",
       "cache_ttl_hint": "How long the fetched fleet activity + violation summary is cached before re-querying Tracearr (5–3600s). Leave blank for the app default (60s).",
       "streams": "Streams",
+      "transcodes": "Transcodes",
+      "bandwidth": "Bandwidth",
       "servers": "Servers",
       "users": "Users",
       "violations": "Violations",
       "plays_n": "{n} plays (30d)",
       "streams_count": "{count} streaming",
+      "terminate_confirm": "Terminate this stream? The user's playback will be stopped.",
+      "terminate_title": "Terminate stream",
       "no_api_key": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Tracearr data…",
       "fetch_failed": "Tracearr fetch failed"

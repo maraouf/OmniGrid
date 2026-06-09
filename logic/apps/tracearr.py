@@ -246,6 +246,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     version = str(health.get("version") or "").strip()
             except RuntimeError:
                 servers = []
+            # Stream summary — transcodes + direct-play/stream split + total
+            # bandwidth (a pre-formatted string from Tracearr's formatBitrate).
+            # Best-effort; an empty summary never fails the card.
+            summary: dict = {}
+            try:
+                sdata = await _call(cli, base, api_key, "streams", summary="true")
+                if isinstance(sdata, dict) and isinstance(sdata.get("summary"), dict):
+                    summary = sdata["summary"]
+            except RuntimeError:
+                summary = {}
     except RuntimeError as e:
         print(f"[tracearr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -254,6 +264,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
     out: dict[str, Any] = {
         "available": True,
         "active_streams": safe_int(st.get("activeStreams")),
+        "transcodes": safe_int(summary.get("transcodes")),
+        "direct_streams": safe_int(summary.get("directStreams")),
+        "direct_plays": safe_int(summary.get("directPlays")),
+        "bandwidth": str(summary.get("totalBitrate") or "").strip(),
         "total_users": safe_int(st.get("totalUsers")),
         "total_sessions": safe_int(st.get("totalSessions")),
         "recent_violations": safe_int(st.get("recentViolations")),
@@ -264,6 +278,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "fetched_at": int(now),
     }
     print(f"[tracearr] INFO fetched host={host_id} streams={out['active_streams']} "
+          f"transcodes={out['transcodes']} bw={out['bandwidth'] or '-'} "
           f"users={out['total_users']} plays30d={out['total_sessions']} "
           f"violations7d={out['recent_violations']} "
           f"servers={servers_online}/{out['servers_total']}")
@@ -279,6 +294,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         return None
     return {
         "active_streams": safe_int(data.get("active_streams")),
+        "transcodes": safe_int(data.get("transcodes")),
+        "bandwidth": data.get("bandwidth") or "",
         "total_users": safe_int(data.get("total_users")),
         "total_sessions": safe_int(data.get("total_sessions")),
         "recent_violations": safe_int(data.get("recent_violations")),
@@ -323,6 +340,17 @@ SKILLS: tuple[dict, ...] = (
                        "tracearr violations, sharing detections"),
         "destructive": False,
     },
+    {
+        "id": "tracearr_terminate",
+        "name": "Terminate a stream",
+        # arg = the stream's session UUID. arg:True keeps it OUT of the drawer's
+        # one-click button list (it's driven by the per-stream row action + the
+        # AI supplying the id) — see the arg-skill rule in CLAUDE.md.
+        "ai_phrases": ("terminate a stream, stop a stream, kill a stream, end "
+                       "playback, stop someone watching, terminate session"),
+        "destructive": True,
+        "arg": True,
+    },
 )
 
 
@@ -331,7 +359,8 @@ SKILLS: tuple[dict, ...] = (
 # ---------------------------------------------------------------------------
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
     """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id."""
     if skill_id == "tracearr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
@@ -342,6 +371,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _servers_skill(host_row, chip, host_id=host_id)
     if skill_id == "tracearr_violations":
         return await _violations_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tracearr_terminate":
+        return await _terminate_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -374,13 +405,20 @@ async def _status_skill(host_row: dict, chip: dict, *,
         print(f"[tracearr] warning: tracearr_status host={host_id} could not fetch — {e}")
         return {"ok": False, "detail": str(e), "status": 0}
     streams = safe_int(data.get("active_streams"))
+    transcodes = safe_int(data.get("transcodes"))
+    bw = str(data.get("bandwidth") or "").strip()
     users = safe_int(data.get("total_users"))
     plays = safe_int(data.get("total_sessions"))
     viol = safe_int(data.get("recent_violations"))
     s_on = safe_int(data.get("servers_online"))
     s_tot = safe_int(data.get("servers_total"))
     lines = [
-        f"▶️ Active streams: {streams:,}",
+        f"▶️ Active streams: {streams:,}"
+        + (f" ({transcodes:,} transcoding)" if streams else ""),
+    ]
+    if bw:
+        lines.append(f"📶 Bandwidth: {bw}")
+    lines += [
         f"🖥️ Servers online: {s_on:,}/{s_tot:,}",
         f"👥 Users: {users:,}",
         f"📊 Plays (30d): {plays:,}",
@@ -390,10 +428,31 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
-        "active_streams": streams, "total_users": users,
-        "total_sessions": plays, "recent_violations": viol,
+        "active_streams": streams, "transcodes": transcodes, "bandwidth": bw,
+        "total_users": users, "total_sessions": plays, "recent_violations": viol,
         "servers_online": s_on, "servers_total": s_tot,
     }
+
+
+def _fmt_ms(ms: Any) -> str:
+    """Render a millisecond duration as ``m:ss`` (or ``h:mm:ss`` past an hour)."""
+    total = max(0, safe_int(ms) // 1000)
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _playback_label(s: dict) -> str:
+    """Tracearr's playback decision for one stream: Transcode (either track is
+    being transcoded), Direct Stream (container remux — a ``copy`` decision), or
+    Direct Play. Mirrors Tracearr's own ``categorizeStream`` rule."""
+    if s.get("isTranscode"):
+        return "Transcode"
+    vd = str(s.get("videoDecision") or "").strip().lower()
+    ad = str(s.get("audioDecision") or "").strip().lower()
+    if vd == "copy" or ad == "copy":
+        return "Direct Stream"
+    return "Direct Play"
 
 
 def _stream_title_sub(s: dict) -> "tuple[str, str]":
@@ -453,12 +512,18 @@ async def _streams_skill(host_row: dict, chip: dict, *,
         user = str(s.get("username") or "?").strip()
         server = str(s.get("serverName") or "").strip()
         state = str(s.get("state") or "").strip().lower()
-        # State + transcode/direct flavour on the subtitle's tail.
-        flav: list = []
-        if state and state != "playing":
-            flav.append(state)
-        flav.append("transcode" if s.get("isTranscode") else "direct")
-        sub2 = " · ".join([p for p in [subtitle] if p] + flav)
+        playback = _playback_label(s)  # Direct Play / Direct Stream / Transcode
+        resolution = str(s.get("resolution") or "").strip()
+        dur = safe_int(s.get("durationMs"))
+        prog = safe_int(s.get("progressMs"))
+        time_str = f"{_fmt_ms(prog)} / {_fmt_ms(dur)}" if dur > 0 else ""
+        # Subtitle: <media-sub> · <resolution> · <playback> · <pause state> · <time/total>
+        meta: list = [p for p in [subtitle, resolution, playback] if p]
+        if state and state not in ("playing", ""):
+            meta.append(state)  # e.g. "paused", "buffering"
+        if time_str:
+            meta.append(time_str)
+        sub2 = " · ".join(meta)
         row: "dict[str, Any]" = {"title": title, "subtitle": sub2}
         if user and user != "?":
             row["byline"] = user + (f" · {server}" if server else "")
@@ -470,10 +535,18 @@ async def _streams_skill(host_row: dict, chip: dict, *,
         if avatar:
             row["avatar"] = avatar
             row["avatar_proxy"] = True
-        dur = safe_int(s.get("durationMs"))
-        prog = safe_int(s.get("progressMs"))
         if dur > 0 and prog >= 0:
             row["progress"] = max(0, min(100, round(prog * 100.0 / dur)))
+        # Per-row STOP action — terminate this stream (destructive; the backend
+        # gates on confirm + the SPA shows a typed confirm). The stream id is a
+        # session UUID.
+        sid = str(s.get("id") or "").strip()
+        if sid:
+            row["row_action"] = {
+                "skill_id": "tracearr_terminate", "arg": sid,
+                "icon": "circle-off", "destructive": True,
+                "confirm_i18n": "apps.tracearr.terminate_confirm",
+                "title_i18n": "apps.tracearr.terminate_title"}
         rich.append(row)
         lines.append(f"• {user}{' (' + server + ')' if server else ''} — {title}"
                      + (f" — {sub2}" if sub2 else ""))
@@ -483,6 +556,38 @@ async def _streams_skill(host_row: dict, chip: dict, *,
             "detail": "▶️ Now playing:\n" + "\n".join(lines),
             "count": len(rich), "count_i18n": "apps.tracearr.streams_count",
             "items": rich}
+
+
+async def _terminate_skill(host_row: dict, chip: dict, *,
+                           arg: Optional[str] = None,
+                           host_id: Optional[str] = None) -> dict:
+    """Destructive: terminate an active stream via
+    ``POST /api/v1/public/streams/<id>/terminate``. ``arg`` is the stream's
+    session UUID (from the streams list's per-row action). Never raises — the
+    backend route already gated the destructive-confirm."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    sid = str(arg or "").strip()
+    if not sid:
+        return {"ok": False, "status": 0, "detail": "no stream id given"}
+    from urllib.parse import quote  # noqa: PLC0415
+    url = base.rstrip("/") + _PUB + f"/streams/{quote(sid, safe='')}/terminate"
+    print(f"[tracearr] INFO tracearr_terminate host={host_id} session={sid}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.post(url, headers=_headers(api_key),
+                               json={"reason": "Stopped from OmniGrid"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"terminate failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code == 404:
+        return {"ok": True, "status": 200, "detail": "⏹️ That stream is no longer active."}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code} terminating stream"}
+    return {"ok": True, "status": 200, "detail": "⏹️ Stream terminated."}
 
 
 async def _servers_skill(host_row: dict, chip: dict, *,

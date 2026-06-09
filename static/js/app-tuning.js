@@ -54,6 +54,11 @@ export default {
     // over (floor 30 days).
     'tuning_db_size_sample_interval_seconds',
     'tuning_db_size_history_days',
+    // Image-proxy disk cache — how long a server-side-fetched poster /
+    // avatar is served from disk before re-fetching (0 disables) + the
+    // max number of cached images before the oldest are pruned.
+    'tuning_image_proxy_cache_ttl_seconds',
+    'tuning_image_proxy_cache_max_entries',
     'tuning_host_baseline_recompute_interval_seconds',
     'tuning_host_baseline_first_tick_delay_seconds',
     'tuning_kick_gather_timeout_seconds',

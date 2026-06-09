@@ -76,6 +76,53 @@ from functools import partial as _partial
 from logic.apps import _servarr
 from logic.apps._common import cache_key, fetch_gate, peek_cache, resolve_cache_ttl
 from logic.coerce import as_dict, as_list, safe_float, safe_int
+from logic.external_urls import ExternalURL
+
+
+def _book_isbn(book: Any) -> str:
+    """First usable ISBN-13/10 from a Readarr book's ``editions`` list, for an
+    Open Library cover lookup. ``""`` when none."""
+    eds = book.get("editions") if isinstance(book, dict) else None
+    if isinstance(eds, list):
+        for e in eds:
+            if isinstance(e, dict):
+                isbn = str(e.get("isbn13") or e.get("isbn") or "").strip()
+                if isbn.isdigit() and len(isbn) in (10, 13):
+                    return isbn
+    return ""
+
+
+async def _book_poster(cli: "httpx.AsyncClient", base: str, api_key: str,
+                       bk: dict, au: dict) -> str:
+    """Resolve a Readarr book's poster, MOST-RELIABLE-FIRST. The queue embed
+    often TRIMS the book's ``images`` (or carries local-only art that 415s), so
+    when the embed has no allowlisted remote cover: re-fetch the full book by id
+    (it has the goodreads / amazon remoteUrl), then fall back to a PUBLIC Open
+    Library cover by ISBN, then the local ``/MediaCover`` path. Order:
+    remote(embed) → remote(full re-fetch) → OpenLibrary(ISBN) → local."""
+    remote = _servarr.remote_poster_url(bk) or _servarr.remote_poster_url(au)
+    if remote:
+        return remote
+    full: dict = {}
+    bid = safe_int(bk.get("id"))
+    if bid:
+        try:
+            rr = await cli.get(base + f"/api/v1/book/{bid}", headers=_headers(api_key))
+            if rr.status_code == 200:
+                j = rr.json()
+                full = j if isinstance(j, dict) else {}
+        except (httpx.HTTPError, OSError, ValueError, TypeError):
+            full = {}
+    remote = _servarr.remote_poster_url(full)
+    if remote:
+        return remote
+    isbn = _book_isbn(full) or _book_isbn(bk)
+    if isbn:
+        return f"{ExternalURL.OPENLIBRARY_COVERS}/b/isbn/{isbn}-L.jpg"
+    return (_servarr.local_poster_path_only(full)
+            or _servarr.local_poster_path_only(bk)
+            or _servarr.local_poster_path_only(au))
+
 
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Readarr's
 # api version (v1) + brand, aliased to the historical underscore names so the
@@ -517,62 +564,61 @@ async def _queue_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[readarr] INFO readarr_queue host={host_id} (live fetch)")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=15.0,
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:
             r = await cli.get(base + "/api/v1/queue", headers=_headers(api_key),
                               params={"pageSize": "20", "includeAuthor": "true",
                                       "includeBook": "true"})
+            if r.status_code in (401, 403):
+                return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+            if r.status_code != 200:
+                return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+            try:
+                body = r.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            records = body.get("records") if isinstance(body, dict) else None
+            records = records if isinstance(records, list) else []
+            if not records:
+                return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
+            lines = []
+            # Structured rows for the SPA's rich skill-result card — SAME
+            # {title, subtitle, poster, progress} + per-row delete contract the
+            # rest of the *arr family's download queues use. The queue record
+            # embeds the `book` + `author` (includeBook / includeAuthor=true);
+            # the poster is resolved most-reliable-first (re-fetch + Open Library
+            # fallback) because the embed frequently trims the book's images.
+            rich: list[dict] = []
+            for q in records[:12]:
+                if not isinstance(q, dict):
+                    continue
+                au = as_dict(q.get("author"))
+                bk = as_dict(q.get("book"))
+                author = str(au.get("authorName") or "?").strip()
+                book = str(bk.get("title") or q.get("title") or "").strip()
+                total = safe_float(q.get("size"))
+                left = safe_float(q.get("sizeleft"))
+                pct = int(round((1 - left / total) * 100)) if total > 0 else 0
+                st = str(q.get("status") or "").strip().lower()
+                label = f"{author}" + (f" — {book}" if book else "")
+                lines.append(f"• {label} — {pct}%"
+                             + (f" ({st})" if st and st != "downloading" else ""))
+                row: "dict[str, Any]" = {
+                    "title": label,
+                    "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
+                    "poster": await _book_poster(cli, base, api_key, bk, au),
+                    "poster_proxy": True,
+                    "progress": pct}
+                qid = safe_int(q.get("id"))
+                if qid:
+                    row["row_action"] = {
+                        "skill_id": "readarr_queue_delete", "arg": str(qid),
+                        "icon": "trash-2", "destructive": True,
+                        "confirm_i18n": "apps.readarr.queue_delete_confirm",
+                        "title_i18n": "apps.readarr.queue_delete_title"}
+                rich.append(row)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"queue fetch failed: {type(e).__name__}: {e}"}
-    if r.status_code in (401, 403):
-        return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
-    if r.status_code != 200:
-        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
-    try:
-        body = r.json()
-    except (ValueError, TypeError):
-        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
-    records = body.get("records") if isinstance(body, dict) else None
-    records = records if isinstance(records, list) else []
-    if not records:
-        return {"ok": True, "status": 200, "detail": "⬇️ Nothing is downloading right now."}
-    lines = []
-    # Structured rows for the SPA's rich skill-result card — SAME
-    # {title, subtitle, poster, progress} + per-row delete contract the rest of
-    # the *arr family's download queues use. The queue record embeds the `book`
-    # + `author` (includeBook / includeAuthor=true); the poster comes from the
-    # book's own cover art, falling back to the author poster.
-    rich: list[dict] = []
-    for q in records[:12]:
-        if not isinstance(q, dict):
-            continue
-        au = as_dict(q.get("author"))
-        bk = as_dict(q.get("book"))
-        author = str(au.get("authorName") or "?").strip()
-        book = str(bk.get("title") or q.get("title") or "").strip()
-        total = safe_float(q.get("size"))
-        left = safe_float(q.get("sizeleft"))
-        pct = int(round((1 - left / total) * 100)) if total > 0 else 0
-        st = str(q.get("status") or "").strip().lower()
-        label = f"{author}" + (f" — {book}" if book else "")
-        lines.append(f"• {label} — {pct}%"
-                     + (f" ({st})" if st and st != "downloading" else ""))
-        row: "dict[str, Any]" = {
-            "title": label,
-            "subtitle": f"{pct}%" + (f" · {st}" if st and st != "downloading" else ""),
-            "poster": (_servarr.remote_poster_url(bk) or _servarr.remote_poster_url(au)
-                       or _servarr.local_poster_path_only(bk)
-                       or _servarr.local_poster_path_only(au)),
-            "poster_proxy": True,
-            "progress": pct}
-        qid = safe_int(q.get("id"))
-        if qid:
-            row["row_action"] = {
-                "skill_id": "readarr_queue_delete", "arg": str(qid),
-                "icon": "trash-2", "destructive": True,
-                "confirm_i18n": "apps.readarr.queue_delete_confirm",
-                "title_i18n": "apps.readarr.queue_delete_title"}
-        rich.append(row)
     if rich:
         _b0 = as_dict(records[0].get("book"))
         print(f"[readarr] INFO queue posters host={host_id} "

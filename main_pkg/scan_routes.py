@@ -2016,6 +2016,15 @@ async def api_image_proxy(url: str):
     host = (parts.hostname or "").lower()
     if host not in _IMAGE_PROXY_ALLOWED_HOSTS:
         raise HTTPException(400, f"image host not allowed: {host}")
+    # Disk-cache hit — serve the bytes without re-hitting upstream. The same
+    # TMDB poster shared across providers (Radarr / Seerr / Tracearr …) keys to
+    # the same cache entry, so it downloads once.
+    from logic import image_cache  # noqa: PLC0415
+    _hit = image_cache.get(url)
+    if _hit is not None:
+        return Response(content=_hit[0], media_type=_hit[1],
+                        headers={"Cache-Control": "public, max-age=86400",
+                                 "X-OmniGrid-Cache": "hit"})
     try:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
             r = await cli.get(url)
@@ -2031,8 +2040,10 @@ async def api_image_proxy(url: str):
     body = r.content
     if len(body) > _IMAGE_PROXY_MAX_BYTES:
         raise HTTPException(413, "upstream image too large")
+    image_cache.put(url, body, ctype)
     return Response(content=body, media_type=ctype,
-                    headers={"Cache-Control": "public, max-age=86400"})
+                    headers={"Cache-Control": "public, max-age=86400",
+                             "X-OmniGrid-Cache": "miss"})
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences

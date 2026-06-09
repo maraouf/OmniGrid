@@ -41,6 +41,9 @@ class ExternalURL:
     # (Lidarr ``foreignAlbumId``). Used as a reliable poster fallback when a
     # queue record's embedded album lacks an allowlisted remote CDN cover.
     COVERART_ARCHIVE = "https://coverartarchive.org"
+    # Open Library Covers — public book covers by ISBN. Used as a reliable
+    # Readarr poster fallback when a queue book lacks a remote CDN cover.
+    OPENLIBRARY_COVERS = "https://covers.openlibrary.org"
 
     # --- Plex ----------------------------------------------------------
     PLEX_TV = "https://plex.tv"

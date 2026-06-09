@@ -962,6 +962,15 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         raise HTTPException(400, "module produced a bad url")
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise HTTPException(400, "module produced a non-http url")
+    # Disk-cache hit — serve without re-fetching. Keyed by the resolved upstream
+    # URL + auth header, so a public-CDN cover dedups across providers while an
+    # authenticated per-chip image stays per-chip.
+    from logic import image_cache  # noqa: PLC0415
+    _hit = image_cache.get(url, headers)
+    if _hit is not None:
+        return Response(content=_hit[0], media_type=_hit[1],
+                        headers={"Cache-Control": "public, max-age=86400",
+                                 "X-OmniGrid-Cache": "hit"})
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
                                      follow_redirects=True) as cli:
@@ -1005,8 +1014,10 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
                 f"{len(body)} bytes, starts: {snippet[:60]!r}) — if this is HTML "
                 f"the upstream isn't authenticating the image fetch")
         ctype = sniffed
+    image_cache.put(url, body, ctype, headers)
     return Response(content=body, media_type=ctype,
-                    headers={"Cache-Control": "public, max-age=86400"})
+                    headers={"Cache-Control": "public, max-age=86400",
+                             "X-OmniGrid-Cache": "miss"})
 
 
 @app.post("/api/services/{host_id}/{service_idx}/skill/{skill_id}")
