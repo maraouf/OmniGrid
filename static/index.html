@@ -10540,6 +10540,43 @@
                                   </template>
                                 </div>
                               </template>
+                              <!-- Storage cards — a skill result that carries `disks`
+                                   (e.g. the *arr status skills) renders each mount as
+                                   the SAME card the extras storage panel uses, instead
+                                   of a wall of "• path: X free / Y" text. Reads the
+                                   generic {path, free_gb, total_gb} disk shape via the
+                                   shared appsDiskUsedPct / appsFmtSize / barLevel helpers. -->
+                              <template x-if="appSkillResult(inst, sk.id).ok && (appSkillResult(inst, sk.id).disks || []).length">
+                                <div class="mt-2 apps-storage">
+                                  <div class="apps-card-stat-label mb-1" x-text="t('apps.arr.storage') || 'Storage'"></div>
+                                  <template x-for="m in appSkillResult(inst, sk.id).disks" :key="m.path">
+                                    <div class="apps-storage-row">
+                                      <div class="apps-storage-head">
+                                        <span class="apps-storage-path" :title="m.path">
+                                          <svg width="11" height="11" aria-hidden="true">
+                                            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-database"/>
+                                          </svg>
+                                          <span class="truncate" x-text="m.path"></span>
+                                        </span>
+                                        <span class="apps-storage-pct"
+                                              :class="'apps-storage-pct--' + (barLevel(appsDiskUsedPct(m)) || 'ok')"
+                                              x-text="appsDiskUsedPct(m) + '%'"></span>
+                                      </div>
+                                      <div class="apps-storage-bar" role="progressbar"
+                                           :aria-valuenow="appsDiskUsedPct(m)" aria-valuemin="0" aria-valuemax="100"
+                                           :aria-label="m.path + ' ' + appsDiskUsedPct(m) + '%'">
+                                        <div class="apps-storage-bar-fill"
+                                             :class="'apps-storage-bar-fill--' + (barLevel(appsDiskUsedPct(m)) || 'ok')"
+                                             :style="'width:' + appsDiskUsedPct(m) + '%'"></div>
+                                      </div>
+                                      <div class="apps-storage-meta">
+                                        <span x-text="appsFmtSize(m.free_gb) + ' ' + (t('apps.arr.free') || 'free')"></span>
+                                        <span class="apps-storage-meta-total" x-text="appsFmtSize(m.total_gb)"></span>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </template>
                               <template x-if="!appSkillResult(inst, sk.id).ok">
                                 <div class="fs-sm break-words text-[var(--danger)]"
                                      x-text="appSkillResult(inst, sk.id).detail"></div>

@@ -70,6 +70,7 @@ _version_from = _servarr.version_from
 _fmt_size_gib = _servarr.fmt_size_gib
 _parse_disks = _servarr.parse_disks
 _primary_disk = _servarr.primary_disk
+_storage_summary_line = _servarr.storage_summary_line
 _year_suffix = _servarr.year_suffix
 _norm_title = _servarr.norm_title
 _GIB = _servarr.GIB
@@ -530,18 +531,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"{'❓' if missing else '✅'} Missing: {missing:,}",
         f"⬇️ Downloading: {queue:,}",
     ]
-    # List every mount Radarr reports (root / library / remote shares), not
-    # just the largest — operators run multi-disk libraries.
-    if disks:
-        lines.append("💾 Storage:")
-        for m in disks:
-            if not isinstance(m, dict):
-                continue
-            lines.append(f"  • {m.get('path', '?')}: "
-                         f"{_fmt_size_gib(m.get('free_gb'))} free / "
-                         f"{_fmt_size_gib(m.get('total_gb'))}")
-    elif free_gb > 0:
-        lines.append(f"💾 Disk free: {_fmt_size_gib(free_gb)}")
+    # Compact storage summary for the text surfaces (AI / Telegram); the web
+    # drawer renders the per-mount CARDS from the result's `disks` field.
+    storage_line = _storage_summary_line(disks, free_gb)
+    if storage_line:
+        lines.append(storage_line)
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
     return {
         "ok": True,

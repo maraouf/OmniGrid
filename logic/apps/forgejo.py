@@ -35,6 +35,7 @@ total without fetching the rows). Single-instance app (NOT fleet).
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -458,19 +459,53 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+def _rel_time(iso: Any) -> str:
+    """Compact relative age ('just now' / '5m ago' / '3h ago' / '2d ago' /
+    '4mo ago' / '1y ago') from an ISO-8601 / RFC3339 timestamp (Forgejo's
+    ``updated_at``), or '' when blank / unparseable."""
+    s = str(iso or "").strip()
+    if not s:
+        return ""
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    secs = int((datetime.now(timezone.utc) - dt).total_seconds())
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    days = secs // 86400
+    if days < 30:
+        return f"{days}d ago"
+    if days < 365:
+        return f"{days // 30}mo ago"
+    return f"{days // 365}y ago"
+
+
 def _repo_row(repo: dict) -> Optional[dict]:
-    """One repo as a rich skill-result item: the owner avatar as the thumbnail
-    (proxied), the full name as the title, and a ⭐ / 🍴 / language subtitle."""
+    """One repo as a rich skill-result item: the repo's own avatar (falling back
+    to the owner's) as the thumbnail (proxied), the full name as the title, and a
+    ⭐ / 🍴 / language / last-updated subtitle."""
     if not isinstance(repo, dict):
         return None
     full = str(repo.get("full_name") or repo.get("name") or "").strip()
     if not full:
         return None
     owner = as_dict(repo.get("owner"))
-    avatar = str(owner.get("avatar_url") or "").strip()
+    # Prefer the repo's OWN avatar; fall back to the owner's. (Most repos have no
+    # custom avatar, so this usually lands on the owner mark — but a repo that
+    # set one wins.)
+    avatar = (str(repo.get("avatar_url") or "").strip()
+              or str(owner.get("avatar_url") or "").strip())
     stars = safe_int(repo.get("stars_count"))
     forks = safe_int(repo.get("forks_count"))
     lang = str(repo.get("language") or "").strip()
+    updated = _rel_time(repo.get("updated_at"))
     bits = []
     if stars:
         bits.append(f"⭐ {stars:,}")
@@ -480,6 +515,8 @@ def _repo_row(repo: dict) -> Optional[dict]:
         bits.append(lang)
     if repo.get("private"):
         bits.append("private")
+    if updated:
+        bits.append(f"🕒 {updated}")
     out: dict = {"title": full, "subtitle": " · ".join(bits)}
     if avatar:
         out["poster"] = avatar
@@ -506,6 +543,9 @@ async def _repos_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
     if not repos:
         return {"ok": True, "status": 200, "detail": "📦 No repositories found."}
+    # Defensive newest-first sort (ISO timestamps sort lexicographically =
+    # chronologically) in case the upstream ignores sort=updated&order=desc.
+    repos.sort(key=lambda rp: str(as_dict(rp).get("updated_at") or ""), reverse=True)
     items, lines = _items_and_lines(repos, _repo_row)
     out: dict = {"ok": True, "status": 200,
                  "detail": "📦 Recently updated repos:\n" + "\n".join(lines)}

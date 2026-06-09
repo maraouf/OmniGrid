@@ -54,7 +54,7 @@ export const KNOWN_ICONS = new Set([
   'apple-tv-plus-dark', 'apple-tv-plus-light', 'apprise', 'aqara', 'asus', 'authentik', 'bazarr',
   'beszel', 'bose', 'caddy', 'chromecast', 'cisco', 'cloudflare', 'cloudflared', 'database',
   'ddns-updater', 'debian', 'dell', 'dell-dark', 'deluge', 'docker', 'dovecot',
-  'dockge', 'dozzle', 'esxi', 'etisalat', 'fing', 'firetv', 'flaresolverr', 'forgejo',
+  'dockge', 'dozzle', 'emby', 'esxi', 'etisalat', 'fing', 'firetv', 'flaresolverr', 'forgejo',
   'freenas', 'ftth', 'gcsr', 'gigabyte', 'github', 'github-dark', 'gitsync', 'glinet', 'glinet-dark', 'google', 'google-cloud',
   'google-home', 'grafana', 'hisense', 'homarr', 'home-assistant', 'homebridge',
   'hdhomerun', 'homepage', 'hp', 'huawei', 'humax', 'idrac', 'ikea', 'ilo',

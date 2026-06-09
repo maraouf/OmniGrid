@@ -107,6 +107,7 @@ _version_from = _servarr.version_from
 _fmt_size_gib = _servarr.fmt_size_gib
 _parse_disks = _servarr.parse_disks
 _primary_disk = _servarr.primary_disk
+_storage_summary_line = _servarr.storage_summary_line
 _GIB = _servarr.GIB
 _fetch_version = _partial(_servarr.fetch_version, api_version="v1")
 _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Lidarr")
@@ -458,16 +459,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"{'❓' if missing else '✅'} Missing albums: {missing:,}",
         f"⬇️ Downloading: {queue:,}",
     ]
-    if disks:
-        lines.append("💾 Storage:")
-        for m in disks:
-            if not isinstance(m, dict):
-                continue
-            lines.append(f"  • {m.get('path', '?')}: "
-                         f"{_fmt_size_gib(m.get('free_gb'))} free / "
-                         f"{_fmt_size_gib(m.get('total_gb'))}")
-    elif free_gb > 0:
-        lines.append(f"💾 Disk free: {_fmt_size_gib(free_gb)}")
+    # Compact storage summary for the text surfaces (AI / Telegram); the web
+    # drawer renders the per-mount CARDS from the result's `disks` field.
+    storage_line = _storage_summary_line(disks, free_gb)
+    if storage_line:
+        lines.append(storage_line)
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
     return {
         "ok": True,
