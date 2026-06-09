@@ -1774,6 +1774,12 @@ async def api_me_notify_prefs(
         for ev_name, value in cleaned.items():
             merged[ev_name] = value
         auth.set_user_notify_prefs(c, user.id, merged)
+        _ops_mod.write_admin_audit(
+            c, "user_notify_prefs_update",
+            target_kind="user", target_name=user.username, target_id=user.username,
+            actor=user.username,
+            message=f"Self-service notification preferences updated ({len(cleaned)} event(s))",
+        )
     # Per-medium roster echoed back so the SPA can re-render the grid
     # without a separate /api/me round-trip. Resolved map mirrors
     # `/api/me`'s shape exactly — both build it via
@@ -1809,6 +1815,15 @@ async def api_update_profile(
             display_name=p.display_name,
             bio=p.bio,
             email=p.email,
+        )
+        _changed = [f for f, v in (("display_name", p.display_name),
+                                   ("bio", p.bio), ("email", p.email))
+                    if v is not None]
+        _ops_mod.write_admin_audit(
+            c, "user_profile_update",
+            target_kind="user", target_name=user.username, target_id=user.username,
+            actor=user.username,
+            message=f"Self-service profile updated ({', '.join(_changed) or 'no fields'})",
         )
     return {"ok": True}
 
@@ -1871,6 +1886,12 @@ async def api_upload_avatar(
         f.write(data)
     with db_conn() as c:
         auth.set_user_avatar_path(c, user.id, fname)
+        _ops_mod.write_admin_audit(
+            c, "user_avatar_update",
+            target_kind="user", target_name=user.username, target_id=user.username,
+            actor=user.username,
+            message=f"Self-service avatar uploaded ({ext}, {len(data)} bytes)",
+        )
     return {"ok": True, "avatar_url": f"/api/avatars/{fname}"}
 
 

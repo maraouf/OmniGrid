@@ -34,7 +34,7 @@ import asyncio
 import time
 from typing import Optional
 
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 from logic.tuning import Tunable, tuning_int
 from logic import prayer_times as _pt
 from logic import weather as _weather
@@ -147,31 +147,21 @@ def write_sample(body: dict, *, loc: Optional[dict] = None) -> bool:
 
 def prune_old_samples() -> int:
     """DELETE rows older than the retention window. Returns the row count
-    actually removed (capped at ``_PRUNE_BATCH_LIMIT`` per call)."""
+    removed. Uses the chunked ``prune_rows_older_than`` helper (rowid-IN-SELECT-
+    LIMIT shape — works WITHOUT SQLite's optional ``DELETE ... LIMIT`` compile
+    flag, and releases the writer lock per ``_PRUNE_BATCH_LIMIT``-row chunk so
+    it never holds the lock for the whole backlog)."""
     days = _retention_days()
     if days <= 0:
         return 0
     cutoff = int(time.time()) - days * 86400
     try:
-        with db_conn() as c:
-            cur = c.execute(
-                "DELETE FROM prayer_times_samples WHERE ts < ? LIMIT ?",
-                (cutoff, _PRUNE_BATCH_LIMIT),
-            )
-            return int(cur.rowcount or 0)
+        return prune_rows_older_than("prayer_times_samples", cutoff,
+                                     chunk=_PRUNE_BATCH_LIMIT)
     except Exception as e:  # noqa: BLE001
-        # SQLite built without DELETE...LIMIT falls back to the unbounded
-        # form — same shape as the weather_sampler prune.
-        try:
-            with db_conn() as c:
-                cur = c.execute(
-                    "DELETE FROM prayer_times_samples WHERE ts < ?", (cutoff,)
-                )
-                return int(cur.rowcount or 0)
-        except Exception as e2:  # noqa: BLE001
-            print(f"[prayer_times_sampler] PRUNE failed cutoff={cutoff}: "
-                  f"{e} / {e2}", flush=True)
-            return 0
+        print(f"[prayer_times_sampler] PRUNE failed cutoff={cutoff}: {e}",
+              flush=True)
+        return 0
 
 
 async def sampler_loop() -> None:

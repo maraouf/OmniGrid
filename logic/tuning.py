@@ -143,6 +143,7 @@ class Tunable(str, Enum):
     PORT_SCAN_DEFAULT_CONCURRENCY = "tuning_port_scan_default_concurrency"
     PORT_SCAN_DEFAULT_TIMEOUT_SECONDS = "tuning_port_scan_default_timeout_seconds"
     PORT_SCAN_MAX_SECONDS = "tuning_port_scan_max_seconds"
+    PORT_SCAN_RETENTION_DAYS = "tuning_port_scan_retention_days"
     PORT_SCAN_SCHEDULE_MAX_HOSTS_PER_TICK = "tuning_port_scan_schedule_max_hosts_per_tick"
     PORT_SCAN_SCHEDULE_MIN_AGE_SECONDS = "tuning_port_scan_schedule_min_age_seconds"
     PORT_SCAN_SCHEDULE_PER_HOST_CONCURRENCY = "tuning_port_scan_schedule_per_host_concurrency"
@@ -644,6 +645,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # that don't speak first (HTTP without a request) hit this
     # timeout and get skipped with no banner. Range 1..30.
     "tuning_port_scan_banner_read_seconds": ("PORT_SCAN_BANNER_READ_SECONDS", 2, 1, 30),
+    # host_port_scans retention window (days). One row per OPEN port per scan is
+    # written by the on-demand /port-scan endpoint AND the recurring
+    # port_scan_refresh schedule kind; without a prune the table grows forever
+    # (a daily refresh across a fleet adds hundreds of rows/day). The hourly
+    # host_metrics_sampler prune sweep deletes rows older than this. 0 disables
+    # pruning (keep every scan forever), matching the incidents-retention knob.
+    # Default 90 days. Range 0..3650.
+    "tuning_port_scan_retention_days": ("PORT_SCAN_RETENTION_DAYS", 90, 0, 3650),
     # Port-scan UDP companion (Stage 2). UDP is connectionless, so
     # the timeout regime + concurrency are different from TCP — UDP
     # probes wait the FULL window with no early "handshake completed"

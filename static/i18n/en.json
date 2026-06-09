@@ -2079,6 +2079,10 @@
           "label": "Banner-grab read timeout (seconds)",
           "help": "When `banner_grab=true` is set on a scan, the scanner reads up to 256 bytes per open port. Services that don't speak first (HTTP, which expects a request before responding) hit this timeout and get skipped with no banner. Lower for faster scans on services known to greet promptly (SSH / SMTP / IMAP); raise on slow links. Range 1..30. Default 2."
         },
+        "tuning_port_scan_retention_days": {
+          "label": "Port-scan history retention (days)",
+          "help": "How long detected-open-port rows (one per open port per scan) are kept before the hourly cleanup deletes them. Port scans are written by the host-drawer Scan-ports button AND the recurring port-scan refresh schedule — without a retention window the history table would grow forever (a daily fleet refresh adds hundreds of rows a day). Set 0 to keep every scan forever (no pruning). Default 90 days. Range 0..3650. Takes effect on the next hourly cleanup."
+        },
         "tuning_port_scan_udp_default_timeout_seconds": {
           "label": "Per-port UDP probe timeout (seconds)",
           "help": "How long the UDP scanner waits for a reply per port. UDP has no handshake, so a slow service legitimately needs the full window — the default (3s) is longer than TCP's. Lower (1-2s) on a quiet LAN where well-known services reply in milliseconds; raise (5-10s) for satellite links or services known to be slow to respond. Per-host overrides on Admin → Hosts win. Range 1..30. Default 3."
@@ -3469,6 +3473,9 @@
     "user_update": "Update user",
     "user_delete": "Delete user",
     "user_pw_reset": "Reset password",
+    "user_profile_update": "Update profile",
+    "user_avatar_update": "Update avatar",
+    "user_notify_prefs_update": "Update notification prefs",
     "session_revoke": "Revoke session",
     "token_create": "Create API token",
     "token_revoke": "Revoke API token",
@@ -5606,6 +5613,7 @@
       "tdarr_status": "Tdarr status",
       "tdarr_bloated": "Check bloated files",
       "tdarr_requeue_bloated": "Requeue bloated files",
+      "tdarr_requeue_failed": "Requeue failed transcodes",
       "skill_confirm_title": "Run \"{name}\"?",
       "skill_confirm_text": "This performs a change on the app. Continue?",
       "followup_confirm": "{action}?",

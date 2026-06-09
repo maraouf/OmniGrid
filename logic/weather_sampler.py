@@ -32,11 +32,10 @@ import json
 import time
 from typing import Optional
 
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 from logic.tuning import Tunable, tuning_int
 from logic import weather as _weather
 from logic.sampler_metrics import record_tick as _record_tick, record_prune as _record_prune
-
 
 # Same first-tick delay shape as host_baseline_sampler — gives boot-time
 # schema migrations time to land before the first INSERT.
@@ -147,32 +146,21 @@ def write_sample(body: dict, *, loc: Optional[dict] = None) -> bool:
 
 
 def prune_old_samples() -> int:
-    """DELETE rows older than the retention window. Returns the row
-    count actually removed (capped at ``_PRUNE_BATCH_LIMIT`` per call
-    so the loop body never burns the event loop for minutes on a
-    long-running deploy that's been accumulating samples forever)."""
+    """DELETE rows older than the retention window. Returns the row count
+    removed. Uses the chunked ``prune_rows_older_than`` helper (rowid-IN-SELECT-
+    LIMIT shape — works WITHOUT SQLite's optional ``DELETE ... LIMIT`` compile
+    flag, and releases the writer lock per ``_PRUNE_BATCH_LIMIT``-row chunk so a
+    long-running deploy's accumulated backlog clears without holding the lock)."""
     days = _retention_days()
     if days <= 0:
         return 0
     cutoff = int(time.time()) - days * 86400
     try:
-        with db_conn() as c:
-            cur = c.execute(
-                "DELETE FROM weather_samples WHERE ts < ? LIMIT ?",
-                (cutoff, _PRUNE_BATCH_LIMIT),
-            )
-            return int(cur.rowcount or 0)
+        return prune_rows_older_than("weather_samples", cutoff,
+                                     chunk=_PRUNE_BATCH_LIMIT)
     except Exception as e:  # noqa: BLE001
-        # SQLite without DELETE...LIMIT compile-time enable falls back
-        # to the unbounded form. Same shape as the host_metrics_sampler
-        # prune — better one slow tick than no prune at all.
-        try:
-            with db_conn() as c:
-                cur = c.execute("DELETE FROM weather_samples WHERE ts < ?", (cutoff,))
-                return int(cur.rowcount or 0)
-        except Exception as e2:  # noqa: BLE001
-            print(f"[weather_sampler] PRUNE failed cutoff={cutoff}: {e} / {e2}")
-            return 0
+        print(f"[weather_sampler] PRUNE failed cutoff={cutoff}: {e}")
+        return 0
 
 
 async def sampler_loop() -> None:
@@ -223,7 +211,7 @@ async def sampler_loop() -> None:
             for loc in locations:
                 try:
                     body = await _weather.fetch(loc["lat"], loc["lon"],
-                                                 label=loc.get("label") or "")
+                                                label=loc.get("label") or "")
                     if body and not body.get("error") and body.get("configured"):
                         if write_sample(body, loc=loc):
                             wrote += 1
@@ -287,21 +275,40 @@ def recent_samples(
             if lat is not None and lon is not None:
                 cur = c.execute(
                     """
-                    SELECT ts, lat, lon, label, temp_c, humidity, wind_kmh,
-                           condition, code, moon_phase, moon_illumination
-                      FROM weather_samples
-                     WHERE lat = ? AND lon = ?
-                     ORDER BY ts DESC LIMIT ?
+                    SELECT ts,
+                           lat,
+                           lon,
+                           label,
+                           temp_c,
+                           humidity,
+                           wind_kmh,
+                           condition,
+                           code,
+                           moon_phase,
+                           moon_illumination
+                    FROM weather_samples
+                    WHERE lat = ?
+                      AND lon = ?
+                    ORDER BY ts DESC LIMIT ?
                     """,
                     (_quantise(lat), _quantise(lon), int(max(1, min(limit, 5000)))),
                 )
             else:
                 cur = c.execute(
                     """
-                    SELECT ts, lat, lon, label, temp_c, humidity, wind_kmh,
-                           condition, code, moon_phase, moon_illumination
-                      FROM weather_samples
-                     ORDER BY ts DESC LIMIT ?
+                    SELECT ts,
+                           lat,
+                           lon,
+                           label,
+                           temp_c,
+                           humidity,
+                           wind_kmh,
+                           condition,
+                           code,
+                           moon_phase,
+                           moon_illumination
+                    FROM weather_samples
+                    ORDER BY ts DESC LIMIT ?
                     """,
                     (int(max(1, min(limit, 5000))),),
                 )

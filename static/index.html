@@ -10497,10 +10497,14 @@
                                               <span class="fs-2xs text-[var(--text-faint)] truncate"
                                                     x-text="it.byline_i18n ? t(it.byline_i18n, {name: it.byline}) : it.byline"></span>
                                             </span>
-                                            <!-- Progress bar (download queues / qBittorrent). -->
-                                            <span x-show="it.progress != null" class="apps-skill-item-bar mt-1" role="progressbar"
-                                                  :aria-valuenow="it.progress" aria-valuemin="0" aria-valuemax="100">
-                                              <span class="apps-skill-item-bar-fill" :style="'width:' + Math.max(0, Math.min(100, Number(it.progress) || 0)) + '%'"></span>
+                                            <!-- Progress bar + % label (download queues / qBittorrent / Tdarr workers). -->
+                                            <span x-show="it.progress != null" class="apps-skill-item-progress mt-1">
+                                              <span class="apps-skill-item-bar" role="progressbar"
+                                                    :aria-valuenow="it.progress" aria-valuemin="0" aria-valuemax="100">
+                                                <span class="apps-skill-item-bar-fill" :style="'width:' + Math.max(0, Math.min(100, Number(it.progress) || 0)) + '%'"></span>
+                                              </span>
+                                              <span class="apps-skill-item-progress-pct"
+                                                    x-text="Math.round(Math.max(0, Math.min(100, Number(it.progress) || 0))) + '%'"></span>
                                             </span>
                                           </span>
                                           <!-- Per-row action (e.g. qBittorrent delete-torrent), styled like the

@@ -248,6 +248,12 @@ PORT_SCAN_DEFAULT_TIMEOUT_SECONDS = 2
 PORT_SCAN_DEFAULT_CONCURRENCY = 32
 PORT_SCAN_MAX_SECONDS = 120
 PORT_SCAN_BANNER_READ_SECONDS = 2
+# host_port_scans retention window (days). One row per OPEN port per scan is
+# written by the on-demand /port-scan endpoint AND the recurring
+# port_scan_refresh schedule; the hourly host-metrics prune sweep deletes rows
+# older than this. 0 disables pruning (keep every scan forever), matching the
+# incidents-retention knob. Default 90. Range 0..3650.
+PORT_SCAN_RETENTION_DAYS = 90
 
 # Port-scan UDP companion (Stage 2). UDP probe timeout (3s default —
 # longer than TCP's because there's no handshake to short-circuit) and
@@ -1040,6 +1046,7 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PORT_SCAN_DEFAULT_CONCURRENCY`                | Runtime    | `32`                    | Parallel probe cap per scan (1..256).                                                                                                                                                                                                                                                                                                                                                         |
 | `PORT_SCAN_MAX_SECONDS`                        | Runtime    | `120`                   | Outer wall-clock budget for a single port-scan request (30..1800).                                                                                                                                                                                                                                                                                                                            |
 | `PORT_SCAN_BANNER_READ_SECONDS`                | Runtime    | `2`                     | Banner-grab read timeout when `banner_grab=true` on a scan (1..30).                                                                                                                                                                                                                                                                                                                           |
+| `PORT_SCAN_RETENTION_DAYS`                     | Runtime    | `90`                    | host_port_scans retention window (days) — the hourly prune sweep deletes detected-open-port rows older than this. 0 disables pruning (keep every scan forever). Range 0..3650.                                                                                                                                                                                                                 |
 | `PORT_SCAN_UDP_DEFAULT_TIMEOUT_SECONDS`        | Runtime    | `3`                     | Per-port UDP probe timeout (1..30). Stage 2 UDP companion.                                                                                                                                                                                                                                                                                                                                    |
 | `PORT_SCAN_UDP_DEFAULT_CONCURRENCY`            | Runtime    | `8`                     | UDP probe concurrency cap (1..64). Stage 2 UDP companion.                                                                                                                                                                                                                                                                                                                                     |
 | `PING_INTERVAL_SECONDS`                        | Runtime    | `60`                    | Ping sampler tick cadence.                                                                                                                                                                                                                                                                                                                                                                    |

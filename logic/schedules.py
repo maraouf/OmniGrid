@@ -40,7 +40,7 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 from logic import backups, gather, ops as _ops
-from logic.db import db_conn
+from logic.db import db_conn, prune_rows_older_than
 from logic.settings_keys import Settings
 
 # Clock-time schedules use "HH:MM" — 24-hour, container local time. Matches
@@ -1390,11 +1390,15 @@ async def _run_prune_notifications(
                 days = _tuning_mod.tuning_int(Tunable.NOTIFICATION_RETENTION_DAYS)
             days = max(int(_lo), min(int(_hi), days))
             cutoff = int(time.time()) - days * 86400
-            with db_conn() as c:
-                cur = c.execute(
-                    "DELETE FROM notifications WHERE ts < ?", (cutoff,),
-                )
-                removed = int(cur.rowcount or 0)
+            # Chunked + OFF the event loop: a plain `DELETE FROM notifications
+            # WHERE ts < ?` runs synchronously in one slice (no await around the
+            # SQLite call), so a 90-day delete of tens of thousands of rows would
+            # block the SSE heartbeat + /api/healthz for the whole delete and
+            # could flap the Docker healthcheck. prune_rows_older_than deletes in
+            # bounded chunks (writer lock released per chunk) and to_thread keeps
+            # it off the loop — mirrors the sibling backup / config_backup runners.
+            removed = await asyncio.to_thread(
+                prune_rows_older_than, "notifications", cutoff)
         except Exception as e:
             status = "error"
             err = str(e)

@@ -39,6 +39,38 @@ const _EMPTY_HOST_SPARK = {line: '', area: '', has: false};
 const _hostChartMemo = new WeakMap();
 const _hostChartMaxMemo = new WeakMap();
 
+// Admin → Stats chart-builder memos — same WeakMap-on-source-array contract as
+// _hostSparkMemo. The Stats sub-tab SVG builders (_renderFleetNetChart /
+// _renderSamplesBucketChart / _renderDbProjectionChart, + _renderAiCostTrendChart
+// in app-ai-dispatch.js) rebuild the whole SVG string from scratch on every
+// invocation; keyed on the bound `points` ARRAY REFERENCE (a fresh array on each
+// range-switch / tab-open fetch busts it) + a small sub-key (range / hours /
+// actual-length), they return the SAME string ref across a redundant reactive
+// flush so Alpine skips the x-html DOM write. `_memoChart` is the shared shape.
+const _statsNetMemo = new WeakMap();
+const _statsBucketMemo = new WeakMap();
+const _statsDbProjMemo = new WeakMap();
+
+function _memoChart(memo, arr, subkey, build) {
+  // Non-array / empty source: build without caching (WeakMap keys must be
+  // objects, and an empty chart is cheap to rebuild).
+  if (!Array.isArray(arr) || !arr.length) {
+    return build();
+  }
+  let per = memo.get(arr);
+  if (!per) {
+    per = new Map();
+    memo.set(arr, per);
+  }
+  const k = String(subkey) + '|' + arr.length;
+  let hit = per.get(k);
+  if (hit === undefined) {
+    hit = build();
+    per.set(k, hit);
+  }
+  return hit;
+}
+
 // Closes one gap-free area run into an SVG subpath (the run's line, then down
 // to the baseline and back), or null when the run is too short to fill.
 // Extracted from _buildHostSpark to keep that builder's statement count down.
@@ -111,6 +143,10 @@ export default {
   // as the 90d growth chart so the Stats family reads as a coherent
   // visual treatment.
   _renderFleetNetChart(points, hours) {
+    return _memoChart(_statsNetMemo, points, hours,
+      () => this._renderFleetNetChartBuild(points, hours));
+  },
+  _renderFleetNetChartBuild(points, hours) {
     if (!Array.isArray(points) || points.length < 2) {
       return '';
     }
@@ -524,6 +560,10 @@ export default {
       + '</div>');
   },
   _renderSamplesBucketChart(points, range) {
+    return _memoChart(_statsBucketMemo, points, range,
+      () => this._renderSamplesBucketChartBuild(points, range));
+  },
+  _renderSamplesBucketChartBuild(points, range) {
     if (!Array.isArray(points) || points.length === 0) {
       return '';
     }
@@ -706,6 +746,14 @@ export default {
     return svg;
   },
   _renderDbProjectionChart(points, actual) {
+    // Sub-key includes the `actual` array length — both `points` (projection)
+    // and `actual` (measured past) reload together, so a fresh `points` ref
+    // busts the WeakMap entry and the length guards an in-place change.
+    return _memoChart(_statsDbProjMemo, points,
+      'a' + (Array.isArray(actual) ? actual.length : 0),
+      () => this._renderDbProjectionChartBuild(points, actual));
+  },
+  _renderDbProjectionChartBuild(points, actual) {
     if (!Array.isArray(points) || points.length < 2) {
       return '';
     }

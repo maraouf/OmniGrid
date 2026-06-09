@@ -1635,6 +1635,8 @@ class SettingsIn(BaseModel):
     tuning_port_scan_default_concurrency: Optional[str] = None
     tuning_port_scan_max_seconds: Optional[str] = None
     tuning_port_scan_banner_read_seconds: Optional[str] = None
+    # host_port_scans retention window (days) — hourly prune sweep cutoff.
+    tuning_port_scan_retention_days: Optional[str] = None
     # Port-scan UDP companion (Stage 2).
     tuning_port_scan_udp_default_timeout_seconds: Optional[str] = None
     tuning_port_scan_udp_default_concurrency: Optional[str] = None

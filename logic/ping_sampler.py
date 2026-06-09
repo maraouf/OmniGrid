@@ -35,7 +35,7 @@ import time
 from logic import ping as _ping
 from logic import tuning
 from logic.tuning import Tunable as _Tunable
-from logic.db import db_conn, get_setting_bool, active_host_stats_providers, iter_curated_hosts
+from logic.db import db_conn, get_setting_bool, active_host_stats_providers, iter_curated_hosts, prune_rows_older_than
 from logic.sampler_loop import lifespan_sampler_loop
 from logic.settings_keys import Settings
 
@@ -259,9 +259,9 @@ def _prune_old_samples() -> int:
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
-        with db_conn() as c:
-            cur = c.execute("DELETE FROM ping_samples WHERE ts < ?", (cutoff,))
-            return cur.rowcount or 0
+        # Chunked delete (writer lock released per chunk) instead of one big
+        # DELETE — same predicate, bounded lock-hold, seeks idx_ping_samples_ts.
+        return prune_rows_older_than("ping_samples", cutoff)
     except Exception as e:
         print(f"[ping_sampler] prune failed: {e}")
         return 0

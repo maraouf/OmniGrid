@@ -271,6 +271,10 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_host_beszel_services_host_state
             ON host_beszel_services(host_id, state);
+        -- Plain (last_seen_ts) index so the chunked retention prune
+        -- (DELETE ... WHERE last_seen_ts < ?) seeks instead of scanning.
+        CREATE INDEX IF NOT EXISTS idx_host_beszel_services_last_seen_ts
+            ON host_beszel_services(last_seen_ts);
 
         -- Webmin-only history. Same shape as host_pulse_samples;
         -- separate table so a host with both Webmin AND NE doesn't
@@ -844,6 +848,11 @@ def init_db():
             ON host_port_scans(host_id, ts DESC);
         CREATE INDEX IF NOT EXISTS idx_host_port_scans_scan
             ON host_port_scans(scan_id);
+        -- Plain (ts) index so the retention prune (DELETE ... WHERE ts < ?)
+        -- seeks instead of scanning — the (host_id, ts) composite above can't
+        -- be seeked on a ts-only predicate.
+        CREATE INDEX IF NOT EXISTS idx_host_port_scans_ts
+            ON host_port_scans(ts);
 
         -- In-app notifications store. One row per notification dispatched
         -- through `logic.ops.notify`'s `app` medium (sibling of the

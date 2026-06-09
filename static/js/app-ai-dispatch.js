@@ -27,6 +27,13 @@
 // SPLIT FROM `app-ai.js`. Cross-method `this.X` references keep
 // working through the `_mergeKeepDescriptors` chain in app.js.
 
+// Admin → Stats AI-cost chart memo — same WeakMap-on-source-array contract as
+// app-charts.js's stats memos: keyed on the bound `points` ARRAY REFERENCE (a
+// fresh array on each range-switch / fetch busts it) + the `range` sub-key, so
+// the builder returns the SAME SVG string ref across a redundant reactive flush
+// and Alpine skips the x-html DOM write.
+const _aiCostChartMemo = new WeakMap();
+
 export default {
   // ----- AI palette: per-host disk-projection charts ------------------
   // Backend HOSTS protocol returns `j.hosts: [<id>, ...]` alongside the
@@ -233,6 +240,25 @@ export default {
   // PyCharm can't trace HTML-attribute calls into ESM modules.
   // noinspection JSUnusedGlobalSymbols
   _renderAiCostTrendChart(points, range) {
+    // Memoize by `points` array identity + range so a redundant flush while the
+    // data is unchanged returns the same SVG string ref (Alpine skips the write).
+    if (!Array.isArray(points) || !points.length) {
+      return this._renderAiCostTrendChartBuild(points, range);
+    }
+    let per = _aiCostChartMemo.get(points);
+    if (!per) {
+      per = new Map();
+      _aiCostChartMemo.set(points, per);
+    }
+    const k = String(range) + '|' + points.length;
+    let hit = per.get(k);
+    if (hit === undefined) {
+      hit = this._renderAiCostTrendChartBuild(points, range);
+      per.set(k, hit);
+    }
+    return hit;
+  },
+  _renderAiCostTrendChartBuild(points, range) {
     if (!Array.isArray(points) || points.length === 0) {
       return '';
     }

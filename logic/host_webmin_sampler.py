@@ -35,6 +35,7 @@ from logic.tuning import Tunable
 from logic.db import (
     db_conn,
     get_setting,
+    prune_rows_older_than,
     active_host_stats_providers as _active_providers,
     iter_curated_hosts,
 )
@@ -216,11 +217,9 @@ def _prune_old_rows_sync() -> int:
     cutoff = int(time.time() - days * 86400)
     removed = 0
     try:
-        with db_conn() as c:
-            cur = c.execute(
-                "DELETE FROM host_webmin_samples WHERE ts < ?", (cutoff,),
-            )
-            removed = cur.rowcount or 0
+        # Chunked delete (writer lock released per chunk) instead of one big
+        # DELETE — same predicate, bounded lock-hold, seeks idx_host_webmin_samples_ts.
+        removed = prune_rows_older_than("host_webmin_samples", cutoff)
     except Exception as e:  # noqa: BLE001
         print(f"[host_webmin_sampler] prune failed: {e}")
     return removed

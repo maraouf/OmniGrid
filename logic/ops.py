@@ -357,6 +357,16 @@ OP_TYPES: frozenset[str] = frozenset({
     # command audits via `telegram_command`; these web paths need their own row
     # so an access revocation is auditable from every actor surface.
     "telegram_unlink",
+    # Self-service personal-preference edits. These mutate persistent user
+    # state (the user's own row / avatar / per-user notification opt-ins) but
+    # aren't fleet/operational mutations — still, a complete audit trail wants
+    # "who changed their display name / avatar / notify prefs when" on record.
+    # The security-relevant self-service mutations (password / TOTP / passkeys)
+    # are already audited; these complete the personal-pref surface. Actor is
+    # the user's own username.
+    "user_profile_update",
+    "user_avatar_update",
+    "user_notify_prefs_update",
 })
 
 # Canonical op-status enum.
@@ -392,7 +402,7 @@ def assert_op_type(op_type: str) -> None:
         return
     print(
         f"[ops] warning — unknown op_type {op_type!r} written to history; "
-        f"add to logic.ops.OP_TYPES + static/i18n/en.json:history.op_types"
+        f"add to logic.ops.OP_TYPES + static/i18n/en.json:op_types"
     )
 
 

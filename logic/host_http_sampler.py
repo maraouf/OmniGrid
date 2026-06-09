@@ -36,6 +36,7 @@ from logic.tuning import Tunable as _Tunable
 from logic.db import (
     db_conn,
     get_setting_bool,
+    prune_rows_older_than,
     iter_curated_hosts,
 )
 from logic.settings_keys import Settings
@@ -153,6 +154,32 @@ def _build_url_row(r: dict) -> dict:
         "dns_resolved": bool(r["dns_resolved"]),
         "latency_ms": r["latency_ms"],
         "error": r["error"],
+    }
+
+
+def _aggregate_host_url_rows(rows: list, ts: int) -> dict:
+    """Roll one host's per-URL sample rows into the shaped result dict
+    (`{ts, urls, url_count_total, url_count_ok, any_ok,
+    min_tls_expires_in_days}`). Single definition prevents the per-URL
+    aggregation loop from drifting across the two read sites
+    (`bulk_latest_for_hosts` + `latest_for_host`); both share this."""
+    url_rows: list[dict] = []
+    n_ok = 0
+    min_tls: Optional[int] = None
+    for r in rows:
+        url_rows.append(_build_url_row(r))
+        if bool(r["status_ok"]) and bool(r["content_match_ok"]):
+            n_ok += 1
+        tls = r["tls_expires_in_days"]
+        if tls is not None and (min_tls is None or tls < min_tls):
+            min_tls = tls
+    return {
+        "ts": ts,
+        "urls": url_rows,
+        "url_count_total": len(url_rows),
+        "url_count_ok": n_ok,
+        "any_ok": n_ok > 0,
+        "min_tls_expires_in_days": min_tls,
     }
 
 
@@ -331,9 +358,9 @@ def _prune_old_samples() -> int:
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
-        with db_conn() as c:
-            cur = c.execute("DELETE FROM host_http_samples WHERE ts < ?", (cutoff,))
-            return cur.rowcount or 0
+        # Chunked delete (writer lock released per chunk) instead of one big
+        # DELETE — same predicate, bounded lock-hold, seeks idx_host_http_samples_ts.
+        return prune_rows_older_than("host_http_samples", cutoff)
     except (sqlite3.Error, OSError) as e:
         print(f"[http_probe_sampler] prune skipped: {e}")
         return 0
@@ -546,26 +573,7 @@ def bulk_latest_for_hosts(host_ids: list) -> dict:
         ts_by_host[hid] = int(r["ts"] or 0)
     out: dict = {}
     for hid, host_rows in bucket.items():
-        url_rows: list = []
-        n_ok = 0
-        min_tls: Optional[int] = None
-        for r in host_rows:
-            ok = bool(r["status_ok"]) and bool(r["content_match_ok"])
-            url_rows.append(_build_url_row(r))
-            if ok:
-                n_ok += 1
-            tls = r["tls_expires_in_days"]
-            if tls is not None:
-                if min_tls is None or tls < min_tls:
-                    min_tls = tls
-        out[hid] = {
-            "ts": ts_by_host[hid],
-            "urls": url_rows,
-            "url_count_total": len(url_rows),
-            "url_count_ok": n_ok,
-            "any_ok": n_ok > 0,
-            "min_tls_expires_in_days": min_tls,
-        }
+        out[hid] = _aggregate_host_url_rows(host_rows, ts_by_host[hid])
     return out
 
 
@@ -618,27 +626,7 @@ def latest_for_host(host_id: str) -> dict:
         return {}
     if not rows:
         return {}
-    newest_ts = int(rows[0]["ts"])
-    url_rows: list[dict] = []
-    n_ok = 0
-    min_tls: Optional[int] = None
-    for r in rows:
-        ok = bool(r["status_ok"]) and bool(r["content_match_ok"])
-        url_rows.append(_build_url_row(r))
-        if ok:
-            n_ok += 1
-        tls = r["tls_expires_in_days"]
-        if tls is not None:
-            if min_tls is None or tls < min_tls:
-                min_tls = tls
-    return {
-        "ts": newest_ts,
-        "urls": url_rows,
-        "url_count_total": len(url_rows),
-        "url_count_ok": n_ok,
-        "any_ok": n_ok > 0,
-        "min_tls_expires_in_days": min_tls,
-    }
+    return _aggregate_host_url_rows(rows, int(rows[0]["ts"]))
 
 
 async def probe_and_persist_host(host_id: str) -> dict:

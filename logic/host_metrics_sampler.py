@@ -333,7 +333,11 @@ def _resolve_target_for_log(host_id: str) -> str:
                 or (_ssh.get("host") or "").strip()
                 or ""
             )
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, OSError, RuntimeError,
+            AttributeError, KeyError, TypeError, ValueError):
+        # Best-effort target resolution — a DB read error from
+        # iter_curated_hosts() or a malformed hosts_config row falls back to
+        # the bare host_id. Sync helper, so no CancelledError to carve out.
         pass
     return ""
 
@@ -704,7 +708,8 @@ async def _record_failure(
                                 or ""
                             )
                             break
-                    except Exception:  # noqa: BLE001
+                    except (sqlite3.Error, OSError, RuntimeError,
+                            AttributeError, KeyError, TypeError, ValueError):
                         # Curated-host lookup failure is non-fatal — we
                         # fall back to the bare id only in the title.
                         target_fqdn = ""
@@ -1569,6 +1574,16 @@ def _prune_old_samples() -> int:
         if incidents_days > 0:
             incidents_cutoff = int(time.time() - incidents_days * 86400)
             removed += prune_rows_older_than("host_failure_events", incidents_cutoff)
+        # host_port_scans — one row per OPEN port per scan, written by the
+        # on-demand /port-scan endpoint AND the port_scan_refresh schedule kind;
+        # it has no sampler of its own, so its retention sweep rides here.
+        # Independently tunable via ``tuning_port_scan_retention_days`` (default
+        # 90; 0 disables) — the lone otherwise-unbounded table. Seeks the plain
+        # idx_host_port_scans_ts index.
+        port_scan_days = tuning.tuning_int(Tunable.PORT_SCAN_RETENTION_DAYS)
+        if port_scan_days > 0:
+            port_scan_cutoff = int(time.time() - port_scan_days * 86400)
+            removed += prune_rows_older_than("host_port_scans", port_scan_cutoff)
         return removed
     # noinspection PyBroadException
     except Exception as e:
