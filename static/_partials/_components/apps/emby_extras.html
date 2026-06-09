@@ -47,9 +47,27 @@
              x-text="embyCount(embyData(inst).sessions_active)"></div>
       </div>
     </div>
-    <!-- Libraries + episodes + version footnote. -->
+    <!-- All libraries (name + item count) + grand total — a multi-library
+         server shows EVERY library here, not just the Movies/Series/Songs grid. -->
+    <div x-show="(embyData(inst).library_list || []).length" class="mt-2">
+      <div class="apps-card-stat-label mb-1 flex items-baseline gap-1.5">
+        <span x-text="t('apps.emby.all_libraries') || 'Libraries'"></span>
+        <span class="fs-3xs text-[var(--text-faint)] font-normal"
+              x-text="t('apps.emby.items_count', { n: (Number(embyData(inst).items_total) || 0) })"></span>
+      </div>
+      <div class="flex flex-col gap-0.5">
+        <template x-for="lib in embyData(inst).library_list" :key="lib.name">
+          <div class="flex items-center justify-between gap-2 fs-2xs min-w-0">
+            <span class="truncate text-[var(--text-dim)]" x-text="lib.name"></span>
+            <span class="mono text-[var(--text-faint)] shrink-0" x-text="embyCount(lib.count)"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+    <!-- Episodes + version footnote (+ library count when the list is empty). -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
-      <span x-text="t('apps.emby.libraries_footnote', { n: (Number(embyData(inst).libraries) || 0) })"></span>
+      <span x-show="!(embyData(inst).library_list || []).length"
+            x-text="t('apps.emby.libraries_footnote', { n: (Number(embyData(inst).libraries) || 0) })"></span>
       <span x-show="(Number(embyData(inst).episodes) || 0) > 0"
             x-text="t('apps.emby.episodes_footnote', { n: (Number(embyData(inst).episodes) || 0) })"></span>
       <span x-show="embyData(inst).version"

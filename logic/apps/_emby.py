@@ -105,6 +105,68 @@ def image_proxy_url(host_row: dict, chip: dict, path: str, *,
     return url, img_headers(key, scheme)
 
 
+# Per-type count fields in /Items/Counts — summed as the fallback total when
+# the server doesn't report a usable ItemCount.
+_COUNT_FIELDS = ("MovieCount", "SeriesCount", "EpisodeCount", "AlbumCount",
+                 "SongCount", "ArtistCount", "MusicVideoCount", "BoxSetCount",
+                 "BookCount", "TrailerCount", "ProgramCount")
+
+
+def _items_total(counts: dict, library_list: list) -> int:
+    """Total tracked items across the WHOLE server. Prefer ``/Items/Counts``'
+    ``ItemCount``; fall back to summing the per-type counts, then the per-library
+    counts — so a server whose libraries are mostly non-movie/series/music
+    (photos / home-video / books / mixed) still shows a meaningful total."""
+    n = safe_int(counts.get("ItemCount"))
+    if n > 0:
+        return n
+    type_sum = sum(safe_int(counts.get(k)) for k in _COUNT_FIELDS)
+    if type_sum > 0:
+        return type_sum
+    return sum(safe_int(lib.get("count")) for lib in library_list
+               if isinstance(lib, dict))
+
+
+async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
+                        scheme: str) -> list:
+    """Every library as ``[{name, type, count}]`` — ``/Library/VirtualFolders``
+    for the name + collection type, plus a bounded per-library Recursive item
+    count (``/Items?ParentId=<id>&Limit=0&EnableTotalRecordCount=true`` →
+    ``TotalRecordCount``). Best-effort: a failed per-library count yields 0; an
+    errored / empty VirtualFolders yields []. Capped at 30 libraries."""
+    try:
+        vr = await cli.get(base + "/Library/VirtualFolders",
+                           headers=headers(key, scheme))
+        if vr.status_code != 200:
+            return []
+        folders = as_list(vr.json())
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
+    out: list = []
+    for vf in folders[:30]:
+        if not isinstance(vf, dict):
+            continue
+        name = str(vf.get("Name") or "").strip()
+        if not name:
+            continue
+        item_id = str(vf.get("ItemId") or "").strip()
+        count = 0
+        if item_id:
+            try:
+                ir = await cli.get(base + "/Items", headers=headers(key, scheme),
+                                   params={"ParentId": item_id, "Recursive": "true",
+                                           "Limit": "0",
+                                           "EnableTotalRecordCount": "true"})
+                if ir.status_code == 200:
+                    count = safe_int(as_dict(ir.json()).get("TotalRecordCount"))
+            except (httpx.HTTPError, OSError, ValueError, TypeError):
+                count = 0
+        out.append({"name": name,
+                    "type": str(vf.get("CollectionType") or "").strip(),
+                    "count": count})
+    return out
+
+
 def version_from(resp) -> str:
     """Server version from a ``GET /System/Info`` body ('' on any non-200 /
     parse failure — version is never load-bearing)."""
@@ -193,15 +255,11 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
                     await cli.get(base + "/System/Info", headers=headers(key, cfg.scheme)))
             except (httpx.HTTPError, OSError):
                 version = ""
-            # Library count (nice-to-have).
-            libraries = 0
-            try:
-                vr = await cli.get(base + "/Library/VirtualFolders",
-                                   headers=headers(key, cfg.scheme))
-                if vr.status_code == 200:
-                    libraries = len(as_list(vr.json()))
-            except (httpx.HTTPError, OSError, ValueError, TypeError):
-                libraries = 0
+            # All libraries (name + collection type + item count) — the card
+            # LISTS each so a multi-library server shows every library + a
+            # grand-total item count, not just Movies/Series/Songs. Best-effort.
+            library_list = await _library_list(cli, base, key, cfg.scheme)
+            libraries = len(library_list)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[{cfg.log_tag}] error: fetch host={host_id} url={counts_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -212,7 +270,9 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "series": safe_int(counts.get("SeriesCount")),
         "episodes": safe_int(counts.get("EpisodeCount")),
         "songs": safe_int(counts.get("SongCount")),
+        "items_total": _items_total(counts, library_list),
         "libraries": libraries,
+        "library_list": library_list,
         "sessions_active": sessions_active,
         "version": version,
         "fetched_at": int(now),
@@ -235,6 +295,7 @@ def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict
         "series": safe_int(data.get("series")),
         "episodes": safe_int(data.get("episodes")),
         "songs": safe_int(data.get("songs")),
+        "items_total": safe_int(data.get("items_total")),
         "libraries": safe_int(data.get("libraries")),
         "sessions_active": safe_int(data.get("sessions_active")),
         "version": data.get("version") or "",
