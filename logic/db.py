@@ -778,6 +778,11 @@ _SETTINGS_VERSION_EXCLUDED = frozenset({
     # work. Same housekeeping category as the swarm_autoheal flags
     # above.
     "default_schedules_seeded",
+    # Per-host Tdarr bloated-scan wall-clock history (JSON map host_id ->
+    # [seconds,...]) used to show a measured "this usually takes ~Xs" ETA
+    # instead of static copy. Written on every completed scan; no SPA tab
+    # reads it, so the version bump + SSE fan-out would be wasted work.
+    "tdarr_scan_durations",
 })
 # Single-element lists used as nullable-int / nullable-bool boxes so the
 # context manager + nested-defer support work without globals + lock
@@ -1110,7 +1115,7 @@ def curated_ne_hosts() -> list[dict]:
     return out
 
 
-# noinspection SpellCheckingInspection
+# noinspection DuplicatedCode,SpellCheckingInspection
 def curated_ping_hosts() -> list[dict]:
     """Curated ``hosts_config`` rows opted-in for ping probing.
 
