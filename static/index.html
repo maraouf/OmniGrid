@@ -10427,8 +10427,14 @@
                                    result box (hides it + drops its data until
                                    the skill button is run again). -->
                               <div class="flex items-start justify-between gap-2 mb-1.5">
-                                <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)]"
-                                     x-text="appSkillLabel(sk)"></div>
+                                <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] inline-flex items-center gap-1.5">
+                                  <!-- Spinner while a background skill (e.g. the
+                                       Tdarr bloated scan) is still running and
+                                       auto-polling — clears itself when done. -->
+                                  <span x-show="appSkillResult(inst, sk.id).pending"
+                                        class="spin shrink-0" aria-hidden="true"></span>
+                                  <span x-text="appSkillLabel(sk)"></span>
+                                </div>
                                 <button type="button"
                                         class="apps-skill-result-close shrink-0"
                                         @click.stop="clearAppSkillResult(inst, sk.id)"

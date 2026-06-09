@@ -277,12 +277,54 @@ export default {
       return;
     }
     const resKey = 'res:' + this.appInstanceKey(inst) + ':' + skillId;
+    // Stop any in-flight auto-poll for this result (the ✕ cancels it).
+    if (this._appSkillPoll && this._appSkillPoll[resKey]) {
+      clearTimeout(this._appSkillPoll[resKey]);
+      delete this._appSkillPoll[resKey];
+    }
     if (!(resKey in this._appSkillResult)) {
       return;
     }
     const next = Object.assign({}, this._appSkillResult);
     delete next[resKey];
     this._appSkillResult = next;
+  },
+
+  // Auto-poll a background-running skill (one that returned `pending: true`) so
+  // its final result lands on its own — the operator never re-clicks. Silently
+  // re-runs the SAME skill (carrying the original arg + confirm) every few
+  // seconds until `pending` clears, the result box is closed (✕), or the drawer
+  // closes. Capped so a never-completing scan can't poll forever.
+  _scheduleAppSkillPoll(inst, skillId, resKey, arg, opts, pending) {
+    this._appSkillPoll = this._appSkillPoll || {};
+    // Clear any prior timer for this result before (re)scheduling.
+    if (this._appSkillPoll[resKey]) {
+      clearTimeout(this._appSkillPoll[resKey]);
+      delete this._appSkillPoll[resKey];
+    }
+    if (!pending) {
+      return;
+    }
+    // Attempt counter rides in opts on each silent re-run; cap at ~6 min (90 × 4s).
+    const attempt = (opts && typeof opts._pollAttempt === 'number') ? opts._pollAttempt : 0;
+    if (attempt >= 90) {
+      return;
+    }
+    this._appSkillPoll[resKey] = setTimeout(() => {
+      delete this._appSkillPoll[resKey];
+      // Bail if the drawer closed or the result box was cleared via ✕.
+      if (!this.drawerApp) {
+        return;
+      }
+      if (!this._appSkillResult || !(resKey in this._appSkillResult)) {
+        return;
+      }
+      this.runAppSkill(inst, skillId, arg, {
+        silent: true,
+        confirm: !!(opts && opts.confirm),
+        _pollAttempt: attempt + 1,
+      });
+    }, 4000);
   },
 
   // Parse a skill result's `detail` into rows of stat chips for a clean,
@@ -529,15 +571,21 @@ export default {
         // be carried through to the stored result or the `--wide` CSS class
         // never applies.
         const _imageWide = !!(j && j.image_wide);
+        // `pending` marks a background-running skill (e.g. Tdarr's bloated scan
+        // / requeue) — the SPA auto-polls it (below) until it clears so the
+        // operator never has to click again.
+        const _pending = !!(j && j.pending);
         // Whole-map reassign (not per-key set) so re-running a skill reliably
         // re-renders — a per-key SET on an existing key desyncs Alpine effects.
         this._appSkillResult = Object.assign({}, this._appSkillResult, {
           [resKey]: {
             ok: true, detail: detail, image_url: img, items: _items,
             count: _count, count_i18n: _countI18n, image_wide: _imageWide,
-            followup: _fu, at: Date.now()
+            followup: _fu, pending: _pending, at: Date.now()
           },
         });
+        // Auto-poll a background-running skill so its result appears on its own.
+        this._scheduleAppSkillPoll(inst, skillId, resKey, arg, opts, _pending);
         _result = {
           ok: true, detail: detail, image_url: img, items: _items,
           followup: _fu,
