@@ -95,12 +95,6 @@ function tdarrBreakdown(d, kind) {
   return (d && Array.isArray(d[kind])) ? d[kind] : [];
 }
 
-// Active-worker detail list ([{node, file, pct, type}]) — what each worker is
-// processing right now. [] when idle / missing.
-function tdarrWorkersList(d) {
-  return (d && Array.isArray(d.workers)) ? d.workers : [];
-}
-
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tdarr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -125,5 +119,4 @@ export const helpers = {
   tdarrSpace: tdarrSpace,
   tdarrWorkers: tdarrWorkers,
   tdarrBreakdown: tdarrBreakdown,
-  tdarrWorkersList: tdarrWorkersList,
 };

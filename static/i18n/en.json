@@ -5874,6 +5874,7 @@
       "space_saved": "Space saved",
       "workers": "Workers",
       "now_processing": "Now processing",
+      "now_processing_count": "{count} processing",
       "resolutions": "Resolutions",
       "codecs": "Video codecs",
       "containers": "Containers",

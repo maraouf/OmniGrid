@@ -966,7 +966,13 @@ def _build_indexer_body(defn: dict, app_profile_id: int, extra_tag_ids: list) ->
     existing = body.get("tags")
     if not isinstance(existing, list):
         existing = []
-    body["tags"] = sorted(set(existing) | set(extra_tag_ids or []))
+    # Coerce to ints before set/sort — Prowlarr tag ids are integers, but a
+    # malformed upstream `tags` (mixed str/int, or an unhashable element) would
+    # otherwise raise TypeError out of the `httpx`-only try in the caller and
+    # surface as an unhandled 500.
+    tag_ids = {safe_int(t) for t in existing if isinstance(t, (int, str))}
+    tag_ids |= {safe_int(t) for t in (extra_tag_ids or []) if isinstance(t, (int, str))}
+    body["tags"] = sorted(tag_ids)
     return body
 
 

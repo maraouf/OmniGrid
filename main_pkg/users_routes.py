@@ -359,9 +359,12 @@ async def api_me_webauthn_register_finish(
         )
     except Exception as e:
         print(f"[webauthn] {user.username} register verify FAILED: {e}")
+        # Generic detail to the client (mirrors the login path) — the raw
+        # verifier exception (which step failed: challenge / origin / rp_id /
+        # signature) stays server-side in the log line above.
         raise HTTPException(
             status_code=400,
-            detail=f"Could not verify passkey: {e}",
+            detail="Could not verify passkey.",
         )
     try:
         friendly = webauthn_h.validate_friendly_name(body.friendly_name or "")

@@ -644,6 +644,14 @@ def _headers(key: str) -> dict:
     return {"X-Api-Key": key, "Accept": "application/json"}
 
 
+def _img_headers(key: str) -> dict:
+    """Headers for a BINARY image fetch (avatar proxy) — credential only +
+    ``Accept: */*``. The JSON ``Accept`` from ``_headers`` can 406 a binary
+    fetch behind a strict upstream / reverse proxy (the project's image-hook
+    rule: an image fetch sends the credential header ONLY plus ``*/*``)."""
+    return {"X-Api-Key": key, "Accept": "*/*"}
+
+
 def _tmdb_cfg(chip: dict) -> "tuple[str, str, str]":
     """Resolve the chip's TMDB config: ``(api_key, base_url, image_base)``.
     Blank fields fall back to the public TMDB defaults so suggestions work
@@ -748,11 +756,11 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
         if any(host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
             return p, {}
         if base_host and host == base_host:
-            return p, _headers(api_key)
+            return p, _img_headers(api_key)
         raise ValueError(f"avatar host not allowed: {host}")
     if not p.startswith("/") or ".." in p:
         raise ValueError("relative avatar must be a clean absolute path")
-    return base.rstrip("/") + p, _headers(api_key)
+    return base.rstrip("/") + p, _img_headers(api_key)
 
 
 def _fmt_request_date(created: Any, actor_username: Optional[str]) -> str:

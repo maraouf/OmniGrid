@@ -375,7 +375,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         raise RuntimeError("upstream returned non-JSON")
     if not isinstance(info, dict):
         info = {}
-    torrents = as_list(tor.json()) if tor.status_code == 200 else []
+    # Guard the torrents-list parse the same way as `info` above — a 200 with a
+    # non-JSON body (reverse-proxy error page on this route) would otherwise
+    # raise a raw ValueError instead of the RuntimeError the docstring promises.
+    try:
+        torrents = as_list(tor.json()) if tor.status_code == 200 else []
+    except (ValueError, TypeError):  # noqa: BLE001
+        torrents = []
     downloading = seeding = paused = completed = 0
     for t in torrents:
         if not isinstance(t, dict):
