@@ -469,7 +469,6 @@ async def command_skill(host_row: dict, chip: dict, *, command: str,
     if r.status_code in (401, 403):
         return {"ok": False, "status": r.status_code,
                 "detail": f"auth failed (check {app_label} api_key)"}
-    _body = ""
     try:
         _body = (r.text or "")[:160]
     except (ValueError, TypeError):

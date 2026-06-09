@@ -61,44 +61,6 @@ function sonarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
-// The per-mount disk list (every volume Sonarr reports). Returns [] when none.
-function sonarrDisks(inst) {
-  // `this` is the Alpine component (merged in via `appsHelpers`).
-  /* jshint validthis: true */
-  const d = (this.sonarrData ? this.sonarrData(inst) : null);
-  if (!d || !Array.isArray(d.disks)) {
-    return [];
-  }
-  return d.disks;
-}
-
-// Format a GiB float as a human size, promoting to TiB at >= 1024 GiB
-// (matches Sonarr's own GiB / TiB display). '—' for missing / zero.
-function sonarrSize(gib) {
-  const n = Number(gib);
-  if (gib == null || !isFinite(n) || n <= 0) {
-    return '—';
-  }
-  if (n >= 1024) {
-    return (n / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' TiB';
-  }
-  return n.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' GiB';
-}
-
-// Used-percent for a mount's usage bar (0..100); 0 when total is unknown.
-function sonarrDiskUsedPct(m) {
-  if (!m) {
-    return 0;
-  }
-  const total = Number(m.total_gb);
-  const free = Number(m.free_gb);
-  if (!isFinite(total) || total <= 0 || !isFinite(free)) {
-    return 0;
-  }
-  const pct = ((total - free) / total) * 100;
-  return Math.max(0, Math.min(100, Math.round(pct)));
-}
-
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Sonarr gets a
 // 2-column span + a vertical telemetry-card layout like Radarr / Bazarr.
@@ -118,7 +80,4 @@ export const helpers = {
   sonarrIsApp: isSonarrApp,
   sonarrData: sonarrData,
   sonarrCount: sonarrCount,
-  sonarrDisks: sonarrDisks,
-  sonarrSize: sonarrSize,
-  sonarrDiskUsedPct: sonarrDiskUsedPct,
 };

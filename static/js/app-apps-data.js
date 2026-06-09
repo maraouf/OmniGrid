@@ -71,6 +71,44 @@ export default {
     return null;
   },
 
+  // ---- Generic *arr storage helpers (shared by the radarr / sonarr / lidarr
+  // / readarr extras partials via _components/apps/_arr_storage.html). They
+  // read the standard {path, free_gb, total_gb} disk shape every *arr
+  // fetch_data emits under `disks`, replacing the per-app
+  // radarrDisks / sonarrSize / lidarrDiskUsedPct duplicates. ----
+
+  // Per-mount disk list ([] when none).
+  appsDisks(inst) {
+    const d = this.appsAppData(inst);
+    return (d && Array.isArray(d.disks)) ? d.disks : [];
+  },
+
+  // Format a GiB float as a human size, promoting to TiB at >= 1024 GiB
+  // (matches the *arr GiB / TiB display). '—' for missing / zero.
+  appsFmtSize(gib) {
+    const n = Number(gib);
+    if (gib == null || !isFinite(n) || n <= 0) {
+      return '—';
+    }
+    if (n >= 1024) {
+      return (n / 1024).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' TiB';
+    }
+    return n.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' GiB';
+  },
+
+  // Used-percent for a mount's usage bar (0..100); 0 when total is unknown.
+  appsDiskUsedPct(m) {
+    if (!m) {
+      return 0;
+    }
+    const total = Number(m.total_gb);
+    const free = Number(m.free_gb);
+    if (!isFinite(total) || total <= 0 || !isFinite(free)) {
+      return 0;
+    }
+    return Math.max(0, Math.min(100, Math.round((1 - free / total) * 100)));
+  },
+
   // Status of the per-app data fetch for one instance. Drives the
   // template's empty-state branches: `pending` shows "Loading...",
   // `error` shows the upstream failure detail, `ok` is the live

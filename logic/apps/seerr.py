@@ -1425,7 +1425,6 @@ async def _request_skill(host_row: dict, chip: dict, *,
     if r.status_code in (401, 403):
         return {"ok": False, "status": r.status_code,
                 "detail": "auth failed (check Seerr api_key)"}
-    _body = ""
     try:
         _body = (r.text or "")[:160]
     except (ValueError, TypeError):

@@ -4179,7 +4179,9 @@
                 <td><span class="dot" :class="h.status==='success' ? 'dot-healthy' : 'dot-offline'"></span></td>
                 <td class="mono fs-xs text-dim" x-text="formatTime(h.ts)"></td>
                 <td><span class="chip fs-2xs" x-text="(h.op_type||'').replace(/_/g,' ')"></span></td>
-                <td class="mono fs-sm"><div class="truncate history-target-clip" :title="h.target_name || ''" x-text="h.target_name || '—'"></div></td>
+                <td class="mono fs-sm">
+                  <div class="truncate history-target-clip" :title="h.target_name || ''" x-text="h.target_name || '—'"></div>
+                </td>
                 <td class="hidden md:table-cell fs-xs text-dim truncate" x-text="h.target_stack || '—'"></td>
                 <td><span class="pill" :class="h.status==='success' ? 'pill-healthy' : 'pill-error'" x-text="h.status"></span></td>
                 <td class="hidden md:table-cell mono fs-xs text-dim" x-text="t('common.seconds_short', { value: (h.duration||0).toFixed(1) })"></td>
@@ -12009,7 +12011,7 @@
               <div x-show="turn.skill_panel.detail"
                    class="ai-skill-detail"
                    x-text="turn.skill_panel.detail"></div>
-              <template x-if="turn.skill_panel.followup && !turn.skill_panel.followup_done">
+              <template x-if="turn.skill_panel.followup && !turn.skill_panel.followup_done && !turn.skill_panel.followup_confirming">
                 <button type="button"
                         class="apps-card-action-pill apps-card-action-pill--primary"
                         :disabled="turn.skill_panel.followup_busy"
@@ -12022,6 +12024,26 @@
                     ? (t('actions.working') || 'Working…')
                     : (turn.skill_panel.followup.label || (t('apps.seerr.request_btn') || 'Request on Seerr'))"></span>
                 </button>
+              </template>
+              <!-- Inline Yes/Cancel confirm for a DESTRUCTIVE follow-up in
+                   approval (normal) mode — mirrors the AI action-confirm chip
+                   (no popup; sidebar contract). Autonomous mode skips this and
+                   fires the follow-up immediately. -->
+              <template x-if="turn.skill_panel.followup && turn.skill_panel.followup_confirming">
+                <div class="ai-confirm-chip" role="alertdialog" aria-live="assertive" aria-atomic="true"
+                     :aria-label="t('apps.skills.followup_confirm', { action: turn.skill_panel.followup.label }) || (turn.skill_panel.followup.label + '?')">
+                  <svg width="11" height="11" aria-hidden="true">
+                    <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-alert-triangle'"/>
+                  </svg>
+                  <span class="ai-confirm-label"
+                        x-text="t('apps.skills.followup_confirm', { action: turn.skill_panel.followup.label }) || (turn.skill_panel.followup.label + '?')"></span>
+                  <button type="button" class="ai-confirm-btn ai-confirm-btn-yes"
+                          @click="aiRunSkillFollowup(idx)"
+                          x-text="t('ai_sidebar.confirm_yes') || 'Yes'"></button>
+                  <button type="button" class="ai-confirm-btn ai-confirm-btn-no"
+                          @click="aiCancelSkillFollowup(idx)"
+                          x-text="t('ai_sidebar.confirm_cancel') || 'Cancel'"></button>
+                </div>
               </template>
               <div x-show="turn.skill_panel.followup_result"
                    class="ai-skill-followup-result"
