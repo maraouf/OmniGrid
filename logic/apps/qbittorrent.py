@@ -600,7 +600,11 @@ def _vuetorrent_install_script(install_dir: str, version: str, zip_url: str) -> 
         'if [ -d "$TMP/x/vuetorrent" ]; then SRC="$TMP/x/vuetorrent"; else SRC="$TMP/x"; fi; '
         '$SUDO rm -rf "$DIR/$DEST"; $SUDO mkdir -p "$DIR/$DEST"; '
         '$SUDO cp -a "$SRC/." "$DIR/$DEST/" || { echo "ERROR: failed to copy into $DIR/$DEST"; exit 1; }; '
-        'if [ -n "$OWNER" ]; then $SUDO chown -R "$OWNER" "$DIR/$DEST" 2>/dev/null || true; fi; '
+        # Keep the downloaded zip alongside the extracted folder in the install
+        # dir (operator request — handy for a manual rollback / re-extract).
+        '$SUDO cp -f "$TMP/$ZIP" "$DIR/$ZIP" 2>/dev/null || true; '
+        'if [ -n "$OWNER" ]; then $SUDO chown -R "$OWNER" "$DIR/$DEST" 2>/dev/null || true; '
+        '$SUDO chown "$OWNER" "$DIR/$ZIP" 2>/dev/null || true; fi; '
         'echo "INSTALLED:$DEST"'
     )
 

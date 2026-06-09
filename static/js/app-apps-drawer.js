@@ -360,12 +360,8 @@ export default {
     if (!it || !it.poster) {
       return '';
     }
-    if (it.poster_proxy && inst) {
-      return '/api/services/' + encodeURIComponent(inst.host_id)
-        + '/' + encodeURIComponent(inst.service_idx)
-        + '/image-proxy?path=' + encodeURIComponent(it.poster);
-    }
-    return this.proxiedImageUrl(it.poster);
+    return it.poster_proxy ? this.appsImageProxyUrl(inst, it.poster)
+                           : this.proxiedImageUrl(it.poster);
   },
 
   // Resolve a rich-item avatar URL (e.g. Seerr "requested by" user thumbnail).
@@ -377,12 +373,25 @@ export default {
     if (!it || !it.avatar) {
       return '';
     }
-    if (it.avatar_proxy && inst) {
-      return '/api/services/' + encodeURIComponent(inst.host_id)
-        + '/' + encodeURIComponent(inst.service_idx)
-        + '/image-proxy?path=' + encodeURIComponent(it.avatar);
+    return it.avatar_proxy ? this.appsImageProxyUrl(inst, it.avatar)
+                           : this.proxiedImageUrl(it.avatar);
+  },
+
+  // Build the per-app server-side image-proxy URL for an app-relative or
+  // allowlisted-absolute image reference. Routing through it (a) keeps the
+  // app's api_key server-side, (b) loads cross-origin-blocked avatars (plex.tv)
+  // from OmniGrid's own domain, and (c) benefits from the on-disk image cache
+  // (logic/image_cache.py) so the same picture isn't re-fetched every view.
+  // Reused by the skill rich-items AND card surfaces (e.g. Seerr top-requester
+  // avatars). Falls back to the raw path when no instance is in scope.
+  appsImageProxyUrl(inst, path) {
+    const p = (path || '').toString().trim();
+    if (!p || !inst) {
+      return p;
     }
-    return this.proxiedImageUrl(it.avatar);
+    return '/api/services/' + encodeURIComponent(inst.host_id)
+      + '/' + encodeURIComponent(inst.service_idx)
+      + '/image-proxy?path=' + encodeURIComponent(p);
   },
 
   // Per-row action button (e.g. qBittorrent's delete-torrent trash icon). The

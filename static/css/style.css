@@ -6201,6 +6201,24 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   margin-inline-end: var(--s-2);
 }
 
+/* Let every meta cell shrink below its content's min-content width — without
+   this a grid item defaults to min-width:auto, so a long mono value (an
+   ssh_run target = the full command) blows the column out and distorts the
+   modal. */
+.swal-meta > div {
+  min-width: 0;
+}
+
+/* A long value (the ssh_run command) gets its own full-width row + wraps,
+   breaking long tokens, so it stays inside the modal instead of overflowing. */
+.swal-meta-wide {
+  grid-column: 1 / -1;
+}
+
+.swal-meta-val {
+  overflow-wrap: anywhere;
+}
+
 .swal-err {
   color: var(--danger);
   grid-column: 1 / -1;
@@ -6457,6 +6475,15 @@ body.ai-pinned > .og-app-shell--ai-pinned {
    the browser to absorb whatever's left after content-sized siblings. */
 .col-grow {
   width: 100%;
+}
+
+/* History target cell — an ssh_run target is the full command (hundreds of
+   chars), and `.ptable` is auto-layout, so without a max-width the cell would
+   expand to the whole one-line command and blow the table out horizontally.
+   Cap it (responsive) so `truncate` (overflow/ellipsis/nowrap) clips; the full
+   text stays available via the row's `:title` + the detail modal. */
+.history-target-cell {
+  max-width: clamp(140px, 32vw, 420px);
 }
 
 /* Image column — soft cap: short image names stay compact, very long registry
