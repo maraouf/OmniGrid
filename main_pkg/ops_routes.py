@@ -1602,6 +1602,9 @@ class SettingsIn(BaseModel):
     # grouping. Default 90; set to 0 to disable pruning (legacy "keep
     # every incident forever" behaviour).
     tuning_incidents_retention_days: Optional[str] = None
+    # Image-proxy disk cache — TTL (seconds; 0 disables) + max cached entries.
+    tuning_image_proxy_cache_ttl_seconds: Optional[str] = None
+    tuning_image_proxy_cache_max_entries: Optional[str] = None
     # host-snapshots read-side cache TTL (seconds). The SPA fans
     # out N parallel /api/hosts/one/{id} per refresh; caching the
     # snapshot-table read for a few seconds collapses N reads into 1.

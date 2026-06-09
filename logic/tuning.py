@@ -116,6 +116,8 @@ class Tunable(str, Enum):
     HTTP_PROBE_HOST_FAIL_CACHE_TTL_SECONDS = "tuning_http_probe_host_fail_cache_ttl_seconds"
     HTTP_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_http_probe_sample_interval_seconds"
     HTTP_PROBE_TIMEOUT_SECONDS = "tuning_http_probe_timeout_seconds"
+    IMAGE_PROXY_CACHE_MAX_ENTRIES = "tuning_image_proxy_cache_max_entries"
+    IMAGE_PROXY_CACHE_TTL_SECONDS = "tuning_image_proxy_cache_ttl_seconds"
     INCIDENTS_RETENTION_DAYS = "tuning_incidents_retention_days"
     KICK_GATHER_TIMEOUT_SECONDS = "tuning_kick_gather_timeout_seconds"
     LOAD_BUSY_MAX_SECONDS = "tuning_load_busy_max_seconds"
@@ -512,6 +514,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # file itself is the bottleneck. Min 0 (forever), max 3650 (~10
     # years).
     "tuning_incidents_retention_days": ("INCIDENTS_RETENTION_DAYS", 90, 0, 3650),
+    # Image-proxy disk cache (logic/image_cache.py) — how long a server-side-
+    # fetched image (TMDB poster / per-app avatar) is served from disk before
+    # re-fetching upstream. 0 disables the cache. Default 7 days (604800s) —
+    # posters / avatars are effectively immutable, so a long TTL maximises the
+    # cross-provider dedup win with no real staleness risk. Max 30 days.
+    "tuning_image_proxy_cache_ttl_seconds": ("IMAGE_PROXY_CACHE_TTL_SECONDS", 604800, 0, 2592000),
+    # Hard cap on the number of cached images — the oldest are pruned past it so
+    # the cache directory can't grow unbounded. 0 = no cap. Default 5000 (a
+    # large fleet's poster + avatar set fits comfortably; ~0.5-1 GB at typical
+    # poster sizes).
+    "tuning_image_proxy_cache_max_entries": ("IMAGE_PROXY_CACHE_MAX_ENTRIES", 5000, 0, 100000),
     # host-snapshots read-side cache TTL in seconds. The SPA
     # fans out N parallel /api/hosts/one/{id} calls per refresh, each
     # of which triggers a full SELECT against host_snapshots. Caching

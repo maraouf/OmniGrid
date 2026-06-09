@@ -576,25 +576,31 @@ def _vuetorrent_install_script(install_dir: str, version: str, zip_url: str) -> 
     return (
         "set -e; "
         f"DIR='{install_dir}'; "
-        # Pre-flight: a missing / non-writable dir or a full disk is the usual
-        # cause of a cryptic `curl: (23) ... ERROR on write` — surface it as an
-        # actionable message BEFORE the download instead of after.
-        'test -d "$DIR" || { echo "ERROR: install dir $DIR does not exist"; exit 1; }; '
-        'test -w "$DIR" || { echo "ERROR: install dir $DIR is not writable by $(whoami) '
-        '— grant write access (chown it to the SSH user) and retry"; exit 1; }; '
-        'cd "$DIR"; '
-        'AVAIL=$(df -Pk "$DIR" 2>/dev/null | awk \'NR==2{print $4}\'); echo "FREE_KB:${AVAIL:-?}"; '
         f"URL='{zip_url}'; ZIP='{z}'; DEST='{dest}'; "
+        'test -d "$DIR" || { echo "ERROR: install dir $DIR does not exist"; exit 1; }; '
+        # The install dir is usually owned by the qBittorrent SERVICE user (e.g.
+        # qbittorrent-nox), not the SSH user — so write directly when possible,
+        # else escalate the FINAL move into $DIR via passwordless sudo. Download
+        # + extract happen in a writable temp dir first, so they never need
+        # privilege; only the move-into-place + chown do.
+        'if [ -w "$DIR" ]; then SUDO=""; '
+        'elif sudo -n true 2>/dev/null; then SUDO="sudo -n"; '
+        'else echo "ERROR: $DIR is not writable by $(whoami) and passwordless sudo is unavailable '
+        '— grant write access (chown it to the SSH user) OR enable NOPASSWD sudo for the SSH user, then retry"; exit 1; fi; '
+        'OWNER=$(stat -c \'%U:%G\' "$DIR" 2>/dev/null || echo ""); '
+        'TMP=$(mktemp -d); trap \'rm -rf "$TMP"\' EXIT; '
+        'AVAIL=$(df -Pk "$DIR" 2>/dev/null | awk \'NR==2{print $4}\'); echo "FREE_KB:${AVAIL:-?}"; '
         'if command -v curl >/dev/null 2>&1; then '
-        'curl -fSL -o "$ZIP" "$URL" || { echo "ERROR: download failed writing $DIR/$ZIP '
-        '— curl(23) here means the disk is full or the directory is not writable (see FREE_KB above)"; exit 1; }; '
-        'else wget -O "$ZIP" "$URL" || { echo "ERROR: download failed writing $DIR/$ZIP (wget)"; exit 1; }; fi; '
-        'rm -rf "$DEST" "$DEST.tmp"; mkdir -p "$DEST.tmp"; '
-        'if command -v unzip >/dev/null 2>&1; then unzip -q -o "$ZIP" -d "$DEST.tmp"; '
-        'else python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$ZIP" "$DEST.tmp"; fi; '
-        'if [ -d "$DEST.tmp/vuetorrent" ]; then mv "$DEST.tmp/vuetorrent" "$DEST"; rm -rf "$DEST.tmp"; '
-        'else mv "$DEST.tmp" "$DEST"; fi; '
-        'rm -f "$ZIP"; '
+        'curl -fSL -o "$TMP/$ZIP" "$URL" || { echo "ERROR: download failed (curl) — check connectivity / disk space"; exit 1; }; '
+        'else wget -O "$TMP/$ZIP" "$URL" || { echo "ERROR: download failed (wget)"; exit 1; }; fi; '
+        'mkdir -p "$TMP/x"; '
+        'if command -v unzip >/dev/null 2>&1; then unzip -q -o "$TMP/$ZIP" -d "$TMP/x"; '
+        'else python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$TMP/$ZIP" "$TMP/x"; fi; '
+        # Release zips as either vuetorrent/ at the root or the files directly.
+        'if [ -d "$TMP/x/vuetorrent" ]; then SRC="$TMP/x/vuetorrent"; else SRC="$TMP/x"; fi; '
+        '$SUDO rm -rf "$DIR/$DEST"; $SUDO mkdir -p "$DIR/$DEST"; '
+        '$SUDO cp -a "$SRC/." "$DIR/$DEST/" || { echo "ERROR: failed to copy into $DIR/$DEST"; exit 1; }; '
+        'if [ -n "$OWNER" ]; then $SUDO chown -R "$OWNER" "$DIR/$DEST" 2>/dev/null || true; fi; '
         'echo "INSTALLED:$DEST"'
     )
 
