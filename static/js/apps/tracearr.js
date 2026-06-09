@@ -80,6 +80,57 @@ function tracearrBandwidth(d) {
   return s || '—';
 }
 
+// SVG `d` path for the plays-over-time sparkline (last 30 daily buckets), over
+// a 200x32 viewBox — mirrors the speedtest sparkPath. '' when < 2 points so the
+// chart hides cleanly.
+function tracearrPlaysPath(d) {
+  const series = (d && Array.isArray(d.plays_series)) ? d.plays_series.map(Number).filter(isFinite) : [];
+  if (series.length < 2) {
+    return '';
+  }
+  const W = 200, H = 32;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, series.length - 1);
+  let path = '';
+  for (let i = 0; i < series.length; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((series[i] - min) / range) * H).toFixed(1);
+    path += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  return path.trim();
+}
+
+// True when there's a plays series worth charting (>= 2 points).
+function tracearrHasPlays(d) {
+  return !!(d && Array.isArray(d.plays_series) && d.plays_series.length >= 2);
+}
+
+// Percentage (0-100) of one playback tier in the quality breakdown. `tier` is
+// 'direct_play' | 'direct_stream' | 'transcode'. 0 when no data.
+function tracearrQualityPct(d, tier) {
+  const q = (d && d.quality) ? d.quality : null;
+  if (!q) {
+    return 0;
+  }
+  const total = Number(q.total) || 0;
+  if (total <= 0) {
+    return 0;
+  }
+  return Math.round(((Number(q[tier]) || 0) / total) * 100);
+}
+
+// True when the quality breakdown has any plays to show.
+function tracearrHasQuality(d) {
+  return !!(d && d.quality && (Number(d.quality.total) || 0) > 0);
+}
+
+// Top platforms list ([{name, count}]) for the breakdown chips. [] when none.
+function tracearrPlatforms(d) {
+  return (d && Array.isArray(d.platforms)) ? d.platforms : [];
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tracearr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -101,4 +152,9 @@ export const helpers = {
   tracearrCount: tracearrCount,
   tracearrServers: tracearrServers,
   tracearrBandwidth: tracearrBandwidth,
+  tracearrPlaysPath: tracearrPlaysPath,
+  tracearrHasPlays: tracearrHasPlays,
+  tracearrQualityPct: tracearrQualityPct,
+  tracearrHasQuality: tracearrHasQuality,
+  tracearrPlatforms: tracearrPlatforms,
 };

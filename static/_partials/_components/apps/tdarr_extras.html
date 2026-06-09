@@ -37,6 +37,16 @@
             <div class="apps-card-stat-label" x-text="t('apps.tdarr.health_queue') || 'Health queue'"></div>
             <div class="apps-card-stat-value" x-text="tdarrCount(tdarrData(inst).health_queue)"></div>
           </div>
+          <!-- Transcodes done -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.transcodes') || 'Transcodes'"></div>
+            <div class="apps-card-stat-value" x-text="tdarrCount(tdarrData(inst).transcodes)"></div>
+          </div>
+          <!-- Health checks done -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.health_checks') || 'Health checks'"></div>
+            <div class="apps-card-stat-value" x-text="tdarrCount(tdarrData(inst).health_checks)"></div>
+          </div>
           <!-- Space saved -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tdarr.space_saved') || 'Space saved'"></div>
@@ -48,12 +58,41 @@
             <div class="apps-card-stat-value" x-text="tdarrWorkers(tdarrData(inst))"></div>
           </div>
         </div>
-        <!-- Footnote: version + total transcodes done. -->
-        <div x-show="tdarrData(inst).version || (Number(tdarrData(inst).transcodes) || 0) > 0"
-             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
-          <span x-show="tdarrData(inst).version" x-text="t('apps.version_footnote', { brand: 'Tdarr', v: (tdarrData(inst).version || '') })"></span>
-          <span x-show="(Number(tdarrData(inst).transcodes) || 0) > 0"
-                x-text="(tdarrData(inst).version ? ' · ' : '') + (t('apps.tdarr.transcodes_n', { n: tdarrData(inst).transcodes }) || (tdarrData(inst).transcodes + ' transcodes'))"></span>
+        <!-- Active workers — what each is transcoding right now (+ progress). -->
+        <div x-show="tdarrWorkersList(tdarrData(inst)).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tdarr.now_processing') || 'Now processing'"></div>
+          <div class="flex flex-col gap-1">
+            <template x-for="(w, wi) in tdarrWorkersList(tdarrData(inst))" :key="wi">
+              <div class="fs-3xs">
+                <div class="flex items-baseline gap-1.5 min-w-0">
+                  <span class="text-[var(--text-faint)] shrink-0" x-text="'⚙️ ' + w.node"></span>
+                  <span class="truncate text-[var(--text-dim)]" :title="w.file" x-text="w.file"></span>
+                  <span class="ms-auto mono shrink-0 text-[var(--text-faint)]" x-text="(Number(w.pct) || 0).toFixed(1) + '%'"></span>
+                </div>
+                <div class="stat-bar mt-0.5" role="progressbar" :aria-valuenow="Number(w.pct) || 0" aria-valuemin="0" aria-valuemax="100"
+                     :style="'--w:' + Math.max(0, Math.min(100, Number(w.pct) || 0)) + '%; --c: var(--primary)'"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <!-- Library breakdowns: resolutions / video codecs / containers. -->
+        <template x-for="bd in [
+              { key: 'resolutions', label: (t('apps.tdarr.resolutions') || 'Resolutions') },
+              { key: 'codecs', label: (t('apps.tdarr.codecs') || 'Video codecs') },
+              { key: 'containers', label: (t('apps.tdarr.containers') || 'Containers') }
+            ]" :key="bd.key">
+          <div x-show="tdarrBreakdown(tdarrData(inst), bd.key).length" class="mt-2">
+            <div class="apps-card-stat-label mb-1" x-text="bd.label"></div>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="s in tdarrBreakdown(tdarrData(inst), bd.key)" :key="s.name">
+                <span class="chip pill-muted fs-3xs" x-text="s.name + ' · ' + tdarrCount(s.count)"></span>
+              </template>
+            </div>
+          </div>
+        </template>
+        <!-- Footnote: version. -->
+        <div x-show="tdarrData(inst).version" class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-text="t('apps.version_footnote', { brand: 'Tdarr', v: (tdarrData(inst).version || '') })"></span>
         </div>
       </div>
     </template>

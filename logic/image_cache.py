@@ -60,11 +60,6 @@ def _max_entries() -> int:
     return tuning_int(Tunable.IMAGE_PROXY_CACHE_MAX_ENTRIES)
 
 
-def enabled() -> bool:
-    """The cache is on when its TTL is positive."""
-    return _ttl() > 0
-
-
 def ensure_dir() -> None:
     """Best-effort create of the cache directory."""
     try:

@@ -2020,13 +2020,18 @@ async def api_image_proxy(url: str):
     # TMDB poster shared across providers (Radarr / Seerr / Tracearr …) keys to
     # the same cache entry, so it downloads once.
     from logic import image_cache  # noqa: PLC0415
-    _hit = image_cache.get(url)
+    # Disk get/put run off the event loop (file I/O + an opportunistic prune
+    # scan would otherwise stall /api/healthz on a poster fan-out).
+    _hit = await asyncio.to_thread(image_cache.get, url)
     if _hit is not None:
         return Response(content=_hit[0], media_type=_hit[1],
                         headers={"Cache-Control": "public, max-age=86400",
                                  "X-OmniGrid-Cache": "hit"})
+    # follow_redirects=False: TMDB serves images directly, and NOT following a
+    # redirect keeps the host-allowlist airtight (a redirect off TMDB to an
+    # internal host can't be followed + cached — SSRF defence-in-depth).
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as cli:
             r = await cli.get(url)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         raise HTTPException(502, f"upstream image fetch failed: {type(e).__name__}")
@@ -2040,7 +2045,7 @@ async def api_image_proxy(url: str):
     body = r.content
     if len(body) > _IMAGE_PROXY_MAX_BYTES:
         raise HTTPException(413, "upstream image too large")
-    image_cache.put(url, body, ctype)
+    await asyncio.to_thread(image_cache.put, url, body, ctype)
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400",
                              "X-OmniGrid-Cache": "miss"})

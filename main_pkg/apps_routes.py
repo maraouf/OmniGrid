@@ -966,7 +966,8 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
     # URL + auth header, so a public-CDN cover dedups across providers while an
     # authenticated per-chip image stays per-chip.
     from logic import image_cache  # noqa: PLC0415
-    _hit = image_cache.get(url, headers)
+    # Disk get/put run off the event loop (file I/O + opportunistic prune scan).
+    _hit = await asyncio.to_thread(image_cache.get, url, headers)
     if _hit is not None:
         return Response(content=_hit[0], media_type=_hit[1],
                         headers={"Cache-Control": "public, max-age=86400",
@@ -1014,7 +1015,7 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
                 f"{len(body)} bytes, starts: {snippet[:60]!r}) — if this is HTML "
                 f"the upstream isn't authenticating the image fetch")
         ctype = sniffed
-    image_cache.put(url, body, ctype, headers)
+    await asyncio.to_thread(image_cache.put, url, body, ctype, headers)
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400",
                              "X-OmniGrid-Cache": "miss"})

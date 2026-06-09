@@ -352,6 +352,11 @@ OP_TYPES: frozenset[str] = frozenset({
     # SKIPS the generic audit row for AI traffic to avoid double-
     # logging.
     "telegram_command",
+    # Telegram account UNLINK via a WEB route (self-service Profile → Telegram,
+    # or admin Admin → AI → Telegram links). The Telegram-side /unlink slash
+    # command audits via `telegram_command`; these web paths need their own row
+    # so an access revocation is auditable from every actor surface.
+    "telegram_unlink",
 })
 
 # Canonical op-status enum.

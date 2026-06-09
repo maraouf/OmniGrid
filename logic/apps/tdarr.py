@@ -71,12 +71,17 @@ _API = "/api/v2"
 DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}
 
-# 1 GiB in bytes (sizeDiff is reported in GB by Tdarr; we render GB → TB).
-_GIB = 1024 ** 3
-
 # A file is "bloated" when its transcode produced a LARGER file — Tdarr stores
 # this as newVsOldRatio (a percentage; 100 = same size, >100 = bigger).
 _BLOAT_RATIO = 100.0
+
+# The bloated check/requeue does a cruddb `getAll` over FileJSONDB, whose
+# response carries the FULL file records — on a large library that's hundreds of
+# MB and can take ~100s to stream. A short timeout truncates the body mid-stream
+# (httpx RemoteProtocolError). Connect stays short; read/total is generous so
+# the big query completes. (Generous fixed cap rather than a tunable — it only
+# gates two manual on-demand skills, not a hot path.)
+_BLOATED_TIMEOUT = httpx.Timeout(240.0, connect=15.0)
 
 
 def requires_api_key() -> bool:
@@ -171,6 +176,94 @@ def _count_workers(nodes: Any) -> "tuple[int, int]":
     return active, len(nd)
 
 
+def _worker_list(nodes: Any) -> list:
+    """Per-active-worker detail ``[{node, file, pct, type}]`` from a ``get-nodes``
+    payload — what each worker is processing right now (basename + %)."""
+    out = []
+    for node in as_dict(nodes).values():
+        if not isinstance(node, dict):
+            continue
+        node_name = str(node.get("nodeName") or "node").strip()
+        for w in as_dict(node.get("workers")).values():
+            if not isinstance(w, dict) or not w.get("job"):
+                continue
+            out.append({
+                "node": node_name,
+                "file": os.path.basename(str(w.get("file") or "").strip()) or "?",
+                "pct": round(safe_float(w.get("percentage")), 1),
+                "type": str(w.get("workerType") or w.get("type") or "").strip(),
+            })
+    return out
+
+
+async def _post(cli: httpx.AsyncClient, base: str, api_key: str,
+                path: str, body: dict) -> Any:
+    """Generic Tdarr POST (used for ``/stats/get-pies``). Raises ``RuntimeError``
+    on transport / auth / non-200 / non-JSON."""
+    try:
+        r = await cli.post(base.rstrip("/") + _API + path,
+                           headers=_headers(api_key), json=body)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"request failed: {type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError("auth failed: Tdarr requires an API key (set it in the editor)")
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code} for {path}")
+    try:
+        return r.json()
+    except (ValueError, TypeError):
+        raise RuntimeError("non-JSON from upstream")
+
+
+def _agg_slices(target: dict, slices: Any) -> None:
+    """Sum a pie's ``[{name, value}]`` slices into ``target`` (name → count)."""
+    for s in as_list(slices):
+        if isinstance(s, dict):
+            name = str(s.get("name") or "?").strip() or "?"
+            target[name] = target.get(name, 0) + safe_int(s.get("value"))
+
+
+def _top_slices(d: dict, n: int = 6) -> list:
+    """``[{name, count}]`` for the top-``n`` aggregated slices (count desc)."""
+    return [{"name": k, "count": v}
+            for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True)[:n]]
+
+
+async def _fetch_pies(cli: httpx.AsyncClient, base: str, api_key: str) -> dict:
+    """Aggregate the per-library ``stats/get-pies`` breakdowns into global top
+    VIDEO resolutions / codecs / containers. The library list comes from
+    ``LibrarySettingsJSONDB``; each library is one ``get-pies`` POST
+    (``{"data": {"libraryId": <id>}}``) whose response wraps the breakdown in
+    ``pieStats.video.{resolutions,codecs,containers}`` as ``[{name, value}]``.
+    Best-effort — returns empty lists on any failure (the card hides them)."""
+    try:
+        libs = as_list(await _cruddb(cli, base, api_key, {
+            "collection": "LibrarySettingsJSONDB", "mode": "getAll",
+            "docID": "", "obj": {}}))
+    except RuntimeError:
+        return {"resolutions": [], "codecs": [], "containers": []}
+    res: dict = {}
+    codecs: dict = {}
+    containers: dict = {}
+    for lib in libs[:12]:
+        lid = str(as_dict(lib).get("_id") or "").strip()
+        if not lid:
+            continue
+        try:
+            raw = await _post(cli, base, api_key, "/stats/get-pies",
+                              {"data": {"libraryId": lid}})
+        except RuntimeError:
+            continue
+        # Response wraps the stat in `pieStats`; tolerate an unwrapped shape too.
+        pie = as_dict(as_dict(raw).get("pieStats") or raw)
+        video = as_dict(pie.get("video"))
+        _agg_slices(res, video.get("resolutions"))
+        _agg_slices(codecs, video.get("codecs"))
+        _agg_slices(containers, video.get("containers"))
+    return {"resolutions": _top_slices(res), "codecs": _top_slices(codecs),
+            "containers": _top_slices(containers)}
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -206,11 +299,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
             except RuntimeError:
                 version = ""
-            workers_active, nodes = 0, 0
+            workers_active, nodes, worker_list = 0, 0, []
             try:
-                workers_active, nodes = _count_workers(await _get(cli, base, api_key, "/get-nodes"))
+                nd = await _get(cli, base, api_key, "/get-nodes")
+                workers_active, nodes = _count_workers(nd)
+                worker_list = _worker_list(nd)
             except RuntimeError:
-                workers_active, nodes = 0, 0
+                workers_active, nodes, worker_list = 0, 0, []
+            # Library breakdowns (resolutions / codecs / containers) — best-effort
+            # per-library get-pies aggregation; an empty result just hides them.
+            pies = await _fetch_pies(cli, base, api_key)
     except RuntimeError as e:
         print(f"[tdarr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -218,17 +316,24 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "available": True,
         "total_files": safe_int(stats.get("totalFileCount")),
         "transcodes": safe_int(stats.get("totalTranscodeCount")),
+        "health_checks": safe_int(stats.get("totalHealthCheckCount")),
         "transcode_queue": safe_int(stats.get("table1Count")),
         "health_queue": safe_int(stats.get("table4Count")),
         "space_saved_gb": round(safe_float(stats.get("sizeDiff")), 1),
         "workers_active": workers_active,
         "nodes": nodes,
+        "workers": worker_list,
+        "resolutions": pies.get("resolutions", []),
+        "codecs": pies.get("codecs", []),
+        "containers": pies.get("containers", []),
         "version": version,
         "fetched_at": int(now),
     }
     print(f"[tdarr] INFO fetched host={host_id} files={out['total_files']} "
           f"tq={out['transcode_queue']} hq={out['health_queue']} "
-          f"saved={out['space_saved_gb']}GB workers={workers_active}/{nodes}")
+          f"transcodes={out['transcodes']} healthchecks={out['health_checks']} "
+          f"saved={out['space_saved_gb']}GB workers={workers_active}/{nodes} "
+          f"res={len(out['resolutions'])} codecs={len(out['codecs'])}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -241,6 +346,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         return None
     return {
         "total_files": safe_int(data.get("total_files")),
+        "transcodes": safe_int(data.get("transcodes")),
+        "health_checks": safe_int(data.get("health_checks")),
         "transcode_queue": safe_int(data.get("transcode_queue")),
         "health_queue": safe_int(data.get("health_queue")),
         "space_saved_gb": safe_float(data.get("space_saved_gb")),
@@ -378,7 +485,7 @@ async def _bloated_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[tdarr] INFO tdarr_bloated host={host_id} (live fetch)")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30.0,
+        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
             bloated = await _find_bloated(cli, base, api_key)
     except RuntimeError as e:
@@ -406,7 +513,7 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[tdarr] INFO tdarr_requeue_bloated host={host_id} (live)")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=60.0,
+        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
             bloated = await _find_bloated(cli, base, api_key)
             if not bloated:

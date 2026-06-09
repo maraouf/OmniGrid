@@ -236,7 +236,13 @@ export default {
       : '';
     const self = this;
     Swal.fire({
-      title: h.target_name || h.op_type,
+      // Keep the title SHORT — an ssh_run target_name is the full command
+      // (hundreds of chars) and would distort the modal header. A long target
+      // falls back to the op_type label; the full target stays in the meta
+      // block's Target field below.
+      title: (h.target_name && String(h.target_name).length <= 60)
+        ? h.target_name
+        : (String(h.op_type || 'history').replace(/_/g, ' ')),
       html: `${meta}<div class="swal-events scrollbar">${rows}</div>${diagnoseBtn ? `<div class="mt-3 flex justify-end">${diagnoseBtn}</div>` : ''}`,
       width: 720,
       showConfirmButton: false,
