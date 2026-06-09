@@ -138,6 +138,14 @@ _fetch_version = _partial(_servarr.fetch_version, api_version="v1")
 _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Readarr")
 _command_skill = _partial(_servarr.command_skill, app_label="Readarr", api_version="v1")
 
+# Per-app image-proxy hook — REQUIRED so the queue's poster_proxy thumbnails
+# resolve (the route 400s "no image proxy for this app" without it). Shared
+# *arr hook: fetches an allowlisted public-CDN remoteUrl (incl. the OpenLibrary
+# / goodreads book-cover hosts) anonymously, or a local /MediaCover path with
+# the api_key. (radarr / sonarr / lidarr re-export the same; Readarr was the
+# straggler.)
+image_proxy_url = _servarr.image_proxy_url
+
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("readarr",)
 

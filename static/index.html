@@ -4179,7 +4179,7 @@
                 <td><span class="dot" :class="h.status==='success' ? 'dot-healthy' : 'dot-offline'"></span></td>
                 <td class="mono fs-xs text-dim" x-text="formatTime(h.ts)"></td>
                 <td><span class="chip fs-2xs" x-text="(h.op_type||'').replace(/_/g,' ')"></span></td>
-                <td class="mono fs-sm truncate" :title="h.target_name || ''" x-text="h.target_name || '—'"></td>
+                <td class="mono fs-sm truncate history-target-cell" :title="h.target_name || ''" x-text="h.target_name || '—'"></td>
                 <td class="hidden md:table-cell fs-xs text-dim truncate" x-text="h.target_stack || '—'"></td>
                 <td><span class="pill" :class="h.status==='success' ? 'pill-healthy' : 'pill-error'" x-text="h.status"></span></td>
                 <td class="hidden md:table-cell mono fs-xs text-dim" x-text="t('common.seconds_short', { value: (h.duration||0).toFixed(1) })"></td>

@@ -216,7 +216,7 @@ export default {
         <div class="swal-meta mono">
           <div><b>${esc(this.t('history.detail.when'))}</b> ${esc(this.formatTime(h.ts))}</div>
           <div><b>${esc(this.t('history.detail.op'))}</b> ${esc(h.op_type)}</div>
-          <div><b>${esc(this.t('history.detail.target'))}</b> ${esc(h.target_name || '—')}</div>
+          <div class="swal-meta-wide"><b>${esc(this.t('history.detail.target'))}</b> <span class="swal-meta-val">${esc(h.target_name || '—')}</span></div>
           <div><b>${esc(this.t('history.detail.stack'))}</b> ${esc(h.target_stack || '—')}</div>
           <div><b>${esc(this.t('history.detail.actor'))}</b> ${esc(h.actor || 'ui')}</div>
           <div><b>${esc(this.t('history.detail.duration'))}</b> ${(h.duration || 0).toFixed(2)}s</div>
