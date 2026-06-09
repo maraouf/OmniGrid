@@ -72,6 +72,17 @@ _API = "/api/v2"
 DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}
 
+# Card fetch timeout. The load-bearing StatisticsJSONDB getById is a single doc,
+# but Tdarr gets momentarily slow while a heavy bloated scan streams FileJSONDB
+# in the background — a generous read keeps the card from erroring on every poll
+# during a scan (and we serve the last-good card on a hard timeout anyway).
+_CARD_TIMEOUT = httpx.Timeout(45.0, connect=10.0)
+
+# The per-library get-pies aggregation (1 + up-to-12 calls) is ENRICHMENT only
+# (the card hides the breakdowns when empty). Cap its total wall-clock so a slow
+# library can never dominate / time out the whole card fetch — empty on timeout.
+_PIES_BUDGET_S = 15.0
+
 # A file is "bloated" when its transcode produced a LARGER file — Tdarr stores
 # this as newVsOldRatio (a percentage; 100 = same size, >100 = bigger).
 _BLOAT_RATIO = 100.0
@@ -328,7 +339,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     if cached and not force and (now - cached[0]) < ttl:
         return cached[1]
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
+        async with httpx.AsyncClient(verify=False, timeout=_CARD_TIMEOUT,
                                      follow_redirects=True) as cli:
             stats = _stats_doc(await _cruddb(cli, base, api_key, {
                 "collection": "StatisticsJSONDB", "mode": "getById",
@@ -345,9 +356,21 @@ async def fetch_data(host_row: dict, chip: dict, *,
             except RuntimeError:
                 workers_active, nodes, worker_list = 0, 0, []
             # Library breakdowns (resolutions / codecs / containers) — best-effort
-            # per-library get-pies aggregation; an empty result just hides them.
-            pies = await _fetch_pies(cli, base, api_key)
+            # per-library get-pies aggregation, BOUNDED so a slow library can't
+            # time out the whole card; empty on timeout (the card hides them).
+            try:
+                pies = await asyncio.wait_for(
+                    _fetch_pies(cli, base, api_key), timeout=_PIES_BUDGET_S)
+            except (asyncio.TimeoutError, RuntimeError):
+                pies = {"resolutions": [], "codecs": [], "containers": []}
     except RuntimeError as e:
+        # Transient upstream slowness (e.g. Tdarr busy while a bloated scan
+        # streams FileJSONDB) — serve the LAST-GOOD card instead of erroring on
+        # every poll. Only hard-fail when there's nothing cached to fall back to.
+        if cached is not None:
+            print(f"[tdarr] warning: fetch host={host_id} failed ({e}) — serving "
+                  f"cached card ({int(now - cached[0])}s old)")
+            return cached[1]
         print(f"[tdarr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
     out: dict[str, Any] = {

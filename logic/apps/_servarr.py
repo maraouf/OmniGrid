@@ -176,6 +176,27 @@ def primary_disk(disks: list[dict]) -> "tuple[float, float]":
     return safe_float(d0.get("free_gb")), safe_float(d0.get("total_gb"))
 
 
+def storage_summary_line(disks: list, free_gb: Any = 0.0) -> str:
+    """Compact ONE-line storage summary for a status skill's text ``detail`` (the
+    AI / Telegram surface): total free / total across every reported mount + the
+    mount count. The web drawer renders the per-mount CARDS from the result's
+    ``disks`` field instead (see the skill-result storage block), so the verbose
+    per-mount breakdown lives there, not as a wall of text. Falls back to the
+    largest-disk free figure when no per-mount data; ``""`` when nothing known."""
+    ds = [d for d in disks
+          if isinstance(d, dict) and safe_float(d.get("total_gb")) > 0]
+    if ds:
+        free = sum(safe_float(d.get("free_gb")) for d in ds)
+        total = sum(safe_float(d.get("total_gb")) for d in ds)
+        n = len(ds)
+        unit = "mount" if n == 1 else "mounts"
+        return (f"💾 Storage: {fmt_size_gib(free)} free / {fmt_size_gib(total)} "
+                f"across {n} {unit}")
+    if safe_float(free_gb) > 0:
+        return f"💾 Disk free: {fmt_size_gib(free_gb)}"
+    return ""
+
+
 def year_suffix(year: Any) -> str:
     """`` (2024)`` when ``year`` is a plausible film / show year, else ``""``."""
     y = safe_int(year)
