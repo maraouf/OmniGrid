@@ -11327,6 +11327,41 @@ select.field-invalid {
   padding: var(--s-2);
 }
 
+/* Tracearr drawer extras — plays-over-time sparkline + the playback-quality
+   (Direct Play / Direct Stream / Transcode) breakdown bar + legend dots. */
+.apps-tracearr-spark {
+  display: block;
+  width: 100%;
+  height: 32px;
+}
+
+.apps-quality-bar {
+  display: flex;
+  height: 8px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+.apps-quality-seg {
+  height: 100%;
+}
+
+.apps-quality-seg--dp { background: var(--success); }
+.apps-quality-seg--ds { background: var(--info); }
+.apps-quality-seg--tc { background: var(--warning); }
+
+.apps-quality-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.apps-quality-dot--dp { background: var(--success); }
+.apps-quality-dot--ds { background: var(--info); }
+.apps-quality-dot--tc { background: var(--warning); }
+
 .apps-card-ups-host {
   font-weight: 600;
 }

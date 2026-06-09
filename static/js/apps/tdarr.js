@@ -71,9 +71,9 @@ function tdarrSpace(d) {
     return '—';
   }
   if (g >= 1024) {
-    return (g / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' TB';
+    return (g / 1024).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' TB';
   }
-  return g.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' GB';
+  return g.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' GB';
 }
 
 // "active/nodes" workers label, e.g. "2/3". '—' for missing.
@@ -87,6 +87,18 @@ function tdarrWorkers(d) {
     return '—';
   }
   return Math.round(a).toLocaleString() + '/' + Math.round(n).toLocaleString();
+}
+
+// Top breakdown list for a kind ('resolutions' | 'codecs' | 'containers') —
+// [{name, count}] aggregated across libraries. [] when none.
+function tdarrBreakdown(d, kind) {
+  return (d && Array.isArray(d[kind])) ? d[kind] : [];
+}
+
+// Active-worker detail list ([{node, file, pct, type}]) — what each worker is
+// processing right now. [] when idle / missing.
+function tdarrWorkersList(d) {
+  return (d && Array.isArray(d.workers)) ? d.workers : [];
 }
 
 // Extender record -- consumed by the generic helpers in
@@ -112,4 +124,6 @@ export const helpers = {
   tdarrCount: tdarrCount,
   tdarrSpace: tdarrSpace,
   tdarrWorkers: tdarrWorkers,
+  tdarrBreakdown: tdarrBreakdown,
+  tdarrWorkersList: tdarrWorkersList,
 };

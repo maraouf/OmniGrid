@@ -2308,6 +2308,16 @@ async def api_telegram_links_unlink(
     if isinstance(removed_entry, dict):
         removed_username = removed_entry.get("username")
         _tg.save_mappings(mappings)
+        # Audit row — an admin revoking a user's Telegram access must be
+        # forensically visible (the Telegram-side /unlink audits separately).
+        with db_conn() as _c:
+            _ops_mod.write_admin_audit(
+                _c, "telegram_unlink",
+                target_kind="telegram", target_name=str(removed_username or key),
+                target_id=key, actor=getattr(_admin, "username", "ui"),
+                message=f"Admin unlinked Telegram user {key}"
+                        + (f" ({removed_username})" if removed_username else ""),
+            )
     return {"removed": removed_username}
 
 

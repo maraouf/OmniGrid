@@ -63,7 +63,7 @@ from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
-from logic.coerce import as_dict, safe_int
+from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("tracearr",)
@@ -204,6 +204,34 @@ def _health_servers(health: Any) -> list:
     return out
 
 
+def _shape_activity(activity: dict) -> "tuple[list, dict, list]":
+    """Normalise ``/activity`` into ``(plays_series, quality, platforms)`` for
+    the drawer chart + breakdowns:
+      - ``plays_series``: the last 30 plays-over-time bucket counts (the chart).
+      - ``quality``: the playback split ``{direct_play, direct_stream,
+        transcode, total}`` (Tracearr's ``quality`` is a PLAYBACK-TIER
+        breakdown — Direct Play / Direct Stream / Transcode — NOT a 4k/1080p
+        resolution split; Tracearr's API has no historical resolution pie).
+      - ``platforms``: top 5 ``{name, count}`` by play count."""
+    plays = [safe_int(p.get("count")) for p in as_list(activity.get("plays"))
+             if isinstance(p, dict)]
+    q = as_dict(activity.get("quality"))
+    quality = {
+        "direct_play": safe_int(q.get("directPlay")),
+        "direct_stream": safe_int(q.get("directStream")),
+        "transcode": safe_int(q.get("transcode")),
+        "total": safe_int(q.get("total")),
+    }
+    plats = []
+    for p in as_list(activity.get("platforms")):
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or p.get("platform") or "?").strip()
+        plats.append({"name": name, "count": safe_int(p.get("count") or p.get("value"))})
+    plats.sort(key=lambda x: x["count"], reverse=True)
+    return plays[-30:], quality, plats[:5]
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -256,11 +284,21 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     summary = sdata["summary"]
             except RuntimeError:
                 summary = {}
+            # Activity (last 30 days) — the plays-over-time series for the drawer
+            # chart + the playback-quality breakdown (Direct Play / Direct Stream
+            # / Transcode) + the top platforms. Best-effort; an empty activity
+            # never fails the card.
+            activity: dict = {}
+            try:
+                activity = as_dict(await _call(cli, base, api_key, "activity", period="month"))
+            except RuntimeError:
+                activity = {}
     except RuntimeError as e:
         print(f"[tracearr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
     st = stats if isinstance(stats, dict) else {}
     servers_online = sum(1 for s in servers if s.get("online"))
+    plays_series, quality, platforms = _shape_activity(activity)
     out: dict[str, Any] = {
         "available": True,
         "active_streams": safe_int(st.get("activeStreams")),
@@ -274,6 +312,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "servers_total": len(servers),
         "servers_online": servers_online,
         "servers": servers,
+        "plays_series": plays_series,
+        "quality": quality,
+        "platforms": platforms,
         "version": version,
         "fetched_at": int(now),
     }

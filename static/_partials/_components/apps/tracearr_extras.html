@@ -59,6 +59,49 @@
           <span x-show="(Number(tracearrData(inst).total_sessions) || 0) > 0"
                 x-text="(tracearrData(inst).version ? ' · ' : '') + (t('apps.tracearr.plays_n', { n: tracearrData(inst).total_sessions }) || (tracearrData(inst).total_sessions + ' plays (30d)'))"></span>
         </div>
+        <!-- Plays-over-time sparkline (last 30 days) — like the speedtest graph. -->
+        <div x-show="tracearrHasPlays(tracearrData(inst))" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'"></div>
+          <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tracearr-spark" role="img"
+               :aria-label="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'">
+            <path :d="tracearrPlaysPath(tracearrData(inst))" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <!-- Streaming-quality breakdown: Direct Play / Direct Stream / Transcode.
+             (Tracearr's API reports the playback-tier split, not a 4k/1080p
+             resolution pie.) -->
+        <div x-show="tracearrHasQuality(tracearrData(inst))" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.quality_title') || 'Streaming quality'"></div>
+          <div class="apps-quality-bar" role="img"
+               :aria-label="t('apps.tracearr.quality_title') || 'Streaming quality'">
+            <div class="apps-quality-seg apps-quality-seg--dp" :style="'width:' + tracearrQualityPct(tracearrData(inst), 'direct_play') + '%'"></div>
+            <div class="apps-quality-seg apps-quality-seg--ds" :style="'width:' + tracearrQualityPct(tracearrData(inst), 'direct_stream') + '%'"></div>
+            <div class="apps-quality-seg apps-quality-seg--tc" :style="'width:' + tracearrQualityPct(tracearrData(inst), 'transcode') + '%'"></div>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-0.5 fs-3xs mt-1 text-[var(--text-dim)]">
+            <span class="inline-flex items-center gap-1">
+              <span class="apps-quality-dot apps-quality-dot--dp"></span>
+              <span x-text="(t('apps.tracearr.direct_play') || 'Direct Play') + ' ' + tracearrQualityPct(tracearrData(inst), 'direct_play') + '%'"></span>
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span class="apps-quality-dot apps-quality-dot--ds"></span>
+              <span x-text="(t('apps.tracearr.direct_stream') || 'Direct Stream') + ' ' + tracearrQualityPct(tracearrData(inst), 'direct_stream') + '%'"></span>
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span class="apps-quality-dot apps-quality-dot--tc"></span>
+              <span x-text="(t('apps.tracearr.transcode') || 'Transcode') + ' ' + tracearrQualityPct(tracearrData(inst), 'transcode') + '%'"></span>
+            </span>
+          </div>
+        </div>
+        <!-- Top platforms (by play count, last 30 days). -->
+        <div x-show="tracearrPlatforms(tracearrData(inst)).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.platforms') || 'Top platforms'"></div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="p in tracearrPlatforms(tracearrData(inst))" :key="p.name">
+              <span class="chip pill-muted fs-3xs" x-text="p.name + ' · ' + tracearrCount(p.count)"></span>
+            </template>
+          </div>
+        </div>
       </div>
     </template>
     <!-- No API key yet — idle and unconfigured. -->
