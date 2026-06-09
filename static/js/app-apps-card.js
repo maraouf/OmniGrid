@@ -706,6 +706,43 @@ export default {
     return !!(app && this._appsProbingAll && this._appsProbingAll[app.group_id]);
   },
 
+  // True while THIS app is doing the INITIAL fetch of its per-app extra/card
+  // data (any instance still `pending`, no data yet). Drives the card's refresh
+  // pill spin + :disabled on first paint — so even the compact 1x1 size (where
+  // the extras body, and its "Loading…" text, isn't rendered) gets a loading
+  // indicator AND a guard against a refresh-spam mid-load. KICKS the fetch for
+  // apps that actually have an extra-data module (apps_module_slugs) so the
+  // data loads + the indicator shows regardless of size; returns false (no
+  // fetch) for module-less apps so their pill never spins forever.
+  appsCardInitialLoading(app) {
+    if (!app || !Array.isArray(app.instances) || !app.instances.length) {
+      return false;
+    }
+    const slug = String((app.catalog && app.catalog.slug) || '').toLowerCase();
+    if (!slug) {
+      return false;
+    }
+    const mods = (this.me && this.me.client_config
+      && this.me.client_config.apps_module_slugs) || [];
+    if (mods.indexOf(slug) === -1) {
+      return false;  // no per-app /app-data module — nothing to load
+    }
+    let pending = false;
+    for (const inst of app.instances) {
+      if (!inst || inst.host_id == null || inst.service_idx == null) {
+        continue;
+      }
+      // appsAppData triggers loadAppData on cache-miss (idempotent after the
+      // first — the __pending sentinel short-circuits re-fetch), so the data
+      // loads even in compact sizes where the extras partial doesn't render.
+      this.appsAppData(inst);
+      if (this.appsAppDataStatus(inst) === 'pending') {
+        pending = true;
+      }
+    }
+    return pending;
+  },
+
   // Transient summary line ("4/5 up") shown in the card header right after a
   // probe-all finishes; '' when none. Keyed by group_id.
   appsProbeAllSummary(app) {

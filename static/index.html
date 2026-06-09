@@ -4661,7 +4661,7 @@
               <button type="button"
                       :disabled="!!_hostFullRefreshing[h.id]"
                       @click.stop="fullRefreshHost(h)"
-                      class="btn btn-ghost fs-xs flex items-center gap-1.5"
+                      class="btn btn-ghost fs-xs flex items-center gap-1.5 leading-none"
                       :title="t('host_drawer.actions.full_refresh_title') || 'Refresh all host data'"
                       :aria-label="t('host_drawer.actions.full_refresh') || 'Refresh'">
                 <svg width="13" height="13" :class="_hostFullRefreshing[h.id] ? 'spin-md' : ''" aria-hidden="true">
@@ -4676,7 +4676,7 @@
                        only admins can edit the curated host list. -->
               <button type="button" x-show="me && me.role === 'admin'"
                       @click="(() => { const _hid = h.id; closeHostDrawer(); view='admin'; openAdminTab('hosts').then(() => focusHostsConfigRow(_hid)); })()"
-                      class="btn btn-ghost fs-xs flex items-center gap-1.5"
+                      class="btn btn-ghost fs-xs flex items-center gap-1.5 leading-none"
                       :title="t('host_drawer.actions.edit_in_admin_title')">
                 <svg width="13" height="13" aria-hidden="true">
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
@@ -10150,7 +10150,7 @@
                 <button type="button"
                         :disabled="appDrawerRefreshing(drawerApp)"
                         @click.stop="refreshAppDrawer(drawerApp)"
-                        class="btn btn-ghost fs-xs flex items-center gap-1.5"
+                        class="btn btn-ghost fs-xs flex items-center gap-1.5 leading-none"
                         :title="t('apps.drawer.refresh_title') || 'Re-probe and refresh this app’s data'"
                         :aria-label="t('apps.drawer.refresh') || 'Refresh'">
                   <svg width="13" height="13" :class="appDrawerRefreshing(drawerApp) ? 'spin-md' : ''" aria-hidden="true">

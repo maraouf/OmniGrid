@@ -105,6 +105,21 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the repository name (or part of it) to search for",
         "destructive": False,
     },
+    {
+        "id": "forgejo_starred",
+        "name": "Starred repos",
+        "ai_phrases": ("starred repos, my starred repositories, what have i "
+                       "starred on forgejo, forgejo stars, gitea starred"),
+        "destructive": False,
+    },
+    {
+        "id": "forgejo_mark_read",
+        "name": "Mark notifications read",
+        "ai_phrases": ("mark forgejo notifications read, clear notifications, mark "
+                       "all read, dismiss forgejo notifications, read all "
+                       "notifications"),
+        "destructive": False,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -146,8 +161,13 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
       * an absolute http(s) URL on the chip's OWN base host (a Forgejo-served
         avatar URL) → fetched with the token header;
       * an absolute http(s) URL on gravatar (federation) → fetched ANONYMOUSLY
-        with ``Accept: */*``.
-    Anything else raises ``ValueError`` so the route returns 400."""
+        with ``Accept: */*``;
+      * an absolute http(s) URL on ANY OTHER host → treated as a Forgejo avatar
+        whose host is the server's configured ROOT_URL (which can differ from
+        the base we were handed — reverse proxy / internal vs public hostname):
+        its PATH is REWRITTEN onto our OWN configured base (SSRF-safe — we never
+        fetch the arbitrary host, only the operator's Forgejo) + the token.
+    A path-less / non-http(s) value raises ``ValueError`` so the route 400s."""
     token = (chip.get("api_key") or "").strip()
     p = (path or "").strip()
     if not p:
@@ -165,7 +185,14 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
             return p, {"Accept": "*/*"}
         if base_host and host == base_host:
             return p, _img_headers(token)
-        raise ValueError(f"avatar host not allowed: {host}")
+        # Different host than our base — Forgejo reported the avatar on its
+        # configured ROOT_URL (public / proxied hostname) while we hold an
+        # internal base. Rewrite the PATH onto OUR base so we fetch the same
+        # Forgejo (never the arbitrary host — SSRF-safe).
+        if parts.path:
+            q = ("?" + parts.query) if parts.query else ""
+            return base.rstrip("/") + parts.path + q, _img_headers(token)
+        raise ValueError(f"avatar URL has no path: {p}")
     if not p.startswith("/") or ".." in p:
         raise ValueError("relative avatar must be a clean absolute path")
     return base.rstrip("/") + p, _img_headers(token)
@@ -296,6 +323,22 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     notifications = _count_header(nr)
             except (httpx.HTTPError, OSError):
                 notifications = 0
+            # Starred repos + organizations — nice-to-have extra stats.
+            starred = orgs = 0
+            try:
+                sr = await cli.get(base + _API + "/user/starred",
+                                   headers=_headers(token), params={"limit": "1"})
+                if sr.status_code == 200:
+                    starred = _count_header(sr)
+            except (httpx.HTTPError, OSError):
+                starred = 0
+            try:
+                org = await cli.get(base + _API + "/user/orgs",
+                                    headers=_headers(token), params={"limit": "1"})
+                if org.status_code == 200:
+                    orgs = _count_header(org)
+            except (httpx.HTTPError, OSError):
+                orgs = 0
             try:
                 version = _version_from(
                     await cli.get(base + _API + "/version", headers=_headers(token)))
@@ -311,11 +354,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "open_prs": open_prs,
         "open_issues": open_issues,
         "notifications": notifications,
+        "starred": starred,
+        "orgs": orgs,
         "version": version,
         "fetched_at": int(now),
     }
     print(f"[forgejo] INFO fetched host={host_id} repos={repos} prs={open_prs} "
-          f"issues={open_issues} notifications={notifications}")
+          f"issues={open_issues} notifications={notifications} starred={starred} orgs={orgs}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -331,6 +376,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "open_prs": safe_int(data.get("open_prs")),
         "open_issues": safe_int(data.get("open_issues")),
         "notifications": safe_int(data.get("notifications")),
+        "starred": safe_int(data.get("starred")),
+        "orgs": safe_int(data.get("orgs")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -357,6 +404,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _issues_skill(host_row, chip, host_id=host_id)
     if skill_id == "forgejo_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "forgejo_starred":
+        return await _starred_skill(host_row, chip, host_id=host_id)
+    if skill_id == "forgejo_mark_read":
+        return await _mark_read_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -637,3 +688,51 @@ async def _search_skill(host_row: dict, chip: dict, *,
     out: dict = {"ok": True, "status": 200,
                  "detail": f"🔍 Forgejo repos matching “{term}”:\n" + "\n".join(lines)}
     return _attach_items(out, items, "apps.forgejo.repos_count")
+
+
+async def _starred_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None) -> dict:
+    """Read-only: the repos the token's user has starred, as rich rows
+    (``GET /api/v1/user/starred``). Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[forgejo] INFO forgejo_starred host={host_id} (live fetch)")
+    r = await _skill_get(base, _API + "/user/starred", token=token,
+                         params={"limit": str(_MAX_ROWS)}, timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        repos = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not repos:
+        return {"ok": True, "status": 200, "detail": "⭐ No starred repositories."}
+    items, lines = _items_and_lines(repos, _repo_row)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "⭐ Starred repos:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.forgejo.repos_count")
+
+
+async def _mark_read_skill(host_row: dict, chip: dict, *,
+                           host_id: Optional[str] = None) -> dict:
+    """Action: mark EVERY notification as read (``PUT /api/v1/notifications``).
+    Low-risk (read-state only) → non-destructive. Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[forgejo] INFO forgejo_mark_read host={host_id} (mark all notifications read)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.put(base + _API + "/notifications",
+                              headers=_headers(token),
+                              params={"all": "true", "status-types": "unread"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"mark-read failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code, "detail": "auth failed (check the Forgejo token)"}
+    # Gitea/Forgejo returns 205 Reset Content (or 200) on a successful mark-all.
+    if r.status_code not in (200, 205):
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    return {"ok": True, "status": 200, "detail": "🔔 Marked all notifications as read."}

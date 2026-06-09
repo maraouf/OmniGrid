@@ -47,6 +47,16 @@
              :class="(Number(forgejoData(inst).notifications) || 0) > 0 ? 'text-[var(--warning)]' : ''"
              x-text="forgejoCount(forgejoData(inst).notifications)"></div>
       </div>
+      <!-- Starred repos -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.forgejo.starred') || 'Starred'"></div>
+        <div class="apps-card-stat-value" x-text="forgejoCount(forgejoData(inst).starred)"></div>
+      </div>
+      <!-- Organizations -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.forgejo.orgs') || 'Orgs'"></div>
+        <div class="apps-card-stat-value" x-text="forgejoCount(forgejoData(inst).orgs)"></div>
+      </div>
     </div>
     <!-- Version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
