@@ -11475,12 +11475,12 @@ select.field-invalid {
   }
 }
 
-/* Corner actions — overlay the gear + (in edit mode) the
+/* Corner actions: overlay the gear + (in edit mode) the
    size-cycle button at the top-right of each Custom-layout card.
    Absolutely positioned so they sit over the card without disrupting
    the inner partial's layout. z-index above the card chrome but
-   below modals / drawers. Fades to full opacity on card-hover to
-   stay unobtrusive until the operator looks for them. */
+   below modals or drawers. Fades to full opacity on card-hover to
+   stay unobtrusive until the user looks for them. */
 .apps-card-corner-actions {
   position: absolute;
   top: var(--s-2);

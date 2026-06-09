@@ -124,6 +124,15 @@ _BLOATED_CACHE_TTL = 600.0  # 10 min
 # dict, tripping the checker where a list / float is expected.
 _bloated_state: dict[str, dict[str, Any]] = {}
 
+# Per-host_id background failed-requeue progress state — same `{running, started,
+# ts, done, total, failed, last_err, error}` shape as `_bloated_state[host_id]
+# ["requeue"]`. Separate dict (NOT nested under _bloated_state) because the
+# failed-requeue has no "check failed" cache to share — it always scans-then-
+# requeues in the background (the cruddb getAll streams the WHOLE library because
+# Tdarr ignores the server-side filter, so it can exceed the route budget — same
+# reason the bloated scan is backgrounded).
+_failed_requeue_state: dict[str, dict[str, Any]] = {}
+
 # Strong refs to in-flight background tasks so asyncio's GC can't collect a
 # running scan/requeue mid-execution (the _spawn_background_task contract,
 # replicated locally to avoid a logic→main import cycle).
@@ -819,69 +828,145 @@ async def _bloated_skill(host_row: dict, chip: dict, *,
                        "Results will appear here automatically when ready.")}
 
 
-async def _run_requeue(base: str, api_key: str, host_id: str,
-                       files: Optional[list]) -> None:
-    """Background requeue — scans for bloated files first when ``files`` is None
-    (so a single confirmed click does the whole job), then resets each one's DB
-    status to ``Queued``. Records progress on ``_bloated_state[host_id]
-    ['requeue']`` and invalidates the bloated cache so the next check re-scans.
-    Never raises out."""
-    st = _bloated_state.setdefault(host_id, {})
-    rq = st.setdefault("requeue", {})
+async def _apply_requeue_updates(cli: httpx.AsyncClient, base: str, api_key: str,
+                                 files: list, rq: dict) -> "tuple[int, int, str]":
+    """Reset each file's DB status to ``Queued`` (cruddb update). Records the
+    running ``done`` / ``failed`` / ``last_err`` on ``rq`` as it progresses (so a
+    polling skill sees live progress). Returns ``(done, failed, last_err)``.
+    Shared by the bloated + failed background requeues."""
     done = 0
     failed = 0
     last_err = ""
+    for f in files:
+        fid = f.get("_id")
+        if not fid:
+            continue
+        try:
+            # WRITE — a successful Tdarr cruddb update returns a 200 with a
+            # non-JSON / empty body, so parse_json=False (else every successful
+            # update misreads as "non-JSON from upstream").
+            await _cruddb(cli, base, api_key, {
+                "collection": "FileJSONDB", "mode": "update", "docID": fid,
+                "obj": {"TranscodeDecisionMaker": "Queued",
+                        "HealthCheck": "Queued"}}, parse_json=False)
+            done += 1
+            rq["done"] = done
+        except RuntimeError as e:
+            # Per-file update failure — track + surface (silently swallowing it
+            # made a fleet-wide failure report "Requeued 0" with no cause).
+            failed += 1
+            last_err = str(e)
+            rq["failed"] = failed
+            rq["last_err"] = last_err
+            print(f"[tdarr] warning: requeue update failed for {fid} — {e}")
+    return done, failed, last_err
+
+
+def _requeue_progress_response(rq: dict, now: float, *, noun: str,
+                               done_verb: str) -> Optional[dict]:
+    """Shared status-machine for a background requeue skill (bloated / failed).
+    Returns a ready response dict for the running / just-completed / errored
+    states, or ``None`` when nothing is in flight (the caller then kicks a fresh
+    run). ``noun`` is the singular item label ("bloated file" / "failed
+    transcode"); ``done_verb`` is the success-tail ("for re-transcode" / "for
+    retry")."""
+    if rq.get("running"):
+        done = safe_int(rq.get("done"))
+        total = safe_int(rq.get("total"))
+        prog = f"{done:,}/{total:,}" if total else f"{done:,}"
+        out: dict = {"ok": True, "status": 200, "pending": True,
+                     "detail": (f"⏳ Requeueing… {prog} done (started "
+                                f"{int(now - rq.get('started', now))}s ago). This "
+                                "updates here automatically.")}
+        if total:
+            out["progress"] = min(100, round(done / total * 100))
+        return out
+    if rq.get("ts") and (now - rq["ts"]) < 30 and not rq.get("error"):
+        done = safe_int(rq.get("done"))
+        total = safe_int(rq.get("total"))
+        failed = safe_int(rq.get("failed"))
+        last_err = str(rq.get("last_err") or "")
+        if total == 0:
+            return {"ok": True, "status": 200, "detail": f"✅ No {noun}s to requeue."}
+        if done == 0:
+            # Every update failed — surface WHY (was a misleading "Requeued 0").
+            msg = f"⚠️ Requeued 0 of {total:,} {noun}(s) — every update failed."
+            if last_err:
+                msg += f" Tdarr said: {last_err}."
+            msg += (" Check that Tdarr isn't read-only / that the API key (if auth "
+                    "is on) has write access.")
+            return {"ok": False, "status": 200, "detail": msg}
+        if failed:
+            tail = f" ({failed:,} failed: {last_err})" if last_err else f" ({failed:,} failed)"
+            return {"ok": True, "status": 200,
+                    "detail": f"✅ Requeued {done:,} of {total:,} {noun}(s){tail}."}
+        return {"ok": True, "status": 200,
+                "detail": f"✅ Requeued {done:,} {noun}(s) {done_verb}."}
+    if rq.get("ts") and (now - rq["ts"]) < 30 and rq.get("error"):
+        return {"ok": True, "status": 200,
+                "detail": f"⚠️ Requeue errored: {rq['error']}"}
+    return None
+
+
+async def _run_requeue_job(base: str, api_key: str, host_id: str, rq: dict,
+                           prepare, *, log_label: str, finalize=None) -> None:
+    """Generic background requeue runner shared by the bloated + failed paths
+    (so the try / async-client / except / finally scaffold lives ONCE).
+
+    ``prepare(cli)`` is an async callable returning the file list to requeue (it
+    also does any app-specific scan-caching); ``finalize()`` is an optional sync
+    post-requeue hook (bloated uses it to invalidate its cache). Records progress
+    on ``rq`` via ``_apply_requeue_updates``; never raises out."""
     try:
         async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
-            if files is None:
-                files = await _find_bloated(cli, base, api_key)
-                st.update({"files": files, "ts": time.time(), "error": None,
-                           "running": False})
+            files = await prepare(cli)
             rq["total"] = len(files)
-            for f in files:
-                fid = f.get("_id")
-                if not fid:
-                    continue
-                try:
-                    # WRITE — a successful Tdarr cruddb update returns a 200 with
-                    # a non-JSON / empty body, so parse_json=False (else every
-                    # successful update misreads as "non-JSON from upstream").
-                    await _cruddb(cli, base, api_key, {
-                        "collection": "FileJSONDB", "mode": "update", "docID": fid,
-                        "obj": {"TranscodeDecisionMaker": "Queued",
-                                "HealthCheck": "Queued"}}, parse_json=False)
-                    done += 1
-                    rq["done"] = done
-                except RuntimeError as e:
-                    # Per-file update failure — track + surface (was silently
-                    # swallowed, so a fleet-wide failure reported "Requeued 0"
-                    # with no cause). The whole-batch error path below stays for
-                    # a hard transport failure.
-                    failed += 1
-                    last_err = str(e)
-                    rq["failed"] = failed
-                    rq["last_err"] = last_err
-                    print(f"[tdarr] warning: requeue update failed for {fid} — {e}")
+            done, failed, last_err = await _apply_requeue_updates(
+                cli, base, api_key, files, rq)
         rq.update({"ts": time.time(), "error": None, "failed": failed,
                    "last_err": last_err})
-        # Invalidate the bloated cache — the requeued files are no longer bloated.
-        st["files"] = None
-        st["ts"] = None
-        print(f"[tdarr] INFO requeue done host={host_id} {done:,}/{rq.get('total', 0):,} "
-              f"(failed={failed})")
+        if finalize:
+            finalize()
+        print(f"[tdarr] INFO {log_label} done host={host_id} "
+              f"{done:,}/{rq.get('total', 0):,} (failed={failed})")
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
         rq.update({"ts": time.time(), "error": str(e)})
-        print(f"[tdarr] warning: requeue scan failed host={host_id} — {e}")
+        print(f"[tdarr] warning: {log_label} failed host={host_id} — {e}")
     finally:
         rq["running"] = False
 
 
+async def _run_requeue(base: str, api_key: str, host_id: str,
+                       files: Optional[list]) -> None:
+    """Background bloated-requeue — thin wrapper over ``_run_requeue_job``: scans
+    for bloated files when ``files`` is None (caching the scan), resets each to
+    ``Queued``, then invalidates the bloated cache so the next check re-scans."""
+    st = _bloated_state.setdefault(host_id, {})
+    rq = st.setdefault("requeue", {})
+
+    async def _prepare(cli):
+        nonlocal files
+        if files is None:
+            files = await _find_bloated(cli, base, api_key)
+            st.update({"files": files, "ts": time.time(), "error": None,
+                       "running": False})
+        return files
+
+    def _finalize():
+        # The requeued files are no longer bloated — invalidate the cache.
+        st["files"] = None
+        st["ts"] = None
+
+    await _run_requeue_job(base, api_key, host_id, rq, _prepare,
+                           log_label="requeue", finalize=_finalize)
+
+
 def _ensure_requeue(base: str, api_key: str, host_id: str,
                     files: Optional[list]) -> bool:
-    """Launch a background requeue unless one is already running for this host."""
+    """Launch a background bloated-requeue unless one is already running."""
     st = _bloated_state.setdefault(host_id, {})
     rq = st.setdefault("requeue", {})
     if rq.get("running"):
@@ -889,6 +974,32 @@ def _ensure_requeue(base: str, api_key: str, host_id: str,
     rq.update({"running": True, "started": time.time(), "done": 0,
                "total": (len(files) if files else 0), "error": None})
     _spawn(_run_requeue(base, api_key, host_id, list(files) if files else None))
+    return True
+
+
+async def _run_requeue_failed(base: str, api_key: str, host_id: str) -> None:
+    """Background failed-requeue — thin wrapper over ``_run_requeue_job``: scans
+    for FAILED / cancelled transcodes (capped at ``_FAILED_REQUEUE_CAP``) and
+    resets each to ``Queued``. Backgrounded because the cruddb getAll streams the
+    WHOLE library (Tdarr ignores the server filter), so it can far exceed the
+    per-app route budget."""
+    rq = _failed_requeue_state.setdefault(host_id, {})
+
+    async def _prepare(cli):
+        return (await _find_failed(cli, base, api_key))[:_FAILED_REQUEUE_CAP]
+
+    await _run_requeue_job(base, api_key, host_id, rq, _prepare,
+                           log_label="requeue-failed")
+
+
+def _ensure_requeue_failed(base: str, api_key: str, host_id: str) -> bool:
+    """Launch a background failed-requeue unless one is already running."""
+    rq = _failed_requeue_state.setdefault(host_id, {})
+    if rq.get("running"):
+        return False
+    rq.update({"running": True, "started": time.time(), "done": 0,
+               "total": 0, "error": None})
+    _spawn(_run_requeue_failed(base, api_key, host_id))
     return True
 
 
@@ -907,39 +1018,11 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
     now = time.time()
     st = _bloated_state.get(hid) or {}
     rq = st.get("requeue") or {}
-    if rq.get("running"):
-        done = safe_int(rq.get("done"))
-        total = safe_int(rq.get("total"))
-        prog = f"{done:,}/{total:,}" if total else f"{done:,}"
-        out: dict = {"ok": True, "status": 200, "pending": True,
-                     "detail": (f"⏳ Requeueing… {prog} done (started "
-                                f"{int(now - rq.get('started', now))}s ago). This "
-                                "updates here automatically.")}
-        if total:
-            out["progress"] = min(100, round(done / total * 100)) if total else 0
-        return out
-    if rq.get("ts") and (now - rq["ts"]) < 30 and not rq.get("error"):
-        done = safe_int(rq.get("done"))
-        total = safe_int(rq.get("total"))
-        failed = safe_int(rq.get("failed"))
-        last_err = str(rq.get("last_err") or "")
-        if total and done == 0:
-            # Every update failed — surface WHY (was a misleading "Requeued 0").
-            msg = f"⚠️ Requeued 0 of {total:,} bloated file(s) — every update failed."
-            if last_err:
-                msg += f" Tdarr said: {last_err}."
-            msg += (" Check that Tdarr isn't read-only / that the API key (if auth "
-                    "is on) has write access.")
-            return {"ok": False, "status": 200, "detail": msg}
-        if failed:
-            tail = f" ({failed:,} failed: {last_err})" if last_err else f" ({failed:,} failed)"
-            return {"ok": True, "status": 200,
-                    "detail": f"✅ Requeued {done:,} of {total:,} bloated file(s){tail}."}
-        return {"ok": True, "status": 200,
-                "detail": f"✅ Requeued {done:,} bloated file(s) for re-transcode."}
-    if rq.get("ts") and (now - rq["ts"]) < 30 and rq.get("error"):
-        return {"ok": True, "status": 200,
-                "detail": f"⚠️ Requeue errored: {rq['error']}"}
+    # Running / just-completed / errored states (shared status-machine).
+    resp = _requeue_progress_response(rq, now, noun="bloated file",
+                                      done_verb="for re-transcode")
+    if resp is not None:
+        return resp
     # Use a fresh cached bloated list when we have one (skips a re-scan);
     # otherwise the background task scans first.
     fresh = (st.get("files") is not None and st.get("ts")
@@ -965,10 +1048,10 @@ _FAILED_STATUSES = ("Transcode error",)
 # Lowercased lookup set for the case-insensitive client-side match in
 # _file_failed (the server-side cruddb filter is ignored — see _find_failed).
 _FAILED_STATUSES_LC = frozenset(s.strip().lower() for s in _FAILED_STATUSES)
-# Max files requeued per failed-requeue invocation — bounds the synchronous
-# operation under the per-app route budget. The failed set is normally small (a
-# filtered getAll returns only error files, NOT the whole library like the
-# bloated scan), so this rarely bites; a larger backlog clears over repeat runs.
+# Max files requeued per (background) failed-requeue run — a safety bound on the
+# per-file cruddb update loop. The matched-failed set is normally small (only
+# files whose TranscodeDecisionMaker is an error status), so this rarely bites;
+# a larger backlog clears over repeat runs.
 _FAILED_REQUEUE_CAP = 1000
 
 
@@ -1022,61 +1105,29 @@ async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
 async def _requeue_failed_skill(host_row: dict, chip: dict, *,
                                 host_id: Optional[str] = None) -> dict:
     """Destructive "requeue failed": reset every FAILED / cancelled transcode's
-    DB status back to ``Queued`` so Tdarr retries it. Synchronous (the failed set
-    is small — a filtered getAll), bounded by ``_FAILED_REQUEUE_CAP`` per call.
-    The backend route already gated the destructive-confirm. Never raises."""
+    DB status back to ``Queued`` so Tdarr retries it. Runs the scan + the
+    per-file updates as a BACKGROUND task — the cruddb getAll streams the WHOLE
+    library (Tdarr ignores the server filter), so a synchronous run would blow
+    past the per-app route budget. The confirmed click returns immediately
+    ("Scanning…") and the SPA / Telegram poll the pending result. The backend
+    route already gated the destructive-confirm. Never raises."""
     api_key, base, err = _resolve_target(host_row, chip)
     if err:
         return err
     hid = str(host_id or "")
-    print(f"[tdarr] INFO tdarr_requeue_failed host={hid}")
-    done = 0
-    failed = 0
-    last_err = ""
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
-                                     follow_redirects=True) as cli:
-            files = await _find_failed(cli, base, api_key)
-            total = len(files)
-            if total == 0:
-                return {"ok": True, "status": 200,
-                        "detail": "✅ No failed transcodes to requeue."}
-            capped = files[:_FAILED_REQUEUE_CAP]
-            for f in capped:
-                fid = f.get("_id")
-                if not fid:
-                    continue
-                try:
-                    # WRITE — a successful Tdarr cruddb update returns 200 with a
-                    # non-JSON / empty body, so parse_json=False (else every
-                    # successful update misreads as "non-JSON from upstream").
-                    await _cruddb(cli, base, api_key, {
-                        "collection": "FileJSONDB", "mode": "update", "docID": fid,
-                        "obj": {"TranscodeDecisionMaker": "Queued",
-                                "HealthCheck": "Queued"}}, parse_json=False)
-                    done += 1
-                except RuntimeError as e:
-                    failed += 1
-                    last_err = str(e)
-                    print(f"[tdarr] warning: requeue-failed update failed for {fid} — {e}")
-    except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
-        return {"ok": False, "status": 0,
-                "detail": f"⚠️ Requeue-failed errored: {type(e).__name__}: {e}"}
-    print(f"[tdarr] INFO requeue-failed done host={hid} {done:,}/{total:,} (failed={failed})")
-    if done == 0:
-        # Every update failed — surface WHY (mirrors the bloated-requeue path).
-        msg = f"⚠️ Requeued 0 of {total:,} failed transcode(s) — every update failed."
-        if last_err:
-            msg += f" Tdarr said: {last_err}."
-        msg += (" Check that Tdarr isn't read-only / that the API key (if auth is "
-                "on) has write access.")
-        return {"ok": False, "status": 200, "detail": msg}
-    more = total - len(capped)
-    tail = (f" ({failed:,} failed: {last_err})" if failed and last_err
-            else (f" ({failed:,} failed)" if failed else ""))
-    extra = f" {more:,} more remain — run again to continue." if more > 0 else ""
-    return {"ok": True, "status": 200,
-            "detail": f"♻️ Requeued {done:,} failed transcode(s) for retry{tail}.{extra}"}
+    now = time.time()
+    rq = _failed_requeue_state.get(hid) or {}
+    # Running / just-completed / errored states (shared status-machine).
+    resp = _requeue_progress_response(rq, now, noun="failed transcode",
+                                      done_verb="for retry")
+    if resp is not None:
+        return resp
+    print(f"[tdarr] INFO tdarr_requeue_failed host={hid} (background scan-then-requeue)")
+    _ensure_requeue_failed(base, api_key, hid)
+    return {"ok": True, "status": 200, "pending": True,
+            "detail": ("🔍 Scanning for failed transcodes… this reads the whole "
+                       "library so it can take ~1–2 minutes. Results will appear "
+                       "here automatically when ready.")}
 
 
 def _fmt_gb(gb: Any) -> str:
