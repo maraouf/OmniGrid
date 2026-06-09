@@ -437,6 +437,39 @@ async def _status_skill(host_row: dict, chip: dict, *,
 
 
 # noinspection DuplicatedCode
+def _activity_item(s: dict) -> Optional[dict]:
+    """One active session as a rich skill-result item: the title poster (show
+    poster for episodes, else the item thumb — proxied via pms_image_proxy),
+    the watching user + their Plex avatar (proxied), a device/state/decision
+    subtitle, and a play-progress bar. Parallel to the text line built inline in
+    ``_activity_skill`` (the form AI / Telegram get)."""
+    if not isinstance(s, dict):
+        return None
+    title = str(s.get("full_title") or s.get("title") or "?").strip()
+    user = str(s.get("friendly_name") or s.get("user") or "").strip()
+    avatar = str(s.get("user_thumb") or "").strip()
+    player = str(s.get("player") or "").strip()
+    state = str(s.get("state") or "").strip()
+    mode = str(s.get("transcode_decision") or "").strip()
+    prog = safe_int(s.get("progress_percent"))
+    # Prefer the show / season poster for episodes; fall back to the item thumb.
+    poster = str(s.get("grandparent_thumb") or s.get("parent_thumb")
+                 or s.get("thumb") or "").strip()
+    out: dict = {"title": title,
+                 "subtitle": " · ".join(p for p in (player, state, mode) if p)}
+    if poster:
+        out["poster"] = poster
+        out["poster_proxy"] = True
+    if prog:
+        out["progress"] = prog
+    if user:
+        out["byline"] = user
+        if avatar:
+            out["avatar"] = avatar
+            out["avatar_proxy"] = True
+    return out
+
+
 async def _activity_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None) -> dict:
     """Read-only: who's watching what right now (per-stream detail) from
@@ -458,6 +491,7 @@ async def _activity_skill(host_row: dict, chip: dict, *,
     if not sessions:
         return {"ok": True, "status": 200, "detail": "▶️ Nothing is playing on Plex right now."}
     lines = [f"▶️ {count:,} active stream{'s' if count != 1 else ''}:"]
+    items: list[dict] = []
     for s in sessions[:10]:
         if not isinstance(s, dict):
             continue
@@ -471,7 +505,15 @@ async def _activity_skill(host_row: dict, chip: dict, *,
         if meta:
             bits.append(f"({meta})")
         lines.append("• " + " ".join(bits))
-    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+        it = _activity_item(s)
+        if it:
+            items.append(it)
+    out: dict = {"ok": True, "status": 200, "detail": "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.tautulli.now_watching_count"
+    return out
 
 
 async def _libraries_skill(host_row: dict, chip: dict, *,

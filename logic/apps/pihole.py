@@ -47,8 +47,8 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import (
-    cache_key, fetch_gate, fleet_blocker_status, fleet_disable_skills,
-    fleet_fan_out, fleet_instances, fleet_run_skill, peek_cache,
+    cache_key, fetch_gate, fleet_blocker_action, fleet_blocker_status,
+    fleet_disable_skills, fleet_instances, fleet_run_skill, peek_cache,
     resolve_base_url, resolve_cache_ttl)
 from logic.coerce import safe_float, safe_int
 
@@ -423,13 +423,10 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
             return hid, False, str(e)
         return hid, True, ""
 
-    verb = {"enable": "enabled", "disable": "disabled",
-            "refresh": "gravity updated"}.get(action, action)
-    if action == "disable" and seconds > 0:
-        verb = f"disabled for {seconds}s"
-    return await fleet_fan_out(_instances(), _one, app_label="Pi-hole",
-                               verb=verb, log_tag="pihole",
-                               log_extra=f"action={action} seconds={seconds}")
+    return await fleet_blocker_action(_instances(), _one, action=action,
+                                      seconds=seconds, app_label="Pi-hole",
+                                      log_tag="pihole",
+                                      refresh_verb="gravity updated")
 
 
 # noinspection PyUnusedLocal

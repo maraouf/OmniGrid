@@ -53,7 +53,7 @@ import asyncio
 import time
 import uuid
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from logic.external_urls import ExternalURL
@@ -248,19 +248,37 @@ def _headers(token: str) -> dict:
     return {"X-Plex-Token": token, "Accept": "application/json"}
 
 
+# Absolute-URL image hosts allowed through the per-app proxy (anonymously) —
+# the now-playing User avatar is a plex.tv / gravatar URL (cross-origin-blocked
+# in the browser), so it's fetched server-side like the Seerr avatar pattern.
+_AVATAR_PROXY_HOSTS = (ExternalURL.PLEX_TV_HOST, ExternalURL.PLEX_DIRECT_HOST,
+                       ExternalURL.GRAVATAR_HOST)
+
+
 def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
-    """Per-app image-proxy hook — fetch a Plex poster/thumb server-side so the
-    X-Plex-Token never reaches the browser. ``path`` is a Plex metadata image
-    path (``/library/metadata/<id>/thumb/<ts>``); we serve it via Plex's
-    photo-transcode endpoint (``/photo/:/transcode``) sized for the card, with
-    the token in the (server-side) query. SSRF guard: only a relative Plex
-    ``/...`` path is accepted."""
-    from urllib.parse import urlencode  # noqa: PLC0415
+    """Per-app image-proxy hook — fetch a Plex poster/thumb (or a now-playing
+    user avatar) server-side so the X-Plex-Token never reaches the browser.
+
+    Two target classes (SSRF-guarded):
+      * a relative Plex metadata image path (``/library/metadata/<id>/thumb/
+        <ts>``) → served via Plex's photo-transcode endpoint
+        (``/photo/:/transcode``) sized for the card, token in the (server-side)
+        query;
+      * an absolute http(s) URL on an allowlisted public avatar host (plex.tv /
+        gravatar, incl. sub-domains) → fetched ANONYMOUSLY with ``Accept: */*``.
+    Anything else raises ``ValueError`` so the route returns 400."""
     token = (chip.get("api_key") or "").strip()
     p = (path or "").strip()
     if not p:
         raise ValueError("empty thumb path")
-    if "://" in p or not p.startswith("/") or ".." in p:
+    if "://" in p:
+        parts = urlsplit(p)
+        host = (parts.hostname or "").lower()
+        if parts.scheme in ("http", "https") and any(
+                host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
+            return p, {"Accept": "*/*"}
+        raise ValueError(f"image host not allowed: {host}")
+    if not p.startswith("/") or ".." in p:
         raise ValueError("thumb must be a Plex metadata path")
     base = resolve_base_url(host_row, chip)
     if not base:
@@ -533,6 +551,39 @@ def _session_line(item: dict) -> str:
     return f"▶️ {who} — {label}{pct}{where}"
 
 
+def _session_item(item: dict) -> Optional[dict]:
+    """One now-playing session as a rich skill-result item: title poster (show
+    poster for episodes, else the item thumb — proxied), the watching user +
+    their avatar (proxied), the player as the subtitle, and a play-progress
+    bar. Parallel to ``_session_line`` (the text form for AI / Telegram)."""
+    if not isinstance(item, dict):
+        return None
+    u = as_dict(item.get("User"))
+    user = str(u.get("title") or "").strip()
+    avatar = str(u.get("thumb") or "").strip()
+    player = str(as_dict(item.get("Player")).get("title") or "").strip()
+    gp = str(item.get("grandparentTitle") or "").strip()
+    title = str(item.get("title") or "").strip()
+    label = (f"{gp} — {title}" if gp else title) or "?"
+    # Prefer the show / season poster for episodes; fall back to the item thumb.
+    poster = str(item.get("grandparentThumb") or item.get("parentThumb")
+                 or item.get("thumb") or "").strip()
+    offset = safe_int(item.get("viewOffset"))
+    duration = safe_int(item.get("duration"))
+    out: dict = {"title": label, "subtitle": player}
+    if poster:
+        out["poster"] = poster
+        out["poster_proxy"] = True
+    if offset and duration:
+        out["progress"] = round(offset / duration * 100)
+    if user:
+        out["byline"] = user
+        if avatar:
+            out["avatar"] = avatar
+            out["avatar_proxy"] = True
+    return out
+
+
 # noinspection DuplicatedCode
 async def _now_playing_skill(host_row: dict, chip: dict, *,
                              host_id: Optional[str] = None) -> dict:
@@ -559,11 +610,20 @@ async def _now_playing_skill(host_row: dict, chip: dict, *,
     if not meta:
         return {"ok": True, "status": 200, "detail": "⏸️ Nothing is playing on Plex right now."}
     lines = [f"▶️ {len(meta):,} stream(s) playing:"]
+    items: list[dict] = []
     for item in meta[:10]:
         ln = _session_line(item)
         if ln:
             lines.append("  " + ln)
-    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+        it = _session_item(item)
+        if it:
+            items.append(it)
+    out: dict = {"ok": True, "status": 200, "detail": "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.plex.now_playing_count"
+    return out
 
 
 def _media_title(item: dict) -> str:
