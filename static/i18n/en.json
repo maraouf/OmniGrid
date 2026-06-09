@@ -5580,6 +5580,9 @@
       "tracearr_servers": "List media servers",
       "tracearr_violations": "Recent violations",
       "tracearr_terminate": "Terminate a stream",
+      "tdarr_status": "Tdarr status",
+      "tdarr_bloated": "Check bloated files",
+      "tdarr_requeue_bloated": "Requeue bloated files",
       "skill_confirm_title": "Run \"{name}\"?",
       "skill_confirm_text": "This performs a change on the app. Continue?",
       "results_count": "{count} results",
@@ -5849,6 +5852,22 @@
       "no_api_key": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Tracearr data…",
       "fetch_failed": "Tracearr fetch failed"
+    },
+    "tdarr": {
+      "api_key_label": "Tdarr API key (optional)",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "Only if Tdarr auth is enabled (Tools → API Keys)",
+      "api_key_hint": "Tdarr is open by default — leave blank unless you enabled authentication on the Tdarr server (Tools → API Keys). When set, it is sent as the x-api-key header. Leave blank to keep the stored key.",
+      "cache_ttl_hint": "How long the fetched transcode-pipeline summary is cached before re-querying Tdarr (5–3600s). Leave blank for the app default (60s).",
+      "files": "Files",
+      "transcode_queue": "Transcode queue",
+      "health_queue": "Health queue",
+      "space_saved": "Space saved",
+      "workers": "Workers",
+      "transcodes_n": "{n} transcodes",
+      "bloated_count": "{count} bloated",
+      "loading": "Loading Tdarr data…",
+      "fetch_failed": "Tdarr fetch failed"
     },
     "qbittorrent": {
       "username_label": "qBittorrent username",

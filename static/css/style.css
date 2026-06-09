@@ -6477,12 +6477,13 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   width: 100%;
 }
 
-/* History target cell — an ssh_run target is the full command (hundreds of
-   chars), and `.ptable` is auto-layout, so without a max-width the cell would
-   expand to the whole one-line command and blow the table out horizontally.
-   Cap it (responsive) so `truncate` (overflow/ellipsis/nowrap) clips; the full
-   text stays available via the row's `:title` + the detail modal. */
-.history-target-cell {
+/* History target — an ssh_run target is the full command (hundreds of chars).
+   `.ptable` is auto-layout, where `max-width` on a <td> is IGNORED, so the cap
+   must live on an INNER block (the repo's standard table-truncation pattern,
+   same as `.col-image > span`). The inner div clips with ellipsis; the cell
+   sizes to it, so the table can't blow out horizontally. Full text stays on
+   the row `:title` + the detail modal. */
+.history-target-clip {
   max-width: clamp(140px, 32vw, 420px);
 }
 

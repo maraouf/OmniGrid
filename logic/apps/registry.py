@@ -43,6 +43,7 @@ from . import seerr
 from . import sonarr
 from . import speedtest_tracker
 from . import tautulli
+from . import tdarr
 from . import tracearr
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
@@ -65,7 +66,7 @@ def _register(module: ModuleType) -> None:
 # so adding a module is a one-line edit to the tuple + its import above.
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
              kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr,
-             seerr, sonarr, speedtest_tracker, tautulli, tracearr):
+             seerr, sonarr, speedtest_tracker, tautulli, tdarr, tracearr):
     _register(_mod)
 
 

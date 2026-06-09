@@ -1,0 +1,69 @@
+<!-- Per-app editor fields -- Tdarr (distributed media-transcode automation).
+
+     Renders inside the Admin -> Apps per-instance editor as a conditional
+     `<template x-if="...">` so it only appears when the chip's catalog
+     template is Tdarr. Tdarr is NO-AUTH by default, so the API key is OPTIONAL
+     (only needed when Tdarr's auth is enabled — Tools -> API Keys); it's sent
+     as the x-api-key header when set. Mirrors tracearr_editor.html. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="tdarrIsApp && tdarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-tdarr-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.tdarr.api_key_label') || 'Tdarr API key (optional)'"></label>
+      <input id="apps-instance-tdarr-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.tdarr.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.tdarr.api_key_placeholder_unset') || 'Only if Tdarr auth is enabled (Tools -> API Keys)')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.tdarr.api_key_hint') || 'Tdarr is open by default — leave blank unless you enabled authentication on the Tdarr server (Tools -> API Keys). When set, it is sent as the x-api-key header. Leave blank to keep the stored key.'"></p>
+    </div>
+    <!-- Per-instance data-cache TTL. Blank = the app default (60s); backend
+         clamps 5..3600. -->
+    <div>
+      <label for="apps-instance-tdarr-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-tdarr-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>60</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.tdarr.cache_ttl_hint') || 'How long the fetched transcode-pipeline summary is cached before re-querying Tdarr (5–3600s). Leave blank for the app default (60s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>
