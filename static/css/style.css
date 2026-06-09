@@ -5225,6 +5225,90 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   font-variant-numeric: tabular-nums;
 }
 
+/* Collapsible JSON tree viewer (Admin → Asset Inventory snapshot preview).
+   Objects + arrays are native <details>; each row is one key/value. Colours
+   map to the accent tokens so both themes read cleanly. */
+.json-viewer {
+  line-height: 1.5;
+}
+
+.json-viewer .json-node {
+  margin: 0;
+}
+
+.json-viewer .json-summary {
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.json-viewer .json-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Disclosure triangle — rotates when the <details> is open. */
+.json-viewer .json-summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 1em;
+  color: var(--text-faint);
+  transition: transform 0.12s ease;
+}
+
+.json-viewer details[open] > .json-summary::before {
+  transform: rotate(90deg);
+}
+
+.json-viewer .json-summary:hover {
+  background: var(--row-hover);
+  border-radius: var(--r-sm);
+}
+
+/* Children indented under their parent with a guide rule. */
+.json-viewer .json-children {
+  margin-inline-start: 0.5em;
+  padding-inline-start: 0.75em;
+  border-inline-start: 1px solid var(--border);
+}
+
+.json-viewer .json-row {
+  padding-inline-start: 1em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.json-viewer .json-key {
+  color: var(--primary);
+}
+
+.json-viewer .json-punct,
+.json-viewer .json-bracket {
+  color: var(--text-dim);
+}
+
+.json-viewer .json-count {
+  color: var(--text-faint);
+  margin: 0 0.15em;
+  font-variant-numeric: tabular-nums;
+}
+
+.json-viewer .json-str {
+  color: var(--success);
+}
+
+.json-viewer .json-num {
+  color: var(--warning);
+}
+
+.json-viewer .json-bool {
+  color: var(--info);
+}
+
+.json-viewer .json-null,
+.json-viewer .json-empty {
+  color: var(--text-faint);
+}
+
 /* Enhanced *arr storage panel (shared _components/apps/_arr_storage.html) —
    one card per mount: path + icon + colour-coded used% on the head row, a
    rounded usage bar, then "free / total" beneath. Replaces the old cramped
@@ -11465,9 +11549,17 @@ select.field-invalid {
   height: 100%;
 }
 
-.apps-quality-seg--dp { background: var(--success); }
-.apps-quality-seg--ds { background: var(--info); }
-.apps-quality-seg--tc { background: var(--warning); }
+.apps-quality-seg--dp {
+  background: var(--success);
+}
+
+.apps-quality-seg--ds {
+  background: var(--info);
+}
+
+.apps-quality-seg--tc {
+  background: var(--warning);
+}
 
 .apps-quality-dot {
   display: inline-block;
@@ -11476,9 +11568,17 @@ select.field-invalid {
   border-radius: 50%;
 }
 
-.apps-quality-dot--dp { background: var(--success); }
-.apps-quality-dot--ds { background: var(--info); }
-.apps-quality-dot--tc { background: var(--warning); }
+.apps-quality-dot--dp {
+  background: var(--success);
+}
+
+.apps-quality-dot--ds {
+  background: var(--info);
+}
+
+.apps-quality-dot--tc {
+  background: var(--warning);
+}
 
 .apps-card-ups-host {
   font-weight: 600;
