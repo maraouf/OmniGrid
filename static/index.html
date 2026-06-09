@@ -4684,9 +4684,12 @@
                 <span x-text="t('host_drawer.actions.edit_in_admin')"></span>
               </button>
               <button type="button" @click="closeHostDrawer()"
-                      class="btn btn-ghost text-base leading-none"
+                      class="btn btn-ghost fs-xs flex items-center"
                       :title="t('actions.close') || 'Close'"
-                      :aria-label="t('actions.close') || 'Close'">✕
+                      :aria-label="t('actions.close') || 'Close'">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
               </button>
             </div>
           </div>
@@ -9971,8 +9974,11 @@
                 <div class="fs-2xs uppercase tracking-wider text-[var(--text-faint)]" x-text="t('nodes.beszel.drawer_kicker')"></div>
                 <h2 class="fs-display-sm font-semibold mt-1 mono break-all" x-text="drawerNode.name"></h2>
               </div>
-              <button type="button" @click="drawerNode=null" class="btn btn-ghost text-base leading-none"
-                      :aria-label="t('actions.close')">✕
+              <button type="button" @click="drawerNode=null" class="btn btn-ghost fs-xs flex items-center"
+                      :title="t('actions.close')" :aria-label="t('actions.close')">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
               </button>
             </div>
 
@@ -10153,9 +10159,12 @@
                   <span x-text="t('apps.drawer.refresh') || 'Refresh'"></span>
                 </button>
                 <button type="button" @click="closeAppDrawer()"
-                        class="btn btn-ghost text-base leading-none"
+                        class="btn btn-ghost fs-xs flex items-center"
                         :title="t('actions.close') || 'Close'"
-                        :aria-label="t('actions.close') || 'Close'">✕
+                        :aria-label="t('actions.close') || 'Close'">
+                  <svg width="13" height="13" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                  </svg>
                 </button>
               </div>
             </div>
@@ -10787,8 +10796,11 @@
                   </div>
                 </div>
               </div>
-              <button type="button" @click="drawerItem=null" class="btn btn-ghost text-base leading-none"
-                      :aria-label="t('actions.close')">✕
+              <button type="button" @click="drawerItem=null" class="btn btn-ghost fs-xs flex items-center"
+                      :title="t('actions.close')" :aria-label="t('actions.close')">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-x"/>
+                </svg>
               </button>
             </div>
 
