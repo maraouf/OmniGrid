@@ -112,19 +112,44 @@ _COUNT_FIELDS = ("MovieCount", "SeriesCount", "EpisodeCount", "AlbumCount",
                  "BookCount", "TrailerCount", "ProgramCount")
 
 
+# Library CollectionType → the top-grid stat it feeds. Only these three map to
+# a grid cell; every other type (homevideos / photos / books / boxsets / mixed /
+# custom) still counts toward the grand total + shows in the per-library list.
+_LIB_TYPE_TO_KIND = {"movies": "movies", "tvshows": "series", "music": "songs"}
+
+
 def _items_total(counts: dict, library_list: list) -> int:
-    """Total tracked items across the WHOLE server. Prefer ``/Items/Counts``'
-    ``ItemCount``; fall back to summing the per-type counts, then the per-library
-    counts — so a server whose libraries are mostly non-movie/series/music
-    (photos / home-video / books / mixed) still shows a meaningful total."""
+    """Total tracked items across the WHOLE server. Prefer the SUM of the
+    per-library Recursive counts (the reliable figure — it covers custom /
+    mixed libraries) and fall back to ``/Items/Counts``' ``ItemCount`` then the
+    per-type sum only when no per-library data is available. ``/Items/Counts``'
+    ``ItemCount`` is NOT trusted first: on servers whose libraries are custom-
+    typed it under-reports badly (one operator saw ItemCount=1 against ~3,600
+    real items)."""
+    lib_sum = sum(safe_int(lib.get("count")) for lib in library_list
+                  if isinstance(lib, dict))
+    if lib_sum > 0:
+        return lib_sum
     n = safe_int(counts.get("ItemCount"))
     if n > 0:
         return n
-    type_sum = sum(safe_int(counts.get(k)) for k in _COUNT_FIELDS)
-    if type_sum > 0:
-        return type_sum
-    return sum(safe_int(lib.get("count")) for lib in library_list
-               if isinstance(lib, dict))
+    return sum(safe_int(counts.get(k)) for k in _COUNT_FIELDS)
+
+
+def _counts_from_libraries(library_list: list) -> dict:
+    """Derive ``{movies, series, songs}`` by summing the per-library Recursive
+    counts by CollectionType — more reliable than ``/Items/Counts`` when a
+    server's media live in custom-typed libraries (which report MovieCount=0
+    etc.). Empty when no library is of the matching type (the caller then falls
+    back to the ``/Items/Counts`` figure)."""
+    out = {"movies": 0, "series": 0, "songs": 0}
+    for lib in library_list:
+        if not isinstance(lib, dict):
+            continue
+        kind = _LIB_TYPE_TO_KIND.get(str(lib.get("type") or "").lower())
+        if kind:
+            out[kind] += safe_int(lib.get("count"))
+    return out
 
 
 async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
@@ -264,12 +289,18 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         print(f"[{cfg.log_tag}] error: fetch host={host_id} url={counts_url} "
               f"failed — {type(e).__name__}: {e}")
         raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
+    # Top-grid stats: PREFER the per-library Recursive counts (by CollectionType)
+    # over /Items/Counts — on a server whose media live in custom-typed libraries
+    # /Items/Counts reports MovieCount=1 / SeriesCount=0 etc. (wrong), while the
+    # per-library counts are real. Fall back to /Items/Counts only when no
+    # library of that type exists.
+    lib_counts = _counts_from_libraries(library_list)
     out: dict[str, Any] = {
         "available": True,
-        "movies": safe_int(counts.get("MovieCount")),
-        "series": safe_int(counts.get("SeriesCount")),
+        "movies": lib_counts["movies"] or safe_int(counts.get("MovieCount")),
+        "series": lib_counts["series"] or safe_int(counts.get("SeriesCount")),
         "episodes": safe_int(counts.get("EpisodeCount")),
-        "songs": safe_int(counts.get("SongCount")),
+        "songs": lib_counts["songs"] or safe_int(counts.get("SongCount")),
         "items_total": _items_total(counts, library_list),
         "libraries": libraries,
         "library_list": library_list,
@@ -567,7 +598,10 @@ async def recently_added_skill(host_row: dict, chip: dict, *,
         "SortOrder": "Descending",
         "Recursive": "true",
         "Limit": "20",
-        "IncludeItemTypes": "Movie,Episode,MusicAlbum",
+        # Broad set so items from custom-typed libraries (home video / mixed /
+        # music-video) show too — not just Movie/Episode/MusicAlbum. _item_group
+        # buckets anything unrecognised into Movies so they still render.
+        "IncludeItemTypes": "Movie,Episode,Series,MusicAlbum,MusicVideo,Video,Audio",
         "Fields": "ProductionYear,SeriesName",
         "ImageTypeLimit": "1",
     }

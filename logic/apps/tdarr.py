@@ -707,6 +707,8 @@ async def _run_requeue(base: str, api_key: str, host_id: str,
     st = _bloated_state.setdefault(host_id, {})
     rq = st.setdefault("requeue", {})
     done = 0
+    failed = 0
+    last_err = ""
     try:
         async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
@@ -727,12 +729,22 @@ async def _run_requeue(base: str, api_key: str, host_id: str,
                     done += 1
                     rq["done"] = done
                 except RuntimeError as e:
-                    print(f"[tdarr] warning: requeue failed for {fid} — {e}")
-        rq.update({"ts": time.time(), "error": None})
+                    # Per-file update failure — track + surface (was silently
+                    # swallowed, so a fleet-wide failure reported "Requeued 0"
+                    # with no cause). The whole-batch error path below stays for
+                    # a hard transport failure.
+                    failed += 1
+                    last_err = str(e)
+                    rq["failed"] = failed
+                    rq["last_err"] = last_err
+                    print(f"[tdarr] warning: requeue update failed for {fid} — {e}")
+        rq.update({"ts": time.time(), "error": None, "failed": failed,
+                   "last_err": last_err})
         # Invalidate the bloated cache — the requeued files are no longer bloated.
         st["files"] = None
         st["ts"] = None
-        print(f"[tdarr] INFO requeue done host={host_id} {done:,}/{rq.get('total', 0):,}")
+        print(f"[tdarr] INFO requeue done host={host_id} {done:,}/{rq.get('total', 0):,} "
+              f"(failed={failed})")
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -782,9 +794,24 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
             out["progress"] = min(100, round(done / total * 100)) if total else 0
         return out
     if rq.get("ts") and (now - rq["ts"]) < 30 and not rq.get("error"):
+        done = safe_int(rq.get("done"))
+        total = safe_int(rq.get("total"))
+        failed = safe_int(rq.get("failed"))
+        last_err = str(rq.get("last_err") or "")
+        if total and done == 0:
+            # Every update failed — surface WHY (was a misleading "Requeued 0").
+            msg = f"⚠️ Requeued 0 of {total:,} bloated file(s) — every update failed."
+            if last_err:
+                msg += f" Tdarr said: {last_err}."
+            msg += (" Check that Tdarr isn't read-only / that the API key (if auth "
+                    "is on) has write access.")
+            return {"ok": False, "status": 200, "detail": msg}
+        if failed:
+            tail = f" ({failed:,} failed: {last_err})" if last_err else f" ({failed:,} failed)"
+            return {"ok": True, "status": 200,
+                    "detail": f"✅ Requeued {done:,} of {total:,} bloated file(s){tail}."}
         return {"ok": True, "status": 200,
-                "detail": f"✅ Requeued {safe_int(rq.get('done')):,} bloated "
-                          "file(s) for re-transcode."}
+                "detail": f"✅ Requeued {done:,} bloated file(s) for re-transcode."}
     if rq.get("ts") and (now - rq["ts"]) < 30 and rq.get("error"):
         return {"ok": True, "status": 200,
                 "detail": f"⚠️ Requeue errored: {rq['error']}"}

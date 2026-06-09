@@ -153,11 +153,11 @@
           </span>
           <button type="button" x-show="isAdmin() && appsProbeTargetCount(app)"
                   class="apps-card-action-pill whitespace-nowrap"
-                  :disabled="appsProbingAll(app)"
+                  :disabled="appsProbingAll(app) || appsCardInitialLoading(app)"
                   @click.stop="probeAllInstances(app)"
-                  :title="t('apps.probe_all_title') || 'Probe every instance of this app now'"
+                  :title="appsCardInitialLoading(app) ? (t('apps.loading_data') || 'Loading data…') : (t('apps.probe_all_title') || 'Probe every instance of this app now')"
                   :aria-label="t('apps.probe_all_aria', {name: app.name}) || ('Probe all instances of ' + app.name)">
-            <svg width="11" height="11" :class="appsProbingAll(app) ? 'spin-md' : ''" aria-hidden="true">
+            <svg width="11" height="11" :class="(appsProbingAll(app) || appsCardInitialLoading(app)) ? 'spin-md' : ''" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
             </svg>
           </button>

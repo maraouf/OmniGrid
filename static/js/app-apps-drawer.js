@@ -250,9 +250,19 @@ export default {
     return (tr && tr !== key) ? tr : ((sk && sk.name) || id);
   },
 
-  // True while a given (chip, skill) run is in flight (disables the button).
+  // True while a given (chip, skill) run is in flight OR its background job is
+  // still running (disables + spins the button). The in-flight flag covers the
+  // initial HTTP run; the `pending` result flag covers a background-running
+  // skill (Tdarr bloated scan / requeue) whose initial run returned fast with
+  // pending=true and is now being auto-polled — keep the button disabled +
+  // spinning the whole time so a duplicate can't be fired while it runs.
   appSkillBusy(inst, skillId) {
-    return !!(this._appSkillBusy && this._appSkillBusy['skill:' + this.appInstanceKey(inst) + ':' + skillId]);
+    const ikey = this.appInstanceKey(inst);
+    if (this._appSkillBusy && this._appSkillBusy['skill:' + ikey + ':' + skillId]) {
+      return true;
+    }
+    const res = this._appSkillResult && this._appSkillResult['res:' + ikey + ':' + skillId];
+    return !!(res && res.pending);
   },
 
   // Result of the LAST run of a (chip, skill) — {ok, detail, image_url, at}
