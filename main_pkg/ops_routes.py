@@ -1810,6 +1810,9 @@ class SettingsIn(BaseModel):
     # Per-app extras (Speedtest / APC) freshness TTL — SPA stale-while-
     # revalidate window for the expanded-card /app-data cache (0 = fetch-once).
     tuning_apps_extras_ttl_seconds: Optional[str] = None
+    # Per-app route wall-clock budget — app-data fetch + skill dispatch each
+    # fail with OmniGrid's own logged 504 under the reverse-proxy timeout.
+    tuning_apps_route_budget_seconds: Optional[str] = None
     tuning_apps_tile_render_batch: Optional[str] = None
     # Settings-as-Code (config_backup schedule kind) snapshot retention.
     tuning_config_backup_retention_count: Optional[str] = None

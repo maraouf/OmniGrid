@@ -11,9 +11,12 @@ Without a cache, the same picture is re-downloaded from upstream on EVERY view �
 wasteful when the same poster / avatar shows up across multiple providers /
 cards (e.g. a TMDB poster a movie has in Radarr AND Seerr AND Tracearr, all
 pointing at the identical ``image.tmdb.org`` URL). This module caches the
-fetched bytes to disk keyed by the FETCH IDENTITY (upstream URL + any auth
-header), so a public-CDN image dedups across every provider that references it,
-while an authenticated per-chip image stays per-chip.
+fetched bytes to disk keyed by the FETCH IDENTITY (upstream URL + an optional
+NON-SENSITIVE per-chip cache tag), so a public-CDN image dedups across every
+provider that references it, while an authenticated per-chip image stays
+per-chip. The cache tag is a coarse discriminator like ``"<host_id>:<idx>"`` —
+the raw credential is NEVER hashed (a SHA-256 of a secret is still a weak
+treatment of sensitive data; the tag avoids touching the secret at all).
 
 Layout: ``<data_dir>/image_cache/<sha256>`` holds the raw bytes (its mtime is
 the cache time, for the TTL check); ``<sha256>.ct`` holds the content-type.
@@ -35,7 +38,6 @@ import hashlib
 import os
 import random
 import time
-from typing import Optional
 
 from logic.db import DB_PATH
 from logic.tuning import Tunable, tuning_int
@@ -68,24 +70,26 @@ def ensure_dir() -> None:
         pass
 
 
-def _key(url: str, headers: Optional[dict]) -> str:
-    """Cache key = sha256(upstream-URL + auth-header). Public images (no auth
-    header) collapse to the URL alone so the SAME picture dedups across every
-    provider; an authenticated per-chip fetch stays distinct via its key /
-    apikey-in-URL."""
-    auth = ""
-    if headers:
-        auth = str(headers.get("Authorization") or headers.get("X-Api-Key") or "")
-    return hashlib.sha256((str(url) + "\x00" + auth).encode(errors="replace")).hexdigest()
+def _key(url: str, cache_tag: str = "") -> str:
+    """Cache key = sha256(upstream-URL + NON-SENSITIVE cache tag). Public images
+    (no tag) collapse to the URL alone so the SAME picture dedups across every
+    provider; an authenticated per-chip fetch stays distinct via its coarse
+    ``"<host_id>:<idx>"`` tag. The raw credential is intentionally NEVER part of
+    the hash input — hashing a secret is still a weak treatment of sensitive
+    data (CodeQL ``py/weak-sensitive-data-hashing``); the tag is a public
+    discriminator, not the secret."""
+    return hashlib.sha256(
+        (str(url) + "\x00" + str(cache_tag)).encode(errors="replace")
+    ).hexdigest()
 
 
-def get(url: str, headers: Optional[dict] = None) -> "Optional[tuple[bytes, str]]":
+def get(url: str, cache_tag: str = "") -> "tuple[bytes, str] | None":
     """Return ``(bytes, content_type)`` for a still-fresh cached image, else
     ``None`` (cache disabled / miss / stale / read error)."""
     ttl = _ttl()
     if ttl <= 0:
         return None
-    data_path = os.path.join(CACHE_DIR, _key(url, headers))
+    data_path = os.path.join(CACHE_DIR, _key(url, cache_tag))
     try:
         st = os.stat(data_path)
     except OSError:
@@ -107,13 +111,13 @@ def get(url: str, headers: Optional[dict] = None) -> "Optional[tuple[bytes, str]
 
 
 def put(url: str, data: bytes, content_type: str,
-        headers: Optional[dict] = None) -> None:
+        cache_tag: str = "") -> None:
     """Cache an image's bytes + content-type (best-effort; no-op when the cache
     is disabled or the data is empty). Atomic via ``.tmp`` + ``os.replace``."""
     if _ttl() <= 0 or not data:
         return
     ensure_dir()
-    data_path = os.path.join(CACHE_DIR, _key(url, headers))
+    data_path = os.path.join(CACHE_DIR, _key(url, cache_tag))
     tmp = f"{data_path}.tmp{os.getpid()}"
     try:
         with open(tmp, "wb") as f:

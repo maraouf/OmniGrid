@@ -869,10 +869,27 @@ async def api_service_app_data(host_id: str, service_idx: int,
     host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
     if mod is None or not hasattr(mod, "fetch_data"):
         raise HTTPException(400, "no data path for this app")
+    slug = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
+    # Wall-clock budget UNDER the reverse-proxy proxy_read_timeout. Without
+    # it, a slow upstream (e.g. Tdarr mid-bloated-scan) lets the request hang
+    # until the FRONT proxy emits its own gateway 504 — which the SPA shows as
+    # "<app> fetch failed: HTTP 504" but leaves NO server-side trace of which
+    # app/host timed out. By failing first, OmniGrid logs the timeout + returns
+    # an identifiable 504 (same pattern as /api/hosts/one/{id}'s 30s budget).
+    _budget = float(tuning.tuning_int(Tunable.APPS_ROUTE_BUDGET_SECONDS))
     try:
-        return await mod.fetch_data(host_row, chip,
-                                    host_id=host_id, service_idx=service_idx,
-                                    force=force)
+        return await asyncio.wait_for(
+            mod.fetch_data(host_row, chip,
+                           host_id=host_id, service_idx=service_idx,
+                           force=force),
+            timeout=_budget)
+    except asyncio.TimeoutError:
+        print(f"[apps] error: app-data fetch TIMED OUT host={host_id} "
+              f"svc_idx={service_idx} app={slug} budget={_budget:.0f}s "
+              f"(upstream too slow — raised our own 504 before the reverse "
+              f"proxy could emit an unlogged gateway timeout)")
+        raise HTTPException(
+            504, f"{slug} app-data fetch exceeded {_budget:.0f}s budget")
     except ValueError as e:  # caller-side errors (missing key / URL)
         # Generic per-app-data failure log so EVERY app (not just the
         # ones with their own module-level logging) is traceable in
@@ -880,14 +897,12 @@ async def api_service_app_data(host_id: str, service_idx: int,
         # failed. ValueError = operator-fixable config (missing key /
         # URL) -> WARN (use the `warning:` marker the severity
         # classifier in logic/logs.py keys on).
-        slug = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
         print(f"[apps] warning: app-data config issue host={host_id} "
               f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(400, str(e))
     except RuntimeError as e:  # upstream errors
         # Upstream actually failed (404 / auth / timeout) -> ERROR (the
         # `error:` marker routes it to the ERROR bucket).
-        slug = getattr(mod, "__name__", "?").rsplit(".", 1)[-1]
         print(f"[apps] error: app-data fetch failed host={host_id} "
               f"svc_idx={service_idx} app={slug}: {e}")
         raise HTTPException(502, str(e))
@@ -963,11 +978,15 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
     if parts.scheme not in ("http", "https") or not parts.netloc:
         raise HTTPException(400, "module produced a non-http url")
     # Disk-cache hit — serve without re-fetching. Keyed by the resolved upstream
-    # URL + auth header, so a public-CDN cover dedups across providers while an
-    # authenticated per-chip image stays per-chip.
+    # URL + a NON-SENSITIVE per-chip cache tag (never the raw credential — see
+    # logic/image_cache.py:_key). A public-CDN cover (no auth header) gets an
+    # empty tag so it dedups across providers; an authenticated per-chip image
+    # gets a coarse "<host>:<idx>" tag so it stays distinct.
     from logic import image_cache  # noqa: PLC0415
+    _authed = bool(headers and (headers.get("Authorization") or headers.get("X-Api-Key")))
+    _cache_tag = f"{host_id}:{service_idx}" if _authed else ""
     # Disk get/put run off the event loop (file I/O + opportunistic prune scan).
-    _hit = await asyncio.to_thread(image_cache.get, url, headers)
+    _hit = await asyncio.to_thread(image_cache.get, url, _cache_tag)
     if _hit is not None:
         return Response(content=_hit[0], media_type=_hit[1],
                         headers={"Cache-Control": "public, max-age=86400",
@@ -1015,7 +1034,7 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
                 f"{len(body)} bytes, starts: {snippet[:60]!r}) — if this is HTML "
                 f"the upstream isn't authenticating the image fetch")
         ctype = sniffed
-    await asyncio.to_thread(image_cache.put, url, body, ctype, headers)
+    await asyncio.to_thread(image_cache.put, url, body, ctype, _cache_tag)
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400",
                              "X-OmniGrid-Cache": "miss"})
@@ -1082,11 +1101,27 @@ async def api_service_run_skill(host_id: str, service_idx: int, skill_id: str,
         print(f"[app_skill] warning: web skill {skill_id!r} BLOCKED — destructive "
               f"skill needs confirm=true (host={host_id} svc_idx={service_idx})")
         raise HTTPException(409, f"destructive skill '{skill_id}' requires confirmation")
+    # Wall-clock budget UNDER the reverse-proxy proxy_read_timeout (same
+    # rationale as the app-data route): a slow skill (e.g. a live status fetch
+    # behind a stalled upstream) fails with OmniGrid's OWN logged 504 instead
+    # of hanging until the front proxy emits an unlogged gateway 504 with no
+    # server trace. Most skills are designed to return immediately (background
+    # pattern), so this only bites a genuinely-slow live fetch.
+    _budget = float(tuning.tuning_int(Tunable.APPS_ROUTE_BUDGET_SECONDS))
     try:
-        result = await mod.run_skill(skill_id, host_row, chip,
-                                     host_id=host_id, service_idx=service_idx,
-                                     arg=skill_arg,
-                                     actor_username=_actor_from(request))
+        result = await asyncio.wait_for(
+            mod.run_skill(skill_id, host_row, chip,
+                          host_id=host_id, service_idx=service_idx,
+                          arg=skill_arg,
+                          actor_username=_actor_from(request)),
+            timeout=_budget)
+    except asyncio.TimeoutError:
+        print(f"[app_skill] error: web skill {skill_id!r} TIMED OUT at "
+              f"host={host_id} svc_idx={service_idx} budget={_budget:.0f}s "
+              f"(upstream too slow — raised our own 504 before the reverse "
+              f"proxy could emit an unlogged gateway timeout)")
+        raise HTTPException(
+            504, f"skill '{skill_id}' exceeded {_budget:.0f}s budget")
     except ValueError as e:  # unknown skill id reaching the module
         print(f"[app_skill] warning: web skill {skill_id!r} rejected by module at "
               f"host={host_id} svc_idx={service_idx} — {e}")
