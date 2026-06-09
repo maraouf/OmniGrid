@@ -10391,8 +10391,13 @@
                          APP-LEVEL aggregated extras (e.g. AdGuard), whose actions
                          are fleet-wide and live in ONE app-level card below the
                          instance loop. Without this gate the skill buttons
-                         duplicated once per host. -->
-                    <template x-if="isAdmin() && appInstanceSkillsEnabled(inst) && !anyAppAggExtrasMatch(drawerApp)">
+                         duplicated once per host.
+                         ALSO gated on appsShowExtras (same gate as the extras box
+                         above): the per-app ACTIONS are part of the extras section,
+                         so they appear / hide together with the details when the
+                         operator toggles the per-instance "show extras" checkbox —
+                         actions must never render while extras is unchecked. -->
+                    <template x-if="isAdmin() && appInstanceSkillsEnabled(inst) && !anyAppAggExtrasMatch(drawerApp) && appsShowExtras(drawerApp, inst, null)">
                       <div class="rounded-md border border-[var(--border)] p-3">
                         <div class="fs-2xs uppercase tracking-wide text-[var(--text-faint)] mb-2"
                              x-text="t('apps.drawer.skills_title') || 'App skills'"></div>

@@ -45,6 +45,7 @@ Single-instance app (NOT fleet) — one card per pinned chip.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any, Optional
@@ -81,7 +82,45 @@ _BLOAT_RATIO = 100.0
 # (httpx RemoteProtocolError). Connect stays short; read/total is generous so
 # the big query completes. (Generous fixed cap rather than a tunable — it only
 # gates two manual on-demand skills, not a hot path.)
+#
+# This is the SAME query the operator's reference Telegram bot uses (services/
+# tdarr.py:list_bloated_files) — the query itself is correct and was proven
+# working there. The difference is the TRANSPORT: a Telegram bot tolerates a
+# ~100s operation (it streams a progress_callback while it runs), but OmniGrid's
+# skill is a browser→app HTTP request that dies at the reverse proxy's
+# proxy_read_timeout (~60s) long before the 100s scan finishes — that's the 504.
+# So we keep the identical query but run it as a BACKGROUND task and serve a
+# per-host result cache: the skill returns immediately ("scanning… re-run to see
+# results") and the next invocation serves the completed list — OmniGrid's
+# request/response analogue of the bot's progress_callback.
 _BLOATED_TIMEOUT = httpx.Timeout(240.0, connect=15.0)
+
+# How long a completed bloated scan is served without re-running (bloat state
+# changes slowly). Fixed cap, not a tunable — matches _BLOATED_TIMEOUT's
+# rationale (gates two manual on-demand skills, not a hot path).
+_BLOATED_CACHE_TTL = 600.0  # 10 min
+
+# Per-host_id background-scan state:
+#   {"running": bool, "started": float, "ts": float|None, "files": list|None,
+#    "error": str|None, "requeue": {"running","started","ts","done","total",
+#    "error"}}
+# Inner value type is Any (heterogeneous: bool / float / list / str / dict) —
+# `dict[str, dict]` would (wrongly) type every `st["files"]` / `st["ts"]` as a
+# dict, tripping the checker where a list / float is expected.
+_bloated_state: dict[str, dict[str, Any]] = {}
+
+# Strong refs to in-flight background tasks so asyncio's GC can't collect a
+# running scan/requeue mid-execution (the _spawn_background_task contract,
+# replicated locally to avoid a logic→main import cycle).
+_BG_TASKS: set = set()
+
+
+def _spawn(coro) -> "asyncio.Task":
+    """Fire-and-forget a background coroutine, keeping a strong ref until done."""
+    t = asyncio.create_task(coro)
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)
+    return t
 
 
 def requires_api_key() -> bool:
@@ -428,6 +467,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
     except RuntimeError as e:
         return {"ok": False, "status": 0, "detail": str(e)}
     lines: list[str] = []
+    # Rich items for the web skill-result renderer — each active worker as a
+    # row with a 2-colour progress bar (apps-skill-item-bar). The text `lines`
+    # / `detail` stay for the AI / Telegram surfaces (no visual progress bar).
+    items: list[dict] = []
     for node in as_dict(nodes).values():
         if not isinstance(node, dict):
             continue
@@ -439,6 +482,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
             pct = w.get("percentage")
             pct_txt = f" ({safe_float(pct):.1f}%)" if pct is not None else ""
             lines.append(f"⚙️ {node_name}: {fname}{pct_txt}")
+            wtype = str(w.get("workerType") or w.get("type") or "").strip()
+            items.append({
+                "title": fname,
+                "subtitle": (f"{node_name} · {wtype}" if wtype else node_name),
+                "poster": "",
+                "progress": round(safe_float(pct), 1),
+            })
     # Queue summary from the card data (cheap second source).
     try:
         data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
@@ -455,7 +505,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
         body = f"▶️ {len(lines)} worker(s) processing:\n" + "\n".join(lines)
     if summary:
         body += "\n" + summary
-    return {"ok": True, "status": 200, "detail": body}
+    out: dict = {"ok": True, "status": 200, "detail": body}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.tdarr.now_processing_count"
+    return out
 
 
 async def _find_bloated(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
@@ -476,69 +531,206 @@ async def _find_bloated(cli: httpx.AsyncClient, base: str, api_key: str) -> list
     return bloated
 
 
+async def _run_bloated_scan(base: str, api_key: str, host_id: str) -> None:
+    """Background scan — runs the heavy ``_find_bloated`` getAll on its OWN
+    client (the skill that launched it has already returned, so its client is
+    closed) and stows the result in ``_bloated_state[host_id]`` for the next
+    skill invocation to serve. Never raises out (logged + recorded on the
+    state)."""
+    st = _bloated_state.setdefault(host_id, {})
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
+                                     follow_redirects=True) as cli:
+            bloated = await _find_bloated(cli, base, api_key)
+        st.update({"files": bloated, "ts": time.time(), "error": None})
+        print(f"[tdarr] INFO bloated scan done host={host_id} found={len(bloated):,}")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        st.update({"ts": time.time(), "error": str(e)})
+        print(f"[tdarr] warning: bloated scan failed host={host_id} — {e}")
+    finally:
+        st["running"] = False
+
+
+def _ensure_bloated_scan(base: str, api_key: str, host_id: str) -> bool:
+    """Launch a background bloated scan unless one is already running for this
+    host. Returns True when a new scan was started."""
+    st = _bloated_state.setdefault(host_id, {})
+    if st.get("running"):
+        return False
+    st["running"] = True
+    st["started"] = time.time()
+    _spawn(_run_bloated_scan(base, api_key, host_id))
+    return True
+
+
+def _fmt_bloated_result(files: list, note: str = "") -> dict:
+    """Shape a completed bloated scan (list of file docs) into a skill result."""
+    if not files:
+        return {"ok": True, "status": 200, "detail": "✅ No bloated files found." + note}
+    lines = [f"• {os.path.basename(str(f.get('file') or '?'))}  "
+             f"{safe_float(f.get('newVsOldRatio')):.1f}%"
+             for f in files[:25]]
+    more = f"\n…and {len(files) - 25:,} more" if len(files) > 25 else ""
+    detail = (f"🐘 {len(files):,} bloated file(s) (larger after transcode):\n"
+              + "\n".join(lines) + more + note
+              + "\n\nUse \"Requeue bloated files\" to re-transcode them.")
+    return {"ok": True, "status": 200, "detail": detail,
+            "count": len(files), "count_i18n": "apps.tdarr.bloated_count"}
+
+
 async def _bloated_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
     """Read-only "check bloated": list files that got bigger after transcoding.
-    Never raises."""
+
+    The scan itself (~100s, hundreds of MB) runs as a BACKGROUND task so the
+    browser→app request returns well under the reverse-proxy timeout. First
+    invocation kicks the scan + returns "scanning…"; a later invocation serves
+    the completed list (cached for ``_BLOATED_CACHE_TTL``). Never raises."""
     api_key, base, err = _resolve_target(host_row, chip)
     if err:
         return err
-    print(f"[tdarr] INFO tdarr_bloated host={host_id} (live fetch)")
+    hid = str(host_id or "")
+    now = time.time()
+    st = _bloated_state.get(hid) or {}
+    running = bool(st.get("running"))
+    have = st.get("files") is not None and st.get("ts")
+    print(f"[tdarr] INFO tdarr_bloated host={hid} running={running} "
+          f"cached={'yes' if have else 'no'}")
+    if have:
+        age = now - st["ts"]
+        fresh = age < _BLOATED_CACHE_TTL and not st.get("error")
+        if fresh and not running:
+            return _fmt_bloated_result(st["files"])
+        if running:
+            note = (f"\n\n⏳ Refreshing… (scan started "
+                    f"{int(now - st.get('started', now))}s ago — re-run shortly)")
+            return _fmt_bloated_result(st["files"], note)
+        # Stale (or last scan errored) and nothing running → kick a refresh and
+        # serve what we have with a note.
+        _ensure_bloated_scan(base, api_key, hid)
+        if st.get("error"):
+            return {"ok": True, "status": 200,
+                    "detail": (f"⚠️ Last scan errored: {st['error']}\n\n"
+                               "🔍 Re-scanning now — re-run in ~1–2 min.")}
+        return _fmt_bloated_result(
+            st["files"], "\n\n⏳ Data may be stale — re-scanning; re-run shortly.")
+    if running:
+        return {"ok": True, "status": 200,
+                "detail": (f"🔍 Scanning for bloated files… started "
+                           f"{int(now - st.get('started', now))}s ago. This takes "
+                           "~1–2 minutes on a large library — re-run "
+                           "\"Check bloated files\" in a moment to see the results.")}
+    _ensure_bloated_scan(base, api_key, hid)
+    return {"ok": True, "status": 200,
+            "detail": ("🔍 Scanning for bloated files… this takes ~1–2 minutes on "
+                       "a large library. Re-run \"Check bloated files\" in a moment "
+                       "to see the results.")}
+
+
+async def _run_requeue(base: str, api_key: str, host_id: str,
+                       files: Optional[list]) -> None:
+    """Background requeue — scans for bloated files first when ``files`` is None
+    (so a single confirmed click does the whole job), then resets each one's DB
+    status to ``Queued``. Records progress on ``_bloated_state[host_id]
+    ['requeue']`` and invalidates the bloated cache so the next check re-scans.
+    Never raises out."""
+    st = _bloated_state.setdefault(host_id, {})
+    rq = st.setdefault("requeue", {})
+    done = 0
     try:
         async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
                                      follow_redirects=True) as cli:
-            bloated = await _find_bloated(cli, base, api_key)
-    except RuntimeError as e:
-        return {"ok": False, "status": 0, "detail": str(e)}
-    if not bloated:
-        return {"ok": True, "status": 200, "detail": "✅ No bloated files found."}
-    lines = [f"• {os.path.basename(str(f.get('file') or '?'))}  "
-             f"{safe_float(f.get('newVsOldRatio')):.1f}%"
-             for f in bloated[:25]]
-    more = f"\n…and {len(bloated) - 25:,} more" if len(bloated) > 25 else ""
-    detail = (f"🐘 {len(bloated):,} bloated file(s) (larger after transcode):\n"
-              + "\n".join(lines) + more
-              + "\n\nUse \"Requeue bloated files\" to re-transcode them.")
-    return {"ok": True, "status": 200, "detail": detail,
-            "count": len(bloated), "count_i18n": "apps.tdarr.bloated_count"}
-
-
-async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
-                                 host_id: Optional[str] = None) -> dict:
-    """Destructive "queue bloated": reset every bloated file's DB status to
-    ``Queued`` so Tdarr re-transcodes it. The backend route already gated the
-    destructive-confirm. Never raises."""
-    api_key, base, err = _resolve_target(host_row, chip)
-    if err:
-        return err
-    print(f"[tdarr] INFO tdarr_requeue_bloated host={host_id} (live)")
-    try:
-        async with httpx.AsyncClient(verify=False, timeout=_BLOATED_TIMEOUT,
-                                     follow_redirects=True) as cli:
-            bloated = await _find_bloated(cli, base, api_key)
-            if not bloated:
-                return {"ok": True, "status": 200, "detail": "✅ No bloated files to requeue."}
-            total = len(bloated)
-            done = 0
-            for f in bloated:
+            if files is None:
+                files = await _find_bloated(cli, base, api_key)
+                st.update({"files": files, "ts": time.time(), "error": None,
+                           "running": False})
+            rq["total"] = len(files)
+            for f in files:
                 fid = f.get("_id")
                 if not fid:
                     continue
                 try:
                     await _cruddb(cli, base, api_key, {
                         "collection": "FileJSONDB", "mode": "update", "docID": fid,
-                        "obj": {"TranscodeDecisionMaker": "Queued", "HealthCheck": "Queued"}})
+                        "obj": {"TranscodeDecisionMaker": "Queued",
+                                "HealthCheck": "Queued"}})
                     done += 1
+                    rq["done"] = done
                 except RuntimeError as e:
                     print(f"[tdarr] warning: requeue failed for {fid} — {e}")
-    except RuntimeError as e:
-        return {"ok": False, "status": 0, "detail": str(e)}
-    if done == total:
+        rq.update({"ts": time.time(), "error": None})
+        # Invalidate the bloated cache — the requeued files are no longer bloated.
+        st["files"] = None
+        st["ts"] = None
+        print(f"[tdarr] INFO requeue done host={host_id} {done:,}/{rq.get('total', 0):,}")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except (RuntimeError, httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        rq.update({"ts": time.time(), "error": str(e)})
+        print(f"[tdarr] warning: requeue scan failed host={host_id} — {e}")
+    finally:
+        rq["running"] = False
+
+
+def _ensure_requeue(base: str, api_key: str, host_id: str,
+                    files: Optional[list]) -> bool:
+    """Launch a background requeue unless one is already running for this host."""
+    st = _bloated_state.setdefault(host_id, {})
+    rq = st.setdefault("requeue", {})
+    if rq.get("running"):
+        return False
+    rq.update({"running": True, "started": time.time(), "done": 0,
+               "total": (len(files) if files else 0), "error": None})
+    _spawn(_run_requeue(base, api_key, host_id, list(files) if files else None))
+    return True
+
+
+async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
+                                 host_id: Optional[str] = None) -> dict:
+    """Destructive "queue bloated": reset every bloated file's DB status to
+    ``Queued`` so Tdarr re-transcodes it. Runs the scan + the per-file updates
+    as a BACKGROUND task (both can exceed the reverse-proxy timeout), so the
+    confirmed click returns immediately and the next invocation reports
+    progress. The backend route already gated the destructive-confirm. Never
+    raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    hid = str(host_id or "")
+    now = time.time()
+    st = _bloated_state.get(hid) or {}
+    rq = st.get("requeue") or {}
+    if rq.get("running"):
+        done = safe_int(rq.get("done"))
+        total = safe_int(rq.get("total"))
+        prog = f"{done:,}/{total:,}" if total else f"{done:,}"
         return {"ok": True, "status": 200,
-                "detail": f"✅ Requeued {done:,} bloated file(s) for re-transcode."}
+                "detail": (f"⏳ Requeue in progress… {prog} done (started "
+                           f"{int(now - rq.get('started', now))}s ago). Re-run "
+                           "\"Requeue bloated files\" to check progress.")}
+    if rq.get("ts") and (now - rq["ts"]) < 30 and not rq.get("error"):
+        return {"ok": True, "status": 200,
+                "detail": f"✅ Requeued {safe_int(rq.get('done')):,} bloated "
+                          "file(s) for re-transcode."}
+    if rq.get("ts") and (now - rq["ts"]) < 30 and rq.get("error"):
+        return {"ok": True, "status": 200,
+                "detail": f"⚠️ Requeue errored: {rq['error']}"}
+    # Use a fresh cached bloated list when we have one (skips a re-scan);
+    # otherwise the background task scans first.
+    fresh = (st.get("files") is not None and st.get("ts")
+             and (now - st["ts"]) < _BLOATED_CACHE_TTL and not st.get("error"))
+    files = as_list(st.get("files")) if fresh else None
+    if fresh and not files:
+        return {"ok": True, "status": 200, "detail": "✅ No bloated files to requeue."}
+    print(f"[tdarr] INFO tdarr_requeue_bloated host={hid} "
+          f"(background, {'cached list' if files else 'scan-then-requeue'})")
+    _ensure_requeue(base, api_key, hid, files)
+    n = f"{len(files):,} " if files else ""
     return {"ok": True, "status": 200,
-            "detail": f"⚠️ Requeued {done:,} of {total:,} bloated file(s); "
-                      f"the rest failed (check Admin → Logs)."}
+            "detail": (f"⏳ Requeueing {n}bloated file(s) in the background… re-run "
+                       "\"Requeue bloated files\" to check progress.")}
 
 
 def _fmt_gb(gb: Any) -> str:

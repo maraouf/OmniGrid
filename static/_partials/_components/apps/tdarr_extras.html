@@ -58,23 +58,11 @@
             <div class="apps-card-stat-value" x-text="tdarrWorkers(tdarrData(inst))"></div>
           </div>
         </div>
-        <!-- Active workers — what each is transcoding right now (+ progress). -->
-        <div x-show="tdarrWorkersList(tdarrData(inst)).length" class="mt-2">
-          <div class="apps-card-stat-label mb-1" x-text="t('apps.tdarr.now_processing') || 'Now processing'"></div>
-          <div class="flex flex-col gap-1">
-            <template x-for="(w, wi) in tdarrWorkersList(tdarrData(inst))" :key="wi">
-              <div class="fs-3xs">
-                <div class="flex items-baseline gap-1.5 min-w-0">
-                  <span class="text-[var(--text-faint)] shrink-0" x-text="'⚙️ ' + w.node"></span>
-                  <span class="truncate text-[var(--text-dim)]" :title="w.file" x-text="w.file"></span>
-                  <span class="ms-auto mono shrink-0 text-[var(--text-faint)]" x-text="(Number(w.pct) || 0).toFixed(1) + '%'"></span>
-                </div>
-                <div class="stat-bar mt-0.5" role="progressbar" :aria-valuenow="Number(w.pct) || 0" aria-valuemin="0" aria-valuemax="100"
-                     :style="'--w:' + Math.max(0, Math.min(100, Number(w.pct) || 0)) + '%; --c: var(--primary)'"></div>
-              </div>
-            </template>
-          </div>
-        </div>
+        <!-- "Now processing" lives on the "Tdarr status" ACTION (skill button),
+             NOT here — the always-on extras card shows CACHED fetch_data, so its
+             worker list went stale; the skill re-fetches get-nodes live on click
+             and renders each active worker with a proper 2-colour progress bar
+             (apps-skill-item-bar). -->
         <!-- Library breakdowns: resolutions / video codecs / containers. -->
         <template x-for="bd in [
               { key: 'resolutions', label: (t('apps.tdarr.resolutions') || 'Resolutions') },

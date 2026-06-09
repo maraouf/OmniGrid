@@ -48,6 +48,7 @@ yields ``open_filtered`` so we mark them as such.
 from __future__ import annotations
 
 import asyncio
+import errno
 import random
 import socket
 import struct
@@ -233,7 +234,7 @@ def _snmp_probe(community: str = "public") -> bytes:
     varbind_list = bytes([0x30, len(varbind)]) + varbind
     # PDU: GetRequest [0xA0] { request-id INTEGER, error-status INTEGER, error-index INTEGER, varbind-list }
     request_id = random.randint(1, 0x7FFFFFFF)
-    rid_bytes = request_id.to_bytes(4)
+    rid_bytes = request_id.to_bytes(4, "big")  # explicit big-endian (matches the file's convention)
     pdu_body = (
         b"\x02\x04" + rid_bytes
         + b"\x02\x01\x00"  # error-status = 0
@@ -360,11 +361,22 @@ class _UdpProtocol(asyncio.DatagramProtocol):
             self._future.set_result(("open", data))
 
     def error_received(self, exc):
-        """asyncio DatagramProtocol hook: peer sent ICMP unreachable → mark closed."""
-        # ICMP error came back — typically ECONNREFUSED on Linux
-        # when the host returns "port unreachable". Marks closed.
-        if not self._future.done():
+        """asyncio DatagramProtocol hook: peer/router sent an ICMP error.
+
+        ONLY ICMP port-unreachable (ECONNREFUSED) means the host received the
+        probe and explicitly has nothing listening → ``closed``. Host-/net-
+        unreachable + admin-prohibited (EHOSTUNREACH / ENETUNREACH / EACCES,
+        ICMP type-3 codes 9/10/13 from a firewall or intermediate router) are
+        NOT a closed port — they're ``open_filtered`` (a filtered/blocked
+        path), not a definitive negative."""
+        if self._future.done():
+            return
+        eno = getattr(exc, "errno", None)
+        if eno == errno.ECONNREFUSED:
             self._future.set_result(("closed", str(exc)))
+        else:
+            # EHOSTUNREACH / ENETUNREACH / EACCES / anything else → filtered.
+            self._future.set_result(("open_filtered", str(exc)))
 
     def connection_lost(self, exc):
         """asyncio DatagramProtocol hook: transport gone early → mark open|filtered."""
@@ -461,11 +473,15 @@ async def udp_scan_host(
             "duration_ms": 0,
             "error": "no target",
         }
-    port_list = sorted({int(p) for p in ports if isinstance(p, int) or str(p).isdigit()})
+    port_list = sorted({int(p) for p in ports
+                        if (isinstance(p, int) or str(p).isdigit())
+                        and 0 < int(p) <= 65535})
     if not port_list:
         port_list = list(DEFAULT_UDP_PORTS)
     timeout_s = max(0.1, min(30.0, float(timeout_s or 3.0)))
-    concurrency = max(1, min(64, int(concurrency or 8)))
+    # Cap at the TCP ceiling (32), never above — UDP is intentionally LOWER
+    # than TCP (more IDS-visible), so the clamp must not allow 2x the TCP cap.
+    concurrency = max(1, min(32, int(concurrency or 8)))
     sem = asyncio.Semaphore(concurrency)
 
     async def _bounded(p: int) -> dict:

@@ -1074,7 +1074,9 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     if 0 <= apc_batt_pct <= 100 and (apc_batt_pct > 0 or apc_batt_status > 0):
         out["host_battery_percent"] = float(apc_batt_pct)
     apc_batt_temp = _coerce_int(apc.get(_OID_APC_UPS_BATT_TEMP_C))
-    if apc_batt_temp > 0:
+    # upsAdvBatteryTemperature is whole degrees C — bound out the sentinel
+    # rails so a garbage reading can't become a battery-temp pill.
+    if 0 < apc_batt_temp < 100:
         out["host_battery_temp_c"] = float(apc_batt_temp)
     # upsAdvBatteryRunTimeRemaining is in TimeTicks (centiseconds).
     apc_runtime_ticks = _coerce_int(apc.get(_OID_APC_UPS_BATT_RUNTIME))
@@ -1178,7 +1180,10 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     if syno_status > 0 and "host_health" not in out:
         out["host_health"] = _SYNO_STATUS_LABELS.get(syno_status, f"status={syno_status}")
     syno_temp = _coerce_int(syno.get(_OID_SYNO_SYSTEM_TEMP))
-    if syno_temp > 0:
+    # Bound-check like the Dell temp path — DSM reports whole degrees C, so a
+    # value outside 0..150 is the unsigned "no reading" sentinel (e.g. 65535),
+    # not a real temperature; don't render a 65535 °C card.
+    if 0 < syno_temp < 150:
         out["host_temp_c"] = float(syno_temp)
     syno_upgrade = _coerce_int(syno.get(_OID_SYNO_UPGRADE_AVAIL))
     if syno_upgrade > 0:
@@ -1712,8 +1717,13 @@ def extract_interfaces(
         # be ~4 GB, under the cap, looks legit). Marking the source
         # lets the chart cap tighter on 32-bit ifaces.
         hc_present = in_hc.get(idx) is not None or out_hc.get(idx) is not None
-        rx = in_hc.get(idx) or in_32.get(idx) or 0
-        tx = out_hc.get(idx) or out_32.get(idx) or 0
+        # Presence test, NOT truthiness: a genuinely-idle iface reads HC=0,
+        # and `0 or ...` would silently fall through to the 32-bit counter
+        # while hc_present/counter_width still says 64 — defeating the
+        # wrap-detection the counter_width tag drives.
+        _rx_hc, _tx_hc = in_hc.get(idx), out_hc.get(idx)
+        rx = _rx_hc if _rx_hc is not None else (in_32.get(idx) or 0)
+        tx = _tx_hc if _tx_hc is not None else (out_32.get(idx) or 0)
         speed_mbps = speeds.get(idx) or None  # None when ifHighSpeed not exposed
         iface_row = {
             "name": name,
@@ -1962,6 +1972,19 @@ _VALID_VENDOR_KEYS: frozenset[str] = frozenset(_VENDOR_SIGNATURES.keys())
 # Public alias for cross-module use (main.py's per-host SNMP vendor
 # validator + /api/me's `snmp_vendor_keys` block both consume this set).
 VALID_VENDOR_KEYS = _VALID_VENDOR_KEYS
+
+# Per-vendor walk-concurrency global-default tunable, keyed by vendor.
+# A typed-enum map (NOT a bare f-string `tuning_snmp_walk_concurrency_<v>`)
+# so the consumer goes through `Tunable.X` per the typed-key rule AND the
+# decorative-knob audit sees each per-vendor tunable as consumed. APC is
+# excluded (single-GET probe — no walk concurrency).
+_VENDOR_WALK_CONCURRENCY_TUNABLE: dict[str, _Tunable] = {
+    "cisco": _Tunable.SNMP_WALK_CONCURRENCY_CISCO,
+    "dell": _Tunable.SNMP_WALK_CONCURRENCY_DELL,
+    "printer": _Tunable.SNMP_WALK_CONCURRENCY_PRINTER,
+    "synology": _Tunable.SNMP_WALK_CONCURRENCY_SYNOLOGY,
+    "ucd": _Tunable.SNMP_WALK_CONCURRENCY_UCD,
+}
 
 
 async def probe_snmp(
@@ -2381,11 +2404,15 @@ async def probe_snmp(
                 and active_vendors != set(_VALID_VENDOR_KEYS)
             ):
                 only_vendor = next(iter(active_vendors))
-                vendor_key = f"tuning_snmp_walk_concurrency_{only_vendor}"
-                try:
-                    vendor_default = int(_tuning.tuning_int(vendor_key))
-                except (TypeError, ValueError, KeyError):
-                    vendor_default = 0
+                # Map vendor -> typed Tunable member (not a bare f-string key,
+                # per the typed-key-enum rule — and so the decorative-knob audit
+                # sees each per-vendor tunable as consumed).
+                vendor_tunable = _VENDOR_WALK_CONCURRENCY_TUNABLE.get(only_vendor)
+                if vendor_tunable is not None:
+                    try:
+                        vendor_default = int(_tuning.tuning_int(vendor_tunable))
+                    except (TypeError, ValueError, KeyError):
+                        vendor_default = 0
             if vendor_default > 0:
                 walk_concurrency_resolved = vendor_default
             else:
