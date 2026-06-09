@@ -24,6 +24,11 @@
 let _assetIndexSrc = null;
 let _assetIndex = null;
 let _assetDescriptorCache = null;
+// Memo for the cache-preview JSON tree HTML — keyed on the assets array ref
+// (a reload assigns a fresh ref, busting it). Same freshness contract as the
+// index above.
+let _assetPreviewSrc = null;
+let _assetPreviewHtml = null;
 
 function _ensureAssetIndex(assets) {
   if (_assetIndexSrc === assets) {
@@ -108,7 +113,7 @@ export default {
     // verify_tls flipped no amber ring (looked clean) yet locked Save
     // (the test-passed snapshot no longer matched). Baseline default is
     // "verify on" (true) when the server hasn't explicitly set it false.
-    if (!!f.verify_tls !== (s.verify_tls !== false)) {
+    if (Boolean(f.verify_tls) !== (s.verify_tls !== false)) {
       return true;
     }
     const fields = [
@@ -394,6 +399,74 @@ export default {
     } catch (e) {
       this.assetCache = {ok: false, error: String(e), assets: []};
     }
+  },
+  // --- Cache-preview JSON tree viewer ---------------------------------
+  // Collapsible JSON tree for the Admin → Asset Inventory snapshot preview
+  // (replaces the flat `JSON.stringify(..., 2)` <pre> dump). Objects + arrays
+  // render as native <details>/<summary> so the browser handles expand /
+  // collapse with zero JS state — each element folds independently. Memoized
+  // on the previewed slice's identity so a redundant reactive flush returns
+  // the same HTML string (Alpine skips the x-html write); the slice is a fresh
+  // array only when assetCache reloads, so no staleness.
+  assetPreviewJson() {
+    const arr = (this.assetCache && Array.isArray(this.assetCache.assets))
+      ? this.assetCache.assets.slice(0, 10) : [];
+    // Memo key = the source assets ref + the (fixed) slice length; a reload
+    // assigns a fresh assetCache.assets ref which busts it.
+    const src = (this.assetCache && this.assetCache.assets) || null;
+    if (_assetPreviewSrc === src && _assetPreviewHtml !== null) {
+      return _assetPreviewHtml;
+    }
+    _assetPreviewSrc = src;
+    _assetPreviewHtml = this._jsonTree(arr, null, 0);
+    return _assetPreviewHtml;
+  },
+  // Recursive JSON → collapsible-HTML builder. `depth < 2` opens by default
+  // (the array + each asset object) and deeper nodes start collapsed so a
+  // wide record stays scannable. XSS-safe — every key + value goes through
+  // `_logEscape`.
+  _jsonTree(value, key, depth) {
+    const esc = (s) => this._logEscape(String(s));
+    const keyHtml = (key === null || key === undefined)
+      ? ''
+      : '<span class="json-key">' + esc(key) + '</span><span class="json-punct">: </span>';
+    const openAttr = (depth < 2) ? ' open' : '';
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '<div class="json-row">' + keyHtml + '<span class="json-empty">[ ]</span></div>';
+      }
+      const children = value.map((v, i) => this._jsonTree(v, i, depth + 1)).join('');
+      return '<details class="json-node"' + openAttr + '><summary class="json-summary">'
+        + keyHtml + '<span class="json-bracket">[</span><span class="json-count">'
+        + value.length + '</span><span class="json-bracket">]</span></summary>'
+        + '<div class="json-children">' + children + '</div></details>';
+    }
+    if (value && typeof value === 'object') {
+      const keys = Object.keys(value);
+      if (keys.length === 0) {
+        return '<div class="json-row">' + keyHtml + '<span class="json-empty">{ }</span></div>';
+      }
+      const children = keys.map((k) => this._jsonTree(value[k], k, depth + 1)).join('');
+      return '<details class="json-node"' + openAttr + '><summary class="json-summary">'
+        + keyHtml + '<span class="json-bracket">{</span><span class="json-count">'
+        + keys.length + '</span><span class="json-bracket">}</span></summary>'
+        + '<div class="json-children">' + children + '</div></details>';
+    }
+    let cls = 'json-null';
+    let txt = 'null';
+    if (typeof value === 'string') {
+      cls = 'json-str';
+      txt = '"' + esc(value) + '"';
+    } else if (typeof value === 'number') {
+      cls = 'json-num';
+      txt = esc(value);
+    } else if (typeof value === 'boolean') {
+      cls = 'json-bool';
+      txt = String(value);
+    } else if (value !== null && value !== undefined) {
+      txt = esc(value);
+    }
+    return '<div class="json-row">' + keyHtml + '<span class="' + cls + '">' + txt + '</span></div>';
   },
   // Look up an asset by the host's custom_number. Walks the cached
   // asset list each call — N is small (tens of hosts) so a linear

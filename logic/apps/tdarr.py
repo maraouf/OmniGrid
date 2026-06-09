@@ -962,6 +962,9 @@ async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
 # both "failed" and "cancelled" transcodes. Tuple so it's trivially extensible
 # if a Tdarr build uses an additional error label.
 _FAILED_STATUSES = ("Transcode error",)
+# Lowercased lookup set for the case-insensitive client-side match in
+# _file_failed (the server-side cruddb filter is ignored — see _find_failed).
+_FAILED_STATUSES_LC = frozenset(s.strip().lower() for s in _FAILED_STATUSES)
 # Max files requeued per failed-requeue invocation — bounds the synchronous
 # operation under the per-app route budget. The failed set is normally small (a
 # filtered getAll returns only error files, NOT the whole library like the
@@ -969,11 +972,26 @@ _FAILED_STATUSES = ("Transcode error",)
 _FAILED_REQUEUE_CAP = 1000
 
 
+def _file_failed(f: dict) -> bool:
+    """True when a FileJSONDB record represents a FAILED / cancelled transcode.
+    Matches the ``TranscodeDecisionMaker`` value against ``_FAILED_STATUSES``
+    (case-insensitive, trimmed) — the canonical Tdarr "Transcode error" bucket."""
+    if not isinstance(f, dict):
+        return False
+    tdm = str(f.get("TranscodeDecisionMaker") or "").strip().lower()
+    return tdm in _FAILED_STATUSES_LC
+
+
 async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
-    """Every file whose transcode FAILED / was cancelled (``TranscodeDecisionMaker``
-    in ``_FAILED_STATUSES``), de-duped by ``_id``. A FILTERED ``getAll`` — Tdarr
-    returns only the matching error files (small), so this is fast (unlike
-    ``_find_bloated`` which walks the full library to compute ratios)."""
+    """Every file whose transcode FAILED / was cancelled
+    (``TranscodeDecisionMaker`` in ``_FAILED_STATUSES``), de-duped by ``_id``.
+
+    IMPORTANT — the cruddb ``getAll`` ``filters`` clause is BEST-EFFORT and Tdarr
+    IGNORES it (it returns EVERY file regardless), so we MUST CLIENT-SIDE filter
+    on the actual ``TranscodeDecisionMaker`` value. Trusting the server-side
+    filter is the bug that requeued the WHOLE library instead of just the failed
+    files. (``_find_bloated`` survives the same ignored-filter only because it
+    additionally filters by ``newVsOldRatio > 100`` client-side.)"""
     raw: list = []
     for status in _FAILED_STATUSES:
         r = await _cruddb(cli, base, api_key, {
@@ -982,7 +1000,23 @@ async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
                          "key": "TranscodeDecisionMaker", "value": status}]})
         raw.extend(as_list(r))
     uniq = {f.get("_id"): f for f in raw if isinstance(f, dict) and f.get("_id")}
-    return list(uniq.values())
+    failed = [f for f in uniq.values() if _file_failed(f)]
+    # Diagnostic: if NOTHING matched but the library isn't empty, the status
+    # value may differ on this Tdarr build — log the distinct decision values
+    # seen so the operator (and we) can refine _FAILED_STATUSES.
+    if not failed and uniq:
+        seen: dict = {}
+        for f in uniq.values():
+            k = str(f.get("TranscodeDecisionMaker") or "?").strip() or "?"
+            seen[k] = seen.get(k, 0) + 1
+        top = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)[:8]
+        print(f"[tdarr] INFO find_failed: 0 matched _FAILED_STATUSES={_FAILED_STATUSES} "
+              f"out of {len(uniq):,} files; distinct TranscodeDecisionMaker values: "
+              + ", ".join(f"{k!r}={n}" for k, n in top))
+    else:
+        print(f"[tdarr] INFO find_failed: {len(failed):,} failed of {len(uniq):,} "
+              f"file(s) scanned (client-side filtered — server filter is ignored)")
+    return failed
 
 
 async def _requeue_failed_skill(host_row: dict, chip: dict, *,
