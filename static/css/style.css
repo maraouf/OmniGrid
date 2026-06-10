@@ -10303,6 +10303,14 @@ select.field-invalid {
   grid-column: span 6;
 }
 
+/* HEIGHT row-span for the masonry packing — a tall tile (300px = 2× the
+   150px short height) spans TWO row tracks; short tiles default to one
+   track. Paired with `grid-auto-rows: var(--apps-card-h-short)` +
+   `grid-auto-flow: row dense` on `.apps-section-grid` above. */
+.apps-section-grid > .apps-card--height-tall {
+  grid-row: span 2;
+}
+
 /* Responsive collapse — the fixed 12-column grid is a DESKTOP layout; on
    narrower viewports it would either shrink every tile to a sliver (a
    span-2 half = 1/6 of a phone) or let a span-6 xlarge overflow the row.
@@ -12365,6 +12373,18 @@ select.field-invalid {
 @media (max-width: 639px) {
   .apps-custom-cell.apps-card-flip:not(.apps-card--editing):has(.apps-card) {
     height: auto;
+  }
+
+  /* Drop the fixed-track masonry on mobile — app/bookmark cards go
+     height:auto here, so a fixed 150px row track would clip them. Rows
+     size to content; tall tiles no longer span a 2nd fixed track. */
+  .apps-section-grid {
+    grid-auto-rows: auto;
+    grid-auto-flow: row;
+  }
+
+  .apps-section-grid > .apps-card--height-tall {
+    grid-row: auto;
   }
 }
 
