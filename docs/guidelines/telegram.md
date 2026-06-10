@@ -156,6 +156,13 @@ with bold section headers + emoji prefixes:
     pull-and-recreate every item flagged `update_available`. Same
     per-row update path the SPA uses; respects the destructive gate
     (`telegram_allow_destructive` or the `confirm` suffix).
+  - `/skills` — List the per-app skill roster, one tappable entry per
+    pinned app. Each pinned app whose module declares skills also gets
+    a DYNAMIC `/<skill_id>` command (e.g. `/run_speedtest`,
+    `/adguard_status`) — routed and shown in `/help` but kept OUT of the
+    BotFather autocomplete menu so it doesn't balloon. Destructive
+    skills ride the same typed-confirm gate; fleet skills (AdGuard /
+    Pi-hole) run host-less.
 - **🔗 Account**
   - `/link <code>` — Link your Telegram account to an OmniGrid user
     (code minted in Profile → Telegram)

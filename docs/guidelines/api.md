@@ -597,7 +597,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
   https://omnigrid.example.com/api/swarm/restart-agent | jq
 ```
 
-Returns `{op_id}`. The op's `op_type` is `swarm_agent_restart`; success / failure fires
+Returns `{op_id}`. The op's `op_type` is `restart_swarm_agent`; success / failure fires
 the `swarm_agent_restart_success` / `swarm_agent_restart_failure` notification events.
 
 ### Per-node prune
@@ -844,6 +844,7 @@ chip across every host).
 | `POST`   | `/api/services/{host_id}/{service_idx}/test-credential`  | Per-app credential test (e.g. Speedtest Tracker API key, future per-app auth probes). Slug-keyed dispatcher resolves the chip's catalog template and routes to the matching `logic/apps/<slug>.py` module. Returns `{ok, detail}`.                                                                                                                                                                                                                                                                                                      |
 | `POST`   | `/api/services/{host_id}/{service_idx}/skill/{skill_id}` | Run one per-app SKILL — the same action surface the AI palette / Telegram bot invoke and the app-drawer skill buttons fire. Slug-keyed dispatcher resolves the chip's catalog template, validates `skill_id` against the module's `SKILLS` tuple, and delegates to `run_skill`. Body may carry `{arg}` for arg-taking skills (e.g. Radarr "add a movie"). Returns the skill's `{ok, detail, status?}`. Fleet skills (AdGuard / Pi-hole) act across every instance regardless of the chosen chip. Writes a `services_skill` history row. |
 | `GET`    | `/api/services/{host_id}/{service_idx}/app-data`         | Per-app expanded-card data (e.g. Speedtest Tracker latest / average / sparkline points; APC UPS battery / load / runtime). Slug-keyed dispatcher; returns the shape the matching `static/js/apps/<slug>.js` extras renderer expects.                                                                                                                                                                                                                                                                                                    |
+| `GET`    | `/api/services/{host_id}/{service_idx}/image-proxy?path=<opaque>` | Per-app authenticated image proxy. Routes a poster / avatar fetch that needs the app's OWN credential (Tautulli / Plex art, Bazarr posters behind `X-API-KEY`, Forgejo avatars, Seerr `/avatarproxy/`) through the module's `image_proxy_url(...)` hook so the credential never reaches the browser DOM. Tight SSRF guard on the opaque `path` (rejects `://` / `..`; joins to the chip's own base OR a small public allowlist). Streams `image/*` only, 10 MB cap, 1-day cache. 400 for apps without the hook.                            |
 | `GET`    | `/api/apps/views`                                        | **Any signed-in user (not admin-only).** Custom dashboards ("views") visible to the caller — their own (any visibility) PLUS every public one. Other users' private views are never returned, not even to admins. Each row carries `{id, name, layout, visibility, edit_permission, owner_username, is_owner, can_edit, can_manage, updated_at}`.                                                                                                                                                                                       |
 | `POST`   | `/api/apps/views`                                        | **Any signed-in user.** Create a custom dashboard owned by the caller. Body `{id?, name, layout, visibility?, edit_permission?}` (`visibility` `private`/`public`, default private; `edit_permission` `owner`/`all`, default owner). Also the SPA's first-load migration path for pre-existing local (ui_prefs) views. Writes an `app_view_create` history row.                                                                                                                                                                         |
 | `PUT`    | `/api/apps/views/{id}`                                   | **Any signed-in user.** Update a dashboard. `name`/`layout` require edit rights (owner, or a public `edit_permission=all` view for non-readonly users); `visibility`/`edit_permission` require **ownership**. 403 otherwise; 404 hides others' private views. Writes an `app_view_update` history row.                                                                                                                                                                                                                                  |
@@ -875,28 +876,46 @@ AI / Telegram action — but only surfaces when the app's extras are enabled and
 (`FLEET_SKILLS = True`) run a skill across every pinned instance regardless of
 the chosen chip.
 
-Current per-app roster:
+Current per-app roster (23 modules; the canonical list is
+`logic/apps/registry.py`'s import block):
 
-| App                            | Slug(s)                                | Auth                          | Skills                                                                                             |
-|--------------------------------|----------------------------------------|-------------------------------|----------------------------------------------------------------------------------------------------|
-| Speedtest Tracker              | `speedtest-tracker`                    | Bearer api_key                | latest / run-test                                                                                  |
-| APC UPS                        | `apcupsd` (SNMP-backed)                | none                          | battery / load / runtime (frontend-only extras)                                                    |
-| Radarr                         | `radarr`                               | api_key                       | status / upcoming / queue / look-up / add / remove / search-missing / refresh                      |
-| Sonarr                         | `sonarr`                               | api_key                       | status / upcoming / queue / look-up / add / remove / search-missing / refresh                      |
-| Lidarr                         | `lidarr`                               | api_key                       | status / upcoming / queue / artist look-up / add-artist / remove-artist / search-missing / refresh |
-| Readarr                        | `readarr`                              | api_key                       | status / upcoming / queue / author look-up / add-author / remove-author / search-missing / refresh |
-| Bazarr                         | `bazarr`                               | api_key                       | status / search-missing / list-missing                                                             |
-| Seerr (Overseerr / Jellyseerr) | `seerr` (+ `overseerr` / `jellyseerr`) | api_key (+ optional TMDB key) | status / request-movie / suggest-movie                                                             |
-| AdGuard Home                   | `adguardhome` (+ aliases)              | HTTP Basic                    | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
-| Pi-hole                        | `pihole` (v6)                          | password-only (SID auth)      | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
-| AdGuard Home Sync              | `adguardhome-sync` (+ aliases)         | HTTP Basic (optional)         | status / sync-now / logs / clear-logs                                                              |
-| ddns-updater                   | `ddns-updater`                         | none (HTML-table scrape)      | status / update-now                                                                                |
+| App                            | Slug(s)                                       | Auth                          | Skills (summary)                                                                                   |
+|--------------------------------|-----------------------------------------------|-------------------------------|----------------------------------------------------------------------------------------------------|
+| Speedtest Tracker              | `speedtest-tracker` / `speedtest`             | Bearer api_key                | run-test / latest                                                                                  |
+| APC UPS                        | `apc` (SNMP-backed)                           | none                          | battery / load / runtime (frontend-only extras)                                                    |
+| Radarr                         | `radarr`                                      | api_key (X-Api-Key)           | status / upcoming / queue / queue-delete / look-up / add / remove / search-missing / refresh       |
+| Sonarr                         | `sonarr`                                      | api_key (X-Api-Key)           | status / upcoming / queue / queue-delete / look-up / add / remove / search-missing / refresh       |
+| Lidarr                         | `lidarr`                                      | api_key (X-Api-Key)           | status / upcoming / queue / queue-delete / artist look-up / add / remove / search-missing / refresh |
+| Readarr                        | `readarr`                                     | api_key (X-Api-Key)           | status / upcoming / queue / queue-delete / author look-up / add / remove / search-missing / refresh |
+| Prowlarr                       | `prowlarr`                                    | api_key (X-Api-Key)           | status / indexers / app-sync / search / available-indexers / add-indexer / add-bulk / fix-flaresolverr |
+| Bazarr                         | `bazarr`                                      | api_key (X-API-KEY)           | status / search-wanted / wanted                                                                    |
+| qBittorrent                    | `qbittorrent`                                 | session cookie (user + pass)  | status / downloading / list / add / delete / resume-all / pause-all / vuetorrent-check / vuetorrent-update |
+| Seerr (Overseerr / Jellyseerr) | `seerr`                                       | api_key (X-Api-Key) + opt. TMDB | status / requests / request-movie / suggest-movie / set-filter / show-filters                     |
+| Plex                           | `plex`                                        | X-Plex-Token (OAuth PIN flow) | status / now-playing / recently-added / search / scan                                              |
+| Jellyfin                       | `jellyfin`                                    | api_key                       | status / now-playing / recently-added / search / scan (shared `_emby` base)                         |
+| Emby                           | `emby`                                        | X-Emby-Token                  | status / now-playing / recently-added / search / scan (shared `_emby` base)                         |
+| Tautulli                       | `tautulli`                                     | api_key (query param)         | status / activity / libraries / recently-added / history                                           |
+| Tracearr                       | `tracearr`                                    | public-API bearer token       | status / streams / servers / violations / terminate                                                |
+| Kavita                         | `kavita`                                       | JWT (exchanged from api_key)  | status / libraries / search / scan                                                                 |
+| Forgejo                        | `forgejo`                                       | api_key (Forgejo token)       | status / repos / PRs / issues / search / starred / mark-read                                       |
+| Tdarr                          | `tdarr`                                        | api_key                       | status / bloated / requeue-bloated / requeue-failed                                                |
+| AdGuard Home                   | `adguard-home` / `adguardhome` / `adguard`    | HTTP Basic                    | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
+| Pi-hole                        | `pihole` / `pi-hole` / `pihole-v6`            | password-only (SID auth)      | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
+| AdGuard Home Sync              | `adguardhome-sync` (+ aliases)                | HTTP Basic (optional)         | status / sync-now / logs / clear-logs                                                              |
+| ddns-updater                   | `ddns-updater`                                | none (HTML-table scrape)      | status / update-now                                                                                |
+| Apprise                        | `apprise`                                       | none (config-key in api_key)  | status / test / notify                                                                              |
 
-Two of these read from upstreams that expose **no JSON API**: ddns-updater
-parses its web-UI HTML table (each cell carries a `data-label` attribute), and
-AdGuard Home Sync best-effort scrapes its root page for the version string. The
-HTML-scrape pattern is a reusable convention for any future app whose only
-machine-readable surface is its rendered UI.
+AdGuard Home and Pi-hole are **fleet** modules (`FLEET_SKILLS = True`): one
+aggregated card across every pinned instance and skills that fan out fleet-wide
+regardless of the chosen chip. Two apps read from upstreams that expose **no JSON
+API**: ddns-updater parses its web-UI HTML table (each cell carries a `data-label`
+attribute), and AdGuard Home Sync best-effort scrapes its root page for the version
+string. The HTML-scrape pattern is a reusable convention for any future app whose
+only machine-readable surface is its rendered UI. Jellyfin and Emby share the
+`_emby.py` base; the *arr family (Radarr / Sonarr / Lidarr / Readarr / Prowlarr)
+shares `_servarr.py`. Several modules use a per-app server-side image proxy
+(`/api/services/{host}/{idx}/image-proxy`) to fetch authenticated poster / avatar
+art without leaking the credential into the browser DOM.
 
 ### HTTP probe one-shot (admin-only)
 

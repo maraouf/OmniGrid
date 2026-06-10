@@ -26,233 +26,452 @@ Items shipped to the live deploy via the daily PATCH cadence that are
 not yet rolled into a tagged `MINOR` release. The next MINOR cut renames
 this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
-### Added
+## [1.6.0] — 2026-06-10
 
-- **Port-scan history is now cleaned up on a retention window.** Detected-open-port rows (written by the host-drawer Scan-ports button and the recurring port-scan refresh schedule) were kept forever; they're now pruned after a configurable number of days (Admin → Port Scan / Admin → Config, default 90, set 0 to keep everything).
-- **Your own profile, avatar, and notification-preference changes now show up in Admin → History.** Self-service edits to your display name / avatar / per-event notification opt-ins are recorded with your username, completing the audit trail (password and two-factor changes were already recorded).
-- **Apps — Tdarr integration (transcode pipeline + bloated-file cleanup).** Tdarr instances pinned via Admin → Apps get an expanded card showing tracked **Files**, the **Transcode queue** + **Health queue** depths, total **Transcodes** + **Health checks** done, total **Space saved**, and active **Workers**, plus the library's **Resolutions**, **Video codecs**, and **Containers** breakdowns. **What each worker is processing right now** (with a live 2-colour progress bar showing the percentage) is shown on demand via the **Tdarr status** action so it always reflects the current moment rather than a cached snapshot. Tdarr is open by default so no key is needed — an optional **API key** field covers servers with authentication enabled. The AI assistant and Telegram bot get a Tdarr skill set: **Tdarr status** (what each worker is transcoding right now, with progress), **Check bloated files** (files that ended up *larger* after transcoding), **Requeue bloated files** (reset them to re-transcode — confirmation required), and **Requeue failed transcodes** (retry every failed / cancelled transcode — confirmation required). (Data comes from Tdarr's v2 API — the cruddb statistics doc + get-nodes — cached server-side with a refresh
-  interval configurable per instance.) The **Check bloated files** / **Requeue bloated files** scan (a large, slow database query) now runs in the background and **updates on its own** — click once and the result (or live requeue progress) appears automatically when ready, so it no longer times out at the reverse proxy on large libraries. The bloated-file list renders as **clean per-file rows** (filename + a colour-coded severity ratio + a "how bloated" bar) instead of a wall of text, with a one-click **Requeue** button right on the result (in the web assistant, the app drawer, and as a Telegram inline button) so you can re-transcode them without retyping. Because requeue is a change, it respects your confirmation settings — the web assistant shows an inline Yes/Cancel in approval mode (and runs straight away in autonomous mode), the drawer asks to confirm, and the Telegram button honours the "Allow destructive commands" setting. On Telegram, a background job like the bloated scan or requeue now sends a follow-up message with the final count when it finishes (e.g. "✅ Requeued N bloated files"), so you're told when it's done.
-- **Image proxy now caches fetched images to disk — faster repeat loads.** When OmniGrid fetches an image server-side (the TMDB poster proxy and the per-app cover / avatar proxy), it now caches the bytes on the data volume so the same picture isn't re-downloaded on every view. A poster shared across providers — the same movie in Radarr, Seerr, and Tracearr, all pointing at the identical TMDB URL — downloads once and loads instantly everywhere after. The cache lifetime and a max-entries cap are configurable in Admin → Config (**Image cache TTL**, default 7 days — set to 0 to disable; **Image cache max entries**, default 5000).
-- **Apps — Tracearr integration (Plex / Jellyfin / Emby fleet monitoring).** Tracearr instances pinned via Admin → Apps gain a per-instance **API token** field (Tracearr → Settings → API — the public read-only token, prefixed `trr_pub_`) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows **Active streams**, **Transcodes**, total **Bandwidth**, **Servers** (online / total across your media fleet), **Users**, and **Violations** (account-sharing detections in the last 7 days), plus a Tracearr version + 30-day play-count footnote. The AI assistant and Telegram bot get a Tracearr skill set: **Tracearr status** (fleet activity, transcode count + bandwidth, violation summary), **Who's watching now** (current streams across every server — each with poster, the watching user + server, the **Direct Play / Direct Stream / Transcode** decision, **elapsed / total** time, and a progress bar, with a per-stream **Terminate**
-  button to stop playback), **List media servers** (each server's online state + active streams), **Recent violations** (flagged account-sharing), and **Terminate a stream** (stop an active playback — confirmation required). The expanded card also draws a **plays-over-time** sparkline (last 30 days), a **streaming-quality** breakdown bar (Direct Play / Direct Stream / Transcode with percentages), and the **top platforms** by play count. (Data comes from Tracearr's read-only Public API — `/stats` + `/health` + `/streams` + `/violations` + `/activity` — cached server-side with a refresh interval configurable per instance; poster + user-avatar art loads through the in-app image proxy.)
-- **Apps — qBittorrent can check (and update) its VueTorrent WebUI from the AI.** Ask the assistant *"is VueTorrent up to date?"* and it compares the running WebUI version against the latest VueTorrent release on GitHub. If it's behind, *"update VueTorrent"* (or the drawer's **Update VueTorrent WebUI** button) connects to the host over SSH, downloads and unpacks the new release next to the current one, and repoints qBittorrent at it — no manual file juggling or config editing. (The update needs SSH enabled for that host in Admin → Hosts; it's audited like every other SSH run.)
-- **Apps — jump from a Docker-linked app straight to its stack drawer.** When an app instance is linked to a Docker container or stack (the "Link to Docker" feature), the app drawer now has an **Open in Stacks** button next to Restart / Update / Logs. Clicking it takes you to the Stacks view and opens that container's / service's detail drawer — one click from "I'm looking at this app" to "I'm managing its Docker stack." Available to everyone (it's just navigation); shown only when the link resolves to a running item.
-- **Apps — Apprise integration (notification gateway at a glance + send notifications from the AI).** Apprise (caronc/apprise-api — the notification fan-out OmniGrid itself uses) instances pinned via Admin → Apps get an expanded card showing how many **notification endpoints** are configured, which **services** they route to (Telegram / Discord / Email / …), and the **routing tags** you can target — read from `GET /json/urls/<key>` with secrets masked, so no credential is ever shown. No API key needed (point the instance URL at the apprise-api root, or paste the full `.../notify/<key>` URL). The AI assistant and Telegram bot get a skill set: **Apprise status**, **Send a test notification**, and **Send a notification** — ask the assistant to *"send a notification saying the backup finished"* or target a tag with *"send a notification to \[admins] the disk is full"* and it fires it through Apprise.
-- **Apps — richer media-list skill results (posters, progress, quick actions).** Skills that list media now render each title with a small poster thumbnail + date instead of a plain text list — a richer at-a-glance view. Live across the media app family — the *arr **Upcoming** lists and **Download queues** (Radarr / Sonarr / Lidarr / Readarr), Seerr **List requests** (now also a one-click drawer button), Bazarr **missing subtitles**, and Tautulli / Plex **Recently added**. A **Download queue** row also shows a progress bar and a per-row **Remove from queue** button (removes the download from the client too). Posters load through the in-app image proxy; titles without a poster show a placeholder.
+Sixth MINOR cut on top of `1.5.0` — rolls up **326 closed issues** under the 1.6.0 milestone (211 enhancements, 115 bug fixes). Every entry shipped to the live deploy as a PATCH bump on the daily CI cadence; this MINOR bundles them under a single tag for rollback / changelog purposes.
 
-- **Admin → Apps — "has extra features" indicator.** Each instance in the Apps list now shows a small lightning icon when that app has a built-in integration (live card data + AI / Telegram skills) — alongside the existing Docker-link icon — so it's clear at a glance which pinned apps offer the extras.
+### Highlights
 
-- **Apps — Tautulli integration (Plex activity + statistics).** Tautulli instances pinned via Admin → Apps gain a per-instance **API key** field (Tautulli → Settings → Web Interface → API key) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows active **Streams**, **Transcodes**, total **Bandwidth**, and **Libraries**, plus a Tautulli version + total-items footnote. The AI assistant and Telegram bot get a Tautulli skill set: **Tautulli status**, **Who's watching now** (current Plex streams), **List Plex libraries**, **Recently added**, and **Watch history**. **"Who's watching now" renders visually** — each active stream shows the title poster, the watching user's avatar and name, the device + play state + direct-play/transcode decision, and a progress bar — instead of a single text line.
+- Major app-integration expansion — new per-app integrations wired end-to-end for Plex, Jellyfin, Emby, Tautulli, Tdarr, Tracearr, Kavita, Seerr (Overseerr / Jellyseerr), AdGuard Home Sync, ddns-updater, Apprise and Forgejo, each following the per-app encapsulation pattern with editor + extras partials, catalog templates, icons and AI skills.
+- *arr stack & transcoding — Sonarr / Radarr / Lidarr / Readarr / Prowlarr / Bazarr / qBittorrent extras, Prowlarr add-indexer from AI / Telegram, and a full Tdarr workflow (check-bloated, requeue-bloated, requeue-failed) with background scans, auto-poll, measured ETAs and rich per-file result UIs.
+- Apps page & custom dashboard — "By app" cards redesigned (logo left, content right), multiple named custom-dashboard views with per-view private/public visibility + edit permissions, per-app data-cache TTL configurable in the app, and per-app action (skill) buttons gated on the per-instance "show extras" toggle.
+- Telegram bot — expanded command help + arg-skill command handling, AI free-text grounded in real fleet state, per-pending-skill polling so long background jobs (e.g. Tdarr requeue) report completion automatically, and destructive-action confirm gating that honours each surface's policy.
+- Stats dashboard — slow-query investigation plus event-loop-blocking fixes, chart memoization, Samples KPIs + i18n, and a performance pass that chunked / offloaded the retention prunes.
+- Prayer Times & Weather — prayer reminders (a notification N minutes before each prayer, per-user opt-in with per-user medium selection across in-app / Telegram / Apprise), Prayer-Times admin fixes, and weather-sampler additions.
+- AI assistant — answers per-host telemetry questions directly and auto-resolves a single matching host; host-status accuracy fix so it no longer mislabels reachable "problem" hosts as Down.
+- HTTP / Service probe correctness — UDP + legacy-TLS endpoint handling, SNI / TLS unrecognized-name fixes, the Accepted-status-codes (CSV) field no longer clearing on keystroke, and open-as-URL port links no longer appending health-check probe paths.
+- Stability & performance — the tracemalloc default-ON crash-loop root-caused and fixed; SPA perf work (xterm.js lazy-load, `x-show` → `x-if` unmounting of costly subtrees, sprite-preload + requestAnimationFrame violation cleanups); per-app first-load paint fixes.
+- Hosts & discovery — port-scan default coverage extended to common TCP + UDP service ports, an Asset-Inventory collapsible JSON-tree viewer, Discovery-wizard improvements, scan-only port surfacing, and Apps-instance grouping (by host / service / none).
+- Security — CodeQL SSRF + path-injection findings resolved, plus UTF-8 encoding hardening on file reads.
+- Provider chips, icons & status pills + cross-app polish — unified Test-connection component, reload-button consistency, app-extras presentation unified across all apps, and a top-bar recent-tabs privacy fix (a user only ever sees their own tabs).
 
-- **Apps dashboard — tiles now fill the row cleanly (no wasted right-edge gap).** The custom-dashboard grid moved to a fixed 12-column layout so the four tile widths always tile flush — e.g. three 3-wide tiles fill the row edge-to-edge instead of leaving an empty strip on the right. Narrow screens collapse to 2-up, then a single stacked column. The Prayer Times and Public IP widgets adapt to the now-wider 2x1 tile: prayers show as a side list focused on the next prayer, and the public IP shrinks so the ISP / ASN / location details stay visible.
+### Telegram bot
 
-- **Apps — qBittorrent integration (live transfer view + torrent actions, multi-instance).** qBittorrent instances pinned via Admin → Apps get a per-instance **username + password** (qBittorrent → Tools → Options → Web UI) with a Test-connection button — the password is stored encrypted-at-rest. The card shows what the client is doing right now: **Downloading**, **Seeding**, **Paused**, and **Total** torrent counts plus a live **⬇ download / ⬆ upload** speed row and the qBittorrent version. You can run **several** qBittorrent instances (e.g. a seedbox and a local box) — each gets its own card, and the AI assistant and Telegram bot target a **specific** instance (give each chip a distinct name so you can say "pause all on the seedbox"; over Telegram, an ambiguous command lists the hosts and asks which one). Skills: **qBittorrent status**, **List torrents** (optionally filtered by state — downloading / seeding / paused / completed / all), **Add a torrent** (by magnet link or .torrent
-  URL), **Resume all torrents**, and **Pause all torrents** (destructive-confirm). (Auth uses qBittorrent's WebUI session login; works with v4 and v5. Leave the credentials blank only if the WebUI bypasses auth for the OmniGrid host.)
-- **Apps — share your custom dashboards (private or public, read-only or editable).** The named custom dashboards on the Apps tab can now be shared with other users. Each dashboard has a **visibility** setting — **Private** (only you can see it) or **Public** (everyone signed in can see it) — and, when public, an **edit permission** — **Read-only** (others can view it, only you can change it) or **Editable** (anyone except read-only users can rearrange it). Only the owner can delete a dashboard or change its sharing settings; the picker shows a **"Shared by …"** badge on dashboards you don't own and a **Public · Editable / Read-only** badge on your shared ones, and a read-only board hides its edit controls (duplicate it to make your own editable copy). Existing dashboards are automatically migrated to private on first load — nothing changes until you choose to share. (Dashboards now live server-side so they can be shared across accounts.)
-- **Apps — Plex integration (library at a glance + now-playing + AI actions).** Plex Media Server instances pinned via Admin → Apps gain a per-instance **Plex token** field (any `X-Plex-Token`) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows **Movies**, **Shows**, **Music**, and **Now playing** (active streams, highlighted when someone's watching), plus a libraries count + Plex version footnote. The AI assistant and Telegram bot get a Plex skill set: **Plex status** (library summary), **What's playing on Plex** (who's streaming what, with progress), **Recently added to Plex**, **Search Plex** (find a title across your whole library), and **Scan Plex libraries** (re-index every section for new media). (Counts come from the PMS HTTP API — library sections + per-section totals + the active-sessions endpoint — cached server-side with a refresh interval configurable per instance.) **Sign in to Plex (no token to
-  copy):** the editor has a **"Sign in to Plex"** button that runs Plex's OAuth flow — click it, authorise in the plex.tv popup, and your token is fetched and filled in automatically (the same seamless flow Tautulli / Overseerr use). Pasting a token by hand still works as a fallback. **"What's playing on Plex" now renders visually:** each active stream shows the title poster, the watching user's avatar and name, the device, and a progress bar — instead of a single text line.
-- **Apps — Jellyfin integration (library at a glance + now-playing + AI actions).** Jellyfin media-server instances pinned via Admin → Apps gain a per-instance **API key** field (Dashboard → API Keys) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows **Movies**, **Series**, **Songs**, and **Now playing** (active streams, highlighted when someone's watching), plus a libraries + episodes + version footnote. The AI assistant and Telegram bot get a Jellyfin skill set: **Jellyfin status** (a per-library breakdown — every library listed with its item count, plus the aggregate totals), **What's playing on Jellyfin** (who's streaming what — with title posters, the watching user's avatar, device + play state, and a progress bar), **Recently added to Jellyfin** (grouped by the actual library each item belongs to, with artwork), **Search Jellyfin** (find a title across your whole library), and **Scan Jellyfin libraries** (re-index for new media). (Data comes from Jellyfin's REST API — Items/Counts + Sessions + System/Info — cached server-side with a refresh interval configurable per instance; posters and avatars are proxied so the API key never reaches the browser.)
-- **Apps — Emby integration (library at a glance + now-playing + AI actions).** Emby media-server instances pinned via Admin → Apps gain the same expanded card and skill set as Jellyfin (Jellyfin is an Emby fork, so they share the REST API): a per-instance **API key** field (Settings → Advanced → API Keys) with a Test-connection button, a **Movies / Series / Songs / Now playing** card, and the **Emby status / What's playing on Emby** (posters + avatars + progress) **/ Recently added / Search / Scan** skills for the AI assistant and Telegram bot. Emby is a brand-new app template in Admin → Apps (with its icon), so you can pin and monitor it directly.
-- **Apps — Forgejo integration (git server at a glance + repo/PR/issue actions).** Forgejo (self-hosted Git service) instances pinned via Admin → Apps gain a per-instance **API token** field (Settings → Applications — read-only scopes are enough) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows **Repos**, **Open PRs**, **Open issues**, and **Notifications** (highlighted when you have unread ones), plus a Forgejo version footnote. The AI assistant and Telegram bot get a Forgejo skill set: **Forgejo status** (repo / PR / issue / notification summary), **Recently updated repos** (each with the owner's avatar and a star / fork / language line), **Open pull requests** and **Open issues** (each with the author's avatar and the repo + number), and **Search repos** (find a repository by name across everything the token can see). (Counts come from the Gitea-compatible REST API — the `X-Total-Count` header on the repos / issues / notifications endpoints — cached server-side with a refresh interval configurable per instance; owner / author avatars are proxied so the token never reaches the browser.)
-- **Stats dashboard — six quick-summary cards.** The dashboard now surfaces the headline number from each of the deeper Stats pages so you get a one-glance read without opening them: **Database size**, **Total samples** (rows across every sample table), **Incidents (30d)**, **Network (30d)** (combined RX + TX), **AI cost (30d)**, and **AI jobs (30d)**. Each card clicks through to its full page. (The total-samples figure is a heavier count, so it's cached briefly.) Every dashboard card also now has a **distinct icon** — a few were sharing the same glyph before. **The whole grid now paints instantly** — every card shows its icon + title immediately with a shimmer placeholder inside, then fills in its number when its data lands, so a slow figure (like the sample count) never holds up the rest of the page.
-- **More keyboard shortcuts + a tidier shortcuts cheat sheet.** Press `?` (or open it from the user menu) to see the full list. **Profile** now has a shortcut for everyone (Cmd/Ctrl+6); admins also get **Stats** (Cmd/Ctrl+7) and **Admin** (Cmd/Ctrl+8). The cheat sheet's page/view jumps (Stacks, Services, Nodes, Hosts, History + the new ones) moved into their own "Go to" column so the two columns are balanced and easier to scan.
-- **Telegram — new `/skills` command.** Lists your per-app skill roster on its own — one tappable entry per pinned app; tap `/<app>` to see that app's commands, or just ask in plain text and the assistant runs them. (Same roster the `/help` menu shows, on its own command.)
+- Telegram `/help` curation -- hide /link for already-linked users, gate /ip on `tuning_public_ip_enabled`, s... (#1079) [Enhancement]
+- Telegram AI free-text non-response + missing "Thinking" indicator (#1087) [Bug]
+- Notification test messages -- include the provider name so Apprise vs Telegram test fires are distinguishable (#1119) [Enhancement]
+- Telegram AI fixes (the web / system AI path was already correct -- it runs the two-round tool loop; this en... (#1141) [Bug]
+- AI blind to app skills -- ROOT CAUSE behind "show me the latest speed test -> integration not configured" i... (#1147) [Enhancement]
+- AdGuard Home per-app integration (backend module + APP-LEVEL aggregated extras + fleet skills + AI/Telegram) (#1159) [Enhancement]
+- Telegram /help "App skills" + per-app SKILL slash commands (#1161) [Enhancement]
+- Prayer Times card + AI/Telegram prayer-times & Hijri-calendar answers (#1174) [Enhancement]
+- Prayer reminders — send a notification N minutes before each prayer, per-user opt-in with per-user medium s... (#1182) [Enhancement]
+- HTTP/service probe-failure notifications ignored a user's per-channel Profile routing and still fired to Te... (#1186) [Bug]
+- Telegram "Test connection" was broadcasting the probe message to EVERY chat in the telegram_chat_id CSV (#1189) [Bug]
+- Per-app skill commands (and /whoami-style commands) in Telegram AI replies were copyable-only, not clickabl... (#1190) [Enhancement]
+- Telegram AI Seerr suggestion-filter fixes (two related fixes, merged): (A) "exclude movies from Spain and D... (#1191) [Bug]
+- Telegram /help — collapse the App-skills section to ONE tappable entry per app (#1198) [Enhancement]
+- Telegram /hijri — the Gregorian date now follows the user's profile date format (was ISO, e (#1207) [Enhancement]
+- Telegram /prayer — prayer clock times now follow the user's 12h/24h profile format (were always 24h) (#1208) [Enhancement]
+- Telegram /moon — moonrise/moonset times + the 'Next 2 days' outlook dates now follow the user's profile format (#1209) [Bug]
+- Telegram /cleanup — the reply now NAMES the containers being removed (was just a count) (#1211) [Enhancement]
+- Prowlarr add-indexer from AI/Telegram (new write capability on the existing Prowlarr app).(not just read):... (#1237) [Enhancement]
+- New Telegram /skills command -- the per-app skill roster on its own (the '🧠 App skills (tap an app to see i... (#1239) [Enhancement]
+- Telegram-AI skill replies showed literal special characters (e.g (#1240) [Enhancement]
+- Telegram command help -- arg-skill commands no longer paste a placeholder (#1248) [Enhancement]
+- Wire qBittorrent as a per-app integration -- SINGLE-instance per chip (NOT fleet) so 2+ instances each rend... (#1250) [Enhancement]
 
-- **AI assistant — "what was I looking at on the other tab?"** The AI palette and sidebar can now answer questions about your OTHER open OmniGrid tabs / devices. When you have OmniGrid open in more than one tab (or on your laptop AND phone), the assistant sees each other tab's current view, active filters, selection, and which device it's on — so you can ask "what was I looking at on my desktop?" from your phone instead of re-navigating. (Builds on the existing tab-activity popover and its "Reproduce here" handoff.) (Also answerable from the Telegram bot.)
+### Stats dashboard
 
-- **Apps — Kavita integration (digital-library summary + search + scan).** Kavita instances pinned via Admin → Apps gain a per-instance **API key** field (Kavita → Settings → Account → API Key) with a Test-connection button, following the same drawer / loading / error UX as the rest of the app family. The card shows **Libraries**, **Series**, **Volumes**, and total **Size**, plus a Kavita version + chapter-count footnote. The AI assistant and Telegram bot get a Kavita skill set: **Kavita status**, **List libraries** (with each one's type), **Search the library** (find a title across your whole collection), and **Scan libraries** (queue a rescan of every library). (Series / Volumes / Size come from Kavita's admin-only server stats, so they populate when the API key belongs to an admin; the Libraries count always shows.)
-- **Apps — Prowlarr integration (indexer manager status + sync + search).** Prowlarr instances pinned via Admin → Apps gain a per-instance **API key** field (Prowlarr → Settings → General → API Key) with a Test-connection button, following the same drawer / loading / error UX as the rest of the *arr family. The card shows **Indexers** (enabled / total), **Apps synced** (connected *arr applications), lifetime **Queries** and **Grabs**, plus a Prowlarr version + health footnote. The AI assistant and Telegram bot get a Prowlarr-appropriate skill set: **Prowlarr status**, **List indexers** (with each one's enabled / disabled state), **Sync indexers to apps** (pushes your indexers to every connected app), and **Search indexers** (manual search a term across every indexer and return the top results). (Prowlarr manages indexers rather than a media library, so there's no calendar, download queue, or storage section.) The AI / Telegram bot can also now **find indexers to add** ("what indexers
-  can I add matching X" — searches Prowlarr's full indexer catalogue) and **add an indexer** ("add &lt;name&gt; on prowlarr", optionally "with flaresolverr" to route it through your FlareSolverr proxy); for an indexer that needs extra config the add surfaces Prowlarr's validation message so you finish it in the web UI. The **find indexers** search is facet-aware — asking for "english indexers" matches Prowlarr's `en-US` / `en-GB` / `enAU` locale codes (not just a literal word), you can filter by privacy ("public" / "private" / "semi-private"), and you can combine the two ("english public indexers" lists only the public English-language ones). **Follow-up patch:** a new **Add indexers in bulk** skill adds them all at once instead of one at a time — "add all the public English indexers" adds every matching indexer that isn't already configured (it skips the ones you already have), and any indexer Prowlarr blocks behind a Cloudflare challenge is **auto-retried through your FlareSolverr
-  proxy** so it lands without you doing anything. You get a summary back — how many were added (and how many needed FlareSolverr), how many were already there, and any that failed (with the reason). Use the same filter words as the find skill ("public", "english", "public english", an indexer-name fragment, or "all"). **Follow-up patch — FlareSolverr auto-tagging:** some indexers add cleanly but Prowlarr still flags them with "this site may use Cloudflare DDoS Protection, therefore Prowlarr requires FlareSolverr" — these now get the FlareSolverr proxy **tag** applied automatically so they actually link to it. The bulk add does this for the indexers it just added, and a new **Fix FlareSolverr tags** action ("fix flaresolverr" / "tag the cloudflare indexers") sweeps **every** configured indexer (handy for ones you added before FlareSolverr was set up) — testing each via Prowlarr's own test and tagging the ones that need it. **Follow-up patch:** the **Apps synced** line on the Prowlarr
-  card now renders each connected app as a small brand-icon chip (icon + name) instead of a raw comma-separated text string.
-- **Apps — ddns-updater integration (DNS-sync status + one-click update).** ddns-updater (qdm12/ddns-updater) instances pinned via Admin → Apps get a card showing how many DNS **Records** it manages, how many are **Up to date**, how many are **Failing** (with the failing domains), and your current **Public IP**. ddns-updater has no API key or login, so the editor just needs the instance URL. The AI assistant and Telegram bot get two skills: **DNS records status** and **Update DNS now** (triggers an immediate refresh of every record). (ddns-updater exposes no JSON API, so the data is read from its web UI.)
-- **Apps — Readarr integration (book / audiobook library at a glance + AI actions).** Readarr instances pinned via Admin → Apps gain a per-instance **API key** field (Readarr → Settings → General → API Key) with a Test-connection button, following the same drawer / loading / error UX as Radarr / Sonarr / Lidarr. The card shows total **Authors**, **Missing books**, **Downloading**, and **Monitored**, plus a **Storage** section (every mount, free / total, usage bar) and a Readarr version + health footnote. The AI assistant and Telegram bot get a full skill set: **Readarr status**, **Upcoming books** (next 30 days), **Download queue**, **Look up an author** ("do I have *X*?"), **Add an author** (resolves a quality + metadata profile and the most-free root folder, then starts a search), **Remove an author** (keeps the files; destructive-confirm gated), **Search for missing books**, and **Refresh book library**. (Like Radarr/Sonarr/Lidarr, its Storage section is hidden at the 3×1 and 4×1
-  card
-  size.)
-- **Container / service drawer shows the running app version.** When an image sets the standard OCI version label (`org.opencontainers.image.version`), the item drawer now shows that version (e.g. "v1.7.0") as a field between **Stack** and **Replicas** — handy when the image tag itself is just `:latest`. Read from data already gathered, so no extra calls.
-- **Apps — Lidarr integration (music library at a glance + AI actions).** Lidarr instances pinned via Admin → Apps gain a per-instance **API key** field (Lidarr → Settings → General → API Key) with a Test-connection button, following the same drawer / loading / error UX as Radarr / Sonarr. The card shows total **Artists**, **Missing albums**, **Downloading**, and **Monitored**, plus a **Storage** section (every mount, free / total, usage bar) and a Lidarr version + health footnote. The AI assistant and Telegram bot get a full skill set: **Lidarr status**, **Upcoming albums** (next 30 days), **Download queue**, **Look up an artist** ("do I have *X*?"), **Add an artist** (resolves a quality + metadata profile and the most-free root folder, then starts a search), **Remove an artist** (keeps the files; destructive-confirm gated), **Search for missing albums**, and **Refresh music library**.
-- **"Extras only" filter on both the Apps view and Admin → Apps → Instances.** A new toggle (next to the status filters on the Apps page, and in the Instances search bar) shows only the apps / instances that have a rich expanded card or AI skills (AdGuard Home Sync, Radarr, Sonarr, Seerr, Bazarr, APC, Speedtest, AdGuard, Pi-hole), so you can quickly narrow a large list to the ones with extras.
-- **Apps — AdGuard Home Sync integration (sync health at a glance + AI actions).** AdGuard Home Sync instances (bakito/adguardhome-sync) pinned via Admin → Apps gain an expanded card showing whether a **sync is running**, the **origin** status, how many **replicas** are in sync (and which are failing), following the same drawer / loading / error UX as Radarr / Sonarr. HTTP Basic auth is optional — the editor offers an optional **username + password** (with a Test-connection button) for instances that require it, and works against an open instance when left blank. The AI assistant and Telegram bot get four skills: **AdGuard sync status**, **Sync now** (trigger a sync), **Recent sync logs**, and **Clear sync logs**. The app's icon now uses a dedicated AdGuard-Home-Sync mark — the stack and service rows pick it up too (previously they showed the plain AdGuard Home icon).
-- **Stats — "Apps with extras" card.** The Stats dashboard has a new card (next to Apps) showing how many of your pinned apps have a rich expanded card / AI skills (Radarr, Sonarr, Seerr, Bazarr, APC, Speedtest, AdGuard, Pi-hole) and how many of those are currently active (at least one instance up). Clicking it opens the Apps view.
-- **Apps — Sonarr integration (TV library at a glance + AI actions).** Sonarr instances pinned via Admin → Apps gain a per-instance **API key** field (Sonarr → Settings → General → API Key) with a Test-connection button, following the same drawer / loading / error UX as Radarr. The Apps card shows total **Series**, **Missing episodes**, **Downloading** (the active queue), and **Monitored**, plus a **Storage** section listing every mount with free / total space and a usage bar, and a Sonarr version + health footnote. The AI assistant and Telegram bot get a full skill set: **Sonarr status**, **Upcoming episodes** (next 14 days), **Download queue**, **Look up a series** ("do I have *X*?"), **Add a series** (by title or TVDB id — resolves a quality profile, the most-free root folder, and a language profile on older Sonarr, then starts a search), **Remove a series** (removes the library entry, keeps the files; destructive-confirm gated), **Search for missing episodes**, and **Refresh series
-  library**. The API key is stored encrypted-style (never returned in the clear — only an `api_key_set` flag), keep-current-if-blank like every other secret.
-- **App drawer — top refresh button.** The app detail drawer now has a refresh button in its header (next to close), matching the host drawer. One click re-probes every instance of the open app for reachability AND force-refreshes its per-app card data (Radarr / Seerr / Bazarr / … expanded panels), bypassing the caches; the button spins until both finish.
-- **Apps — Radarr integration (movie library at a glance + AI actions).** Radarr instances pinned via Admin → Apps gain a per-instance **API key** field (Radarr → Settings → General → API Key) with a Test-connection button, following the same drawer / loading / error UX as Bazarr and Seerr. Once the key is set, the Apps card expands to show the metrics that matter for a movie manager — total **Movies**, **Monitored**, **Missing** (no file — amber when any), and **Downloading** (the active queue), plus a **Storage** section listing **every mount Radarr reports** (root / library / remote shares) with free / total space and a usage bar, and a Radarr version + health-issue footnote. The data comes from a small set of v3 endpoints (library list + queue / disk / health), cached server-side with a refresh interval configurable per instance. The AI assistant and Telegram bot get a full set of skills: **Radarr status** (library summary), **Upcoming movies** (next 14 days), **Download queue** (
-  what's downloading + progress), **Look up a movie** ("do I have *X*?"), **Add a movie** (by title or TMDB id — resolves a quality profile + the most-free root folder and starts a search), **Remove a movie** (removes the library entry, keeps the files on disk; gated by the destructive-confirm flow), plus **Search for missing movies** and **Refresh movie library**. The API key is stored encrypted-style (never returned in the clear — only an `api_key_set` flag), keep-current-if-blank like every other secret.
-- **Apps — Seerr (Overseerr / Jellyseerr) integration + request & suggest movies from the AI.** Seerr instances pinned via Admin → Apps gain a per-instance **API key** field (Seerr → Settings → General → API Key) with a Test-connection button. Once set, the Apps card expands to show the request queue at a glance — **pending**, **processing**, **available**, and **total** requests, plus open-issue and version footnotes (from one cheap `GET /api/v1/request/count`, cached server-side). The headline feature is in the AI: ask the assistant or the Telegram bot to **request a movie by title** ("request Inception", "can you get The Matrix?") and it searches Seerr, picks the top movie, and submits the request — no confirmation friction. Ask it to **suggest a movie** ("what should I watch?") and it pulls a random popular title **you don't already have** (it skips anything already requested or in your Seerr library), shown with its **rating, year, genre, country, and top-billed cast**, a poster
-  preview, plus a
-  one-click **Request on Seerr** button — right in the AI sidebar AND as a native tap-button on Telegram — or just say "request it". You can also set **per-user suggestion filters** that the AI saves to your account — "don't suggest French movies", "only movies rated 7 or higher", "no horror" — and ask it to show or clear them; every suggestion honours your filters. Three skills back this — **Seerr status** (read-only), **Request a movie** (takes the title), and **Suggest a movie**. Movie suggestions use **TMDB**: add an optional per-instance **TMDB API key** + base URLs (defaults `https://api.themoviedb.org/3` and `https://image.tmdb.org/t/p`, tolerant of either base form) under the app's editor; without a TMDB key, suggestions fall back to Seerr's own discover list. Both API keys are stored encrypted-style (never returned in the clear — only `*_set` flags), keep-current-if-blank like every other secret. **Follow-up patch:** a new **List requests** skill names the actual titles (with
-  year) in your queue instead of just the counts — ask "what movies are processing on Seerr?" / "what's pending approval?" and it lists each one (🎬 movies / 📺 shows). It defaults to the in-progress queue (processing + pending); add a word to narrow or widen it ("approved", "available", "all"). **Follow-up patch:** the Seerr card now shows more of the dashboard at a glance — **declined** and **available** counts, the **Movies** vs **TV** request split, **total**, and a **Top requesters** list (each user's avatar, name, and request count). The extra figures come from the same `GET /api/v1/request/count` plus a tolerated `GET /api/v1/user?sort=requests`; a failure on the users call never breaks the card.
-- **Apps — Bazarr integration (missing-subtitle counts at a glance).** Bazarr instances pinned via Admin → Apps gain a per-instance **API key** field (Bazarr → Settings → General → API key) with a Test-connection button. Once the key is set, the Apps card expands to show the four metrics that actually matter for a subtitle manager — **episodes missing subtitles**, **movies missing subtitles**, **throttled providers** (amber when any), and **health issues** (green at 0, red otherwise) — plus the Bazarr version. The data comes from one cheap `GET /api/badges` call (cached server-side, refresh interval configurable per instance). The AI assistant and Telegram bot get three skills: **Bazarr status** ("how many subtitles are missing?"), **Search for missing subtitles** (kicks off Bazarr's wanted-subtitle search for movies + series now), and **List missing subtitles** (shows what's still missing) — all also available as one-click buttons in the app drawer. The API key is stored
-  encrypted-style (never returned in the clear — only an `api_key_set` flag), keep-current-if-blank like every other secret.
-- **Prayer Times — reminders before each prayer.** OmniGrid can now send a notification a few minutes before every daily prayer. It's a normal notification **event** — an admin enables **Prayer reminder** under **Admin → Notifications** (in the new *Information* category, off by default like the sign-in event), and then **each user who wants reminders opts in** and picks their channels (in-app / Telegram / Apprise) in the same **Profile → Notifications** table. Opt-in is explicit and per-user — because reminders are personal and location-specific, a user only receives them if they turned the event on themselves (so a shared channel like Telegram never gets a copy for every account on the system). An admin sets the global lead time (default **10 minutes** before each prayer) under **Admin → Prayer Times**; set it to 0 to turn reminders off entirely. Reminders use your saved location (falling back to the admin default), respect each channel's global on/off switch, and fire exactly once
-  per prayer per day (no duplicates across restarts). Requires Prayer Times to be enabled.
-- **Prayer Times — "Recent samples" history panel (Admin → Prayer Times).** A background sampler now records the day's five prayers + Sunrise + the Hijri date once per day per location into a small history table, and Admin → Prayer Times gains a collapsible "Recent samples" panel (matching Weather / Public IP) showing the most recent days with their prayer times and Hijri date. Two new tunables control it: a sampler cadence (default every 6 hours — prayer times are daily-static) and a retention window (default 90 days; 0 keeps every row). Disabling Prayer Times stops the sampler; the on-demand widget / AI / Telegram lookups are unaffected either way.
-- **Port scan — broader default coverage of common TCP and UDP service ports.** The default port-scan list now probes a much wider set of well-known service ports out of the box (TCP grew from 217 to 282 — adding Kerberos, Modbus, IPMI, Docker Swarm, etcd, Oracle, iSCSI, LDAP global-catalog, Ceph, Kafka, Cassandra, Solr, kubelet, RabbitMQ management, WinRM-HTTPS, RADIUS, Java RMI and more; UDP grew from 20 to 39 — adding Kerberos, rpcbind, LDAP CLDAP/LDAPS, QUIC, DHCPv6, RADIUS, NFS, STUN, VXLAN, LLMNR, Geneve, traceroute, WS-Discovery and more). Every default port now carries a service-name hint for the scan results. No ports were removed, and UDP scan timing/concurrency defaults are unchanged.
-- **Prayer Times — dashboard card + AI / Telegram prayer-time & Hijri-calendar answers.** A new custom-dashboard widget card shows today's five daily prayers (Fajr / Dhuhr / Asr / Maghrib / Isha) each with its own icon, the **next prayer highlighted with a live countdown**, and today's **Hijri (Islamic) calendar date** — all from one call to the free AlAdhan API (no API key). Add it from a custom dashboard's **+ Widget** menu; it uses your saved Weather location automatically. Configure it under **Admin → Prayer Times**: a master enable toggle, the **calculation method** (full AlAdhan method list — defaults to Egyptian General Authority), the **Asr school** (Standard/Shafi'i or Hanafi), an optional fallback location, and a Test-connection button. The AI assistant and the Telegram bot can both answer prayer-time and Hijri questions from real data — ask "when is the next prayer?", "what time is Maghrib?", or "what's the Hijri date today?" in either surface, or use the Telegram `/prayer`
-  and `/hijri` commands. Disabled by default (enabling authorises outbound calls to api.aladhan.com); all settings are stored in the database.
-- **Apps — AdGuard Home integration (aggregated stats + fleet actions, via the REST control API).** AdGuard Home instances pinned via Admin → Apps gain per-host **username + password** fields (HTTP Basic auth) with a Test-connection button. Because the Apps view aggregates the same app across hosts, AdGuard's expanded card shows **one combined block for the whole fleet** (not a row per host): blocked today (count + %), queries today, blocklist domains (max across hosts), active clients, average processing time, and the top blocked domain — with a protection on/off indicator and a per-host footnote if a host is unreachable. Fleet-wide actions are available right on the card (admin only): **Enable**, **Disable** (indefinitely), **Disable for** a preset window (1m / 5m / 10m / 30m / 1h / 2h / 24h), **Refresh blocklists**, and **Re-enable** (cancel a timed disable) — every action applies to all AdGuard hosts at once. The same actions plus a read-only **AdGuard status** summary are exposed
-  to the AI assistant and the Telegram bot, so you can ask "how much did AdGuard block today?" or "disable AdGuard for 10 minutes" in either surface; disabling protection asks for confirmation first. The password is stored encrypted-at-rest (never returned to the browser — only an `api_key_set` flag), keep-current-if-blank like every other secret.
-- **Apps — Speedtest Tracker app with expanded latest/average/graph card.** Speedtest Tracker (`speedtest-tracker.dev`) instances pinned via Admin → Apps gain a per-instance API key field plus a Test-connection button (Bearer-auth probe against the upstream `/api/v1/speedtests/latest`). Once the key is set, the Apps view's Speedtest card expands to two columns and renders the latest download / upload / ping plus the 10-test rolling average plus a 3-line SVG sparkline (download green, upload blue, ping amber-dashed) over the most recent 30 tests. Data refreshes every 60 seconds (cached server-side) with a manual reload button on the chart card. The api_key is stored encrypted-style (never returned in the clear — only an `api_key_set: bool` flag flows to the SPA) using the same keep-current-if-blank contract every other secret in OmniGrid uses.
-- **Apps — Per-instance and per-template "Show extras" toggle.** APC (and now Speedtest Tracker) cards render rich per-host extras (battery / load / runtime / temperature for APC; latest / average / graph for Speedtest). Both the per-template (Admin → Apps → edit Template) and per-instance (Admin → Apps → edit Instance) editors now carry a "Show extras" checkbox so you can hide the panel without unpinning the chip. Per-instance is tri-state: indeterminate (inherit template default) → checked (always show) → unchecked (always hide regardless of template).
-- **Apps — Per-app encapsulation architecture.** Each app's custom backend logic, frontend helpers, and HTML markup now live in their own dedicated trio of files under `logic/apps/<slug>.py`, `static/js/apps/<slug>.js`, and `static/_partials/_components/apps/<slug>_editor.html` + `<slug>_extras.html`. Adding a new app with custom logic (auth-required data fetch, expanded card, brand-specific extras) is one file per layer plus one registration entry — generic files (`apps_routes.py`, `app-apps.js`, `apps-card.html`, `admin/apps.html`) stay app-agnostic. Slug-keyed dispatchers (`POST /api/services/{host_id}/{service_idx}/test-credential`, `GET /api/services/{host_id}/{service_idx}/app-data`) resolve the chip's catalog template, look up the per-app module via the registry, and delegate. The APC UPS extras (Battery / Output load / Runtime / Battery temperature / Battery state panel) and the Speedtest Tracker extras (latest / 10-test average / 3-line SVG sparkline) both ship under this
-  architecture as the reference implementations.
-- **Apps — richer Speedtest results in the AI assistant (Telegram + web sidebar).** Asking the AI to "show me the latest speed test" now replies with emoji-formatted stats — ⬇️ download, ⬆️ upload, 🏓 ping, 🕒 time — and reports BOTH the latest values AND the rolling average download / upload / ping. The timestamp renders in your own date/time format (Settings → Profile → Formats) instead of a raw ISO string. When the result carries a Speedtest share image, the AI includes it; on Telegram the bot sends the result image as a photo so it displays inline (text replies disable link previews). The averages and result-image link are surfaced from the cached last result, so "show latest" never triggers a new test.
-- **Slow-query log line — caller-site identification.** When `tuning_slow_query_threshold_ms` is set above 0, each `[slow_query] warning:` line now includes a `site=<path>:<function>:<lineno>` field identifying the user-meaningful caller (the route handler / sampler / scheduler runner that ran the query) instead of just the SQL. Stack walk fires only on queries past the threshold so the steady-state cost stays zero. Diagnosing "why is this PRAGMA slow?" no longer requires reverse-engineering the SQL — the caller path is right there.
-- **Stats → Samplers sub-tab.** New admin Stats dashboard sub-page surfacing per-sampler live state: running flag, last-tick timestamp, last-tick row count, last-prune row count, effective interval. Lets admins verify each sampler is actually writing rows AND pruning to retention at a glance — distinct from the existing Stats → Samples (which counts the resulting rows but doesn't surface whether the writer is alive). Backed by `GET /api/admin/stats/samplers`.
-- **Telegram `/reboot` alias for `/restart`.** Same handler, same destructive-confirm gate. Adds the muscle-memory alternate verb users reach for when they want the OS-level restart vs the Docker service restart — both verbs work, the canonical name stays `/restart`.
-- **Telegram `/moon` command + AI moon-phase grounding.** Replies with today's moon phase + illumination percentage. Requires the WeatherAPI.com provider (Open-Meteo is moon-blind); when Open-Meteo is active the bot honestly says "I don't have moon data" instead of hallucinating.
-- **Stats → Samplers sub-tab — distinct icon.** Was sharing the `activity` icon with the Network sub-tab; switched to `loader` so the two sibling sub-tabs read distinctly in the sidebar pill and the section header.
-- **Weather: dual-provider support with moon-phase data.** Admin → Weather is now a full provider tab (alongside Portainer / OIDC / Asset Inventory) letting you pick between Open-Meteo (free, no key, no moon data) and WeatherAPI.com (free key from weatherapi.com, full moon astronomy — phase / illumination / moonrise / moonset). The moon-phase Apps widget + moon-related AI palette / Telegram answers auto-disable when Open-Meteo is selected (cleanly — the AI honestly says "I don't have moon data" instead of hallucinating phases). Test-before-Save gate validates the WeatherAPI key against the live endpoint before allowing a save; Open-Meteo Save is unconditional (no key to validate). A "Use my profile location" button stamps lat/lon/label from your saved profile weather location.
-- **Weather: historical sampling for AI / Telegram retrospective questions.** A lifespan-managed sampler writes one row per hour (default — tunable) to a new `weather_samples` table covering temperature / humidity / wind / condition / moon phase / illumination. The AI palette and Telegram bot now answer "what was the weather yesterday afternoon" / "when was the last full moon" / "rainiest day this week" from cached historical samples instead of refusing or re-querying. Retention defaults to 90 days; set to 0 to keep every sample forever for long-term climate trends.
-- **Apps Custom — Moon-phase widget.** New `moon` widget kind for the Custom layout — illumination ring (SVG donut, lit-fraction drives the fill), full phase name hero ("Waxing Gibbous" / "Waning Crescent" / "Full Moon" / "New Moon" etc.), illumination percentage subtitle, and moonrise/moonset detail row. Hides automatically with a "Switch to WeatherAPI.com" hint when the active weather provider can't supply moon data.
-- **Apps Custom — Per-widget refresh button + freshness label.** Every refreshable widget tile (weather / moon / public_ip) now has a refresh-cw icon button that force-bypasses the cache to re-query the backend, and a subtle "Updated Ns/Nm/Nh ago" footer chip that self-ticks every second so you can see how fresh the data is at a glance. Client-side widgets (clock / system stats) skip the refresh button cleanly — refreshing them would be a no-op.
-- **Apps Custom — Bookmark optional icon URL or slug.** Add-bookmark form now has a third input for an optional icon — paste a full URL (svg / png / favicon / data: URI all work) OR a brand slug like `plex` / `github` / `adguard` to reuse the existing brand-icon resolver. Blank falls back to brand-resolution on the bookmark's name (existing behaviour). Persists in your `ui_prefs` like the rest of the Custom layout, so your bookmark icon survives across machines and browsers.
-- Apps view now explains why an instance is degraded or down: each non-healthy instance shows the probe failure reason (timeout, connection refused, unexpected status, …) inline, and multi-port services render a per-port status pill so you can see exactly which port is failing without leaving the view.
-- App detail drawer: clicking an app card opens a slide-out panel showing its catalog binding and every host instance, with a per-instance debug panel that reveals the exact probe target(s), per-port outcomes, and — when an app can't be probed — a plain-language reason (e.g. "chip has no URL and the host has no Address set", "probe is disabled"). Includes a per-instance "Probe now" action.
-- Built-in Apps catalog templates added in a release now appear automatically on the next deploy (a seeded-slug ledger picks up new built-ins while leaving ones you deleted on purpose gone) — AdGuard Home is included.
-- The empty Apps view now offers admins a "Run discovery on a host" shortcut into the discovery wizard, and the app status pill announces status changes to screen readers.
-- Admin → Apps → Instances is now editable: edit a pinned app's name / URL / icon / ports / probe inline (with a per-port editor), or remove it, via a per-row editor and an Edit button in the app detail drawer (chips were previously create-only).
-- The AI command palette can now open the Apps discovery wizard for a host (e.g. "discover apps on web01").
-- Admin → Apps → Instances can now be grouped by host or by service (with collapsible groups) to tame a long list of pinned apps.
-- App instances can be linked to a Portainer container or stack (in the instance editor), adding inline Restart and Update actions in the app detail drawer.
-- Added Syncthing (8384/tcp Web UI) and a Plex DLNA port (32469/tcp) to the built-in Apps catalog templates.
-- Added MariaDB (3306), PostgreSQL (5432), MongoDB (27017), and InfluxDB (8086 HTTP API + 8088 RPC) to the built-in Apps catalog templates, with a bundled MariaDB brand icon. All four ports are already covered by the default port-scan list, so an open database port is matched to its app in the discovery wizard.
-- Added Dockge (Docker stack manager) to the built-in Apps catalog templates with a bundled brand icon.
-- Added Splunk (8080), Beszel Hub (8090, distinct from the Beszel agent), and RustDesk (relay ports 21114–21119) to the built-in Apps catalog templates, with a bundled Splunk brand icon and the RustDesk ports added to the default port-scan list.
-- The Apps "Pin to host" picker is now a searchable, type-to-filter dropdown (matching the discovery wizard) instead of a long plain list of every host.
-- Added Proxmox VE (8006 HTTPS Web UI + 8443), MySQL (3306), and UniFi OS Server (8080/8443/11443) to the built-in Apps catalog templates. Proxmox's 8006 and the Windows Update Delivery Optimization port (7680) were added to the default port-scan list so an open port is matched to its app in the discovery wizard.
-- **GitHub and Google Cloud Source Repositories brand icons.** Pinning a GitHub app (or naming a host `github`) now renders the GitHub mark, which flips to its white variant automatically on the dark theme. Google Cloud Source Repositories (slug `gcsr`) renders its own brand mark.
+- service_probe / http_probe now render as ACTIVE provider chips (with stats), not muted (#1047) [Bug]
+- Stats -> Samplers sub-tab icon -- was `icon-activity` (same as Network sub-tab), now `icon-loader` so the t... (#1075) [Enhancement]
+- Slow-query log line -- caller-site identification (#1078) [Bug]
+- Stats Incidents header -- range-picker + reload clipped off the right edge (should stay fully visible like... (#1110) [Bug]
+- Stats section findings, worked one-by-one (#1111) [Enhancement]
+- Unified the Admin -> AI Usage dashboard time-range filter with the Stats -> AI Cost picker (#1114) [Enhancement]
+- Stats -> Database growth projection now grounded in real measured history (was a synthetic +0.5%/day stub o... (#1133) [Enhancement]
+- Sampler vs Stats Samples/Samplers drift audit (#1136) [Enhancement]
+- Bug fix: Stats -> AI Cost showed no data while Admin AI did (#1137) [Bug]
+- Stats slow_query log warnings -- investigated + one event-loop-blocking fix (#1140) [Bug]
+- Slow-query / service_sampler perf batch (#1152) [Enhancement]
+- Apps edit-instance editor polish: (a) 'Show extras (UPS stats etc.)' label (#1160) [Bug]
+- Apps page — keep AdGuard / Pi-hole fleet ACTIONS in the app drawer only; the Apps-grid card shows STATS only (#1199) [Enhancement]
+- Stats — added an 'Apps with extras' card after the Apps card (#1214) [Enhancement]
+- A11y + i18n pass across the Apps / Stats / shared surfaces (#1235) [Enhancement]
+- Stats dashboard -- add 6 quick-summary cards surfacing the headline number from the deeper Stats sub-pages... (#1243) [Bug]
+- Seerr app -- expanded request stats on the card/extras (#1247) [Enhancement]
+- Added the 6 missing stats.samples.kind_* i18n keys (kind_stats='Container stats', kind_host_beszel_services... (#1263) [Enhancement]
+- Stats -> Database growth projection now tracks the recent pace instead of over-reading (#1266) [Bug]
+- Performance-review pass — chunked/offloaded every retention prune, memoized the Stats charts, closed the au... (#1284) [Enhancement]
 
-### Changed
+### Prayer Times & Weather
 
-- **Cleaner storage display in the *arr app drawers (Radarr / Sonarr / Lidarr / Readarr).** Each mounted volume now renders as a tidy card — drive path, a colour-coded used-percentage, a rounded usage bar, and "free / total" beneath — instead of a cramped one-line "path … free X / Y" with a thin bar.
-- **Widget "Updated X ago" now reflects when the data was actually fetched.** The weather, moon phase, prayer times, and public-IP widgets cache their data server-side and refresh on their own schedule — but the "Updated X ago" line was timestamped when the page last polled, so it always read "Updated 0s ago". It now ages from the real fetch time, so you can see how fresh each widget's data actually is.
-- **Plex / Tautulli "Recently added" now groups Movies, Series, and Music separately.** Previously anything that wasn't a movie was lumped under "Series", so music albums showed up mixed in with TV. Recently-added items are now bucketed into three clear groups — 🎬 Movies, 📺 Series, 🎵 Music — each with the right artwork (music leads with the artist + album). Tautulli's **List Plex libraries** also reads better now: each library gets a distinct icon chosen from its name (so "Music Videos", "Personal", "Anime", "4K", "Documentaries", "Kids" no longer all share the generic movie icon just because Plex types them the same), with no two libraries repeating an icon, plus a clean item count per library.
-- **AdGuard Home Sync "Recent sync logs" now reads as a clean log list instead of raw JSON.** Running the skill from the app drawer used to dump the raw log buffer (a wall of JSON) into the result box. Each entry is now shown as a tidy `‹level icon› HH:MM:SS  message` line — info / warning / error stand out at a glance — with the relevant context (the error detail, which instance / host) shown in parentheses.
-- **"Show extras" is now per-instance for normal apps (and clearly labelled for aggregate apps).** For apps that show **one combined card across all instances** — Pi-hole and AdGuard Home — toggling "Show extras" on any instance still applies to them all (their card is a single aggregated block), and the Admin → Apps instance editor now says so. For every other app (qBittorrent, the *arr family, …), which renders **one card per instance**, "Show extras" is now saved **per-instance** — toggling it on one instance no longer changes the others — and the editor notes that the setting applies to that instance only.
-- **Radarr / Sonarr / Lidarr / Readarr cards hide Storage at the 3×1 and 4×1 sizes.** On the custom dashboard, a wide single-row card (3-wide or 4-wide) didn't have room for the per-mount Storage list (it got cut). Storage is now hidden for just those four apps at just those two widest short sizes; every other size and app is unchanged.
-- **Per-app instance "Test connection" shows when it was last tested.** After a successful Test on an app instance (Radarr, Sonarr, Lidarr, Seerr, Bazarr, AdGuard, AdGuard Home Sync, Pi-hole, Speedtest), a "✓ Last tested Xm ago" chip appears next to the button and survives a reload — matching the Portainer / OIDC panels.
-- **Per-app "Test connection" now works before you save the instance URL.** The Test button forwards the URL currently typed in the editor, so a brand-new or just-edited app instance can be tested immediately instead of reporting "no upstream URL configured" until you save first.
-- **Every app editor's data-cache TTL field shows the same min / max / default chips.** The AdGuard Home, Pi-hole, and Speedtest Tracker editors were missing the little bounds chips (5 / 3600 / app default) that Radarr / Sonarr / Bazarr / Seerr already showed — they now match, so every app's cache-TTL field reads consistently.
-- **App cards show a small spinner while their extra stats load.** The "Loading … data" placeholder on every app card with expanded stats (AdGuard Home, Pi-hole, Radarr, Sonarr, Seerr, Bazarr, APC UPS, Speedtest Tracker) now has a subtle spinner to the left of the text, so a card mid-fetch reads as busy rather than stalled. Seerr and Bazarr cards previously showed nothing at all until their first fetch landed — they now show the same spinner-and-text placeholder as the others.
-- **Telegram `/cleanup` now names the containers it's removing.** When you run cleanup (after confirm, or directly when destructive actions are allowed), the reply lists every stopped/orphan container grouped by stack — so you can see exactly *what* was removed, not just a count.
-- **Public-IP changes are detected and shown much faster.** OmniGrid used to lag well behind a dedicated DDNS updater on a WAN IP change — the background change-sampler only ran every 5 minutes, and the topbar widget had its own 10-minute refresh cache on top, so a new IP could take many minutes to appear. The sampler now defaults to every **2 minutes** (dial it to 30–60s under Admin → Config for near-instant detection), and the moment a change is detected it's **pushed live to the topbar widget** (a new `public_ip:changed` event) instead of waiting out the widget's refresh cache — so the displayed IP updates almost as soon as it changes.
-- **AdGuard Home and Pi-hole app cards now show the running app version.** A small version footnote (e.g. "AdGuard Home v0.107.x", "Pi-hole v6.x") appears under the stats on each app card, matching what Seerr and Bazarr already show. (Speedtest Tracker isn't included — its API doesn't expose an app version.)
-- **The topbar "Weather location" is now "Your location" — one shared setting.** The coordinates you set in Settings → Profile are used by the weather widget, Prayer Times, AND prayer reminders, so the field is renamed to "Your location" and moved out from under the weather-widget toggle — it stays available even when the weather widget is off (so prayer features work without it). Your existing saved location carries over automatically; nothing to re-enter.
-- **Prayer Times widget fills the empty space in wide, short tiles.** In the 3×1 and 4×1 (wide + short) sizes the prayer card now lays the next-prayer countdown + Hijri date on the left and the full five-prayer list on the right — mirroring the Weather widget's hero/forecast split — instead of leaving the right side blank. Narrow and tall prayer tiles, and every other widget, are unchanged. **Follow-up:** on those wide+short tiles, which only fit three rows, the list now shows a rolling three-prayer window with the next upcoming prayer always in the **middle** (previous / upcoming / next). It re-centres live on its own as each prayer time passes — no page refresh needed — and wraps cleanly across the end of the day (after Isha it rolls to tomorrow's Fajr).
-- **Seerr "suggest a movie" digs deeper before giving up.** If you exclude a lot of countries (or have a big library), the suggester used to run out of candidates quickly and reply "I couldn't find a fresh movie." It now draws from a roughly 2× larger and much deeper slice of the catalogue by default, and two new per-instance dials in the Seerr app editor (Admin → Apps → edit the Seerr instance) let you push it further: **page attempts** (how many random discover pages to try) and **catalogue depth** (how deep into the popularity-ranked catalogue to reach).
-- **Telegram `/help` no longer lists every app-skill command.** Apps with many skills (AdGuard Home and Pi-hole each have a dozen disable-timer commands) used to dump the whole list into `/help`. Now each app shows one tappable entry — tap it (e.g. `/adguardhome`, `/seerr`) and the bot replies with that app's commands, keeping the menu compact.
-- **AdGuard Home / Pi-hole: the Apps-page card now shows stats only — actions moved to the app drawer.** The combined-fleet card on the Apps grid no longer carries the Enable / Disable / Disable-for / Refresh buttons; it shows the aggregated stats at a glance, and the fleet actions (plus per-host detail) live in the app's drawer. Click the card to open the drawer and act.
-- **App drawer skill results can be dismissed.** Boxes opened by a skill button (e.g. "latest speed test", Seerr suggestion filters / status) now have a small ✕ in the corner that clears the box and its data until you run the skill again.
-- **App skill buttons share one consistent style across every app.** The per-app skill buttons (Speedtest, Bazarr, Seerr, …) now use the same subtle chip style as the AdGuard Home / Pi-hole action buttons, and the Seerr "Request on Seerr" follow-up button is a matching primary-accent chip — so the app drawers no longer mix solid-fill and chip buttons.
-- **Admin → Schedules "Create schedule" Kind dropdown is sorted alphabetically** by its displayed name, instead of definition order, so the kind you want is easier to find.
-- **Custom Apps dashboard edit mode is more consistent and readable.** The remove (trash) button on bookmark and widget tiles is now a rounded pill matching the settings/refresh pills on app cards, instead of a small square icon button. In the Unsectioned staging area, app tiles are now double width so the app name reads in full instead of truncating (height unchanged).
-- **App-skill runs (e.g. Speedtest "Run speed test") are now fully traced in Admin → Logs.** Every step — the request (web or Telegram, with actor), each gate decision (no skill / unknown skill / api_key not set / unresolved instance), the dispatch, and the upstream result including each GET/POST attempt's status — emits an `[app_skill]` / `[speedtest]` line at the right severity (INFO / warning / error). A skill that doesn't fire is no longer silent: the log shows exactly where it stopped (e.g. the on-demand trigger endpoint returning 404 on a Speedtest Tracker build that doesn't expose it). The api key is never logged.
-- **Retention prunes no longer hold the database writer lock for seconds.** The hourly sample-table cleanups (service-probe samples + the host-metrics / SNMP / SNMP-interface / SNMP-temperature / incident tables) now delete in bounded chunks, committing between each, instead of one big `DELETE` per table inside a single transaction. Under SQLite's single-writer model a multi-second delete used to queue every other writer behind it — which is why a *tiny* prune (e.g. the once-a-day database-size sample) could show up as a 2-second slow-query warning: it was 2 seconds of waiting for the lock, not 2 seconds of work. Chunking caps how long the lock is held so writers interleave and the warning cascade clears.
-- **Another "latest per port" fleet query optimized.** The bulk per-(host, chip, port) latest-sample read used a self-join against a `MAX(ts)` subquery (co-routine + per-row join + a temp sort); rewritten as a single `GROUP BY … MAX(ts)` index scan — same results, no sort. Companion to the earlier per-port fix.
-- **Service-probe "latest per port" fleet query no longer triggers multi-second slow-query warnings.** The per-port and per-chip "latest sample for the whole fleet" reads (on the Hosts/Apps list path) were `ROW_NUMBER()` window queries — SQLite always sorts those, even with a matching index, so on a large `service_samples` table they took several seconds. Rewritten as `GROUP BY … MAX(ts)`, which uses the existing covering index as a single ordered index scan (no sort); same results, sub-millisecond on the same data.
-- Millisecond values in log lines (e.g. the `[slow_query]` warning, AI retry backoff) now print with thousands separators — `4,674.6ms` instead of `4674.6ms` — so large timings are readable at a glance.
-- The Hosts view is snappier on large fleets: the host filter/sort/group computation is now memoized per render pass, so it runs once instead of several times per update (it was recomputed by both the desktop and mobile layouts plus the count badges every time a single host's stats refreshed). No change to filtering, sorting, grouping, or the live in-place row updates.
-- **Apps view performance.** Apps grid memoizes derived per-card helpers + the cards now cap visible per-host instances to 3 with a "+ N more" expand affordance (state persists in `ui_prefs`). Aggregate `/api/apps` + `/api/apps/instances` queries now run via `asyncio.to_thread` so a long-running SQL pass can't stall every concurrent request. Net result: opening the Apps view + scrolling a long pinned-instances list is noticeably snappier on a multi-host deploy.
-- **Backend hot-path latency.** Hourly sampler `_prune_old_*` calls now route through `asyncio.to_thread` (10 sample-table prunes — `host_metrics`, `host_net`, `host_snmp`, `host_snmp_iface`, `host_snmp_temp`, `host_pulse`, `host_webmin`, `host_beszel`, `host_http`, `service`, `ping` — plus the original `stats_samples`); plain `(ts)` indexes were added to every sample table so the prune SELECT can seek instead of scan; the `_gather_impl` Portainer fan-out parallelises 5 reads via `asyncio.gather` instead of running serial; `compute_baselines` runs in a worker thread. The cumulative wins close the `/api/healthz` 502-flap window on busy gather + sampler ticks.
-- **Sampler query rewrite — `ROW_NUMBER()` over correlated subqueries.** Per-host "latest sample per provider" queries previously used a correlated subquery (`WHERE ts = (SELECT MAX(ts) WHERE host_id=...)`) that scaled O(N²) on the sample-table count; rewritten as `ROW_NUMBER() OVER (PARTITION BY host_id ORDER BY ts DESC)` window-function pass which is O(N log N) and avoids the per-row inner SELECT. Wins compound on the per-host fan-out path (`/api/hosts/one/{id}` reads the latest sample per provider).
-- **Settings read-through cache + parsed-JSON memo.** `get_setting` / `get_setting_bool` now serve from a process-local 3s read-through cache so the hundreds-per-tick settings reads collapse to one SELECT per row per 3 s. Large JSON-valued settings (e.g. `hosts_config`) additionally memoize the `json.loads()` parse keyed on the raw-string identity so curated-host helpers (`iter_curated_hosts` / `curated_ne_hosts` / `curated_snmp_hosts` / etc.) skip the parse when the source string is unchanged.
-- **Backend-unreachable threshold widened to 75 s with hysteresis.** The SPA's "Backend unreachable" banner only fires after 75 s of consecutive failures (was 30 s) AND resets the timer on tab visibility change so a laptop waking from sleep doesn't false-positive. Cuts the visible-error noise from transient 10-15 s network blips.
-- **Healthcheck timeouts + log file-handle reuse.** Docker `HEALTHCHECK` timeout raised + the persistent-log writer now reuses one file handle per day (was: open-write-close per line) so high-frequency logging doesn't stall the event loop long enough to trip the healthcheck. Fewer false-positive SIGKILL container restarts under load.
-- **tracemalloc default OFF in production.** `tracemalloc.start(N)` adds ~2-3× overhead per Python allocation; default-ON wedged the event loop past the 20 s `/api/healthz` Docker healthcheck on busy gather + sampler cycles → SIGKILL crash-loop. New `OG_TRACEMALLOC_FRAMES` env var opts in for one diagnostic session (warning log line fires on startup so it's not forgotten). The asyncio exception handler stays always-on (zero overhead in the no-exception path).
-- **Per-host failure-streak log dedup.** Samplers that probe N hosts per tick and M of them are persistently failing now emit verbose ERROR on the FIRST failure per signature, then condensed one-line WARN lines with `streak=N, first_failure {age}s ago: <short>` on subsequent identical failures. Recovery resets the streak. Stops the wall-of-red log flood that made the system look unstable when it was just N dead hosts being silently quiet.
-- The Apps discovery wizard now proposes every catalog app applicable to an open port — including single-port apps on shared ports like 8080 (Dozzle / qBittorrent) or 3000 (Forgejo / Grafana / AdGuard Home) that were previously suppressed — so you can pick the right one. A port already mapped to an app on the host is still never offered again (no over-mapping); best/exact matches rank first.
-- The Apps discovery wizard's host picker is now a searchable, type-to-filter input instead of a long scrolling dropdown — find a host by typing part of its name, ID, or address, with arrow-key and Enter selection.
-- Apps latency now displays with a thousands separator and a space before the unit (e.g. "1,234 ms"), and the App detail drawer's Probe-now / Show-debug buttons now have icons matching the host drawer.
-- Removed Vaultwarden from the built-in app-catalog templates; added the missing Nextcloud brand icon.
-- The Apps discovery wizard no longer proposes a second app for a port another app on the same host already claims — with AdGuard Home pinned on 80/443, Pi-hole and Nextcloud are no longer suggested purely on those shared ports, while an app on a still-free port is unaffected.
+- Weather provider overhaul + moon-phase widget + per-widget refresh + bookmark icon-URL field (#1070) [Enhancement]
+- Weather fetch silently masked WeatherAPI in-body errors -> null history rows + empty widgets (#1097) [Bug]
+- Weather admin UI polish + weather/moon stale-fallback display (#1099) [Bug]
+- Weather widget 4x1 -- show the full user-configured forecast-day count instead of capping at 4 (#1118) [Bug]
+- Prayer Times admin fixes. (A) Migrated the Service-enabled master toggle from a TUNABLE (tuning_prayer_time... (#1175) [Bug]
+- Prayer-times custom-dashboard widget (#1177) [Enhancement]
+- Prayer Times admin tab now has a "Recent samples" DB history panel mirroring Weather/Public IP (#1180) [Enhancement]
+- Hard rename: the per-user topbar "Weather location" is now the shared "Your location" (userLat/userLon/user... (#1183) [Enhancement]
+- Prayer-times topbar widget (#1193) [Enhancement]
+- Prayer reminders — Fajr reminder silently skipped for users east of UTC (#1202) [Bug]
 
-### Fixed
+### Speedtest
 
-- **A slow app card or skill now leaves a real log line instead of a silent gateway timeout.** When a per-app upstream was slow enough that the request died at the reverse proxy (e.g. Tdarr churning a bloated scan), the app card showed "fetch failed: HTTP 504" but nothing landed in Admin → Logs — there was no trace of which app or host stalled. The two per-app routes (the expanded-card data fetch and the per-app skill action) now enforce their own wall-clock budget (default 50 seconds, tunable in Admin → Config and kept under your reverse-proxy timeout): when an upstream blows past it, OmniGrid logs an identifiable `[apps] … TIMED OUT` / `[app_skill] … TIMED OUT` line with the app, host and budget, and returns its own labelled 504 instead of letting the front proxy emit an unlogged one.
-- **Speedtest result image fits on mobile.** The Speedtest result graphic in the app drawer was clipping off the right edge on phones; it now scales down to fit the drawer width on any screen.
-- **App drawer action buttons now follow the "show extras" checkbox.** The per-app action buttons in an app's detail drawer (e.g. an *arr's status/search actions, Tdarr's checks) could appear even when an instance's extras were toggled off — only the details panel was hidden. The whole extras section (details *and* actions) now appears and hides together with the checkbox.
-- **Host temperatures from SNMP no longer show impossible values.** A Synology system temperature or APC UPS battery temperature could occasionally render as a nonsense figure (e.g. 65535 °C) when the device reported a "no reading" placeholder; those out-of-range readings are now ignored.
-- **UDP port scans distinguish blocked from closed.** A UDP probe that came back with an ICMP host-unreachable, network-unreachable, or admin-prohibited error was reported as a closed port; it's now correctly reported as filtered (only an explicit port-unreachable means closed). The UDP scan also caps its concurrency at or below the TCP scanner's so it stays deliberately quieter on the network.
-- **Posters proxied through a self-hosted Seerr avatar no longer fail intermittently.** A request avatar served by Seerr's own image proxy could be rejected by a strict reverse proxy because the fetch advertised a JSON-only content type; the image fetch now accepts any content type.
-- **A failed passkey registration shows a clear, generic message** instead of leaking the internal verification error text to the browser (matching the passkey login behaviour).
-- **History page no longer breaks on long entries.** An SSH-run history row records the full command as its target (hundreds of characters); it used to stretch the table sideways and distort the detail popup. The table now truncates the target with an ellipsis (hover or open the row to see it in full), and the detail popup wraps the full command neatly instead of overflowing.
-- **Database-size projection now matches the recent growth pace.** The Stats → Database 90-day projection could read much steeper than your data was actually trending (e.g. ~7 days of slow growth projecting to roughly double the size at 90 days). The forward line was fit with least-squares regression, which a single early sample — the one-off spike from the database first filling out — could tilt far above the recent day-to-day pace. The central line now uses a robust slope (the median of all pairwise sample slopes) that ignores that early outlier and follows the recent trend; the confidence band is unchanged.
-- **Destructive app skills asked for through the AI now require confirmation.** When the AI assistant or Telegram bot was asked to run a destructive per-app skill (e.g. remove a movie/series/artist/author from an *arr, or disable AdGuard/Pi-hole blocking), it could fire immediately with no confirmation. The web assistant now shows an inline Yes/Cancel chip (or runs straight away only in autonomous mode); the Telegram bot runs a destructive skill from free text only when "Allow destructive commands" is enabled, otherwise it points you at the explicit `/command` (which asks you to confirm). The server now also refuses a destructive skill that arrives without confirmation.
-- **App skill output now shows in the AI chat.** Running a per-app skill from the assistant (e.g. "radarr status") showed only a green "Ran" chip with no result; the skill's actual output (status summary, etc.) now renders inline in the reply.
-- **Service drawer no longer shows phantom "pending" placements.** A multi-replica service could list extra "? — pending" rows in its Placement section (e.g. cloudflared showed its 3 real nodes plus 3 empty pending rows). Those were Swarm tasks not yet assigned to any node; the Placement list now shows only tasks actually placed on a node (genuinely failed tasks still appear so real errors stay visible).
-- **AdGuard Home Sync shows its own actions, with no empty box.** A sync app could show no action buttons and an empty box below its stats — because the app-detection matched the *plain AdGuard Home* fleet card on any name containing "adguard" (including "AdGuard Home Sync"), which hid the sync app's own actions and drew an empty aggregated-stats box. App detection now prefers the exact catalog template, so each app shows only its own card and actions.
-- **App actions show for apps with optional auth (AdGuard Home Sync).** The app drawer hid the action buttons for any app instance without a saved API key — but AdGuard Home Sync's API is often open (auth optional), so its Sync now / status / logs / clear-logs actions never appeared. Actions now show when an app's auth is optional, even without a key (the server still enforces auth on the actual call).
-- **No more empty box in the app drawer.** When an app's extras were toggled off, the drawer still drew an empty bordered box where the rich card would go. The box now appears only when there's content to show.
-- **AdGuard Home Sync now shows its version.** The sync tool doesn't expose its version through its API, so OmniGrid reads it (best-effort) from the tool's own web page — the version now appears on the card and in the AI/Telegram "status" reply, like the other apps. (If it can't be read, the line is simply omitted.)
-- **AdGuard Home Sync no longer borrows the plain AdGuard Home card/actions.** App detection for AdGuard Home matched any name containing "adguard" — including "AdGuard Home Sync" — which could overlay the AdGuard fleet card ("No AdGuard host reachable") and its enable/disable/refresh actions onto a sync app. The two are now matched distinctly (AdGuard excludes names with "sync"; the sync app requires both "adguard" and "sync"), so each shows only its own card and actions. (If a sync instance was linked to the wrong catalog template, re-pick "AdGuard Home Sync" in Admin → Apps so its icon, card, and skills resolve correctly.)
-- **The AI no longer under-counts cleanup candidates.** Asking the assistant about cleanup could report fewer stopped/orphan containers than the `/cleanup` command actually removes (e.g. "1 orphan" when there were 3), because it was inferring from a capped sample of items. The AI now gets the authoritative removable set (the exact list `/cleanup` uses) plus a `removable_total` count, so its answer matches `/cleanup`.
-- **Telegram host status (the `/hosts` command and the AI) now matches the dashboard.** They could report hosts as "Down" (e.g. routers, switches, printers) that the web dashboard showed as up. Two causes, both fixed: the `/hosts` command classified "down" as *any host with a failure marker* — even a single failed provider on an otherwise-reachable host — and the AI read the fast snapshot status, which lags the dashboard's live per-host re-probe. Both now resolve host status through one shared path that takes the snapshot, reconciles a stale down/unknown to up when a provider's latest probe succeeded, and **re-probes any still-flagged host using the same per-host check the dashboard runs** (bounded + time-budgeted so it never stalls a reply). `/hosts` now groups by real status (Active / Down / Unknown / Paused / Disabled) so its counts line up with the Hosts page.
-- **Telegram `/prayer`, `/hijri`, and `/moon` now honour your date/time format.** These commands rendered dates and clock times in a fixed format regardless of your **Settings → Profile → Formats** preference — prayer times showed in 24-hour even if you'd chosen 12-hour, the `/hijri` Gregorian line showed an ISO `2026-06-06` date, and `/moon` showed ISO outlook dates. They now follow your chosen format: prayer + moonrise/moonset times render in your 12h/24h convention (without a meaningless `:00` seconds), and the Gregorian + moon-outlook dates use your date format. The Hijri (Islamic-calendar) date is deliberately left as-is, since a Hijri month number must never be rendered with a Gregorian month name.
-- **Hosts "Problem" filter no longer shows a count that disagrees with the table.** With the Problem filter active, when a host changed into a problem state (down / paused / unknown) the toolbar count and the "Problem" pill updated immediately, but the table kept showing the old set of rows until you toggled the filter off and on again. The table now re-renders the moment a host's status flips, so the rows and the count always agree.
-- **Fajr prayer reminder no longer goes missing.** For locations east of UTC, the Fajr reminder window opens shortly after local midnight — a time when the prayer-times source's own UTC clock can still be on the previous calendar day. The lookup was being made without a date, so during that window it returned the previous day's times and the Fajr reminder was silently skipped while the daytime prayers (which are well clear of the boundary) kept firing. The lookup now pins the request to the current moment so the prayer-times provider always resolves the correct local date, and the in-memory cache is refreshed across local midnight so it can't serve a stale day either.
-- **APC UPS app card now shows a "Loading…" placeholder while its data is fetched.** The APC tile on the Apps page rendered nothing until its first SNMP sample landed, so it looked blank or static for a moment. It now shows "Loading UPS data…" immediately (matching the Speedtest card), then fills in the battery / output-load / runtime / temperature / state grid — with a clear error or "no UPS data reported" message if the host can't be read or isn't actually a UPS.
-- **Probe-failure alerts now honour your per-channel notification routing.** HTTP-probe and service-probe failure alerts fire from a background monitor with no acting user, so the per-channel choices you set in Profile → Notifications were ignored and the alert went to every enabled channel — including Telegram even when you'd routed the event to in-app only. These fleet alerts now follow the admins' Profile routing: a channel is used only when at least one admin still has it enabled for that event, and is suppressed when every admin who made an explicit choice routed the event away from it. In a single-admin setup this means your Profile settings govern exactly; deployments where no admin set a per-channel choice keep firing to every enabled channel as before.
-- **Notification events can be enabled without Apprise.** The per-event enable toggles in Admin → Notifications (and the Enable-all / Disable-all / Errors-only buttons) were greyed out unless Apprise was switched on — so an operator using only in-app or Telegram couldn't enable any event (including the new prayer reminders), which then showed as disabled on the Profile → Notifications page. Events deliver to whichever channels are enabled, so these toggles now work regardless of Apprise.
-- **Long resource names on the Stacks / Services tables no longer run under the status pills.** A bare image digest (or any long name) now truncates with an ellipsis — hover to see the full name — instead of overflowing into the Health / Status columns.
-- **Public-IP widget no longer shows "no data" right after you enable it.** Enabling Public IP in Admin and saving left the apps-page widget empty until a full page reload, because the save cleared the cached value without re-fetching. It now force-probes immediately after the save so the widget populates without a reload.
-- **App card description sat too far below the title (worst in the 4×1 size).** The grey meta/description line now sits tight under the app title with a small gap instead of being pushed down by the app logo's vertical slack.
-- **Web AI sidebar actions that carry structured data now actually run.** Asking the AI to "run a speed test" / "show the latest speed test" (or to create/update a schedule, send a notification) failed silently in the web sidebar with "ACTION_DATA needs host_id + service_idx + skill_id" and produced no server log — the structured `ACTION_DATA` payload was dropped during response parsing (the action trailer was stripped before the payload was read). It's now parsed from the full reply, so these actions dispatch correctly and appear in the logs. (Telegram was unaffected.)
-- **Release notes ("What's new") render cleanly for git-cliff / conventional-commit changelogs.** Projects that publish that style (every entry suffixed with a ` - (commit hash)` and using `*(scope)*` markers) no longer show the trailing commit-hash noise on every line, and `*(scope)*` / `*italic*` now render as emphasis instead of literal asterisks. GitHub-native release notes are unaffected, and parenthesised PR references are preserved.
-- Asking the AI to "show me the latest speed test" now queries the Speedtest Tracker app **live** instead of refusing with "no cached results" when nothing has been fetched yet (e.g. a fresh restart or a Telegram-first request). A new read-only **Show latest speed test** skill pulls the current result straight from the app; the cache is only used as an immediate hint. The on-demand **Run speed test** trigger now tries `POST` first (the method current Speedtest Tracker builds require — a `GET` returns 405), so a working trigger no longer logs a misleading warning. **Follow-up:** the Telegram bot now actually runs these skills when asked — previously it replied "I cannot trigger the interactive skill on Telegram, use the SPA" even though the bot can run them server-side. It now runs the skill and posts the real result (and any result image) back into the chat.
-- Running an app skill from the App detail drawer (e.g. **Show latest speed test**) now shows its result inline under the button — including the result image when the app provides one — instead of only flashing it in a toast you couldn't fully read.
-- The AI assistant (sidebar, Cmd-K response, and AI history detail) now renders a standalone image URL in its reply as an inline image preview — e.g. the Speedtest result PNG the assistant appends — instead of showing it as a bare text link.
-- Notification `{time}` placeholder now renders in your configured timezone (the scheduler timezone) instead of UTC, so a notification's time matches every other timestamp in the UI.
-- Schedules that got stuck "in flight" — a fire was recorded but never completed because the op hung or the container was restarted mid-run — now self-heal and re-fire automatically on the next tick instead of staying skipped until the next restart. A new tunable (default 1 hour) sets how long a run may stall before it is treated as wedged.
-- The Service-probe provider chip now appears on hosts that have app probes enabled (it was silently never rendered on the Hosts page), and both the HTTP-probe and Service-probe providers now show their "Updated X ago" and sample-count stats reliably — previously the HTTP-probe periodic sampler could stay dormant, and a failed probe could wrongly clear the last-success timestamp, freezing the chip on a stale time.
-- Saving, editing, deleting, and re-seeding Apps service-catalog templates no longer fail with an internal error. The discovery bulk-apply and provider-resume cross-tab live refreshes now propagate over the event stream as intended.
-- Apps pinned from a catalog template (no explicit URL) are now actually probed against the host's configured Address instead of being silently skipped — this was why catalog-pinned apps showed "degraded" while only URL-based ones reported. The manual "Probe now" action works on them too.
-- The Apps view now loads automatically on page load / refresh instead of requiring a manual Reload click.
-- HTTP service probes now fall back to a GET request when a service rejects HEAD (many, including NetData's `/api/v1/info`, reply 400/403/501 to HEAD), so those apps no longer show a false "unexpected status" failure.
-- Renaming or re-iconing a catalog template now propagates to pinned app instances that haven't set their own override — instances no longer snapshot the template's name/icon at pin time. The instance URL is also visible at narrower window widths.
-- Editing an app instance (URL/link, ports, icon) now reflects immediately in the Apps view and detail drawer, and removing a port no longer leaves a stale per-port indicator.
-- The per-app "Probe now" refresh in the host drawer's Apps card now works for apps that have ports configured even when continuous probing is turned off — an explicit click probes the configured ports regardless of the continuous-sampler toggle, and the refresh button now appears whenever there are port pills to refresh.
-- In the host drawer's Port Scan section, a configured-but-not-yet-probed port now shows a grey "unknown" dot (matching the Apps card) instead of a red "down" dot — the two surfaces no longer disagree on a pending port's status.
-- The Apps detail drawer's debug panel now shows whether continuous probing is actually running for a chip — surfacing the global Service-probe provider toggle and a plain-language list of why an app's port pills are grey (provider globally off and/or the chip's probe disabled). The per-app "Probe now" button still works regardless.
-- The host drawer's asset port section now also lists open ports found by the port scan that aren't in the asset record (under "Open in scan — not in asset"), so you can see which scanned ports to add to the asset — the mirror of the existing marker that flags asset ports missing from the scan.
-- Each Hosts-view row now shows an apps-count badge ("N apps") next to its app chips, coloured green when all the host's apps are up and amber when one or more are down — an at-a-glance app-health signal that's separate from the host's own reachability dot.
-- Admin → Apps → Templates can now Export the whole app catalog as a portable JSON pack and Import one back (upserting templates by slug), for backing up or sharing catalog packs between installs.
-- The App detail drawer now has a Logs action for app chips linked to a Docker container — it opens a modal that tails the container's logs (selectable line count) straight from Portainer, including containers on worker nodes.
-- The App detail drawer's debug panel gained a Copy button that copies the full diagnostic JSON to the clipboard.
-- Fixed the built-in Authentik app template's health check: it now accepts Authentik's 200 response (current versions) as well as 204 (older), instead of false-reporting the app as down on a 200.
-- The host drawer's Apps card now has a clearly-labelled "Probe all (N)" button that probes every app on the host in one click (the per-app refresh icons remain for individual probes).
-- **Cross-tab Cleanup refresh — switched to visibility listener.** A hidden tab running a background timer is throttled by every modern browser, so the post-Cleanup cross-tab refresh sometimes landed minutes after the bulk delete actually completed. Replaced the timer-based debounce with a `visibilitychange` listener so the tab refreshes the moment it comes back to the foreground.
-- **OIDC error handling + SPA error toasts.** `/api/oidc/test` + the SPA's OIDC admin tab surface concrete error messages instead of raw HTML walls (handled via the canonical `fmtResponseError(r)` helper for both Pydantic-array validation errors AND nginx / openresty 502 / 504 interstitials).
-- **DNS-failure skip cache + shared unreachable probe timeouts.** All host-stats samplers consult a process-local cache that skips a DNS-failing host for `tuning_dns_failed_skip_seconds` (default 300 s) instead of retrying on every tick → cuts the wall-clock cost of "one un-resolvable hostname blocks the whole tick" by orders of magnitude. Per-provider `*_PROBE_TIMEOUT_UNREACHABLE_SECONDS` knobs let the FIRST probe to an unreachable host time out fast (3 s) instead of waiting the full probe window. Concrete `host:port` targeting in timeout-diagnostic log lines so the diagnostic command is copy-paste-ready.
-- **Telegram "Test connection" no longer messages everyone in your chat list.** When the destination is configured with more than one chat (e.g. a group plus individual operator DMs), the Test-connection button now pings only the primary (first) chat instead of broadcasting the test message to every recipient — including people who'd merely messaged the bot. Real notifications still go to every configured chat; only the manual test is scoped, and the result note tells you how many other chats were intentionally skipped.
-- **Telegram AI replies make `/commands` tappable.** Per-app skill commands and commands like `/whoami` that the assistant mentions are now clickable bot commands instead of copy-only monospace text — tap to run.
-- **Telegram AI now excludes every country you name.** "Don't suggest movies from Spain and Denmark" (or "Spain, Denmark & France") now excludes all of them, not just the first — the same fix applies to allowing countries back. Multi-word countries like "Trinidad and Tobago" are handled correctly.
-- **AI movie suggestions stop repeating the same films.** Each movie the assistant suggests (Telegram or the command palette) is now remembered per user and skipped for a cooldown window, so asking again gives you something new instead of cycling through the same titles. The window is operator-tunable (default 12 hours, set to 0 to disable) in Admin → Notifications → Telegram.
-- **"Suggest a movie" now renders correctly in the App detail drawer.** Running the Seerr suggestion from a host's App card no longer pushes the movie description off-screen, and the poster image and the one-click **Request** button now appear properly — previously the long description text overflowed the narrow drawer, which also hid the poster and the Request button. **Follow-up:** the **Request** button is no longer stuck disabled — it now enables correctly after a suggestion and shows a "Working…" → result transition when tapped (the drawer button's state updates reactively now, matching the AI sidebar).
-- **Prayer reminder notifications show the time in your preferred format.** The "in X minutes" prayer reminder used to print the prayer time in 24-hour form regardless of your settings; it now respects your date/time format (Settings → Profile → Formats), including 12-hour AM/PM, without changing the actual time.
-- **Telegram skill commands now show a clear "🤖 Thinking…" message on slow commands.** Long-running Telegram skill commands (e.g. `/seerr_suggest_movie`, which queries your library and TMDB across several pages) used to show only the easy-to-miss typing indicator — and Telegram clears that after ~5 seconds, so the chat looked idle. The bot now posts a visible "🤖 Thinking…" bubble immediately (and keeps the typing indicator alive), then replaces it in place with the result when ready.
+- Speedtest Tracker app -- full encapsulation under per-app file structure (#1077) [Enhancement]
+- App-skill framework + Speedtest run_speedtest skill -- the first of a per-app AI-skill pattern (#1144) [Enhancement]
+- AI speedtest skill — live "show latest" + the web-dispatch bug that blocked it (#1154) [Bug]
+- App-drawer speedtest skill result -- download / upload icons now render in distinct colours (#1162) [Enhancement]
+- Speedtest averages window made a per-instance setting + label clarified (#1164) [Enhancement]
+- App "Show extras" unified into ONE bidirectional control across the gear-flip card settings + the Admin ->... (#1165) [Enhancement]
+- Bazarr app integration with extras (per-app encapsulation pattern, like Speedtest/APC) (#1185) [Enhancement]
+- APC app card — show a loading/error/empty placeholder on the Apps tile like Speedtest (#1201) [Bug]
+- Speedtest result image in the app drawer is wider (200px -> 350px) -- it's a detailed chart, not a small po... (#1262) [Bug]
+- Speedtest result image clipped off the right edge in the app drawer on mobile (operator screenshot: the SPE... (#1276) [Bug]
 
-### Security
+### Media requests (Seerr)
 
-- **The image-proxy disk cache no longer hashes a credential into its cache key.** The cache used to key each stored image on a hash of the upstream URL plus the request's auth header (the app's API key / token). Even though it was only a cache filename, hashing a secret is flagged as weak handling of sensitive data — so the cache now keys on the URL plus a non-sensitive per-app discriminator instead, never touching the credential. Public images still de-duplicate across providers and authenticated per-app images stay distinct, so there is no behaviour change.
-- **Replaced fast unkeyed hashing of secrets with keyed HMAC for internal cache keys.** Two internal discriminators that told cached entries apart by a secret — the Pi-hole session cache (keyed by the Pi-hole password) and the Telegram command-registration de-duplicator (keyed by the bot token) — hashed the secret with a bare fast hash. They now use a keyed HMAC with a per-process random secret, which is non-reversible and not offline-brute-forceable. These were never credential storage (just in-memory cache keys), so there is no migration and no behaviour change.
-- **Release-notes HTML stripper hardened against reconstructed tags.** The stack-update "What's new" popup strips layout HTML from upstream release notes before rendering; the strip now loops until stable so a reconstructed tag can't survive a single pass. Defence-in-depth only — the renderer already fully escapes everything before re-introducing a small formatting whitelist, so no raw tag was ever executed.
+- Seerr (Overseerr / Jellyseerr) app integration + AI movie request/suggest + TMDB wiring (#1187) [Enhancement]
+- App cards: show the running app version (like Seerr/Bazarr) on AdGuard Home + Pi-hole (#1188) [Enhancement]
+- App drawer Seerr "suggest a movie" result was unusable: the prose lines (movie overview / "Say request …")... (#1192) [Bug]
+- Seerr 'suggest a movie' — widen the candidate pool for heavily-filtered users + make it operator-tunable (#1197) [Enhancement]
+- Seerr suggest-a-movie — added a top-billed cast line (#1215) [Enhancement]
+- TMDB poster images in the AI skill panel (Seerr suggestions) rendered as DIRECT image.tmdb.org links, which... (#1232) [Enhancement]
+- Seerr -- new "List requests" skill (seerr_requests) lists the actual request TITLES (with year) in the queu... (#1242) [Enhancement]
+- Bug fixes in seerr / prowlarr / qbittorrent / snmp / port_scanner_udp / webauthn (#1273) [Bug]
 
-### Removed
+### Media servers (Plex, Jellyfin, Emby, Tautulli)
 
-- **`host:row_updated` SSE event was already retired in 1.2.x — the SPA-side stub listener has now been removed too.** The publisher was deleted because it caused an infinite loop (the read endpoint published the event, the SPA handler called the read endpoint, which published another event); per-host UI updates have been flowing exclusively through `host:failure_state_changed` (sampler-driven) + the 30 s polling fallback since 1.2.x. The leftover stub handler is gone too, avoiding dead-code confusion.
+- Wire Plex as a per-app integration (logic/apps/plex.py + registry + static/js/apps/plex.js + _registry + pl... (#1245) [Enhancement]
+- Wire Tautulli (Plex monitoring + statistics) as a per-host app, full encapsulation like Kavita (bespoke aut... (#1253) [Enhancement]
+- Plex/Tautulli media-display fixes (3 operator-reported): (1) Plex AND Tautulli 'Recently added' grouped onl... (#1260) [Enhancement]
+- Wired Tracearr (Plex / Jellyfin / Emby fleet monitoring + account-sharing detection -- github.com/connorgal... (#1267) [Enhancement]
+- Plex 'What's playing on Plex' skill -- enhance the UI from a single text line per stream to the rich-item c... (#1274) [Enhancement]
+- Tautulli 'Who's watching now' skill -- same rich-item enhancement as the Plex now-playing one (operator: 'd... (#1275) [Enhancement]
+- Wired Jellyfin (open-source media server -- github.com/jellyfin/jellyfin) as a per-app integration followin... (#1278) [Enhancement]
+- Added Emby as a new app template + wired the Emby application end-to-end (operator: 'add emby as a new app... (#1279) [Enhancement]
 
-### Internal
+### *arr stack, downloads & transcoding
 
-- **Every retention cleanup now deletes in bounded chunks off the event loop.** The notification-history cleanup ran its delete synchronously inside the scheduler coroutine (it could stall the live event stream and health check on a busy server), and several per-host sample cleanups + the stats / weather / prayer-time cleanups deleted in one big transaction (holding the database writer lock for the whole delete). All of them now route through the shared chunked-delete helper, which commits in batches so other writes interleave, and run on a worker thread. A new always-on lint rule (`py-prune-not-offloaded`) keeps any future raw retention delete from slipping back in. No behaviour change — the same rows are removed.
-- **Admin → Stats charts no longer rebuild their SVG on every reactive update.** The Network / Samples / Database-growth / AI-cost trend charts now cache their rendered SVG by data identity (the same memoization the host-drawer charts use), so sitting on a Stats sub-tab doesn't re-render the chart string on unrelated state changes.
-- **Shared `fleet_blocker_action` helper for the DNS-blocker fleet apps.** The `_skill_fleet_action` verb-map + fan-out tail (the last structural twin between the AdGuard Home and Pi-hole modules) is now a single `logic/apps/_common.py:fleet_blocker_action` helper both modules call; each module's `_skill_fleet_action` is reduced to its app-specific auth closure. Equivalence-verified (the past-tense action verb is byte-identical for every action/duration combination).
-- **Hardening of per-app upstream parsing.** Defensive guards added where malformed upstream data could raise an unhandled exception: Prowlarr indexer tags are coerced to integers before set/sort (a heterogeneous tag list no longer 500s), and the qBittorrent torrents list parse is wrapped so a non-JSON proxy error page surfaces a clean error. The SNMP per-vendor walk-concurrency default now resolves through the typed tunable enum.
-- **Shared `ExternalURL` constants module.** Repeated third-party base URLs / hostnames now live as named constants in `logic/external_urls.py` instead of being inlined across modules — the same single-source-of-truth discipline as the `Settings` / `EnvKey` / `Tunable` enums. Consolidated 28 constants across GitHub, TMDB, Plex, the four AI provider API bases (and removed the duplicate hardcoded copy in the settings route), Telegram, AlAdhan, ifconfig.co, and every Docker registry host + Docker Hub — migrating ~40 call sites in `ai.py`, `registry.py`, `settings_routes.py`, the Telegram modules, `seerr.py` / `plex.py` / `tautulli.py`, `scan_routes.py`, `prayer_times.py`, and `public_ip.py`. Pure refactor — every constant equals the literal it replaced. Config-driven bases (weather, OIDC) stay config-driven.
-- **`_TimedConnection` SQLite subclass for connection timing.** Wraps `sqlite3.Connection.execute` / `executemany` with a `perf_counter` pair so the slow-query log line can stamp the actual wall-clock cost without per-call wrapping at every consumer site.
-- **`UNKNOWN_ACTOR` constant for "unknown" actor fallback.** Centralised across admin routes (was scattered as literal `"unknown"` strings) so attribution in `history` rows stays consistent and a future rename (e.g. to `"system"` for scheduler-driven rows) is a one-line edit.
-- **`ALLOWED_PALETTE_ACTIONS` audit pass.** Removed 8 entries without matching SPA descriptors — those would have been advertised to the AI as available actions while being silently un-dispatchable. Audit ensures the action-roster surface accurately reflects what the SPA can actually execute.
+- qBittorrent catalog template port changes (#1040) [Enhancement]
+- Radarr app integration (movie library manager) (#1203) [Enhancement]
+- Bazarr — wired meaningful skills beyond status (#1210) [Enhancement]
+- Sonarr app integration (TV-series manager) (#1213) [Enhancement]
+- Wired Lidarr (music *arr) as a per-host app, full encapsulation like Sonarr/Radarr (#1222) [Enhancement]
+- Radarr/Sonarr/Lidarr extras (#1224) [Enhancement]
+- Wired Readarr (book/audiobook *arr) as a per-host app, full encapsulation like Lidarr/Sonarr/Radarr (#1226) [Enhancement]
+- Release dates in *arr upcoming/calendar skills shown as raw ISO YYYY-MM-DD (#1231) [Bug]
+- Wire Prowlarr (indexer manager, *arr stack) as a per-host app, full encapsulation like Lidarr/Readarr (it's... (#1233) [Enhancement]
+- Wire Kavita (self-hosted digital library / reader) as a per-host app, full encapsulation like the *arr fami... (#1234) [Enhancement]
+- Prowlarr app card -- "Apps synced" line restyled from raw text to brand-icon chips (#1249) [Enhancement]
+- Radarr 'Upcoming movies' skill result now shows movie POSTERS next to each title (richer drawer UX) (#1255) [Enhancement]
+- qBittorrent VueTorrent WebUI check + auto-update AI skills (#1261) [Bug]
+- Lidarr + Readarr download-queue posters now resolve reliably (operator: Radarr/Sonarr OK after the remote-f... (#1268) [Enhancement]
+- Wired Tdarr (distributed media-transcode automation -- github.com/HaveAGitGat/Tdarr) as a per-app integrati... (#1271) [Enhancement]
+- Enhanced the STORAGE display in the *arr app drawers (Radarr / Sonarr / Lidarr / Readarr) -- operator: 'mak... (#1277) [Enhancement]
+
+### DNS, ad-blocking & notification apps
+
+- AdGuard Home catalog template (#968) [Enhancement]
+- Pi-hole per-app integration (#1167) [Enhancement]
+- App-skill audit-trail gaps closed (surfaced by the review pass; directly affects the Pi-hole + AdGuard flee... (#1168) [Enhancement]
+- AI-context ts_display never stamped for AdGuard / Pi-hole `last`: registry.available_app_skills_context rea... (#1169) [Bug]
+- Public IP — OmniGrid lagged well behind a dedicated DDNS updater on WAN IP changes (#1205) [Enhancement]
+- CodeQL py/weak-sensitive-data-hashing on logic/apps/pihole.py:_sid_key (#1217) [Bug]
+- Wired AdGuard Home Sync (bakito/adguardhome-sync) as a per-host app, full encapsulation pattern (#1219) [Enhancement]
+- Wired ddns-updater (qdm12/ddns-updater) as a per-host app (#1227) [Enhancement]
+- AdGuard Home Sync 'Recent sync logs' skill result is now pretty-formatted instead of a raw JSON dump (#1257) [Enhancement]
+- Wired Apprise (caronc/apprise-api -- the notification gateway OmniGrid itself uses) as a per-app integratio... (#1258) [Enhancement]
+
+### Forgejo, Beszel, Pulse, Webmin, Node Exporter & Portainer
+
+- Discovery wizard. Scan a curated host's port table (port-scan results + node-exporter listen ports if avail... (#962) [Enhancement]
+- App catalog template batch (Dozzle / Forgejo / MariaDB / PostgreSQL / MongoDB / InfluxDB) + port-scan coverage (#1004) [Enhancement]
+- Forgejo + Portainer app-icon render height (too tall vs sibling brand icons) (#1016) [Bug]
+- Pulse changelog not displaying -- release-notes resolver `get_release_notes` in `logic/registry.py` require... (#1082) [Enhancement]
+- Host-drawer Beszel services -- add a live Refresh that re-probes the hub for fresh per-unit status (#1123) [Enhancement]
+- Per-app instance Test-connection now shows a '✓ Last tested Xm ago' chip (parity with Portainer/OIDC) (#1221) [Bug]
+- Wired Forgejo (self-hosted Git service -- a Gitea fork) as a per-app integration end-to-end following the p... (#1280) [Enhancement]
+
+### AI Assistant, Cmd-K & Conversations
+
+- Apps discovery exposed to the AI command palette (code-review Audit O) (#983) [Enhancement]
+- Public-IP widget in Apps shows no data + IP history persisted to DB for AI questions (#1066) [Enhancement]
+- AI answers per-host telemetry questions directly + auto-resolves a single matching host (#1092) [Enhancement]
+- Performance -- memoize the AI-sidebar markdown render (#1093) [Bug]
+- AI assistant renders inline image previews (#1156) [Bug]
+- AI host status — the assistant labelled all 'problem' hosts as 'Down' (7) while the web showed only 1 down (#1212) [Bug]
+- AI cleanup count discrepancy (#1216) [Bug]
+- Web AI — selecting a skill action (e (#1229) [Bug]
+- AI palette can answer 'what was I looking at on the other tab / desktop / phone?' -- the cross-device-hando... (#1238) [Enhancement]
+
+### HTTP probe & Service probe
+
+- Apps HTTP probe now falls back to GET when a service rejects HEAD (#980) [Bug]
+- HTTP probe failed with "server rejected the SNI (unrecognized name)" even with verify SSL unchecked (#1037) [Bug]
+
+### Public IP widget
+
+- Public-IP card -- ISP brand-icon graceful-fallback when the matched brand's SVG file doesn't exist on disk... (#1081) [Bug]
+- Public-IP change-detection sampler + Admin loading-state (#1096) [Enhancement]
+- Public-IP widget no-data + geo-flag fixes (#1108) [Bug]
+- Public-IP widget -- 3x1 / 4x1 IP hero too big, hiding country + AS (#1128) [Bug]
+
+### Authentication, passkeys, OIDC & 2FA
+
+- Authentik Test ✗ surfaces actual detail + Test button stays clickable after a failure (#1071) [Bug]
+- Authentik admin -- Clear / Copy buttons have different styles; unify them (#1116) [Enhancement]
+
+### Security (CodeQL & token discipline)
+
+- CodeQL SSRF + path-injection findings (#960) [Enhancement]
+- CodeQL py/stack-trace-exposure fix at the release-notes handler (main.py api_registry_release_notes) (#994) [Bug]
+- CodeQL security alerts #491 + #492 (two fixes) (#1195) [Enhancement]
+- Remediated the CodeQL alert 'Use of a broken or weak cryptographic hashing algorithm on sensitive data' (py... (#1283) [Bug]
+
+### Real-time / SSE event stream
+
+- Cross-tab Cleanup sync. **Re-opened for validation (#1023) [Bug]
+
+### SNMP
+
+- SNMP iDRAC (Dell-marked host) timing out (#998) [Enhancement]
+
+### Ping
+
+- Ping Test double-checkmark fix (#1073) [Bug]
+
+### UPS / battery
+
+- Added APC built-in catalog template to `logic/service_catalog.py:_BUILTIN` (#1069) [Enhancement]
+- APC app -- per-instance + per-template `Show extras` checkbox (#1076) [Bug]
+- APC app card adjustments (5 parts) (#1132) [Enhancement]
+- Renamed the .apps-card-ups-value CSS class to the generic .apps-card-stat-value across all 13 app-extras pa... (#1244) [Enhancement]
+
+### Provider chips, icons & status pills
+
+- Host-drawer Apps sub-tab + per-host chip strip (#963) [Bug]
+- Dedupe service-chip probe-target resolution into one shared helper (#978) [Enhancement]
+- Hosts page: app chips below the provider chips (#995) [Enhancement]
+- i18n Audit P — hardcoded chart/chip text (#999) [Bug]
+- App-chip icon resolution now prefers the catalog template's icon field over its slug (#1002) [Bug]
+- Duplicate app chips on a host (#1026) [Bug]
+- Port-chip status dot moved BEFORE the number for parity with Apps (#1039) [Enhancement]
+- Unified the faulty/paused provider-chip colour to RED across every surface (#1043) [Bug]
+- Host-drawer per-provider chip subtitle restored to STACKED lines (#1059) [Bug]
+- App port-chip URL links de-blued (#1060) [Enhancement]
+- Egyptian carrier brand icons + canonical-slug consolidation (#1083) [Enhancement]
+- Release-notes (stack update "What's new") code chips shattered character-by-character at line wraps -- e.g (#1166) [Bug]
+- Host-drawer Timeline range picker (24h/7d/30d) hand-rolls a btn-ghost chip strip with a :class active toggle (#1171) [Enhancement]
+- Add app brand icons for GitHub + Google Cloud Source Repositories (GCSR) (#1196) [Enhancement]
+
+### App cards, Apps page & custom dashboard
+
+- Top-level "Apps" view + reusable service templates + multi-port probes (#961) [Enhancement]
+- Apps view did not auto-load on page load / refresh (#974) [Enhancement]
+- Apps section i18n — route tooltip / latency-unit concatenations through t() format strings (#975) [Bug]
+- Apps view not reflecting instance edits (#985) [Enhancement]
+- Apps view (main page) group-by-host mode (#987) [Enhancement]
+- Apps-view + UI-review-finding batch (#1003) [Bug]
+- Per-row apps-count badge on the Hosts view (#1009) [Enhancement]
+- Apps-view app-detail drawer 'Show debug' now wired to the Admin -> Debug debug_panel_enabled tunable (+ adm... (#1019) [Enhancement]
+- Apps view ("By app" cards) redesigned: 3x app logo on the LEFT, all content to its right (#1020) [Enhancement]
+- Apps Custom dashboard — Homarr/Homepage-parity board (Phase 1, fully shipped; folds in the edit/lock + hete... (#1053) [Enhancement]
+- Apps Custom Phase-1 polish (#1057) [Enhancement]
+- Apps Custom layout not persisted across restart (#1065) [Bug]
+- Apps Custom widget + card UX overhaul (#1067) [Enhancement]
+- Apps Custom dashboard -- per-card SIZE presets + flip-to-settings UX (#1086) [Enhancement]
+- Apps widget + card UI fit (chosen-size responsiveness, round 2) (#1095) [Bug]
+- Apps first-load perf -- a batch of first-paint, render-cadence, and reactivity fixes (#1102) [Bug]
+- Apps custom dashboard -- MULTIPLE NAMED VIEWS (#1104) [Enhancement]
+- Bug: Apps custom-dashboard card/widget HEIGHT preset (short/tall) not persisted on reload -- only the width... (#1120) [Bug]
+- Bug fix: Apps custom-dashboard dropdown showed the wrong view vs the one displayed (#1126) [Bug]
+- Apps custom dashboard -- duplicate app cards across sections (shadow copies) (#1129) [Enhancement]
+- Unsectioned staging tiles double width in Apps edit mode (#1158) [Enhancement]
+- apps-card-meta (the grey app description/meta line) sat with a large gap below the app title, worst in the... (#1178) [Bug]
+- Apps-with-extras 'Loading …' placeholders now show a subtle spinner before the text (#1218) [Enhancement]
+- Apps view — added an 'Extras only' capability filter (#1220) [Enhancement]
+- Apps custom-dashboard named "views" -- per-view visibility (private/public) + edit permission (#1246) [Enhancement]
+- Apps custom-dashboard tiles now tile flush -- fixed the wasted right-edge gap (#1252) [Enhancement]
+- Apps custom-dashboard bookmark tile at 1x1 (half width) now shows its URL (#1256) [Enhancement]
+- Topbar/Apps widget 'Updated X ago' now ages from the real data fetch time, not the SPA receive time (#1264) [Bug]
+
+### App drawer, skills & actions
+
+- Docker-link inline actions (#964) [Enhancement]
+- App instance editor Link-to-Docker is now a searchable combobox + the Instances table shows a Docker-linked... (#1044) [Enhancement]
+- App drawer now renders the per-app extras box (#1143) [Bug]
+- App drawer "Probe now" button gave no feedback on click -- a successful probe showed nothing (only an error... (#1146) [Bug]
+- App drawer: per-app SKILL buttons moved into their OWN boxed card AFTER the extras box (was crammed into th... (#1149) [Enhancement]
+- ai_phrases is shipped-but-DEAD: every per-app SKILL declares ai_phrases but available_app_skills_context em... (#1170) [Bug]
+- Unify app skill-button styling across every app (#1194) [Enhancement]
+- App drawer skill-result boxes (#1200) [Enhancement]
+- App drawer — added a top refresh button (mirrors the host drawer's header refresh) (#1206) [Enhancement]
+- Unify app-extras presentation across ALL apps (#1230) [Bug]
+- Show-extras toggle -- per-instance for non-aggregate apps + a scope label for aggregate ones (#1251) [Bug]
+- Admin -> Apps instance list: added a tiny 'has extra features' indicator (icon-zap, --info accent) next to... (#1254) [Enhancement]
+- App drawer 'Open in Stacks' button for Docker-linked apps (#1259) [Enhancement]
+- App drawer per-app ACTION (skill) buttons must be gated on the per-instance 'show extras' checkbox, same as... (#1272) [Enhancement]
+- Unified the drawer-header close-button height across all drawers (operator screenshot: in the app drawer th... (#1281) [Enhancement]
+
+### App catalog, templates & instances
+
+- TTL'd module-level catalog cache for `_shape_host_apps` (#966) [Enhancement]
+- Fix NameError "name '_ops_mod' is not defined" when saving or re-seeding an Apps service-catalog template (#969) [Bug]
+- Surface why Apps instances show degraded (#970) [Bug]
+- Catalog-pinned apps were never probed (#976) [Bug]
+- Apps instance editor + template inheritance (#982) [Enhancement]
+- Admin -> Apps Instances grouping (group by host / service / none) (#984) [Enhancement]
+- Monitoring / backup agent catalog templates (#988) [Enhancement]
+- Discovery wizard no longer proposes a second app for a port another app on the host already owns (#1001) [Enhancement]
+- Discovery wizard now shows ALL applicable templates for an unclaimed open port (user-decided design) (#1005) [Enhancement]
+- Add Splunk catalog template (8080) (#1012) [Enhancement]
+- Port-scanner coverage batch + pinned-app catalog-port union (#1022) [Enhancement]
+- Bulk delete for Apps instances (#1031) [Enhancement]
+- Built-in catalog template changes now PROPAGATE to existing DB rows (#1032) [Bug]
+- App Templates search / filter box (#1033) [Enhancement]
+- Apps instance editor: couldn't delete a port + no title icon (#1036) [Enhancement]
+- App Instances search box (#1041) [Enhancement]
+- Unified the mail icon — the Email (SMTP) catalog template now uses the same icon as host mail (#1045) [Enhancement]
+- Added a MySQL catalog template (#1049) [Enhancement]
+- Added a Proxmox VE catalog template (#1051) [Enhancement]
+- Add an OPNsense firewall catalog template: 80 http + 443 https (Web UI, open_url) (#1055) [Enhancement]
+- Catalog-template probe semantics validated + fixed so a healthy app no longer reads 'down' (#1058) [Bug]
+- Admin -> Config tunables save/dirty audit + registry drift audit (#1134) [Bug]
+- Per-app data-cache TTL operator-configurable IN THE APP (not global Config TUNABLES) (#1173) [Enhancement]
+
+### Drawer, charts & sparklines
+
+- Apps detail + debug drawer (mirrors the host drawer) to diagnose why an app on a host isn't working (#977) [Enhancement]
+- Host drawer port-scan -> mapped-app annotation (#989) [Enhancement]
+- Copy button in the Apps debug drawer (#1010) [Enhancement]
+- Host-drawer Apps "Probe all" button (4th report of "probe disabled" in the host drawer) (#1011) [Enhancement]
+- Host-drawer HTTP-probe box 'Latency' value now thousand-separated (#1017) [Enhancement]
+- Host-drawer Services/ports: documented asset ports NOT found by the latest port scan now show an alert marker (#1021) [Enhancement]
+- Host-drawer FULL-refresh button (#1038) [Bug]
+- Node-view sparklines sometimes blank -- two-cause fix (#1089) [Bug]
+- Host-drawer Apps -- 'Probe failed' button to re-probe ONLY the down services (#1124) [Bug]
+- Container / stack item drawer now shows the RUNNING app version after the name (#1223) [Enhancement]
+- Item drawer Placement list showed phantom '? (#1225) [Bug]
+
+### Hosts editor, Host groups & Hosts page
+
+- Apps hosts_config writes routed through a single validated persist choke point (a code-review finding) (#981) [Enhancement]
+- Fixed runtime NameError: name 'PortScanIn' is not defined on the port-scan route (#996) [Bug]
+- Port scan now always includes the host's configured app/service ports (#997) [Enhancement]
+- Pin-to-host picker converted to a searchable/filtering combobox (#1006) [Enhancement]
+- Asset port section now surfaces scan-only ports (reverse of the existing scan->asset mismatch marker) (#1008) [Enhancement]
+- app-asset.js IDE-warning cleanup (#1015) [Bug]
+- Admin -> Hosts HTTP-probe: typed URLs were cleared on Save (#1018) [Bug]
+- Port-scan: code DEFAULT_PORTS is now a FLOOR, custom CSV ADDS (no longer shadows) (#1025) [Bug]
+- Remove-app-instance confirm popup now names the app + host (was generic) (#1027) [Bug]
+- Pin-to-host modal: header pin icon + assign to MULTIPLE hosts at once (#1030) [Bug]
+- Discover-on-host wizard polish (#1034) [Enhancement]
+- Discover "pin selected" applies ONLY the host's matched ports (#1042) [Enhancement]
+- Added port 7680 (WUDO — Windows Update Delivery Optimization peer-to-peer cache) to the port scanner's DEFA... (#1052) [Enhancement]
+- Quieted the http_probe no-SNI-retry red-ERROR log noise for reachable-but-SNI-strict hosts (#1061) [Bug]
+- Duplicate 'Host sampling paused' notifications -- one host re-notified every redeploy / hosts_config save i... (#1115) [Bug]
+- Hosts top-nav red down-host count badge (parity with the Services offline badge) (#1121) [Enhancement]
+- Distinct 'resuming' indicator for a just-resumed host (was indistinguishable from paused-in-error -- both red) (#1122) [Enhancement]
+- Bug fix: Hosts provider / problem filter pills stopped filtering (#1125) [Bug]
+- Bug fix: port_scan_refresh schedule starved hosts (most 5d old, some 22d old, despite a 1d schedule reporti... (#1139) [Bug]
+- Apps card multi-host layout -- hosts side-by-side for 2+ host apps (#1163) [Enhancement]
+- Port-scan default coverage extended to common TCP + UDP service ports so the app always probes the ports a... (#1181) [Enhancement]
+- Hosts page — 'problem' filter showed a count that disagreed with the rendered rows (#1204) [Enhancement]
+- Consolidated repeated external-URL/host string literals into a shared typed-constant module (operator asked... (#1265) [Enhancement]
+- Admin -> Asset Inventory 'Cached snapshot' preview is now a collapsible JSON tree viewer instead of a flat... (#1285) [Enhancement]
+
+### Admin & Settings pages
+
+- Enforce typed-enum discipline for tunable / setting / env-var key references (#967) [Enhancement]
+- Admin -> Apps tab strip restyle for cross-admin consistency (#986) [Enhancement]
+- Admin -> Logs file viewer capped at 500 lines (#992) [Bug]
+- Relocated three operator tunables out of Admin->Config into the domain sections that govern them (user-requ... (#1098) [Enhancement]
+- settings_update audit now shows per-key OLD -> NEW values (#1100) [Enhancement]
+- Admin tunables-UI consistency sweep (#1101) [Enhancement]
+- Admin-section performance pass -- reactive-flush + event-loop optimisations across the admin surface, landi... (#1103) [Bug]
+- Admin Providers -- per-provider collapsible Tunables menus (#1105) [Enhancement]
+- Admin panel dirty/undirty corrections -- controls that didn't mark their panel's Save dirty (#1107) [Enhancement]
+- Admin master-toggle loading indicator -- consistent spinner + "Loading…" pill on every master-toggle admin... (#1148) [Enhancement]
+- Custom Apps edit-mode delete button -> pill (match settings/refresh) (#1157) [Enhancement]
+- Admin-page gating consistency batch (#1176) [Enhancement]
+- Admin -> Schedules "Create schedule" Kind dropdown now sorted alphabetically by its displayed (translated)... (#1179) [Enhancement]
+- Image-proxy disk cache (operator request: cache images so the same picture isn't re-downloaded each view, e... (#1269) [Enhancement]
+
+### Logs view & retention
+
+- logs.py error-classification regex handles Python 3.11+ ExceptionGroup tracebacks (#972) [Bug]
+- Thousands separators on ms log values (#1153) [Enhancement]
+
+### Schedules & automation
+
+- Scheduler wedged-run self-heal (#1050) [Bug]
+
+### Notifications & toasts
+
+- Update-stack 'What's new' release notes -- fixed raw HTML tags, GitHub alerts, and double bullets (#1138) [Enhancement]
+
+### Topbar, login & branding
+
+- app-topbar.js -- three IDE inspection findings cleared with genuine code fixes (no suppression) (#1088) [Bug]
+
+### Filters, badges & pagination
+
+- Apps: every app now shows its port pill (was multi-port only) + ports can be CLICKABLE links (#1028) [Enhancement]
+- Stacks / Services -- hide the empty header-only table + show a reset-able empty-state when a filter matches... (#1130) [Bug]
+- Bug fix: Nodes view kept showing the previous filter's containers after switching filters (#1131) [Bug]
+- Apps-page tile refresh pill now spins + disables while the app loads its INITIAL extra/card data (operator:... (#1282) [Enhancement]
+
+### Internationalisation & accessibility
+
+- UI/UX review batch — frontend a11y / i18n / visual fixes, all shipped together (#1054) [Enhancement]
+- UI/UX accessibility + token + i18n pass on the Apps surface (the ux-review action pass) (#1094) [Enhancement]
+- Extended scripts/audit_html_drift.py with 3 commit-time a11y-structural checks: every aria-modal="true" dia... (#1236) [Enhancement]
+
+### Database / migrations / data
+
+- fmtResponseError migration (#1072) [Bug]
+- Extract init_db() out of main.py into its own module (#1109) [Enhancement]
+- Keyboard shortcuts — added 3 page jumps + rebalanced the cheat-sheet columns (#1241) [Enhancement]
+
+### Internal cleanup, refactor & bug sweeps
+
+- Consolidated per-sampler numeric-coercion helpers into a shared logic/coerce.py leaf module (a code-review... (#979) [Enhancement]
+- app-minor-tools.js IDE-warning cleanup (#991) [Bug]
+- PERF: frontend + backend performance optimization pass -- consolidates the perf-review implementation that... (#1013) [Enhancement]
+- Code-review fix batch (all LOW findings from the review pass; shipped together) (#1056) [Bug]
+- Code-review fix batch from the latest review report (#1064) [Bug]
+- UX-review fix-all pass on the latest UX-review report (#1068) [Enhancement]
+- Local linter (scripts/lint.py) -- IDE-inspection-mimicking + scripts/install_precommit.py hook installer (#1084) [Bug]
+- Lint pre-commit shield -- checked-in, cross-machine, blocks on warnings (#1090) [Bug]
+- Timestamp-format drift audit + consolidation (#1150) [Enhancement]
+
+### Other improvements & fixes
+
+- Per-port historical detail (#965) [Enhancement]
+- UTF-8 encoding on Path.read_text() / open() calls (#971) [Enhancement]
+- Post-split cross-module underscore-symbol wiring (#973) [Bug]
+- http_probe TLS unrecognized-name (SNI) error (#990) [Bug]
+- npm dev-dep bump: stylelint 16.26.1 -> 17.12.0 and stylelint-config-standard 36.0.1 -> 40.0.0 (package.json... (#993) [Bug]
+- Convention-violations review pass (#1000) [Bug]
+- Apps "probe not enabled / disabled" diagnosed + debug panel enhanced (#1007) [Bug]
+- PERF: replace x-show with x-if on costly subtrees so they unmount when hidden (#1014) [Enhancement]
+- Top-bar recent-tabs privacy: a user now only sees THEIR OWN tabs, never other users' (#1024) [Bug]
+- Probe correctness for UDP + legacy-TLS endpoints (two user-reported "always down / handshake error" cases) (#1029) [Bug]
+- HTTP-probe "Accepted status codes (CSV)" field cleared on every keystroke (#1035) [Bug]
+- Open-as-URL port link no longer appends health-check probe paths (#1046) [Enhancement]
+- App loading spinners now show a "Loading…" label (#1048) [Enhancement]
+- Backend-unreachable top banner (#1062) [Enhancement]
+- Service degraded/down counter not displayed (#1063) [Enhancement]
+- MAJOR stability fix — tracemalloc default-ON was the crash-loop root cause (#1074) [Bug]
+- SPA -- xterm.js lazy-load eliminates steady-state Chromium `[Violation] Added non-passive event listener to... (#1080) [Bug]
+- SPA -- requestAnimationFrame violation probe (opt-in diagnostic) (#1085) [Enhancement]
+- Sprite-preload "preloaded but not used" console warning fixed (#1091) [Bug]
+- Update-stack release-notes popup -- render markdown/HTML annotations + Copy button (#1106) [Enhancement]
+- Item/stack icon improvements (#1112) [Enhancement]
+- Reload-button consistency (#1113) [Bug]
+- Shared Test-connection component (#1117) [Enhancement]
+- Moon widget -- phase name cropped at 1x2 / 2x2 (#1127) [Enhancement]
+- Clock (digital) widget -- enlarge clock + date/location in 3x2 / 4x2 (#1135) [Enhancement]
+- deps(pip): bump python-multipart from >=0.0.29 to >=0.0.30 in requirements.txt (Dependabot dependency bump) (#1142) [Enhancement]
+- Remove-containers confirm dialog UI -- long Swarm task-container names (one unbreakable token) sat far righ... (#1145) [Enhancement]
+- Run-speed-test skill observability (#1151) [Bug]
+- Release-notes renderer now handles git-cliff / conventional-commit format (#1155) [Enhancement]
+- Finish the [06] fleet-module dedup follow-up: after the _common.py fleet helpers, the run_skill dispatch la... (#1172) [Enhancement]
+- Stacks/Services tables — long resource name (e (#1184) [Bug]
+- Four raw issues fixed in one batch (#1228) [Enhancement]
+- History page: a long op target (an ssh_run target is the FULL command -- hundreds of chars) overflowed the... (#1270) [Enhancement]
 
 ## [1.5.0] — 2026-05-23
 
@@ -1415,3 +1634,4 @@ here.
 [1.4.0]: docs/releases/_v140_release_notes.md
 
 [1.5.0]: docs/releases/_v150_release_notes.md
+[1.6.0]: docs/releases/_v160_release_notes.md

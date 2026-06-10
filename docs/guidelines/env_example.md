@@ -879,6 +879,16 @@ PING_PACKET_INTERVAL_MS = 200
 # DOCKERHUB_USER=
 # DOCKERHUB_TOKEN=
 
+# GitHub API token — optional. Used for the stack-update "What's new"
+# release-notes resolver (GHCR / GitHub-hosted images) and the qBittorrent
+# app's VueTorrent-version check. Bypasses GitHub's anonymous API rate
+# limit; a classic PAT with public-repo / no scope is plenty.
+# GITHUB_TOKEN=
+
+# Persistent on-disk daily log directory (omnigrid-YYYY-MM-DD.log). Override
+# only for non-standard deployments; the default lives on the data bind mount.
+# LOG_DIR=/app/data/logs
+
 # Where python-dotenv looks for env values at startup. Override only for
 # non-standard deployments.
 # ENV_FILE_PATH=/app/.env
@@ -1187,6 +1197,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `PING_PACKET_INTERVAL_MS`                      | Runtime    | `200`                   | Inter-probe gap (ms) within one ping RTT measurement. Range 100..2000.                                                                                                                                                                                                                                                                                                                        |
 | `DOCKERHUB_USER`                               | Optional   | unset                   | Docker Hub auth (avoid anonymous rate limits).                                                                                                                                                                                                                                                                                                                                                |
 | `DOCKERHUB_TOKEN`                              | Optional   | unset                   | Paired with `DOCKERHUB_USER`.                                                                                                                                                                                                                                                                                                                                                                 |
+| `GITHUB_TOKEN`                                 | Optional   | unset                   | GitHub API token for the stack-update release-notes resolver (GHCR / GitHub-hosted images) + the qBittorrent VueTorrent-version check. Bypasses anonymous GitHub rate limits.                                                                                                                                                                                                                  |
+| `LOG_DIR`                                      | Optional   | `/app/data/logs`        | Persistent on-disk daily log directory (`omnigrid-YYYY-MM-DD.log`). Override only for non-standard deployments.                                                                                                                                                                                                                                                                                |
 | `OG_TRACEMALLOC_FRAMES`                        | Diagnostic | unset (OFF)             | `1..100` enables `tracemalloc.start(N)` so RuntimeWarnings carry allocation tracebacks. Default OFF — tracemalloc adds ~2-3x overhead per allocation which wedged the event loop past the 20s healthz timeout on busy fleets, triggering SIGKILL crash-loop. Set ONLY for a debug session, then unset + redeploy.                                                                             |
 | `SESSION_SECRET`                               | Auth       | auto-generated          | HMAC key for session cookies. Set explicitly in prod.                                                                                                                                                                                                                                                                                                                                         |
 | `SESSION_LAST_SEEN_THROTTLE_SECONDS`           | Auth       | `60`                    | Min seconds between per-session `last_seen_at` writes (Admin → Sessions). Throttles a per-request DB write that serialized polls against samplers. `0` = every request. Env-only.                                                                                                                                                                                                             |
