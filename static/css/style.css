@@ -12104,6 +12104,16 @@ select.field-invalid {
      wasted right-edge gap because the column count floated with the
      viewport and 3×span rarely landed on a multiple.) */
   grid-template-columns: repeat(12, minmax(0, 1fr));
+  /* MASONRY packing (view + edit). Each row track is ONE short-tile height
+     (`--apps-card-h-short`); a short tile spans 1 track, a tall tile spans 2
+     (a tall = 2× short by design). `grid-auto-flow: row dense` then backfills
+     the empty track below a SHORT tile with a later tile, so a tall tile in
+     one column no longer forces every other column to start a fresh row below
+     it — tiles pack upward into the freed space. Reset to content-height auto
+     rows at the mobile breakpoint (where app/bookmark cards go height:auto).
+     `grid-row: span 2` for tall tiles lives in the size/height-span block. */
+  grid-auto-rows: var(--apps-card-h-short);
+  grid-auto-flow: row dense;
   gap: var(--s-2);
   padding: var(--s-2);
   min-height: 56px;
@@ -12667,14 +12677,33 @@ select.field-invalid {
 
 /* Day popover — glassmorphic, anchored to the cell, capped to the tile via
    container-query units so it stays inside the overflow:hidden tile. */
+/* Day popover — TELEPORTED to <body> (x-teleport) so it escapes the tile's
+   `container-type: size` + `overflow: hidden` clip, then positioned
+   position:fixed via the inline `arrCalPopStyle` (left / width / top|bottom /
+   max-height computed from the clicked cell's rect). The layer re-establishes
+   the arr_calendar accent tokens lost when teleported out of the tile
+   cascade; the transparent backdrop catches outside clicks to close. */
+.apps-widget-arr-cal-pop-layer {
+  --widget-accent: var(--widget-accent-arr_calendar);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent-arr_calendar) 16%, transparent);
+}
+
+.apps-widget-arr-cal-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
 .apps-widget-arr-cal-pop {
-  position: absolute;
-  z-index: 30;
-  width: max-content;
-  min-width: 140px;
-  max-width: min(250px, 82cqw);
-  max-height: min(230px, 62cqh);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  /* position:fixed + left + width + top|bottom + max-height come from the
+     inline `arrCalPopStyle` binding. */
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;             /* clip to the inline max-height; inner list scrolls */
+  min-width: 180px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   -webkit-backdrop-filter: blur(10px) saturate(1.4);
   backdrop-filter: blur(10px) saturate(1.4);
   border: 1px solid color-mix(in srgb, var(--widget-accent) 45%, var(--border));
@@ -12684,23 +12713,6 @@ select.field-invalid {
   padding: var(--s-3);
   transform-origin: top center;
   animation: arr-cal-pop-in 140ms ease-out;
-}
-
-.apps-widget-arr-cal-pop.pop-down {
-  top: calc(100% + 4px);
-}
-
-.apps-widget-arr-cal-pop.pop-up {
-  bottom: calc(100% + 4px);
-  transform-origin: bottom center;
-}
-
-.apps-widget-arr-cal-pop.pop-start {
-  inset-inline-start: 0;
-}
-
-.apps-widget-arr-cal-pop.pop-end {
-  inset-inline-end: 0;
 }
 
 @keyframes arr-cal-pop-in {
@@ -12718,7 +12730,8 @@ select.field-invalid {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
-  max-height: min(206px, 56cqh);
+  flex: 1;
+  min-height: 0;       /* allow the list to shrink so overflow-y can scroll */
   overflow-y: auto;
 }
 
@@ -12807,6 +12820,87 @@ select.field-invalid {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Homarr-style rich detail rows inside the day popover — facts line
+   (release time + runtime), overview, and action pills (open-in-app +
+   IMDb / TMDB). */
+.apps-widget-arr-cal-pop-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+.apps-widget-arr-cal-pop-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.apps-widget-arr-cal-pop-clock {
+  width: 11px;
+  height: 11px;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.apps-widget-arr-cal-pop-overview {
+  font-size: var(--fs-3xs);
+  line-height: 1.35;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.apps-widget-arr-cal-pop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+  margin-top: 4px;
+}
+
+.apps-widget-arr-cal-pop-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  text-decoration: none;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.apps-widget-arr-cal-pop-link:hover {
+  background: var(--widget-accent-soft);
+  border-color: color-mix(in srgb, var(--widget-accent) 45%, var(--border));
+  color: var(--text);
+}
+
+.apps-widget-arr-cal-pop-link--app {
+  background: var(--widget-accent-soft);
+  border-color: color-mix(in srgb, var(--widget-accent) 35%, var(--border));
+  color: var(--widget-accent);
+}
+
+.apps-widget-arr-cal-pop-linkicon {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .apps-widget-arr-cal-legend {

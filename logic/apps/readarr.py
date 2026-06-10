@@ -467,6 +467,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v1",
                                         start=start, end=end, app_label="Readarr",
                                         extra_params={"includeAuthor": "true"})
+    web = _servarr.web_base(chip)
     out: list[dict] = []
     for book in raw:
         if not isinstance(book, dict):
@@ -477,6 +478,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         title = str(book.get("title") or "").strip()
         if not when or not (author or title):
             continue
+        aslug = str(auth.get("titleSlug") or "").strip()
         out.append({
             "date": when,
             "title": title or author,
@@ -485,6 +487,12 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "service_slug": "readarr",
             "poster": _servarr.poster_proxy_path(book),
             "poster_proxy": True,
+            "overview": _servarr.clamp_overview(book.get("overview") or auth.get("overview")),
+            "runtime": 0,
+            "time": "",
+            "app_url": (f"{web}/author/{aslug}" if (web and aslug) else web),
+            "imdb_url": "",
+            "tmdb_url": "",
         })
     return out
 

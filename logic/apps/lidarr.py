@@ -436,6 +436,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v1",
                                         start=start, end=end, app_label="Lidarr",
                                         extra_params={"includeArtist": "true"})
+    web = _servarr.web_base(chip)
     out: list[dict] = []
     for alb in raw:
         if not isinstance(alb, dict):
@@ -446,6 +447,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         album = str(alb.get("title") or "").strip()
         if not when or not (artist or album):
             continue
+        fid = str(art.get("foreignArtistId") or "").strip()
         out.append({
             "date": when,
             "title": artist or album,
@@ -454,6 +456,12 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "service_slug": "lidarr",
             "poster": _servarr.poster_proxy_path(alb),
             "poster_proxy": True,
+            "overview": _servarr.clamp_overview(alb.get("overview") or art.get("overview")),
+            "runtime": 0,
+            "time": "",
+            "app_url": (f"{web}/artist/{fid}" if (web and fid) else web),
+            "imdb_url": "",
+            "tmdb_url": "",
         })
     return out
 

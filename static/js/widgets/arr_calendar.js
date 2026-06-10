@@ -17,7 +17,7 @@
 // / book releases from the configured Radarr / Sonarr / Lidarr / Readarr
 // instances. Data: GET /api/apps/arr-calendar (per-month cache + de-dup
 // guard). The reactive state (`arrCalendar` + `_arrCal*` + `arrCalViewYM`
-// / `arrCalOpenDay` / `arrCalHoverDay`) stays declared in app-apps.js;
+// / `arrCalOpenDay` / `_arrCalPopRect`) stays declared in app-apps.js;
 // this module holds the render + fetch FUNCTIONS.
 //
 // See clock.js for the per-widget module contract.
@@ -179,6 +179,19 @@ export const helpers = {
     const map = {movie: 'icon-film', episode: 'icon-tv', album: 'icon-music', book: 'icon-book'};
     return map[String(type || '').toLowerCase()] || 'icon-calendar';
   },
+  // "1h 58m" / "58m" runtime label from minutes; '' for 0 / missing.
+  arrCalRuntimeLabel(min) {
+    const m = Math.max(0, Math.round(Number(min) || 0));
+    if (!m) {
+      return '';
+    }
+    if (m >= 60) {
+      const h = Math.floor(m / 60);
+      const r = m % 60;
+      return r ? (h + 'h ' + r + 'm') : (h + 'h');
+    }
+    return m + 'm';
+  },
   // Proxied poster URL for a calendar item (per-app image proxy keeps the
   // app's api_key server-side). '' when the item has no poster.
   arrCalItemPoster(it) {
@@ -203,13 +216,63 @@ export const helpers = {
     const s = String(slug || '');
     return s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '';
   },
-  // The day whose popover is showing: a pinned click wins over a hover.
+  // The day whose popover is showing (click-pinned only).
   arrCalActiveDay() {
-    return this.arrCalOpenDay || this.arrCalHoverDay || '';
+    return this.arrCalOpenDay || '';
   },
-  // Pin / unpin a day's popover (click; hover sets arrCalHoverDay instead).
-  arrCalToggleDay(ds) {
-    this.arrCalOpenDay = (this.arrCalOpenDay === ds) ? '' : ds;
+  // Toggle a day's popover. Captures the clicked cell's viewport rect so the
+  // popover can render as a position:fixed layer TELEPORTED to <body> —
+  // escaping the tile's `container-type: size` + `overflow: hidden` clip (so
+  // a small tile no longer crops it) and staying put so the cursor can move
+  // INTO it and scroll its list. Click-pinned, not hover.
+  arrCalToggleDay(ds, ev) {
+    if (this.arrCalOpenDay === ds) {
+      this.arrCalCloseDay();
+      return;
+    }
+    const el = ev && (ev.currentTarget || ev.target);
+    if (el && el.getBoundingClientRect) {
+      const r = el.getBoundingClientRect();
+      this._arrCalPopRect = {
+        top: r.top, bottom: r.bottom, left: r.left, right: r.right,
+        cx: r.left + (r.width / 2),
+      };
+    } else {
+      this._arrCalPopRect = null;
+    }
+    this.arrCalOpenDay = ds;
+  },
+  // Close the day popover + drop its anchor rect.
+  arrCalCloseDay() {
+    this.arrCalOpenDay = '';
+    this._arrCalPopRect = null;
+  },
+  // Inline position for the teleported fixed-layer day popover, computed from
+  // the clicked cell's captured rect. Prefers below the cell; flips above
+  // when there isn't room; clamps horizontally to the viewport. The internal
+  // list scrolls within the computed max-height.
+  arrCalPopStyle() {
+    const r = this._arrCalPopRect;
+    if (!r || typeof window === 'undefined') {
+      return 'display:none;';
+    }
+    const vw = window.innerWidth || 360;
+    const vh = window.innerHeight || 640;
+    const w = Math.min(300, vw - 16);
+    let left = Math.round(r.cx - (w / 2));
+    left = Math.max(8, Math.min(left, vw - w - 8));
+    const below = vh - r.bottom;
+    const above = r.top;
+    const cap = Math.min(360, Math.round(vh * 0.6));
+    let vert;
+    if (below >= 180 || below >= above) {
+      const mh = Math.min(cap, Math.max(120, Math.round(below - 12)));
+      vert = 'top:' + Math.round(r.bottom + 6) + 'px; max-height:' + mh + 'px;';
+    } else {
+      const mh = Math.min(cap, Math.max(120, Math.round(above - 12)));
+      vert = 'bottom:' + Math.round(vh - r.top + 6) + 'px; max-height:' + mh + 'px;';
+    }
+    return 'position:fixed; left:' + left + 'px; width:' + w + 'px; ' + vert;
   },
   arrCalShiftMonth(delta) {
     const parts = this.arrCalViewMonth().split('-');

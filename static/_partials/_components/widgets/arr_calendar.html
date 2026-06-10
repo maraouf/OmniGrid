@@ -48,9 +48,7 @@
                 <button type="button" class="apps-widget-arr-cal-cell"
                         :class="{ 'is-out': !cell.inMonth, 'is-today': cell.isToday, 'has-rel': cell.count > 0, 'is-active': arrCalActiveDay() === cell.date }"
                         :disabled="cell.count === 0"
-                        @click.stop="cell.count > 0 && arrCalToggleDay(cell.date)"
-                        @mouseenter="cell.count > 0 && (arrCalHoverDay = cell.date)"
-                        @mouseleave="arrCalHoverDay = ''"
+                        @click.stop="cell.count > 0 && arrCalToggleDay(cell.date, $event)"
                         :aria-label="cell.date + (cell.count ? (' — ' + cell.count) : '')">
                   <span class="apps-widget-arr-cal-daynum" x-text="cell.day"></span>
                   <span class="apps-widget-arr-cal-dots" x-show="cell.count > 0" aria-hidden="true">
@@ -59,47 +57,84 @@
                           </template>
                         </span>
                 </button>
-                <!-- In-tile day popover (only the active day renders it).
-                     Up/down + start/end placement keeps it inside the
-                     overflow:hidden tile; cqw/cqh caps keep it within the
-                     tile box. @mouseenter keeps it open while hovered. -->
-                <template x-if="arrCalActiveDay() === cell.date && cell.count > 0">
-                  <div class="apps-widget-arr-cal-pop"
-                       :class="(cell.row >= 3 ? 'pop-up' : 'pop-down') + ' ' + (cell.col >= 4 ? 'pop-end' : 'pop-start')"
-                       @click.stop
-                       @mouseenter="arrCalHoverDay = cell.date"
-                       @mouseleave="arrCalHoverDay = ''">
-                    <div class="apps-widget-arr-cal-pop-list scrollbar">
-                      <template x-for="(rel, ri) in arrCalDayItems(cell.date)" :key="ri">
-                        <div class="apps-widget-arr-cal-pop-row">
-                          <!-- Media-type header (type icon + label + count)
-                               before the first item of each type group
-                               (Movies / Series / Albums / Books). -->
-                          <div x-show="rel._group_head" class="apps-widget-arr-cal-pop-group">
-                            <svg class="apps-widget-arr-cal-pop-typeicon" aria-hidden="true">
-                              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + arrCalTypeIcon(rel.type)"/>
-                            </svg>
-                            <span x-text="arrCalTypeLabel(rel.type)"></span>
-                            <span class="apps-widget-arr-cal-pop-group-count" x-text="rel._group_count"></span>
-                          </div>
-                          <div class="apps-widget-arr-cal-pop-item">
-                            <img x-show="arrCalItemPoster(rel)" :src="arrCalItemPoster(rel)"
-                                 alt="" loading="lazy" class="apps-widget-arr-cal-pop-poster"
-                                 @error="$event.target.style.display='none'">
-                            <span class="apps-widget-arr-cal-pop-meta">
-                                    <span class="apps-widget-arr-cal-pop-title" x-text="rel.title"></span>
-                                    <span x-show="rel.subtitle" class="apps-widget-arr-cal-pop-sub" x-text="rel.subtitle"></span>
-                                  </span>
-                          </div>
-                        </div>
-                      </template>
-                    </div>
-                  </div>
-                </template>
               </div>
             </template>
           </template>
         </div>
+        <!-- Day popover — TELEPORTED to <body> so it escapes the tile's
+             `container-type: size` + `overflow: hidden` clip and renders as a
+             position:fixed layer anchored (arrCalPopStyle) to the clicked
+             cell. Click-pinned: a transparent backdrop catches outside
+             clicks; Esc / page-scroll / resize also close it. Keeps the
+             Alpine component scope of this template after teleport. -->
+        <template x-teleport="body">
+          <div class="apps-widget-arr-cal-pop-layer" x-show="arrCalOpenDay" style="display:none;"
+               @keydown.escape.window="arrCalCloseDay()"
+               @scroll.window="arrCalCloseDay()"
+               @resize.window="arrCalCloseDay()">
+            <div class="apps-widget-arr-cal-pop-backdrop" @click="arrCalCloseDay()"></div>
+            <div class="apps-widget-arr-cal-pop" :style="arrCalPopStyle()" @click.stop>
+              <div class="apps-widget-arr-cal-pop-list scrollbar">
+                <template x-for="(rel, ri) in arrCalDayItems(arrCalOpenDay)" :key="ri">
+                  <div class="apps-widget-arr-cal-pop-row">
+                    <!-- Media-type header (type icon + label + count) before
+                         the first item of each type group. -->
+                    <div x-show="rel._group_head" class="apps-widget-arr-cal-pop-group">
+                      <svg class="apps-widget-arr-cal-pop-typeicon" aria-hidden="true">
+                        <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + arrCalTypeIcon(rel.type)"/>
+                      </svg>
+                      <span x-text="arrCalTypeLabel(rel.type)"></span>
+                      <span class="apps-widget-arr-cal-pop-group-count" x-text="rel._group_count"></span>
+                    </div>
+                    <div class="apps-widget-arr-cal-pop-item">
+                      <img x-show="arrCalItemPoster(rel)" :src="arrCalItemPoster(rel)"
+                           alt="" loading="lazy" class="apps-widget-arr-cal-pop-poster"
+                           @error="$event.target.style.display='none'">
+                      <div class="apps-widget-arr-cal-pop-meta">
+                        <span class="apps-widget-arr-cal-pop-title" x-text="rel.title"></span>
+                        <span x-show="rel.subtitle" class="apps-widget-arr-cal-pop-sub" x-text="rel.subtitle"></span>
+                        <!-- Facts line — release time (clock) + runtime. -->
+                        <span x-show="rel.time || rel.runtime > 0" class="apps-widget-arr-cal-pop-facts">
+                          <span x-show="rel.time" class="apps-widget-arr-cal-pop-fact">
+                            <svg class="apps-widget-arr-cal-pop-clock" aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
+                            </svg>
+                            <span x-text="_fmtClockTime(rel.time)"></span>
+                          </span>
+                          <span x-show="rel.runtime > 0" class="apps-widget-arr-cal-pop-fact"
+                                x-text="arrCalRuntimeLabel(rel.runtime)"></span>
+                        </span>
+                        <span x-show="rel.overview" class="apps-widget-arr-cal-pop-overview"
+                              x-text="rel.overview"></span>
+                        <!-- Action pills — open in the source app + IMDb / TMDB. -->
+                        <span x-show="rel.app_url || rel.imdb_url || rel.tmdb_url"
+                              class="apps-widget-arr-cal-pop-actions">
+                          <a x-show="rel.app_url" :href="rel.app_url" target="_blank"
+                             rel="noopener noreferrer"
+                             class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--app"
+                             :aria-label="t('apps.custom.widget_arr_calendar_open_in', {app: arrCalServiceLabel(rel.service_slug)})">
+                            <img :src="arrCalServiceIcon(rel.service_slug)" alt=""
+                                 class="apps-widget-arr-cal-pop-linkicon"
+                                 @error="$event.target.style.display='none'">
+                            <span x-text="arrCalServiceLabel(rel.service_slug)"></span>
+                          </a>
+                          <a x-show="rel.imdb_url" :href="rel.imdb_url" target="_blank"
+                             rel="noopener noreferrer"
+                             class="apps-widget-arr-cal-pop-link"
+                             x-text="t('apps.custom.widget_arr_calendar_imdb')"></a>
+                          <a x-show="rel.tmdb_url" :href="rel.tmdb_url" target="_blank"
+                             rel="noopener noreferrer"
+                             class="apps-widget-arr-cal-pop-link"
+                             x-text="t('apps.custom.widget_arr_calendar_tmdb')"></a>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </template>
         <div class="apps-widget-arr-cal-legend" x-show="(arrCalendar.services || []).length">
           <template x-for="(svc, li) in (arrCalendar.services || [])" :key="li">
                   <span class="apps-widget-arr-cal-legend-item">

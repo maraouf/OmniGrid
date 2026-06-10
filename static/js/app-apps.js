@@ -1123,6 +1123,7 @@ export default {
   _arrCalMonthCache: {},    // { 'YYYY-MM': { ts, data } } — 10-min per-month cache
   arrCalViewYM: '',         // displayed month 'YYYY-MM' ('' → current month)
   arrCalOpenDay: '',        // 'YYYY-MM-DD' of the pinned day popover ('' = none)
+  _arrCalPopRect: null,     // clicked-cell viewport rect → anchors the teleported fixed popover
   _arrCalGridMemo: null,    // { key, val } — memoised 6×7 grid
   _arrCalWeekdaysMemo: null,
 
@@ -1139,7 +1140,6 @@ export default {
       return true;
     });
   },
-  arrCalHoverDay: '',       // 'YYYY-MM-DD' hovered (desktop preview, transient)
 
   // Weather-condition → sprite icon-id mapper. Matches the backend's
   // `weather.condition` string against common WMO-mapped phrases the

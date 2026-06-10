@@ -416,11 +416,13 @@ async def calendar_items(host_row: dict, chip: dict, *,
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
                                         start=start, end=end, app_label="Sonarr",
                                         extra_params={"includeSeries": "true"})
+    web = _servarr.web_base(chip)
     out: list[dict] = []
     for ep in raw:
         if not isinstance(ep, dict):
             continue
-        when = str(ep.get("airDateUtc") or ep.get("airDate") or "")[:10]
+        when_full = str(ep.get("airDateUtc") or ep.get("airDate") or "")
+        when = when_full[:10]
         series = as_dict(ep.get("series"))
         sname = str(series.get("title") or "").strip()
         if not when or not sname:
@@ -430,6 +432,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         code = f"S{sn:02d}E{en:02d}" if (sn or en) else ""
         ep_title = str(ep.get("title") or "").strip()
         subtitle = (code + (" · " + ep_title if ep_title else "")).strip(" ·")
+        slug = str(series.get("titleSlug") or "").strip()
         out.append({
             "date": when,
             "title": sname,
@@ -438,6 +441,12 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "service_slug": "sonarr",
             "poster": _servarr.poster_proxy_path(series, id_fallback=True),
             "poster_proxy": True,
+            "overview": _servarr.clamp_overview(ep.get("overview")),
+            "runtime": max(0, safe_int(ep.get("runtime"))),
+            "time": _servarr.release_time(when_full),
+            "app_url": (f"{web}/series/{slug}" if (web and slug) else web),
+            "imdb_url": _servarr.imdb_url(series.get("imdbId")),
+            "tmdb_url": "",
         })
     return out
 
