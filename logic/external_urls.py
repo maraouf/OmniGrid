@@ -36,6 +36,9 @@ class ExternalURL:
     THEMOVIEDB_HOST = "themoviedb.org"
     WWW_THEMOVIEDB_HOST = "www.themoviedb.org"
     THEMOVIEDB_API = "https://api.themoviedb.org/3"
+    THEMOVIEDB_WEB = "https://www.themoviedb.org"  # movie / tv detail-page links
+    # IMDb — title detail-page links (Radarr movie imdbId / Sonarr series imdbId).
+    IMDB_WEB = "https://www.imdb.com"
 
     # MusicBrainz Cover Art Archive — public album art by release-group MBID
     # (Lidarr ``foreignAlbumId``). Used as a reliable poster fallback when a

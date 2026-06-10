@@ -828,6 +828,36 @@ export default {
       .trim();
     return timePart || 'HH:mm';
   },
+  // Render a bare clock string (`"HH:MM"` / `"HH:MM:SS"`, 24h source) through
+  // the user's Settings → Profile time-only format (so a 12h-preference user
+  // sees "3:00 AM", a 24h user "15:00"). Single source of truth for "format a
+  // clock value the way the user asked" — consumed by the prayer-times widget
+  // AND the *arr release-calendar popover. Returns the input unchanged when it
+  // can't be parsed as a time. Seconds are stripped (the sources are
+  // minute-granularity).
+  _fmtClockTime(hhmm) {
+    const s = String(hhmm == null ? '' : hhmm).trim();
+    // Parse "HH:MM" by hand (no regex named groups — JSHint E016).
+    const colon = s.indexOf(':');
+    if (colon < 1) {
+      return s;
+    }
+    const hh = parseInt(s.slice(0, colon), 10);
+    const mm = parseInt(s.slice(colon + 1, colon + 3), 10);
+    if (isNaN(hh) || isNaN(mm)) {
+      return s;
+    }
+    const d = new Date(2000, 0, 1, hh, mm, 0);
+    if (isNaN(d.getTime())) {
+      return s;
+    }
+    const fmt = (this._userTimeOnlyFormat() || 'HH:mm')
+      .replace(/[:.]?ss/g, '')
+      .replace(/[:.]?s(?![a-z])/g, '')
+      .replace(/^[\s:.,\-/]+|[\s:.,\-/]+$/g, '')
+      .trim() || 'HH:mm';
+    return this._applyDateTimeFormat(d, fmt) || s;
+  },
   // Render an ISO `YYYY-MM-DD` string back through the user's date-only
   // format. Empty / invalid input returns empty string for use as input
   // value. Mirror of `_parseUserDate`.

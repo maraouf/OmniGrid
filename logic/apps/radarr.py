@@ -406,15 +406,18 @@ async def calendar_items(host_row: dict, chip: dict, *,
     (returns [] on any failure)."""
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
                                         start=start, end=end, app_label="Radarr")
+    web = _servarr.web_base(chip)
     out: list[dict] = []
     for m in raw:
         if not isinstance(m, dict):
             continue
-        when = str(m.get("digitalRelease") or m.get("physicalRelease")
-                   or m.get("inCinemas") or "")[:10]
+        when_full = str(m.get("digitalRelease") or m.get("physicalRelease")
+                        or m.get("inCinemas") or "")
+        when = when_full[:10]
         title = str(m.get("title") or "").strip()
         if not when or not title:
             continue
+        tmdb = m.get("tmdbId")
         out.append({
             "date": when,
             "title": f"{title}{_year_suffix(m.get('year'))}",
@@ -423,6 +426,12 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "service_slug": "radarr",
             "poster": _servarr.poster_proxy_path(m, id_fallback=True),
             "poster_proxy": True,
+            "overview": _servarr.clamp_overview(m.get("overview")),
+            "runtime": max(0, _servarr.safe_int(m.get("runtime"))),
+            "time": _servarr.release_time(when_full),
+            "app_url": (f"{web}/movie/{tmdb}" if (web and tmdb) else web),
+            "imdb_url": _servarr.imdb_url(m.get("imdbId")),
+            "tmdb_url": _servarr.tmdb_movie_url(tmdb),
         })
     return out
 

@@ -602,6 +602,42 @@ async def app_update_skill(host_row: dict, chip: dict, *, app_label: str,
         app_label=app_label, api_version=api_version, host_id=host_id)
 
 
+# --- Release-calendar item enrichment (Homarr-style detail rows) ----------
+def web_base(chip: dict) -> str:
+    """The operator-configured web URL for an *arr chip — the deep-link base
+    for an item's "open in <App>" pill. '' when the chip has no ``url``."""
+    return str((chip or {}).get("url") or "").strip().rstrip("/")
+
+
+def imdb_url(imdb_id) -> str:
+    """IMDb title-page URL for an ``imdbId`` (``tt…``); '' when absent/invalid."""
+    iid = str(imdb_id or "").strip()
+    return f"{ExternalURL.IMDB_WEB}/title/{iid}/" if iid.startswith("tt") else ""
+
+
+def tmdb_movie_url(tmdb_id) -> str:
+    """TMDB movie-page URL for a numeric ``tmdbId``; '' when absent/zero."""
+    tid = str(tmdb_id or "").strip()
+    return f"{ExternalURL.THEMOVIEDB_WEB}/movie/{tid}" if (tid.isdigit() and tid != "0") else ""
+
+
+def release_time(iso) -> str:
+    """``"HH:MM"`` from an ISO-8601 datetime when it carries a non-midnight
+    time (e.g. Sonarr ``airDateUtc``); '' for a date-only / midnight value."""
+    s = str(iso or "")
+    if "T" not in s or len(s) < 16:
+        return ""
+    hhmm = s[11:16]
+    return "" if hhmm in ("00:00", "0:00") else hhmm
+
+
+def clamp_overview(text, limit: int = 240) -> str:
+    """Collapse whitespace + cap an overview/synopsis to ``limit`` chars
+    (ellipsised) so a long synopsis can't blow out the popover row."""
+    s = " ".join(str(text or "").split())
+    return (s[:limit].rstrip() + "…") if len(s) > limit else s
+
+
 async def fetch_calendar(host_row: dict, chip: dict, *, api_version: str,
                          start: str, end: str, app_label: str,
                          extra_params: Optional[dict] = None) -> list:
