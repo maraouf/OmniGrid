@@ -98,6 +98,7 @@ def _album_poster(alb: dict, art: dict) -> str:
     return (_servarr.local_poster_path_only(alb)
             or _servarr.local_poster_path_only(art))
 
+
 # Servarr-family shared helpers (logic/apps/_servarr.py) bound to Lidarr's
 # api version (v1) + brand, aliased to the historical underscore names so the
 # skill bodies' call sites stay unchanged. Lidarr matches a STRING
@@ -424,6 +425,37 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _servarr.app_update_skill(host_row, chip, app_label="Lidarr",
                                                api_version="v1", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+async def calendar_items(host_row: dict, chip: dict, *,
+                         start: str, end: str) -> list[dict]:
+    """Normalised upcoming-ALBUM rows for the release-calendar widget — one row
+    per Lidarr ``/api/v1/calendar`` entry (``includeArtist``) in the window:
+    ``{date, title (artist), subtitle (album), type, ...}``. Never raises
+    (returns [] on any failure)."""
+    raw = await _servarr.fetch_calendar(host_row, chip, api_version="v1",
+                                        start=start, end=end, app_label="Lidarr",
+                                        extra_params={"includeArtist": "true"})
+    out: list[dict] = []
+    for alb in raw:
+        if not isinstance(alb, dict):
+            continue
+        when = str(alb.get("releaseDate") or "")[:10]
+        art = as_dict(alb.get("artist"))
+        artist = str(art.get("artistName") or "").strip()
+        album = str(alb.get("title") or "").strip()
+        if not when or not (artist or album):
+            continue
+        out.append({
+            "date": when,
+            "title": artist or album,
+            "subtitle": album if artist else "",
+            "type": "album",
+            "service_slug": "lidarr",
+            "poster": _servarr.poster_proxy_path(alb),
+            "poster_proxy": True,
+        })
+    return out
 
 
 def _norm_name(s: Any) -> str:

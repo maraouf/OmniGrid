@@ -217,6 +217,13 @@
   --widget-accent-public_ip: #2dd4bf; /* teal-400 */
   --widget-accent-system_stats: #34d399; /* emerald-400 */
   --widget-accent-prayer_times: #fbbf24; /* amber-400 — dawn/dusk warmth */
+  --widget-accent-arr_calendar: #f472b6; /* pink-400 — media release calendar */
+  /* *arr release-calendar per-service dot colours (brand-leaning, readable on
+     both themes as saturated dot fills). */
+  --arr-cal-radarr: #f5c518; /* gold */
+  --arr-cal-sonarr: #35c5f0; /* sky */
+  --arr-cal-lidarr: #1bc171; /* green */
+  --arr-cal-readarr: #c0392b; /* red */
   /* Chart extended palette — distinguishing hues for per-host probe
      charts (Dell temp probes, sensor strips, multi-line plots) when
      the base --info / --warning / --success / --danger / --primary
@@ -601,6 +608,11 @@
   --widget-accent-public_ip: #0d9488; /* teal-600 */
   --widget-accent-system_stats: #059669; /* emerald-600 */
   --widget-accent-prayer_times: #d97706; /* amber-600 — dawn/dusk warmth */
+  --widget-accent-arr_calendar: #db2777; /* pink-600 — media release calendar */
+  --arr-cal-radarr: #e0b30f; /* gold (slightly deeper for light-bg contrast) */
+  --arr-cal-sonarr: #0ea5d4; /* sky */
+  --arr-cal-lidarr: #15a35f; /* green */
+  --arr-cal-readarr: #b8332a; /* red */
   --chart-palette-violet: #7c3aed; /* darker violet for light-theme contrast */
   --chart-palette-pink: #be185d; /* darker pink */
   --chart-palette-cyan: #0e7490; /* darker cyan */
@@ -6243,12 +6255,17 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
-  flex-shrink: 0;
-  /* On the same row as the title, push to the right end. When the
-       parent (`.host-mobile-card-head`, flex-wrap) drops this strip
-       to its own line on phones, the auto-margin becomes a no-op
-       (no remaining-space competition) so it sits naturally. */
-  margin-inline-start: auto;
+  /* Always occupy a full-width line of its OWN under the title block.
+       Previously this sat on the title's flex line (pushed right via
+       margin-inline-start:auto); when space got tight the title's
+       non-shrinkable trailing content — the 0-100 health-score chip +
+       status badges — overflowed its box and collided with the leftmost
+       provider chip (Beszel/Pulse) on phones. Forcing flex-basis:100%
+       drops the strip cleanly onto its own line so the chip/badges and
+       the provider chips can never overlap horizontally. A small top
+       margin separates it from the subline. */
+  flex-basis: 100%;
+  margin-top: var(--s-1);
 }
 
 /* Per-host provider chip strip on the desktop Hosts view, pulled OUT
@@ -12454,6 +12471,334 @@ select.field-invalid {
   --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
 }
 
+.apps-widget-tile--arr_calendar {
+  --widget-accent: var(--widget-accent-arr_calendar);
+  --widget-accent-soft: color-mix(in srgb, var(--widget-accent) 12%, transparent);
+  --widget-accent-glow: color-mix(in srgb, var(--widget-accent) 25%, transparent);
+}
+
+/* ===========================================================================
+   *arr release-calendar widget — a modern month-grid release calendar.
+   display:contents wrapper so the outer x-if owns one root (grid + empty-state).
+   =========================================================================== */
+.apps-widget-arr-cal-wrap {
+  display: contents;
+}
+
+.apps-widget-arr-cal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.apps-widget-arr-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.apps-widget-arr-cal-month {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.apps-widget-arr-cal-nav {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease,
+  background 140ms ease, transform 140ms ease;
+}
+
+.apps-widget-arr-cal-nav:hover {
+  color: var(--widget-accent);
+  border-color: var(--widget-accent);
+  background: var(--widget-accent-soft);
+  transform: scale(1.08);
+}
+
+.apps-widget-arr-cal-nav:active {
+  transform: scale(0.94);
+}
+
+.apps-widget-arr-cal-weekdays,
+.apps-widget-arr-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.apps-widget-arr-cal-weekday {
+  text-align: center;
+  font-size: var(--fs-3xs);
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.apps-widget-arr-cal-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.apps-widget-arr-cal-cell-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.apps-widget-arr-cal-cell {
+  width: 100%;
+  height: 100%;
+  min-height: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: default;
+  padding: 2px;
+  transition: background 150ms ease, border-color 150ms ease,
+  transform 150ms ease, box-shadow 150ms ease;
+}
+
+.apps-widget-arr-cal-cell.is-out .apps-widget-arr-cal-daynum {
+  opacity: 0.38;
+}
+
+/* Days WITH releases get a soft card + become interactive. */
+.apps-widget-arr-cal-cell.has-rel {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--widget-accent) 5%, var(--surface));
+  border-color: var(--border);
+}
+
+.apps-widget-arr-cal-cell.has-rel:hover,
+.apps-widget-arr-cal-cell.is-active {
+  border-color: var(--widget-accent);
+  background: var(--widget-accent-soft);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--widget-accent-glow);
+}
+
+.apps-widget-arr-cal-daynum {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+}
+
+/* Today — the day number sits in a filled accent disc (modern calendar cue). */
+.apps-widget-arr-cal-cell.is-today .apps-widget-arr-cal-daynum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--widget-accent);
+  color: var(--text-on-primary);
+  font-weight: 700;
+}
+
+.apps-widget-arr-cal-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  min-height: 5px;
+}
+
+.apps-widget-arr-cal-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--text-faint);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+.apps-widget-arr-cal-dot--radarr { background: var(--arr-cal-radarr); }
+.apps-widget-arr-cal-dot--sonarr { background: var(--arr-cal-sonarr); }
+.apps-widget-arr-cal-dot--lidarr { background: var(--arr-cal-lidarr); }
+.apps-widget-arr-cal-dot--readarr { background: var(--arr-cal-readarr); }
+
+/* Day popover — glassmorphic, anchored to the cell, capped to the tile via
+   container-query units so it stays inside the overflow:hidden tile. */
+.apps-widget-arr-cal-pop {
+  position: absolute;
+  z-index: 30;
+  width: max-content;
+  min-width: 140px;
+  max-width: min(250px, 82cqw);
+  max-height: min(230px, 62cqh);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  backdrop-filter: blur(10px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--widget-accent) 45%, var(--border));
+  border-radius: var(--r-lg);
+  box-shadow: 0 14px 34px var(--backdrop-strong),
+  0 2px 6px var(--row-hover);
+  padding: var(--s-3);
+  transform-origin: top center;
+  animation: arr-cal-pop-in 140ms ease-out;
+}
+
+.apps-widget-arr-cal-pop.pop-down { top: calc(100% + 4px); }
+.apps-widget-arr-cal-pop.pop-up { bottom: calc(100% + 4px); transform-origin: bottom center; }
+.apps-widget-arr-cal-pop.pop-start { inset-inline-start: 0; }
+.apps-widget-arr-cal-pop.pop-end { inset-inline-end: 0; }
+
+@keyframes arr-cal-pop-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.apps-widget-arr-cal-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-height: min(206px, 56cqh);
+  overflow-y: auto;
+}
+
+.apps-widget-arr-cal-pop-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.apps-widget-arr-cal-pop-poster {
+  width: 28px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+  background: var(--surface-2);
+  box-shadow: 0 2px 6px var(--backdrop);
+}
+
+.apps-widget-arr-cal-pop-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.apps-widget-arr-cal-pop-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Category (service) group header inside the day popover. */
+.apps-widget-arr-cal-pop-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-3xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.apps-widget-arr-cal-pop-group > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-widget-arr-cal-pop-group-count {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+  min-width: 16px;
+  padding: 0 5px;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--widget-accent-soft);
+  color: var(--widget-accent);
+  font-weight: 700;
+}
+
+.apps-widget-arr-cal-pop-title {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-widget-arr-cal-pop-svc {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.apps-widget-arr-cal-pop-sub {
+  font-size: var(--fs-3xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-widget-arr-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  justify-content: center;
+}
+
+.apps-widget-arr-cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apps-widget-arr-cal-pop {
+    animation: none;
+  }
+  .apps-widget-arr-cal-cell,
+  .apps-widget-arr-cal-nav {
+    transition: none;
+  }
+  .apps-widget-arr-cal-cell.has-rel:hover,
+  .apps-widget-arr-cal-cell.is-active {
+    transform: none;
+  }
+}
+
 /* Prayer Times widget body — next-prayer hero, Hijri date line, and the
    5 daily prayers (+ Sunrise) as a compact list. The next prayer row is
    highlighted with the accent-soft fill + accent text. */
@@ -13592,6 +13937,15 @@ select.field-invalid {
    survived four forecast-col rewrites; moon / pubip / clock have no such
    wrapper, which is why only weather was affected). */
 .apps-widget-weather-wrap {
+  display: contents;
+}
+
+/* Layout-transparent wrapper so the moon widget's data-body + empty-state
+   templates share ONE root under the outer `item.widget === 'moon'` x-if
+   (Alpine renders only the first root child). display:contents keeps the
+   moon-body / empty-state as direct flex children of the tile-body, so the
+   moon tile centres + sizes exactly as it did before the wrapper was added. */
+.apps-widget-moon-wrap {
   display: contents;
 }
 

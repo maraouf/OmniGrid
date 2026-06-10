@@ -458,6 +458,37 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+async def calendar_items(host_row: dict, chip: dict, *,
+                         start: str, end: str) -> list[dict]:
+    """Normalised upcoming-BOOK rows for the release-calendar widget — one row
+    per Readarr ``/api/v1/calendar`` entry (``includeAuthor``) in the window:
+    ``{date, title (book), subtitle (author), type, ...}``. Never raises
+    (returns [] on any failure)."""
+    raw = await _servarr.fetch_calendar(host_row, chip, api_version="v1",
+                                        start=start, end=end, app_label="Readarr",
+                                        extra_params={"includeAuthor": "true"})
+    out: list[dict] = []
+    for book in raw:
+        if not isinstance(book, dict):
+            continue
+        when = str(book.get("releaseDate") or "")[:10]
+        auth = as_dict(book.get("author"))
+        author = str(auth.get("authorName") or "").strip()
+        title = str(book.get("title") or "").strip()
+        if not when or not (author or title):
+            continue
+        out.append({
+            "date": when,
+            "title": title or author,
+            "subtitle": author if title else "",
+            "type": "book",
+            "service_slug": "readarr",
+            "poster": _servarr.poster_proxy_path(book),
+            "poster_proxy": True,
+        })
+    return out
+
+
 def _norm_name(s: Any) -> str:
     """Normalise an author name / query for matching: lowercase, collapse
     whitespace. (Authors have no year suffix, unlike movies / series.)"""

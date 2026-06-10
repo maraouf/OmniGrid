@@ -28,6 +28,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Added
 
+- Release-calendar widget — a new Apps custom-dashboard widget showing upcoming movie / series / album / book releases from your configured Radarr / Sonarr / Lidarr / Readarr services in a modern month-grid calendar. Days with releases show service-coloured dots; hover (or tap) a day to see that day's titles with poster, the service's icon and the title (plus SxxExx / artist / author). Month navigation, and only the services you've actually configured contribute (Radarr disabled → no movies). The widget is hidden from the picker entirely when no *arr service is set up.
 - GitSync Connector per-app integration — admin-pinned GitSync chips get an expanded stat card (sync pairs / enabled / paused, issue + commit + release mappings, synced refs, unacknowledged alerts, connector version) sourced from its REST API, plus app drawer + AI / Telegram actions: GitSync status, list sync pairs, sync / pause / resume all pairs, and sync / pause / resume a single pair by name. Bearer-token auth (GitSync → API → Create token). Pause actions require a confirm. Follows the per-app encapsulation pattern (module + extender + editor / extras partials + Test-connection).
 - Manual-update actions for non-Docker *arr apps — Radarr / Sonarr / Prowlarr / Lidarr / Readarr instances that aren't linked to a Docker container/stack get two new actions in the app drawer and via AI / Telegram: "Check for updates" (compares the running version against the latest available on the configured branch) and "Update <App>" (triggers the app's built-in updater, which downloads/installs/restarts itself). The update action requires a confirm. Both actions are hidden for Docker-linked instances, which update through their container/stack instead.
 - Grafana per-app integration — admin-pinned Grafana chips get an expanded stat card (Dashboards / Folders / Datasources, plus Users / Orgs when a server-admin token is configured, with the org name + Grafana version as a footnote), sourced from the Grafana REST API. Service-account-token auth (Administration → Service accounts → Add service account token). AI / Telegram skills: Grafana status, List dashboards, List datasources, and Search dashboards (by name). Follows the per-app encapsulation pattern (module + extender + editor / extras partials + catalog template + icon + Test-connection).
@@ -1641,4 +1642,5 @@ here.
 [1.4.0]: docs/releases/_v140_release_notes.md
 
 [1.5.0]: docs/releases/_v150_release_notes.md
+
 [1.6.0]: docs/releases/_v160_release_notes.md

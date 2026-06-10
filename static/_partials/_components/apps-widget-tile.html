@@ -371,26 +371,32 @@
               </template>
             </div>
           </template>
+          <!-- Empty-state lives INSIDE .apps-widget-weather-wrap so the outer
+               `item.widget === 'weather'` template has a SINGLE root element.
+               Alpine's <template x-if> renders ONLY its first root child — with
+               the empty-state as a second sibling of the wrap it was silently
+               dropped, so a card with no weather data yet rendered fully BLANK
+               (no body, no message) instead of the empty state. -->
+          <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
+            <div class="apps-widget-empty">
+              <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
+              </svg>
+              <!-- Three differentiated empty states so users understand
+                   WHY the widget is empty:
+                     (a) feature globally disabled by an admin
+                     (b) user hasn't set a location yet in Profile
+                     (c) configured but the upstream returned no data
+                         (transient — refresh button retries) -->
+              <span class="apps-widget-empty-text"
+                    x-text="(weather && weather.configured === false)
+                    ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
+                    : (!userLat || !userLon)
+                      ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see live conditions here.')
+                      : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
+            </div>
+          </template>
         </div>
-        <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
-          <div class="apps-widget-empty">
-            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
-            </svg>
-            <!-- Three differentiated empty states so users understand
-                 WHY the widget is empty:
-                   (a) feature globally disabled by an admin
-                   (b) user hasn't set a location yet in Profile
-                   (c) configured but the upstream returned no data
-                       (transient — refresh button retries) -->
-            <span class="apps-widget-empty-text"
-                  x-text="(weather && weather.configured === false)
-                  ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
-                  : (!userLat || !userLon)
-                    ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see live conditions here.')
-                    : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
-          </div>
-        </template>
       </template>
 
       <!-- Public-IP widget — IP hero (mono) + ISP subtitle with globe
@@ -575,96 +581,103 @@
            topbar widget's fetch, OR `this.weather.supports_moon ==
            false` for the provider-mismatch empty state. -->
       <template x-if="item.widget === 'moon'">
-        <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
-          <div class="apps-widget-moon-body">
-            <!--
-              Compact 40×40 ring (down from 56×56) + smaller phase
-              name so the moon widget renders at the same intrinsic
-              height as clock / weather / public_ip peers. Pre-fix
-              the larger ring + 17px phase name combined with the
-              equal-height stretch (`.apps-widget-tile-root { height:
-              100% }` + `.apps-widget-tile { flex: 1 }`) made EVERY
-              widget on the same row inherit moon's tall height —
-              operator-flagged "moon phase widget is very long in
-              height, decrease to match others". Ring circle r=16
-              (down from r=24) → circumference 2·π·16 ≈ 100.5; the
-              `appsWidgetMoonPhase()` helper continues to use the
-              r=24 / circumference≈150.8 numbers it always has so
-              we pass `:viewBox` scaling instead of recomputing the
-              arc geometry (cheaper diff + the helper stays a single
-              source of truth for the lit-fraction math).
-            -->
-            <div class="apps-widget-hero-row apps-widget-moon-fill">
-              <svg class="apps-widget-moon-ring" width="120" height="120" viewBox="0 0 56 56" aria-hidden="true">
-                <!-- Background dim disc (the un-illuminated portion). -->
-                <circle cx="28" cy="28" r="24"
-                        fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
-                        stroke="color-mix(in srgb, var(--widget-accent) 22%, transparent)"
-                        stroke-width="1"/>
-                <!-- Bright illumination arc — drawn as a clipped circle
-                     using stroke-dasharray to represent the lit
-                     fraction. circumference = 2 * pi * r ≈ 150.8 at r=24. -->
-                <circle cx="28" cy="28" r="24"
-                        fill="none"
-                        stroke="var(--widget-accent)"
-                        stroke-width="3"
-                        stroke-linecap="round"
-                        :stroke-dasharray="appsWidgetMoonPhase().circumference"
-                        :stroke-dashoffset="appsWidgetMoonPhase().offset"
-                        transform="rotate(-90 28 28)"/>
-                <text x="28" y="33" text-anchor="middle"
-                      style="font-size: 13px; font-weight: 600; fill: var(--text);"
-                      x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
-              </svg>
-              <div class="apps-widget-hero-col">
-                <!-- FULL phase name — bumped DOWN to `--fs-md` (13px)
-                     from the earlier 17px display-sm. The phase name is
-                     the hero but it's a SECONDARY widget (compared to
-                     weather's primary temperature), and the smaller
-                     size lets two-word phases ("Waxing Gibbous" /
-                     "Waning Crescent") fit cleanly on one line at the
-                     widget's typical narrow width. -->
-                <div class="apps-widget-hero apps-widget-moon-phase"
-                     :class="moonPhaseLenClass(appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short)"
-                     x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
-                <div class="apps-widget-subtitle"
-                     x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })
+        <!-- Single root for the outer template — the data body + empty-state
+             templates both live inside .apps-widget-moon-wrap (display:contents,
+             layout-transparent). Without the shared wrapper Alpine's x-if
+             rendered ONLY the first child (the data body), so a card with no
+             moon data yet rendered fully BLANK instead of the empty state. -->
+        <div class="apps-widget-moon-wrap">
+          <template x-if="weather && weather.supports_moon && appsWidgetMoonPhase()">
+            <div class="apps-widget-moon-body">
+              <!--
+                Compact 40×40 ring (down from 56×56) + smaller phase
+                name so the moon widget renders at the same intrinsic
+                height as clock / weather / public_ip peers. Pre-fix
+                the larger ring + 17px phase name combined with the
+                equal-height stretch (`.apps-widget-tile-root { height:
+                100% }` + `.apps-widget-tile { flex: 1 }`) made EVERY
+                widget on the same row inherit moon's tall height —
+                operator-flagged "moon phase widget is very long in
+                height, decrease to match others". Ring circle r=16
+                (down from r=24) → circumference 2·π·16 ≈ 100.5; the
+                `appsWidgetMoonPhase()` helper continues to use the
+                r=24 / circumference≈150.8 numbers it always has so
+                we pass `:viewBox` scaling instead of recomputing the
+                arc geometry (cheaper diff + the helper stays a single
+                source of truth for the lit-fraction math).
+              -->
+              <div class="apps-widget-hero-row apps-widget-moon-fill">
+                <svg class="apps-widget-moon-ring" width="120" height="120" viewBox="0 0 56 56" aria-hidden="true">
+                  <!-- Background dim disc (the un-illuminated portion). -->
+                  <circle cx="28" cy="28" r="24"
+                          fill="color-mix(in srgb, var(--widget-accent) 12%, var(--surface-2))"
+                          stroke="color-mix(in srgb, var(--widget-accent) 22%, transparent)"
+                          stroke-width="1"/>
+                  <!-- Bright illumination arc — drawn as a clipped circle
+                       using stroke-dasharray to represent the lit
+                       fraction. circumference = 2 * pi * r ≈ 150.8 at r=24. -->
+                  <circle cx="28" cy="28" r="24"
+                          fill="none"
+                          stroke="var(--widget-accent)"
+                          stroke-width="3"
+                          stroke-linecap="round"
+                          :stroke-dasharray="appsWidgetMoonPhase().circumference"
+                          :stroke-dashoffset="appsWidgetMoonPhase().offset"
+                          transform="rotate(-90 28 28)"/>
+                  <text x="28" y="33" text-anchor="middle"
+                        style="font-size: 13px; font-weight: 600; fill: var(--text);"
+                        x-text="appsWidgetMoonPhase().illumination_pct + '%'"></text>
+                </svg>
+                <div class="apps-widget-hero-col">
+                  <!-- FULL phase name — bumped DOWN to `--fs-md` (13px)
+                       from the earlier 17px display-sm. The phase name is
+                       the hero but it's a SECONDARY widget (compared to
+                       weather's primary temperature), and the smaller
+                       size lets two-word phases ("Waxing Gibbous" /
+                       "Waning Crescent") fit cleanly on one line at the
+                       widget's typical narrow width. -->
+                  <div class="apps-widget-hero apps-widget-moon-phase"
+                       :class="moonPhaseLenClass(appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short)"
+                       x-text="appsWidgetMoonPhase().phase_full || appsWidgetMoonPhase().phase_short"></div>
+                  <div class="apps-widget-subtitle"
+                       x-text="t('apps.custom.widget_moon_illumination_label', { pct: appsWidgetMoonPhase().illumination_pct })
                      || (appsWidgetMoonPhase().illumination_pct + '% illuminated')"></div>
+                </div>
+              </div>
+              <div class="apps-widget-detail">
+                <span x-show="appsWidgetMoonPhase().moonrise" class="apps-widget-kv">
+                  <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_rise_label') || 'Rise'"></span>
+                  <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonrise"></span>
+                </span>
+                <span x-show="appsWidgetMoonPhase().moonset" class="apps-widget-kv">
+                  <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_set_label') || 'Set'"></span>
+                  <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonset"></span>
+                </span>
               </div>
             </div>
-            <div class="apps-widget-detail">
-            <span x-show="appsWidgetMoonPhase().moonrise" class="apps-widget-kv">
-              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_rise_label') || 'Rise'"></span>
-              <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonrise"></span>
-            </span>
-              <span x-show="appsWidgetMoonPhase().moonset" class="apps-widget-kv">
-              <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_moon_set_label') || 'Set'"></span>
-              <span class="apps-widget-kv-value" x-text="appsWidgetMoonPhase().moonset"></span>
-            </span>
-            </div>
-          </div>
-        </template>
-        <template x-if="!weather || !weather.supports_moon || !appsWidgetMoonPhase()">
-          <div class="apps-widget-empty">
-            <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
-            </svg>
-            <!-- Four differentiated empty states so users understand
-                 WHY moon data isn't showing:
-                   (a) feature globally disabled by an admin
-                   (b) provider can't supply moon data (Open-Meteo)
-                   (c) user hasn't set a location yet
-                   (d) configured but no moon data yet (transient) -->
-            <span class="apps-widget-empty-text"
-                  x-text="(weather && weather.configured === false)
+          </template>
+          <template x-if="!weather || !weather.supports_moon || !appsWidgetMoonPhase()">
+            <div class="apps-widget-empty">
+              <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-moon"/>
+              </svg>
+              <!-- Four differentiated empty states so users understand
+                   WHY moon data isn't showing:
+                     (a) feature globally disabled by an admin
+                     (b) provider can't supply moon data (Open-Meteo)
+                     (c) user hasn't set a location yet
+                     (d) configured but no moon data yet (transient) -->
+              <span class="apps-widget-empty-text"
+                    x-text="(weather && weather.configured === false)
                   ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
                   : (weather && !weather.supports_moon)
                     ? (t('apps.custom.widget_moon_provider_hint') || 'Switch to WeatherAPI.com in Admin → Weather to enable moon data')
                     : (!userLat || !userLon)
                       ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see moon phases here.')
                       : (t('apps.custom.widget_moon_no_data') || 'No moon data — configure Weather in admin')"></span>
-          </div>
-        </template>
+            </div>
+          </template>
+        </div>
       </template>
 
       <!-- Prayer Times widget — next prayer hero + live countdown, the
@@ -738,6 +751,127 @@
                     : ((prayer && prayer.no_location) || ((!userLat || !userLon) && (!prayer || !prayer.location || !prayer.location.lat)))
                       ? (t('prayer_times.widget_no_location') || 'Set your location in Settings → Profile, or an admin can set a default in Admin → Prayer Times.')
                       : (t('prayer_times.widget_no_data') || 'No prayer data yet — click the refresh button to try again.')"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- *arr release-calendar widget — Homarr-style month grid of upcoming
+           movie / series / album / book releases from the CONFIGURED Radarr /
+           Sonarr / Lidarr / Readarr instances. Hover (desktop) or tap (mobile)
+           a day to see that day's titles in an in-tile popover (poster + the
+           service's brand icon + title + SxxExx / artist / author). Each day's
+           service-coloured dots show which services have a release. Self-fetches
+           the visible month on first mount (per-month cache). Single root
+           (.apps-widget-arr-cal-wrap, display:contents) so the outer x-if
+           renders BOTH the grid AND the empty-state (Alpine renders only the
+           first root child of a <template x-if>). -->
+      <template x-if="item.widget === 'arr_calendar'">
+        <div class="apps-widget-arr-cal-wrap" x-init="_ensureArrCalendar()"
+             @click.outside="arrCalOpenDay = ''">
+          <!-- Grid body — shown when ≥1 *arr service is configured. -->
+          <template x-if="arrCalendar && arrCalendar.configured !== false">
+            <div class="apps-widget-arr-cal">
+              <div class="apps-widget-arr-cal-head">
+                <button type="button" class="apps-widget-arr-cal-nav"
+                        @click.stop="arrCalPrevMonth()"
+                        :aria-label="t('apps.custom.widget_arr_calendar_prev') || 'Previous month'">
+                  <svg width="13" height="13" aria-hidden="true" style="transform: scaleX(-1);">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                  </svg>
+                </button>
+                <span class="apps-widget-arr-cal-month" x-text="arrCalMonthLabel()"></span>
+                <button type="button" class="apps-widget-arr-cal-nav"
+                        @click.stop="arrCalNextMonth()"
+                        :aria-label="t('apps.custom.widget_arr_calendar_next') || 'Next month'">
+                  <svg width="13" height="13" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="apps-widget-arr-cal-weekdays" aria-hidden="true">
+                <template x-for="(wd, wi) in arrCalWeekdays()" :key="wi">
+                  <span class="apps-widget-arr-cal-weekday" x-text="wd"></span>
+                </template>
+              </div>
+              <div class="apps-widget-arr-cal-grid">
+                <template x-for="week in arrCalendarGrid()" :key="week[0].date">
+                  <template x-for="cell in week" :key="cell.date">
+                    <div class="apps-widget-arr-cal-cell-wrap">
+                      <button type="button" class="apps-widget-arr-cal-cell"
+                              :class="{ 'is-out': !cell.inMonth, 'is-today': cell.isToday, 'has-rel': cell.count > 0, 'is-active': arrCalActiveDay() === cell.date }"
+                              :disabled="cell.count === 0"
+                              @click.stop="cell.count > 0 && arrCalToggleDay(cell.date)"
+                              @mouseenter="cell.count > 0 && (arrCalHoverDay = cell.date)"
+                              @mouseleave="arrCalHoverDay = ''"
+                              :aria-label="cell.date + (cell.count ? (' — ' + cell.count) : '')">
+                        <span class="apps-widget-arr-cal-daynum" x-text="cell.day"></span>
+                        <span class="apps-widget-arr-cal-dots" x-show="cell.count > 0" aria-hidden="true">
+                          <template x-for="(svc, si) in cell.services.slice(0, 4)" :key="si">
+                            <span class="apps-widget-arr-cal-dot" :class="'apps-widget-arr-cal-dot--' + svc"></span>
+                          </template>
+                        </span>
+                      </button>
+                      <!-- In-tile day popover (only the active day renders it).
+                           Up/down + start/end placement keeps it inside the
+                           overflow:hidden tile; cqw/cqh caps keep it within the
+                           tile box. @mouseenter keeps it open while hovered. -->
+                      <template x-if="arrCalActiveDay() === cell.date && cell.count > 0">
+                        <div class="apps-widget-arr-cal-pop"
+                             :class="(cell.row >= 3 ? 'pop-up' : 'pop-down') + ' ' + (cell.col >= 4 ? 'pop-end' : 'pop-start')"
+                             @click.stop
+                             @mouseenter="arrCalHoverDay = cell.date"
+                             @mouseleave="arrCalHoverDay = ''">
+                          <div class="apps-widget-arr-cal-pop-list scrollbar">
+                            <template x-for="(rel, ri) in arrCalDayItems(cell.date)" :key="ri">
+                              <div class="apps-widget-arr-cal-pop-row">
+                                <!-- Category header (service icon + label + count)
+                                     before the first item of each service group. -->
+                                <div x-show="rel._group_head" class="apps-widget-arr-cal-pop-group">
+                                  <img :src="arrCalServiceIcon(rel.service_slug)" alt=""
+                                       class="apps-widget-arr-cal-pop-svc" loading="lazy"
+                                       @error="$event.target.style.display='none'">
+                                  <span x-text="arrCalServiceLabel(rel.service_slug)"></span>
+                                  <span class="apps-widget-arr-cal-pop-group-count" x-text="rel._group_count"></span>
+                                </div>
+                                <div class="apps-widget-arr-cal-pop-item">
+                                  <img x-show="arrCalItemPoster(rel)" :src="arrCalItemPoster(rel)"
+                                       alt="" loading="lazy" class="apps-widget-arr-cal-pop-poster"
+                                       @error="$event.target.style.display='none'">
+                                  <span class="apps-widget-arr-cal-pop-meta">
+                                    <span class="apps-widget-arr-cal-pop-title" x-text="rel.title"></span>
+                                    <span x-show="rel.subtitle" class="apps-widget-arr-cal-pop-sub" x-text="rel.subtitle"></span>
+                                  </span>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </template>
+              </div>
+              <div class="apps-widget-arr-cal-legend" x-show="(arrCalendar.services || []).length">
+                <template x-for="(svc, li) in (arrCalendar.services || [])" :key="li">
+                  <span class="apps-widget-arr-cal-legend-item">
+                    <span class="apps-widget-arr-cal-dot" :class="'apps-widget-arr-cal-dot--' + svc" aria-hidden="true"></span>
+                    <span x-text="arrCalServiceLabel(svc)"></span>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </template>
+          <!-- Empty state — no *arr service configured (also the picker hides
+               the widget via client_config.arr_calendar_available, but an
+               already-placed tile can land here if every *arr is later removed). -->
+          <template x-if="!arrCalendar || arrCalendar.configured === false">
+            <div class="apps-widget-empty">
+              <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-calendar"/>
+              </svg>
+              <span class="apps-widget-empty-text"
+                    x-text="t('apps.custom.widget_arr_calendar_no_instances') || 'Configure a Radarr / Sonarr / Lidarr / Readarr service in Admin → Apps to see upcoming releases here.'"></span>
             </div>
           </template>
         </div>

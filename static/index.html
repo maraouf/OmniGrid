@@ -3776,7 +3776,7 @@
                   <select class="fs-2xs" :aria-label="t('apps.custom.add_widget') || 'Add widget'"
                           @change="addAppsWidget(sec.id, $event.target.value); $event.target.value=''">
                     <option value="" x-text="t('apps.custom.add_widget') || '+ Widget'"></option>
-                    <template x-for="wk in appsWidgetKinds" :key="wk">
+                    <template x-for="wk in appsAvailableWidgetKinds()" :key="wk">
                       <option :value="wk" x-text="appsWidgetLabel(wk)"></option>
                     </template>
                   </select>

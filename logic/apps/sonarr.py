@@ -407,6 +407,41 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+async def calendar_items(host_row: dict, chip: dict, *,
+                         start: str, end: str) -> list[dict]:
+    """Normalised upcoming-EPISODE rows for the release-calendar widget — one row
+    per Sonarr ``/api/v3/calendar`` entry (``includeSeries``) in the [start, end]
+    window: ``{date, title (series), subtitle ("SxxExx · ep title"), type, ...}``.
+    Never raises (returns [] on any failure)."""
+    raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
+                                        start=start, end=end, app_label="Sonarr",
+                                        extra_params={"includeSeries": "true"})
+    out: list[dict] = []
+    for ep in raw:
+        if not isinstance(ep, dict):
+            continue
+        when = str(ep.get("airDateUtc") or ep.get("airDate") or "")[:10]
+        series = as_dict(ep.get("series"))
+        sname = str(series.get("title") or "").strip()
+        if not when or not sname:
+            continue
+        sn = safe_int(ep.get("seasonNumber"))
+        en = safe_int(ep.get("episodeNumber"))
+        code = f"S{sn:02d}E{en:02d}" if (sn or en) else ""
+        ep_title = str(ep.get("title") or "").strip()
+        subtitle = (code + (" · " + ep_title if ep_title else "")).strip(" ·")
+        out.append({
+            "date": when,
+            "title": sname,
+            "subtitle": subtitle,
+            "type": "episode",
+            "service_slug": "sonarr",
+            "poster": _servarr.poster_proxy_path(series, id_fallback=True),
+            "poster_proxy": True,
+        })
+    return out
+
+
 # noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,

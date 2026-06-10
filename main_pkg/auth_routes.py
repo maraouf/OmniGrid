@@ -135,6 +135,25 @@ def _app_skills() -> dict:
         return {}
 
 
+def _arr_calendar_available() -> bool:
+    """True when ≥1 Radarr / Sonarr / Lidarr / Readarr instance is CONFIGURED
+    (a pinned chip with an api_key set). Surfaced to the SPA via ``/api/me``'s
+    ``client_config.arr_calendar_available`` so the Apps custom-dashboard hides
+    the ``arr_calendar`` release-calendar widget from the Add-widget picker (and
+    an existing tile shows a 'configure an *arr service' empty state) when no
+    *arr service is set up. Cheap hosts_config walk; late-import + False
+    fallback like the other client_config helpers."""
+    try:
+        from logic.apps.registry import instances_for_slug  # noqa: PLC0415
+        for slug in ("radarr", "sonarr", "lidarr", "readarr"):
+            for _hid, _idx, _h, chip in instances_for_slug(slug):
+                if isinstance(chip, dict) and str(chip.get("api_key") or "").strip():
+                    return True
+        return False
+    except (ImportError, AttributeError):
+        return False
+
+
 def _ai_palette_actions() -> "set[str]":
     """Canonical action whitelist surfaced to the SPA via /api/me's
     `client_config.ai.palette_actions`. Source of truth is
@@ -1383,6 +1402,11 @@ async def api_me(request: Request):
             # entry in the registry — no SPA edit required.
             "apps_module_slugs": list(_apps_module_slugs()),
             "app_skills": _app_skills(),
+            # True when ≥1 *arr (Radarr/Sonarr/Lidarr/Readarr) instance is
+            # configured — the Apps custom-dashboard gates the 'arr_calendar'
+            # release-calendar widget on this (hidden from the picker + tile
+            # empty-state when no *arr service is set up).
+            "arr_calendar_available": _arr_calendar_available(),
             # Last-Test-success timestamps per provider (DB-backed,
             # cross-browser / cross-machine). Stamped at the END of every
             # successful test endpoint via `_stamp_test_success`. Surfaced
