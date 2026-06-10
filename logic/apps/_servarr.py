@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-import httpx 
+import httpx
 
 from logic.apps._common import resolve_base_url, resolve_credential_target
 from logic.coerce import safe_float, safe_int
@@ -600,6 +600,43 @@ async def app_update_skill(host_row: dict, chip: dict, *, app_label: str,
                      f"download, install and restart automatically — give it a "
                      f"minute, then re-check the version."),
         app_label=app_label, api_version=api_version, host_id=host_id)
+
+
+async def fetch_calendar(host_row: dict, chip: dict, *, api_version: str,
+                         start: str, end: str, app_label: str,
+                         extra_params: Optional[dict] = None) -> list:
+    """Shared *arr calendar fetch for the release-calendar widget. GETs
+    ``/api/<v>/calendar?start=&end=&unmonitored=false`` over the ISO-8601
+    ``start`` / ``end`` window (``"YYYY-MM-DDTHH:MM:SSZ"``) and returns the raw
+    upstream item list. ``extra_params`` merges per-app flags (Sonarr
+    ``includeSeries`` / Lidarr ``includeArtist`` / Readarr ``includeAuthor``).
+
+    Returns ``[]`` on ANY failure (unset key / unreachable / non-200 / non-JSON)
+    — the widget tolerates a per-instance miss and just shows the other
+    services. Never raises."""
+    tag = app_label.lower()
+    api_key, base, err = resolve_skill_target(host_row, chip, app_label)
+    if err:
+        return []
+    params = {"start": start, "end": end, "unmonitored": "false"}
+    if extra_params:
+        params.update(extra_params)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + f"/api/{api_version}/calendar",
+                              headers=headers(api_key), params=params)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[{tag}] warning: calendar fetch failed — {type(e).__name__}: {e}")
+        return []
+    if r.status_code != 200:
+        print(f"[{tag}] warning: calendar returned HTTP {r.status_code}")
+        return []
+    try:
+        items = r.json()
+    except (ValueError, TypeError):
+        return []
+    return items if isinstance(items, list) else []
 
 
 async def queue_delete_skill(host_row: dict, chip: dict, *, arg: Optional[str],

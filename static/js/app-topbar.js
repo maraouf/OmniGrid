@@ -600,6 +600,10 @@ export default {
         // in-place reconcile in `_ensurePrayerTimes` keeps the subtree
         // mounted.
         await this._ensurePrayerTimes(true);
+      } else if (kind === 'arr_calendar') {
+        // force=True bypasses both the per-month client cache + the
+        // backend's per-window TTL cache so the displayed month re-fetches.
+        await this._ensureArrCalendar(true);
       }
     } catch (_) {
     } finally {
@@ -637,6 +641,8 @@ export default {
       ts = fetchedMs(this.publicIp);
     } else if (kind === 'prayer_times') {
       ts = fetchedMs(this.prayer);
+    } else if (kind === 'arr_calendar') {
+      ts = fetchedMs(this.arrCalendar);
     }
     if (!ts) {
       return '';
@@ -683,7 +689,7 @@ export default {
   // Whether a given widget kind has a refresh button. Clock + system_stats
   // are client-side derivations; refresh wouldn't change anything.
   widgetSupportsRefresh(kind) {
-    return ['weather', 'moon', 'public_ip', 'prayer_times'].includes(kind);
+    return ['weather', 'moon', 'public_ip', 'prayer_times', 'arr_calendar'].includes(kind);
   },
   // Whether the widget actually has data to refresh / timestamp.
   // When the master feature is disabled, the upstream is unreachable,
@@ -705,6 +711,14 @@ export default {
         return false;
       }
       return !!(this.publicIp && this.publicIp.ip);
+    }
+    if (kind === 'arr_calendar') {
+      // No *arr configured → nothing to refresh. Otherwise the refresh +
+      // freshness chip make sense once a window has loaded.
+      if (!this.arrCalendar || this.arrCalendar.configured === false) {
+        return false;
+      }
+      return !!this.arrCalendar.fetched_at;
     }
     if (kind === 'prayer_times') {
       if (!this.prayer || this.prayer.configured === false) {

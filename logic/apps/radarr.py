@@ -397,6 +397,36 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+async def calendar_items(host_row: dict, chip: dict, *,
+                         start: str, end: str) -> list[dict]:
+    """Normalised upcoming-MOVIE rows for the release-calendar widget — one row
+    per Radarr ``/api/v3/calendar`` entry in the [start, end] window:
+    ``{date, title, subtitle, type, service_slug, poster, poster_proxy}``. The
+    release date is the soonest of digital / physical / cinema. Never raises
+    (returns [] on any failure)."""
+    raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
+                                        start=start, end=end, app_label="Radarr")
+    out: list[dict] = []
+    for m in raw:
+        if not isinstance(m, dict):
+            continue
+        when = str(m.get("digitalRelease") or m.get("physicalRelease")
+                   or m.get("inCinemas") or "")[:10]
+        title = str(m.get("title") or "").strip()
+        if not when or not title:
+            continue
+        out.append({
+            "date": when,
+            "title": f"{title}{_year_suffix(m.get('year'))}",
+            "subtitle": "",
+            "type": "movie",
+            "service_slug": "radarr",
+            "poster": _servarr.poster_proxy_path(m, id_fallback=True),
+            "poster_proxy": True,
+        })
+    return out
+
+
 # noinspection DuplicatedCode
 async def _upcoming_skill(host_row: dict, chip: dict, *,
                           host_id: Optional[str] = None,

@@ -1206,6 +1206,109 @@ async def api_apps_list(_admin: AdminUser, force: bool = False):
     return {"apps": apps}
 
 
+# Release-calendar widget fan-out — in-process cache keyed by the date window
+# (short TTL so a burst of widget polls / month re-renders doesn't re-hit every
+# *arr). Bounded as the operator navigates months.
+_ARR_CAL_CACHE: "dict[str, tuple[float, dict]]" = {}
+_ARR_CAL_TTL_S = 60.0
+# The *arr services that expose a release calendar (Prowlarr has none — it's an
+# indexer manager). Each module declares an async ``calendar_items``.
+_ARR_CAL_SLUGS = ("radarr", "sonarr", "lidarr", "readarr")
+
+
+@app.get("/api/apps/arr-calendar")
+async def api_apps_arr_calendar(_admin: AdminUser, start: str = "", end: str = ""):
+    """Admin-only: upcoming-release calendar across every CONFIGURED Radarr /
+    Sonarr / Lidarr / Readarr instance (a pinned chip with an api_key set), for
+    the ``[start, end]`` date window (``YYYY-MM-DD`` inclusive). Returns the
+    merged, normalised items + which services contributed. Each item carries
+    ``host_id`` + ``service_idx`` so the SPA routes its poster through the
+    per-app image proxy. Powers the Apps custom-dashboard ``arr_calendar``
+    widget.
+
+    Category gating is structural — a service with no configured instance simply
+    contributes nothing (Radarr off → no movies). ``configured`` is False when
+    NO *arr instance is set up at all (the widget then shows its 'configure an
+    *arr service' empty state). The whole widget is additionally hidden from the
+    Add-widget picker via ``/api/me``'s ``client_config.arr_calendar_available``.
+    """
+    import time  # noqa: PLC0415
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    from logic.apps import registry as _reg  # noqa: PLC0415
+
+    def _valid_ymd(s: str) -> bool:
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    # Default the window to the current month's ~6-week grid when unset / bad.
+    today = datetime.now(timezone.utc).date()
+    if not _valid_ymd(start or ""):
+        start = (today.replace(day=1) - timedelta(days=7)).strftime("%Y-%m-%d")
+    if not _valid_ymd(end or ""):
+        end = (today.replace(day=1) + timedelta(days=44)).strftime("%Y-%m-%d")
+    ck = f"{start}|{end}"
+    now = time.time()
+    cached = _ARR_CAL_CACHE.get(ck)
+    if cached and (now - cached[0]) < _ARR_CAL_TTL_S:
+        return cached[1]
+    start_iso, end_iso = start + "T00:00:00Z", end + "T23:59:59Z"
+    # Fan-out targets: every configured instance of a slug whose module exposes
+    # calendar_items.
+    targets = []
+    for slug in _ARR_CAL_SLUGS:
+        mod = _reg.module_for_slug(slug)
+        if mod is None or not hasattr(mod, "calendar_items"):
+            continue
+        for host_id, sidx, host_row, chip in _reg.instances_for_slug(slug):
+            if isinstance(chip, dict) and str(chip.get("api_key") or "").strip():
+                targets.append((slug, host_id, sidx, mod, host_row, chip))
+
+    async def _one(target):
+        t_slug, t_hid, t_sidx, t_mod, t_row, t_chip = target
+        try:
+            t_rows = await t_mod.calendar_items(t_row, t_chip, start=start_iso, end=end_iso)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001 — one bad instance must not sink the rest
+            return t_slug, t_hid, t_sidx, [], f"{type(e).__name__}: {e}"
+        return t_slug, t_hid, t_sidx, t_rows, None
+
+    results = await asyncio.gather(*[_one(t) for t in targets])
+    items: list[dict] = []
+    services_active: set = set()
+    errors: dict[str, str] = {}
+    for r_slug, r_hid, r_sidx, r_rows, r_err in results:
+        if r_err:
+            errors[f"{r_slug}:{r_hid}:{r_sidx}"] = r_err
+            continue
+        if r_rows:
+            services_active.add(r_slug)
+        for r in r_rows:
+            if not isinstance(r, dict):
+                continue
+            r2 = dict(r)
+            r2["host_id"] = r_hid
+            r2["service_idx"] = r_sidx
+            items.append(r2)
+    out = {
+        "configured": bool(targets),
+        "services": sorted(services_active),
+        "items": items,
+        "count": len(items),
+        "errors": errors,
+        "start": start,
+        "end": end,
+        "fetched_at": int(now),
+    }
+    _ARR_CAL_CACHE[ck] = (now, out)
+    if len(_ARR_CAL_CACHE) > 24:  # drop the oldest window as months accumulate
+        _ARR_CAL_CACHE.pop(min(_ARR_CAL_CACHE.items(), key=lambda kv: kv[1][0])[0], None)
+    return out
+
+
 @app.post("/api/apps/catalog/{slug}/show-extras")
 async def api_apps_catalog_set_show_extras(slug: str, payload: dict, _admin: AdminUser):
     """Toggle a catalog template's ``show_extras`` flag by slug. Admin-only.

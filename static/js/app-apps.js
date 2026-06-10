@@ -1050,7 +1050,7 @@ export default {
   // is the active weather provider (Open-Meteo doesn't return moon
   // data). The tile's empty state surfaces a "switch provider" hint
   // when the provider can't supply this data.
-  appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats', 'prayer_times'],
+  appsWidgetKinds: ['clock', 'weather', 'moon', 'public_ip', 'system_stats', 'prayer_times', 'arr_calendar'],
 
   // Reactive ms timestamp driving the clock widget's live time.
   // Ticked every second by an Apps-view-gated interval armed in
@@ -1117,9 +1117,269 @@ export default {
     if (kind === 'prayer_times') {
       return 'icon-mosque';
     }
+    if (kind === 'arr_calendar') {
+      return 'icon-calendar';
+    }
     // Unknown kind — fall back to a neutral icon rather than an
     // empty fragment (which would produce a broken sprite ref).
     return 'icon-clock';
+  },
+
+  // ---- *arr release-calendar widget (arr_calendar) ----------------------
+  // Homarr-style month grid of upcoming movie / series / album / book
+  // releases from the configured Radarr / Sonarr / Lidarr / Readarr
+  // instances. Data: GET /api/apps/arr-calendar (per-month, cached). The
+  // widget is gated whole-cloth on me.client_config.arr_calendar_available
+  // (no *arr configured → hidden from the picker + a configure empty-state),
+  // and each category only appears when its service contributed rows.
+  arrCalendar: null,        // latest /api/apps/arr-calendar response
+  _arrCalFetchedAt: 0,      // ms — local receive stamp (freshness backstop)
+  _arrCalFetching: '',      // YM currently in flight (per-month de-dup guard)
+  _arrCalMonthCache: {},    // { 'YYYY-MM': { ts, data } } — 10-min per-month cache
+  arrCalViewYM: '',         // displayed month 'YYYY-MM' ('' → current month)
+  arrCalOpenDay: '',        // 'YYYY-MM-DD' of the pinned day popover ('' = none)
+  _arrCalGridMemo: null,    // { key, val } — memoised 6×7 grid
+  _arrCalWeekdaysMemo: null,
+
+  // True when ≥1 *arr service is configured (drives picker + tile gating).
+  arrCalAvailable() {
+    return !!(this.me && this.me.client_config
+      && this.me.client_config.arr_calendar_available === true);
+  },
+  // Widget kinds offered in the Add-widget picker — drops 'arr_calendar'
+  // when no *arr service is configured so it can't be added.
+  appsAvailableWidgetKinds() {
+    const all = this.appsWidgetKinds || [];
+    return this.arrCalAvailable() ? all : all.filter((k) => k !== 'arr_calendar');
+  },
+  // 'YYYY-MM-DD' for a Date in LOCAL time (avoids toISOString's UTC shift,
+  // which would bucket a release on the wrong calendar day near midnight).
+  _ymd(d) {
+    const p = (n) => (n < 10 ? '0' + n : '' + n);
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  },
+  // The displayed month as 'YYYY-MM' (defaults to the current month).
+  arrCalViewMonth() {
+    if (this.arrCalViewYM && /^\d{4}-\d{2}$/.test(this.arrCalViewYM)) {
+      return this.arrCalViewYM;
+    }
+    const n = new Date();
+    return n.getFullYear() + '-' + (n.getMonth() + 1 < 10 ? '0' : '') + (n.getMonth() + 1);
+  },
+  // Locale month + year heading, e.g. "June 2026".
+  arrCalMonthLabel() {
+    const parts = this.arrCalViewMonth().split('-');
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    try {
+      return new Intl.DateTimeFormat(undefined, {month: 'long', year: 'numeric'})
+        .format(new Date(y, m - 1, 1));
+    } catch (_e) {
+      return this.arrCalViewMonth();
+    }
+  },
+  // Locale single-letter weekday headers, Sunday-first (2023-01-01 is a Sun).
+  arrCalWeekdays() {
+    if (this._arrCalWeekdaysMemo) {
+      return this._arrCalWeekdaysMemo;
+    }
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(2023, 0, 1 + i);
+      try {
+        out.push(new Intl.DateTimeFormat(undefined, {weekday: 'narrow'}).format(d));
+      } catch (_e) {
+        out.push(['S', 'M', 'T', 'W', 'T', 'F', 'S'][i]);
+      }
+    }
+    this._arrCalWeekdaysMemo = out;
+    return out;
+  },
+  // The displayed month's 6×7 day grid. Memoised on (month | data identity)
+  // so the dense x-for doesn't rebuild every reactive flush. The key reads
+  // the reactive deps (arrCalViewYM + arrCalendar) so Alpine keeps the
+  // subscription on a cache hit.
+  arrCalendarGrid() {
+    const ym = this.arrCalViewMonth();
+    const cal = this.arrCalendar || {};
+    const items = Array.isArray(cal.items) ? cal.items : [];
+    const key = ym + '|' + (cal.fetched_at || 0) + '|' + items.length;
+    if (this._arrCalGridMemo && this._arrCalGridMemo.key === key) {
+      return this._arrCalGridMemo.val;
+    }
+    const parts = ym.split('-');
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);  // 1-12
+    const first = new Date(y, m - 1, 1);
+    const gridStart = new Date(y, m - 1, 1 - first.getDay());  // back to Sunday
+    const todayStr = this._ymd(new Date());
+    // Bucket items by date once (O(items), not O(cells × items)).
+    const byDate = {};
+    items.forEach((it) => {
+      const ds = (it && it.date) || '';
+      if (!ds) {
+        return;
+      }
+      (byDate[ds] = byDate[ds] || []).push(it);
+    });
+    const weeks = [];
+    for (let w = 0; w < 6; w++) {
+      const days = [];
+      for (let dd = 0; dd < 7; dd++) {
+        const cur = new Date(gridStart.getFullYear(), gridStart.getMonth(),
+          gridStart.getDate() + (w * 7 + dd));
+        const ds = this._ymd(cur);
+        const dayItems = byDate[ds] || [];
+        const services = [];
+        dayItems.forEach((it) => {
+          if (it.service_slug && services.indexOf(it.service_slug) === -1) {
+            services.push(it.service_slug);
+          }
+        });
+        days.push({
+          date: ds,
+          day: cur.getDate(),
+          col: dd,        // 0-6 (Sun-Sat) — drives popover left/right anchoring
+          row: w,         // 0-5 — drives popover up/down anchoring
+          inMonth: cur.getMonth() === (m - 1),
+          isToday: ds === todayStr,
+          count: dayItems.length,
+          services: services,
+        });
+      }
+      weeks.push(days);
+    }
+    this._arrCalGridMemo = {key: key, val: weeks};
+    return weeks;
+  },
+  // Releases on one day for the popover — grouped by category (service):
+  // sorted by service then title, with each item annotated `_group_head`
+  // (true for the FIRST item of its service) so the template renders a
+  // category header (service icon + label + count) before each group.
+  arrCalDayItems(ds) {
+    const cal = this.arrCalendar || {};
+    const items = (Array.isArray(cal.items) ? cal.items : [])
+      .filter((it) => it && it.date === ds)
+      .sort((a, b) => {
+        const s = String(a.service_slug || '').localeCompare(String(b.service_slug || ''));
+        return s !== 0 ? s : String(a.title || '').localeCompare(String(b.title || ''));
+      });
+    const counts = {};
+    items.forEach((it) => {
+      counts[it.service_slug] = (counts[it.service_slug] || 0) + 1;
+    });
+    // Plain loop (no side-effecting closure) — `_group_head` reads the PREVIOUS
+    // item directly, so there's no outer variable reassigned inside a callback.
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      out.push(Object.assign({}, it, {
+        _group_head: i === 0 || items[i - 1].service_slug !== it.service_slug,
+        _group_count: counts[it.service_slug] || 0,
+      }));
+    }
+    return out;
+  },
+  // Proxied poster URL for a calendar item (per-app image proxy keeps the
+  // app's api_key server-side). '' when the item has no poster.
+  arrCalItemPoster(it) {
+    if (!it || !it.poster || it.poster_proxy !== true
+      || it.host_id == null || it.service_idx == null) {
+      return '';
+    }
+    return '/api/services/' + encodeURIComponent(it.host_id) + '/'
+      + it.service_idx + '/image-proxy?path=' + encodeURIComponent(it.poster);
+  },
+  // Brand icon for a service slug (the real Radarr/Sonarr/... logo).
+  arrCalServiceIcon(slug) {
+    return '/img/icons/' + String(slug || '').toLowerCase() + '.svg';
+  },
+  // Localised label for a service slug (TitleCase fallback).
+  arrCalServiceLabel(slug) {
+    const k = 'apps.custom.widget_arr_calendar_svc_' + String(slug || '').toLowerCase();
+    const tr = this.t(k);
+    if (tr && tr !== k) {
+      return tr;
+    }
+    const s = String(slug || '');
+    return s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '';
+  },
+  arrCalHoverDay: '',       // 'YYYY-MM-DD' hovered (desktop preview, transient)
+  // The day whose popover is showing: a pinned click wins over a hover.
+  arrCalActiveDay() {
+    return this.arrCalOpenDay || this.arrCalHoverDay || '';
+  },
+  // Pin / unpin a day's popover (click; hover sets arrCalHoverDay instead).
+  arrCalToggleDay(ds) {
+    this.arrCalOpenDay = (this.arrCalOpenDay === ds) ? '' : ds;
+  },
+  arrCalShiftMonth(delta) {
+    const parts = this.arrCalViewMonth().split('-');
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1 + delta, 1);
+    this.arrCalViewYM = d.getFullYear() + '-'
+      + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
+    this.arrCalOpenDay = '';
+    this._ensureArrCalendar();
+  },
+  arrCalPrevMonth() {
+    this.arrCalShiftMonth(-1);
+  },
+  arrCalNextMonth() {
+    this.arrCalShiftMonth(1);
+  },
+  // Self-fetch the displayed month's release calendar. Per-month 10-min
+  // cache + per-month de-dup guard (mirrors _ensurePrayerTimes). Fetches the
+  // FULL visible 6-week grid window so edge-of-month rows populate.
+  _ensureArrCalendar(force = false) {
+    const cc = (this.me && this.me.client_config) || {};
+    if (cc.arr_calendar_available === false) {
+      if (!this.arrCalendar) {
+        this.arrCalendar = {configured: false, items: [], services: []};
+      }
+      return;
+    }
+    const ym = this.arrCalViewMonth();
+    if (!this._arrCalMonthCache) {
+      this._arrCalMonthCache = {};
+    }
+    const now = Date.now();
+    const cached = this._arrCalMonthCache[ym];
+    if (!force && cached && (now - cached.ts) < 10 * 60 * 1000) {
+      this.arrCalendar = cached.data;
+      this._arrCalFetchedAt = cached.ts;
+      return;
+    }
+    if (this._arrCalFetching === ym) {
+      return;  // a fetch for this month is already in flight
+    }
+    this._arrCalFetching = ym;
+    const parts = ym.split('-');
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const first = new Date(y, m - 1, 1);
+    const gridStart = new Date(y, m - 1, 1 - first.getDay());
+    const gridEnd = new Date(gridStart.getFullYear(), gridStart.getMonth(),
+      gridStart.getDate() + 41);
+    const qs = 'start=' + this._ymd(gridStart) + '&end=' + this._ymd(gridEnd)
+      + (force ? ('&_=' + now) : '');
+    return fetch('/api/apps/arr-calendar?' + qs)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j) {
+          return;
+        }
+        this._arrCalMonthCache[ym] = {ts: now, data: j};
+        this.arrCalendar = j;
+        this._arrCalFetchedAt = now;
+        this._arrCalGridMemo = null;  // force a rebuild against fresh data
+      })
+      .catch(() => { /* silent — tile shows its empty state */
+      })
+      .finally(() => {
+        if (this._arrCalFetching === ym) {
+          this._arrCalFetching = '';
+        }
+      });
   },
   // Live HH:MM for the clock widget — reads the 1s-ticked `appsClockNow`
   // so it updates reactively. Routes through `_applyDateTimeFormat` +
