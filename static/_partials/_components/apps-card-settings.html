@@ -236,6 +236,31 @@
   </template>
 
   <!-- ============================================================
+       *arr release-calendar — per-service "Open in app" link override.
+       The probe keeps using the integration base (machine host:port);
+       these optional friendly URLs (e.g. a reverse-proxy hostname) only
+       change where the popover's "Open in Radarr / Sonarr / …" pill
+       points. Blank = use the integration base. Stored in opts via
+       setAppsItemOpt (arr_link_<slug>) and read by arrCalItemAppUrl.
+       ============================================================ -->
+  <template x-if="item.kind === 'widget' && item.widget === 'arr_calendar'">
+    <div class="space-y-2 mt-1">
+      <span class="apps-card-settings-hint"
+            x-text="t('apps.custom.settings.arr_calendar.links_hint') || 'Optional friendly redirect URLs for the “Open in app” link. The release data still comes from each service’s integration address — these only change where the link points (e.g. a reverse-proxy hostname). Leave blank to use the integration address.'"></span>
+      <template x-for="svc in ['radarr','sonarr','lidarr','readarr']" :key="svc">
+        <label class="apps-card-settings-row">
+          <span class="apps-card-settings-label"
+                x-text="arrCalServiceLabel(svc)"></span>
+          <input type="url" class="input fs-xs"
+                 :value="(item.opts && item.opts['arr_link_' + svc]) || ''"
+                 @change.stop="setAppsItemOpt(item.uid, 'arr_link_' + svc, $event.target.value.trim())"
+                 :placeholder="t('apps.custom.settings.arr_calendar.link_placeholder') || 'https://sonarr.example.com'">
+        </label>
+      </template>
+    </div>
+  </template>
+
+  <!-- ============================================================
        App with an extras-capable template — admin-only "Show extras"
        toggle. Writes the SAME catalog flag as the Admin → Apps template
        toggle (via /api/apps/catalog/{slug}/show-extras), so the per-app

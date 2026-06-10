@@ -12965,23 +12965,6 @@ select.field-invalid {
   flex-shrink: 0;
 }
 
-/* Brand-wordmark pill (IMDb / TMDB) — the logo IS the label, so the pill is
-   just the logo with tight padding + no border / fill of its own (the logo
-   carries its brand colour). */
-.apps-widget-arr-cal-pop-link--brand {
-  padding: 1px 4px;
-  background: var(--surface-3);
-  border-color: var(--border);
-}
-
-.apps-widget-arr-cal-pop-brandlogo {
-  height: 14px;
-  width: auto;
-  display: block;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
 .apps-widget-arr-cal-legend {
   display: flex;
   flex-wrap: wrap;

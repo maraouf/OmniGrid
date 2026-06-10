@@ -39,6 +39,7 @@ from . import grafana
 from . import jellyfin
 from . import kavita
 from . import lidarr
+from . import netbootxyz
 from . import pihole
 from . import plex
 from . import prowlarr
@@ -72,8 +73,8 @@ def _register(module: ModuleType) -> None:
 # Register every per-app module. Loop (not 18 repeated `_register(...)` lines)
 # so adding a module is a one-line edit to the tuple + its import above.
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
-             emby, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, pihole,
-             plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr,
+             emby, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, netbootxyz,
+             pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr,
              speedtest_tracker, tautulli, tdarr, tracearr, unifi):
     _register(_mod)
 

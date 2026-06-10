@@ -5339,6 +5339,10 @@
           "units_imperial": "°F",
           "forecast_label": "Forecast days",
           "show_conditions": "Display weather conditions"
+        },
+        "arr_calendar": {
+          "links_hint": "Optional friendly redirect URLs for the “Open in app” link. The release data still comes from each service’s integration address — these only change where the link points (e.g. a reverse-proxy hostname). Leave blank to use the integration address.",
+          "link_placeholder": "https://sonarr.example.com"
         }
       },
       "bookmark_aria": "{name} — {url}",
@@ -5571,6 +5575,7 @@
       "unifi_devices": "List UniFi devices",
       "unifi_clients": "UniFi clients",
       "unifi_restart_device": "Restart a UniFi device",
+      "netbootxyz_status": "netboot.xyz status",
       "seerr_status": "Seerr status",
       "seerr_requests": "List requests",
       "seerr_request_movie": "Request a movie",
@@ -6127,6 +6132,15 @@
       "loading": "Loading UniFi data…",
       "fetch_failed": "UniFi fetch failed",
       "no_api_key": "No API key set — add one in Admin → Apps to enable."
+    },
+    "netbootxyz": {
+      "no_auth_hint": "netboot.xyz has no authentication — set the instance URL (its webapp root, e.g. http://host:3000) above; no API key is needed.",
+      "cache_ttl_hint": "How long the reachability + version probe is cached before re-querying netboot.xyz (5–3600s). Leave blank for the app default (120s).",
+      "running": "Running {v}",
+      "reachable": "Reachable",
+      "update_available": "Update available: {v}",
+      "loading": "Loading netboot.xyz data…",
+      "fetch_failed": "netboot.xyz fetch failed"
     },
     "port_aria": "Port {port}/{proto} — {state}",
     "port_state_up": "open",
