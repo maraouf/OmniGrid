@@ -248,13 +248,17 @@ export const helpers = {
     this._arrCalPopRect = null;
   },
   // Inline position for the teleported fixed-layer day popover, computed from
-  // the clicked cell's captured rect. Prefers below the cell; flips above
-  // when there isn't room; clamps horizontally to the viewport. The internal
-  // list scrolls within the computed max-height.
+  // the clicked cell's captured rect. Returns an OBJECT (Alpine `:style`
+  // applies object keys reliably — a returned STRING was not being applied,
+  // leaving the popover in static flow at the page bottom). Prefers below the
+  // cell; flips above when there isn't room; clamps horizontally to the
+  // viewport. The internal list scrolls within the computed max-height. The
+  // unused vertical edge is set to 'auto' so a top↔bottom flip doesn't leave a
+  // stale offset on the element from a previous render.
   arrCalPopStyle() {
     const r = this._arrCalPopRect;
     if (!r || typeof window === 'undefined') {
-      return 'display:none;';
+      return {display: 'none'};
     }
     const vw = window.innerWidth || 360;
     const vh = window.innerHeight || 640;
@@ -264,15 +268,17 @@ export const helpers = {
     const below = vh - r.bottom;
     const above = r.top;
     const cap = Math.min(360, Math.round(vh * 0.6));
-    let vert;
+    const style = {position: 'fixed', left: left + 'px', width: w + 'px'};
     if (below >= 180 || below >= above) {
-      const mh = Math.min(cap, Math.max(120, Math.round(below - 12)));
-      vert = 'top:' + Math.round(r.bottom + 6) + 'px; max-height:' + mh + 'px;';
+      style.top = Math.round(r.bottom + 6) + 'px';
+      style.bottom = 'auto';
+      style.maxHeight = Math.min(cap, Math.max(120, Math.round(below - 12))) + 'px';
     } else {
-      const mh = Math.min(cap, Math.max(120, Math.round(above - 12)));
-      vert = 'bottom:' + Math.round(vh - r.top + 6) + 'px; max-height:' + mh + 'px;';
+      style.bottom = Math.round(vh - r.top + 6) + 'px';
+      style.top = 'auto';
+      style.maxHeight = Math.min(cap, Math.max(120, Math.round(above - 12))) + 'px';
     }
-    return 'position:fixed; left:' + left + 'px; width:' + w + 'px; ' + vert;
+    return style;
   },
   arrCalShiftMonth(delta) {
     const parts = this.arrCalViewMonth().split('-');

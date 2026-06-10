@@ -1,0 +1,89 @@
+<!-- Per-app expanded-card extras -- UniFi (UniFi Network / UniFi OS console).
+
+     Renders inside `apps-card.html` as the per-instance host row when the
+     chip is the UniFi catalog template AND the operator hasn't hidden extras
+     via the per-instance `show_extras` toggle. The data comes from the official
+     UniFi Network Integration API (X-API-KEY) via `logic/apps/unifi.py:fetch_data`,
+     read through the generic, cache-backed `appsAppData(inst)` -- so the card
+     never triggers a per-card round-trip on the hot path.
+
+     Reuses the shared `.apps-card-ups-*` stat-grid component (the same 2-column
+     stat panel Plex / Grafana / GitSync render) -- the classes are a generic
+     telemetry stat grid, not UPS-specific.
+
+     Helpers used (all from `static/js/apps/unifi.js`):
+       unifiIsApp(app)          -- gate "is this a UniFi chip"
+       unifiData(inst)          -- per-instance fleet payload
+       unifiCount(v)            -- integer formatter ('—' for missing)
+       unifiDeviceFraction(d)   -- "online / total" device string -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="unifiIsApp && unifiIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && unifiData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-unifi-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Devices online / total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.devices') || 'Devices'"></div>
+        <div class="apps-card-stat-value" x-text="unifiDeviceFraction(unifiData(inst))"></div>
+      </div>
+      <!-- Clients -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.clients') || 'Clients'"></div>
+        <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).clients)"></div>
+      </div>
+      <!-- APs -->
+      <div class="apps-card-ups-stat" x-show="(Number(unifiData(inst).aps) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.aps') || 'APs'"></div>
+        <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).aps)"></div>
+      </div>
+      <!-- Switches -->
+      <div class="apps-card-ups-stat" x-show="(Number(unifiData(inst).switches) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.switches') || 'Switches'"></div>
+        <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).switches)"></div>
+      </div>
+      <!-- Gateways -->
+      <div class="apps-card-ups-stat" x-show="(Number(unifiData(inst).gateways) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.gateways') || 'Gateways'"></div>
+        <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).gateways)"></div>
+      </div>
+      <!-- Sites -- only when more than one. -->
+      <div class="apps-card-ups-stat" x-show="(Number(unifiData(inst).sites) || 0) > 1">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.sites') || 'Sites'"></div>
+        <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).sites)"></div>
+      </div>
+    </div>
+    <!-- Offline-devices warning footnote -- only when something is down. -->
+    <div x-show="(Number(unifiData(inst).devices_offline) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--warning)]"
+         x-text="t('apps.unifi.offline_summary', { n: (Number(unifiData(inst).devices_offline) || 0) })"></div>
+    <!-- Clients wired / wireless + version footnote. -->
+    <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
+      <span x-text="t('apps.unifi.clients_summary', { wired: (Number(unifiData(inst).clients_wired) || 0), wireless: (Number(unifiData(inst).clients_wireless) || 0) })"></span>
+      <span x-show="unifiData(inst).version"
+            x-text="t('apps.version_footnote', { brand: 'UniFi', v: (unifiData(inst).version || '') })"></span>
+    </div>
+  </div>
+</template>
+<!-- No API key yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="unifiIsApp && unifiIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.unifi.no_api_key') || 'No API key set -- add one in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on unifiData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="unifiIsApp && unifiIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !unifiData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.unifi.loading') || 'Loading UniFi data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="unifiIsApp && unifiIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !unifiData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.unifi.fetch_failed') || 'UniFi fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>
