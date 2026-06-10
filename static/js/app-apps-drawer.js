@@ -222,7 +222,18 @@ export default {
     if (!Array.isArray(list)) {
       return [];
     }
-    return list.filter((sk) => !(sk && sk.arg === true));
+    // Manual-update skills (`non_docker_only`, e.g. an *arr version-check +
+    // built-in-updater) only apply when the chip ISN'T linked to a Portainer
+    // container / stack — a Docker-linked app updates through the inline
+    // Docker Update action instead. Hide them here so the button never shows
+    // for a Docker-linked instance (the backend `run_app_skill` also refuses).
+    const dockerLinked = !!(inst && (inst.docker_container || inst.docker_stack));
+    return list.filter((sk) => {
+      if (sk && sk.arg === true) {
+        return false;
+      }
+      return !(dockerLinked && sk && sk.non_docker_only === true);
+    });
   },
 
   // True when the chip can run skills NOW: it has at least one (non-arg)

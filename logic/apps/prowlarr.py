@@ -205,6 +205,27 @@ SKILLS: tuple[dict, ...] = (
         # proxy tag, removes nothing).
         "destructive": False,
     },
+    # Manual-update skills — only for instances NOT linked to Docker (updates
+    # for a native / non-Docker install are applied by hand).
+    {
+        "id": "prowlarr_check_update",
+        "name": "Check for updates",
+        "ai_phrases": ("is prowlarr up to date, check prowlarr version, latest "
+                       "prowlarr version, is there a prowlarr update, prowlarr "
+                       "update available, check for prowlarr updates, what version "
+                       "of prowlarr is running"),
+        "destructive": False,
+        "non_docker_only": True,
+    },
+    {
+        "id": "prowlarr_update",
+        "name": "Update Prowlarr",
+        "ai_phrases": ("update prowlarr, upgrade prowlarr, install the prowlarr "
+                       "update, run the prowlarr updater, update prowlarr to the "
+                       "latest version, apply the prowlarr update"),
+        "destructive": True,
+        "non_docker_only": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
@@ -403,6 +424,13 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _bulk_add_indexers_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "prowlarr_fix_flaresolverr":
         return await _fix_flaresolverr_skill(host_row, chip, host_id=host_id)
+    if skill_id == "prowlarr_check_update":
+        return await _servarr.check_update_skill(host_row, chip, app_label="Prowlarr",
+                                                 api_version="v1", host_id=host_id,
+                                                 actor_username=_kw.get("actor_username"))
+    if skill_id == "prowlarr_update":
+        return await _servarr.app_update_skill(host_row, chip, app_label="Prowlarr",
+                                               api_version="v1", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 

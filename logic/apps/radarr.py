@@ -174,6 +174,26 @@ SKILLS: tuple[dict, ...] = (
                        "refresh and scan movies"),
         "destructive": False,
     },
+    # Manual-update skills — only for instances NOT linked to Docker (updates
+    # for a native / non-Docker install are applied by hand).
+    {
+        "id": "radarr_check_update",
+        "name": "Check for updates",
+        "ai_phrases": ("is radarr up to date, check radarr version, latest radarr "
+                       "version, is there a radarr update, radarr update available, "
+                       "check for radarr updates, what version of radarr is running"),
+        "destructive": False,
+        "non_docker_only": True,
+    },
+    {
+        "id": "radarr_update",
+        "name": "Update Radarr",
+        "ai_phrases": ("update radarr, upgrade radarr, install the radarr update, "
+                       "run the radarr updater, update radarr to the latest version, "
+                       "apply the radarr update"),
+        "destructive": True,
+        "non_docker_only": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -367,6 +387,13 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                     started_msg="🔄 Started a library refresh & disk "
                                                 "scan on Radarr.",
                                     host_id=host_id)
+    if skill_id == "radarr_check_update":
+        return await _servarr.check_update_skill(host_row, chip, app_label="Radarr",
+                                                 api_version="v3", host_id=host_id,
+                                                 actor_username=actor_username)
+    if skill_id == "radarr_update":
+        return await _servarr.app_update_skill(host_row, chip, app_label="Radarr",
+                                               api_version="v3", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 

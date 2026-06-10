@@ -41,6 +41,7 @@ import * as bazarr from './bazarr.js?v=__APP_VERSION__';
 import * as ddnsUpdater from './ddns_updater.js?v=__APP_VERSION__';
 import * as emby from './emby.js?v=__APP_VERSION__';
 import * as forgejo from './forgejo.js?v=__APP_VERSION__';
+import * as grafana from './grafana.js?v=__APP_VERSION__';
 import * as jellyfin from './jellyfin.js?v=__APP_VERSION__';
 import * as kavita from './kavita.js?v=__APP_VERSION__';
 import * as lidarr from './lidarr.js?v=__APP_VERSION__';
@@ -60,7 +61,7 @@ import * as tracearr from './tracearr.js?v=__APP_VERSION__';
 // Add new per-app modules above (one import) and below (one
 // entry in `_modules`) -- the rest is fully generic.
 
-const _modules = [adguardHome, adguardHomeSync, apc, apprise, bazarr, ddnsUpdater, emby, forgejo, jellyfin, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker, tautulli, tdarr, tracearr];
+const _modules = [adguardHome, adguardHomeSync, apc, apprise, bazarr, ddnsUpdater, emby, forgejo, grafana, jellyfin, kavita, lidarr, pihole, plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr, speedtestTracker, tautulli, tdarr, tracearr];
 
 // Named extractors -- keep `.map(extract).filter(predicate)`
 // from firing PyCharm's anonymous-function / chained-call

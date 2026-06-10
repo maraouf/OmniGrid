@@ -499,6 +499,109 @@ async def command_skill(host_row: dict, chip: dict, *, command: str,
                       + (f" — {_body}" if _body else "")}
 
 
+def _version_key(ver: Any) -> tuple:
+    """Sortable key for a dotted-numeric *arr version (``"5.14.0.9383"``).
+    Non-numeric segments coerce to 0 so a malformed value still sorts low
+    rather than raising. Used only as the fallback when the ``/update`` feed
+    doesn't flag a ``latest`` entry."""
+    parts = re.split(r"[.\-+]", str(ver or "").strip())
+    return tuple(safe_int(p) for p in parts)
+
+
+async def check_update_skill(host_row: dict, chip: dict, *, app_label: str,
+                             api_version: str, host_id: Optional[str] = None,
+                             actor_username: Optional[str] = None) -> dict:
+    """Read-only: compare the running version against the latest available on
+    the app's configured update branch.
+
+    For MANUALLY-managed (non-Docker) installs where the operator applies
+    updates by hand. Reads the running version from
+    ``GET /api/<v>/system/status`` and the available updates from
+    ``GET /api/<v>/update`` (the *arr update feed — populated from the release
+    branch regardless of the configured update MECHANISM, so it reports the
+    latest version even when the mechanism is External / Script). Reports
+    up-to-date vs update-available + the latest version's release date + a
+    new/fixed change-count summary. Never raises — every failure comes back as
+    ``{ok: False, detail}``."""
+    tag = app_label.lower()
+    api_key, base, err = resolve_skill_target(host_row, chip, app_label)
+    if err:
+        return err
+    print(f"[{tag}] INFO check_update host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            current = await fetch_version(cli, base, api_key, api_version)
+            r = await cli.get(base + f"/api/{api_version}/update",
+                              headers=headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"update check failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": f"auth failed (check {app_label} api_key)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code,
+                "detail": f"{app_label} returned HTTP {r.status_code} for /update"}
+    try:
+        rows = r.json()
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not isinstance(rows, list):
+        rows = []
+    cur_disp = current or "unknown"
+    # Prefer the explicit `latest` flag; fall back to the highest version row.
+    latest: Optional[dict] = next(
+        (u for u in rows if isinstance(u, dict) and u.get("latest")), None)
+    if latest is None:
+        cand = [u for u in rows
+                if isinstance(u, dict) and str(u.get("version") or "").strip()]
+        latest = max(cand, key=lambda u: _version_key(u.get("version"))) if cand else None
+    if not latest:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ {app_label} {cur_disp} — no update information "
+                          f"reported on the current branch."}
+    latest_ver = str(latest.get("version") or "").strip()
+    up_to_date = bool(latest.get("installed")) or (
+        bool(latest_ver) and latest_ver == (current or ""))
+    if up_to_date or not latest_ver:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ {app_label} is up to date ({cur_disp})."}
+    detail = (f"⬆️ Update available for {app_label}: running {cur_disp} → "
+              f"latest {latest_ver}")
+    when = fmt_release_date(str(latest.get("releaseDate") or "")[:10], actor_username)
+    if when:
+        detail += f" (released {when})"
+    changes = latest.get("changes")
+    if isinstance(changes, dict):
+        new_n = len(changes.get("new") or []) if isinstance(changes.get("new"), list) else 0
+        fix_n = len(changes.get("fixed") or []) if isinstance(changes.get("fixed"), list) else 0
+        if new_n or fix_n:
+            detail += f" — {new_n} new, {fix_n} fixed"
+    detail += ". Use the Update action to install it via the built-in updater."
+    return {"ok": True, "status": 200, "detail": detail}
+
+
+async def app_update_skill(host_row: dict, chip: dict, *, app_label: str,
+                           api_version: str, host_id: Optional[str] = None) -> dict:
+    """Destructive: trigger the app's BUILT-IN updater via
+    ``POST /api/<v>/command {name: "ApplicationUpdate"}``. The app downloads,
+    installs and restarts itself.
+
+    Only meaningful when the app's Update mechanism is "Built-in" (the default
+    for native / non-Docker installs); a Docker install's "Docker" mechanism
+    refuses it — which is exactly why this skill is hidden / refused for
+    Docker-linked chips (their updates flow through the inline Docker Update
+    action instead). Delegates to the shared ``command_skill`` so the auth /
+    error handling lives in one place. Never raises."""
+    return await command_skill(
+        host_row, chip, command="ApplicationUpdate",
+        started_msg=(f"⬆️ Started the built-in updater on {app_label}. It will "
+                     f"download, install and restart automatically — give it a "
+                     f"minute, then re-check the version."),
+        app_label=app_label, api_version=api_version, host_id=host_id)
+
+
 async def queue_delete_skill(host_row: dict, chip: dict, *, arg: Optional[str],
                              app_label: str, api_version: str,
                              host_id: Optional[str] = None) -> dict:

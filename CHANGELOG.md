@@ -26,6 +26,11 @@ Items shipped to the live deploy via the daily PATCH cadence that are
 not yet rolled into a tagged `MINOR` release. The next MINOR cut renames
 this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
+### Added
+
+- Manual-update actions for non-Docker *arr apps — Radarr / Sonarr / Prowlarr / Lidarr / Readarr instances that aren't linked to a Docker container/stack get two new actions in the app drawer and via AI / Telegram: "Check for updates" (compares the running version against the latest available on the configured branch) and "Update <App>" (triggers the app's built-in updater, which downloads/installs/restarts itself). The update action requires a confirm. Both actions are hidden for Docker-linked instances, which update through their container/stack instead.
+- Grafana per-app integration — admin-pinned Grafana chips get an expanded stat card (Dashboards / Folders / Datasources, plus Users / Orgs when a server-admin token is configured, with the org name + Grafana version as a footnote), sourced from the Grafana REST API. Service-account-token auth (Administration → Service accounts → Add service account token). AI / Telegram skills: Grafana status, List dashboards, List datasources, and Search dashboards (by name). Follows the per-app encapsulation pattern (module + extender + editor / extras partials + catalog template + icon + Test-connection).
+
 ## [1.6.0] — 2026-06-10
 
 Sixth MINOR cut on top of `1.5.0` — rolls up **326 closed issues** under the 1.6.0 milestone (211 enhancements, 115 bug fixes). Every entry shipped to the live deploy as a PATCH bump on the daily CI cadence; this MINOR bundles them under a single tag for rollback / changelog purposes.
