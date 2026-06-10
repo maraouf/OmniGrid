@@ -1,0 +1,76 @@
+<!-- Per-app editor fields -- GitSync Connector (Forgejo -> GitHub repo sync).
+
+     Renders inside the Admin -> Apps per-instance editor as a
+     conditional `<template x-if="...">` so it only appears when the
+     chip's catalog template is GitSync. Gates on
+     `gitsyncIsApp({catalog:{slug: appsInstanceEditForm.catalog_slug}})`
+     so the helper from `static/js/apps/gitsync.js` is the single source
+     of truth for "is this a GitSync chip?". GitSync authenticates via a
+     bearer API token (GitSync UI -> API -> Create token); the chip's
+     api_key field stores it. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="gitsyncIsApp && gitsyncIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-gitsync-api-key"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.gitsync.api_key_label') || 'GitSync API token'"></label>
+      <input id="apps-instance-gitsync-api-key"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.gitsync.api_key_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.gitsync.api_key_placeholder_unset') || 'gsc_… token from GitSync -> API')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.gitsync.api_key_hint') || 'Required for the expanded card + the sync / pause actions. Create one in the GitSync UI under API -> Create token (it looks like gsc_…). The token grants full read + control access, so treat it like a password. Leave blank to keep the stored token.'"></p>
+    </div>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global
+         Config tunable). Blank = the app default (60s); backend clamps
+         5..3600. -->
+    <div>
+      <label for="apps-instance-gitsync-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-gitsync-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>60</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.gitsync.cache_ttl_hint') || 'How long fetched fleet metrics are cached before re-querying GitSync (5–3600s). Leave blank for the app default (60s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the
+         Portainer / OIDC admin panels) so the per-app editor never drifts
+         on style. tcRun is the per-app test fn; tcResult is its reactive
+         {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

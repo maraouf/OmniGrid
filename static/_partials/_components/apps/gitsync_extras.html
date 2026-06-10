@@ -1,0 +1,91 @@
+<!-- Per-app expanded-card extras -- GitSync Connector (Forgejo -> GitHub repo sync).
+
+     Renders inside `apps-card.html` as the per-instance host row when the
+     chip is the GitSync catalog template AND the operator hasn't hidden
+     extras via the per-instance `show_extras` toggle. The data comes from the
+     GitSync Connector REST API (`GET /api/v1/metrics`) via
+     `logic/apps/gitsync.py:fetch_data`, read through the generic, cache-backed
+     `appsAppData(inst)` -- so the card never triggers a per-card round-trip on
+     the hot path.
+
+     Reuses the shared `.apps-card-ups-*` stat-grid component (the same
+     2-column stat panel Plex / Grafana / Forgejo render) -- the classes are a
+     generic telemetry stat grid, not UPS-specific.
+
+     Helpers used (all from `static/js/apps/gitsync.js`):
+       gitsyncIsApp(app)     -- gate "is this a GitSync chip"
+       gitsyncData(inst)     -- per-instance fleet metrics payload
+       gitsyncCount(v)       -- thousands-separated integer formatter
+       gitsyncAlertTotal(d)  -- total unacknowledged alerts -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="gitsyncIsApp && gitsyncIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && gitsyncData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-gitsync-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Pairs -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.pairs') || 'Pairs'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).pairs)"></div>
+      </div>
+      <!-- Paused -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.paused') || 'Paused'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).paused)"></div>
+      </div>
+      <!-- Issues -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.issues') || 'Issues'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).issue_mappings)"></div>
+      </div>
+      <!-- Commits -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.commits') || 'Commits'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).commit_mappings)"></div>
+      </div>
+      <!-- Releases -- only when present (>0). -->
+      <div class="apps-card-ups-stat" x-show="(Number(gitsyncData(inst).release_mappings) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.releases') || 'Releases'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).release_mappings)"></div>
+      </div>
+      <!-- Synced refs -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.gitsync.refs') || 'Synced refs'"></div>
+        <div class="apps-card-stat-value" x-text="gitsyncCount(gitsyncData(inst).synced_refs)"></div>
+      </div>
+    </div>
+    <!-- Alerts footnote -- only when there are unacknowledged alerts. -->
+    <div x-show="gitsyncAlertTotal(gitsyncData(inst)) > 0"
+         class="fs-3xs mt-1 mono"
+         :class="(Number(gitsyncData(inst).alerts_error) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--warning)]'"
+         x-text="t('apps.gitsync.alerts_summary', { error: (Number(gitsyncData(inst).alerts_error) || 0), warn: (Number(gitsyncData(inst).alerts_warn) || 0), info: (Number(gitsyncData(inst).alerts_info) || 0) })"></div>
+    <!-- Enabled-count + version footnote. -->
+    <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
+      <span x-text="(t('apps.gitsync.enabled') || 'Enabled') + ': ' + gitsyncCount(gitsyncData(inst).enabled) + ' / ' + gitsyncCount(gitsyncData(inst).pairs)"></span>
+      <span x-show="gitsyncData(inst).version"
+            x-text="t('apps.version_footnote', { brand: 'GitSync', v: (gitsyncData(inst).version || '') })"></span>
+    </div>
+  </div>
+</template>
+<!-- No API token yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="gitsyncIsApp && gitsyncIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.gitsync.no_api_key') || 'No API token set -- add one in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on gitsyncData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="gitsyncIsApp && gitsyncIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !gitsyncData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.gitsync.loading') || 'Loading GitSync data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="gitsyncIsApp && gitsyncIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !gitsyncData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.gitsync.fetch_failed') || 'GitSync fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>
