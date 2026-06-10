@@ -101,8 +101,12 @@
                             </svg>
                             <span x-text="_fmtClockTime(rel.time)"></span>
                           </span>
-                          <span x-show="rel.runtime > 0" class="apps-widget-arr-cal-pop-fact"
-                                x-text="arrCalRuntimeLabel(rel.runtime)"></span>
+                          <span x-show="rel.runtime > 0" class="apps-widget-arr-cal-pop-fact">
+                            <svg class="apps-widget-arr-cal-pop-clock" aria-hidden="true">
+                              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-timer"/>
+                            </svg>
+                            <span x-text="arrCalRuntimeLabel(rel.runtime)"></span>
+                          </span>
                         </span>
                         <span x-show="rel.overview" class="apps-widget-arr-cal-pop-overview"
                               x-text="rel.overview"></span>
@@ -120,12 +124,20 @@
                           </a>
                           <a x-show="rel.imdb_url" :href="rel.imdb_url" target="_blank"
                              rel="noopener noreferrer"
-                             class="apps-widget-arr-cal-pop-link"
-                             x-text="t('apps.custom.widget_arr_calendar_imdb')"></a>
+                             class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--brand"
+                             :aria-label="t('apps.custom.widget_arr_calendar_imdb')">
+                            <img :src="'/img/icons/imdb.svg'" alt=""
+                                 class="apps-widget-arr-cal-pop-brandlogo"
+                                 @error="$event.target.style.display='none'">
+                          </a>
                           <a x-show="rel.tmdb_url" :href="rel.tmdb_url" target="_blank"
                              rel="noopener noreferrer"
-                             class="apps-widget-arr-cal-pop-link"
-                             x-text="t('apps.custom.widget_arr_calendar_tmdb')"></a>
+                             class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--brand"
+                             :aria-label="t('apps.custom.widget_arr_calendar_tmdb')">
+                            <img :src="'/img/icons/tmdb.svg'" alt=""
+                                 class="apps-widget-arr-cal-pop-brandlogo"
+                                 @error="$event.target.style.display='none'">
+                          </a>
                         </span>
                       </div>
                     </div>

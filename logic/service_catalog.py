@@ -344,16 +344,6 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "UniFi", "slug": "unifi", "icon": "unifi",
-        "description": "Ubiquiti UniFi Network / UniFi OS console",
-        "default_ports": [
-            {"port": 443, "protocol": "https", "label": "UniFi OS",
-             "probe_path": "/", "probe_status": 0},
-            {"port": 8443, "protocol": "https", "label": "Network",
-             "probe_path": "/", "probe_status": 0},
-        ],
-    },
-    {
         "name": "Beszel Hub", "slug": "beszel-hub", "icon": "beszel",
         "description": "Beszel monitoring hub web UI (distinct from the agent)",
         "default_ports": [

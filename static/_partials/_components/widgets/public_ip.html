@@ -108,7 +108,19 @@
         </div>
       </div>
     </template>
-    <template x-if="!publicIp || !publicIp.enabled || !publicIp.ip">
+    <!-- Loading — the first /api/public-ip fetch hasn't landed yet
+         (publicIp is still null). Shows a spinner instead of the
+         "No data" empty state, which read as a misconfiguration while
+         it was merely looking up the address. -->
+    <template x-if="!publicIp">
+      <div class="apps-widget-empty">
+        <span class="spin apps-widget-spinner" aria-hidden="true"></span>
+        <span class="apps-widget-empty-text"
+              x-text="t('apps.custom.widget_ip_loading') || 'Looking up public IP…'"></span>
+      </div>
+    </template>
+    <!-- Empty / disabled — only AFTER the fetch has landed (publicIp set). -->
+    <template x-if="publicIp && (!publicIp.enabled || !publicIp.ip)">
       <div class="apps-widget-empty">
         <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-globe"/>

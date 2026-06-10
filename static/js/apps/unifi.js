@@ -36,7 +36,10 @@ function isUnifiApp(app) {
   }
   const cat = app.catalog || {};
   const slug = String(cat.slug || '').trim().toLowerCase();
-  if (slug === 'unifi' || slug === 'unifi-network' || slug === 'unifi-os') {
+  // Substring match so every UniFi variant resolves — the canonical
+  // `unifi-os-server` template, the bare `unifi` / `unifi-network` / `unifi-os`
+  // aliases, AND the editor gate's lowercased catalog NAME ("unifi os server").
+  if (slug.indexOf('unifi') !== -1) {
     return true;
   }
   return (String(app.name || '').toLowerCase().indexOf('unifi') !== -1);
@@ -84,7 +87,7 @@ function unifiDeviceFraction(d) {
 // span so the stat panel doesn't squeeze the per-instance host list, and a
 // vertical telemetry-card layout like GitSync / Grafana.
 export const extender = {
-  slugs: ['unifi', 'unifi-network', 'unifi-os'],
+  slugs: ['unifi-os-server', 'unifi', 'unifi-network', 'unifi-os'],
   requiresApiKey: true,
   eyebrowTitle: true,
   verticalLayout: true,
