@@ -1,34 +1,61 @@
 <!-- Per-app expanded-card extras -- netboot.xyz (network-boot menu manager).
 
      Renders inside `apps-card.html` when the chip is the netboot.xyz catalog
-     template AND extras are visible. netboot.xyz's webapp has no rich REST API
-     (socket.io-driven), so the data is a defensive reachability + version probe
-     (`logic/apps/netbootxyz.py:fetch_data`), read through the cache-backed
-     `appsAppData(inst)`. Shows a "running version" / "reachable" line + an
-     update-available footnote when /version reports a newer remote.
+     template AND extras are visible. netboot.xyz's webapp has no plain-HTTP
+     stats API — everything is socket.io-driven — so `logic/apps/netbootxyz.py`
+     drives the webapp's `getdash` socket.io event over its HTTP long-polling
+     transport to read real stats (boot-menu version, webapp version, the
+     latest upstream menu release, and host CPU / RAM), surfaced through the
+     cache-backed `appsAppData(inst)`. Reuses the shared `.apps-card-ups-*`
+     stat-grid (a generic 2-col telemetry panel, not UPS-specific).
 
      Helpers used (all from `static/js/apps/netbootxyz.js`):
-       netbootxyzIsApp(app) / netbootxyzData(inst) / netbootxyzVersionLabel(d) -->
+       netbootxyzIsApp(app) / netbootxyzData(inst) / netbootxyzMemPercent(d) -->
 <!--suppress HtmlUnknownAttribute -->
 <template x-if="netbootxyzIsApp && netbootxyzIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null))">
   <!--suppress JSUnresolvedVariable -->
   <div class="apps-card-netbootxyz">
     <template x-if="netbootxyzData(inst)">
-      <div :data-netbootxyz-host="inst.host_id">
+      <div class="apps-card-ups" :data-netbootxyz-host="inst.host_id">
         <div x-show="(app.instances || []).length > 1"
              class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
              x-text="inst.host_address || inst.host_id"></div>
-        <!-- Reachable + version line. -->
-        <div class="fs-xs inline-flex items-center gap-1.5">
+        <div class="apps-card-ups-grid">
+          <!-- Boot menu version -- the headline netboot.xyz stat. -->
+          <div class="apps-card-ups-stat" x-show="netbootxyzData(inst).menu_version">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.boot_menu') || 'Boot menu'"></div>
+            <div class="apps-card-stat-value mono" x-text="netbootxyzData(inst).menu_version"></div>
+          </div>
+          <!-- Webapp version. -->
+          <div class="apps-card-ups-stat" x-show="netbootxyzData(inst).version">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.webapp') || 'Web app'"></div>
+            <div class="apps-card-stat-value mono" x-text="netbootxyzData(inst).version"></div>
+          </div>
+          <!-- Host CPU. -->
+          <div class="apps-card-ups-stat" x-show="(Number(netbootxyzData(inst).mem_total) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.cpu') || 'CPU'"></div>
+            <div class="apps-card-stat-value" x-text="(Math.round(Number(netbootxyzData(inst).cpu_percent) || 0)) + '%'"></div>
+          </div>
+          <!-- Host RAM. -->
+          <div class="apps-card-ups-stat" x-show="netbootxyzMemPercent(netbootxyzData(inst)) !== null">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.ram') || 'RAM'"></div>
+            <div class="apps-card-stat-value" x-text="netbootxyzMemPercent(netbootxyzData(inst)) + '%'"></div>
+          </div>
+        </div>
+        <!-- Reachable fallback line — shown only when the socket.io dash probe
+             returned nothing (no versions / no host stats), so the card still
+             confirms the webapp is up. -->
+        <div x-show="!netbootxyzData(inst).menu_version && !netbootxyzData(inst).version"
+             class="fs-xs inline-flex items-center gap-1.5">
           <svg width="13" height="13" class="text-[var(--success)]" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-check"/>
           </svg>
-          <span class="mono" x-text="netbootxyzVersionLabel(netbootxyzData(inst))"></span>
+          <span class="mono" x-text="t('apps.netbootxyz.reachable') || 'Reachable'"></span>
         </div>
-        <!-- Update-available footnote (only when /version reports a newer remote). -->
-        <div x-show="netbootxyzData(inst).update_available && netbootxyzData(inst).latest"
+        <!-- Update-available footnote (local boot-menu version behind the latest upstream release). -->
+        <div x-show="netbootxyzData(inst).update_available && netbootxyzData(inst).latest_menu_version"
              class="fs-3xs text-[var(--warning)] mt-1 mono"
-             x-text="t('apps.netbootxyz.update_available', { v: (netbootxyzData(inst).latest || '') }) || ('Update available: ' + (netbootxyzData(inst).latest || ''))"></div>
+             x-text="t('apps.netbootxyz.update_available', { v: (netbootxyzData(inst).latest_menu_version || '') }) || ('Boot-menu update available: ' + (netbootxyzData(inst).latest_menu_version || ''))"></div>
       </div>
     </template>
     <!-- Loading — first fetch in flight. -->

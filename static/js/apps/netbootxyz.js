@@ -15,10 +15,11 @@
 // `window.OG_APPS_EXTENDERS`.
 //
 // Data source
-//   netboot.xyz's webapp has no auth and its dynamic data is socket.io-driven,
-//   so the card is a defensive STATUS + VERSION tile sourced from
-//   `logic/apps/netbootxyz.py:fetch_data` (GET / for reachability + GET
-//   /version best-effort), read through the cache-backed `appsAppData(inst)`.
+//   netboot.xyz's webapp has no auth and no plain-HTTP stats API — its data is
+//   socket.io-driven. `logic/apps/netbootxyz.py:fetch_data` drives the webapp's
+//   `getdash` socket.io event (over HTTP long-polling) to read boot-menu /
+//   webapp versions + update status + host CPU / RAM, read through the
+//   cache-backed `appsAppData(inst)`.
 //
 // File-scope IDE directives: see `speedtest_tracker.js`'s header for the full
 // rationale -- same per-file JSHint + PyCharm conventions.
@@ -53,18 +54,18 @@ function netbootxyzData(inst) {
   return d;
 }
 
-// "Running v2.0.84" / "Reachable" version label for the card.
-function netbootxyzVersionLabel(d) {
-  // `this` is the Alpine component (merged in via `appsHelpers`).
-  /* jshint validthis: true */
+// Host RAM percent (used / total) for the card; null when the dash probe
+// didn't return memory figures (so the RAM stat hides cleanly).
+function netbootxyzMemPercent(d) {
   if (!d) {
-    return '';
+    return null;
   }
-  const v = String(d.version || '').trim();
-  if (v) {
-    return (this.t('apps.netbootxyz.running', {v: v}) || ('Running ' + v));
+  const total = Number(d.mem_total) || 0;
+  const used = Number(d.mem_used) || 0;
+  if (total <= 0) {
+    return null;
   }
-  return (this.t('apps.netbootxyz.reachable') || 'Reachable');
+  return Math.round((used / total) * 100);
 }
 
 // Extender record -- consumed by the generic helpers in
@@ -81,5 +82,5 @@ export const extender = {
 export const helpers = {
   netbootxyzIsApp: isNetbootxyzApp,
   netbootxyzData: netbootxyzData,
-  netbootxyzVersionLabel: netbootxyzVersionLabel,
+  netbootxyzMemPercent: netbootxyzMemPercent,
 };

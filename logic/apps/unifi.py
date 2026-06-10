@@ -140,16 +140,25 @@ _AP_PREFIXES = ("u6", "u7", "uap", "ualr", "uwb", "uap-", "u-lr", "uap6", "e7")
 
 def _classify_device(dev: dict) -> str:
     """Best-effort device bucket: ``"ap"`` / ``"switch"`` / ``"gateway"`` /
-    ``"other"`` from the model code (+ a name fallback). Imperfect by design —
-    the reliable online/offline/total counts never depend on this."""
+    ``"other"``. Uses the device's ``interfaces`` shape (radios ⇒ AP, ports ⇒
+    switch) as the PRIMARY signal so an AP model we don't recognise by prefix
+    still classifies correctly, with the model code / name as fallback. Gateway
+    prefixes win first (a UDM / Dream Router has radios too but is a gateway).
+    Imperfect by design — the reliable online/offline/total counts never depend
+    on this."""
     model = str(dev.get("model") or "").strip().lower()
     name = str(dev.get("name") or "").strip().lower()
-    if model.startswith(_SWITCH_PREFIXES) or "switch" in name:
-        return "switch"
+    ifaces = as_dict(dev.get("interfaces"))
+    has_radios = bool(as_list(ifaces.get("radios")))
+    has_ports = bool(as_list(ifaces.get("ports")))
+    # Gateways / consoles first — a UDM / UDR carries radios + ports too, so it
+    # must win before the radio/port heuristics below.
     if model.startswith(_GATEWAY_PREFIXES) or "gateway" in name or "dream" in name:
         return "gateway"
-    if model.startswith(_AP_PREFIXES) or " ap" in (" " + name):
+    if model.startswith(_AP_PREFIXES) or has_radios or " ap" in (" " + name):
         return "ap"
+    if model.startswith(_SWITCH_PREFIXES) or "switch" in name or has_ports:
+        return "switch"
     return "other"
 
 
@@ -181,18 +190,60 @@ async def _get_json(cli: "httpx.AsyncClient", url: str, key: str) -> Any:
         return None
 
 
+# The Integration API paginates EVERY list endpoint under a
+# ``{offset, limit, count, totalCount, data:[...]}`` envelope and caps a page at
+# `limit` records (default 25 — the source of the "only 25 clients shown when
+# there are 59" truncation). Always page explicitly: request the max page size
+# and walk `offset` until every record is collected (or a runaway guard trips).
+_PAGE_LIMIT = 200
+_MAX_PAGES = 50  # 200 × 50 = 10000-record ceiling — a hard runaway safety net.
+
+
+async def _get_all(cli: "httpx.AsyncClient", url: str, key: str) -> list:
+    """GET every page of a paginated Integration API list endpoint and return the
+    merged ``data`` rows (dicts only). Walks ``offset`` until ``totalCount`` is
+    reached / a short page lands / the page cap trips. ``[]`` on failure."""
+    out: list = []
+    offset = 0
+    for _ in range(_MAX_PAGES):
+        sep = "&" if "?" in url else "?"
+        body = await _get_json(cli, f"{url}{sep}offset={offset}&limit={_PAGE_LIMIT}", key)
+        d = as_dict(body)
+        page = [x for x in as_list(d.get("data")) if isinstance(x, dict)]
+        out.extend(page)
+        total = safe_int(d.get("totalCount"))
+        offset += len(page)
+        if not page or len(page) < _PAGE_LIMIT or (total and offset >= total):
+            break
+    return out
+
+
 async def _list_sites(cli: "httpx.AsyncClient", base: str, key: str) -> list:
-    """Site records from ``GET /sites`` (the Integration API paginates under a
-    ``data`` envelope). Returns ``[]`` on failure."""
-    body = await _get_json(cli, base + _API + "/sites", key)
-    return [s for s in as_list(as_dict(body).get("data")) if isinstance(s, dict)]
+    """All site records from ``GET /sites`` (paginated under a ``data``
+    envelope). Returns ``[]`` on failure."""
+    return await _get_all(cli, base + _API + "/sites", key)
 
 
 async def _fetch_version(cli: "httpx.AsyncClient", base: str, key: str) -> str:
-    """Best-effort Network application version from ``GET /info``; '' on miss."""
+    """Best-effort Network application version from ``GET /info``; '' on miss.
+    (The Integration API exposes the Network application version only — the
+    console's UniFi-OS version is not part of this API surface.)"""
     body = await _get_json(cli, base + _API + "/info", key)
     info = as_dict(body)
     return str(info.get("applicationVersion") or info.get("version") or "").strip()
+
+
+def _device_update_pending(dev: dict) -> bool:
+    """True when the console reports a firmware update available for this device.
+    The Integration API device shape varies by Network version, so probe the
+    several plausible spellings defensively — absent on every spelling ⇒ False
+    (so the card simply doesn't claim updates when the API doesn't expose them)."""
+    for k in ("firmwareUpdatable", "firmwareUpdateAvailable", "updateAvailable",
+              "upgradable", "upgradeAvailable"):
+        if dev.get(k) is True:
+            return True
+    fw = as_dict(dev.get("firmware"))
+    return fw.get("updateAvailable") is True or fw.get("upgradable") is True
 
 
 # noinspection DuplicatedCode
@@ -232,14 +283,13 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
 
 async def _gather_site(cli: "httpx.AsyncClient", base: str, key: str,
                        site_id: str) -> "tuple[list, list]":
-    """Fetch one site's devices + clients in parallel. Returns ``(devices,
-    clients)`` (each a list, possibly empty)."""
-    dev_body, cli_body = await asyncio.gather(
-        _get_json(cli, base + _API + f"/sites/{site_id}/devices", key),
-        _get_json(cli, base + _API + f"/sites/{site_id}/clients", key),
+    """Fetch one site's devices + clients in parallel, paginating BOTH (the
+    clients list routinely exceeds one page — that truncation was the "59
+    clients but only 25 shown" bug). Returns ``(devices, clients)``."""
+    devices, clients = await asyncio.gather(
+        _get_all(cli, base + _API + f"/sites/{site_id}/devices", key),
+        _get_all(cli, base + _API + f"/sites/{site_id}/clients", key),
     )
-    devices = [d for d in as_list(as_dict(dev_body).get("data")) if isinstance(d, dict)]
-    clients = [c for c in as_list(as_dict(cli_body).get("data")) if isinstance(c, dict)]
     return devices, clients
 
 
@@ -293,6 +343,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     for d in devices:
         buckets[_classify_device(d)] += 1
     wired = sum(1 for c in clients if _client_is_wired(c))
+    updates = sum(1 for d in devices if _device_update_pending(d))
 
     out: dict[str, Any] = {
         "available": True,
@@ -301,6 +352,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "devices": len(devices),
         "devices_online": online,
         "devices_offline": max(0, len(devices) - online),
+        "devices_update_available": updates,
         "aps": buckets["ap"],
         "switches": buckets["switch"],
         "gateways": buckets["gateway"],
@@ -313,7 +365,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"devices={out['devices']} online={out['devices_online']} "
           f"aps={out['aps']} sw={out['switches']} gw={out['gateways']} "
           f"clients={out['clients']} (w={out['clients_wired']}/"
-          f"wl={out['clients_wireless']})")
+          f"wl={out['clients_wireless']}) updates={out['devices_update_available']} "
+          f"ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -329,6 +382,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "devices": safe_int(data.get("devices")),
         "devices_online": safe_int(data.get("devices_online")),
         "devices_offline": safe_int(data.get("devices_offline")),
+        "devices_update_available": safe_int(data.get("devices_update_available")),
         "aps": safe_int(data.get("aps")),
         "switches": safe_int(data.get("switches")),
         "gateways": safe_int(data.get("gateways")),
@@ -421,6 +475,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     dev = safe_int(data.get("devices"))
     online = safe_int(data.get("devices_online"))
     offline = safe_int(data.get("devices_offline"))
+    updates = safe_int(data.get("devices_update_available"))
     lines = [
         f"📡 Devices: {online}/{dev} online" + (f" · {offline} offline" if offline else ""),
         f"🛜 {safe_int(data.get('aps'))} APs · 🔀 {safe_int(data.get('switches'))} "
@@ -429,13 +484,15 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"({safe_int(data.get('clients_wired'))} wired · "
         f"{safe_int(data.get('clients_wireless'))} wireless)",
     ]
+    if updates:
+        lines.append(f"⬆️ {updates} device firmware update(s) available")
     ver = str(data.get("version") or "").strip()
     sites = safe_int(data.get("sites"))
     tail = []
     if sites:
         tail.append(f"{sites} site(s)")
     if ver:
-        tail.append(f"UniFi Network {ver}")
+        tail.append(f"Network {ver}")
     if tail:
         lines.append("· " + " · ".join(tail))
     return {"ok": True, "detail": "\n".join(lines), "status": 200,
@@ -483,14 +540,14 @@ async def _devices_skill(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             sites = await _list_sites(cli, base, key)
             devs_nested = await asyncio.gather(*[
-                _get_json(cli, base + _API + f"/sites/{s.get('id')}/devices", key)
+                _get_all(cli, base + _API + f"/sites/{s.get('id')}/devices", key)
                 for s in sites[:_MAX_SITES] if s.get("id")
             ])
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
     devices: list = []
     for body in devs_nested:
-        devices.extend(d for d in as_list(as_dict(body).get("data")) if isinstance(d, dict))
+        devices.extend(body)
     if not devices:
         return {"ok": True, "status": 200, "detail": "📡 No UniFi devices found."}
     rows = [r for r in (_device_row(d) for d in devices) if r is not None]
@@ -554,10 +611,7 @@ async def _restart_device_skill(host_row: dict, chip: dict, *,
                 sid = str(s.get("id") or "")
                 if not sid:
                     continue
-                body = await _get_json(cli, base + _API + f"/sites/{sid}/devices", key)
-                for d in as_list(as_dict(body).get("data")):
-                    if not isinstance(d, dict):
-                        continue
+                for d in await _get_all(cli, base + _API + f"/sites/{sid}/devices", key):
                     dname = str(d.get("name") or "").strip()
                     dmac = str(d.get("macAddress") or "").strip().lower().replace("-", ":")
                     if dname.lower() == needle_l or dmac == needle_mac:

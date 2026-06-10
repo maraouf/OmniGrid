@@ -60,12 +60,16 @@
     <div x-show="(Number(unifiData(inst).devices_offline) || 0) > 0"
          class="fs-3xs mt-1 mono text-[var(--warning)]"
          x-text="t('apps.unifi.offline_summary', { n: (Number(unifiData(inst).devices_offline) || 0) })"></div>
-    <!-- Clients wired / wireless + version footnote. -->
+    <!-- Clients wired / wireless + Network version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-text="t('apps.unifi.clients_summary', { wired: (Number(unifiData(inst).clients_wired) || 0), wireless: (Number(unifiData(inst).clients_wireless) || 0) })"></span>
       <span x-show="unifiData(inst).version"
-            x-text="t('apps.version_footnote', { brand: 'UniFi', v: (unifiData(inst).version || '') })"></span>
+            x-text="t('apps.version_footnote', { brand: 'Network', v: (unifiData(inst).version || '') })"></span>
     </div>
+    <!-- Firmware-update footnote — only when the console reports pending updates. -->
+    <div x-show="(Number(unifiData(inst).devices_update_available) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--warning)]"
+         x-text="t('apps.unifi.updates_summary', { n: (Number(unifiData(inst).devices_update_available) || 0) })"></div>
   </div>
 </template>
 <!-- No API key yet — idle and unconfigured. -->
