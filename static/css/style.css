@@ -12706,6 +12706,29 @@ select.field-invalid {
 .apps-widget-arr-cal-pop-layer {
   --widget-accent: var(--widget-accent-arr_calendar);
   --widget-accent-soft: color-mix(in srgb, var(--widget-accent-arr_calendar) 16%, transparent);
+  /* Full-screen fixed overlay context (teleported to <body>). Pins the
+     backdrop + popover into a viewport-anchored layer so the popover never
+     falls back to static flow at the page bottom. pointer-events stay on the
+     children (backdrop catches outside clicks, popover is interactive). */
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  pointer-events: none;
+}
+
+.apps-widget-arr-cal-pop-layer > * {
+  pointer-events: auto;
+}
+
+/* Loading spinner shown while the first month fetch is in flight (a provider
+   is configured but no data has landed yet). Scales up `.spin` + tints it
+   the calendar accent. */
+.apps-widget-arr-cal-spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+  color: var(--widget-accent-arr_calendar);
+  margin-bottom: var(--s-2);
 }
 
 .apps-widget-arr-cal-pop-backdrop {

@@ -51,6 +51,7 @@ from . import speedtest_tracker
 from . import tautulli
 from . import tdarr
 from . import tracearr
+from . import unifi
 
 # slug → module. Each module's own ``SLUGS`` tuple lists the
 # templates it handles; we explode that here so a single dict
@@ -73,7 +74,7 @@ def _register(module: ModuleType) -> None:
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
              emby, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, pihole,
              plex, prowlarr, qbittorrent, radarr, readarr, seerr, sonarr,
-             speedtest_tracker, tautulli, tdarr, tracearr):
+             speedtest_tracker, tautulli, tdarr, tracearr, unifi):
     _register(_mod)
 
 

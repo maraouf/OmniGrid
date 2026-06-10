@@ -1,0 +1,580 @@
+"""UniFi per-app module (UniFi Network / UniFi OS).
+
+Wires a Ubiquiti UniFi console into the OmniGrid Apps surface following the
+per-app contract (``gitsync.py`` / ``grafana.py`` shape):
+
+    SLUGS               — catalog slugs this module handles
+                          ("unifi" / "unifi-network" / "unifi-os").
+    requires_api_key()  — True (the chip's ``api_key`` stores a UniFi API key —
+                          UniFi site → Settings → Control Plane → Integrations →
+                          "Create API Key". Treat it like a password; it grants
+                          read + device-control access.)
+    resolve_base_url(host_row, chip) -> str   (shared helper)
+    test_credential(host_row, chip, candidate_key) -> dict
+    fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
+    peek_latest(host_id, service_idx) -> dict | None    (AI context)
+    SKILLS / run_skill  — status (read) + devices (read, rich list) + clients
+                          (read) + restart-device (DESTRUCTIVE, arg).
+
+Auth model: the OFFICIAL UniFi Network **Integration API** (UniFi OS 4.x /
+Network application 9.0+). API-key auth via the ``X-API-KEY`` header — NOT the
+legacy ``/api/login`` cookie + CSRF dance (deprecated for integrations). The
+key lives in the chip's ``api_key`` field. The credential probe hits the
+auth-required ``GET /proxy/network/integration/v1/sites`` so a bad / missing
+key fails loudly (401). UniFi consoles ship a self-signed cert on the LAN, so
+every client uses ``verify=False``. Single-instance app (NOT fleet). No image
+proxy (no thumbnails).
+
+The expanded card answers "is my UniFi fleet healthy right now":
+
+    sites                         — site count on the console
+    devices / online / offline    — adopted-device counts
+    aps / switches / gateways      — best-effort device-type breakdown
+    clients / wired / wireless     — connected-client counts
+    version                        — Network application version (best-effort)
+
+Upstream API reference: UniFi Network Integration API v1 — base
+``<console-url>/proxy/network/integration/v1``, ``X-API-KEY`` header,
+``GET /sites`` · ``GET /sites/{id}/devices`` · ``GET /sites/{id}/clients`` ·
+``GET /info`` (version) · ``POST /sites/{id}/devices/{id}/actions``
+``{"action": "RESTART"}``.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from typing import Any, Optional
+
+import httpx
+
+from logic.apps._common import (
+    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
+    resolve_credential_target)
+from logic.coerce import as_dict, as_list, safe_int
+
+# Catalog template slugs handled by this module.
+SLUGS: tuple[str, ...] = ("unifi", "unifi-network", "unifi-os")
+
+# UniFi Network Integration API base path.
+_API = "/proxy/network/integration/v1"
+
+# Per-(host_id, service_idx) data cache for the expanded card. Default TTL
+# overridable per chip via the editor's `cache_ttl` field. 30s — the console
+# answers from memory so a short cache keeps the card live without hammering it.
+DEFAULT_CACHE_TTL_S = 30
+_data_cache: dict[str, tuple[float, dict]] = {}
+
+# Cap on the rich-item rows a list skill returns + on sites fanned out per fetch
+# (a home / small-biz console has 1 site; the cap is a runaway guard).
+_MAX_ROWS = 25
+_MAX_SITES = 8
+
+# Device state → emoji for the rich device rows + AI text.
+_STATE_EMOJI = {"online": "🟢", "offline": "🔴", "pending_adoption": "🟡",
+                "adopting": "🟡", "provisioning": "🟡", "upgrading": "🔵",
+                "heartbeat_missed": "🟠", "isolated": "🟠"}
+
+# UniFi skills — three read-only + one destructive (arg). The arg-carrying
+# restart skill surfaces to AI / Telegram only (a drawer button can't supply the
+# device name); the read skills also render as one-click drawer buttons.
+SKILLS: tuple[dict, ...] = (
+    {
+        "id": "unifi_status",
+        "name": "UniFi status",
+        "ai_phrases": ("unifi status, unifi overview, how many access points, are "
+                       "my unifi devices online, unifi network summary, how many "
+                       "clients on wifi, unifi health, ubiquiti status"),
+        "destructive": False,
+    },
+    {
+        "id": "unifi_devices",
+        "name": "List UniFi devices",
+        "ai_phrases": ("list unifi devices, show my access points, what switches do "
+                       "i have, which unifi devices are offline, my unifi hardware, "
+                       "list aps, unifi device status"),
+        "destructive": False,
+    },
+    {
+        "id": "unifi_clients",
+        "name": "UniFi clients",
+        "ai_phrases": ("how many clients are connected, unifi clients, wifi clients, "
+                       "wired vs wireless clients, who is on my network, connected "
+                       "devices count"),
+        "destructive": False,
+    },
+    {
+        "id": "unifi_restart_device",
+        "name": "Restart a UniFi device",
+        "ai_phrases": ("restart the <name> ap, reboot the <name> switch, restart "
+                       "<name> unifi device, reboot my <name> access point, "
+                       "power-cycle <name>"),
+        "arg": True,
+        "arg_hint": "the UniFi device name (or MAC) to restart",
+        "destructive": True,
+    },
+)
+
+
+def requires_api_key() -> bool:
+    """UniFi's Integration API authenticates every call via an API key; the
+    editor MUST render the key input (stored in the chip's api_key) + Test."""
+    return True
+
+
+def _headers(key: str) -> dict:
+    """UniFi Integration API key header + JSON Accept."""
+    return {"X-API-KEY": key, "Accept": "application/json"}
+
+
+# Model-prefix heuristics for the best-effort AP / switch / gateway breakdown.
+# UniFi's product naming is stable enough to bucket on: USW* = switch, UDM /
+# UXG / UCG / UDR / USG / UCK = gateway / console, U6 / U7 / UAP / UALR / UWB =
+# access point. Anything else lands in "other" (folded into the total only).
+_SWITCH_PREFIXES = ("usw", "us-", "usl", "usxg", "usp-rps", "usw-")
+_GATEWAY_PREFIXES = ("udm", "uxg", "ucg", "udr", "uxr", "usg", "uck", "ux-", "ux ")
+_AP_PREFIXES = ("u6", "u7", "uap", "ualr", "uwb", "uap-", "u-lr", "uap6", "e7")
+
+
+def _classify_device(dev: dict) -> str:
+    """Best-effort device bucket: ``"ap"`` / ``"switch"`` / ``"gateway"`` /
+    ``"other"`` from the model code (+ a name fallback). Imperfect by design —
+    the reliable online/offline/total counts never depend on this."""
+    model = str(dev.get("model") or "").strip().lower()
+    name = str(dev.get("name") or "").strip().lower()
+    if model.startswith(_SWITCH_PREFIXES) or "switch" in name:
+        return "switch"
+    if model.startswith(_GATEWAY_PREFIXES) or "gateway" in name or "dream" in name:
+        return "gateway"
+    if model.startswith(_AP_PREFIXES) or " ap" in (" " + name):
+        return "ap"
+    return "other"
+
+
+def _client_is_wired(client: dict) -> bool:
+    """True when a client connects over a wired port (vs Wi-Fi). The Integration
+    API reports the medium as ``type`` and / or ``access.type``
+    (``"WIRED"`` / ``"WIRELESS"``); also treat a present ``uplinkDeviceId`` +
+    no radio as wired. Defaults to wireless when unknown (the common case)."""
+    t = str(client.get("type") or as_dict(client.get("access")).get("type") or "").strip().upper()
+    if t == "WIRED":
+        return True
+    if t == "WIRELESS":
+        return False
+    # Fallback: a wireless client carries radio / SSID info.
+    if client.get("ssid") or client.get("radio") or client.get("wireless"):
+        return False
+    return False
+
+
+async def _get_json(cli: "httpx.AsyncClient", url: str, key: str) -> Any:
+    """GET a UniFi Integration endpoint and return parsed JSON, or None on any
+    non-2xx / parse failure (caller decides how to degrade)."""
+    r = await cli.get(url, headers=_headers(key))
+    if not (200 <= r.status_code < 300):
+        return None
+    try:
+        return r.json()
+    except (ValueError, TypeError):
+        return None
+
+
+async def _list_sites(cli: "httpx.AsyncClient", base: str, key: str) -> list:
+    """Site records from ``GET /sites`` (the Integration API paginates under a
+    ``data`` envelope). Returns ``[]`` on failure."""
+    body = await _get_json(cli, base + _API + "/sites", key)
+    return [s for s in as_list(as_dict(body).get("data")) if isinstance(s, dict)]
+
+
+async def _fetch_version(cli: "httpx.AsyncClient", base: str, key: str) -> str:
+    """Best-effort Network application version from ``GET /info``; '' on miss."""
+    body = await _get_json(cli, base + _API + "/info", key)
+    info = as_dict(body)
+    return str(info.get("applicationVersion") or info.get("version") or "").strip()
+
+
+# noinspection DuplicatedCode
+async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
+    """Probe UniFi's auth-required ``GET /proxy/network/integration/v1/sites``
+    with the supplied key. Returns ``{ok, detail, status}``. Falls back to the
+    chip's stored ``api_key`` when ``candidate_key`` is blank so the operator can
+    re-test after first save without retyping."""
+    key, base, err = resolve_credential_target(host_row, chip, candidate_key)
+    if err:
+        return err
+    url = base + _API + "/sites"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=10.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url, headers=_headers(key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
+    if r.status_code == 200:
+        try:
+            sites = as_list(as_dict(r.json()).get("data"))
+        except (ValueError, TypeError):
+            sites = []
+        return {"ok": True, "detail": f"OK ({len(sites)} site(s))", "status": 200}
+    if r.status_code in (401, 403):
+        return {"ok": False,
+                "detail": "auth failed (check the UniFi API key — Settings → "
+                          "Control Plane → Integrations)",
+                "status": r.status_code}
+    if r.status_code == 404:
+        return {"ok": False,
+                "detail": "404 — the Integration API isn't reachable here (needs "
+                          "UniFi OS 4.x / Network 9.0+ at the console URL)",
+                "status": 404}
+    return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
+
+
+async def _gather_site(cli: "httpx.AsyncClient", base: str, key: str,
+                       site_id: str) -> "tuple[list, list]":
+    """Fetch one site's devices + clients in parallel. Returns ``(devices,
+    clients)`` (each a list, possibly empty)."""
+    dev_body, cli_body = await asyncio.gather(
+        _get_json(cli, base + _API + f"/sites/{site_id}/devices", key),
+        _get_json(cli, base + _API + f"/sites/{site_id}/clients", key),
+    )
+    devices = [d for d in as_list(as_dict(dev_body).get("data")) if isinstance(d, dict)]
+    clients = [c for c in as_list(as_dict(cli_body).get("data")) if isinstance(c, dict)]
+    return devices, clients
+
+
+# noinspection DuplicatedCode
+async def fetch_data(host_row: dict, chip: dict, *,
+                     host_id: str, service_idx: int,
+                     force: bool = False) -> dict:
+    """Fetch the UniFi fleet summary for the card. Lists sites, then fans out
+    devices + clients per site (capped) and aggregates. Returns the card payload
+    (see the module docstring). Raises ``ValueError`` / ``RuntimeError`` (caller
+    maps to HTTPException) when the key is unset / the base URL won't resolve /
+    the upstream errors."""
+    key = (chip.get("api_key") or "").strip()
+    now = time.time()
+    base, hit = fetch_gate(host_row, chip, host_id, service_idx, _data_cache,
+                           resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
+                           credential=key, log_tag="unifi")
+    if hit is not None:
+        return hit
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            sites = await _list_sites(cli, base, key)
+            if not sites:
+                # Distinguish "auth/endpoint problem" from "genuinely no sites".
+                probe = await _get_json(cli, base + _API + "/sites", key)
+                if probe is None:
+                    raise RuntimeError(
+                        f"upstream returned no sites for {base}{_API}/sites "
+                        f"(check the API key + that the Integration API is enabled "
+                        f"on UniFi OS 4.x / Network 9.0+)")
+            version = await _fetch_version(cli, base, key)
+            per_site = await asyncio.gather(*[
+                _gather_site(cli, base, key, str(s.get("id") or ""))
+                for s in sites[:_MAX_SITES] if s.get("id")
+            ])
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[unifi] error: fetch host={host_id} base={base} "
+              f"failed — {type(e).__name__}: {e}")
+        raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
+
+    devices: list = []
+    clients: list = []
+    for devs, clis in per_site:
+        devices.extend(devs)
+        clients.extend(clis)
+
+    online = sum(1 for d in devices
+                 if str(d.get("state") or "").strip().lower() == "online")
+    buckets = {"ap": 0, "switch": 0, "gateway": 0, "other": 0}
+    for d in devices:
+        buckets[_classify_device(d)] += 1
+    wired = sum(1 for c in clients if _client_is_wired(c))
+
+    out: dict[str, Any] = {
+        "available": True,
+        "version": version,
+        "sites": len(sites),
+        "devices": len(devices),
+        "devices_online": online,
+        "devices_offline": max(0, len(devices) - online),
+        "aps": buckets["ap"],
+        "switches": buckets["switch"],
+        "gateways": buckets["gateway"],
+        "clients": len(clients),
+        "clients_wired": wired,
+        "clients_wireless": max(0, len(clients) - wired),
+        "fetched_at": int(now),
+    }
+    print(f"[unifi] INFO fetched host={host_id} sites={out['sites']} "
+          f"devices={out['devices']} online={out['devices_online']} "
+          f"aps={out['aps']} sw={out['switches']} gw={out['gateways']} "
+          f"clients={out['clients']} (w={out['clients_wired']}/"
+          f"wl={out['clients_wireless']})")
+    _data_cache[cache_key(host_id, service_idx)] = (now, out)
+    return out
+
+
+def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
+    """Cache-only peek (no upstream call) for the AI context's
+    ``app_skills[].last``."""
+    data = peek_cache(_data_cache, host_id, service_idx)
+    if not isinstance(data, dict) or not data.get("available"):
+        return None
+    return {
+        "sites": safe_int(data.get("sites")),
+        "devices": safe_int(data.get("devices")),
+        "devices_online": safe_int(data.get("devices_online")),
+        "devices_offline": safe_int(data.get("devices_offline")),
+        "aps": safe_int(data.get("aps")),
+        "switches": safe_int(data.get("switches")),
+        "gateways": safe_int(data.get("gateways")),
+        "clients": safe_int(data.get("clients")),
+        "clients_wired": safe_int(data.get("clients_wired")),
+        "clients_wireless": safe_int(data.get("clients_wireless")),
+        "version": data.get("version") or "",
+        "fetched_at": safe_int(data.get("fetched_at")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
+    """Resolve ``(key, base)`` or a ready ``{ok: False, detail}`` error dict for
+    a UniFi skill."""
+    key = (chip.get("api_key") or "").strip()
+    if not key:
+        return "", "", {"ok": False, "status": 0, "detail": "UniFi API key not set"}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    return key, base, None
+
+
+def _guard(r: "httpx.Response") -> Optional[dict]:
+    """Shared 401 / 403 + non-2xx guard. Returns a ready error dict, or None on
+    a 2xx."""
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check the UniFi API key)"}
+    if not (200 <= r.status_code < 300):
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    return None
+
+
+async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
+                    host_id: Optional[str] = None,
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``.
+    Raises ValueError on an unknown skill id (route maps to HTTP 404)."""
+    if skill_id == "unifi_status":
+        return await _status_skill(host_row, chip, host_id=host_id,
+                                   service_idx=service_idx)
+    if skill_id == "unifi_devices":
+        return await _devices_skill(host_row, chip, host_id=host_id)
+    if skill_id == "unifi_clients":
+        return await _clients_skill(host_row, chip, host_id=host_id,
+                                    service_idx=service_idx)
+    if skill_id == "unifi_restart_device":
+        return await _restart_device_skill(host_row, chip, arg=arg, host_id=host_id)
+    raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
+    """Attach the rich-item list + count + count-i18n key to a skill result
+    (no-op when empty). Returns ``out`` for one-line use."""
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = count_i18n
+    return out
+
+
+async def _live_data(host_row: dict, chip: dict, host_id: Optional[str],
+                     service_idx: Optional[int]) -> "tuple[Optional[dict], Optional[dict]]":
+    """Force-fetch the card payload for a skill (cache-bypassing). Returns
+    ``(data, None)`` on success or ``(None, error_dict)`` when ``fetch_data``
+    raised — folds the identical fetch + except preamble the status / clients
+    skills share."""
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return None, {"ok": False, "detail": str(e), "status": 0}
+    return data, None
+
+
+async def _status_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None,
+                        service_idx: Optional[int] = None) -> dict:
+    """Read-only: live-fetch the fleet summary (force-bypasses the cache) and
+    return a formatted ``detail``. Never raises."""
+    print(f"[unifi] INFO unifi_status host={host_id} svc_idx={service_idx} (live fetch)")
+    data, err = await _live_data(host_row, chip, host_id, service_idx)
+    if data is None:
+        return err or {"ok": False, "detail": "fetch failed", "status": 0}
+    dev = safe_int(data.get("devices"))
+    online = safe_int(data.get("devices_online"))
+    offline = safe_int(data.get("devices_offline"))
+    lines = [
+        f"📡 Devices: {online}/{dev} online" + (f" · {offline} offline" if offline else ""),
+        f"🛜 {safe_int(data.get('aps'))} APs · 🔀 {safe_int(data.get('switches'))} "
+        f"switches · 🛡️ {safe_int(data.get('gateways'))} gateways",
+        f"👥 Clients: {safe_int(data.get('clients'))} "
+        f"({safe_int(data.get('clients_wired'))} wired · "
+        f"{safe_int(data.get('clients_wireless'))} wireless)",
+    ]
+    ver = str(data.get("version") or "").strip()
+    sites = safe_int(data.get("sites"))
+    tail = []
+    if sites:
+        tail.append(f"{sites} site(s)")
+    if ver:
+        tail.append(f"UniFi Network {ver}")
+    if tail:
+        lines.append("· " + " · ".join(tail))
+    return {"ok": True, "detail": "\n".join(lines), "status": 200,
+            "devices": dev, "online": online, "offline": offline}
+
+
+def _device_row(d: dict) -> Optional[dict]:
+    """One device as a rich skill-result item: name + a state / model / IP
+    subtitle, grouped by device type. Carries an internal ``_bucket`` for
+    grouping (stripped before the item ships)."""
+    name = str(d.get("name") or "").strip() or str(d.get("model") or "").strip()
+    if not name:
+        return None
+    state = str(d.get("state") or "").strip().lower()
+    emoji = _STATE_EMOJI.get(state, "⚪")
+    bits = [f"{emoji} {state.replace('_', ' ') or 'unknown'}"]
+    model = str(d.get("model") or "").strip()
+    if model:
+        bits.append(model)
+    ip = str(d.get("ipAddress") or "").strip()
+    if ip:
+        bits.append(ip)
+    return {"title": name, "subtitle": " · ".join(bits), "_bucket": _classify_device(d)}
+
+
+# Device-type group order + i18n header key for the rich device list.
+_BUCKET_ORDER = {"gateway": 0, "switch": 1, "ap": 2, "other": 3}
+_BUCKET_I18N = {
+    "gateway": "apps.unifi.group_gateways", "switch": "apps.unifi.group_switches",
+    "ap": "apps.unifi.group_aps", "other": "apps.unifi.group_other",
+}
+
+
+async def _devices_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None) -> dict:
+    """Read-only: list adopted devices as rich rows grouped by type (gateway /
+    switch / AP / other) with a state dot. Fetches devices directly (no
+    ``service_idx`` — it doesn't read the per-card cache). Never raises."""
+    key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[unifi] INFO unifi_devices host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            sites = await _list_sites(cli, base, key)
+            devs_nested = await asyncio.gather(*[
+                _get_json(cli, base + _API + f"/sites/{s.get('id')}/devices", key)
+                for s in sites[:_MAX_SITES] if s.get("id")
+            ])
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    devices: list = []
+    for body in devs_nested:
+        devices.extend(d for d in as_list(as_dict(body).get("data")) if isinstance(d, dict))
+    if not devices:
+        return {"ok": True, "status": 200, "detail": "📡 No UniFi devices found."}
+    rows = [r for r in (_device_row(d) for d in devices) if r is not None]
+    rows.sort(key=lambda r: (_BUCKET_ORDER.get(r["_bucket"], 9), r["title"].lower()))
+    mixed = len({r["_bucket"] for r in rows}) > 1
+    items: list = []
+    lines: list = []
+    for r in rows[:_MAX_ROWS]:
+        it: dict = {"title": r["title"], "subtitle": r["subtitle"]}
+        if mixed:
+            it["group"] = _BUCKET_I18N.get(r["_bucket"], "apps.unifi.group_other")
+        items.append(it)
+        lines.append(f"• {r['title']}  ({r['subtitle']})")
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "📡 UniFi devices:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.unifi.devices_count")
+
+
+async def _clients_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None,
+                         service_idx: Optional[int] = None) -> dict:
+    """Read-only: connected-client counts (total / wired / wireless). Never
+    raises."""
+    print(f"[unifi] INFO unifi_clients host={host_id} (live fetch)")
+    data, err = await _live_data(host_row, chip, host_id, service_idx)
+    if data is None:
+        return err or {"ok": False, "detail": "fetch failed", "status": 0}
+    total = safe_int(data.get("clients"))
+    wired = safe_int(data.get("clients_wired"))
+    wireless = safe_int(data.get("clients_wireless"))
+    return {"ok": True, "status": 200,
+            "detail": (f"👥 {total} client(s) connected — {wired} wired · "
+                       f"{wireless} wireless."),
+            "clients": total, "wired": wired, "wireless": wireless}
+
+
+async def _restart_device_skill(host_row: dict, chip: dict, *,
+                                arg: Optional[str],
+                                host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE: restart ONE device by name or MAC. Resolves the device
+    across the console's sites, then POSTs the ``RESTART`` action. Never
+    raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no device name given (say e.g. \"restart the Garage AP\")"}
+    key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    needle_l = needle.lower()
+    needle_mac = needle_l.replace("-", ":")
+    print(f"[unifi] INFO unifi_restart_device host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            sites = await _list_sites(cli, base, key)
+            match_site = ""
+            match_dev = ""
+            match_name = ""
+            for s in sites[:_MAX_SITES]:
+                sid = str(s.get("id") or "")
+                if not sid:
+                    continue
+                body = await _get_json(cli, base + _API + f"/sites/{sid}/devices", key)
+                for d in as_list(as_dict(body).get("data")):
+                    if not isinstance(d, dict):
+                        continue
+                    dname = str(d.get("name") or "").strip()
+                    dmac = str(d.get("macAddress") or "").strip().lower().replace("-", ":")
+                    if dname.lower() == needle_l or dmac == needle_mac:
+                        match_site, match_dev, match_name = sid, str(d.get("id") or ""), dname
+                        break
+                    if not match_dev and needle_l in dname.lower():
+                        match_site, match_dev, match_name = sid, str(d.get("id") or ""), dname
+                if match_dev and (match_name.lower() == needle_l):
+                    break
+            if not match_dev:
+                return {"ok": False, "status": 404,
+                        "detail": f"no UniFi device matched \"{needle}\""}
+            ar = await cli.post(
+                base + _API + f"/sites/{match_site}/devices/{match_dev}/actions",
+                headers=_headers(key), json={"action": "RESTART"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"restart failed: {type(e).__name__}: {e}"}
+    guard = _guard(ar)
+    if guard:
+        return guard
+    return {"ok": True, "status": 200,
+            "detail": f"🔁 Restart triggered on \"{match_name}\". It will drop off "
+                      f"the network for a minute while it reboots."}
