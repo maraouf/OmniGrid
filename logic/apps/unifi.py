@@ -52,8 +52,11 @@ from logic.apps._common import (
     resolve_credential_target)
 from logic.coerce import as_dict, as_list, safe_int
 
-# Catalog template slugs handled by this module.
-SLUGS: tuple[str, ...] = ("unifi", "unifi-network", "unifi-os")
+# Catalog template slugs handled by this module. `unifi-os-server` is the
+# canonical built-in template (a self-hosted UniFi OS Server / network
+# controller); the bare `unifi` / `unifi-network` / `unifi-os` aliases cover an
+# operator-renamed chip or a UDM / Cloud Key console pinned under a generic name.
+SLUGS: tuple[str, ...] = ("unifi-os-server", "unifi", "unifi-network", "unifi-os")
 
 # UniFi Network Integration API base path.
 _API = "/proxy/network/integration/v1"

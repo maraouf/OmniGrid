@@ -5259,6 +5259,7 @@
       "widget_weather_no_location": "Set your location in Settings → Profile to see live conditions here.",
       "widget_ip_unknown_isp": "Unknown ISP",
       "widget_ip_disabled": "Public-IP lookup disabled in Admin → Public IP",
+      "widget_ip_loading": "Looking up public IP…",
       "widget_publicip_changed_label": "Changed",
       "widget_publicip_was": "was",
       "widget_system_subtitle": "{total} hosts monitored",

@@ -406,7 +406,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
     (returns [] on any failure)."""
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
                                         start=start, end=end, app_label="Radarr")
-    web = _servarr.web_base(chip)
+    web = _servarr.resolve_base_url(host_row, chip)
     out: list[dict] = []
     for m in raw:
         if not isinstance(m, dict):

@@ -6150,6 +6150,14 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Grow to fill the name-row so the trailing health-score chip + status
+     badges are pushed to the RIGHT edge of the line — on a DOWN host with a
+     short name they used to sit left-aligned right after the name, directly
+     above the left-aligned provider chips on the line below, reading as an
+     overlap. Pushing them right clears that column. min-width:0 keeps the
+     ellipsis working while flexing. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .host-mobile-card-title .sub {
@@ -12731,6 +12739,17 @@ select.field-invalid {
   margin-bottom: var(--s-2);
 }
 
+/* Generic widget loading spinner (public_ip + any future widget) — scales up
+   `.spin` and tints it the tile's own accent (cascades from the per-kind
+   `.apps-widget-tile` --widget-accent). */
+.apps-widget-spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+  color: var(--widget-accent);
+  margin-bottom: var(--s-2);
+}
+
 .apps-widget-arr-cal-pop-backdrop {
   position: fixed;
   inset: 0;
@@ -12744,7 +12763,7 @@ select.field-invalid {
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  overflow: hidden;             /* clip to the inline max-height; inner list scrolls */
+  overflow: hidden; /* clip to the inline max-height; inner list scrolls */
   min-width: 180px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   -webkit-backdrop-filter: blur(10px) saturate(1.4);
@@ -12774,7 +12793,7 @@ select.field-invalid {
   flex-direction: column;
   gap: var(--s-2);
   flex: 1;
-  min-height: 0;       /* allow the list to shrink so overflow-y can scroll */
+  min-height: 0; /* allow the list to shrink so overflow-y can scroll */
   overflow-y: auto;
 }
 
@@ -12942,6 +12961,23 @@ select.field-invalid {
 .apps-widget-arr-cal-pop-linkicon {
   width: 12px;
   height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Brand-wordmark pill (IMDb / TMDB) — the logo IS the label, so the pill is
+   just the logo with tight padding + no border / fill of its own (the logo
+   carries its brand colour). */
+.apps-widget-arr-cal-pop-link--brand {
+  padding: 1px 4px;
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+
+.apps-widget-arr-cal-pop-brandlogo {
+  height: 14px;
+  width: auto;
+  display: block;
   border-radius: 2px;
   flex-shrink: 0;
 }

@@ -416,7 +416,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v3",
                                         start=start, end=end, app_label="Sonarr",
                                         extra_params={"includeSeries": "true"})
-    web = _servarr.web_base(chip)
+    web = _servarr.resolve_base_url(host_row, chip)
     out: list[dict] = []
     for ep in raw:
         if not isinstance(ep, dict):
@@ -442,7 +442,10 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "poster": _servarr.poster_proxy_path(series, id_fallback=True),
             "poster_proxy": True,
             "overview": _servarr.clamp_overview(ep.get("overview")),
-            "runtime": max(0, safe_int(ep.get("runtime"))),
+            # Episode runtime — Sonarr puts it on the SERIES, not the episode,
+            # so fall back to series.runtime (else the duration showed blank and
+            # only the air-time rendered, reading as a missing runtime).
+            "runtime": max(0, safe_int(ep.get("runtime")) or safe_int(series.get("runtime"))),
             "time": _servarr.release_time(when_full),
             "app_url": (f"{web}/series/{slug}" if (web and slug) else web),
             "imdb_url": _servarr.imdb_url(series.get("imdbId")),

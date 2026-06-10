@@ -467,7 +467,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
     raw = await _servarr.fetch_calendar(host_row, chip, api_version="v1",
                                         start=start, end=end, app_label="Readarr",
                                         extra_params={"includeAuthor": "true"})
-    web = _servarr.web_base(chip)
+    web = _servarr.resolve_base_url(host_row, chip)
     out: list[dict] = []
     for book in raw:
         if not isinstance(book, dict):

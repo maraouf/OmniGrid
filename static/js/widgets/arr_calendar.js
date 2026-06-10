@@ -285,8 +285,19 @@ export const helpers = {
     const d = new Date(Number(parts[0]), Number(parts[1]) - 1 + delta, 1);
     this.arrCalViewYM = d.getFullYear() + '-'
       + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
-    this.arrCalOpenDay = '';
-    this._ensureArrCalendar();
+    this.arrCalCloseDay();
+    // Spin the tile's refresh pill while the new month loads (the fetch can
+    // take a second or two). Cached months resolve instantly, so the spinner
+    // only lingers on a real fetch. The card keeps the previous month's data
+    // (so widgetHasData stays true and the pill stays visible) until the new
+    // window lands and replaces it.
+    if (!this.appsWidgetRefreshing) {
+      this.appsWidgetRefreshing = {};
+    }
+    this.appsWidgetRefreshing.arr_calendar = true;
+    Promise.resolve(this._ensureArrCalendar()).finally(() => {
+      this.appsWidgetRefreshing.arr_calendar = false;
+    });
   },
   arrCalPrevMonth() {
     this.arrCalShiftMonth(-1);
