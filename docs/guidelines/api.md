@@ -466,6 +466,15 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 curl -sS -H "Authorization: Bearer $TOKEN" \
   https://omnigrid.example.com/api/backups/2026-04-26-19-00.zip \
   -o snapshot.zip
+
+# Restore from an existing on-disk snapshot
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  https://omnigrid.example.com/api/backups/2026-04-26-19-00.zip/restore | jq
+
+# Upload an off-host snapshot zip and restore from it (multipart; 200 MB cap)
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST \
+  -F "file=@snapshot.zip" \
+  https://omnigrid.example.com/api/backups/restore | jq
 ```
 
 ### SSH command runner (admin-only, audited)
@@ -898,7 +907,7 @@ Current per-app roster (23 modules; the canonical list is
 | Tracearr                       | `tracearr`                                    | public-API bearer token       | status / streams / servers / violations / terminate                                                |
 | Kavita                         | `kavita`                                       | JWT (exchanged from api_key)  | status / libraries / search / scan                                                                 |
 | Forgejo                        | `forgejo`                                       | api_key (Forgejo token)       | status / repos / PRs / issues / search / starred / mark-read                                       |
-| Tdarr                          | `tdarr`                                        | api_key                       | status / bloated / requeue-bloated / requeue-failed                                                |
+| Tdarr                          | `tdarr`                                        | none (optional `x-api-key`)   | status / bloated / requeue-bloated / requeue-failed                                                |
 | AdGuard Home                   | `adguard-home` / `adguardhome` / `adguard`    | HTTP Basic                    | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
 | Pi-hole                        | `pihole` / `pi-hole` / `pihole-v6`            | password-only (SID auth)      | fleet: status / enable / disable (+ timed) / refresh / re-enable                                   |
 | AdGuard Home Sync              | `adguardhome-sync` (+ aliases)                | HTTP Basic (optional)         | status / sync-now / logs / clear-logs                                                              |
