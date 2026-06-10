@@ -350,21 +350,6 @@ def _status_guard(r: "httpx.Response") -> Optional[dict]:
     return None
 
 
-# noinspection DuplicatedCode
-def _items_and_lines(rows: list, row_fn) -> "tuple[list[dict], list[str]]":
-    """Map the first ``_MAX_ROWS`` raw rows through ``row_fn`` into the rich-item
-    list + the matching ``• title (subtitle)`` text lines, skipping rejected
-    rows."""
-    items: list[dict] = []
-    for raw in rows[:_MAX_ROWS]:
-        row = row_fn(raw)
-        if row:
-            items.append(row)
-    lines = [f"• {it['title']}" + (f"  ({it['subtitle']})" if it.get("subtitle") else "")
-             for it in items]
-    return items, lines
-
-
 def _attach_items(out: dict, items: list[dict], count_i18n: str) -> dict:
     """Attach the rich-item list + count + count-i18n key to a skill result dict
     (no-op when there are no items). Returns ``out`` for one-line use."""
@@ -413,27 +398,65 @@ async def _status_skill(host_row: dict, chip: dict, *,
     }
 
 
+# Per-pair state taxonomy → (emoji, label, sort order, group i18n key). Drives
+# the subtitle state badge AND the section grouping that clusters disabled /
+# paused pairs under a visible divider when the list mixes states.
+_STATE_META: dict[str, tuple] = {
+    "active": ("▶️", "active", 0, "apps.gitsync.group_active"),
+    "paused": ("⏸️", "paused", 1, "apps.gitsync.group_paused"),
+    "disabled": ("⏹️", "disabled", 2, "apps.gitsync.group_disabled"),
+}
+
+
+def _pair_state(p: dict) -> str:
+    """The pair's coarse state: ``"disabled"`` (not enabled — scheduler skips
+    it), ``"paused"`` (enabled but soft-halted), or ``"active"``."""
+    if not p.get("enabled"):
+        return "disabled"
+    if p.get("paused"):
+        return "paused"
+    return "active"
+
+
 def _pair_row(p: dict) -> Optional[dict]:
     """One sync pair as a rich skill-result item: the pair name + a state /
-    last-run-status subtitle. No poster — GitSync has no thumbnail surface."""
+    last-run-status subtitle + per-row Sync / Pause / Resume action buttons. No
+    poster — GitSync has no thumbnail surface. Carries an internal ``_state`` the
+    caller uses for grouping (stripped before the item ships)."""
     if not isinstance(p, dict):
         return None
     name = str(p.get("name") or "").strip()
     if not name:
         return None
-    if p.get("paused"):
-        state = "⏸️ paused"
-    elif not p.get("enabled"):
-        state = "⏹️ disabled"
-    else:
-        state = "▶️ active"
-    bits = [state]
+    state = _pair_state(p)
+    emoji, label, _order, _grp = _STATE_META[state]
+    bits = [f"{emoji} {label}"]
     if not p.get("configured"):
         bits.append("⚠️ not configured")
     ls = str(p.get("last_status") or "").strip()
     if ls:
         bits.append(_STATUS_EMOJI.get(ls, ls) + " last run")
-    return {"title": name, "subtitle": " · ".join(bits)}
+    # Per-row actions: every pair can be synced; an enabled pair can be paused
+    # (active) or resumed (paused). A disabled pair only offers Sync — pause /
+    # resume don't apply (``enabled`` isn't controllable via the API).
+    actions: list[dict] = [{
+        "skill_id": "gitsync_sync", "arg": name, "icon": "refresh-cw",
+        "title_i18n": "apps.gitsync.row_sync", "destructive": False,
+    }]
+    if state == "active":
+        actions.append({
+            "skill_id": "gitsync_pause", "arg": name, "icon": "pause",
+            "title_i18n": "apps.gitsync.row_pause", "destructive": True,
+            "confirm_i18n": "apps.gitsync.row_pause_confirm",
+            "confirm_text_i18n": "apps.gitsync.row_pause",
+        })
+    elif state == "paused":
+        actions.append({
+            "skill_id": "gitsync_unpause", "arg": name, "icon": "play",
+            "title_i18n": "apps.gitsync.row_resume", "destructive": False,
+        })
+    return {"title": name, "subtitle": " · ".join(bits),
+            "row_actions": actions, "_state": state}
 
 
 # noinspection DuplicatedCode
@@ -451,10 +474,30 @@ async def _pairs_skill(host_row: dict, chip: dict, *,
     except (ValueError, RuntimeError) as e:
         print(f"[gitsync] warning: gitsync_pairs host={host_id} could not fetch — {e}")
         return {"ok": False, "detail": str(e), "status": 0}
-    rows = as_list(data.get("pair_rows"))
-    if not rows:
+    rows_raw = [p for p in as_list(data.get("pair_rows")) if isinstance(p, dict)]
+    if not rows_raw:
         return {"ok": True, "status": 200, "detail": "🔗 No sync pairs configured."}
-    items, lines = _items_and_lines(rows, _pair_row)
+    rows: list[dict] = []
+    for p in rows_raw[:_MAX_ROWS]:
+        row = _pair_row(p)
+        if row is not None:
+            rows.append(row)
+    # Group only when the list MIXES states — cluster disabled / paused pairs
+    # under a section divider so they stand out; an all-active list stays a
+    # flat, unheadered list (no divider clutter).
+    mixed = len({r["_state"] for r in rows}) > 1
+    if mixed:
+        rows.sort(key=lambda r: _STATE_META[r["_state"]][2])
+    items: list[dict] = []
+    lines: list[str] = []
+    for r in rows:
+        it: dict = {"title": r["title"], "subtitle": r["subtitle"],
+                    "row_actions": r["row_actions"]}
+        if mixed:
+            it["group"] = _STATE_META[r["_state"]][3]
+        items.append(it)
+        lines.append(f"• {r['title']}"
+                     + (f"  ({r['subtitle']})" if r["subtitle"] else ""))
     out: dict = {"ok": True, "status": 200,
                  "detail": "🔗 Sync pairs:\n" + "\n".join(lines)}
     return _attach_items(out, items, "apps.gitsync.pairs_count")

@@ -462,8 +462,23 @@ export default {
   // title_i18n}`. A destructive action confirms via SweetAlert (matching the
   // admin users-table delete), then runs the skill with confirm=true and
   // re-runs the PARENT skill so the row disappears from the list.
-  async appSkillRowAction(inst, sk, it) {
-    const ra = it && it.row_action;
+  // Effective per-row action list for a rich skill-result item. Prefers the
+  // `row_actions` array (multiple buttons, e.g. GitSync per-pair Sync + Pause /
+  // Resume); falls back to the single `row_action` (e.g. qBittorrent delete) for
+  // back-compat. Empty array → no buttons render.
+  appSkillItemActions(it) {
+    if (it && Array.isArray(it.row_actions) && it.row_actions.length) {
+      return it.row_actions;
+    }
+    return (it && it.row_action) ? [it.row_action] : [];
+  },
+
+  // Run a per-row action. `action` is an explicit descriptor (from a
+  // `row_actions[]` entry); when omitted, falls back to the item's single
+  // `row_action`. A destructive action confirms first, then dispatches its skill
+  // with the item's `arg` + confirm:true and refreshes the parent list.
+  async appSkillRowAction(inst, sk, it, action) {
+    const ra = action || (it && it.row_action);
     if (!ra || !ra.skill_id || !inst) {
       return;
     }
@@ -472,7 +487,7 @@ export default {
         title: this.t(ra.confirm_i18n || 'apps.skills.row_action_confirm') || 'Are you sure?',
         html: this._logEscape ? this._logEscape(it.title || '') : (it.title || ''),
         icon: 'warning',
-        confirmText: this.t('actions.delete') || 'Delete',
+        confirmText: this.t(ra.confirm_text_i18n || 'actions.delete') || 'Confirm',
         confirmColor: this._cssVar ? this._cssVar('--danger') : undefined,
         focusConfirm: false,
       });

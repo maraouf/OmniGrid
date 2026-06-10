@@ -10507,17 +10507,24 @@
                                                     x-text="Math.round(Math.max(0, Math.min(100, Number(it.progress) || 0))) + '%'"></span>
                                             </span>
                                           </span>
-                                          <!-- Per-row action (e.g. qBittorrent delete-torrent), styled like the
-                                               admin users-table delete action. -->
-                                          <button x-show="it.row_action" type="button"
-                                                  class="user-action-btn user-action-btn--danger shrink-0"
-                                                  @click.stop="appSkillRowAction(inst, sk, it)"
-                                                  :title="t((it.row_action && it.row_action.title_i18n) || 'actions.delete') || 'Delete'"
-                                                  :aria-label="t((it.row_action && it.row_action.title_i18n) || 'actions.delete') || 'Delete'">
-                                            <svg width="14" height="14" aria-hidden="true">
-                                              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + ((it.row_action && it.row_action.icon) || 'trash-2')"/>
-                                            </svg>
-                                          </button>
+                                          <!-- Per-row action button(s). `row_actions[]` (multiple — e.g. GitSync
+                                               per-pair Sync + Pause / Resume) or the single `row_action` (e.g.
+                                               qBittorrent delete-torrent) via appSkillItemActions(). Each is styled
+                                               like the admin users-table action; destructive ones get the danger tint. -->
+                                          <span class="inline-flex items-center gap-1 shrink-0">
+                                            <template x-for="(action, ai) in appSkillItemActions(it)" :key="ai">
+                                              <button type="button"
+                                                      class="user-action-btn shrink-0"
+                                                      :class="action.destructive ? 'user-action-btn--danger' : ''"
+                                                      @click.stop="appSkillRowAction(inst, sk, it, action)"
+                                                      :title="t(action.title_i18n || 'actions.delete') || 'Action'"
+                                                      :aria-label="t(action.title_i18n || 'actions.delete') || 'Action'">
+                                                <svg width="14" height="14" aria-hidden="true">
+                                                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + (action.icon || 'trash-2')"/>
+                                                </svg>
+                                              </button>
+                                            </template>
+                                          </span>
                                         </div>
                                       </li>
                                     </template>

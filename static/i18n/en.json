@@ -6073,6 +6073,13 @@
       "refs": "Synced refs",
       "alerts_summary": "Alerts: {error} error · {warn} warn · {info} info",
       "pairs_count": "{count} pairs",
+      "group_active": "Active",
+      "group_paused": "Paused",
+      "group_disabled": "Disabled",
+      "row_sync": "Sync this pair",
+      "row_pause": "Pause this pair",
+      "row_resume": "Resume this pair",
+      "row_pause_confirm": "Pause syncing for this pair?",
       "loading": "Loading GitSync data…",
       "fetch_failed": "GitSync fetch failed",
       "no_api_key": "No API token set — add one in Admin → Apps to enable."
