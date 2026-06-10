@@ -1,3 +1,4 @@
+/* jshint esversion: 11, node: true, module: true */
 // ESLint v9 flat config for OmniGrid.
 //
 // The SPA is one large vanilla-JS file (static/js/app.js) served as-is to
@@ -80,7 +81,7 @@ export default [
       eqeqeq: ["error", "smart"],
       // The codebase uses `catch (_) {}` extensively as a "swallow without
       // logging" pattern for decorative / fire-and-forget calls. Allow it.
-      "no-empty": ["error", { allowEmptyCatch: true }],
+      "no-empty": ["error", {allowEmptyCatch: true}],
       // Allow `_`-prefixed vars / args to be unused — they're intentional
       // markers. Don't error on args after used args either (matches Python
       // convention).
@@ -106,7 +107,7 @@ export default [
       "no-console": "off",
       // The SPA wraps `window.fetch` at boot to add the 401 → /login
       // redirect; that's a deliberate global mutation.
-      "no-global-assign": ["error", { exceptions: ["fetch"] }],
+      "no-global-assign": ["error", {exceptions: ["fetch"]}],
       // Bare `function () {}` declarations (vs arrow functions) are
       // intentional in Alpine event handlers + a few legacy spots.
       // Don't enforce arrow-or-function style.
@@ -123,7 +124,7 @@ export default [
       // (`x && y()` is idiomatic optional-call).
       "no-unused-expressions": [
         "warn",
-        { allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true },
+        {allowShortCircuit: true, allowTernary: true, allowTaggedTemplates: true},
       ],
       // Each app-*.js module carries a file-level `/* global Alpine, Swal,
       // I18N, t, OG_VERSION, Terminal, FitAddon, WebLinksAddon, qrcode */`
@@ -153,7 +154,7 @@ export default [
   // and use ES `import` / `export` syntax. Everything else under
   // `static/` stays a classic script.
   {
-    files: ["static/js/app.js", "static/js/app-*.js", "static/js/apps/**/*.js"],
+    files: ["static/js/app.js", "static/js/app-*.js", "static/js/apps/**/*.js", "static/js/widgets/**/*.js"],
     languageOptions: {
       sourceType: "module",
     },

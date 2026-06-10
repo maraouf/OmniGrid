@@ -1,0 +1,22 @@
+<!-- Aggregator -- every custom-dashboard widget body partial.
+
+     Included ONCE inside apps-widget-tile.html's `.apps-widget-tile-body`.
+     Each per-widget partial self-gates via its own
+     `<template x-if="item.widget === '<kind>'">` so only the active
+     widget kind renders. Order here = render order (cosmetic; only one
+     gate matches per tile).
+
+     Adding a new widget kind
+       1. Create static/js/widgets/<kind>.js (helpers + widget record)
+          and register it in static/js/widgets/_registry.js.
+       2. Create static/_partials/_components/widgets/<kind>.html with the
+          `<template x-if="item.widget === '<kind>'">` body.
+       3. Add ONE INCLUDE marker line below.
+     apps-widget-tile.html does NOT need to change. -->
+<!-- INCLUDE: _components/widgets/clock.html -->
+<!-- INCLUDE: _components/widgets/weather.html -->
+<!-- INCLUDE: _components/widgets/public_ip.html -->
+<!-- INCLUDE: _components/widgets/system_stats.html -->
+<!-- INCLUDE: _components/widgets/moon.html -->
+<!-- INCLUDE: _components/widgets/prayer_times.html -->
+<!-- INCLUDE: _components/widgets/arr_calendar.html -->

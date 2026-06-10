@@ -10479,6 +10479,7 @@
                                         <div class="apps-skill-item flex items-center gap-2 min-w-0">
                                           <img x-show="it.poster" :src="appSkillItemPoster(inst, it)" alt="" loading="lazy"
                                                class="apps-skill-item-poster shrink-0"
+                                               :class="it.poster_contain ? 'apps-skill-item-poster--contain' : ''"
                                                @error="$event.target.style.display='none'; $event.target.nextElementSibling && ($event.target.nextElementSibling.style.display='inline-flex')">
                                           <span class="apps-skill-item-poster apps-skill-item-poster--ph shrink-0 inline-flex items-center justify-center"
                                                 :style="it.poster ? 'display:none' : ''" aria-hidden="true">

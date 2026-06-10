@@ -574,36 +574,16 @@ export default {
     }
     this.appsWidgetRefreshing[kind] = true;
     try {
-      if (kind === 'weather' || kind === 'moon') {
-        // Moon data comes from the same /api/weather response, so
-        // refreshing weather refreshes the moon widget too. Pass
-        // `force` so the BACKEND bypasses its per-coord TTL cache and
-        // returns fresh data. Do NOT zero `_weatherFetchedAt` here (the
-        // old approach): that blanked the "Updated Xs ago" freshness
-        // label for the duration of the fetch, so the label text was
-        // removed then re-added — a visible flicker on the card. The
-        // stamp now holds its prior value until the fresh response
-        // lands + `loadHeaderWeather` updates it.
-        await this.loadHeaderWeather(true);
-      } else if (kind === 'public_ip') {
-        // Pass `force` so BOTH the client TTL gate AND the backend cache
-        // are bypassed, WITHOUT zeroing `_publicIpFetchedAt` (the old
-        // approach blanked the "Updated Xs ago" label mid-fetch — the
-        // same flicker fixed for weather). The stamp holds its prior
-        // value until the fresh response lands; the in-place reconcile in
-        // `_ensurePublicIp` keeps the card subtree mounted.
-        await this._ensurePublicIp(true);
-      } else if (kind === 'prayer_times') {
-        // force=True bypasses both the client TTL gate + the backend
-        // per-(coord, method, school) cache, without zeroing
-        // `_prayerFetchedAt` (avoids the freshness-label flicker). The
-        // in-place reconcile in `_ensurePrayerTimes` keeps the subtree
-        // mounted.
-        await this._ensurePrayerTimes(true);
-      } else if (kind === 'arr_calendar') {
-        // force=True bypasses both the per-month client cache + the
-        // backend's per-window TTL cache so the displayed month re-fetches.
-        await this._ensureArrCalendar(true);
+      // Dispatch to the kind's registry record `refresh(c)` callback
+      // (static/js/widgets/<kind>.js). Each passes `force` so BOTH the
+      // client TTL gate AND the backend cache are bypassed, WITHOUT zeroing
+      // the per-kind fetched-at stamp (zeroing blanked the "Updated Xs ago"
+      // label mid-fetch — a visible flicker; the stamp now holds its prior
+      // value until the fresh response lands). Clock / system_stats have no
+      // `refresh` (client-side derivations) so this is a no-op for them.
+      const rec = this._widgetRec(kind);
+      if (rec && typeof rec.refresh === 'function') {
+        await rec.refresh.call(this, this);
       }
     } catch (_) {
     } finally {
@@ -634,16 +614,14 @@ export default {
       const v = obj && Number(obj.fetched_at);
       return (Number.isFinite(v) && v > 0) ? v * 1000 : 0;
     };
-    let ts = 0;
-    if (kind === 'weather' || kind === 'moon') {
-      ts = fetchedMs(this.weather);
-    } else if (kind === 'public_ip') {
-      ts = fetchedMs(this.publicIp);
-    } else if (kind === 'prayer_times') {
-      ts = fetchedMs(this.prayer);
-    } else if (kind === 'arr_calendar') {
-      ts = fetchedMs(this.arrCalendar);
-    }
+    // Source the freshness object from the kind's registry record
+    // (static/js/widgets/<kind>.js `freshnessObj(c)`) — weather/moon →
+    // this.weather, public_ip → this.publicIp, etc. Kinds without a
+    // freshnessObj (clock / system_stats) read 0 → empty label.
+    const rec = this._widgetRec(kind);
+    const obj = (rec && typeof rec.freshnessObj === 'function')
+      ? rec.freshnessObj.call(this, this) : null;
+    const ts = fetchedMs(obj);
     if (!ts) {
       return '';
     }
@@ -686,51 +664,25 @@ export default {
     }
     return Math.floor(sec / 86400) + 'd' + suffix;
   },
-  // Whether a given widget kind has a refresh button. Clock + system_stats
-  // are client-side derivations; refresh wouldn't change anything.
+  // Whether a given widget kind has a refresh button. Reads the kind's
+  // registry record `supportsRefresh` flag (clock + system_stats are
+  // client-side derivations → false; refresh wouldn't change anything).
   widgetSupportsRefresh(kind) {
-    return ['weather', 'moon', 'public_ip', 'prayer_times', 'arr_calendar'].includes(kind);
+    const rec = this._widgetRec(kind);
+    return !!(rec && rec.supportsRefresh);
   },
-  // Whether the widget actually has data to refresh / timestamp.
-  // When the master feature is disabled, the upstream is unreachable,
-  // or no data has loaded yet, showing the refresh button + "Updated
-  // Xm ago" chip is meaningless and confusing — gate them on this.
-  // Operator-flagged UX issue: "if the weather is disabled and no
-  // data is displayed, meaningless to show refresh and updated when".
+  // Whether the widget actually has data to refresh / timestamp. When the
+  // master feature is disabled, the upstream is unreachable, or no data has
+  // loaded yet, showing the refresh button + "Updated Xm ago" chip is
+  // meaningless — gate them on this. Dispatches to the kind's registry
+  // record `hasData(c)` callback (static/js/widgets/<kind>.js); kinds
+  // without one (clock / system_stats) default to true. Operator-flagged
+  // UX: "if the weather is disabled and no data is displayed, meaningless
+  // to show refresh and updated when".
   widgetHasData(kind) {
-    if (kind === 'weather' || kind === 'moon') {
-      // configured === false means admin-disabled OR no API key OR
-      // no URL — no point offering refresh. Otherwise need real temp.
-      if (this.weather && this.weather.configured === false) {
-        return false;
-      }
-      return !!(this.weather && this.weather.temp_c != null);
-    }
-    if (kind === 'public_ip') {
-      if (this.publicIp && this.publicIp.enabled === false) {
-        return false;
-      }
-      return !!(this.publicIp && this.publicIp.ip);
-    }
-    if (kind === 'arr_calendar') {
-      // No *arr configured → nothing to refresh. Otherwise the refresh +
-      // freshness chip make sense once a window has loaded.
-      if (!this.arrCalendar || this.arrCalendar.configured === false) {
-        return false;
-      }
-      return !!this.arrCalendar.fetched_at;
-    }
-    if (kind === 'prayer_times') {
-      if (!this.prayer || this.prayer.configured === false) {
-        return false;
-      }
-      if (!this.prayer.timings) {
-        return false;
-      }
-      if (typeof this.prayerWidgetRows !== 'function') {
-        return false;
-      }
-      return this.prayerWidgetRows().length > 0;
+    const rec = this._widgetRec(kind);
+    if (rec && typeof rec.hasData === 'function') {
+      return rec.hasData.call(this, this);
     }
     return true;
   },

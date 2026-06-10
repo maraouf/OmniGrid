@@ -1,0 +1,57 @@
+<!-- Custom-dashboard system_stats widget body. Extracted from apps-widget-tile.html
+     so each widget owns its own partial (mirrors the per-app editor / extras
+     partials). Self-gated by its `<template x-if="item.widget === 'system_stats'">`;
+     aggregated via _all_widgets.html, included once by apps-widget-tile.html. -->
+
+<!-- System-stats widget — circular progress ring showing up/total
+     ratio + numeric centre label + colour-coded down/paused/all-up
+     chips. The ring animates smoothly when the rollup changes
+     (stroke-dashoffset transition). Empty state when no hosts
+     monitored yet. -->
+<template x-if="item.widget === 'system_stats'">
+  <template x-if="appsWidgetSystemStats().total > 0">
+    <div>
+      <div class="apps-widget-hero-row">
+        <svg class="apps-widget-ring" viewBox="0 0 56 56" aria-hidden="true">
+          <circle class="apps-widget-ring-track" cx="28" cy="28" r="22"/>
+          <circle class="apps-widget-ring-fill" cx="28" cy="28" r="22"
+                  :stroke-dasharray="appsWidgetSystemRing().circumference"
+                  :stroke-dashoffset="appsWidgetSystemRing().offset"/>
+          <text class="apps-widget-ring-label" x="28" y="28"
+                x-text="appsWidgetSystemRing().percent + '%'"></text>
+        </svg>
+        <div class="apps-widget-hero-col">
+          <div class="apps-widget-hero" style="font-size: var(--fs-display-md);">
+            <span x-text="appsWidgetSystemStats().up"></span><!--
+             --><span style="color: var(--text-faint); font-weight: 500;" x-text="' / ' + appsWidgetSystemStats().total"></span>
+          </div>
+          <div class="apps-widget-subtitle"
+               x-text="t('apps.custom.widget_system_subtitle', { total: appsWidgetSystemStats().total })
+                     || (appsWidgetSystemStats().total + ' hosts monitored')"></div>
+        </div>
+      </div>
+      <div class="apps-widget-detail">
+            <span x-show="appsWidgetSystemStats().down" class="apps-widget-chip apps-widget-chip--down">
+              <span x-text="appsWidgetSystemStats().down"></span>
+              <span x-text="t('apps.custom.widget_system_down') || 'down'"></span>
+            </span>
+        <span x-show="appsWidgetSystemStats().paused" class="apps-widget-chip apps-widget-chip--paused">
+              <span x-text="appsWidgetSystemStats().paused"></span>
+              <span x-text="t('apps.custom.widget_system_paused') || 'paused'"></span>
+            </span>
+        <span x-show="!appsWidgetSystemStats().down && !appsWidgetSystemStats().paused"
+              class="apps-widget-chip apps-widget-chip--ok"
+              x-text="t('apps.custom.widget_system_all_up') || 'All up'"></span>
+      </div>
+    </div>
+  </template>
+  <template x-if="!appsWidgetSystemStats().total">
+    <div class="apps-widget-empty">
+      <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+      </svg>
+      <span class="apps-widget-empty-text"
+            x-text="t('apps.custom.widget_system_no_hosts') || 'No hosts curated yet — add one in Admin → Hosts'"></span>
+    </div>
+  </template>
+</template>
