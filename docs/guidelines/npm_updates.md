@@ -38,10 +38,15 @@ Apprise-pings on findings — it is a passive monitor, no auto-fix.
 | `@xterm/addon-fit`            | 0.x     | xterm fit-to-container addon.                                            |
 | `@xterm/addon-web-links`      | 0.x     | xterm clickable-URL addon.                                               |
 | `qrcode-generator`            | 1.x     | TOTP enrolment QR code rendering (Settings → Security card).             |
+| `flag-icons`                  | 7.x     | Country-flag SVGs for the Public-IP widget (built dynamically from the geolocated 2-letter country code). |
 
 When adding a new dep that needs serving, ALSO add its dist path to `_NPM_ALLOWED` in
 `main_pkg/users_routes.py` — the route 404s anything not in the set. The current allowlist
-holds 8 paths (one per script/css tag in `index.html` / `login.html`).
+holds 8 exact paths (one per script/css tag in `index.html` / `login.html`). A second
+mechanism, `_NPM_ALLOWED_SVG_PREFIXES`, allows any `.svg` under a directory prefix (currently
+`flag-icons/flags/`) so a package shipping hundreds of assets the SPA builds the path for
+dynamically doesn't need one allowlist entry per file; a realpath guard still confines every
+hit to the `node_modules/` root.
 
 ## Checking for updates
 
