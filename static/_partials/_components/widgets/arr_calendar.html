@@ -15,7 +15,7 @@
      first root child of a <template x-if>). -->
 <template x-if="item.widget === 'arr_calendar'">
   <div class="apps-widget-arr-cal-wrap" x-init="_ensureArrCalendar()"
-       @click.outside="arrCalOpenDay = ''">
+       @click.outside="arrCalCloseDay()">
     <!-- Grid body — shown when ≥1 *arr service is configured. -->
     <template x-if="arrCalendar && arrCalendar.configured !== false">
       <div class="apps-widget-arr-cal">
