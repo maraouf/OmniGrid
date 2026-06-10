@@ -1123,6 +1123,7 @@ export default {
   _arrCalMonthCache: {},    // { 'YYYY-MM': { ts, data } } — 10-min per-month cache
   arrCalViewYM: '',         // displayed month 'YYYY-MM' ('' → current month)
   arrCalOpenDay: '',        // 'YYYY-MM-DD' of the pinned day popover ('' = none)
+  _arrCalActiveOpts: null,  // active widget's opts (link overrides) — stashed at popover-open
   _arrCalPopRect: null,     // clicked-cell viewport rect → anchors the teleported fixed popover
   _arrCalGridMemo: null,    // { key, val } — memoised 6×7 grid
   _arrCalWeekdaysMemo: null,

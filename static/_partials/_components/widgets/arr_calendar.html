@@ -48,7 +48,7 @@
                 <button type="button" class="apps-widget-arr-cal-cell"
                         :class="{ 'is-out': !cell.inMonth, 'is-today': cell.isToday, 'has-rel': cell.count > 0, 'is-active': arrCalActiveDay() === cell.date }"
                         :disabled="cell.count === 0"
-                        @click.stop="cell.count > 0 && arrCalToggleDay(cell.date, $event)"
+                        @click.stop="cell.count > 0 && arrCalToggleDay(cell.date, $event, item)"
                         :aria-label="cell.date + (cell.count ? (' — ' + cell.count) : '')">
                   <span class="apps-widget-arr-cal-daynum" x-text="cell.day"></span>
                   <span class="apps-widget-arr-cal-dots" x-show="cell.count > 0" aria-hidden="true">
@@ -113,7 +113,7 @@
                         <!-- Action pills — open in the source app + IMDb / TMDB. -->
                         <span x-show="rel.app_url || rel.imdb_url || rel.tmdb_url"
                               class="apps-widget-arr-cal-pop-actions">
-                          <a x-show="arrCalItemAppUrl(item, rel)" :href="arrCalItemAppUrl(item, rel)" target="_blank"
+                          <a x-show="arrCalItemAppUrl(rel)" :href="arrCalItemAppUrl(rel)" target="_blank"
                              rel="noopener noreferrer"
                              class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--app"
                              :aria-label="t('apps.custom.widget_arr_calendar_open_in', {app: arrCalServiceLabel(rel.service_slug)})">

@@ -222,12 +222,19 @@ export const helpers = {
   // settings (opts key `arr_link_<slug>`, e.g. https://sonarr.example.com),
   // rebuild the link as <override> + rel.app_path so the redirect targets the
   // user-friendly URL while the probe keeps using the machine address.
-  arrCalItemAppUrl(item, rel) {
+  //
+  // Reads the active widget's opts from `this._arrCalActiveOpts` (stashed when
+  // the day popover opens) rather than a passed `item` — the popover is
+  // TELEPORTED to <body>, where the per-tile `item` x-for variable is NOT in
+  // scope, so referencing it would throw and the pill's `x-show` would go
+  // falsy (the pill vanishing regression).
+  arrCalItemAppUrl(rel) {
     if (!rel) {
       return '';
     }
     const slug = String(rel.service_slug || '').toLowerCase();
-    const ovr = String((item && item.opts && item.opts['arr_link_' + slug]) || '').trim();
+    const opts = this._arrCalActiveOpts || {};
+    const ovr = String(opts['arr_link_' + slug] || '').trim();
     if (ovr) {
       const base = ovr.replace(/\/+$/, '');
       const path = String(rel.app_path || '');
@@ -244,7 +251,7 @@ export const helpers = {
   // escaping the tile's `container-type: size` + `overflow: hidden` clip (so
   // a small tile no longer crops it) and staying put so the cursor can move
   // INTO it and scroll its list. Click-pinned, not hover.
-  arrCalToggleDay(ds, ev) {
+  arrCalToggleDay(ds, ev, item) {
     if (this.arrCalOpenDay === ds) {
       this.arrCalCloseDay();
       return;
@@ -259,12 +266,17 @@ export const helpers = {
     } else {
       this._arrCalPopRect = null;
     }
+    // Stash THIS widget's opts (link overrides) — the grid button is in the
+    // tile's `item` scope, but the teleported popover that reads it is not, so
+    // capture the opts here for arrCalItemAppUrl to read.
+    this._arrCalActiveOpts = (item && item.opts) || {};
     this.arrCalOpenDay = ds;
   },
   // Close the day popover + drop its anchor rect.
   arrCalCloseDay() {
     this.arrCalOpenDay = '';
     this._arrCalPopRect = null;
+    this._arrCalActiveOpts = null;
   },
   // Inline position for the teleported fixed-layer day popover, computed from
   // the clicked cell's captured rect. Returns an OBJECT (Alpine `:style`
@@ -305,18 +317,12 @@ export const helpers = {
     this.arrCalViewYM = d.getFullYear() + '-'
       + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
     this.arrCalCloseDay();
-    // Spin the tile's refresh pill while the new month loads (the fetch can
-    // take a second or two). Cached months resolve instantly, so the spinner
-    // only lingers on a real fetch. The card keeps the previous month's data
-    // (so widgetHasData stays true and the pill stays visible) until the new
-    // window lands and replaces it.
-    if (!this.appsWidgetRefreshing) {
-      this.appsWidgetRefreshing = {};
-    }
-    this.appsWidgetRefreshing.arr_calendar = true;
-    Promise.resolve(this._ensureArrCalendar()).finally(() => {
-      this.appsWidgetRefreshing.arr_calendar = false;
-    });
+    // The loading state (in-grid overlay + the tile's refresh-pill spin) is
+    // managed inside _ensureArrCalendar at the network-fetch boundary, so a
+    // cached month resolves instantly with no flicker and a real fetch shows
+    // the spinner. The card keeps the previous month's data until the new
+    // window lands (so widgetHasData stays true and the pill stays visible).
+    this._ensureArrCalendar();
   },
   arrCalPrevMonth() {
     this.arrCalShiftMonth(-1);
@@ -350,6 +356,13 @@ export const helpers = {
       return;  // a fetch for this month is already in flight
     }
     this._arrCalFetching = ym;
+    // Spin the tile's refresh pill for EVERY real network fetch (mount /
+    // month-nav / refresh) from one place — a cached month early-returns above,
+    // so the pill only spins on an actual fetch.
+    if (!this.appsWidgetRefreshing) {
+      this.appsWidgetRefreshing = {};
+    }
+    this.appsWidgetRefreshing.arr_calendar = true;
     const parts = ym.split('-');
     const y = Number(parts[0]);
     const m = Number(parts[1]);
@@ -375,6 +388,9 @@ export const helpers = {
       .finally(() => {
         if (this._arrCalFetching === ym) {
           this._arrCalFetching = '';
+        }
+        if (this.appsWidgetRefreshing) {
+          this.appsWidgetRefreshing.arr_calendar = false;
         }
       });
   },
