@@ -418,6 +418,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         if not when or not title:
             continue
         tmdb = m.get("tmdbId")
+        app_path = (f"/movie/{tmdb}" if tmdb else "")
         out.append({
             "date": when,
             "title": f"{title}{_year_suffix(m.get('year'))}",
@@ -429,7 +430,11 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "overview": _servarr.clamp_overview(m.get("overview")),
             "runtime": max(0, _servarr.safe_int(m.get("runtime"))),
             "time": _servarr.release_time(when_full),
-            "app_url": (f"{web}/movie/{tmdb}" if (web and tmdb) else web),
+            # `app_url` is the integration-base deep link (machine host:port);
+            # `app_path` lets the widget rebuild the link against an operator's
+            # friendly reverse-proxy URL override without touching the probe.
+            "app_url": ((web + app_path) if (web and app_path) else web),
+            "app_path": app_path,
             "imdb_url": _servarr.imdb_url(m.get("imdbId")),
             "tmdb_url": _servarr.tmdb_movie_url(tmdb),
         })

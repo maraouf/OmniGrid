@@ -433,6 +433,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         ep_title = str(ep.get("title") or "").strip()
         subtitle = (code + (" · " + ep_title if ep_title else "")).strip(" ·")
         slug = str(series.get("titleSlug") or "").strip()
+        app_path = (f"/series/{slug}" if slug else "")
         out.append({
             "date": when,
             "title": sname,
@@ -447,7 +448,10 @@ async def calendar_items(host_row: dict, chip: dict, *,
             # only the air-time rendered, reading as a missing runtime).
             "runtime": max(0, safe_int(ep.get("runtime")) or safe_int(series.get("runtime"))),
             "time": _servarr.release_time(when_full),
-            "app_url": (f"{web}/series/{slug}" if (web and slug) else web),
+            # See radarr.calendar_items — app_path lets the widget rebuild the
+            # deep link against a friendly reverse-proxy URL override.
+            "app_url": ((web + app_path) if (web and app_path) else web),
+            "app_path": app_path,
             "imdb_url": _servarr.imdb_url(series.get("imdbId")),
             "tmdb_url": "",
         })

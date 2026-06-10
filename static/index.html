@@ -2344,7 +2344,7 @@
                keeps the layout RTL-correct (the spacer just fills
                whichever direction is the writing flow). -->
           <div class="grow" aria-hidden="true"></div>
-          <div class="flex items-center gap-2"
+          <div class="flex items-center gap-2 flex-wrap"
                x-show="settings.beszel_hub_url || settings.pulse_url || (settings.portainer_enabled && settings.portainer_public_url)">
             <a :href="settings.beszel_hub_url || '#'" target="_blank" rel="noopener"
                x-show="settings.beszel_hub_url"

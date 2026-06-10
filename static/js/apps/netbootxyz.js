@@ -1,0 +1,85 @@
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
+// noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
+// noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+/* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
+
+// Per-app SPA module -- netboot.xyz (network-boot menu manager).
+//
+// Encapsulates every netboot.xyz-specific helper so the generic
+// `static/js/app-apps.js` stays app-agnostic. Loaded by
+// `static/js/apps/_registry.js`, which merges every per-app module's
+// `helpers` into the Alpine component AND exposes the extender record
+// (slugs / requiresApiKey / cardSpan) to the generic helpers via
+// `window.OG_APPS_EXTENDERS`.
+//
+// Data source
+//   netboot.xyz's webapp has no auth and its dynamic data is socket.io-driven,
+//   so the card is a defensive STATUS + VERSION tile sourced from
+//   `logic/apps/netbootxyz.py:fetch_data` (GET / for reachability + GET
+//   /version best-effort), read through the cache-backed `appsAppData(inst)`.
+//
+// File-scope IDE directives: see `speedtest_tracker.js`'s header for the full
+// rationale -- same per-file JSHint + PyCharm conventions.
+
+// True when `app` is the netboot.xyz catalog template (matched via slug; falls
+// back to a substring check on `app.name`).
+function isNetbootxyzApp(app) {
+  if (!app) {
+    return false;
+  }
+  const cat = app.catalog || {};
+  const slug = String(cat.slug || '').trim().toLowerCase();
+  if (slug === 'netboot-xyz' || slug === 'netbootxyz') {
+    return true;
+  }
+  return (String(app.name || '').toLowerCase().indexOf('netboot') !== -1);
+}
+
+// Per-instance netboot.xyz data lookup -- reads the per-app data the generic
+// dispatcher fetched (via `logic/apps/netbootxyz.py:fetch_data`). Returns null
+// while idle / pending / errored OR when the payload isn't available.
+function netbootxyzData(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  if (!inst || !this.appsAppData) {
+    return null;
+  }
+  const d = this.appsAppData(inst);
+  if (!d || !d.available) {
+    return null;
+  }
+  return d;
+}
+
+// "Running v2.0.84" / "Reachable" version label for the card.
+function netbootxyzVersionLabel(d) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  if (!d) {
+    return '';
+  }
+  const v = String(d.version || '').trim();
+  if (v) {
+    return (this.t('apps.netbootxyz.running', {v: v}) || ('Running ' + v));
+  }
+  return (this.t('apps.netbootxyz.reachable') || 'Reachable');
+}
+
+// Extender record -- consumed by the generic helpers in
+// `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. No api_key (the
+// webapp has no auth) and the default single-column layout (it's a compact
+// status + version tile, not a multi-stat telemetry panel).
+export const extender = {
+  slugs: ['netboot-xyz', 'netbootxyz'],
+  requiresApiKey: false,
+};
+
+// Helpers attached to the Alpine `app()` component via the merge in
+// `static/js/apps/_registry.js`. Names are prefixed `netbootxyz*`.
+export const helpers = {
+  netbootxyzIsApp: isNetbootxyzApp,
+  netbootxyzData: netbootxyzData,
+  netbootxyzVersionLabel: netbootxyzVersionLabel,
+};

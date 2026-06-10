@@ -479,6 +479,7 @@ async def calendar_items(host_row: dict, chip: dict, *,
         if not when or not (author or title):
             continue
         aslug = str(auth.get("titleSlug") or "").strip()
+        app_path = (f"/author/{aslug}" if aslug else "")
         out.append({
             "date": when,
             "title": title or author,
@@ -490,7 +491,10 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "overview": _servarr.clamp_overview(book.get("overview") or auth.get("overview")),
             "runtime": 0,
             "time": "",
-            "app_url": (f"{web}/author/{aslug}" if (web and aslug) else web),
+            # See radarr.calendar_items — app_path lets the widget rebuild the
+            # deep link against a friendly reverse-proxy URL override.
+            "app_url": ((web + app_path) if (web and app_path) else web),
+            "app_path": app_path,
             "imdb_url": "",
             "tmdb_url": "",
         })

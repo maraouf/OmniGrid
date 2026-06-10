@@ -113,7 +113,7 @@
                         <!-- Action pills — open in the source app + IMDb / TMDB. -->
                         <span x-show="rel.app_url || rel.imdb_url || rel.tmdb_url"
                               class="apps-widget-arr-cal-pop-actions">
-                          <a x-show="rel.app_url" :href="rel.app_url" target="_blank"
+                          <a x-show="arrCalItemAppUrl(item, rel)" :href="arrCalItemAppUrl(item, rel)" target="_blank"
                              rel="noopener noreferrer"
                              class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--app"
                              :aria-label="t('apps.custom.widget_arr_calendar_open_in', {app: arrCalServiceLabel(rel.service_slug)})">
@@ -124,19 +124,19 @@
                           </a>
                           <a x-show="rel.imdb_url" :href="rel.imdb_url" target="_blank"
                              rel="noopener noreferrer"
-                             class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--brand"
-                             :aria-label="t('apps.custom.widget_arr_calendar_imdb')">
-                            <img :src="'/img/icons/imdb.svg'" alt=""
-                                 class="apps-widget-arr-cal-pop-brandlogo"
+                             class="apps-widget-arr-cal-pop-link">
+                            <img src="/img/icons/imdb.svg?v=__APP_VERSION__" alt=""
+                                 class="apps-widget-arr-cal-pop-linkicon"
                                  @error="$event.target.style.display='none'">
+                            <span x-text="t('apps.custom.widget_arr_calendar_imdb')"></span>
                           </a>
                           <a x-show="rel.tmdb_url" :href="rel.tmdb_url" target="_blank"
                              rel="noopener noreferrer"
-                             class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--brand"
-                             :aria-label="t('apps.custom.widget_arr_calendar_tmdb')">
-                            <img :src="'/img/icons/tmdb.svg'" alt=""
-                                 class="apps-widget-arr-cal-pop-brandlogo"
+                             class="apps-widget-arr-cal-pop-link">
+                            <img src="/img/icons/tmdb.svg?v=__APP_VERSION__" alt=""
+                                 class="apps-widget-arr-cal-pop-linkicon"
                                  @error="$event.target.style.display='none'">
+                            <span x-text="t('apps.custom.widget_arr_calendar_tmdb')"></span>
                           </a>
                         </span>
                       </div>

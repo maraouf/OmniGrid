@@ -216,6 +216,25 @@ export const helpers = {
     const s = String(slug || '');
     return s ? (s.charAt(0).toUpperCase() + s.slice(1)) : '';
   },
+  // "Open in <app>" href for a calendar item. The backend deep-links against
+  // the INTEGRATION base (machine host:port) in `rel.app_url`; if the operator
+  // set a friendly reverse-proxy override for this service in the widget
+  // settings (opts key `arr_link_<slug>`, e.g. https://sonarr.example.com),
+  // rebuild the link as <override> + rel.app_path so the redirect targets the
+  // user-friendly URL while the probe keeps using the machine address.
+  arrCalItemAppUrl(item, rel) {
+    if (!rel) {
+      return '';
+    }
+    const slug = String(rel.service_slug || '').toLowerCase();
+    const ovr = String((item && item.opts && item.opts['arr_link_' + slug]) || '').trim();
+    if (ovr) {
+      const base = ovr.replace(/\/+$/, '');
+      const path = String(rel.app_path || '');
+      return path ? (base + path) : base;
+    }
+    return rel.app_url || '';
+  },
   // The day whose popover is showing (click-pinned only).
   arrCalActiveDay() {
     return this.arrCalOpenDay || '';
