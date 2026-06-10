@@ -122,6 +122,11 @@ import appAppsInstances from './app-apps-instances.js?v=__APP_VERSION__';
 // helpers in `app-apps*.js` can iterate per-app extender records
 // (slugs / requiresApiKey / cardSpan) without an import cycle.
 import {appsHelpers as appsPerApp} from './apps/_registry.js?v=__APP_VERSION__';
+// Per-widget custom-dashboard modules (static/js/widgets/<kind>.js). Same
+// shape as the per-app registry above: merges every widget module's render
+// helpers into the component AND stamps `window.OG_WIDGETS` so the generic
+// widget helpers dispatch per-kind behaviour from the registry records.
+import {widgetsHelpers} from './widgets/_registry.js?v=__APP_VERSION__';
 import appSseStream from './app-sse-stream.js?v=__APP_VERSION__';
 import appDrawerBulk from './app-drawer-bulk.js?v=__APP_VERSION__';
 // Side-effect import — installs `window.__ogCopyAiCode` at module-load
@@ -153,7 +158,7 @@ function _mergeKeepDescriptors(target, ...sources) {
 }
 
 function app() {
-  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appAppsCard, appAppsDrawer, appAppsData, appAppsInstances, appsPerApp, appSseStream, appViewsHelpers, appDrawerBulk, appDrawerCharts, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appAppsCard, appAppsDrawer, appAppsData, appAppsInstances, appsPerApp, widgetsHelpers, appSseStream, appViewsHelpers, appDrawerBulk, appDrawerCharts, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is

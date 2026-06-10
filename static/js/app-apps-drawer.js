@@ -423,6 +423,12 @@ export default {
     if (!it || !it.poster) {
       return '';
     }
+    // A local brand-icon poster (e.g. GitSync's destination git-host mark)
+    // routes through `_themeIcon` so a dark-variant (github → github-dark)
+    // swaps in on dark theme; CDN / proxied posters fall through unchanged.
+    if (/^\/img\/icons\//.test(it.poster)) {
+      return this._themeIcon(it.poster);
+    }
     return it.poster_proxy ? this.appsImageProxyUrl(inst, it.poster)
       : this.proxiedImageUrl(it.poster);
   },

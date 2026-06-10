@@ -5186,6 +5186,15 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   aspect-ratio: 2 / 3;
 }
 
+.apps-skill-item-poster--contain {
+  /* Square brand-icon poster (e.g. GitSync's destination git-host mark) —
+     1:1 box + contain so the logo renders whole (a 2:3 cover crop would chop
+     the sides off a square SVG). Small inset keeps it off the border edge. */
+  aspect-ratio: 1;
+  object-fit: contain;
+  padding: 3px;
+}
+
 /* Tiny round user avatar next to a rich-item byline (e.g. Seerr "requested
    by"). Loads direct — public avatar hosts (plex.tv / gravatar) or the
    LAN Seerr host; hidden on load error so the byline text stands alone. */
@@ -12640,10 +12649,21 @@ select.field-invalid {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface) 60%, transparent);
 }
 
-.apps-widget-arr-cal-dot--radarr { background: var(--arr-cal-radarr); }
-.apps-widget-arr-cal-dot--sonarr { background: var(--arr-cal-sonarr); }
-.apps-widget-arr-cal-dot--lidarr { background: var(--arr-cal-lidarr); }
-.apps-widget-arr-cal-dot--readarr { background: var(--arr-cal-readarr); }
+.apps-widget-arr-cal-dot--radarr {
+  background: var(--arr-cal-radarr);
+}
+
+.apps-widget-arr-cal-dot--sonarr {
+  background: var(--arr-cal-sonarr);
+}
+
+.apps-widget-arr-cal-dot--lidarr {
+  background: var(--arr-cal-lidarr);
+}
+
+.apps-widget-arr-cal-dot--readarr {
+  background: var(--arr-cal-readarr);
+}
 
 /* Day popover — glassmorphic, anchored to the cell, capped to the tile via
    container-query units so it stays inside the overflow:hidden tile. */
@@ -12666,14 +12686,32 @@ select.field-invalid {
   animation: arr-cal-pop-in 140ms ease-out;
 }
 
-.apps-widget-arr-cal-pop.pop-down { top: calc(100% + 4px); }
-.apps-widget-arr-cal-pop.pop-up { bottom: calc(100% + 4px); transform-origin: bottom center; }
-.apps-widget-arr-cal-pop.pop-start { inset-inline-start: 0; }
-.apps-widget-arr-cal-pop.pop-end { inset-inline-end: 0; }
+.apps-widget-arr-cal-pop.pop-down {
+  top: calc(100% + 4px);
+}
+
+.apps-widget-arr-cal-pop.pop-up {
+  bottom: calc(100% + 4px);
+  transform-origin: bottom center;
+}
+
+.apps-widget-arr-cal-pop.pop-start {
+  inset-inline-start: 0;
+}
+
+.apps-widget-arr-cal-pop.pop-end {
+  inset-inline-end: 0;
+}
 
 @keyframes arr-cal-pop-in {
-  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .apps-widget-arr-cal-pop-list {
@@ -12754,11 +12792,13 @@ select.field-invalid {
   white-space: nowrap;
 }
 
-.apps-widget-arr-cal-pop-svc {
+.apps-widget-arr-cal-pop-typeicon {
   width: 13px;
   height: 13px;
   flex-shrink: 0;
-  border-radius: 3px;
+  /* Lucide stroke glyph — inherits the group row's faint colour via
+     `color` (the symbol uses stroke: currentColor). */
+  color: inherit;
 }
 
 .apps-widget-arr-cal-pop-sub {
@@ -12789,10 +12829,12 @@ select.field-invalid {
   .apps-widget-arr-cal-pop {
     animation: none;
   }
+
   .apps-widget-arr-cal-cell,
   .apps-widget-arr-cal-nav {
     transition: none;
   }
+
   .apps-widget-arr-cal-cell.has-rel:hover,
   .apps-widget-arr-cal-cell.is-active {
     transform: none;

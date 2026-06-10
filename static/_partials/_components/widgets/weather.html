@@ -1,0 +1,121 @@
+<!-- Custom-dashboard weather widget body. Extracted from apps-widget-tile.html
+     so each widget owns its own partial (mirrors the per-app editor / extras
+     partials). Self-gated by its `<template x-if="item.widget === 'weather'">`;
+     aggregated via _all_widgets.html, included once by apps-widget-tile.html. -->
+
+<!-- Weather widget — composite hero (condition icon + temperature)
+     + location-with-pin subtitle + key-value humidity/wind detail
+     + three-day forecast strip. Renders a polished empty state
+     (icon + helpful copy) when `this.weather` is null. -->
+<template x-if="item.widget === 'weather'">
+  <!-- x-init kicks the per-card weather fetch on first mount when
+       the item carries a follow_user=false override. No-op for
+       follow-user-mode cards (the global topbar fetcher already
+       populated `this.weather`).
+       `display: contents` (via .apps-widget-weather-wrap) is
+       LOAD-BEARING: this x-init carrier sat between the flex-column
+       `tile-body` and `weather-body`, and as a plain content-height
+       block it swallowed the height before it reached weather-body —
+       so weather-body's `flex:1` filled only its own content, the
+       tall forecast col had ZERO free space to grow into, and every
+       attempt to vertically centre the forecast row silently no-op'd
+       (the moon / pubip / clock widgets have NO such wrapper, which
+       is why they centred fine and weather never did). contents makes
+       the wrapper layout-transparent so weather-body is a DIRECT flex
+       child of tile-body and finally inherits the fillable height. -->
+  <div class="apps-widget-weather-wrap" x-init="_ensurePerCardWeather(item)">
+    <template x-if="effectiveWeather(item) && effectiveWeather(item).temp_c != null">
+      <!-- Weather body is a horizontal split: hero + location + detail
+           on the LEFT, the forecast as a VERTICAL column on the RIGHT
+           using the otherwise-empty horizontal space (operator-flagged:
+           "forecast missing — use the space on the right, fit as many
+           days as the space allows"). The forecast column clips the
+           days that don't fit vertically (overflow: hidden) rather than
+           growing the card; on a narrow card it wraps below the main
+           column. -->
+      <div class="apps-widget-weather-body">
+        <div class="apps-widget-weather-main">
+          <div class="apps-widget-hero-row">
+            <svg class="apps-widget-hero-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + appsWeatherIconId((effectiveWeather(item) || {}).condition || '')"/>
+            </svg>
+            <!-- Hero temp + unit suffix derived from per-card units
+                 override via `appsWidgetWeatherTemp`. The helper
+                 returns the FULL label ("20°C" / "68°F") so the unit
+                 sub-element receives an empty string and collapses. -->
+            <div class="apps-widget-hero"
+                 x-text="appsWidgetWeatherTemp(item, (effectiveWeather(item) || {}).temp_c).replace(/°[CF]$/, '')"></div>
+            <div class="apps-widget-hero-unit"
+                 x-text="(effectiveWeatherOpts(item).units === 'imperial' && !effectiveWeatherOpts(item).follow) ? '°F' : '°C'"></div>
+          </div>
+          <div class="apps-widget-subtitle">
+            <svg class="apps-widget-subtitle-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-map-pin"/>
+            </svg>
+            <!-- Override-mode cards use the operator's label override;
+                 follow-user cards fall back to the global header label
+                 or the upstream-returned label. The condition string is
+                 appended only when `show_conditions` opt is on. -->
+            <span x-text="(((effectiveWeatherOpts(item).label) || userLabel || (effectiveWeather(item) || {}).label || '') + (appsWidgetWeatherShowConditions(item) && (effectiveWeather(item) || {}).condition ? ((((effectiveWeatherOpts(item).label) || userLabel || (effectiveWeather(item) || {}).label) ? ' · ' : '') + (effectiveWeather(item) || {}).condition) : ''))"></span>
+          </div>
+          <!-- Detail row: humidity + wind. Gated on
+               `appsWidgetWeatherShowConditions(item)` so an operator
+               who only wants the hero temp + forecast can hide the
+               busy KV row. -->
+          <div class="apps-widget-detail" x-show="appsWidgetWeatherShowConditions(item)">
+                  <span x-show="(effectiveWeather(item) || {}).humidity != null" class="apps-widget-kv">
+                    <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_humidity_label') || 'Humidity'"></span>
+                    <span class="apps-widget-kv-value" x-text="Math.round((effectiveWeather(item) || {}).humidity) + '%'"></span>
+                  </span>
+            <span x-show="(effectiveWeather(item) || {}).wind_kmh != null" class="apps-widget-kv">
+                    <span class="apps-widget-kv-label" x-text="t('apps.custom.widget_weather_wind_label') || 'Wind'"></span>
+                    <span class="apps-widget-kv-value" x-text="appsWidgetWindLabel(item, (effectiveWeather(item) || {}).wind_kmh)"></span>
+                  </span>
+          </div>
+        </div>
+        <template x-if="appsWidgetWeatherForecast(item).length">
+          <div class="apps-widget-forecast apps-widget-forecast--col scrollbar">
+            <template x-for="day in appsWidgetWeatherForecast(item)" :key="day.name">
+              <div class="apps-widget-forecast-day">
+                <span class="apps-widget-forecast-name" x-text="day.name"></span>
+                <svg width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--widget-accent); opacity: 0.85;">
+                  <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#' + day.icon"/>
+                </svg>
+                <!-- Hi / lo labels are pre-formatted with the per-card
+                     units in `appsWidgetWeatherForecast` so binding
+                     stays simple here regardless of units choice. -->
+                <span class="apps-widget-forecast-temp"
+                      x-text="(day.hi_label || (day.hi != null ? day.hi + '°' : '—')) + ' / ' + (day.lo_label || (day.lo != null ? day.lo + '°' : '—'))"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- Empty-state lives INSIDE .apps-widget-weather-wrap so the outer
+         `item.widget === 'weather'` template has a SINGLE root element.
+         Alpine's <template x-if> renders ONLY its first root child — with
+         the empty-state as a second sibling of the wrap it was silently
+         dropped, so a card with no weather data yet rendered fully BLANK
+         (no body, no message) instead of the empty state. -->
+    <template x-if="!effectiveWeather(item) || effectiveWeather(item).temp_c == null">
+      <div class="apps-widget-empty">
+        <svg class="apps-widget-empty-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-cloud-off"/>
+        </svg>
+        <!-- Three differentiated empty states so users understand
+             WHY the widget is empty:
+               (a) feature globally disabled by an admin
+               (b) user hasn't set a location yet in Profile
+               (c) configured but the upstream returned no data
+                   (transient — refresh button retries) -->
+        <span class="apps-widget-empty-text"
+              x-text="(weather && weather.configured === false)
+                    ? (t('apps.custom.widget_weather_admin_disabled') || 'Weather service is disabled. Ask an admin to enable it in Admin → Weather.')
+                    : (!userLat || !userLon)
+                      ? (t('apps.custom.widget_weather_no_location') || 'Set your location in Settings → Profile to see live conditions here.')
+                      : (t('apps.custom.widget_weather_no_data') || 'No weather data yet — click the refresh button to try again.')"></span>
+      </div>
+    </template>
+  </div>
+</template>

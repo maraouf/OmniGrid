@@ -188,7 +188,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
 
 def _shape_pair_rows(pairs_raw: list) -> list[dict]:
     """Reduce the verbose ``metrics.pairs[]`` objects to the per-pair card / skill
-    shape: ``{name, enabled, paused, configured, last_status}``."""
+    shape: ``{name, enabled, paused, configured, last_status, destination_kind}``."""
     rows: list[dict] = []
     for p in pairs_raw:
         if not isinstance(p, dict):
@@ -201,6 +201,7 @@ def _shape_pair_rows(pairs_raw: list) -> list[dict]:
             "paused": bool(p.get("paused")),
             "configured": bool(p.get("configured")),
             "last_status": str(last.get("status") or "").strip(),
+            "destination_kind": str(p.get("destination_kind") or "").strip().lower(),
         })
     return rows
 
@@ -418,11 +419,26 @@ def _pair_state(p: dict) -> str:
     return "active"
 
 
+# Destination git-host → local brand-icon path. The source side of every pair is
+# Forgejo; the icon identifies WHERE the pair syncs TO. Unknown / blank kinds fall
+# back to the Forgejo mark (sensible default — it's the one host every pair shares).
+_DEST_ICONS: dict[str, str] = {
+    "github": "/img/icons/github.svg",
+    "gcsr": "/img/icons/gcsr.svg",
+}
+
+
+def _dest_icon(kind: Optional[str]) -> str:
+    """Local brand-icon path for a pair's ``destination_kind`` (Forgejo fallback)."""
+    return _DEST_ICONS.get((kind or "").strip().lower(), "/img/icons/forgejo.svg")
+
+
 def _pair_row(p: dict) -> Optional[dict]:
     """One sync pair as a rich skill-result item: the pair name + a state /
-    last-run-status subtitle + per-row Sync / Pause / Resume action buttons. No
-    poster — GitSync has no thumbnail surface. Carries an internal ``_state`` the
-    caller uses for grouping (stripped before the item ships)."""
+    last-run-status subtitle + per-row Sync / Pause / Resume action buttons. The
+    poster is the destination git-host brand mark (square → ``poster_contain``).
+    Carries an internal ``_state`` the caller uses for grouping (stripped before
+    the item ships)."""
     if not isinstance(p, dict):
         return None
     name = str(p.get("name") or "").strip()
@@ -436,13 +452,15 @@ def _pair_row(p: dict) -> Optional[dict]:
     ls = str(p.get("last_status") or "").strip()
     if ls:
         bits.append(_STATUS_EMOJI.get(ls, ls) + " last run")
-    # Per-row actions: every pair can be synced; an enabled pair can be paused
-    # (active) or resumed (paused). A disabled pair only offers Sync — pause /
-    # resume don't apply (``enabled`` isn't controllable via the API).
-    actions: list[dict] = [{
-        "skill_id": "gitsync_sync", "arg": name, "icon": "refresh-cw",
-        "title_i18n": "apps.gitsync.row_sync", "destructive": False,
-    }]
+    # Per-row actions: an ENABLED pair can be synced + paused (active) or resumed
+    # (paused). A DISABLED pair offers NO actions — the scheduler skips it, so a
+    # Sync would be a no-op (``enabled`` isn't controllable via the API).
+    actions: list[dict] = []
+    if state != "disabled":
+        actions.append({
+            "skill_id": "gitsync_sync", "arg": name, "icon": "refresh-cw",
+            "title_i18n": "apps.gitsync.row_sync", "destructive": False,
+        })
     if state == "active":
         actions.append({
             "skill_id": "gitsync_pause", "arg": name, "icon": "pause",
@@ -456,7 +474,8 @@ def _pair_row(p: dict) -> Optional[dict]:
             "title_i18n": "apps.gitsync.row_resume", "destructive": False,
         })
     return {"title": name, "subtitle": " · ".join(bits),
-            "row_actions": actions, "_state": state}
+            "row_actions": actions, "poster": _dest_icon(p.get("destination_kind")),
+            "poster_contain": True, "_state": state}
 
 
 # noinspection DuplicatedCode
@@ -492,7 +511,8 @@ async def _pairs_skill(host_row: dict, chip: dict, *,
     lines: list[str] = []
     for r in rows:
         it: dict = {"title": r["title"], "subtitle": r["subtitle"],
-                    "row_actions": r["row_actions"]}
+                    "row_actions": r["row_actions"],
+                    "poster": r["poster"], "poster_contain": r["poster_contain"]}
         if mixed:
             it["group"] = _STATE_META[r["_state"]][3]
         items.append(it)
