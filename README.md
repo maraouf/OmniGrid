@@ -22,7 +22,7 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
      for the full set. The hero shot is the Nodes view (Stacks grouped
      by host node + live HOST CPU/MEM/DISK bars). The bare <img>
      renders without HTML5-deprecated `align` centering. -->
-<img src="docs/screenshots/nodes-view.png" alt="OmniGrid Nodes view — stacks grouped by host with live CPU / Memory / Disk bars" width="960" />
+<img src="docs/screenshots/nodes-view-light.png" alt="OmniGrid Nodes view — stacks grouped by host with live CPU / Memory / Disk bars" width="960" />
 
 ## Features
 
@@ -56,8 +56,8 @@ Built as a friendlier replacement for Diun Dash plus the tab-jumping between Por
 
 ### Apps & integrations
 
-- **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of ~80 templates (AdGuard Home, Plex, Sonarr, Authentik, …). A discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart / Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
-- **Per-app integrations + skills** — apps with a dedicated module light up an expanded card (live data) plus a set of **skills** exposed three ways at once: an app-drawer button, an AI palette/sidebar action, and a Telegram action the model can invoke from natural language. Apps with modules today: **Plex** (library + now-playing + recently-added + search + scan, with a seamless "Sign in to Plex" OAuth PIN flow — `POST /api/apps/plex/auth/start` + `GET /api/apps/plex/auth/poll`), **Radarr / Sonarr / Lidarr / Readarr / Bazarr / Prowlarr / Seerr** (the *arr + request stack), **Kavita**, **AdGuard Home** + **Pi-hole** (fleet apps — one aggregated card + fleet-wide enable / disable-for-N / refresh across every instance), **AdGuard Home Sync**, **ddns-updater**, **APC** (UPS via SNMP), and **Speedtest Tracker**. Notable rosters: Prowlarr (status / indexers / app-sync / search / find-available / add-indexer / add-indexers-in-bulk / fix-flaresolverr-tags), Seerr (status / list-requests /
+- **Apps view + service catalog** — admin-pinned services on each curated host, paired with a built-in catalog of 70+ templates (AdGuard Home, Plex, Sonarr, Authentik, …). A discovery wizard matches a host's open-port set against catalog templates and proposes pins; per-instance Probe-now, Logs (Portainer-routed for containerised apps), and Restart / Update (when linked to a Portainer container or stack). Aggregate `/api/apps` + flat `/api/apps/instances` + portable catalog JSON export / import.
+- **Per-app integrations + skills** — apps with a dedicated module light up an expanded card (live data) plus a set of **skills** exposed three ways at once: an app-drawer button, an AI palette/sidebar action, and a Telegram action the model can invoke from natural language. Apps with modules today (23, canonical list is `logic/apps/registry.py`): **Plex / Jellyfin / Emby** (media servers — now-playing + recently-added + search + scan; Plex adds a seamless "Sign in to Plex" OAuth PIN flow via `POST /api/apps/plex/auth/start` + `GET /api/apps/plex/auth/poll`), **Tautulli** (Plex activity / history), **Radarr / Sonarr / Lidarr / Readarr / Bazarr / Prowlarr / Seerr** (the *arr + request stack), **qBittorrent**, **Tdarr** (transcode automation), **Tracearr** (stream-sharing detection), **Kavita** (comics / e-books), **Forgejo** (self-hosted Git), **AdGuard Home** + **Pi-hole** (fleet apps — one aggregated card + fleet-wide enable / disable-for-N / refresh across every instance), **AdGuard Home Sync**, **ddns-updater**, **Apprise** (the notification gateway OmniGrid itself uses), **APC** (UPS via SNMP), and **Speedtest Tracker**. Notable rosters: Prowlarr (status / indexers / app-sync / search / find-available / add-indexer / add-indexers-in-bulk / fix-flaresolverr-tags), Seerr (status / list-requests /
   request-movie / suggest-movie / set-filter / show-filters), Kavita (status / libraries / search / scan). Per-instance credentials follow the keep-current-if-blank contract; destructive skills gate on confirm (and on `telegram_allow_destructive` over Telegram). Each skill is delivered via `POST /api/services/{host}/{idx}/skill/{id}`; per-app card data via `GET /api/services/{host}/{idx}/app-data`; credential tests via `POST /api/services/{host}/{idx}/test-credential`.
 - **Custom dashboards (named, shareable "views")** — a Homarr-style board where you drag app cards / widgets / bookmarks into your own collapsible sections, with multiple named dashboards you can switch between. Each dashboard has a **visibility** (private / public) and, when public, an **edit permission** (read-only or editable-by-anyone-except-read-only-users); only the owner can delete it or change its sharing. Dashboards live server-side (`app_views` table) behind any-signed-in-user routes — `GET/POST /api/apps/views` + `PUT/DELETE /api/apps/views/{id}`.
 
@@ -153,7 +153,7 @@ docker pull ghcr.io/maraouf/omnigrid:1.4             # newest patch on the 1.4 l
 docker pull ghcr.io/maraouf/omnigrid:1.4.0           # exact, immutable
 ```
 
-Tag layout: `latest` floats to the newest minor we've shipped; `<MAJOR>.<MINOR>` floats to the newest minor on that major line; `<MAJOR>.<MINOR>.0` is the immutable cut-day MINOR tag (use this for rollbacks). Only `v<MAJOR>.<MINOR>.0` cut-day tags are published — daily auto-PATCH builds (`.1`, `.2`, …) stay in the maintainer-private registry and on the Swarm manager itself; cutting a MINOR is what publishes a new public tag.
+Tag layout: `latest` floats to the newest minor we've shipped; `<MAJOR>.<MINOR>` floats to the newest patch on that minor line (currently always equal to `<MAJOR>.<MINOR>.0`, since only cut-day MINOR builds are published); `<MAJOR>.<MINOR>.0` is the immutable cut-day MINOR tag (use this for rollbacks). Only `v<MAJOR>.<MINOR>.0` cut-day tags are published — daily auto-PATCH builds (`.1`, `.2`, …) stay in the maintainer-private registry and on the Swarm manager itself; cutting a MINOR is what publishes a new public tag.
 
 For a Swarm `docker-compose.yml`, set `OMNIGRID_IMAGE=ghcr.io/maraouf/omnigrid:latest` (or pin a specific tag) before `docker stack deploy` and the compose substitution picks it up. See the [GHCR section in the deploy runbook](docs/guidelines/deploy.md#pre-built-images-on-ghcr) for `--with-registry-auth` details and the publish-trigger contract.
 
@@ -351,7 +351,8 @@ GET / POST / PATCH / DELETE  /api/schedules[/{id}]
 POST                          /api/schedules/{id}/run     fire immediately → {op_id}
 GET                           /api/schedules/queue?limit=50
 GET / POST / DELETE          /api/backups[/{name}]   create / list / remove
-POST                          /api/backups/{name}/restore
+POST                          /api/backups/{name}/restore   restore from an on-disk snapshot
+POST                          /api/backups/restore    upload a snapshot zip and restore from it (multipart, 200 MB cap)
 GET                          /api/hosts/{id}/ssh/status
 POST                          /api/hosts/{id}/ssh/test
 POST                          /api/hosts/{id}/ssh/run    body: {command, dry_run}
@@ -579,7 +580,8 @@ The full gallery lives under `docs/screenshots/` — a quick tour:
 | ![Stacks](docs/screenshots/stacks-view-light.png)             | **Stacks view** — grouped table, expand-per-stack, the default landing surface.                 |
 | ![Services](docs/screenshots/services-view-light.png)         | **Services view** — flat sortable list of every Swarm service.                                  |
 | ![Service detail](docs/screenshots/service-detail-drawer.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore).             |
-| ![Nodes](docs/screenshots/nodes-view.png)                     | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars.    |
+| ![Nodes](docs/screenshots/nodes-view-light.png)                     | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars.    |
+| ![Apps](docs/screenshots/apps-view-light.png)                 | **Apps view** — admin-pinned services per host with the catalog, per-instance probes + expanded cards. |
 | ![History](docs/screenshots/history-audit-log.png)            | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
 
 ### Hosts

@@ -340,8 +340,11 @@ or send call without restart.
 
 | Tunable                                     | Default | Range  | Where                    |
 | ------------------------------------------- | ------- | ------ | ------------------------ |
-| `tuning_telegram_long_poll_timeout_seconds` | 25      | 1..50  | Notifications → Telegram |
-| `tuning_telegram_http_timeout_seconds`      | 35      | 5..120 | Notifications → Telegram |
+| `tuning_telegram_long_poll_timeout_seconds`   | 25      | 1..50   | Notifications → Telegram |
+| `tuning_telegram_http_timeout_seconds`        | 35      | 5..120  | Notifications → Telegram |
+| `tuning_telegram_destructive_cooldown_seconds`| 30      | 1..600  | Notifications → Telegram — cool-down between typed-confirm destructive-command prompts per chat. |
+| `tuning_telegram_ai_calls_per_minute`         | 6       | 1..120  | Notifications → Telegram — per-chat rate cap on free-text AI replies. |
+| `tuning_telegram_bulk_update_concurrency`     | 4       | 1..16   | Notifications → Telegram — fan-out concurrency for `/update all`. |
 
 Plain settings (managed via the Telegram tab UI):
 

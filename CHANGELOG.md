@@ -32,10 +32,11 @@ Sixth MINOR cut on top of `1.5.0` — rolls up **326 closed issues** under the 1
 
 ### Highlights
 
-- Major app-integration expansion — new per-app integrations wired end-to-end for Plex, Jellyfin, Emby, Tautulli, Tdarr, Tracearr, Kavita, Seerr (Overseerr / Jellyseerr), AdGuard Home Sync, ddns-updater, Apprise and Forgejo, each following the per-app encapsulation pattern with editor + extras partials, catalog templates, icons and AI skills.
+- Major app-integration expansion — new per-app integrations wired end-to-end for Plex, Jellyfin, Emby, Tautulli, Tdarr, Tracearr, Kavita, Seerr (Overseerr / Jellyseerr), AdGuard Home Sync, ddns-updater, Apprise and Forgejo, each following the per-app encapsulation pattern with editor + extras partials, catalog templates, icons and AI skills — bringing the per-app integration roster to 23 modules.
 - *arr stack & transcoding — Sonarr / Radarr / Lidarr / Readarr / Prowlarr / Bazarr / qBittorrent extras, Prowlarr add-indexer from AI / Telegram, and a full Tdarr workflow (check-bloated, requeue-bloated, requeue-failed) with background scans, auto-poll, measured ETAs and rich per-file result UIs.
 - Apps page & custom dashboard — "By app" cards redesigned (logo left, content right), multiple named custom-dashboard views with per-view private/public visibility + edit permissions, per-app data-cache TTL configurable in the app, and per-app action (skill) buttons gated on the per-instance "show extras" toggle.
-- Telegram bot — expanded command help + arg-skill command handling, AI free-text grounded in real fleet state, per-pending-skill polling so long background jobs (e.g. Tdarr requeue) report completion automatically, and destructive-action confirm gating that honours each surface's policy.
+- Credential-safe media art — a new per-app authenticated image proxy (`/api/services/{host}/{idx}/image-proxy`) fetches posters and avatars through each app's own credential so it never reaches the browser DOM, with an SSRF guard and a 10 MB / 1-day cache (Plex / Tautulli / Bazarr / Seerr / Forgejo art).
+- Telegram bot — a new `/skills` roster plus dynamic per-app `/<skill_id>` commands (e.g. `/run_speedtest`, `/adguard_status`), expanded command help + arg-skill handling, AI free-text grounded in real fleet state, per-pending-skill polling so long background jobs (e.g. Tdarr requeue) report completion automatically, and destructive-action confirm gating that honours each surface's policy.
 - Stats dashboard — slow-query investigation plus event-loop-blocking fixes, chart memoization, Samples KPIs + i18n, and a performance pass that chunked / offloaded the retention prunes.
 - Prayer Times & Weather — prayer reminders (a notification N minutes before each prayer, per-user opt-in with per-user medium selection across in-app / Telegram / Apprise), Prayer-Times admin fixes, and weather-sampler additions.
 - AI assistant — answers per-host telemetry questions directly and auto-resolves a single matching host; host-status accuracy fix so it no longer mislabels reachable "problem" hosts as Down.
@@ -43,7 +44,7 @@ Sixth MINOR cut on top of `1.5.0` — rolls up **326 closed issues** under the 1
 - Stability & performance — the tracemalloc default-ON crash-loop root-caused and fixed; SPA perf work (xterm.js lazy-load, `x-show` → `x-if` unmounting of costly subtrees, sprite-preload + requestAnimationFrame violation cleanups); per-app first-load paint fixes.
 - Hosts & discovery — port-scan default coverage extended to common TCP + UDP service ports, an Asset-Inventory collapsible JSON-tree viewer, Discovery-wizard improvements, scan-only port surfacing, and Apps-instance grouping (by host / service / none).
 - Security — CodeQL SSRF + path-injection findings resolved, plus UTF-8 encoding hardening on file reads.
-- Provider chips, icons & status pills + cross-app polish — unified Test-connection component, reload-button consistency, app-extras presentation unified across all apps, and a top-bar recent-tabs privacy fix (a user only ever sees their own tabs).
+- Provider chips, icons & status pills + cross-app polish — unified Test-connection component, reload-button consistency, app-extras presentation unified across all apps, Public-IP widget country-flag display (new `flag-icons` dep), and a top-bar recent-tabs privacy fix (a user only ever sees their own tabs).
 
 ### Telegram bot
 

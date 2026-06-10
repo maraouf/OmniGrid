@@ -630,7 +630,7 @@ Tag layout summary:
 | Tag                                          | Floats?  | Use for                                                                |
 | -------------------------------------------- | -------- | ---------------------------------------------------------------------- |
 | `ghcr.io/maraouf/omnigrid:latest`            | ✅        | "Give me the newest stable build" — moves on every MINOR cut           |
-| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`   | ✅        | "Pin me to this major line" — moves to the newest MINOR on that major  |
+| `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>`   | ✅        | "Pin me to this minor line" — floats to the newest patch on it (always `.0` today, since only cut-day MINOR builds are published) |
 | `ghcr.io/maraouf/omnigrid:<MAJOR>.<MINOR>.0` | ❌        | Immutable cut-day MINOR tag — use for rollbacks, never overwritten     |
 
 ### Compose / Swarm wiring
