@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from logic.coerce import int_or_none
 
+from ._common import chip_is_docker_linked
 from . import adguardhome
 from . import adguardhome_sync
 from . import apc
@@ -33,6 +34,7 @@ from . import bazarr
 from . import ddns_updater
 from . import emby
 from . import forgejo
+from . import grafana
 from . import jellyfin
 from . import kavita
 from . import lidarr
@@ -68,9 +70,9 @@ def _register(module: ModuleType) -> None:
 # Register every per-app module. Loop (not 18 repeated `_register(...)` lines)
 # so adding a module is a one-line edit to the tuple + its import above.
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
-             emby, forgejo, jellyfin, kavita, lidarr, pihole, plex, prowlarr,
-             qbittorrent, radarr, readarr, seerr, sonarr, speedtest_tracker,
-             tautulli, tdarr, tracearr):
+             emby, forgejo, grafana, jellyfin, kavita, lidarr, pihole, plex,
+             prowlarr, qbittorrent, radarr, readarr, seerr, sonarr,
+             speedtest_tracker, tautulli, tdarr, tracearr):
     _register(_mod)
 
 
@@ -124,6 +126,19 @@ def skill_is_destructive(slug: str, skill_id: str) -> bool:
     for s in skills_for_slug(slug):
         if s.get("id") == skill_id:
             return bool(s.get("destructive"))
+    return False
+
+
+def skill_non_docker_only(slug: str, skill_id: str) -> bool:
+    """True when the named skill declares ``non_docker_only: True`` — it only
+    applies to app instances NOT linked to a Portainer container / stack (the
+    manual-update skills: version-check + built-in-updater). The single source
+    of truth every dispatch surface consults to hide / refuse the skill for a
+    Docker-linked chip (whose updates flow through the inline Docker Update
+    action). False for an unknown slug / skill."""
+    for s in skills_for_slug(slug):
+        if s.get("id") == skill_id:
+            return bool(s.get("non_docker_only"))
     return False
 
 
@@ -295,6 +310,14 @@ def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
             _req = getattr(mod, "requires_api_key", None)
             if callable(_req) and _req() and not str(chip.get("api_key") or "").strip():
                 continue  # gated: app needs an api_key and none is set
+            # Drop manual-update skills (version-check + built-in-updater) for a
+            # Docker-linked chip — they only apply to non-Docker instances, so
+            # the AI / Telegram must never offer them there (run_app_skill also
+            # refuses, but the model shouldn't even see them).
+            if chip_is_docker_linked(chip):
+                skills = tuple(s for s in skills if not s.get("non_docker_only"))
+                if not skills:
+                    continue
             # Fleet-ness: a skill aggregates across EVERY instance (run_skill
             # ignores the chip) when its own `fleet` flag is set OR the module
             # declares `FLEET_SKILLS = True` (e.g. AdGuard). Surfaced so the
@@ -385,6 +408,18 @@ async def run_app_skill(slug: str, skill_id: str, host_row: dict, chip: dict,
         print(f"[app_skill] warning: run skipped — unknown skill {skill_id!r} for "
               f"slug={slug!r} (valid={sorted(str(v) for v in valid if v)} host={_hid} svc_idx={_sidx})")
         raise ValueError(f"unknown skill {skill_id!r} for app {slug!r}")
+    # Manual-update skills (version-check + built-in-updater) only apply to
+    # instances NOT linked to a Portainer container / stack — a Docker-linked
+    # app updates through the inline Docker Update action instead. Refuse here
+    # so every dispatch surface (web route / Telegram slash / Telegram-AI) is
+    # covered, not just the SPA's button filter.
+    if skill_non_docker_only(slug, skill_id) and chip_is_docker_linked(chip):
+        print(f"[app_skill] info: refused non-docker-only skill {skill_id!r} on a "
+              f"Docker-linked chip (slug={slug!r} host={_hid} svc_idx={_sidx})")
+        return {"ok": False, "status": 409,
+                "detail": "This action is only available for apps that aren't "
+                          "linked to Docker — a Docker-linked app updates through "
+                          "its container / stack instead."}
     print(f"[app_skill] INFO run start slug={slug!r} skill={skill_id!r} "
           f"host={_hid} svc_idx={_sidx}")
     result = await mod.run_skill(skill_id, host_row, chip, **kwargs)

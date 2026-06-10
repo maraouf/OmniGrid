@@ -186,6 +186,26 @@ SKILLS: tuple[dict, ...] = (
                        "refresh and scan series"),
         "destructive": False,
     },
+    # Manual-update skills — only for instances NOT linked to Docker (updates
+    # for a native / non-Docker install are applied by hand).
+    {
+        "id": "sonarr_check_update",
+        "name": "Check for updates",
+        "ai_phrases": ("is sonarr up to date, check sonarr version, latest sonarr "
+                       "version, is there a sonarr update, sonarr update available, "
+                       "check for sonarr updates, what version of sonarr is running"),
+        "destructive": False,
+        "non_docker_only": True,
+    },
+    {
+        "id": "sonarr_update",
+        "name": "Update Sonarr",
+        "ai_phrases": ("update sonarr, upgrade sonarr, install the sonarr update, "
+                       "run the sonarr updater, update sonarr to the latest version, "
+                       "apply the sonarr update"),
+        "destructive": True,
+        "non_docker_only": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
@@ -377,6 +397,13 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                     started_msg="🔄 Started a library refresh & disk "
                                                 "scan on Sonarr.",
                                     host_id=host_id)
+    if skill_id == "sonarr_check_update":
+        return await _servarr.check_update_skill(host_row, chip, app_label="Sonarr",
+                                                 api_version="v3", host_id=host_id,
+                                                 actor_username=actor_username)
+    if skill_id == "sonarr_update":
+        return await _servarr.app_update_skill(host_row, chip, app_label="Sonarr",
+                                               api_version="v3", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 

@@ -15,6 +15,24 @@ from typing import Optional
 
 from logic.coerce import safe_int
 
+
+def chip_is_docker_linked(chip: dict) -> bool:
+    """True when an app chip is linked to a Portainer container / stack (the
+    operator set ``docker_container`` or ``docker_stack`` via the editor's
+    "Link to Docker").
+
+    Single source of truth for "this app's updates flow through the inline
+    Docker Restart / Update actions" — consumed by the registry's skill gate
+    and the AI / Telegram context filter so the manual-update skills
+    (version-check + built-in-updater) are hidden / refused for Docker-linked
+    instances. Mirrors the SPA's ``inst.docker_container || inst.docker_stack``
+    check. Defensive against a non-dict chip."""
+    if not isinstance(chip, dict):
+        return False
+    return bool((chip.get("docker_container") or "").strip()
+                or (chip.get("docker_stack") or "").strip())
+
+
 # Canonical timed-disable presets (label, seconds) shared by every fleet
 # DNS-blocker (Pi-hole / AdGuard / future). The provider's blocking timer
 # natively auto-re-enables after N seconds.

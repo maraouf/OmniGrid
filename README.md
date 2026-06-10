@@ -579,10 +579,10 @@ The full gallery lives under `docs/screenshots/` — a quick tour:
 |---------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
 | ![Stacks](docs/screenshots/stacks-view-light.png)             | **Stacks view** — grouped table, expand-per-stack, the default landing surface.                 |
 | ![Services](docs/screenshots/services-view-light.png)         | **Services view** — flat sortable list of every Swarm service.                                  |
-| ![Service detail](docs/screenshots/service-detail-drawer.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore).             |
+| ![Service detail](docs/screenshots/service-detail-drawer-light.png) | **Service detail drawer** — image / digest / actions (Restart / Recreate / Ignore).             |
 | ![Nodes](docs/screenshots/nodes-view-light.png)                     | **Nodes view** — stacks grouped by Swarm node with live HOST CPU / MEM / DISK / UPTIME bars.    |
 | ![Apps](docs/screenshots/apps-view-light.png)                 | **Apps view** — admin-pinned services per host with the catalog, per-instance probes + expanded cards. |
-| ![History](docs/screenshots/history-audit-log.png)            | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
+| ![History](docs/screenshots/history-audit-log-light.png)            | **History (audit log)** — every operation persisted with filterable when / op / target columns. |
 
 ### Hosts
 
@@ -590,18 +590,18 @@ The full gallery lives under `docs/screenshots/` — a quick tour:
 |---------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
 | ![Hosts (light)](docs/screenshots/hosts-view-light.png)                   | **Hosts view (light)** — curated host inventory grouped by `custom_number` ranges.       |
 | ![Hosts (dark)](docs/screenshots/hosts-view-dark.png)                     | **Hosts view (dark)** — same data, dark theme.                                           |
-| ![Hardware drawer](docs/screenshots/host-drawer-hardware.png)             | **Host drawer — hardware** — vendor / model / serial / OS / kernel / network details.    |
-| ![Charts drawer](docs/screenshots/host-drawer-charts.png)                 | **Host drawer — charts** — CPU / Mem / Disk / Net In/Out / Load / Bandwidth time-series. |
-| ![Charts drawer (bottom)](docs/screenshots/host-drawer-charts-bottom.png) | **Host drawer — bandwidth + swap** — scrolled view of the chart grid.                    |
+| ![Hardware drawer](docs/screenshots/host-drawer-hardware-light.png)             | **Host drawer — hardware** — vendor / model / serial / OS / kernel / network details.    |
+| ![Charts drawer](docs/screenshots/host-drawer-charts-light.png)                 | **Host drawer — charts** — CPU / Mem / Disk / Net In/Out / Load / Bandwidth time-series. |
+| ![Charts drawer (bottom)](docs/screenshots/host-drawer-charts-bottom-light.png) | **Host drawer — bandwidth + swap** — scrolled view of the chart grid.                    |
 
 ### Admin / operations
 
 |                                                                |                                                                                                                    |
 |----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
-| ![SSH run](docs/screenshots/host-drawer-ssh-run.png)           | **Host drawer — SSH-run** — admin one-shot command runner with dry-run, destructive-pattern guard, full audit.     |
-| ![SSH terminal](docs/screenshots/host-drawer-ssh-terminal.png) | **Host drawer — SSH terminal** — interactive xterm.js session via WSS to the backend's asyncssh PTY.               |
-| ![Hosts editor](docs/screenshots/admin-hosts-editor.png)       | **Admin → Hosts editor** — paginated curated-host CRUD with live discovery from each provider.                     |
-| ![Schedules](docs/screenshots/admin-schedules.png)             | **Admin → Schedules** — cron-like recurring jobs (gather refresh / prune / backup / asset refresh).                |
-| ![Backups](docs/screenshots/admin-backups.png)                 | **Admin → Backups** — DB + avatars snapshot zips with download / restore.                                          |
-| ![Profile](docs/screenshots/settings-profile.png)              | **Settings → Profile** — account info, display name / email / avatar, password change.                             |
-| ![Debug drawer](docs/screenshots/host-drawer-debug.png)        | **Host drawer — debug** — raw provider-payload view (Beszel / Pulse / NE / Webmin) for troubleshooting empty rows. |
+| ![SSH run](docs/screenshots/host-drawer-ssh-run-light.png)           | **Host drawer — SSH-run** — admin one-shot command runner with dry-run, destructive-pattern guard, full audit.     |
+| ![SSH terminal](docs/screenshots/host-drawer-ssh-terminal-light.png) | **Host drawer — SSH terminal** — interactive xterm.js session via WSS to the backend's asyncssh PTY.               |
+| ![Hosts editor](docs/screenshots/admin-hosts-editor-light.png)       | **Admin → Hosts editor** — paginated curated-host CRUD with live discovery from each provider.                     |
+| ![Schedules](docs/screenshots/admin-schedules-light.png)             | **Admin → Schedules** — cron-like recurring jobs (gather refresh / prune / backup / asset refresh).                |
+| ![Backups](docs/screenshots/admin-backups-light.png)                 | **Admin → Backups** — DB + avatars snapshot zips with download / restore.                                          |
+| ![Profile](docs/screenshots/settings-profile-light.png)              | **Settings → Profile** — account info, display name / email / avatar, password change.                             |
+| ![Debug drawer](docs/screenshots/host-drawer-debug-light.png)        | **Host drawer — debug** — raw provider-payload view (Beszel / Pulse / NE / Webmin) for troubleshooting empty rows. |

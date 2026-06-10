@@ -1,0 +1,529 @@
+"""Grafana (metrics + observability dashboard) per-app module.
+
+Encapsulates everything Grafana-specific so the route layer
+(``main_pkg/apps_routes.py``) stays generic. Grafana speaks a REST API at
+``<base>/api``. Public surface mirrors the per-app contract (``forgejo.py`` /
+``seerr.py`` shape):
+
+    SLUGS               — catalog slugs this module handles ("grafana").
+    requires_api_key()  — True (the chip's ``api_key`` field stores a Grafana
+                          service-account token — Administration → Service
+                          accounts → Add service account token. A legacy API key
+                          works too. Any role can read ``/api/org``; an Admin /
+                          server-admin token unlocks the richer counts.)
+    resolve_base_url(host_row, chip) -> str   (shared helper)
+    test_credential(host_row, chip, candidate_key) -> dict
+    fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
+    peek_latest(host_id, service_idx) -> dict | None    (AI context)
+    SKILLS / run_skill  — status (read) + dashboards (read) + datasources (read)
+                          + search (arg, read). All read-only.
+
+The expanded card answers "what's in my Grafana right now":
+
+    org           — the org the token belongs to (name)
+    dashboards    — number of dashboards (admin/stats when available, else the
+                    search count)
+    folders       — number of dashboard folders
+    datasources   — number of configured datasources (Admin token)
+    users / orgs  — server-wide counts (server-admin token only; 0 otherwise)
+    version       — Grafana server version
+
+Auth model: a service-account / API token sent on the
+``Authorization: Bearer <token>`` header. The token is the secret and lives in
+the chip's ``api_key`` field. The credential probe hits the auth-required
+``/api/org`` so a bad / missing token fails loudly (401). Version comes from the
+no-auth ``/api/health``. Single-instance app (NOT fleet). No image proxy —
+Grafana dashboards have no thumbnail surface.
+"""
+from __future__ import annotations
+
+import time
+from typing import Any, Optional
+
+import httpx
+
+from logic.apps._common import (
+    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
+    resolve_credential_target)
+from logic.coerce import as_dict, as_list, safe_int
+
+# Catalog template slugs handled by this module.
+SLUGS: tuple[str, ...] = ("grafana",)
+
+# Grafana REST API base path.
+_API = "/api"
+
+# Per-(host_id, service_idx) data cache for the expanded card. Default TTL
+# overridable per chip via the editor's `cache_ttl` field. 60s — dashboard /
+# datasource counts move slowly.
+DEFAULT_CACHE_TTL_S = 60
+_data_cache: dict[str, tuple[float, dict]] = {}
+
+# Cap on the rich-item rows a list skill returns.
+_MAX_ROWS = 12
+
+# Grafana's /api/search default limit is 1000, max 5000 — used to count
+# dashboards when the (server-admin only) /api/admin/stats isn't available.
+_DASH_COUNT_LIMIT = 5000
+
+# Grafana skills — all read-only. `grafana_search` is arg-carrying (AI /
+# Telegram only — a drawer button can't supply the query).
+SKILLS: tuple[dict, ...] = (
+    {
+        "id": "grafana_status",
+        "name": "Grafana status",
+        "ai_phrases": ("grafana status, how many dashboards, dashboard count, "
+                       "grafana overview, grafana summary, how many datasources, "
+                       "grafana version, observability status"),
+        "destructive": False,
+    },
+    {
+        "id": "grafana_dashboards",
+        "name": "List dashboards",
+        "ai_phrases": ("grafana dashboards, list dashboards, what dashboards do i "
+                       "have, show grafana dashboards, my dashboards, recent "
+                       "dashboards"),
+        "destructive": False,
+    },
+    {
+        "id": "grafana_datasources",
+        "name": "List datasources",
+        "ai_phrases": ("grafana datasources, list datasources, what datasources, "
+                       "data sources on grafana, prometheus datasource, show "
+                       "grafana sources"),
+        "destructive": False,
+    },
+    {
+        "id": "grafana_search",
+        "name": "Search dashboards",
+        "ai_phrases": ("search grafana for <name>, find dashboard <name>, do i "
+                       "have a dashboard called <name>, look up <name> on grafana, "
+                       "grafana search <name>, search dashboards <name>"),
+        # arg-carrying → AI / Telegram only (the dispatch supplies the term).
+        "arg": True,
+        "arg_hint": "the dashboard title (or part of it) to search for",
+        "destructive": False,
+    },
+)
+
+
+def requires_api_key() -> bool:
+    """Grafana authenticates via a service-account / API token; the editor MUST
+    render the token input (stored in the chip's api_key) + Test."""
+    return True
+
+
+def _headers(token: str) -> dict:
+    """Grafana Bearer auth header + JSON Accept."""
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+def _version_from(resp) -> str:
+    """Grafana version from ``GET /api/health`` ('' on any non-200 / parse
+    failure — version is never load-bearing)."""
+    try:
+        if getattr(resp, "status_code", 0) != 200:
+            return ""
+        return str(as_dict(resp.json()).get("version") or "").strip()
+    except (ValueError, TypeError, AttributeError):
+        return ""
+
+
+async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
+    """Probe Grafana's auth-required ``/api/org`` with the supplied token.
+    Returns ``{ok, detail, status}``. Falls back to the chip's stored
+    ``api_key`` when ``candidate_key`` is blank so the operator can re-test
+    after first save without retyping."""
+    token, base, err = resolve_credential_target(host_row, chip, candidate_key)
+    if err:
+        return err
+    url = base + _API + "/org"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=10.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url, headers=_headers(token))
+            try:
+                ver = _version_from(await cli.get(base + _API + "/health",
+                                                  headers=_headers(token)))
+            except (httpx.HTTPError, OSError):
+                ver = ""
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
+    if r.status_code == 200:
+        try:
+            org = str(as_dict(r.json()).get("name") or "").strip()
+        except (ValueError, TypeError):
+            org = ""
+        who = f" (org: {org})" if org else ""
+        return {"ok": True,
+                "detail": (f"OK{who} (Grafana {ver})" if ver else f"OK{who}"),
+                "status": 200}
+    if r.status_code in (401, 403):
+        return {"ok": False, "detail": "auth failed (check the Grafana token)",
+                "status": r.status_code}
+    return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
+
+
+async def _count_array(cli: httpx.AsyncClient, base: str, token: str, path: str,
+                       params: Optional[dict] = None) -> Optional[int]:
+    """GET a list endpoint and return ``len(array)``, or ``None`` when the call
+    failed / wasn't 200 / wasn't a list. Best-effort — a non-200 (e.g. a Viewer
+    token 403 on /api/datasources) yields None so the caller seeds 0."""
+    try:
+        r = await cli.get(base + _API + path, headers=_headers(token), params=params or {})
+        if r.status_code != 200:
+            return None
+        body = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return None
+    return len(as_list(body))
+
+
+# noinspection DuplicatedCode
+async def fetch_data(host_row: dict, chip: dict, *,
+                     host_id: str, service_idx: int,
+                     force: bool = False) -> dict:
+    """Fetch Grafana's dashboard / datasource / org summary for the card.
+
+    Returns ``{available, org, dashboards, folders, datasources, users, orgs,
+    version, fetched_at}``. Raises ``ValueError`` / ``RuntimeError`` (caller maps
+    to HTTPException) when the token is unset / the base URL won't resolve / the
+    load-bearing ``/api/org`` call errors. Every enrichment beyond ``/api/org``
+    is best-effort — a Viewer token still produces a useful card."""
+    token = (chip.get("api_key") or "").strip()
+    now = time.time()
+    base, hit = fetch_gate(host_row, chip, host_id, service_idx, _data_cache,
+                           resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
+                           credential=token, log_tag="grafana")
+    if hit is not None:
+        return hit
+    org_url = base + _API + "/org"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            orr = await cli.get(org_url, headers=_headers(token))
+            if orr.status_code != 200:
+                print(f"[grafana] error: fetch host={host_id} url={orr.request.url} "
+                      f"returned HTTP {orr.status_code} (check the chip URL points at "
+                      f"the Grafana root, e.g. http://grafana.example.com:3000)")
+                if orr.status_code in (401, 403):
+                    raise RuntimeError(f"upstream auth failed: HTTP {orr.status_code} "
+                                       f"(check the Grafana token) — {org_url}")
+                raise RuntimeError(f"upstream returned HTTP {orr.status_code} for {org_url}")
+            try:
+                org = str(as_dict(orr.json()).get("name") or "").strip()
+            except (ValueError, TypeError):
+                org = ""
+            # Version (nice-to-have, no auth needed).
+            try:
+                version = _version_from(
+                    await cli.get(base + _API + "/health", headers=_headers(token)))
+            except (httpx.HTTPError, OSError):
+                version = ""
+            # Server-admin stats give exact dashboards / datasources / users /
+            # orgs in ONE call — prefer them when the token is a server admin.
+            users = orgs = 0
+            stats_dash: Optional[int] = None
+            stats_ds: Optional[int] = None
+            try:
+                sr = await cli.get(base + _API + "/admin/stats", headers=_headers(token))
+                if sr.status_code == 200:
+                    st = as_dict(sr.json())
+                    users = safe_int(st.get("users"))
+                    orgs = safe_int(st.get("orgs"))
+                    stats_dash = safe_int(st.get("dashboards"))
+                    stats_ds = safe_int(st.get("datasources"))
+            except (httpx.HTTPError, OSError, ValueError, TypeError):
+                users = orgs = 0
+            # Dashboards — admin/stats value when available, else count the search
+            # array (capped at the page limit).
+            dashboards = stats_dash
+            if dashboards is None:
+                dashboards = await _count_array(
+                    cli, base, token, "/search",
+                    {"type": "dash-db", "limit": str(_DASH_COUNT_LIMIT)})
+            # Folders + datasources (best-effort; datasources 403s for Viewer).
+            folders = await _count_array(cli, base, token, "/folders",
+                                         {"limit": str(_DASH_COUNT_LIMIT)})
+            datasources = stats_ds
+            if datasources is None:
+                datasources = await _count_array(cli, base, token, "/datasources")
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[grafana] error: fetch host={host_id} url={org_url} "
+              f"failed — {type(e).__name__}: {e}")
+        raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
+    out: dict[str, Any] = {
+        "available": True,
+        "org": org,
+        "dashboards": safe_int(dashboards),
+        "folders": safe_int(folders),
+        "datasources": safe_int(datasources),
+        "users": users,
+        "orgs": orgs,
+        "version": version,
+        "fetched_at": int(now),
+    }
+    print(f"[grafana] INFO fetched host={host_id} org={org!r} "
+          f"dashboards={out['dashboards']} folders={out['folders']} "
+          f"datasources={out['datasources']} users={users} orgs={orgs}")
+    _data_cache[cache_key(host_id, service_idx)] = (now, out)
+    return out
+
+
+def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
+    """Cache-only peek (no upstream call) for the AI context's
+    ``app_skills[].last``."""
+    data = peek_cache(_data_cache, host_id, service_idx)
+    if not isinstance(data, dict) or not data.get("available"):
+        return None
+    return {
+        "org": data.get("org") or "",
+        "dashboards": safe_int(data.get("dashboards")),
+        "folders": safe_int(data.get("folders")),
+        "datasources": safe_int(data.get("datasources")),
+        "users": safe_int(data.get("users")),
+        "orgs": safe_int(data.get("orgs")),
+        "version": data.get("version") or "",
+        "fetched_at": safe_int(data.get("fetched_at")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
+                    host_id: Optional[str] = None,
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``.
+    Raises ValueError on an unknown skill id (route maps to HTTP 404). ``arg``
+    carries the free-form search term for ``grafana_search``."""
+    if skill_id == "grafana_status":
+        return await _status_skill(host_row, chip, host_id=host_id,
+                                   service_idx=service_idx)
+    if skill_id == "grafana_dashboards":
+        return await _dashboards_skill(host_row, chip, host_id=host_id)
+    if skill_id == "grafana_datasources":
+        return await _datasources_skill(host_row, chip, host_id=host_id)
+    if skill_id == "grafana_search":
+        return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
+    raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
+    """Resolve ``(token, base)`` or a ready ``{ok: False, detail}`` error dict
+    for a Grafana skill."""
+    token = (chip.get("api_key") or "").strip()
+    if not token:
+        return "", "", {"ok": False, "status": 0, "detail": "Grafana token not set"}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    return token, base, None
+
+
+def _status_guard(r: "httpx.Response") -> Optional[dict]:
+    """Shared 401 / 403 + non-200 guard for a Grafana read skill. Returns a ready
+    error dict, or None when the response is 200 OK."""
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check the Grafana token)"}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    return None
+
+
+async def _skill_get(base: str, path: str, *, token: str, params: dict,
+                     timeout: float, verb: str) -> "httpx.Response | dict":
+    """Shared GET + status guard for a Grafana read skill. Returns the 200 OK
+    response, or a ready ``{ok: False, ...}`` error dict (the call failed OR the
+    status wasn't 200). The caller discriminates with one ``isinstance(r, dict)``
+    (which also narrows the response type)."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=timeout,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + path, headers=_headers(token), params=params)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    return _status_guard(r) or r
+
+
+def _items_and_lines(rows: list, row_fn) -> "tuple[list[dict], list[str]]":
+    """Map the first ``_MAX_ROWS`` raw rows through ``row_fn`` into the rich-item
+    list + the matching ``• title (subtitle)`` text lines, skipping rows the
+    builder rejects. Shared by every list skill."""
+    items: list[dict] = []
+    for raw in rows[:_MAX_ROWS]:
+        row = row_fn(raw)
+        if row:
+            items.append(row)
+    lines = [f"• {it['title']}" + (f"  ({it['subtitle']})" if it.get("subtitle") else "")
+             for it in items]
+    return items, lines
+
+
+def _attach_items(out: dict, items: list[dict], count_i18n: str) -> dict:
+    """Attach the rich-item list + count + count-i18n key to a skill result dict
+    (no-op when there are no items). Returns ``out`` for one-line use."""
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = count_i18n
+    return out
+
+
+# noinspection DuplicatedCode
+async def _status_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None,
+                        service_idx: Optional[int] = None) -> dict:
+    """Read-only: live-fetch the dashboard / datasource / org summary
+    (force-bypasses the cache) and return a formatted ``detail``. Never raises."""
+    print(f"[grafana] INFO grafana_status host={host_id} svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip,
+                                host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0),
+                                force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[grafana] warning: grafana_status host={host_id} could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    dashboards = safe_int(data.get("dashboards"))
+    folders = safe_int(data.get("folders"))
+    datasources = safe_int(data.get("datasources"))
+    users = safe_int(data.get("users"))
+    orgs = safe_int(data.get("orgs"))
+    org = str(data.get("org") or "").strip()
+    lines = [f"📊 Dashboards: {dashboards:,}"]
+    if folders:
+        lines.append(f"📁 Folders: {folders:,}")
+    lines.append(f"🔌 Datasources: {datasources:,}")
+    if org:
+        lines.append(f"🏢 Org: {org}")
+    if users or orgs:
+        lines.append(f"👥 Users: {users:,} · Orgs: {orgs:,}")
+    return {
+        "ok": True,
+        "detail": "\n".join(lines),
+        "status": 200,
+        "dashboards": dashboards, "folders": folders,
+        "datasources": datasources,
+    }
+
+
+def _dash_row(d: dict) -> Optional[dict]:
+    """One dashboard as a rich skill-result item: the title, with a folder + tags
+    subtitle. No poster — Grafana has no thumbnail surface."""
+    if not isinstance(d, dict):
+        return None
+    title = str(d.get("title") or "").strip()
+    if not title:
+        return None
+    bits = []
+    folder = str(d.get("folderTitle") or "").strip()
+    if folder:
+        bits.append(f"📁 {folder}")
+    tags = [str(t).strip() for t in as_list(d.get("tags")) if str(t).strip()]
+    if tags:
+        bits.append(" ".join(f"#{t}" for t in tags[:4]))
+    if d.get("isStarred"):
+        bits.append("⭐")
+    return {"title": title, "subtitle": " · ".join(bits)}
+
+
+async def _dashboards_skill(host_row: dict, chip: dict, *,
+                            host_id: Optional[str] = None) -> dict:
+    """Read-only: list dashboards (``GET /api/search?type=dash-db``) as rich rows.
+    Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[grafana] INFO grafana_dashboards host={host_id} (live fetch)")
+    r = await _skill_get(base, _API + "/search", token=token,
+                         params={"type": "dash-db", "limit": str(_MAX_ROWS)},
+                         timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        rows = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not rows:
+        return {"ok": True, "status": 200, "detail": "📊 No dashboards found."}
+    items, lines = _items_and_lines(rows, _dash_row)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "📊 Dashboards:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.grafana.dashboards_count")
+
+
+def _ds_row(ds: dict) -> Optional[dict]:
+    """One datasource as a rich skill-result item: the name, with a type +
+    default-flag subtitle."""
+    if not isinstance(ds, dict):
+        return None
+    name = str(ds.get("name") or "").strip()
+    if not name:
+        return None
+    typ = str(ds.get("typeName") or ds.get("type") or "").strip()
+    bits = [typ] if typ else []
+    if ds.get("isDefault"):
+        bits.append("default")
+    return {"title": name, "subtitle": " · ".join(bits)}
+
+
+async def _datasources_skill(host_row: dict, chip: dict, *,
+                             host_id: Optional[str] = None) -> dict:
+    """Read-only: list configured datasources (``GET /api/datasources``) as rich
+    rows. Requires an Admin token (a Viewer token 403s → surfaced cleanly). Never
+    raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[grafana] INFO grafana_datasources host={host_id} (live fetch)")
+    r = await _skill_get(base, _API + "/datasources", token=token,
+                         params={}, timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        rows = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not rows:
+        return {"ok": True, "status": 200, "detail": "🔌 No datasources configured."}
+    items, lines = _items_and_lines(rows, _ds_row)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🔌 Datasources:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.grafana.datasources_count")
+
+
+async def _search_skill(host_row: dict, chip: dict, *,
+                        arg: Optional[str] = None,
+                        host_id: Optional[str] = None) -> dict:
+    """Read-only (arg): search dashboards by title via
+    ``GET /api/search?query=<term>&type=dash-db`` and return the top matches as
+    rich rows. Never raises."""
+    term = (arg or "").strip()
+    if not term:
+        return {"ok": False, "status": 0,
+                "detail": "no search term given — say e.g. 'search grafana for node exporter'"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[grafana] INFO grafana_search host={host_id} term={term!r} (live search)")
+    r = await _skill_get(base, _API + "/search", token=token,
+                         params={"query": term, "type": "dash-db",
+                                 "limit": str(_MAX_ROWS)},
+                         timeout=20.0, verb="search")
+    if isinstance(r, dict):
+        return r
+    try:
+        rows = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not rows:
+        return {"ok": True, "status": 200,
+                "detail": f"🔍 No Grafana dashboards match “{term}”."}
+    items, lines = _items_and_lines(rows, _dash_row)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": f"🔍 Grafana dashboards matching “{term}”:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.grafana.dashboards_count")

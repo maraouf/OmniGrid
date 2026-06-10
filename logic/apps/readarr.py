@@ -237,6 +237,26 @@ SKILLS: tuple[dict, ...] = (
                        "refresh and scan books"),
         "destructive": False,
     },
+    # Manual-update skills — only for instances NOT linked to Docker (updates
+    # for a native / non-Docker install are applied by hand).
+    {
+        "id": "readarr_check_update",
+        "name": "Check for updates",
+        "ai_phrases": ("is readarr up to date, check readarr version, latest readarr "
+                       "version, is there a readarr update, readarr update available, "
+                       "check for readarr updates, what version of readarr is running"),
+        "destructive": False,
+        "non_docker_only": True,
+    },
+    {
+        "id": "readarr_update",
+        "name": "Update Readarr",
+        "ai_phrases": ("update readarr, upgrade readarr, install the readarr update, "
+                       "run the readarr updater, update readarr to the latest version, "
+                       "apply the readarr update"),
+        "destructive": True,
+        "non_docker_only": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
@@ -428,6 +448,13 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                     started_msg="🔄 Started a library refresh & disk "
                                                 "scan on Readarr.",
                                     host_id=host_id)
+    if skill_id == "readarr_check_update":
+        return await _servarr.check_update_skill(host_row, chip, app_label="Readarr",
+                                                 api_version="v1", host_id=host_id,
+                                                 actor_username=actor_username)
+    if skill_id == "readarr_update":
+        return await _servarr.app_update_skill(host_row, chip, app_label="Readarr",
+                                               api_version="v1", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 

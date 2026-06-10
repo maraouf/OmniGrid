@@ -205,6 +205,26 @@ SKILLS: tuple[dict, ...] = (
                        "refresh and scan music"),
         "destructive": False,
     },
+    # Manual-update skills — only for instances NOT linked to Docker (updates
+    # for a native / non-Docker install are applied by hand).
+    {
+        "id": "lidarr_check_update",
+        "name": "Check for updates",
+        "ai_phrases": ("is lidarr up to date, check lidarr version, latest lidarr "
+                       "version, is there a lidarr update, lidarr update available, "
+                       "check for lidarr updates, what version of lidarr is running"),
+        "destructive": False,
+        "non_docker_only": True,
+    },
+    {
+        "id": "lidarr_update",
+        "name": "Update Lidarr",
+        "ai_phrases": ("update lidarr, upgrade lidarr, install the lidarr update, "
+                       "run the lidarr updater, update lidarr to the latest version, "
+                       "apply the lidarr update"),
+        "destructive": True,
+        "non_docker_only": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
@@ -396,6 +416,13 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                     started_msg="🔄 Started a library refresh & disk "
                                                 "scan on Lidarr.",
                                     host_id=host_id)
+    if skill_id == "lidarr_check_update":
+        return await _servarr.check_update_skill(host_row, chip, app_label="Lidarr",
+                                                 api_version="v1", host_id=host_id,
+                                                 actor_username=actor_username)
+    if skill_id == "lidarr_update":
+        return await _servarr.app_update_skill(host_row, chip, app_label="Lidarr",
+                                               api_version="v1", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
