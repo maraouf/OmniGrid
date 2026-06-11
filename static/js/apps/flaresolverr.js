@@ -64,6 +64,50 @@ function flaresolverrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// 30-day open-session usage trend (from the lifespan flaresolverr_sampler --
+// FlareSolverr has no historical/request-volume API). Returns the usage block
+// `{series, peak, avg, active_days, samples, current, days}` or null.
+function flaresolverrUsage(inst) {
+  /* jshint validthis: true */
+  const d = flaresolverrData.call(this, inst);
+  return (d && d.usage && typeof d.usage === 'object') ? d.usage : null;
+}
+
+// Memo: stable `:points` string per series array reference (avoids re-render
+// flicker on every Alpine flush -- the canonical SVG-builder memo pattern).
+const _fsSparkMemo = new WeakMap();
+
+// SVG polyline points for the usage sparkline over a 0..100 × 0..24 viewBox.
+// '' when there's < 2 points (nothing to draw yet).
+function flaresolverrSparkPoints(inst) {
+  /* jshint validthis: true */
+  const u = flaresolverrUsage.call(this, inst);
+  const series = (u && Array.isArray(u.series)) ? u.series : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  if (_fsSparkMemo.has(series)) {
+    return _fsSparkMemo.get(series);
+  }
+  const W = 100, H = 24, n = series.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(series[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(series[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _fsSparkMemo.set(series, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. No api_key (the proxy
 // has no auth) and the default single-column layout (a compact status tile).
@@ -78,4 +122,6 @@ export const helpers = {
   flaresolverrIsApp: isFlaresolverrApp,
   flaresolverrData: flaresolverrData,
   flaresolverrCount: flaresolverrCount,
+  flaresolverrUsage: flaresolverrUsage,
+  flaresolverrSparkPoints: flaresolverrSparkPoints,
 };

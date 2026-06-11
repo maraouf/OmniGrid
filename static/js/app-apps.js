@@ -1658,16 +1658,35 @@ export default {
       return raw;
     }
     // No explicit icon — fall back to the brand resolver on the
-    // bookmark's display name. Returns '' when the name matches no
-    // brand (the <img> @error handler then hides the broken image
-    // cleanly). NEVER fall through to the bookmark URL as an icon
-    // source — a URL like `https://5g/` is not an image and the
+    // bookmark's display name. NEVER fall through to the bookmark URL as an
+    // <img src> directly — a URL like `https://5g/` is not an image and the
     // browser would try (and fail) to load it as one (operator-flagged).
     try {
-      return this.iconUrlFor(item.name || '') || '';
+      const byName = this.iconUrlFor(item.name || '') || '';
+      if (byName) {
+        return byName;
+      }
     } catch (_) {
+      // fall through to the favicon proxy below
+    }
+    // Final fallback: the site's OWN favicon via the server-side proxy
+    // (cached + SSRF-guarded). This is what makes an arbitrary external
+    // bookmark show a real icon instead of the letter / link glyph. The
+    // <img> @error handler hides it cleanly on a 404 / miss so the glyph
+    // still shows when no favicon resolves.
+    return this.appsFaviconUrl(item.url || '');
+  },
+
+  // Server-side favicon-proxy URL for a bookmark / app target URL — the final
+  // step of the icon resolver (brand → catalog → favicon → letter / glyph).
+  // Returns '' for a non-http(s) value (the <img> @error then shows the glyph).
+  // The backend caches the fetched favicon + SSRF-guards the target host.
+  appsFaviconUrl(rawUrl) {
+    const u = String(rawUrl || '').trim();
+    if (!/^https?:\/\//i.test(u)) {
       return '';
     }
+    return '/api/widgets/favicon?url=' + encodeURIComponent(u);
   },
 
   // lgtm[js/insecure-randomness]  — CodeQL: this function is the

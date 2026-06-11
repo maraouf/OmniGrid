@@ -1939,6 +1939,22 @@
           "label": "Weather sampler interval (seconds)",
           "help": "Cadence of the lifespan-managed weather sampler. Default 3600 (hourly) — matches WeatherAPI.com's free-tier-friendly load profile while giving the AI palette + Telegram `/weather` enough historical resolution for \"was it raining yesterday afternoon?\". Lower for tighter resolution at higher API cost; 0 disables the historical-data sampler entirely (only the on-demand cache stays active). Range 0..86400. Takes effect at the next tick."
         },
+        "tuning_favicon_cache_days": {
+          "label": "Favicon cache (days)",
+          "help": "How long a fetched site favicon is cached on disk under /app/data/favicons/ before re-fetching. Default 30 — site favicons change rarely. The favicon proxy is the final fallback for a bookmark / app tile whose icon doesn't match a brand or catalog icon (brand → catalog → favicon → letter-avatar). Range 1..365. Takes effect on the next favicon request."
+        },
+        "tuning_favicon_fetch_timeout_seconds": {
+          "label": "Favicon fetch timeout (seconds)",
+          "help": "Per-fetch wall-clock for the favicon proxy's upstream requests (the site's /favicon.ico + the page-head <link rel=icon> parse). Default 8 — favicons are tiny, so keep it tight so a slow site can't hang the tile. Range 2..60. Takes effect on the next favicon request."
+        },
+        "tuning_flaresolverr_sample_interval_seconds": {
+          "label": "FlareSolverr usage sampler interval (seconds)",
+          "help": "How often the lifespan FlareSolverr sampler records each configured FlareSolverr chip's live open-session count into the usage-trend table. Default 600 (10 min) — sessions change slowly and the probe (sessions.list) is cheap. 0 inherits the global stats sample interval. Lower for finer-grained trend resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick. (FlareSolverr exposes no historical/request-volume API, so this sampled session count is the only usage signal.)"
+        },
+        "tuning_flaresolverr_history_days": {
+          "label": "FlareSolverr usage history (days)",
+          "help": "Retention window for the FlareSolverr open-session-count samples that drive the card's usage trend. Default 30 (the \"past 30 days\" view). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..365. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -6139,6 +6155,7 @@
       "gateways": "Gateways",
       "wlans": "Wi-Fi networks",
       "wlans_count": "{count} Wi-Fi networks",
+      "clients_top_count": "Top {count} clients by usage",
       "sites": "Sites",
       "offline_summary": "{n} device(s) offline",
       "updates_summary": "{n} firmware update(s) available",
@@ -6175,6 +6192,10 @@
       "up": "Up",
       "sessions": "Sessions",
       "ua_footnote": "UA: {ua}",
+      "usage_peak": "Peak",
+      "usage_avg": "Avg",
+      "usage_active_days": "Active days",
+      "usage_caption": "Open sessions, last {days} days",
       "sessions_count": "{count} sessions",
       "confirm_destroy": "Destroy this FlareSolverr browser session? Any indexer using it will have to re-solve the challenge.",
       "loading": "Loading FlareSolverr data…",
@@ -6192,6 +6213,8 @@
       "running": "Running",
       "jobs_count": "{count} jobs",
       "running_count": "{count} running",
+      "run_now": "Run now",
+      "run_job_confirm": "Run this Rundeck job now?",
       "no_token": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Rundeck data…",
       "fetch_failed": "Rundeck fetch failed"
@@ -6202,7 +6225,7 @@
       "password_label": "Console password",
       "password_placeholder_saved": "Saved — leave blank to keep",
       "password_placeholder_unset": "Admin password",
-      "creds_hint": "The RustDesk Server Pro web-console login. Required for the device + user stats. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Pro web console (default port 21114). The open-source server has no API, so this card needs RustDesk Server Pro.",
+      "creds_hint": "The RustDesk Server Pro web-console login. Required for the device + user stats. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Pro web console (default port 21114). The open-source server has no API, so this card needs RustDesk Server Pro. If your account has 2FA enabled the login is rejected (HTTP 400) — the automation API can not complete a TOTP step, so create a dedicated user without 2FA (web console → Settings → Users → add a user) and use those credentials here.",
       "verify_tls_label": "Verify TLS certificate (off for self-signed)",
       "cache_ttl_hint": "How long fetched RustDesk stats are cached before re-querying (5–3600s). Leave blank for the app default (60s).",
       "devices": "Devices",
@@ -6223,7 +6246,7 @@
       "totp_label": "2FA secret (only if 2FA is enabled)",
       "totp_placeholder_saved": "Saved — leave blank to keep",
       "totp_placeholder_unset": "base32 TOTP key (blank if no 2FA)",
-      "totp_hint": "Leave blank unless this NPM user has 2FA enabled. Paste the base32 setup key (the text shown alongside the QR when you enabled 2FA) so OmniGrid can generate the TOTP codes itself. Stored encrypted-at-rest.",
+      "totp_hint": "Leave blank unless this NPM user has 2FA enabled. Paste the base32 setup key (the text shown alongside the QR when you enabled 2FA) so OmniGrid can generate the TOTP codes itself. Stored encrypted-at-rest. Already enabled 2FA and didn't save the key? NPM only shows it during setup — in NPM disable 2FA then enable it again, and copy the base32 key shown under the QR. Prefer not to share the secret? Create a separate NPM user without 2FA for OmniGrid and use those credentials instead (leave this blank).",
       "verify_tls_label": "Verify TLS certificate (off for self-signed)",
       "cache_ttl_hint": "How long fetched NPM stats are cached before re-querying (5–3600s). Leave blank for the app default (60s).",
       "proxy_hosts": "Proxy hosts",

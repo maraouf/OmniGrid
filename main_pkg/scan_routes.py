@@ -2029,8 +2029,11 @@ async def api_image_proxy(url: str):
                                  "X-OmniGrid-Cache": "hit"})
     # follow_redirects=False: TMDB serves images directly, and NOT following a
     # redirect keeps the host-allowlist airtight (a redirect off TMDB to an
-    # internal host can't be followed + cached — SSRF defence-in-depth).
+    # internal host can't be followed + cached — SSRF defence-in-depth). The
+    # kwarg is httpx's default, but kept EXPLICIT so the security intent is
+    # visible at the call site (hence the inspection suppression).
     try:
+        # noinspection PyArgumentEqualDefault
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as cli:
             r = await cli.get(url)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -2049,6 +2052,97 @@ async def api_image_proxy(url: str):
     return Response(content=body, media_type=ctype,
                     headers={"Cache-Control": "public, max-age=86400",
                              "X-OmniGrid-Cache": "miss"})
+
+
+def _known_internal_favicon_hosts() -> set:
+    """Hostnames the operator has explicitly registered in ``hosts_config`` —
+    the favicon proxy's allow-list for PRIVATE / internal targets (a PUBLIC host
+    is always allowed). Covers each host's ``url`` / ``address`` plus every
+    per-chip ``services[].url``. Cheap (cached settings read)."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    from logic.db import iter_curated_hosts  # noqa: PLC0415
+
+    def _host_of(v: Optional[str]) -> str:
+        s = (v or "").strip()
+        if not s:
+            return ""
+        return (urlsplit(s if "://" in s else "http://" + s).hostname or "").lower()
+
+    out: set = set()
+    try:
+        for h in iter_curated_hosts(require_enabled=False):
+            for key in ("url", "address"):
+                hh = _host_of(h.get(key))
+                if hh:
+                    out.add(hh)
+            svcs = h.get("services")
+            if isinstance(svcs, list):
+                for chip in svcs:
+                    if isinstance(chip, dict):
+                        hh = _host_of(chip.get("url"))
+                        if hh:
+                            out.add(hh)
+    except Exception as e:  # noqa: BLE001
+        print(f"[favicon] internal-host allowlist build failed: {e}")
+    return out
+
+
+@app.get("/api/widgets/favicon")
+async def api_widget_favicon(url: str):
+    """Server-side favicon proxy + disk cache for bookmark / app tiles whose
+    icon doesn't resolve to a brand / catalog icon (the resolver's final
+    fallback before the letter-avatar). Fetches the site's favicon
+    (``/favicon.ico`` + the ``<link rel=icon>`` in the page head), caches the
+    bytes to ``/app/data/favicons/``, and serves them from OmniGrid's own
+    origin — dodging the CORS / mixed-content fragility of a direct client
+    fetch.
+
+    Security (SSRF): a PUBLIC (globally-routable) host is always allowed; a
+    PRIVATE / internal host only when it's in the operator's curated
+    ``hosts_config`` (so an authed non-admin can't turn this into an internal
+    port-scanner). Redirects are NOT followed, every hit host is re-validated,
+    and bytes are image-validated + size-capped. Auth is the standard
+    ``/api/*`` middleware gate — the ``<img>`` request carries the same-origin
+    session cookie. On any miss the route 404s and the tile's ``<img> @error``
+    falls through to the letter-avatar cleanly."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    from logic import url_safety as _us  # noqa: PLC0415
+    from logic import favicon_cache as _fc  # noqa: PLC0415
+    u = (url or "").strip()
+    if not _us.is_safe_http_url(u):
+        raise HTTPException(400, "url must be an absolute http(s) URL")
+    host = (urlsplit(u).hostname or "").lower()
+    if not host:
+        raise HTTPException(400, "bad url")
+    known = _known_internal_favicon_hosts()
+
+    async def _allow(h: str) -> bool:
+        h = (h or "").strip().lower()
+        if not h:
+            return False
+        if h in known:
+            return True
+        return await asyncio.to_thread(_us.host_resolves_public, h)
+
+    if not await _allow(host):
+        raise HTTPException(
+            403, "refusing to fetch a favicon for a private/internal host that "
+                 "isn't in your hosts list")
+    _hdr = {"Cache-Control": "public, max-age=86400"}
+    hit = await asyncio.to_thread(_fc.get, u)
+    if hit is not None:
+        return Response(content=hit[0], media_type=hit[1],
+                        headers={**_hdr, "X-OmniGrid-Cache": "hit"})
+    if await asyncio.to_thread(_fc.is_miss, u):
+        raise HTTPException(404, "no favicon for this site")
+    result = await _fc.fetch_favicon(u, allow_host=_allow)
+    if result is None:
+        await asyncio.to_thread(_fc.put_miss, u)
+        raise HTTPException(404, "no favicon for this site")
+    body, ctype = result
+    await asyncio.to_thread(_fc.put, u, body, ctype)
+    return Response(content=body, media_type=ctype,
+                    headers={**_hdr, "X-OmniGrid-Cache": "miss"})
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences

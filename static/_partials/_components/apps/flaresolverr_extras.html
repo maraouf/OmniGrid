@@ -30,6 +30,33 @@
         <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrData(inst).sessions)"></div>
       </div>
     </div>
+    <!-- 30-day usage trend — open-session count sampled by the lifespan
+         flaresolverr_sampler (FlareSolverr has no historical / request-volume
+         API, so this sampled session count is the only usage signal). Shown
+         once at least one sample exists. -->
+    <template x-if="flaresolverrUsage(inst) && flaresolverrUsage(inst).samples > 0">
+      <div class="mt-2">
+        <div class="apps-card-ups-grid">
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.usage_peak') || 'Peak'"></div>
+            <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrUsage(inst).peak)"></div>
+          </div>
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.usage_avg') || 'Avg'"></div>
+            <div class="apps-card-stat-value" x-text="flaresolverrUsage(inst).avg"></div>
+          </div>
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.usage_active_days') || 'Active days'"></div>
+            <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrUsage(inst).active_days)"></div>
+          </div>
+        </div>
+        <svg class="apps-fs-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-fs-spark-line" :points="flaresolverrSparkPoints(inst)"></polyline>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)] mono"
+             x-text="t('apps.flaresolverr.usage_caption', { days: flaresolverrUsage(inst).days }) || ('Open sessions, last ' + flaresolverrUsage(inst).days + ' days')"></div>
+      </div>
+    </template>
     <!-- Version + user-agent footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono"
          x-show="flaresolverrData(inst).version"

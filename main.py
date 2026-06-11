@@ -851,6 +851,18 @@ async def _lifespan(_app: FastAPI):
         _prayer_reminders.reminder_loop(),
         name="prayer-reminders",
     )
+    # FlareSolverr usage sampler — records each configured FlareSolverr chip's
+    # live open-session count every tuning_flaresolverr_sample_interval_seconds
+    # (default 600s; 0 = inherit the global stats interval) into
+    # flaresolverr_session_samples, giving the card a 30-day usage trend.
+    # FlareSolverr exposes no historical/request-volume API, so this is the only
+    # way to show usage over time. Dormant-cheap when no FlareSolverr chip is
+    # pinned (keeps ticking so a runtime pin takes effect without a restart).
+    from logic.apps import flaresolverr_sampler as _flaresolverr_sampler
+    flaresolverr_sampler = asyncio.create_task(
+        _flaresolverr_sampler.flaresolverr_sampler_loop(),
+        name="flaresolverr-sampler",
+    )
     try:
         yield
     finally:
@@ -860,7 +872,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

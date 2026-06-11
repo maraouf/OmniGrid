@@ -741,6 +741,23 @@ WEATHER_FETCH_TIMEOUT_SECONDS = 8
 WEATHER_HISTORY_RETENTION_DAYS = 90
 WEATHER_SAMPLER_INTERVAL_SECONDS = 3600
 
+# FlareSolverr usage sampler. FlareSolverr exposes no historical / request-
+# volume API, so the lifespan sampler records each configured FlareSolverr
+# chip's live open-session count to drive the card's usage trend.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window for the "past 30 days" view.
+FLARESOLVERR_SAMPLE_INTERVAL_SECONDS = 600
+FLARESOLVERR_HISTORY_DAYS = 30
+
+# Favicon proxy (bookmark / app tile icon fallback). The icon resolver's final
+# step (brand → catalog → favicon → letter-avatar) fetches a site's favicon
+# server-side, caches it to /app/data/favicons/, and serves it from OmniGrid's
+# origin (dodging CORS / mixed-content). SSRF-guarded: a private/internal target
+# is refused unless its host is in hosts_config. *_CACHE_DAYS = disk TTL;
+# *_FETCH_TIMEOUT_SECONDS = per-fetch wall-clock.
+FAVICON_CACHE_DAYS = 30
+FAVICON_FETCH_TIMEOUT_SECONDS = 8
+
 # Asset-inventory outbound HTTP wall-clocks. Two tiers — token probe
 # (OAuth2 client_credentials handshake, default 10 s) and asset fetch
 # (paginated `/assets` pull, default 15 s). Bump on slow corporate
@@ -1176,6 +1193,10 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `WEATHER_FETCH_TIMEOUT_SECONDS`                | Runtime    | `8`                     | Weather provider outbound HTTP wall-clock. Range 1..60.                                                                                                                                                                                                                                                                                                                                       |
 | `WEATHER_HISTORY_RETENTION_DAYS`               | Runtime    | `90`                    | Days of weather + moon-phase samples kept in `weather_samples`. 0 disables pruning. Range 0..3650.                                                                                                                                                                                                                                                                                            |
 | `WEATHER_SAMPLER_INTERVAL_SECONDS`             | Runtime    | `3600`                  | Lifespan-managed weather sampler cadence. 0 disables the historical-data sampler. Range 0..86400.                                                                                                                                                                                                                                                                                             |
+| `FLARESOLVERR_SAMPLE_INTERVAL_SECONDS`         | Runtime    | `600`                   | FlareSolverr usage sampler cadence — records each FlareSolverr chip's live open-session count for the card's 30-day usage trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                        |
+| `FLARESOLVERR_HISTORY_DAYS`                     | Runtime    | `30`                    | Retention window (days) for the FlareSolverr open-session-count samples driving the card usage trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                            |
+| `FAVICON_CACHE_DAYS`                            | Runtime    | `30`                    | Disk-cache TTL (days) for a fetched site favicon (bookmark / app tile icon fallback) under `/app/data/favicons/`. Range 1..365.                                                                                                                                                                                                                                                               |
+| `FAVICON_FETCH_TIMEOUT_SECONDS`                 | Runtime    | `8`                     | Per-fetch wall-clock (s) for the favicon proxy's upstream GET(s). Range 2..60.                                                                                                                                                                                                                                                                                                                |
 | `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS`        | Runtime    | `10`                    | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120.                                                                                                                                                                                                                                                                                                                  |
 | `ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS`        | Runtime    | `15`                    | Asset-list fetch timeout for the asset-inventory client. Range 2..300.                                                                                                                                                                                                                                                                                                                        |
 | `KICK_GATHER_TIMEOUT_SECONDS`                  | Runtime    | `30`                    | Wall-clock cap for the cold-cache `_gather()` kick on drill-down endpoints. Range 5..300.                                                                                                                                                                                                                                                                                                     |
