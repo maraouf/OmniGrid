@@ -61,6 +61,12 @@ SLUGS: tuple[str, ...] = ("unifi-os-server", "unifi", "unifi-network", "unifi-os
 # UniFi Network Integration API base path.
 _API = "/proxy/network/integration/v1"
 
+# Legacy UniFi Network controller API base path. The Integration API (v1) has NO
+# WLAN-config endpoint, so the configured Wi-Fi-network (SSID) list is read from
+# the classic controller API instead — the modern API key authenticates BOTH
+# surfaces, so no separate session/cookie login is needed. See _fetch_wlan_names.
+_LEGACY_API = "/proxy/network/api"
+
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
 # overridable per chip via the editor's `cache_ttl` field. 30s — the console
 # answers from memory so a short cache keeps the card live without hammering it.
@@ -348,6 +354,38 @@ async def _gather_site(cli: "httpx.AsyncClient", base: str, key: str,
     return devices, clients, wlans
 
 
+async def _fetch_wlan_names(cli: "httpx.AsyncClient", base: str, key: str) -> list[str]:
+    """Configured Wi-Fi-network (SSID) names via the LEGACY UniFi Network
+    controller API. The Integration API (v1) exposes no WLAN-config endpoint and
+    its client records don't carry the SSID name, so neither the Integration
+    ``/wlans`` route nor the distinct-client-SSID fallback can list the
+    configured networks — but the classic controller API's ``rest/wlanconf``
+    does, and the same ``X-API-KEY`` authenticates it (no cookie login needed).
+
+    Walks every site's ``/proxy/network/api/s/{site}/rest/wlanconf``; the site
+    keys come from the legacy ``/self/sites`` list (internal names like
+    ``default``), falling back to ``default`` when that probe is unavailable.
+    Returns the sorted, de-duplicated (case-insensitive) names, ``[]`` on any
+    failure so the caller degrades to the client-SSID heuristic."""
+    from urllib.parse import quote  # noqa: PLC0415
+    sites_body = await _get_json(cli, base + _LEGACY_API + "/self/sites", key)
+    site_keys = [str(s.get("name") or "").strip()
+                 for s in as_list(as_dict(sites_body).get("data"))
+                 if isinstance(s, dict) and s.get("name")]
+    if not site_keys:
+        site_keys = ["default"]
+    names: set[str] = set()
+    for sk in site_keys[:_MAX_SITES]:
+        body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/rest/wlanconf", key)
+        for w in as_list(as_dict(body).get("data")):
+            if isinstance(w, dict):
+                nm = str(w.get("name") or "").strip()
+                if nm:
+                    names.add(nm)
+    return sorted(names, key=str.lower)
+
+
 # noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
@@ -381,6 +419,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _gather_site(cli, base, key, str(s.get("id") or ""))
                 for s in sites[:_MAX_SITES] if s.get("id")
             ])
+            # The Integration API has no WLAN-config endpoint — read the SSID
+            # list from the legacy controller API (same key). Cheap (1 + N-sites
+            # calls) and the whole fetch is cached, so no per-poll cost concern.
+            legacy_wlan_names = await _fetch_wlan_names(cli, base, key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[unifi] error: fetch host={host_id} base={base} "
               f"failed — {type(e).__name__}: {e}")
@@ -401,16 +443,26 @@ async def fetch_data(host_row: dict, chip: dict, *,
         buckets[_classify_device(d)] += 1
     wired = sum(1 for c in clients if _client_is_wired(c))
     updates = sum(1 for d in devices if _device_update_pending(d))
-    # Configured Wi-Fi networks: prefer the WLANs endpoint (accurate configured
-    # NAMES); fall back to the distinct SSIDs seen across wireless clients when
-    # that endpoint isn't available on this Network version. Names are sorted +
-    # deduped (case-insensitive) so the card / skill can list them.
+    # Configured Wi-Fi networks, most-authoritative-first:
+    #   1) the Integration ``/wlans`` endpoint (if a future Network version adds
+    #      it — accurate configured NAMES);
+    #   2) the legacy controller ``rest/wlanconf`` (the real source today — the
+    #      Integration API has no WLAN-config route, see _fetch_wlan_names);
+    #   3) the distinct SSIDs seen across CURRENTLY-connected wireless clients
+    #      (a heuristic — misses idle SSIDs and the Integration client record may
+    #      not even carry the SSID, which is why 1+2 exist).
+    # Names are sorted + deduped (case-insensitive) for the card / skill.
     if wlans:
         wlan_names = sorted({n for n in (_wlan_name(w) for w in wlans) if n},
                             key=str.lower)
+        wlan_src = "integration"
+    elif legacy_wlan_names:
+        wlan_names = legacy_wlan_names
+        wlan_src = "legacy"
     else:
         wlan_names = sorted({s for s in (_client_ssid(c) for c in clients) if s},
                             key=str.lower)
+        wlan_src = "client-ssid"
 
     out: dict[str, Any] = {
         "available": True,
@@ -434,7 +486,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"devices={out['devices']} online={out['devices_online']} "
           f"aps={out['aps']} sw={out['switches']} gw={out['gateways']} "
           f"clients={out['clients']} (w={out['clients_wired']}/"
-          f"wl={out['clients_wireless']}) wlans={out['wlans']} "
+          f"wl={out['clients_wireless']}) wlans={out['wlans']}({wlan_src}) "
           f"updates={out['devices_update_available']} ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
