@@ -404,13 +404,64 @@ def _fmt_bytes(n: Any) -> str:
     return f"{v:.1f} TB"
 
 
+# Device-type categories keyed off the client's name / hostname / vendor text.
+# ORDERED most-specific-first — first keyword hit wins, so e.g. "apple tv"
+# (Multimedia) is tested before a bare "apple" would land it as a Laptop, and
+# "nest hub" (Multimedia, a smart display) before "aqara ... hub" (IoT Hub).
+# Returns a short bracket label for the clients-skill rows (📱 / 🔌 emoji still
+# carries the wired/wireless axis separately).
+_CLIENT_CATEGORIES: tuple = (
+    ("Router", ("router", "rt-ac", "rt-ax", "dd-wrt", "openwrt", "pfsense",
+                "opnsense", "edgerouter", "mikrotik", "gateway", "udm",
+                "dream machine", "firewalla", "gl-inet", "gl-")),
+    ("Laptop", ("macbook", "laptop", "thinkpad", "notebook", "elitebook",
+                "probook", "latitude", "zenbook", "ideapad", "xps", "framework")),
+    ("Desktop", ("desktop", "imac", "mac pro", "mac mini", "gigabyte", "asrock",
+                 "optiplex", "workstation", " nuc", "odyssey", "msi ")),
+    ("Phone", ("iphone", "galaxy s", "galaxy note", "pixel", "oneplus", "redmi",
+               "xiaomi mi", "huawei", "smartphone", "phone")),
+    ("Tablet", ("ipad", "tablet", "galaxy tab")),
+    ("TV", ("smart tv", "lg tv", "samsung tv", "sony tv", "bravia", "android tv",
+            "webos", "tizen", "vizio")),
+    ("Multimedia", ("apple tv", "fire tv", "fire cube", "firestick", "fire stick",
+                    "chromecast", "nest hub", "nest mini", "nest audio", "roku",
+                    "shield", "homepod", "sonos", "echo", "alexa", "encoder",
+                    "iptv", "hdmi", "google nest", "nvidia shield", "set-top",
+                    "media", "soundbar")),
+    ("Console", ("playstation", "ps4", "ps5", "xbox", "nintendo", "steam deck")),
+    ("IoT Hub", ("aqara", "smartthings", "philips hue", "hue bridge", "zigbee",
+                 "z-wave", "zwave", "hubitat", "homey", "deconz", "conbee",
+                 "home assistant", "homeassistant")),
+    ("Camera", ("camera", "reolink", "hikvision", "dahua", "nest cam", "wyze",
+                "doorbell", "ring ", "protect", "webcam", "ipcam", "amcrest")),
+    ("Printer", ("printer", "laserjet", "officejet", "epson", "brother",
+                 "pixma", "deskjet", "ecotank")),
+    ("NAS", ("synology", "qnap", "truenas", "diskstation", "unraid", "nas")),
+    ("Server", ("server", "proxmox", "esxi", "vmware", "hypervisor", "raspberry",
+                "raspberrypi")),
+    ("Watch", ("apple watch", "watch", "fitbit", "garmin")),
+)
+
+
+def _client_category(text: str) -> str:
+    """Best device-type label for a client from its name / hostname / vendor
+    text (keyword match, most-specific-first), or '' when nothing matches."""
+    t = " " + (text or "").strip().lower() + " "
+    for label, kws in _CLIENT_CATEGORIES:
+        for kw in kws:
+            if kw in t:
+                return label
+    return ""
+
+
 async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> list[dict]:
     """Per-client SESSION usage (rx + tx bytes since the client connected) from
     the LEGACY controller ``stat/sta`` endpoint — the Integration API client
     record carries no traffic counters, so the top-by-usage ranking needs the
     classic API (same ``X-API-KEY`` auth + per-site walk as ``_fetch_wlan_names``).
-    Each row: ``{name, ip, wired, rx, tx, total}`` (bytes). ``[]`` on any failure
-    so the caller degrades to the plain count summary."""
+    Each row: ``{name, ip, wired, rx, tx, total, text}`` (bytes; ``text`` is the
+    categorisation source). ``[]`` on any failure so the caller degrades to the
+    plain count summary."""
     from urllib.parse import quote  # noqa: PLC0415
     out: list[dict] = []
     for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
@@ -421,14 +472,18 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
                 continue
             rx = safe_int(c.get("rx_bytes")) + safe_int(c.get("wired-rx_bytes"))
             tx = safe_int(c.get("tx_bytes")) + safe_int(c.get("wired-tx_bytes"))
-            name = (str(c.get("name") or "").strip()
-                    or str(c.get("hostname") or "").strip()
-                    or str(c.get("mac") or "").strip())
+            nm = str(c.get("name") or "").strip()
+            hn = str(c.get("hostname") or "").strip()
+            vendor = str(c.get("oui") or "").strip()
+            name = nm or hn or str(c.get("mac") or "").strip()
             if not name:
                 continue
+            # Categorisation text — name + hostname + vendor OUI for the best
+            # device-type keyword match (e.g. "MacBook Pro Laptop" → Laptop).
+            cat_text = " ".join(x for x in (nm, hn, vendor) if x) or name
             out.append({"name": name, "ip": str(c.get("ip") or "").strip(),
                         "wired": bool(c.get("is_wired")), "rx": rx, "tx": tx,
-                        "total": rx + tx})
+                        "total": rx + tx, "text": cat_text})
     return out
 
 
@@ -784,16 +839,18 @@ async def _clients_skill(host_row: dict, chip: dict, *,
     lines = [summary, "", "📊 Top clients by usage (this session):"]
     for i, c in enumerate(top, 1):
         icon = "🔌" if c["wired"] else "📶"
+        cat = _client_category(c.get("text") or c["name"])
+        label = f"[{cat}] {c['name']}" if cat else c["name"]
         sub_bits = []
         if c["ip"]:
             sub_bits.append(c["ip"])
         sub_bits.append(f"▼ {_fmt_bytes(c['rx'])} · ▲ {_fmt_bytes(c['tx'])}")
         items.append({
-            "title": f"{icon} {c['name']}",
+            "title": f"{icon} {label}",
             "subtitle": " · ".join(sub_bits),
             "progress": round(c["total"] / maxt * 100),
         })
-        lines.append(f"{i}. {c['name']} — {_fmt_bytes(c['total'])} "
+        lines.append(f"{i}. {label} — {_fmt_bytes(c['total'])} "
                      f"(▼{_fmt_bytes(c['rx'])} ▲{_fmt_bytes(c['tx'])})")
     out = dict(base_out)
     out["detail"] = "\n".join(lines)
