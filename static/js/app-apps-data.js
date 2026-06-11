@@ -238,7 +238,7 @@ export default {
         // or just-edited instance reports "no upstream URL configured" until
         // the operator saves first. The backend reads candidate_key from
         // `api_key` and any extra fields from the same payload.
-        body: JSON.stringify({api_key: f.api_key || '', username: f.username || '', url: f.url || ''}),
+        body: JSON.stringify({api_key: f.api_key || '', username: f.username || '', url: f.url || '', verify_tls: !!f.verify_tls, totp_secret: f.totp_secret || ''}),
       });
       const j = await r.json().catch(() => ({}));
       const _ok = !!(r.ok && j && j.ok);

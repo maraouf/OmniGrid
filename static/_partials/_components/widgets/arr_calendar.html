@@ -111,10 +111,14 @@
                         <span x-show="rel.overview" class="apps-widget-arr-cal-pop-overview"
                               x-text="rel.overview"></span>
                         <!-- Action pills — open in the source app + IMDb / TMDB.
-                             The app pill resolves through arrCalItemAppUrl so a
-                             friendly link override counts even when the chip has
-                             no integration base (rel.app_url empty). -->
-                        <span x-show="arrCalItemAppUrl(rel) || rel.imdb_url || rel.tmdb_url"
+                             Gate on RAW fields only (service_slug is always set
+                             for an *arr item, so the row always shows); the app
+                             pill's href resolves through arrCalItemAppUrl inside.
+                             Never call arrCalItemAppUrl in this x-show — if it
+                             ever threw, Alpine would hide the ENTIRE pill row
+                             (incl. IMDb / TMDB), which is the regression this
+                             avoids. -->
+                        <span x-show="rel.service_slug || rel.imdb_url || rel.tmdb_url"
                               class="apps-widget-arr-cal-pop-actions">
                           <!-- Source-app chip — ALWAYS shown so the operator sees
                                which *arr the release came from. Clickable (opens

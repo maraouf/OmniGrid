@@ -1620,6 +1620,12 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 "ports": probe_cfg.get("ports") or [],
                 "show_extras": inst_show_extras,
                 "api_key_set": inst_api_key_set,
+                # 2FA TOTP secret — never returned in the clear, only a
+                # `totp_secret_set` flag (e.g. NPM with 2FA enabled).
+                "totp_secret_set": bool(
+                    isinstance(svc.get("totp_secret"), str)
+                    and svc.get("totp_secret", "").strip()
+                ),
                 # Non-secret username half of a Basic-auth credential pair
                 # (e.g. AdGuard Home). Returned in the clear so the editor
                 # can show/edit it; the password stays in `api_key`.
@@ -1631,6 +1637,9 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
+                # Per-instance TLS-verification toggle (apps that talk HTTPS to
+                # a self-signed cert, e.g. NPM); None when unset (module default).
+                "verify_tls": svc.get("verify_tls"),
                 # Per-instance Seerr "suggest a movie" pool sizing; None when
                 # unset (the module defaults 8 / 200 apply).
                 "suggest_page_attempts": svc.get("suggest_page_attempts"),
@@ -1777,6 +1786,12 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                     isinstance(svc.get("tmdb_api_key"), str)
                     and svc.get("tmdb_api_key", "").strip()
                 ),
+                # 2FA TOTP secret — never returned in the clear, only a
+                # `totp_secret_set` flag (e.g. NPM with 2FA enabled).
+                "totp_secret_set": bool(
+                    isinstance(svc.get("totp_secret"), str)
+                    and svc.get("totp_secret", "").strip()
+                ),
                 "tmdb_base_url": (svc.get("tmdb_base_url") or ""),
                 "tmdb_image_base_url": (svc.get("tmdb_image_base_url") or ""),
                 # Per-instance averages window (Speedtest "Avg of last N
@@ -1785,6 +1800,9 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
+                # Per-instance TLS-verification toggle (apps that talk HTTPS to
+                # a self-signed cert, e.g. NPM); None when unset (module default).
+                "verify_tls": svc.get("verify_tls"),
                 # Per-instance Seerr "suggest a movie" pool sizing; None when
                 # unset (the module defaults 8 / 200 apply).
                 "suggest_page_attempts": svc.get("suggest_page_attempts"),

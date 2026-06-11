@@ -1,0 +1,62 @@
+<!-- Per-app expanded-card extras -- Rundeck (runbook automation / job scheduler).
+
+     Renders inside `apps-card.html` when the chip is the Rundeck catalog
+     template AND extras are visible. Data comes from
+     `logic/apps/rundeck.py:fetch_data` (API-token REST), read through the
+     cache-backed `appsAppData(inst)`. Reuses the shared `.apps-card-ups-*`
+     stat-grid (a generic telemetry panel).
+
+     Helpers used (all from `static/js/apps/rundeck.js`):
+       rundeckIsApp(app) / rundeckData(inst) / rundeckCount(v) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rundeckIsApp && rundeckIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && rundeckData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-rundeck-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Projects -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.projects') || 'Projects'"></div>
+        <div class="apps-card-stat-value" x-text="rundeckCount(rundeckData(inst).projects)"></div>
+      </div>
+      <!-- Jobs -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.jobs') || 'Jobs'"></div>
+        <div class="apps-card-stat-value" x-text="rundeckCount(rundeckData(inst).jobs)"></div>
+      </div>
+      <!-- Running now -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.running') || 'Running'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(rundeckData(inst).running) || 0) > 0 ? 'text-[var(--success)]' : ''"
+             x-text="rundeckCount(rundeckData(inst).running)"></div>
+      </div>
+    </div>
+    <!-- Rundeck version footnote. -->
+    <div x-show="rundeckData(inst).version"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+         x-text="t('apps.version_footnote', { brand: 'Rundeck', v: (rundeckData(inst).version || '') })"></div>
+  </div>
+</template>
+<!-- No token yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rundeckIsApp && rundeckIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.rundeck.no_token') || 'No API token set -- add one in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on rundeckData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rundeckIsApp && rundeckIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !rundeckData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.rundeck.loading') || 'Loading Rundeck data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rundeckIsApp && rundeckIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !rundeckData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.rundeck.fetch_failed') || 'Rundeck fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

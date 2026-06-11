@@ -1,0 +1,60 @@
+<!-- Per-app expanded-card extras -- RustDesk Server (Pro).
+
+     Renders inside `apps-card.html` when the chip is the RustDesk catalog
+     template AND extras are visible. Data comes from
+     `logic/apps/rustdesk.py:fetch_data` (console login -> Bearer -> peers /
+     users / version), read through the cache-backed `appsAppData(inst)`.
+     Reuses the shared `.apps-card-ups-*` stat-grid (a generic telemetry panel).
+
+     Helpers used (all from `static/js/apps/rustdesk.js`):
+       rustdeskIsApp(app) / rustdeskData(inst) / rustdeskCount(v) /
+       rustdeskDeviceFraction(d) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rustdeskIsApp && rustdeskIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && rustdeskData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-rustdesk-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Devices online / total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.rustdesk.devices') || 'Devices'"></div>
+        <div class="apps-card-stat-value" x-text="rustdeskDeviceFraction(rustdeskData(inst))"></div>
+      </div>
+      <!-- Users -->
+      <div class="apps-card-ups-stat" x-show="(Number(rustdeskData(inst).users) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rustdesk.users') || 'Users'"></div>
+        <div class="apps-card-stat-value" x-text="rustdeskCount(rustdeskData(inst).users)"></div>
+      </div>
+    </div>
+    <!-- Offline-devices footnote — only when something is offline. -->
+    <div x-show="(Number(rustdeskData(inst).devices_offline) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--text-faint)]"
+         x-text="t('apps.rustdesk.offline_summary', { n: (Number(rustdeskData(inst).devices_offline) || 0) })"></div>
+    <!-- RustDesk version footnote. -->
+    <div x-show="rustdeskData(inst).version"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+         x-text="t('apps.version_footnote', { brand: 'RustDesk', v: (rustdeskData(inst).version || '') })"></div>
+  </div>
+</template>
+<!-- No credentials yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rustdeskIsApp && rustdeskIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.rustdesk.no_creds') || 'No credentials set -- add the RustDesk Server Pro console username + password in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on rustdeskData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rustdeskIsApp && rustdeskIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !rustdeskData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.rustdesk.loading') || 'Loading RustDesk data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed (OSS server / wrong port / bad creds). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rustdeskIsApp && rustdeskIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !rustdeskData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.rustdesk.fetch_failed') || 'RustDesk fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

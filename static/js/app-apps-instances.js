@@ -669,6 +669,9 @@ export default {
     // the "Saved" indicator without round-tripping the secret.
     api_key: '',
     api_key_set: false,
+    // 2FA TOTP secret (e.g. NPM with 2FA enabled) — secret, keep-current.
+    totp_secret: '',
+    totp_secret_set: false,
     // Seerr TMDB config (for the AI "suggest a movie" skill). tmdb_api_key
     // is a secret (keep-current-if-blank, never returned in the clear —
     // only the `tmdb_api_key_set` flag); the two base URLs round-trip in
@@ -734,6 +737,10 @@ export default {
       // pattern from the global-secrets convention).
       api_key: '',
       api_key_set: !!inst.api_key_set,
+      // 2FA TOTP secret (e.g. NPM with 2FA). Editor starts blank; a non-empty
+      // value on save overwrites, blank preserves the stored secret.
+      totp_secret: '',
+      totp_secret_set: !!inst.totp_secret_set,
       // Epoch seconds of the last PASSING Test-connection (stamped by the
       // test-credential route, surfaced via iter_instances). Drives the
       // editor's "✓ Last tested Xm ago" chip; updated optimistically on a
@@ -752,6 +759,9 @@ export default {
       // (AdGuard / Pi-hole 30, Speedtest 60); backend clamps 5..3600.
       cache_ttl: (inst.cache_ttl != null && inst.cache_ttl !== '')
         ? String(inst.cache_ttl) : '',
+      // Per-instance TLS-verification toggle (apps that talk HTTPS to a
+      // self-signed cert, e.g. NPM). Default false (verification off).
+      verify_tls: !!inst.verify_tls,
       // Seerr TMDB config. tmdb_api_key starts blank (secret, keep-current);
       // the base URLs seed from the backend (returned in the clear).
       tmdb_api_key: '',
@@ -803,9 +813,11 @@ export default {
       docker_host: f.docker_host || '',
       show_extras: (f.show_extras === true || f.show_extras === false) ? f.show_extras : null,
       api_key: (typeof f.api_key === 'string') ? f.api_key : '',
+      totp_secret: (typeof f.totp_secret === 'string') ? f.totp_secret : '',
       username: f.username || '',
       avg_window: f.avg_window || '',
       cache_ttl: f.cache_ttl || '',
+      verify_tls: !!f.verify_tls,
       tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
       tmdb_base_url: f.tmdb_base_url || '',
       tmdb_image_base_url: f.tmdb_image_base_url || '',
@@ -1149,6 +1161,8 @@ export default {
           // returns `api_key_set: bool` so the SPA can render the
           // "Saved" indicator without round-tripping the secret.
           api_key: (typeof f.api_key === 'string') ? f.api_key : '',
+          // 2FA TOTP secret — keep-current-if-blank (e.g. NPM with 2FA).
+          totp_secret: (typeof f.totp_secret === 'string') ? f.totp_secret : '',
           // Non-secret Basic-auth username half — surfaced ONLY by the
           // apps whose editor partial declares it (e.g. AdGuard Home);
           // empty for single-secret apps (Speedtest), so the backend
@@ -1160,6 +1174,8 @@ export default {
           // Per-instance data-cache TTL (seconds). Blank => backend drops
           // it => the app module's default; a value is clamped 5..3600.
           cache_ttl: (f.cache_ttl != null) ? f.cache_ttl : '',
+          // Per-instance TLS-verification toggle (e.g. NPM HTTPS self-signed).
+          verify_tls: !!f.verify_tls,
           // Seerr TMDB config. tmdb_api_key is a secret (keep-current-if-
           // blank); the two base URLs round-trip in the clear (blank =>
           // backend clears => app falls back to the public TMDB defaults).

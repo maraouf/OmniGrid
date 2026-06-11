@@ -33,6 +33,7 @@ from . import apprise
 from . import bazarr
 from . import ddns_updater
 from . import emby
+from . import flaresolverr
 from . import forgejo
 from . import gitsync
 from . import grafana
@@ -47,6 +48,8 @@ from . import prowlarr
 from . import qbittorrent
 from . import radarr
 from . import readarr
+from . import rundeck
+from . import rustdesk
 from . import seerr
 from . import sonarr
 from . import speedtest_tracker
@@ -74,10 +77,10 @@ def _register(module: ModuleType) -> None:
 # Register every per-app module. Loop (not 18 repeated `_register(...)` lines)
 # so adding a module is a one-line edit to the tuple + its import above.
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
-             emby, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, netbootxyz,
-             nginx_proxy_manager, pihole, plex, prowlarr, qbittorrent, radarr,
-             readarr, seerr, sonarr, speedtest_tracker, tautulli, tdarr, tracearr,
-             unifi):
+             emby, flaresolverr, forgejo, gitsync, grafana, jellyfin, kavita,
+             lidarr, netbootxyz, nginx_proxy_manager, pihole, plex, prowlarr,
+             qbittorrent, radarr, readarr, rundeck, rustdesk, seerr, sonarr,
+             speedtest_tracker, tautulli, tdarr, tracearr, unifi):
     _register(_mod)
 
 
