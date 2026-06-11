@@ -3,6 +3,7 @@
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
 // noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
+// noinspection JSUnresolvedVariable,JSUnresolvedReference
 /* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
 
 // Per-app SPA module -- ddns-updater (qdm12/ddns-updater).
@@ -73,6 +74,68 @@ function ddnsFailing(inst) {
   return d.failing_domains;
 }
 
+// The per-record detail list ([] when payload absent). Each entry carries
+// {domain, provider, ip_version, status, status_raw, last_updated, current_ip,
+// previous_ips} — surfaced from the parsed web-UI table.
+function ddnsRecords(inst) {
+  /* jshint validthis: true */
+  const d = ddnsData.call(this, inst);
+  return (d && Array.isArray(d.records)) ? d.records : [];
+}
+
+// The history block {days, samples, current_ip, current_ip_since,
+// ip_change_count, ip_changes, fail_series, fail_peak} from the lifespan
+// ddns sampler, or null while idle / no samples yet.
+function ddnsHistory(inst) {
+  /* jshint validthis: true */
+  const d = ddnsData.call(this, inst);
+  return (d && d.history && typeof d.history === 'object') ? d.history : null;
+}
+
+// Public-IP-change timeline, NEWEST-first ({ts, ip}) for the card list. []
+// when no history / no changes recorded yet.
+function ddnsIpChanges(inst) {
+  /* jshint validthis: true */
+  const h = ddnsHistory.call(this, inst);
+  const arr = (h && Array.isArray(h.ip_changes)) ? h.ip_changes : [];
+  return arr.slice().reverse();
+}
+
+// Memo: stable `:points` string per fail_series array reference (the
+// canonical SVG-builder memo — avoids re-render flicker on every flush).
+const _ddnsFailSparkMemo = new WeakMap();
+
+// SVG polyline points for the failing-count sparkline over a 0..100 × 0..24
+// viewBox. '' when there's < 2 points (nothing to draw yet).
+function ddnsFailSparkPoints(inst) {
+  /* jshint validthis: true */
+  const h = ddnsHistory.call(this, inst);
+  const series = (h && Array.isArray(h.fail_series)) ? h.fail_series : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  if (_ddnsFailSparkMemo.has(series)) {
+    return _ddnsFailSparkMemo.get(series);
+  }
+  const W = 100, H = 24, n = series.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(series[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(series[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _ddnsFailSparkMemo.set(series, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. No auth, so
 // requiresApiKey is false; a 2-column span + vertical telemetry layout like
@@ -94,4 +157,8 @@ export const helpers = {
   ddnsData: ddnsData,
   ddnsCount: ddnsCount,
   ddnsFailing: ddnsFailing,
+  ddnsRecords: ddnsRecords,
+  ddnsHistory: ddnsHistory,
+  ddnsIpChanges: ddnsIpChanges,
+  ddnsFailSparkPoints: ddnsFailSparkPoints,
 };

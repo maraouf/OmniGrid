@@ -251,6 +251,47 @@ async def fetch_data(host_row: dict, chip: dict, *,
             return _bytes_per_s_to_mbps(flat)  # bytes/s → Mbps
         return 0.0
 
+    def _extra(row: dict) -> "tuple[float, float, str, str]":
+        # Pull the quality + provenance fields Ookla returns alongside the
+        # bandwidth: jitter (ms, under data.ping.jitter), packet loss (%, under
+        # data.packetLoss — can be null when not measured), ISP (data.isp), and
+        # the test server's location (data.server.location; name is already
+        # captured as `server`). Defensive over the version-variant shapes;
+        # zero / "" when absent. The flat fallback covers older builds.
+        # Locals are bound to a single .get() result before float()/isinstance
+        # so the narrowing holds (re-calling .get() would widen back to
+        # Any|None) — distinct names from the loop's so nothing is shadowed.
+        jit = 0.0
+        loss = 0.0
+        isp_s = ""
+        srv_loc = ""
+        nested = row.get("data")
+        if isinstance(nested, dict):
+            png = nested.get("ping")
+            if isinstance(png, dict):
+                _j = png.get("jitter")
+                if isinstance(_j, (int, float)):
+                    jit = float(_j)
+            _pl = nested.get("packetLoss")
+            if isinstance(_pl, (int, float)):
+                loss = float(_pl)
+            isp_s = str(nested.get("isp") or "").strip()
+            srv = nested.get("server")
+            if isinstance(srv, dict):
+                srv_loc = str(srv.get("location") or "").strip()
+        # Flat fallbacks (older builds expose these straight on the row).
+        if not jit:
+            _fj = row.get("jitter")
+            if isinstance(_fj, (int, float)):
+                jit = float(_fj)
+        if not loss:
+            _fl = row.get("packet_loss")
+            if isinstance(_fl, (int, float)):
+                loss = float(_fl)
+        if not isp_s:
+            isp_s = str(row.get("isp") or "").strip()
+        return jit, loss, isp_s, srv_loc
+
     def _result_url(row: dict) -> str:
         # Ookla stores the public share URL at data.result.url
         # (e.g. https://www.speedtest.net/result/c/<uuid>). Older / flat
@@ -288,6 +329,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         download = _metric(entry, "download")
         upload = _metric(entry, "upload")
         ping = _metric(entry, "ping")
+        jitter, packet_loss, isp, server_location = _extra(entry)
         ts_str = (entry.get("created_at") or entry.get("scheduled") or "").strip()
         result_url = _result_url(entry)
         series.append({
@@ -295,8 +337,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
             "download": download,
             "upload": upload,
             "ping": ping,
+            "jitter": jitter,
+            "packet_loss": packet_loss,
+            "isp": isp,
             "status": (entry.get("status") or "").strip(),
             "server": (entry.get("server_name") or entry.get("service") or "").strip(),
+            "server_location": server_location,
             "result_url": result_url,
             "image_url": _image_url(result_url),
         })
@@ -325,10 +371,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
             "download": sum(p["download"] for p in sample) / n,
             "upload": sum(p["upload"] for p in sample) / n,
             "ping": sum(p["ping"] for p in sample) / n,
+            "jitter": sum(p.get("jitter") or 0 for p in sample) / n,
+            "packet_loss": sum(p.get("packet_loss") or 0 for p in sample) / n,
             "sample_size": n,
         }
     else:
-        avg = {"download": 0.0, "upload": 0.0, "ping": 0.0, "sample_size": 0}
+        avg = {"download": 0.0, "upload": 0.0, "ping": 0.0,
+               "jitter": 0.0, "packet_loss": 0.0, "sample_size": 0}
     # SPA chart expects oldest-first so the line walks left → right.
     series.reverse()
     out: dict = {
@@ -337,6 +386,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "series": series,
         "fetched_at": int(now),
     }
+    # Embed the long-horizon trend (daily-median download + medians over the
+    # retention window) from the lifespan sampler's independent history table —
+    # best-effort, a sampler / DB hiccup must not fail the card.
+    try:
+        from logic.apps import speedtest_tracker_sampler as _st_sampler  # noqa: PLC0415
+        out["trend"] = _st_sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[speedtest] warning: trend_summary({host_id}#{service_idx}) failed: {e}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -364,8 +421,16 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "download": round(float(latest.get("download") or 0), 2),
         "upload": round(float(latest.get("upload") or 0), 2),
         "ping": round(float(latest.get("ping") or 0), 1),
+        "jitter": round(float(latest.get("jitter") or 0), 1),
+        "packet_loss": round(float(latest.get("packet_loss") or 0), 2),
         "ts": latest.get("ts") or "",
     }
+    _isp = (latest.get("isp") or "").strip()
+    _srv = (latest.get("server") or "").strip()
+    if _isp:
+        out["isp"] = _isp
+    if _srv:
+        out["server"] = _srv
     result_url = (latest.get("result_url") or "").strip()
     image_url = (latest.get("image_url") or "").strip()
     if result_url:
@@ -410,6 +475,7 @@ def _fmt_ms(v) -> str:
         return "—"
 
 
+# noinspection DuplicatedCode
 async def _fetch_latest_skill(host_row: dict, chip: dict, *,
                               host_id: Optional[str] = None,
                               service_idx: Optional[int] = None) -> dict:
@@ -453,6 +519,24 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
          f"⬆️ {_fmt_mbps(latest.get('upload'))}   "
          f"🏓 {_fmt_ms(latest.get('ping'))}"),
     ]
+    # Quality line — jitter + packet loss (only when present / non-trivial).
+    _jit = latest.get("jitter")
+    _loss = latest.get("packet_loss")
+    _qbits = []
+    if isinstance(_jit, (int, float)) and _jit > 0:
+        _qbits.append(f"📶 jitter {_fmt_ms(_jit)}")
+    if isinstance(_loss, (int, float)) and _loss > 0:
+        _qbits.append(f"📉 loss {float(_loss):.1f}%")
+    if _qbits:
+        lines.append("   ".join(_qbits))
+    # ISP / server provenance.
+    _isp = str(latest.get("isp") or "").strip()
+    _srv = str(latest.get("server") or "").strip()
+    _sloc = str(latest.get("server_location") or "").strip()
+    if _isp or _srv:
+        srv_full = _srv + (f" ({_sloc})" if _srv and _sloc else "")
+        prov = " · ".join(b for b in (_isp, srv_full) if b)
+        lines.append(f"🌐 {prov}")
     if ts_disp:
         lines.append(f"🕒 {ts_disp}")
     if avg.get("sample_size"):

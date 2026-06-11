@@ -1795,6 +1795,15 @@ class SettingsIn(BaseModel):
     # 30-day usage trend.
     tuning_flaresolverr_sample_interval_seconds: Optional[str] = None
     tuning_flaresolverr_history_days: Optional[str] = None
+    # ddns-updater sampler — public-IP-change timeline + failing-count
+    # sparkline (sample cadence, 0 = inherit global stats interval + retention).
+    tuning_ddns_sample_interval_seconds: Optional[str] = None
+    tuning_ddns_history_days: Optional[str] = None
+    # Speedtest Tracker long-horizon sampler — ingest cadence (0 = inherit
+    # global stats interval) + retention for the independent trend that
+    # survives the upstream's own pruning.
+    tuning_speedtest_sample_interval_seconds: Optional[str] = None
+    tuning_speedtest_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None

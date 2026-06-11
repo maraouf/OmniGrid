@@ -102,6 +102,31 @@ function fmtPing(v) {
   return Math.round(n) + ' ms';
 }
 
+// Format a packet-loss percentage -- 1 decimal, '—' for missing / negative.
+function fmtPct(v) {
+  if (v == null) {
+    return '—';
+  }
+  const n = Number(v);
+  if (!isFinite(n) || n < 0) {
+    return '—';
+  }
+  return n.toFixed(1) + '%';
+}
+
+// Build the "ISP · Server (Location)" provenance string for the latest
+// result. '' when neither ISP nor server is known.
+function speedtestProvenance(latest) {
+  if (!latest) {
+    return '';
+  }
+  const isp = String(latest.isp || '').trim();
+  const srv = String(latest.server || '').trim();
+  const loc = String(latest.server_location || '').trim();
+  const srvFull = srv + ((srv && loc) ? (' (' + loc + ')') : '');
+  return [isp, srvFull].filter(Boolean).join(' · ');
+}
+
 // SVG path builder for one metric (download / upload / ping)
 // over the cached series array. Empty / missing series returns
 // "" so the path renders nothing. `width` / `height` are the
@@ -131,6 +156,44 @@ function sparkPath(series, key) {
     d += cmd + x + ',' + y + ' ';
   }
   return d.trim();
+}
+
+// Memo: stable `d` string per numeric trend-series array reference (the
+// canonical SVG-builder memo — avoids re-render flicker on every flush).
+const _stTrendMemo = new WeakMap();
+
+// SVG `d` path for the long-horizon trend sparkline over a numeric array
+// (daily-median download from speedtest_samples). 200x32 viewBox, normalised.
+// '' when < 2 points.
+function speedtestTrendSparkPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_stTrendMemo.has(arr)) {
+    return _stTrendMemo.get(arr);
+  }
+  const width = 200, height = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = width / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (height - ((Number(arr[i]) || 0) - min) / range * height).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _stTrendMemo.set(arr, d);
+  return d;
 }
 
 // Round a positive max UP to a friendly 1 / 2 / 5 x 10^n step so axis tick
@@ -188,16 +251,32 @@ function speedtestChartModel(series) {
   const W = 460, H = 92, padL = 42, padR = 36, padT = 8, padB = 16;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
-  const dl = series.map(function (p) { return Number(p && p.download) || 0; });
-  const ul = series.map(function (p) { return Number(p && p.upload) || 0; });
-  const pg = series.map(function (p) { return Number(p && p.ping) || 0; });
+  const dl = series.map(function (p) {
+    return Number(p && p.download) || 0;
+  });
+  const ul = series.map(function (p) {
+    return Number(p && p.upload) || 0;
+  });
+  const pg = series.map(function (p) {
+    return Number(p && p.ping) || 0;
+  });
   const mbpsMax = _niceMax(Math.max(1, Math.max.apply(null, dl), Math.max.apply(null, ul)));
   const pingMax = _niceMax(Math.max(1, Math.max.apply(null, pg)));
   const n = series.length;
   const stepX = plotW / Math.max(1, n - 1);
-  function xAt(i) { return padL + i * stepX; }
-  function yMbps(v) { return padT + plotH - (Math.min(v, mbpsMax) / mbpsMax) * plotH; }
-  function yPing(v) { return padT + plotH - (Math.min(v, pingMax) / pingMax) * plotH; }
+
+  function xAt(i) {
+    return padL + i * stepX;
+  }
+
+  function yMbps(v) {
+    return padT + plotH - (Math.min(v, mbpsMax) / mbpsMax) * plotH;
+  }
+
+  function yPing(v) {
+    return padT + plotH - (Math.min(v, pingMax) / pingMax) * plotH;
+  }
+
   function path(vals, yf) {
     let d = '';
     for (let i = 0; i < vals.length; i++) {
@@ -205,6 +284,7 @@ function speedtestChartModel(series) {
     }
     return d.trim();
   }
+
   const yTicks = [0, mbpsMax / 2, mbpsMax].map(function (v) {
     return {y: yMbps(v).toFixed(1), label: (Math.round(v * 10) / 10).toLocaleString()};
   });
@@ -263,6 +343,9 @@ export const helpers = {
   speedtestIsApp: isSpeedtestApp,
   speedtestMbpsLabel: fmtBits,
   speedtestPingLabel: fmtPing,
+  speedtestPctLabel: fmtPct,
+  speedtestProvenance: speedtestProvenance,
   speedtestSparkPath: sparkPath,
+  speedtestTrendSparkPath: speedtestTrendSparkPath,
   speedtestChartModel: speedtestChartModel,
 };

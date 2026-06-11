@@ -571,6 +571,56 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_flaresolverr_sessions_ts
             ON flaresolverr_session_samples(ts);
 
+        -- ddns-updater per-chip history. ddns-updater exposes NO JSON API and
+        -- no historical data, so the lifespan ``ddns_updater_sampler`` records
+        -- each configured chip's current public IP + record totals + failing
+        -- count per tick. Diffing consecutive ``public_ip`` values yields a
+        -- public-IP-change timeline (the headline); ``fail_count`` drives a
+        -- daily-max sparkline. One row per (host_id, service_idx, tick).
+        -- ``public_ip`` is TEXT (may be empty when the UI hasn't reported one).
+        CREATE TABLE IF NOT EXISTS ddns_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            public_ip     TEXT    NOT NULL DEFAULT '',
+            records_total INTEGER NOT NULL DEFAULT 0,
+            fail_count    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ddns_samples_chip_ts
+            ON ddns_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_ddns_samples_ts
+            ON ddns_samples(ts);
+
+        -- Speedtest Tracker long-horizon history. Speedtest Tracker KEEPS its
+        -- own results history, but prunes it on the operator's configured
+        -- retention schedule — so the lifespan ``speedtest_tracker_sampler``
+        -- ingests every result it sees into this table (keyed on the upstream
+        -- result's own created_at epoch, so re-ingesting the same result is an
+        -- INSERT OR IGNORE no-op) to give OmniGrid an INDEPENDENT trend that
+        -- survives the upstream ageing its data out. ``ts`` IS the test's
+        -- created_at epoch (NOT the sampler wall-clock). download / upload are
+        -- Mbps; ping / jitter are ms; packet_loss is a percent.
+        CREATE TABLE IF NOT EXISTS speedtest_samples (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            download    REAL    NOT NULL DEFAULT 0,
+            upload      REAL    NOT NULL DEFAULT 0,
+            ping        REAL    NOT NULL DEFAULT 0,
+            jitter      REAL    NOT NULL DEFAULT 0,
+            packet_loss REAL    NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_speedtest_samples_chip_ts
+            ON speedtest_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_speedtest_samples_ts
+            ON speedtest_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

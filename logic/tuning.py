@@ -87,6 +87,8 @@ class Tunable(str, Enum):
     BESZEL_SAMPLE_INTERVAL_SECONDS = "tuning_beszel_sample_interval_seconds"
     CACHE_TTL_SECONDS = "tuning_cache_ttl_seconds"
     CONFIG_BACKUP_RETENTION_COUNT = "tuning_config_backup_retention_count"
+    DDNS_HISTORY_DAYS = "tuning_ddns_history_days"
+    DDNS_SAMPLE_INTERVAL_SECONDS = "tuning_ddns_sample_interval_seconds"
     FAVICON_CACHE_DAYS = "tuning_favicon_cache_days"
     FAVICON_FETCH_TIMEOUT_SECONDS = "tuning_favicon_fetch_timeout_seconds"
     FLARESOLVERR_HISTORY_DAYS = "tuning_flaresolverr_history_days"
@@ -194,6 +196,8 @@ class Tunable(str, Enum):
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
     SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
     SERVICE_PROBE_TIMEOUT_SECONDS = "tuning_service_probe_timeout_seconds"
+    SPEEDTEST_HISTORY_DAYS = "tuning_speedtest_history_days"
+    SPEEDTEST_SAMPLE_INTERVAL_SECONDS = "tuning_speedtest_sample_interval_seconds"
     SSE_HEARTBEAT_SECONDS = "tuning_sse_heartbeat_seconds"
     SSE_IDLE_THRESHOLD_SECONDS = "tuning_sse_idle_threshold_seconds"
     SSE_MAX_LIFETIME_SECONDS = "tuning_sse_max_lifetime_seconds"
@@ -1340,6 +1344,31 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # card's usage trend. Default 30 (the "past 30 days" the operator asked for).
     "tuning_flaresolverr_history_days": ("FLARESOLVERR_HISTORY_DAYS", 30, 1, 365),
 
+    # ----- ddns-updater -----------------------------------------------------
+
+    # How often the lifespan ddns-updater sampler records each configured
+    # ddns-updater chip's public IP + record totals + failing count (0 =
+    # inherit the global stats sample interval). Default 600 (10 min) — IP
+    # changes are infrequent and the web-UI scrape is cheap.
+    "tuning_ddns_sample_interval_seconds": ("DDNS_SAMPLE_INTERVAL_SECONDS", 600, 0, 86400),
+    # Retention window (days) for ddns_samples — drives the public-IP-change
+    # timeline + the failing-count sparkline. Default 90 (longer than the
+    # usage trends since IP changes are rare + worth keeping a quarter of).
+    "tuning_ddns_history_days": ("DDNS_HISTORY_DAYS", 90, 1, 730),
+
+    # ----- Speedtest Tracker ------------------------------------------------
+
+    # How often the lifespan Speedtest sampler ingests each configured chip's
+    # results into the long-horizon history table (0 = inherit the global stats
+    # sample interval). Default 900 (15 min) — the sampler ingests the WHOLE
+    # results series each tick (INSERT OR IGNORE dedups), so this only needs to
+    # be shorter than the upstream's own retention window to never miss a result.
+    "tuning_speedtest_sample_interval_seconds": ("SPEEDTEST_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for speedtest_samples — the INDEPENDENT long-term
+    # trend that survives the upstream ageing out its own results. Default 365
+    # (a year of medians); raise for multi-year, lower to save disk.
+    "tuning_speedtest_history_days": ("SPEEDTEST_HISTORY_DAYS", 365, 1, 1095),
+
     # ----- SSH WebSocket ----------------------------------------------------
 
     # Heartbeat cadence (seconds) for the SSH terminal WebSocket — server-
@@ -1558,6 +1587,9 @@ _ENUM_REF_RE = re.compile(r"\b_?tuning_int\s*\(\s*(?:_Tunable|Tunable)\.(?P<name
 # audit stays honest. The regex matches the helper-name + first arg.
 _INDIRECT_CONSUMER_HELPERS: tuple[str, ...] = (
     "resolve_provider_interval",
+    # Shared per-app sampler cadence resolver (logic/apps/_common.py) — every
+    # <slug>_sampler.py forwards its <APP>_SAMPLE_INTERVAL_SECONDS Tunable here.
+    "resolve_sample_interval",
 )
 # Build the helper-name alternation fragment. When the list has ONE
 # entry the fragment is the bare name (no group); when it has 2+ entries

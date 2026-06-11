@@ -24,14 +24,25 @@ NO HTTP API — only the relay / rendezvous TCP ports — so against an OSS serv
 the login probe fails and the card degrades to a clear "needs RustDesk Server
 Pro" message (the chip still shows reachability via its port probe).
 
-Auth model: ``POST /api/login {username, password}`` returns
-``{access_token, user, type}``; the token is sent as ``Authorization: Bearer
-<token>`` on every call. We re-authenticate per fetch (one cheap extra
-round-trip) rather than caching the token (Pro's login tokens are in-memory and
-drop on a server restart — stateless re-auth is correct), same rationale as
-qBittorrent / Kavita. RustDesk Pro may serve the console over HTTPS with an
-internal cert, so TLS verification defaults OFF (per-chip ``verify_tls`` toggle).
-Single-instance app (NOT fleet). No image proxy (no thumbnails).
+Auth model: ``POST /api/login {username, password, id, uuid}`` returns an
+``AuthBody {access_token, type, tfa_type, secret, user}``; the token is sent as
+``Authorization: Bearer <token>`` on every call. We re-authenticate per fetch
+(one cheap extra round-trip) rather than caching the token (Pro's login tokens
+are in-memory and drop on a server restart — stateless re-auth is correct), same
+rationale as qBittorrent / Kavita. RustDesk Pro may serve the console over HTTPS
+with an internal cert, so TLS verification defaults OFF (per-chip ``verify_tls``
+toggle). Single-instance app (NOT fleet). No image proxy (no thumbnails).
+
+2FA (TOTP): when the console user has 2FA enabled, the first ``/api/login``
+returns an ``AuthBody`` with ``tfa_type`` set + a challenge ``secret`` (and no
+``access_token``). We complete it the same way the RustDesk client does — POST
+``/api/login`` again with ``{username, id, uuid, tfa_code: <6-digit>, secret:
+<echoed challenge>}`` where the code is generated from the operator-supplied
+base32 TOTP seed (stored in the secret ``totp_secret`` chip field, like NPM).
+If 2FA is required but no seed is configured, the card surfaces an actionable
+"paste the 2FA secret" message; a dedicated non-2FA user is still the fallback.
+NOTE: RustDesk Server Pro is closed-source, so the 2FA submission shape is
+reconstructed from the open client — validate live against your server.
 
 The expanded card answers "is my RustDesk fleet healthy":
 
@@ -47,6 +58,7 @@ info:{hostname, os, version, …}}]}``) · ``GET /api/users`` (``{total}``) ·
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 from typing import Any, Optional
 
@@ -113,49 +125,135 @@ def _hdr(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
-# A RustDesk Server Pro ``/api/login`` HTTP 400 with otherwise-valid credentials
-# almost always means the account has 2FA (TOTP) enabled: the Pro web-console
-# login expects an interactive verification step that the automation API can't
-# complete (one-time codes don't fit a background poll). The robust fix for an
-# integration is a DEDICATED console user WITHOUT 2FA — RustDesk Pro supports
-# multiple users — keeping the human admin's 2FA intact. Surfaced verbatim from
-# test_credential + every skill so the operator gets an actionable next step
-# instead of a bare "HTTP 400".
-_TFA_HINT = ("login rejected (HTTP 400) — this RustDesk account most likely has "
-             "2FA enabled, which the Pro web-console login can't complete for an "
-             "automated integration. Create a dedicated RustDesk user WITHOUT 2FA "
-             "(web console → Settings → Users → add a user) and use those "
-             "credentials here.")
+# Actionable connection message — the most common cause of a bare
+# "ConnectError: All connection attempts failed" is the chip URL pointing at a
+# relay/rendezvous TCP port (21115–21119) or the wrong scheme, NOT the web
+# console (21114). Surface that instead of the raw httpx string.
+_CONNECT_HINT = ("couldn't connect — point the chip URL at the RustDesk Server "
+                 "Pro WEB CONSOLE (default port 21114, over http/https), NOT the "
+                 "relay ports 21115–21119, and make sure OmniGrid can reach the "
+                 "host")
+
+# 2FA is enabled but no TOTP seed configured — guide the operator to paste it
+# (or, failing that, use a dedicated non-2FA user).
+_TFA_NEED_SECRET = ("this RustDesk account has 2FA (TOTP) enabled — paste the "
+                    "2FA secret (the base32 setup key shown when you turned on "
+                    "2FA) in the editor so OmniGrid can generate the codes, or "
+                    "create a dedicated RustDesk user WITHOUT 2FA and use that.")
+
+# 2FA submission with a seed still failed — the seed is wrong, the clock is off,
+# or the account uses a non-TOTP 2FA method (email). Fall back to the dedicated
+# user.
+_TFA_FAILED = ("2FA verification failed — check the 2FA secret + the server "
+               "clock, or create a dedicated RustDesk user WITHOUT 2FA (web "
+               "console → Settings → Users) and use those credentials.")
+
+# No API at the URL — OSS server / wrong path.
+_NO_API_HINT = ("404 — no RustDesk API here. This needs RustDesk Server Pro (the "
+                "OSS server has no API); point the chip URL at the Pro web "
+                "console (port 21114)")
 
 
-async def _login(cli: "httpx.AsyncClient", base: str,
-                 username: str, password: str) -> "tuple[str, str]":
-    """Exchange console ``username`` + ``password`` for a Bearer access token
-    via ``POST /api/login``. Returns ``(token, '')`` on success or
-    ``('', reason)`` on failure — the reason is an actionable human string
-    (a 400 surfaces the 2FA hint; 401/403 → bad creds) so callers can show
-    WHY instead of a generic "login failed"."""
+def _totp_now(secret: str) -> str:
+    """Current 6-digit TOTP code from a base32 ``secret`` (the console user's 2FA
+    seed). '' on any failure (no secret / bad seed / pyotp missing)."""
+    s = (secret or "").strip().replace(" ", "")
+    if not s:
+        return ""
     try:
-        r = await cli.post(base + "/api/login",
-                           json={"username": username, "password": password},
+        import pyotp  # noqa: PLC0415
+        return str(pyotp.TOTP(s).now())
+    except (ValueError, TypeError, ImportError):
+        return ""
+
+
+def _device_ident(base: str, username: str) -> "tuple[str, str]":
+    """Stable pseudo device ``(id, uuid)`` for the login body. RustDesk's
+    ``/api/login`` expects a device id + uuid; we derive deterministic ones from
+    the chip identity so the same "device" is presented each poll (which matters
+    for the 2FA challenge correlation)."""
+    h = hashlib.sha256(f"omnigrid|{base}|{username}".encode()).hexdigest()
+    dev_id = str(int(h[:12], 16) % 1_000_000_000).zfill(9)
+    return dev_id, h[:32]
+
+
+async def _login_2fa(cli: "httpx.AsyncClient", base: str, username: str,
+                     dev_id: str, dev_uuid: str, challenge_secret: str,
+                     totp_secret: str) -> "tuple[str, str]":
+    """Second-step 2FA submission: POST ``/api/login`` again with a generated
+    ``tfa_code`` + the echoed challenge ``secret``. Returns ``(token, '')`` or
+    ``('', reason)``."""
+    if not totp_secret:
+        return "", _TFA_NEED_SECRET
+    code = _totp_now(totp_secret)
+    if not code:
+        return "", "the 2FA secret isn't a valid base32 TOTP key"
+    body: dict[str, Any] = {"username": username, "id": dev_id, "uuid": dev_uuid,
+                            "tfa_code": code}
+    if challenge_secret:
+        body["secret"] = challenge_secret
+    try:
+        r = await cli.post(base + "/api/login", json=body,
                            headers={"Content-Type": "application/json",
                                     "Accept": "application/json"})
     except (httpx.HTTPError, OSError) as e:
-        return "", f"unreachable: {type(e).__name__}"
-    if r.status_code == 400:
-        return "", _TFA_HINT
-    if r.status_code in (401, 403):
-        return "", "auth failed (check the console username + password)"
-    if r.status_code != 200:
-        return "", f"HTTP {r.status_code}"
+        return "", f"2FA submission failed: {type(e).__name__}"
+    if 200 <= r.status_code < 300:
+        try:
+            tok = str(as_dict(r.json()).get("access_token") or "")
+        except (ValueError, TypeError):
+            tok = ""
+        if tok:
+            return tok, ""
+    return "", _TFA_FAILED
+
+
+async def _login(cli: "httpx.AsyncClient", base: str, username: str,
+                 password: str, totp_secret: str = "") -> "tuple[str, str]":
+    """Exchange console ``username`` + ``password`` for a Bearer access token
+    via ``POST /api/login``. Completes a 2FA (TOTP) challenge when the response
+    carries ``tfa_type`` and a ``totp_secret`` is configured. Returns
+    ``(token, '')`` on success or ``('', reason)`` on failure — the reason is an
+    actionable human string (connection / 2FA / bad-creds) so callers can show
+    WHY instead of a generic "login failed"."""
+    dev_id, dev_uuid = _device_ident(base, username)
+    body = {"username": username, "password": password,
+            "id": dev_id, "uuid": dev_uuid}
     try:
-        tok = str(as_dict(r.json()).get("access_token") or "")
-    except (ValueError, TypeError):
-        tok = ""
-    if not tok:
+        r = await cli.post(base + "/api/login", json=body,
+                           headers={"Content-Type": "application/json",
+                                    "Accept": "application/json"})
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        return "", _CONNECT_HINT
+    except (httpx.HTTPError, OSError) as e:
+        return "", f"unreachable: {type(e).__name__}"
+    if 200 <= r.status_code < 300:
+        try:
+            ab = as_dict(r.json())
+        except (ValueError, TypeError):
+            ab = {}
+        tok = str(ab.get("access_token") or "")
+        if tok:
+            return tok, ""
+        if str(ab.get("tfa_type") or "").strip():  # 2FA challenge
+            return await _login_2fa(cli, base, username, dev_id, dev_uuid,
+                                    str(ab.get("secret") or ""), totp_secret)
         return "", ("connected but no access token (check credentials / that "
                     "this is RustDesk Server Pro)")
-    return tok, ""
+    if r.status_code == 400:
+        # Some Pro builds reject the first login with 400 when 2FA is on. If a
+        # seed is configured, attempt the 2FA submission (no echoed challenge);
+        # otherwise prompt for the seed.
+        if totp_secret:
+            tok, reason = await _login_2fa(cli, base, username, dev_id, dev_uuid,
+                                           "", totp_secret)
+            return tok, (reason or "")
+        return "", _TFA_NEED_SECRET
+    if r.status_code in (401, 403):
+        return "", "auth failed (check the console username + password)"
+    if r.status_code == 404:
+        return "", _NO_API_HINT
+    return "", f"HTTP {r.status_code}"
 
 
 async def _get(cli: "httpx.AsyncClient", url: str, token: str) -> Any:
@@ -211,39 +309,18 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "detail": "no upstream URL configured", "status": 0}
+    # Honour the LIVE editor toggles (test-before-save) when present, else the
+    # stored chip values.
     verify = bool(pay.get("verify_tls")) if "verify_tls" in pay else _verify(chip)
+    totp_secret = ((pay.get("totp_secret") or "").strip()
+                   or str(chip.get("totp_secret") or ""))
     try:
         async with httpx.AsyncClient(verify=verify, timeout=10.0,
                                      follow_redirects=True) as cli:
-            r = await cli.post(base + "/api/login",
-                               json={"username": username, "password": password},
-                               headers={"Content-Type": "application/json",
-                                        "Accept": "application/json"})
-            if r.status_code in (401, 403):
-                return {"ok": False,
-                        "detail": "auth failed (check the RustDesk console username "
-                                  "+ password)",
-                        "status": r.status_code}
-            if r.status_code == 400:
-                return {"ok": False, "detail": _TFA_HINT, "status": 400}
-            if r.status_code == 404:
-                return {"ok": False,
-                        "detail": "404 — no RustDesk API here. This needs RustDesk "
-                                  "Server Pro (the OSS server has no API); point the "
-                                  "chip URL at the Pro web console (port 21114)",
-                        "status": 404}
-            if not (200 <= r.status_code < 300):
-                return {"ok": False, "detail": f"HTTP {r.status_code}",
-                        "status": r.status_code}
-            try:
-                token = str(as_dict(r.json()).get("access_token") or "")
-            except (ValueError, TypeError):
-                token = ""
+            token, reason = await _login(cli, base, username, password, totp_secret)
             if not token:
-                return {"ok": False, "status": r.status_code,
-                        "detail": "connected but no access token — check the "
-                                  "credentials, or that this is a RustDesk Server "
-                                  "Pro console"}
+                return {"ok": False, "status": 0,
+                        "detail": reason or "login failed"}
             ver = ""
             vbody = await _get(cli, base + "/api/software/version/server", token)
             if isinstance(vbody, dict):
@@ -269,10 +346,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
                            credential=password, log_tag="rustdesk")
     if hit is not None:
         return hit
+    totp_secret = str(chip.get("totp_secret") or "")
     try:
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token, reason = await _login(cli, base, username, password)
+            token, reason = await _login(cli, base, username, password, totp_secret)
             if not token:
                 raise RuntimeError(reason or (
                     "RustDesk login failed — check the console username + "
@@ -346,9 +424,12 @@ def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, str, O
     return username, password, base, None
 
 
+# noinspection DuplicatedCode
 def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
     """Attach the rich-item list + count + count-i18n key to a skill result
-    (no-op when empty). Returns ``out`` for one-line use."""
+    (no-op when empty). Returns ``out`` for one-line use. Shape shared verbatim
+    with other per-app modules (NPM / proxmox / …) by design — the per-app
+    encapsulation convention accepts the duplication."""
     if items:
         out["items"] = items
         out["count"] = len(items)
@@ -356,6 +437,7 @@ def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 async def _live_data(host_row: dict, chip: dict, host_id: Optional[str],
                      service_idx: Optional[int]) -> "tuple[Optional[dict], Optional[dict]]":
     """Force-fetch the card payload for a skill (cache-bypassing). Returns
@@ -385,6 +467,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
@@ -408,6 +491,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
             "devices": dev, "online": online}
 
 
+# noinspection DuplicatedCode
 async def _devices_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
     """Read-only: list registered peers as rich rows (hostname + OS + online
@@ -419,7 +503,8 @@ async def _devices_skill(host_row: dict, chip: dict, *,
     try:
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token, reason = await _login(cli, base, username, password)
+            token, reason = await _login(cli, base, username, password,
+                                         str(chip.get("totp_secret") or ""))
             if not token:
                 return {"ok": False, "status": 401,
                         "detail": reason or ("RustDesk login failed (check username "

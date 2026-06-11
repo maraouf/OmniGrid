@@ -35,6 +35,24 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.rustdesk.creds_hint') || 'The RustDesk Server Pro web-console login. Required for the device + user stats. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Pro web console (default port 21114). The open-source server has no API, so this card needs RustDesk Server Pro.'"></p>
     </div>
+    <!-- 2FA TOTP secret — ONLY needed when this RustDesk console user has 2FA
+         (TOTP) enabled. The base32 setup key (shown alongside the QR when you
+         enabled 2FA) so OmniGrid can generate the codes for its background
+         polls. Secret, keep-current-if-blank. -->
+    <div>
+      <label for="apps-instance-rustdesk-totp"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.rustdesk.totp_label') || '2FA secret (only if 2FA is enabled)'"></label>
+      <input id="apps-instance-rustdesk-totp"
+             type="password" x-model="appsInstanceEditForm.totp_secret"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="appsInstanceEditForm.totp_secret_set
+               ? (t('apps.rustdesk.totp_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.rustdesk.totp_placeholder_unset') || 'base32 TOTP key (blank if no 2FA)')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.rustdesk.totp_hint') || 'Leave blank unless this RustDesk user has 2FA enabled. Paste the base32 setup key (the text shown alongside the QR when you turned on 2FA) so OmniGrid can generate the TOTP codes itself. Stored encrypted-at-rest. If you can''t get the setup key, create a dedicated RustDesk user without 2FA instead.'"></p>
+    </div>
     <!-- TLS verification — OFF by default (a self-hosted console often has a
          self-signed cert). Turn ON only when fronted by a real cert. -->
     <label class="flex items-center gap-2 fs-xs">
