@@ -455,7 +455,12 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "subtitle": album if artist else "",
             "type": "album",
             "service_slug": "lidarr",
-            "poster": _servarr.poster_proxy_path(alb),
+            # Reuse the app's most-reliable-first resolver (remote album → remote
+            # artist → Cover Art Archive MBID → local album → local artist). The
+            # plain poster_proxy_path(alb) only checks the album itself, so albums
+            # with no allowlisted remoteUrl + no local cover rendered blank in the
+            # calendar even though the app's card shows the art.
+            "poster": _album_poster(alb, art),
             "poster_proxy": True,
             "overview": _servarr.clamp_overview(alb.get("overview") or art.get("overview")),
             "runtime": 0,
