@@ -129,36 +129,55 @@ def _headers(key: str) -> dict:
     return {"X-API-KEY": key, "Accept": "application/json"}
 
 
-# Model-prefix heuristics for the best-effort AP / switch / gateway breakdown.
-# UniFi's product naming is stable enough to bucket on: USW* = switch, UDM /
-# UXG / UCG / UDR / USG / UCK = gateway / console, U6 / U7 / UAP / UALR / UWB =
-# access point. Anything else lands in "other" (folded into the total only).
-_SWITCH_PREFIXES = ("usw", "us-", "usl", "usxg", "usp-rps", "usw-")
-_GATEWAY_PREFIXES = ("udm", "uxg", "ucg", "udr", "uxr", "usg", "uck", "ux-", "ux ")
-_AP_PREFIXES = ("u6", "u7", "uap", "ualr", "uwb", "uap-", "u-lr", "uap6", "e7")
+# Device-type classification keywords. The Integration API's LIST endpoint
+# returns the device ``model`` as a DISPLAY NAME ("U6 Pro", "AC Mesh", "USW Pro
+# 24 PoE", "Dream Machine"), NOT a model code, and it omits the per-device
+# ``interfaces`` / ``features`` (those need the per-device detail GET), so we
+# classify by substring-matching the product-line name. Keywords are checked
+# gateway → AP → switch (a UDM / Dream Router carries Wi-Fi + ports but is a
+# gateway, so it must win first). Anything unmatched lands in "other".
+_GATEWAY_TOKENS = ("udm", "udr", "udw", "uxg", "ucg", "usg", "uxr", "dream",
+                   "gateway", "cloud gateway", "express")
+_AP_TOKENS = ("u6", "u7", "uap", "ualr", "uwb", "u-lr", "ac mesh", "ac-mesh",
+              "ac pro", "ac lite", "ac lr", "ac-lr", "ac edu", "ac hd", "ac shd",
+              "ac iw", "ac in-wall", "mesh", "nanohd", "nano hd", "flexhd",
+              "flex hd", "beaconhd", "beacon hd", "in-wall hd", "access point",
+              "swiss army", "e7")
+_SWITCH_TOKENS = ("usw", "switch", "flex mini", "flex 2.5", "flex utility",
+                  "aggregation", "edgeswitch", "industrial")
 
 
 def _classify_device(dev: dict) -> str:
     """Best-effort device bucket: ``"ap"`` / ``"switch"`` / ``"gateway"`` /
-    ``"other"``. Uses the device's ``interfaces`` shape (radios ⇒ AP, ports ⇒
-    switch) as the PRIMARY signal so an AP model we don't recognise by prefix
-    still classifies correctly, with the model code / name as fallback. Gateway
-    prefixes win first (a UDM / Dream Router has radios too but is a gateway).
-    Imperfect by design — the reliable online/offline/total counts never depend
-    on this."""
+    ``"other"``. Substring-matches the device ``model`` display name against the
+    product-line keyword sets (gateway wins first); falls back to the per-device
+    ``interfaces`` shape (radios ⇒ AP, ports ⇒ switch) when present (detail GET
+    only) and finally to the operator-authored ``name``. Imperfect by design —
+    the reliable online/offline/total counts never depend on this."""
     model = str(dev.get("model") or "").strip().lower()
     name = str(dev.get("name") or "").strip().lower()
     ifaces = as_dict(dev.get("interfaces"))
     has_radios = bool(as_list(ifaces.get("radios")))
     has_ports = bool(as_list(ifaces.get("ports")))
-    # Gateways / consoles first — a UDM / UDR carries radios + ports too, so it
-    # must win before the radio/port heuristics below.
-    if model.startswith(_GATEWAY_PREFIXES) or "gateway" in name or "dream" in name:
+    # 1) Model display-name keywords — gateway first (a UDM has Wi-Fi too).
+    if any(t in model for t in _GATEWAY_TOKENS):
         return "gateway"
-    if model.startswith(_AP_PREFIXES) or has_radios or " ap" in (" " + name):
+    if any(t in model for t in _AP_TOKENS):
         return "ap"
-    if model.startswith(_SWITCH_PREFIXES) or "switch" in name or has_ports:
+    if any(t in model for t in _SWITCH_TOKENS):
         return "switch"
+    # 2) Interface shape (present only on the per-device detail, not the list).
+    if has_radios:
+        return "ap"
+    if has_ports:
+        return "switch"
+    # 3) Operator-authored name as a last resort.
+    if "gateway" in name or "dream" in name:
+        return "gateway"
+    if "switch" in name:
+        return "switch"
+    if "access point" in name or " ap" in (" " + name):
+        return "ap"
     return "other"
 
 
@@ -236,14 +255,14 @@ async def _fetch_version(cli: "httpx.AsyncClient", base: str, key: str) -> str:
 def _device_update_pending(dev: dict) -> bool:
     """True when the console reports a firmware update available for this device.
     The Integration API device shape varies by Network version, so probe the
-    several plausible spellings defensively — absent on every spelling ⇒ False
-    (so the card simply doesn't claim updates when the API doesn't expose them)."""
-    for k in ("firmwareUpdatable", "firmwareUpdateAvailable", "updateAvailable",
-              "upgradable", "upgradeAvailable"):
-        if dev.get(k) is True:
-            return True
+    several plausible spellings defensively (top-level + nested under
+    ``firmware``) — absent / falsy on every spelling ⇒ False (so the card simply
+    doesn't claim updates when the API doesn't expose them)."""
     fw = as_dict(dev.get("firmware"))
-    return fw.get("updateAvailable") is True or fw.get("upgradable") is True
+    return bool(dev.get("firmwareUpdatable") or dev.get("firmwareUpdateAvailable")
+                or dev.get("updateAvailable") or dev.get("upgradable")
+                or dev.get("upgradeAvailable")
+                or fw.get("updateAvailable") or fw.get("upgradable"))
 
 
 # noinspection DuplicatedCode

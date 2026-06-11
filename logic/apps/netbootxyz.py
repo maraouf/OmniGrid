@@ -84,8 +84,17 @@ def _parse_sid(txt: str) -> str:
 
 def _extract_event(txt: str, name: str) -> Optional[Any]:
     """Find a Socket.IO EVENT packet (``42["<name>", <data>]``) in a polling
-    body and return its ``<data>`` payload. ``None`` when the named event isn't
-    present (caller keeps polling)."""
+    body and return its FIRST ``<data>`` arg. ``None`` when the named event
+    isn't present (caller keeps polling)."""
+    args = _extract_event_args(txt, name)
+    return args[0] if args else None
+
+
+def _extract_event_args(txt: str, name: str) -> "Optional[list]":
+    """Like ``_extract_event`` but returns ALL args of the event
+    (``42["<name>", arg0, arg1, …]`` → ``[arg0, arg1, …]``) — some webapp
+    events emit several positional args (e.g. ``renderlocal`` →
+    ``endpoints, assets, menuversion``). ``None`` when absent."""
     for packet in (txt or "").split("\x1e"):
         if packet.startswith("42"):
             try:
@@ -93,14 +102,29 @@ def _extract_event(txt: str, name: str) -> Optional[Any]:
             except (ValueError, TypeError):
                 continue
             if isinstance(arr, list) and len(arr) >= 2 and arr[0] == name:
-                return arr[1]
+                return arr[1:]
     return None
 
 
+def _count_endpoints(endpoints: Any) -> int:
+    """Count the boot endpoints in the parsed ``endpoints.yml`` (the catalog of
+    available boot options / OSes). The file nests the map under an
+    ``endpoints:`` key; fall back to the top-level map. 0 when unparseable."""
+    if not isinstance(endpoints, dict):
+        return 0
+    eps = endpoints.get("endpoints")
+    if isinstance(eps, dict):
+        return len(eps)
+    return len(endpoints)
+
+
 async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
-    """Fetch the netboot.xyz dashboard payload (``getdash`` → ``renderdash``)
-    over socket.io HTTP long-polling. Returns the dashinfo dict, or None on any
-    handshake / poll failure (the card then degrades to reachable-only)."""
+    """Fetch the netboot.xyz dashboard over socket.io HTTP long-polling. Emits
+    BOTH ``getdash`` (versions + host CPU/mem) AND ``getlocal`` (the
+    endpoints.yml catalog + locally-downloaded boot assets) on one session and
+    merges the replies. Returns the raw dashinfo dict augmented with
+    ``_endpoints_count`` / ``_assets_count`` / ``_has_local`` when the local
+    list landed, or None on any handshake / poll failure (card → reachable)."""
     p = base + _SIO_PATH
     try:
         # 1) Handshake — the open packet carries the session id.
@@ -113,19 +137,42 @@ async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
         ps = f"{p}&sid={sid}"
         # 2) CONNECT to the default namespace (Socket.IO packet '40').
         await cli.post(ps, content="40", headers=_SIO_CT)
-        # 3) Emit getdash (EVENT packet '42' + JSON arg array).
+        # 3) Emit getdash + getlocal (EVENT packets). getlocal ignores its
+        #    filename arg server-side — it always returns the endpoints catalog
+        #    + the downloaded-assets list.
         await cli.post(ps, content='42["getdash"]', headers=_SIO_CT)
-        # 4) Poll until renderdash lands (or we run out of tries).
+        await cli.post(ps, content='42["getlocal",""]', headers=_SIO_CT)
+        # 4) Poll until BOTH replies land (or we run out of tries). renderdash
+        #    waits on a GitHub release lookup; renderlocal is local FS only.
+        dash: Optional[dict] = None
+        local: Optional[list] = None
         for _ in range(_SIO_POLL_TRIES):
             rr = await cli.get(ps)
             if not (200 <= rr.status_code < 300):
                 break
-            dash = _extract_event(rr.text, "renderdash")
-            if isinstance(dash, dict):
-                return dash
+            if dash is None:
+                d = _extract_event(rr.text, "renderdash")
+                if isinstance(d, dict):
+                    dash = d
+            if local is None:
+                a = _extract_event_args(rr.text, "renderlocal")
+                if isinstance(a, list):
+                    local = a
+            if dash is not None and local is not None:
+                break
+        if dash is None and local is None:
+            return None
+        out: dict = dict(dash) if isinstance(dash, dict) else {}
+        if isinstance(local, list):
+            # renderlocal → [endpoints (endpoints.yml), assets (downloaded), menuversion]
+            endpoints = local[0] if len(local) >= 1 else None
+            assets = local[1] if len(local) >= 2 else None
+            out["_endpoints_count"] = _count_endpoints(endpoints)
+            out["_assets_count"] = len(assets) if isinstance(assets, list) else 0
+            out["_has_local"] = True
+        return out
     except (httpx.HTTPError, OSError, ValueError):
         return None
-    return None
 
 
 def _shape_dash(dash: dict) -> dict:
@@ -142,15 +189,22 @@ def _shape_dash(dash: dict) -> dict:
     # systeminformation reports `active` as the genuinely-used memory (used
     # includes buffers/cache); fall back to `used` when active is absent.
     mem_used = safe_int(mem.get("active")) or safe_int(mem.get("used"))
-    return {
-        "version": web,                       # webapp version
-        "menu_version": menu,                 # local installed boot-menu version
-        "latest_menu_version": remote,        # latest upstream release tag
+    out = {
+        "version": web,  # webapp version
+        "menu_version": menu,  # local installed boot-menu version
+        "latest_menu_version": remote,  # latest upstream release tag
         "update_available": bool(menu and remote and menu != remote),
         "cpu_percent": round(safe_float(d.get("CPUpercent")), 1),
         "mem_used": mem_used,
         "mem_total": mem_total,
     }
+    # Boot catalog + downloaded assets (from the getlocal probe), surfaced only
+    # when that reply landed so the card never shows a phantom "0 boot options".
+    if d.get("_has_local"):
+        out["has_local"] = True
+        out["boot_endpoints"] = safe_int(d.get("_endpoints_count"))
+        out["assets_count"] = safe_int(d.get("_assets_count"))
+    return out
 
 
 SKILLS: tuple[dict, ...] = (
@@ -253,6 +307,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "cpu_percent": safe_float(data.get("cpu_percent")),
         "mem_used": safe_int(data.get("mem_used")),
         "mem_total": safe_int(data.get("mem_total")),
+        "boot_endpoints": safe_int(data.get("boot_endpoints")),
+        "assets_count": safe_int(data.get("assets_count")),
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -302,6 +358,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"🧰 Webapp {web}")
     if data.get("update_available") and latest:
         lines.append(f"⬆️ Boot-menu update available: {latest} (installed {menu})")
+    endpoints = safe_int(data.get("boot_endpoints"))
+    assets = safe_int(data.get("assets_count"))
+    if endpoints or assets:
+        lines.append(f"🧰 {endpoints} boot option(s) · {assets} asset(s) downloaded")
     cpu = safe_float(data.get("cpu_percent"))
     mem_used = safe_int(data.get("mem_used"))
     mem_total = safe_int(data.get("mem_total"))
@@ -310,4 +370,5 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"📊 CPU {cpu:.0f}% · RAM {pct}%")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "version": web, "menu_version": menu, "latest_menu_version": latest,
+            "boot_endpoints": endpoints, "assets_count": assets,
             "update_available": bool(data.get("update_available"))}

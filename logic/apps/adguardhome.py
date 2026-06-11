@@ -57,7 +57,7 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, fleet_blocker_action, fleet_blocker_status,
     fleet_disable_skills, fleet_instances, fleet_run_skill, peek_cache,
-    resolve_base_url, resolve_cache_ttl)
+    resolve_base_url, resolve_cache_ttl, resolve_userpass)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
@@ -133,16 +133,6 @@ def requires_api_key() -> bool:
     return True
 
 
-def _creds(chip: dict, *, password: Optional[str] = None,
-           username: Optional[str] = None) -> tuple[str, str]:
-    """Resolve (username, password) for a chip. Explicit args win (a
-    pre-save test passes the candidate values); else fall back to the
-    stored chip fields."""
-    u = (username if username is not None else "").strip() or (chip.get("username") or "").strip()
-    p = (password if password is not None else "").strip() or (chip.get("api_key") or "").strip()
-    return u, p
-
-
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                           payload: Optional[dict] = None, **_kw) -> dict:
     """Probe ``GET /control/status`` with the candidate Basic-auth
@@ -150,7 +140,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     from the test payload (pre-save) or the stored chip. Returns
     ``{ok, detail, status}``."""
     pay = payload or {}
-    username, password = _creds(
+    username, password = resolve_userpass(
         chip,
         password=(candidate_key or "").strip() or None,
         username=(pay.get("username") or "").strip() or None,
@@ -221,7 +211,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     (→ HTTP 400) when creds / URL are missing, ``RuntimeError``
     (→ HTTP 502) on an upstream failure (the SPA aggregate footnotes
     the failing host, so a single down host doesn't sink the card)."""
-    username, password = _creds(chip)
+    username, password = resolve_userpass(chip)
     now = time.time()
     base, hit = fetch_gate(host_row, chip, host_id, service_idx,
                            _data_cache, resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
@@ -380,8 +370,9 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
     fan-out shell lives in ``_common.fleet_fan_out``; only the per-host
     ``_one`` closure is app-specific). ``seconds`` is the timed-disable
     window — AdGuard's API wants milliseconds, so ``_one`` converts."""
+
     async def _one(hid, _sidx, hrow, chip):
-        username, password = _creds(chip)
+        username, password = resolve_userpass(chip)
         base = resolve_base_url(hrow, chip)
         if not (password and base):
             return hid, False, "no creds / url"

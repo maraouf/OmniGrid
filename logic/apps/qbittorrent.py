@@ -80,7 +80,7 @@ _SEMVER_RE = _re.compile(r"(?P<v>\d+\.\d+\.\d+)")
 # qBittorrent's own prefs, but both are validated before they reach the shell).
 _STRICT_SEMVER_RE = _re.compile(r"^\d+\.\d+\.\d+$")
 _SAFE_PATH_RE = _re.compile(r"^/[A-Za-z0-9_./ -]+$")
-from logic.apps._common import cache_key, peek_cache
+from logic.apps._common import cache_key, peek_cache, resolve_userpass
 from logic.coerce import as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
@@ -192,20 +192,6 @@ def requires_api_key() -> bool:
     return True
 
 
-# noinspection DuplicatedCode
-# The two-field (username + secret api_key) credential resolver is the
-# deliberate per-app twin of AdGuard's `_creds` (the per-app encapsulation
-# pattern, CLAUDE.md) — the username+password auth shape stays inline per
-# module rather than coupling them through a shared helper.
-def _creds(chip: dict, *, password: Optional[str] = None,
-           username: Optional[str] = None) -> "tuple[str, str]":
-    """Resolve ``(username, password)`` for a chip. Explicit args win (a
-    pre-save test passes the candidate values); else fall back to the stored
-    chip fields (``username`` plain, ``api_key`` = the password)."""
-    u = (username if username is not None else "").strip() or (chip.get("username") or "").strip()
-    p = (password if password is not None else "").strip() or (chip.get("api_key") or "").strip()
-    return u, p
-
 
 async def _login(cli: httpx.AsyncClient, base: str, username: str, password: str) -> None:
     """``POST /api/v2/auth/login`` — on success the client's cookie jar holds the
@@ -282,7 +268,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     Falls back to the chip's stored password when ``candidate_key`` is blank so a
     re-test after first save doesn't need a retype."""
     pay = payload or {}
-    username, password = _creds(
+    username, password = resolve_userpass(
         chip,
         password=(candidate_key or "").strip() or None,
         username=(pay.get("username") or "").strip() or None,
@@ -326,7 +312,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     torrents_total, downloading, seeding, paused, completed, version,
     fetched_at}``. Raises ``ValueError`` / ``RuntimeError`` when the base URL
     won't resolve / auth fails / the upstream errors."""
-    username, password = _creds(chip)
+    username, password = resolve_userpass(chip)
     base = resolve_base_url(host_row, chip)
     if not base:
         raise ValueError("no upstream URL configured")
@@ -473,7 +459,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
 def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, str, Optional[dict]]":
     """Resolve ``(username, password, base)`` or return a ready
     ``{ok: False, detail}`` when the base URL won't resolve."""
-    username, password = _creds(chip)
+    username, password = resolve_userpass(chip)
     base = resolve_base_url(host_row, chip)
     if not base:
         return "", "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
