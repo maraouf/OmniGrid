@@ -1,0 +1,344 @@
+"""FlareSolverr per-app module (Cloudflare-challenge solver proxy).
+
+Wires a FlareSolverr instance into the OmniGrid Apps surface following the
+per-app contract (no-auth ``netboot.xyz`` / ``ddns_updater`` shape):
+
+    SLUGS               — catalog slugs this module handles ("flaresolverr").
+    requires_api_key()  — False. FlareSolverr has NO authentication; the editor
+                          only needs the instance URL (its API root, default
+                          port 8191) + a cache TTL.
+    test_credential(host_row, chip, candidate_key, *, payload) -> dict
+    fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
+    peek_latest(host_id, service_idx) -> dict | None    (AI context)
+    SKILLS / run_skill  — status (read) + sessions (read, rich list with a
+                          per-row destroy action) + destroy-session (write;
+                          DESTRUCTIVE, arg).
+
+What this is
+-----------
+FlareSolverr is a proxy server that solves Cloudflare / DDoS-Guard browser
+challenges so the *arr indexers (Prowlarr / Jackett / FlareSolverr-tagged
+Torznab) can scrape protected trackers. It runs a headless browser and exposes
+a tiny JSON API:
+
+    GET  /                      — health: {"msg": "FlareSolverr is ready!",
+                                   "version": "x.y.z", "userAgent": "Mozilla/…"}
+    POST /v1 {cmd: sessions.list}    — {"status":"ok","sessions":[id,…],"version":…}
+    POST /v1 {cmd: sessions.destroy, session: <id>}  — kill one browser session
+
+So the card answers "is FlareSolverr up, what version, and how many browser
+sessions are open" at a glance. The session count matters: each open session
+holds a headless-browser instance, and too many slow the host down — the
+operator wants to spot + destroy stale sessions.
+
+AI / Telegram skills
+--------------------
+* ``flaresolverr_status``          — ready + version + session count + user-agent.
+* ``flaresolverr_sessions``        — list active session IDs (rich rows, each
+                                     with a destroy button).
+* ``flaresolverr_destroy_session`` — destroy ONE session by id (DESTRUCTIVE).
+
+Single-instance app (NOT fleet) — one card per pinned chip.
+"""
+from __future__ import annotations
+
+import time
+from typing import Any, Optional
+
+import httpx
+
+from logic.apps._common import (
+    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl)
+from logic.coerce import as_dict, as_list, safe_int
+
+# Catalog template slug handled by this module.
+SLUGS: tuple[str, ...] = ("flaresolverr",)
+
+DEFAULT_CACHE_TTL_S = 60
+_data_cache: dict[str, tuple[float, dict]] = {}
+
+# Cap on rich-item rows a list skill returns.
+_MAX_ROWS = 50
+
+SKILLS: tuple[dict, ...] = (
+    {
+        "id": "flaresolverr_status",
+        "name": "FlareSolverr status",
+        "ai_phrases": ("flaresolverr status, is flaresolverr up, cloudflare "
+                       "solver status, how many flaresolverr sessions, "
+                       "flaresolverr version, flare solver health, is the "
+                       "cloudflare bypass working"),
+        "destructive": False,
+    },
+    {
+        "id": "flaresolverr_sessions",
+        "name": "List FlareSolverr sessions",
+        "ai_phrases": ("list flaresolverr sessions, show active sessions, how "
+                       "many browser sessions, flaresolverr open sessions, "
+                       "what sessions are running"),
+        "destructive": False,
+    },
+    {
+        "id": "flaresolverr_destroy_session",
+        "name": "Destroy a FlareSolverr session",
+        "ai_phrases": ("destroy a flaresolverr session, close session <id>, "
+                       "kill the <id> session, remove a flaresolverr session, "
+                       "shut down session <id>"),
+        "arg": True,
+        "arg_hint": "the FlareSolverr session id to destroy",
+        "destructive": True,
+    },
+)
+
+
+def requires_api_key() -> bool:
+    """False — FlareSolverr has NO authentication; the editor only needs the
+    instance URL (its API root) + a cache TTL."""
+    return False
+
+
+async def _post_v1(cli: "httpx.AsyncClient", base: str, payload: dict) -> Any:
+    """POST a command to ``/v1`` and return parsed JSON, or None on any non-2xx
+    / parse failure (caller decides how to degrade)."""
+    try:
+        r = await cli.post(base + "/v1", json=payload,
+                           headers={"Content-Type": "application/json",
+                                    "Accept": "application/json"})
+    except (httpx.HTTPError, OSError):
+        return None
+    if not (200 <= r.status_code < 300):
+        return None
+    try:
+        return r.json()
+    except (ValueError, TypeError):
+        return None
+
+
+async def _probe_root(cli: "httpx.AsyncClient", base: str) -> dict:
+    """GET ``/`` for the health payload — ``{ready, version, user_agent}``.
+    Defensive: returns ``{}`` on any failure (the card degrades to whatever the
+    sessions probe gave)."""
+    try:
+        r = await cli.get(base + "/")
+    except (httpx.HTTPError, OSError):
+        return {}
+    if not (200 <= r.status_code < 400):
+        return {}
+    try:
+        body = as_dict(r.json())
+    except (ValueError, TypeError):
+        body = {}
+    msg = str(body.get("msg") or "").strip()
+    return {
+        "ready": "ready" in msg.lower(),
+        "version": str(body.get("version") or "").strip(),
+        "user_agent": str(body.get("userAgent") or "").strip(),
+    }
+
+
+async def _list_sessions(cli: "httpx.AsyncClient", base: str) -> "Optional[list]":
+    """Active session ids via ``POST /v1 {cmd: sessions.list}``. ``None`` when
+    the call failed (so the card can tell "0 sessions" from "couldn't ask")."""
+    body = await _post_v1(cli, base, {"cmd": "sessions.list"})
+    if not isinstance(body, dict):
+        return None
+    return [str(s) for s in as_list(body.get("sessions")) if s]
+
+
+# noinspection PyUnusedLocal
+async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
+                          payload: Optional[dict] = None, **_kw) -> dict:
+    """Probe FlareSolverr's health (``GET /``). No auth — ``candidate_key`` /
+    ``payload`` are part of the generic route contract but unused. Returns
+    ``{ok, detail, status}``."""
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "detail": "no upstream URL configured", "status": 0}
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=12.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/")
+            if not (200 <= r.status_code < 400):
+                return {"ok": False, "detail": f"HTTP {r.status_code}",
+                        "status": r.status_code}
+            root = await _probe_root(cli, base)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
+    ver = root.get("version") or ""
+    detail = f"OK (FlareSolverr {ver})" if ver else "OK (reachable)"
+    return {"ok": True, "detail": detail, "status": 200}
+
+
+async def fetch_data(host_row: dict, chip: dict, *,
+                     host_id: str, service_idx: int,
+                     force: bool = False) -> dict:
+    """Probe FlareSolverr for the expanded card: GET / for ready/version/UA +
+    POST /v1 sessions.list for the active session count. Returns
+    ``{available, ready, version, user_agent, sessions, session_ids,
+    fetched_at}``. Raises ``ValueError`` (base URL won't resolve) /
+    ``RuntimeError`` (upstream error on the health GET — the sessions probe is
+    best-effort on top)."""
+    now = time.time()
+    # No-auth app — credential=True so the gate never raises on a missing
+    # secret (it folds the URL-resolve + cache-miss-log shape shared with the
+    # other fetch_data openers).
+    base, hit = fetch_gate(host_row, chip, host_id, service_idx, _data_cache,
+                           resolve_cache_ttl(chip, DEFAULT_CACHE_TTL_S), now, force,
+                           credential=True, log_tag="flaresolverr")
+    if hit is not None:
+        return hit
+    url = base + "/"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url)
+            if not (200 <= r.status_code < 400):
+                print(f"[flaresolverr] error: fetch host={host_id} url={url} returned "
+                      f"HTTP {r.status_code} (check the chip URL points at the "
+                      f"FlareSolverr API root, e.g. http://host:8191)")
+                raise RuntimeError(f"upstream returned HTTP {r.status_code} for {url}")
+            root = await _probe_root(cli, base)
+            sessions = await _list_sessions(cli, base)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[flaresolverr] error: fetch host={host_id} url={url} "
+              f"failed — {type(e).__name__}: {e}")
+        raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
+    ids = sessions if isinstance(sessions, list) else []
+    out: dict = {
+        "available": True,
+        "ready": bool(root.get("ready")),
+        "version": root.get("version") or "",
+        "user_agent": root.get("user_agent") or "",
+        "sessions": len(ids),
+        "session_ids": ids,
+        "fetched_at": int(now),
+    }
+    print(f"[flaresolverr] INFO fetched host={host_id} ready={out['ready']} "
+          f"ver={out['version'] or '-'} sessions={out['sessions']}")
+    _data_cache[cache_key(host_id, service_idx)] = (now, out)
+    return out
+
+
+def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
+    """Cache-only peek (no upstream call) for the AI context's
+    ``app_skills[].last``."""
+    data = peek_cache(_data_cache, host_id, service_idx)
+    if not isinstance(data, dict) or not data.get("available"):
+        return None
+    return {
+        "ready": bool(data.get("ready")),
+        "version": data.get("version") or "",
+        "sessions": safe_int(data.get("sessions")),
+        "fetched_at": safe_int(data.get("fetched_at")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
+                    host_id: Optional[str] = None,
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Returns ``{ok, detail, status?}``.
+    Raises ValueError on an unknown skill id (route maps to HTTP 404)."""
+    if skill_id == "flaresolverr_status":
+        return await _status_skill(host_row, chip, host_id=host_id,
+                                   service_idx=service_idx)
+    if skill_id == "flaresolverr_sessions":
+        return await _sessions_skill(host_row, chip, host_id=host_id,
+                                     service_idx=service_idx)
+    if skill_id == "flaresolverr_destroy_session":
+        return await _destroy_session_skill(host_row, chip, arg=arg, host_id=host_id)
+    raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+async def _status_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None,
+                        service_idx: Optional[int] = None) -> dict:
+    """Read-only: live-fetch the health + session summary. Never raises."""
+    print(f"[flaresolverr] INFO flaresolverr_status host={host_id} "
+          f"svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    ver = str(data.get("version") or "").strip()
+    sessions = safe_int(data.get("sessions"))
+    ua = str(data.get("user_agent") or "").strip()
+    head = "🛡️ FlareSolverr is up and ready" if data.get("ready") else "🛡️ FlareSolverr is up"
+    lines = [
+        head + (f" — v{ver}" if ver else ""),
+        f"🧩 {sessions} active session(s)",
+    ]
+    if ua:
+        lines.append(f"🌐 UA: {ua}")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "ready": bool(data.get("ready")), "version": ver, "sessions": sessions}
+
+
+async def _sessions_skill(host_row: dict, chip: dict, *,
+                          host_id: Optional[str] = None,
+                          service_idx: Optional[int] = None) -> dict:
+    """Read-only: list active browser sessions as rich rows, each with a
+    per-row destroy action. Never raises."""
+    print(f"[flaresolverr] INFO flaresolverr_sessions host={host_id} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    ids = [str(s) for s in as_list(data.get("session_ids")) if s]
+    if not ids:
+        return {"ok": True, "status": 200, "detail": "🧩 No active FlareSolverr sessions."}
+    items: list = []
+    lines: list = []
+    for sid in ids[:_MAX_ROWS]:
+        items.append({
+            "title": sid,
+            "subtitle": "browser session",
+            "row_action": {
+                "skill_id": "flaresolverr_destroy_session",
+                "arg": sid,
+                "destructive": True,
+                "confirm_i18n": "apps.flaresolverr.confirm_destroy",
+            },
+        })
+        lines.append(f"• {sid}")
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🧩 Active FlareSolverr sessions:\n" + "\n".join(lines)}
+    out["items"] = items
+    out["count"] = len(items)
+    out["count_i18n"] = "apps.flaresolverr.sessions_count"
+    return out
+
+
+async def _destroy_session_skill(host_row: dict, chip: dict, *,
+                                 arg: Optional[str],
+                                 host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE: destroy ONE browser session by id via ``POST /v1
+    {cmd: sessions.destroy}``. Never raises."""
+    sid = (arg or "").strip()
+    if not sid:
+        return {"ok": False, "status": 0,
+                "detail": "no session id given (run \"list FlareSolverr sessions\" first)"}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[flaresolverr] INFO flaresolverr_destroy_session host={host_id} session={sid!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            body = await _post_v1(cli, base, {"cmd": "sessions.destroy", "session": sid})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"destroy failed: {type(e).__name__}: {e}"}
+    status = str(as_dict(body).get("status") or "").strip().lower()
+    if body is None:
+        return {"ok": False, "status": 502,
+                "detail": f"FlareSolverr didn't accept the destroy for \"{sid}\""}
+    if status and status != "ok":
+        return {"ok": False, "status": 400,
+                "detail": str(as_dict(body).get("message") or f"could not destroy \"{sid}\"")}
+    return {"ok": True, "status": 200,
+            "detail": f"🧩 Destroyed FlareSolverr session \"{sid}\"."}

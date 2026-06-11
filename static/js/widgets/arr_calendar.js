@@ -317,12 +317,21 @@ export const helpers = {
     this.arrCalViewYM = d.getFullYear() + '-'
       + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
     this.arrCalCloseDay();
-    // The loading state (in-grid overlay + the tile's refresh-pill spin) is
-    // managed inside _ensureArrCalendar at the network-fetch boundary, so a
-    // cached month resolves instantly with no flicker and a real fetch shows
-    // the spinner. The card keeps the previous month's data until the new
-    // window lands (so widgetHasData stays true and the pill stays visible).
-    this._ensureArrCalendar();
+    // GUARANTEE the tile's refresh pill spins on EVERY month change — toggle it
+    // here around the whole call rather than relying solely on
+    // _ensureArrCalendar's internal toggle (which a cache hit early-returns
+    // past, so a cached month would show no feedback at all). Promise.resolve
+    // handles both the cached path (returns undefined → resolves immediately,
+    // brief spin) and the fetch path (returns the fetch promise → spins until
+    // it lands). The card keeps the previous month's data until the new window
+    // arrives (widgetHasData stays true so the pill stays visible).
+    if (!this.appsWidgetRefreshing) {
+      this.appsWidgetRefreshing = {};
+    }
+    this.appsWidgetRefreshing.arr_calendar = true;
+    Promise.resolve(this._ensureArrCalendar()).finally(() => {
+      this.appsWidgetRefreshing.arr_calendar = false;
+    });
   },
   arrCalPrevMonth() {
     this.arrCalShiftMonth(-1);

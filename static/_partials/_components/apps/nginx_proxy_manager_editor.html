@@ -36,6 +36,30 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.npm.creds_hint') || 'The NPM admin login (Settings -> Users). Required for the proxy-host + certificate stats and the enable/disable actions. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the NPM admin UI (default port 81).'"></p>
     </div>
+    <!-- 2FA TOTP secret — ONLY needed when this NPM user has two-factor auth
+         enabled. The base32 setup key (shown when you enabled 2FA in NPM) so
+         OmniGrid can generate the codes for its background polls. Secret,
+         keep-current-if-blank. -->
+    <div>
+      <label for="apps-instance-npm-totp"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.npm.totp_label') || '2FA secret (only if 2FA is enabled)'"></label>
+      <input id="apps-instance-npm-totp"
+             type="password" x-model="appsInstanceEditForm.totp_secret"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="appsInstanceEditForm.totp_secret_set
+               ? (t('apps.npm.totp_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.npm.totp_placeholder_unset') || 'base32 TOTP key (blank if no 2FA)')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.npm.totp_hint') || 'Leave blank unless this NPM user has 2FA enabled. Paste the base32 setup key (the text shown alongside the QR when you enabled 2FA) so OmniGrid can generate the TOTP codes itself. Stored encrypted-at-rest.'"></p>
+    </div>
+    <!-- TLS verification — OFF by default (NPM's admin UI usually has a
+         self-signed cert). Turn ON only when NPM is fronted by a real cert. -->
+    <label class="flex items-center gap-2 fs-xs">
+      <input type="checkbox" x-model="appsInstanceEditForm.verify_tls">
+      <span x-text="t('apps.npm.verify_tls_label') || 'Verify TLS certificate (off for self-signed)'"></span>
+    </label>
     <!-- Per-instance data-cache TTL (contained in the app, NOT a global Config
          tunable). Blank = the app default (60s); backend clamps 5..3600. -->
     <div>

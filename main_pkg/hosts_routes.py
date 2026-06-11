@@ -1300,6 +1300,13 @@ def _clean_host_services(raw: Any) -> list[dict]:
         ak = entry.get("api_key")
         if isinstance(ak, str) and ak.strip():
             cleaned["api_key"] = ak.strip()[:512]
+        # Per-instance 2FA TOTP secret (the base32 setup key) — a SECRET (suffix
+        # `_secret` → auto-redacted; never returned in the clear, only a
+        # `totp_secret_set` flag; preserved keep-current-if-blank). Used by apps
+        # whose login requires a TOTP second factor (e.g. NPM with 2FA enabled).
+        ts = entry.get("totp_secret")
+        if isinstance(ts, str) and ts.strip():
+            cleaned["totp_secret"] = ts.strip()[:128]
         # Per-instance username — the NON-secret half of a Basic-auth
         # credential pair (e.g. AdGuard Home: username here + password in
         # `api_key`). Plain (returned to the SPA editor verbatim, unlike
@@ -1348,6 +1355,13 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["cache_ttl"] = max(5, min(3600, int(ct)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance TLS-verification toggle — when the app talks HTTPS to a
+        # self-signed / internal cert, the operator can turn cert verification
+        # OFF (default) or ON. Only persisted when explicitly present so apps
+        # that don't surface the toggle keep their module default. Plain bool,
+        # round-trips to the editor (NOT a secret).
+        if "verify_tls" in entry:
+            cleaned["verify_tls"] = bool(entry.get("verify_tls"))
         # Per-instance last-successful-test timestamp (epoch seconds) — written
         # by the test-credential route on a passing Test, surfaced via
         # iter_instances → the editor's "✓ Last tested Xm ago" chip. Bounded
@@ -1641,7 +1655,7 @@ def _save_hosts_config(hosts: list[dict]) -> list[dict]:
 # save drops them). `api_key` is the primary app secret; `tmdb_api_key` is
 # the Seerr app's optional TMDB secret. Add any future per-chip secret here
 # (suffix `_key` / `_token` / `_secret` per the global-secret convention).
-_SECRET_CHIP_FIELDS: tuple[str, ...] = ("api_key", "tmdb_api_key")
+_SECRET_CHIP_FIELDS: tuple[str, ...] = ("api_key", "tmdb_api_key", "totp_secret")
 
 
 def _preserve_chip_api_keys(ordered: list[dict]) -> None:

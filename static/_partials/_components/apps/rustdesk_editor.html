@@ -1,0 +1,90 @@
+<!-- Per-app editor fields -- RustDesk Server (Pro).
+
+     Renders inside the Admin -> Apps per-instance editor, gated on
+     `rustdeskIsApp(...)`. RustDesk Pro authenticates the console login
+     (username + password -> Bearer token):
+       - username -> non-secret `username` chip field (round-trips in the clear).
+       - password -> the secret `api_key` chip field (never returned; only an
+         `api_key_set` flag, keep-current-if-blank on save).
+     Set the chip URL to the RustDesk Server Pro web console (default port
+     21114). The OSS server has no API — this card needs Pro. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="rustdeskIsApp && rustdeskIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-rustdesk-username"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.rustdesk.username_label') || 'Console username'"></label>
+      <input id="apps-instance-rustdesk-username"
+             type="text" x-model="appsInstanceEditForm.username"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="t('apps.rustdesk.username_placeholder') || 'Admin username'"
+             autocomplete="off" spellcheck="false">
+    </div>
+    <div>
+      <label for="apps-instance-rustdesk-password"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.rustdesk.password_label') || 'Console password'"></label>
+      <input id="apps-instance-rustdesk-password"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.rustdesk.password_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.rustdesk.password_placeholder_unset') || 'Admin password')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.rustdesk.creds_hint') || 'The RustDesk Server Pro web-console login. Required for the device + user stats. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Pro web console (default port 21114). The open-source server has no API, so this card needs RustDesk Server Pro.'"></p>
+    </div>
+    <!-- TLS verification — OFF by default (a self-hosted console often has a
+         self-signed cert). Turn ON only when fronted by a real cert. -->
+    <label class="flex items-center gap-2 fs-xs">
+      <input type="checkbox" x-model="appsInstanceEditForm.verify_tls">
+      <span x-text="t('apps.rustdesk.verify_tls_label') || 'Verify TLS certificate (off for self-signed)'"></span>
+    </label>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global Config
+         tunable). Blank = the app default (60s); backend clamps 5..3600. -->
+    <div>
+      <label for="apps-instance-rustdesk-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-rustdesk-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>60</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.rustdesk.cache_ttl_hint') || 'How long fetched RustDesk stats are cached before re-querying (5–3600s). Leave blank for the app default (60s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the Portainer
+         / OIDC admin panels). tcRun is the per-app test fn; tcResult is its
+         reactive {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

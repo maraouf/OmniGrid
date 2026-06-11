@@ -23,8 +23,9 @@ Auth model: ``POST /api/tokens {identity: <email>, secret: <password>}`` returns
 ``Authorization: Bearer <token>`` on every call. We re-authenticate per fetch
 (one cheap extra round-trip) rather than caching the token across the process —
 stateless + correct on a password change. NPM ships a self-signed cert on the
-LAN admin port, so every client uses ``verify=False``. Single-instance app (NOT
-fleet). No image proxy (no thumbnails).
+LAN admin port, so TLS verification defaults OFF (``verify=_verify(chip)``); the
+operator can flip the per-chip ``verify_tls`` toggle ON when NPM is fronted by a
+real cert. Single-instance app (NOT fleet). No image proxy (no thumbnails).
 
 The expanded card answers "is my reverse proxy healthy + are any certs about to
 expire":
@@ -123,10 +124,35 @@ def _hdr(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
-async def _get_token(cli: "httpx.AsyncClient", base: str,
-                     email: str, password: str) -> str:
+def _verify(chip: dict) -> bool:
+    """Whether to verify the upstream TLS certificate. Default False — NPM ships
+    a self-signed cert on its LAN admin port, so verification is off unless the
+    operator flips the per-chip ``verify_tls`` toggle ON (e.g. when NPM is
+    fronted by a real cert)."""
+    return bool(chip.get("verify_tls"))
+
+
+def _totp_now(secret: str) -> str:
+    """Current 6-digit TOTP code from a base32 ``secret`` (the NPM user's 2FA
+    seed). '' on any failure (no secret / bad seed / pyotp missing)."""
+    s = (secret or "").strip().replace(" ", "")
+    if not s:
+        return ""
+    try:
+        import pyotp
+        return str(pyotp.TOTP(s).now())
+    except (ValueError, TypeError, ImportError):
+        return ""
+
+
+async def _get_token(cli: "httpx.AsyncClient", base: str, email: str,
+                     password: str, totp_secret: str = "") -> str:
     """Exchange ``email`` + ``password`` for a bearer token via
-    ``POST /api/tokens``. Returns '' on any failure (bad creds / unreachable)."""
+    ``POST /api/tokens``. When the NPM user has 2FA enabled the first call
+    returns ``{requires_2fa, challenge_token}`` instead of a token; complete it
+    by generating the current TOTP code from ``totp_secret`` and POSTing
+    ``/api/tokens/2fa {challenge_token, code}``. Returns '' on any failure
+    (bad creds / unreachable / 2FA required but no secret / wrong code)."""
     try:
         r = await cli.post(base + "/api/tokens",
                            json={"identity": email, "secret": password},
@@ -137,9 +163,32 @@ async def _get_token(cli: "httpx.AsyncClient", base: str,
     if r.status_code != 200:
         return ""
     try:
-        return str(as_dict(r.json()).get("token") or "")
+        body = as_dict(r.json())
     except (ValueError, TypeError):
         return ""
+    token = str(body.get("token") or "")
+    if token:
+        return token
+    # 2FA challenge — complete it with a generated TOTP code.
+    if body.get("requires_2fa") and body.get("challenge_token"):
+        code = _totp_now(totp_secret)
+        if not code:
+            return ""
+        try:
+            r2 = await cli.post(base + "/api/tokens/2fa",
+                                json={"challenge_token": str(body.get("challenge_token")),
+                                      "code": code},
+                                headers={"Content-Type": "application/json",
+                                         "Accept": "application/json"})
+        except (httpx.HTTPError, OSError):
+            return ""
+        if r2.status_code != 200:
+            return ""
+        try:
+            return str(as_dict(r2.json()).get("token") or "")
+        except (ValueError, TypeError):
+            return ""
+    return ""
 
 
 async def _get(cli: "httpx.AsyncClient", url: str, token: str) -> Any:
@@ -202,32 +251,76 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     base = resolve_base_url(host_row, chip)
     if not base:
         return {"ok": False, "detail": "no upstream URL configured", "status": 0}
+    # Honour the LIVE editor toggle (test-before-save) when present, else the
+    # stored chip value.
+    verify = bool(pay.get("verify_tls")) if "verify_tls" in pay else _verify(chip)
     try:
-        async with httpx.AsyncClient(verify=False, timeout=10.0,
+        async with httpx.AsyncClient(verify=verify, timeout=10.0,
                                      follow_redirects=True) as cli:
             r = await cli.post(base + "/api/tokens",
                                json={"identity": email, "secret": password},
                                headers={"Content-Type": "application/json",
                                         "Accept": "application/json"})
-            token = ""
-            if r.status_code == 200:
+            # Auth / transport failures first.
+            if r.status_code in (400, 401, 403):
+                return {"ok": False,
+                        "detail": "auth failed (check the NPM admin email + password)",
+                        "status": r.status_code}
+            if not (200 <= r.status_code < 300):
+                return {"ok": False, "detail": f"HTTP {r.status_code}",
+                        "status": r.status_code}
+            # 2xx — expect the NPM token shape ``{token, expires}``.
+            try:
+                body = r.json()
+            except (ValueError, TypeError):
+                body = None
+            token = str(as_dict(body).get("token") or "") if isinstance(body, dict) else ""
+            # 2FA challenge — NPM returns {requires_2fa, challenge_token}.
+            if not token and isinstance(body, dict) and body.get("requires_2fa") \
+                    and body.get("challenge_token"):
+                totp_secret = ((pay.get("totp_secret") or "").strip()
+                               or str(chip.get("totp_secret") or ""))
+                if not totp_secret:
+                    return {"ok": False, "status": r.status_code,
+                            "detail": "this NPM user has 2FA enabled — paste the 2FA "
+                                      "secret (the base32 TOTP setup key) below so "
+                                      "OmniGrid can generate the codes"}
+                code = _totp_now(totp_secret)
+                if not code:
+                    return {"ok": False, "status": 0,
+                            "detail": "the 2FA secret isn't a valid base32 TOTP key"}
+                r2 = await cli.post(base + "/api/tokens/2fa",
+                                    json={"challenge_token": str(body.get("challenge_token")),
+                                          "code": code},
+                                    headers={"Content-Type": "application/json",
+                                             "Accept": "application/json"})
+                if r2.status_code != 200:
+                    return {"ok": False, "status": r2.status_code,
+                            "detail": "2FA verification failed — the generated code "
+                                      "was rejected (check the 2FA secret + the "
+                                      "server clock)"}
                 try:
-                    token = str(as_dict(r.json()).get("token") or "")
+                    token = str(as_dict(r2.json()).get("token") or "")
                 except (ValueError, TypeError):
                     token = ""
-            version = ""
-            if token:
-                version = _version_str(await _get(cli, base + "/api/", token))
+            if not token:
+                # Connected (2xx) but no token. Almost always the chip URL points
+                # at a PROXIED site (the public 80/443) returning that site's page
+                # instead of the NPM admin API on port 81.
+                ct = (r.headers.get("content-type") or "").lower()
+                if "html" in ct or not isinstance(body, dict):
+                    detail = ("connected but got a web page, not the NPM API — point "
+                              "the chip URL at the NPM ADMIN UI (default port 81), "
+                              "not a proxied site")
+                else:
+                    detail = ("connected but NPM returned no token — check the admin "
+                              "email + password")
+                return {"ok": False, "detail": detail, "status": r.status_code}
+            version = _version_str(await _get(cli, base + "/api/", token))
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "detail": f"{type(e).__name__}: {e}", "status": 0}
-    if token:
-        return {"ok": True, "detail": f"OK{(' — NPM ' + version) if version else ''}",
-                "status": 200}
-    if r.status_code in (400, 401, 403):
-        return {"ok": False,
-                "detail": "auth failed (check the NPM admin email + password)",
-                "status": r.status_code}
-    return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
+    return {"ok": True, "detail": f"OK{(' — NPM ' + version) if version else ''}",
+            "status": 200}
 
 
 async def fetch_data(host_row: dict, chip: dict, *,
@@ -245,13 +338,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
                            credential=password, log_tag="npm")
     if hit is not None:
         return hit
+    totp_secret = str(chip.get("totp_secret") or "")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _get_token(cli, base, email, password)
+            token = await _get_token(cli, base, email, password, totp_secret)
             if not token:
                 raise RuntimeError(
-                    "auth failed (check the NPM admin email + password)")
+                    "auth failed (check the NPM admin email + password"
+                    + (" / 2FA secret" if totp_secret else "") + ")")
             health, hosts, certs, redirs, streams, dead = await asyncio.gather(
                 _get(cli, base + "/api/", token),
                 _get(cli, base + "/api/nginx/proxy-hosts", token),
@@ -404,9 +499,9 @@ async def _proxy_hosts_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[npm] INFO npm_proxy_hosts host={host_id} (live fetch)")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _get_token(cli, base, email, password)
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
             if not token:
                 return {"ok": False, "status": 401,
                         "detail": "auth failed (check the NPM email + password)"}
@@ -447,9 +542,9 @@ async def _expiring_certs_skill(host_row: dict, chip: dict, *,
         return err
     print(f"[npm] INFO npm_expiring_certs host={host_id} (live fetch)")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _get_token(cli, base, email, password)
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
             if not token:
                 return {"ok": False, "status": 401,
                         "detail": "auth failed (check the NPM email + password)"}
@@ -506,9 +601,9 @@ async def _toggle_host_skill(host_row: dict, chip: dict, *,
     verb = "enable" if enable else "disable"
     print(f"[npm] INFO npm_{verb}_host host={host_id} target={needle!r}")
     try:
-        async with httpx.AsyncClient(verify=False, timeout=20.0,
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _get_token(cli, base, email, password)
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
             if not token:
                 return {"ok": False, "status": 401,
                         "detail": "auth failed (check the NPM email + password)"}

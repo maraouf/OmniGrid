@@ -106,6 +106,14 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "unifi_wlans",
+        "name": "List UniFi Wi-Fi networks",
+        "ai_phrases": ("list my wifi networks, what ssids do i have, show wireless "
+                       "networks, name my wifi networks, what wlans are configured, "
+                       "unifi ssids, list wifi"),
+        "destructive": False,
+    },
+    {
         "id": "unifi_restart_device",
         "name": "Restart a UniFi device",
         "ai_phrases": ("restart the <name> ap, reboot the <name> switch, restart "
@@ -300,16 +308,44 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
+def _client_ssid(client: dict) -> str:
+    """The Wi-Fi network (SSID) a wireless client is on, '' for wired / unknown.
+    Defensive over the field-name variants the Integration API uses across
+    versions."""
+    for k in ("ssid", "essid", "wlanName", "wlan", "networkName"):
+        v = str(client.get(k) or "").strip()
+        if v:
+            return v
+    acc = as_dict(client.get("access"))
+    return str(acc.get("ssid") or acc.get("wlan") or "").strip()
+
+
+def _wlan_name(wlan: dict) -> str:
+    """The SSID / name of a WLANs-endpoint record, '' when absent. Defensive
+    over the field-name variants across Network versions."""
+    if not isinstance(wlan, dict):
+        return ""
+    for k in ("name", "ssid", "essid", "wlanName"):
+        v = str(wlan.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 async def _gather_site(cli: "httpx.AsyncClient", base: str, key: str,
-                       site_id: str) -> "tuple[list, list]":
-    """Fetch one site's devices + clients in parallel, paginating BOTH (the
-    clients list routinely exceeds one page — that truncation was the "59
-    clients but only 25 shown" bug). Returns ``(devices, clients)``."""
-    devices, clients = await asyncio.gather(
+                       site_id: str) -> "tuple[list, list, list]":
+    """Fetch one site's devices + clients + WLANs in parallel, paginating each
+    (the clients list routinely exceeds one page — that truncation was the "59
+    clients but only 25 shown" bug). The WLANs endpoint isn't part of every
+    Integration-API version, so ``_get_all`` returns ``[]`` for it on a 404 and
+    the caller falls back to counting distinct client SSIDs. Returns
+    ``(devices, clients, wlans)``."""
+    devices, clients, wlans = await asyncio.gather(
         _get_all(cli, base + _API + f"/sites/{site_id}/devices", key),
         _get_all(cli, base + _API + f"/sites/{site_id}/clients", key),
+        _get_all(cli, base + _API + f"/sites/{site_id}/wlans", key),
     )
-    return devices, clients
+    return devices, clients, wlans
 
 
 # noinspection DuplicatedCode
@@ -352,9 +388,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
 
     devices: list = []
     clients: list = []
-    for devs, clis in per_site:
+    wlans: list = []
+    for devs, clis, wls in per_site:
         devices.extend(devs)
         clients.extend(clis)
+        wlans.extend(wls)
 
     online = sum(1 for d in devices
                  if str(d.get("state") or "").strip().lower() == "online")
@@ -363,6 +401,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
         buckets[_classify_device(d)] += 1
     wired = sum(1 for c in clients if _client_is_wired(c))
     updates = sum(1 for d in devices if _device_update_pending(d))
+    # Configured Wi-Fi networks: prefer the WLANs endpoint (accurate configured
+    # NAMES); fall back to the distinct SSIDs seen across wireless clients when
+    # that endpoint isn't available on this Network version. Names are sorted +
+    # deduped (case-insensitive) so the card / skill can list them.
+    if wlans:
+        wlan_names = sorted({n for n in (_wlan_name(w) for w in wlans) if n},
+                            key=str.lower)
+    else:
+        wlan_names = sorted({s for s in (_client_ssid(c) for c in clients) if s},
+                            key=str.lower)
 
     out: dict[str, Any] = {
         "available": True,
@@ -378,14 +426,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "clients": len(clients),
         "clients_wired": wired,
         "clients_wireless": max(0, len(clients) - wired),
+        "wlans": len(wlan_names),
+        "wlan_names": wlan_names[:_MAX_ROWS],
         "fetched_at": int(now),
     }
     print(f"[unifi] INFO fetched host={host_id} sites={out['sites']} "
           f"devices={out['devices']} online={out['devices_online']} "
           f"aps={out['aps']} sw={out['switches']} gw={out['gateways']} "
           f"clients={out['clients']} (w={out['clients_wired']}/"
-          f"wl={out['clients_wireless']}) updates={out['devices_update_available']} "
-          f"ver={version or '-'}")
+          f"wl={out['clients_wireless']}) wlans={out['wlans']} "
+          f"updates={out['devices_update_available']} ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -408,6 +458,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "clients": safe_int(data.get("clients")),
         "clients_wired": safe_int(data.get("clients_wired")),
         "clients_wireless": safe_int(data.get("clients_wireless")),
+        "wlans": safe_int(data.get("wlans")),
+        "wlan_names": [str(n) for n in as_list(data.get("wlan_names")) if n],
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -453,6 +505,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "unifi_clients":
         return await _clients_skill(host_row, chip, host_id=host_id,
                                     service_idx=service_idx)
+    if skill_id == "unifi_wlans":
+        return await _wlans_skill(host_row, chip, host_id=host_id,
+                                  service_idx=service_idx)
     if skill_id == "unifi_restart_device":
         return await _restart_device_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -503,6 +558,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"({safe_int(data.get('clients_wired'))} wired · "
         f"{safe_int(data.get('clients_wireless'))} wireless)",
     ]
+    wlans = safe_int(data.get("wlans"))
+    if wlans:
+        lines.append(f"📶 {wlans} Wi-Fi network(s)")
     if updates:
         lines.append(f"⬆️ {updates} device firmware update(s) available")
     ver = str(data.get("version") or "").strip()
@@ -601,6 +659,27 @@ async def _clients_skill(host_row: dict, chip: dict, *,
             "detail": (f"👥 {total} client(s) connected — {wired} wired · "
                        f"{wireless} wireless."),
             "clients": total, "wired": wired, "wireless": wireless}
+
+
+async def _wlans_skill(host_row: dict, chip: dict, *,
+                       host_id: Optional[str] = None,
+                       service_idx: Optional[int] = None) -> dict:
+    """Read-only: list the configured Wi-Fi networks (SSIDs) as rich rows. The
+    names come from the WLANs endpoint when available, else the distinct SSIDs
+    seen across wireless clients. Never raises."""
+    print(f"[unifi] INFO unifi_wlans host={host_id} (live fetch)")
+    data, err = await _live_data(host_row, chip, host_id, service_idx)
+    if data is None:
+        return err or {"ok": False, "detail": "fetch failed", "status": 0}
+    names = [str(n) for n in as_list(data.get("wlan_names")) if n]
+    if not names:
+        return {"ok": True, "status": 200, "detail": "📶 No Wi-Fi networks found."}
+    items = [{"title": n, "subtitle": "SSID"} for n in names]
+    lines = [f"• {n}" for n in names]
+    out: dict = {"ok": True, "status": 200,
+                 "detail": f"📶 {len(names)} Wi-Fi network(s):\n" + "\n".join(lines),
+                 "wlans": len(names)}
+    return _attach_items(out, items, "apps.unifi.wlans_count")
 
 
 async def _restart_device_skill(host_row: dict, chip: dict, *,

@@ -606,6 +606,13 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["api_key"] = v[:512]
         # blank → keep current (no chip.pop — the existing
         # value carries forward).
+    # Per-instance 2FA TOTP secret — SECRET, keep-current-if-blank (same
+    # contract as api_key). Non-empty overwrites; blank preserves the stored
+    # value. Never returned in the clear (only a `totp_secret_set` flag).
+    if "totp_secret" in payload:
+        v = (payload.get("totp_secret") or "").strip()
+        if v:
+            chip["totp_secret"] = v[:128]
     # Per-instance username — the NON-secret half of a Basic-auth pair
     # (e.g. AdGuard Home). Returned in the clear, so the SPA round-trips
     # it: a non-empty value overwrites, an explicit blank CLEARS it (no
@@ -669,6 +676,12 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["cache_ttl"] = _cti
         else:
             chip.pop("cache_ttl", None)
+    # Per-instance TLS-verification toggle — for apps that talk HTTPS to a
+    # self-signed / internal cert (e.g. NPM admin UI). Present overwrites;
+    # absent leaves the stored value (so apps without the toggle keep their
+    # module default). Returned in the clear (round-trips to the editor).
+    if "verify_tls" in payload:
+        chip["verify_tls"] = bool(payload.get("verify_tls"))
     # Per-instance Seerr "suggest a movie" pool sizing. Clamp each; a blank /
     # out-of-range / non-int value CLEARS the override so the module default
     # applies (8 attempts / page-200 catalogue depth). Returned in the clear
