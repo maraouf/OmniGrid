@@ -12610,6 +12610,12 @@ select.field-invalid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 3px;
+  /* Absorb the column's spare/short height so the in-flow provider legend
+     below always has room (flex:1 grid shrinks; overflow:hidden clips its own
+     rows on a very short tile instead of painting over the legend). */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .apps-widget-arr-cal-weekday {
@@ -12998,24 +13004,19 @@ select.field-invalid {
 }
 
 .apps-widget-arr-cal-legend {
-  /* Pinned to the tile's bottom-right so the provider key shares the freshness
-     footer's line ("Updated Ns ago" sits bottom-left) instead of taking a row
-     from the calendar grid — where it was getting clipped under the grid on the
-     short tile preset (the "hidden behind the calendar" report). Positioned
-     against the `container-type: size` tile, which is an ANCESTOR of the
-     `overflow: hidden` body, so the body's clip doesn't apply to it.
-     pointer-events:none — it's labels only, never intercept calendar clicks. */
-  position: absolute;
-  right: var(--s-3);
-  bottom: var(--s-3);
-  z-index: 2;
+  /* In-flow bottom-RIGHT row of the calendar column (the grid above is flex:1
+     so it shrinks to give this room — never clipped, never overlapping the
+     grid). Single line, right-aligned, sits directly above the tile's
+     "Updated Ns ago" freshness footer. (It can't share that exact footer line
+     because the footer lives OUTSIDE this `overflow:hidden; position:relative`
+     body — so a bottom-right strip just above it is the clean placement.) */
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   align-items: center;
   gap: 2px var(--s-2);
-  max-width: 62%;
-  pointer-events: none;
+  overflow: hidden;
 }
 
 .apps-widget-arr-cal-legend-item {
