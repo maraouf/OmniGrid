@@ -11573,7 +11573,8 @@ select.field-invalid {
 
 /* Tracearr drawer extras — plays-over-time sparkline + the playback-quality
    (Direct Play / Direct Stream / Transcode) breakdown bar + legend dots. */
-.apps-tracearr-spark {
+.apps-tracearr-spark,
+.apps-tautulli-spark {
   display: block;
   width: 100%;
   height: 32px;

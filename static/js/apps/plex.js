@@ -72,6 +72,18 @@ function plexCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Total active-stream bandwidth as a Mbps string ('' when zero/unknown) — from
+// the payload's `bandwidth_kbps` (sum of each session's Plex Session.bandwidth).
+function plexBandwidth(inst) {
+  /* jshint validthis: true */
+  const d = plexData.call(this, inst);
+  const kbps = d ? Number(d.bandwidth_kbps) : 0;
+  if (!isFinite(kbps) || kbps <= 0) {
+    return '';
+  }
+  return (kbps / 1000).toFixed(1) + ' Mbps';
+}
+
 // "Sign in to Plex" — runs the Plex OAuth PIN device flow so the operator
 // never pastes an X-Plex-Token by hand (the same seamless flow Tautulli /
 // Overseerr use). POSTs /api/apps/plex/auth/start (the backend asks plex.tv
@@ -206,5 +218,6 @@ export const helpers = {
   plexIsApp: isPlexApp,
   plexData: plexData,
   plexCount: plexCount,
+  plexBandwidth: plexBandwidth,
   plexSignIn: plexSignIn,
 };
