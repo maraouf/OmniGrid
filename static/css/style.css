@@ -12610,12 +12610,6 @@ select.field-invalid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 3px;
-  /* Absorb the column's spare/short height so the in-flow provider legend
-     below always has room (flex:1 grid shrinks; overflow:hidden clips its own
-     rows on a very short tile instead of painting over the legend). */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .apps-widget-arr-cal-weekday {
@@ -12628,8 +12622,13 @@ select.field-invalid {
 }
 
 .apps-widget-arr-cal-grid {
-  flex: 1;
+  /* Fill the calendar column's remaining height and let the 6 week-rows SHARE
+     it equally (grid-auto-rows: minmax(0, 1fr)) so they SHRINK to fit on a
+     short tile — the whole month stays visible AND the in-flow provider legend
+     below keeps its room (instead of the rows clipping or overlapping it). */
+  flex: 1 1 auto;
   min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
 }
 
 .apps-widget-arr-cal-cell-wrap {
@@ -12640,7 +12639,10 @@ select.field-invalid {
 .apps-widget-arr-cal-cell {
   width: 100%;
   height: 100%;
-  min-height: 26px;
+  /* Low floor so the 6 grid rows (grid-auto-rows: minmax(0,1fr)) can shrink to
+     fit the whole month on the short tile preset without the bottom rows
+     overflowing the in-flow provider legend below. */
+  min-height: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
