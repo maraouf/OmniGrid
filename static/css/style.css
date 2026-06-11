@@ -11632,6 +11632,26 @@ select.field-invalid {
   gap: var(--s-1) var(--s-2);
 }
 
+/* FlareSolverr 30-day open-session usage sparkline (apps card extras). The
+   viewBox is stretched to the tile width via preserveAspectRatio:none; the
+   non-scaling stroke keeps the line crisp regardless of that distortion. */
+.apps-fs-spark {
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin-top: var(--s-1);
+  overflow: visible;
+}
+
+.apps-fs-spark-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
 /* Each UPS stat is a subtle accent-tinted chip so the panel reads as a
    tidy set of equal cells at EVERY size variant (the chip background +
    uniform padding give consistent spacing whether the grid is one wide
@@ -12978,10 +12998,24 @@ select.field-invalid {
 }
 
 .apps-widget-arr-cal-legend {
+  /* Pinned to the tile's bottom-right so the provider key shares the freshness
+     footer's line ("Updated Ns ago" sits bottom-left) instead of taking a row
+     from the calendar grid — where it was getting clipped under the grid on the
+     short tile preset (the "hidden behind the calendar" report). Positioned
+     against the `container-type: size` tile, which is an ANCESTOR of the
+     `overflow: hidden` body, so the body's clip doesn't apply to it.
+     pointer-events:none — it's labels only, never intercept calendar clicks. */
+  position: absolute;
+  right: var(--s-3);
+  bottom: var(--s-3);
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s-1) var(--s-3);
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px var(--s-2);
+  max-width: 62%;
+  pointer-events: none;
 }
 
 .apps-widget-arr-cal-legend-item {

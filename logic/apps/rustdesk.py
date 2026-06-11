@@ -113,24 +113,49 @@ def _hdr(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
+# A RustDesk Server Pro ``/api/login`` HTTP 400 with otherwise-valid credentials
+# almost always means the account has 2FA (TOTP) enabled: the Pro web-console
+# login expects an interactive verification step that the automation API can't
+# complete (one-time codes don't fit a background poll). The robust fix for an
+# integration is a DEDICATED console user WITHOUT 2FA — RustDesk Pro supports
+# multiple users — keeping the human admin's 2FA intact. Surfaced verbatim from
+# test_credential + every skill so the operator gets an actionable next step
+# instead of a bare "HTTP 400".
+_TFA_HINT = ("login rejected (HTTP 400) — this RustDesk account most likely has "
+             "2FA enabled, which the Pro web-console login can't complete for an "
+             "automated integration. Create a dedicated RustDesk user WITHOUT 2FA "
+             "(web console → Settings → Users → add a user) and use those "
+             "credentials here.")
+
+
 async def _login(cli: "httpx.AsyncClient", base: str,
-                 username: str, password: str) -> str:
+                 username: str, password: str) -> "tuple[str, str]":
     """Exchange console ``username`` + ``password`` for a Bearer access token
-    via ``POST /api/login``. Returns '' on any failure (bad creds / no API /
-    unreachable)."""
+    via ``POST /api/login``. Returns ``(token, '')`` on success or
+    ``('', reason)`` on failure — the reason is an actionable human string
+    (a 400 surfaces the 2FA hint; 401/403 → bad creds) so callers can show
+    WHY instead of a generic "login failed"."""
     try:
         r = await cli.post(base + "/api/login",
                            json={"username": username, "password": password},
                            headers={"Content-Type": "application/json",
                                     "Accept": "application/json"})
-    except (httpx.HTTPError, OSError):
-        return ""
+    except (httpx.HTTPError, OSError) as e:
+        return "", f"unreachable: {type(e).__name__}"
+    if r.status_code == 400:
+        return "", _TFA_HINT
+    if r.status_code in (401, 403):
+        return "", "auth failed (check the console username + password)"
     if r.status_code != 200:
-        return ""
+        return "", f"HTTP {r.status_code}"
     try:
-        return str(as_dict(r.json()).get("access_token") or "")
+        tok = str(as_dict(r.json()).get("access_token") or "")
     except (ValueError, TypeError):
-        return ""
+        tok = ""
+    if not tok:
+        return "", ("connected but no access token (check credentials / that "
+                    "this is RustDesk Server Pro)")
+    return tok, ""
 
 
 async def _get(cli: "httpx.AsyncClient", url: str, token: str) -> Any:
@@ -162,7 +187,7 @@ def _peer_online(peer: dict) -> bool:
     if lo:
         now = time.time()
         if lo > 1e12:  # milliseconds
-            lo = lo / 1000.0
+            lo /= 1000.0
         return (now - lo) <= 300
     return False
 
@@ -199,6 +224,8 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                         "detail": "auth failed (check the RustDesk console username "
                                   "+ password)",
                         "status": r.status_code}
+            if r.status_code == 400:
+                return {"ok": False, "detail": _TFA_HINT, "status": 400}
             if r.status_code == 404:
                 return {"ok": False,
                         "detail": "404 — no RustDesk API here. This needs RustDesk "
@@ -245,12 +272,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     try:
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _login(cli, base, username, password)
+            token, reason = await _login(cli, base, username, password)
             if not token:
-                raise RuntimeError(
+                raise RuntimeError(reason or (
                     "RustDesk login failed — check the console username + "
                     "password, and that this is RustDesk Server Pro (the OSS "
-                    "server has no API)")
+                    "server has no API)"))
             peers_body, users_body, ver_body = await asyncio.gather(
                 _get(cli, base + "/api/peers", token),
                 _get(cli, base + "/api/users", token),
@@ -392,11 +419,12 @@ async def _devices_skill(host_row: dict, chip: dict, *,
     try:
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
-            token = await _login(cli, base, username, password)
+            token, reason = await _login(cli, base, username, password)
             if not token:
                 return {"ok": False, "status": 401,
-                        "detail": "RustDesk login failed (check username + password "
-                                  "/ that this is RustDesk Server Pro)"}
+                        "detail": reason or ("RustDesk login failed (check username "
+                                             "+ password / that this is RustDesk "
+                                             "Server Pro)")}
             peers_body = await _get(cli, base + "/api/peers", token)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}

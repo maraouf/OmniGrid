@@ -87,6 +87,10 @@ class Tunable(str, Enum):
     BESZEL_SAMPLE_INTERVAL_SECONDS = "tuning_beszel_sample_interval_seconds"
     CACHE_TTL_SECONDS = "tuning_cache_ttl_seconds"
     CONFIG_BACKUP_RETENTION_COUNT = "tuning_config_backup_retention_count"
+    FAVICON_CACHE_DAYS = "tuning_favicon_cache_days"
+    FAVICON_FETCH_TIMEOUT_SECONDS = "tuning_favicon_fetch_timeout_seconds"
+    FLARESOLVERR_HISTORY_DAYS = "tuning_flaresolverr_history_days"
+    FLARESOLVERR_SAMPLE_INTERVAL_SECONDS = "tuning_flaresolverr_sample_interval_seconds"
     GATHER_CLIENT_TIMEOUT_SECONDS = "tuning_gather_client_timeout_seconds"
     GATHER_ORPHAN_PROBE_TIMEOUT_SECONDS = "tuning_gather_orphan_probe_timeout_seconds"
     HOST_BASELINE_FIRST_TICK_DELAY_SECONDS = "tuning_host_baseline_first_tick_delay_seconds"
@@ -1316,6 +1320,25 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # snapshots over years. Default 30 = roughly one month at daily
     # cadence.
     "tuning_config_backup_retention_count": ("CONFIG_BACKUP_RETENTION_COUNT", 30, 0, 1000),
+
+    # ----- Favicon proxy (bookmark / app tile icon fallback) ----------------
+    # Disk-cache TTL (days) for a fetched favicon under /app/data/favicons/.
+    # 30 — site favicons change rarely; a stale one re-fetches after the window.
+    "tuning_favicon_cache_days": ("FAVICON_CACHE_DAYS", 30, 1, 365),
+    # Per-fetch wall-clock (s) for the favicon proxy's upstream GET(s)
+    # (favicon.ico + the page-head parse). 8s — favicons are tiny; keep it tight
+    # so a slow site can't hang the tile.
+    "tuning_favicon_fetch_timeout_seconds": ("FAVICON_FETCH_TIMEOUT_SECONDS", 8, 2, 60),
+
+    # ----- FlareSolverr usage sampler ---------------------------------------
+    # How often the lifespan flaresolverr_sampler records each configured
+    # FlareSolverr chip's live open-session count (0 = inherit the global
+    # stats sample interval). Cheap call (sessions.list), so 10 min is plenty —
+    # sessions change slowly.
+    "tuning_flaresolverr_sample_interval_seconds": ("FLARESOLVERR_SAMPLE_INTERVAL_SECONDS", 600, 0, 86400),
+    # Retention window (days) for flaresolverr_session_samples — drives the
+    # card's usage trend. Default 30 (the "past 30 days" the operator asked for).
+    "tuning_flaresolverr_history_days": ("FLARESOLVERR_HISTORY_DAYS", 30, 1, 365),
 
     # ----- SSH WebSocket ----------------------------------------------------
 

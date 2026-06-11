@@ -1790,6 +1790,15 @@ class SettingsIn(BaseModel):
     tuning_weather_fetch_timeout_seconds: Optional[str] = None
     tuning_weather_history_retention_days: Optional[str] = None
     tuning_weather_sampler_interval_seconds: Optional[str] = None
+    # FlareSolverr usage sampler — open-session-count sample cadence (0 =
+    # inherit the global stats interval) + retention window for the card's
+    # 30-day usage trend.
+    tuning_flaresolverr_sample_interval_seconds: Optional[str] = None
+    tuning_flaresolverr_history_days: Optional[str] = None
+    # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
+    # per-fetch wall-clock.
+    tuning_favicon_cache_days: Optional[str] = None
+    tuning_favicon_fetch_timeout_seconds: Optional[str] = None
     # AI log context — how many hours back to read persistent logs
     # for the palette's user-prompt context, capped at N lines.
     tuning_ai_log_context_hours: Optional[str] = None

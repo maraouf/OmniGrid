@@ -355,18 +355,35 @@ async def _jobs_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
     if not jobs:
         return {"ok": True, "status": 200, "detail": "⚙️ No Rundeck jobs found."}
-    jobs.sort(key=lambda j: (str(j.get("project") or "").lower(),
-                             str(j.get("group") or "").lower(),
-                             str(j.get("name") or "").lower()))
+    jobs.sort(key=lambda job: (str(job.get("project") or "").lower(),
+                               str(job.get("group") or "").lower(),
+                               str(job.get("name") or "").lower()))
     items: list = []
     lines: list = []
     for j in jobs[:_MAX_ROWS]:
-        name = str(j.get("name") or "").strip() or str(j.get("id") or "")
+        jid = str(j.get("id") or "").strip()
+        name = str(j.get("name") or "").strip() or jid
         proj = str(j.get("project") or "").strip()
         group = str(j.get("group") or "").strip()
         bits = [b for b in (proj, group) if b]
         sub = " · ".join(bits) if bits else "job"
-        items.append({"title": name, "subtitle": sub})
+        # Per-row ▶ "Run now" button → dispatches rundeck_run_job against this
+        # job's ID (unambiguous vs. resolving by name), confirm-gated since
+        # running a job is a real state change. (Falls back to the name when
+        # the API omitted the id, which run_job still resolves.)
+        items.append({
+            "title": name,
+            "subtitle": sub,
+            "row_action": {
+                "skill_id": "rundeck_run_job",
+                "arg": jid or name,
+                "destructive": True,
+                "icon": "play",
+                "title_i18n": "apps.rundeck.run_now",
+                "confirm_i18n": "apps.rundeck.run_job_confirm",
+                "confirm_text_i18n": "apps.rundeck.run_now",
+            },
+        })
         lines.append(f"• {name}  ({sub})")
     out: dict = {"ok": True, "status": 200,
                  "detail": "⚙️ Rundeck jobs:\n" + "\n".join(lines)}
@@ -435,12 +452,19 @@ async def _run_job_skill(host_row: dict, chip: dict, *,
             match_id = ""
             match_name = ""
             for j in jobs:
+                jid = str(j.get("id") or "").strip()
                 jname = str(j.get("name") or "").strip()
+                # Exact job-ID match first (the per-row ▶ Run-now button passes
+                # the id — unambiguous); then exact name; then substring (the
+                # AI / Telegram free-text path passes a name).
+                if jid and jid == needle:
+                    match_id, match_name = jid, jname
+                    break
                 if jname.lower() == needle_l:
-                    match_id, match_name = str(j.get("id") or ""), jname
+                    match_id, match_name = jid, jname
                     break
                 if not match_id and needle_l in jname.lower():
-                    match_id, match_name = str(j.get("id") or ""), jname
+                    match_id, match_name = jid, jname
             if not match_id:
                 return {"ok": False, "status": 404,
                         "detail": f"no Rundeck job matched \"{needle}\""}

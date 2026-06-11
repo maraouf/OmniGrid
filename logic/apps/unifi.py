@@ -108,7 +108,8 @@ SKILLS: tuple[dict, ...] = (
         "name": "UniFi clients",
         "ai_phrases": ("how many clients are connected, unifi clients, wifi clients, "
                        "wired vs wireless clients, who is on my network, connected "
-                       "devices count"),
+                       "devices count, top clients by usage, which client uses the "
+                       "most bandwidth, busiest clients, who is using the most data"),
         "destructive": False,
     },
     {
@@ -354,6 +355,19 @@ async def _gather_site(cli: "httpx.AsyncClient", base: str, key: str,
     return devices, clients, wlans
 
 
+async def _legacy_site_keys(cli: "httpx.AsyncClient", base: str, key: str) -> list[str]:
+    """Internal legacy-controller site keys (e.g. ``default``) from the classic
+    ``/proxy/network/api/self/sites`` endpoint — the path component the legacy
+    ``/s/{site}/...`` routes need (distinct from the Integration API's site id).
+    Falls back to ``['default']`` when the probe is unavailable. Shared by the
+    legacy WLAN-config + per-client-usage walks."""
+    sites_body = await _get_json(cli, base + _LEGACY_API + "/self/sites", key)
+    keys = [str(s.get("name") or "").strip()
+            for s in as_list(as_dict(sites_body).get("data"))
+            if isinstance(s, dict) and s.get("name")]
+    return keys or ["default"]
+
+
 async def _fetch_wlan_names(cli: "httpx.AsyncClient", base: str, key: str) -> list[str]:
     """Configured Wi-Fi-network (SSID) names via the LEGACY UniFi Network
     controller API. The Integration API (v1) exposes no WLAN-config endpoint and
@@ -362,20 +376,13 @@ async def _fetch_wlan_names(cli: "httpx.AsyncClient", base: str, key: str) -> li
     configured networks — but the classic controller API's ``rest/wlanconf``
     does, and the same ``X-API-KEY`` authenticates it (no cookie login needed).
 
-    Walks every site's ``/proxy/network/api/s/{site}/rest/wlanconf``; the site
-    keys come from the legacy ``/self/sites`` list (internal names like
-    ``default``), falling back to ``default`` when that probe is unavailable.
-    Returns the sorted, de-duplicated (case-insensitive) names, ``[]`` on any
-    failure so the caller degrades to the client-SSID heuristic."""
+    Walks every site's ``/proxy/network/api/s/{site}/rest/wlanconf`` (site keys
+    from ``_legacy_site_keys``). Returns the sorted, de-duplicated
+    (case-insensitive) names, ``[]`` on any failure so the caller degrades to
+    the client-SSID heuristic."""
     from urllib.parse import quote  # noqa: PLC0415
-    sites_body = await _get_json(cli, base + _LEGACY_API + "/self/sites", key)
-    site_keys = [str(s.get("name") or "").strip()
-                 for s in as_list(as_dict(sites_body).get("data"))
-                 if isinstance(s, dict) and s.get("name")]
-    if not site_keys:
-        site_keys = ["default"]
     names: set[str] = set()
-    for sk in site_keys[:_MAX_SITES]:
+    for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
         body = await _get_json(
             cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/rest/wlanconf", key)
         for w in as_list(as_dict(body).get("data")):
@@ -384,6 +391,45 @@ async def _fetch_wlan_names(cli: "httpx.AsyncClient", base: str, key: str) -> li
                 if nm:
                     names.add(nm)
     return sorted(names, key=str.lower)
+
+
+def _fmt_bytes(n: Any) -> str:
+    """Humanise a byte count (B / KB / MB / GB / TB, 1024-base, 1 decimal above
+    bytes)."""
+    v = float(max(0, safe_int(n)))
+    for unit in ("B", "KB", "MB", "GB"):
+        if v < 1024:
+            return f"{v:.0f} {unit}" if unit == "B" else f"{v:.1f} {unit}"
+        v /= 1024
+    return f"{v:.1f} TB"
+
+
+async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> list[dict]:
+    """Per-client SESSION usage (rx + tx bytes since the client connected) from
+    the LEGACY controller ``stat/sta`` endpoint — the Integration API client
+    record carries no traffic counters, so the top-by-usage ranking needs the
+    classic API (same ``X-API-KEY`` auth + per-site walk as ``_fetch_wlan_names``).
+    Each row: ``{name, ip, wired, rx, tx, total}`` (bytes). ``[]`` on any failure
+    so the caller degrades to the plain count summary."""
+    from urllib.parse import quote  # noqa: PLC0415
+    out: list[dict] = []
+    for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
+        body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/stat/sta", key)
+        for c in as_list(as_dict(body).get("data")):
+            if not isinstance(c, dict):
+                continue
+            rx = safe_int(c.get("rx_bytes")) + safe_int(c.get("wired-rx_bytes"))
+            tx = safe_int(c.get("tx_bytes")) + safe_int(c.get("wired-tx_bytes"))
+            name = (str(c.get("name") or "").strip()
+                    or str(c.get("hostname") or "").strip()
+                    or str(c.get("mac") or "").strip())
+            if not name:
+                continue
+            out.append({"name": name, "ip": str(c.get("ip") or "").strip(),
+                        "wired": bool(c.get("is_wired")), "rx": rx, "tx": tx,
+                        "total": rx + tx})
+    return out
 
 
 # noinspection DuplicatedCode
@@ -698,8 +744,11 @@ async def _devices_skill(host_row: dict, chip: dict, *,
 async def _clients_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None,
                          service_idx: Optional[int] = None) -> dict:
-    """Read-only: connected-client counts (total / wired / wireless). Never
-    raises."""
+    """Read-only: connected-client counts (total / wired / wireless) PLUS a
+    top-by-usage rich list — the busiest clients this session, ranked by
+    rx + tx bytes (from the legacy ``stat/sta`` endpoint). The rich list is
+    omitted (only the count summary returns) when that endpoint is unavailable
+    or every client shows zero traffic. Never raises."""
     print(f"[unifi] INFO unifi_clients host={host_id} (live fetch)")
     data, err = await _live_data(host_row, chip, host_id, service_idx)
     if data is None:
@@ -707,10 +756,48 @@ async def _clients_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("clients"))
     wired = safe_int(data.get("clients_wired"))
     wireless = safe_int(data.get("clients_wireless"))
-    return {"ok": True, "status": 200,
-            "detail": (f"👥 {total} client(s) connected — {wired} wired · "
-                       f"{wireless} wireless."),
-            "clients": total, "wired": wired, "wireless": wireless}
+    summary = (f"👥 {total} client(s) connected — {wired} wired · "
+               f"{wireless} wireless.")
+    base_out = {"ok": True, "status": 200, "detail": summary,
+                "clients": total, "wired": wired, "wireless": wireless}
+    # Per-client usage for the top-N ranking — legacy controller stat/sta (the
+    # Integration API client record has no traffic counters). Best-effort: any
+    # failure (legacy API off, 401) falls back to the plain count summary.
+    key, base, terr = _resolve_skill_target(host_row, chip)
+    rows: list[dict] = []
+    if terr is None:
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                         follow_redirects=True) as cli:
+                rows = await _fetch_client_usage(cli, base, key)
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            print(f"[unifi] warning: client-usage fetch failed for {base} — "
+                  f"{type(e).__name__}: {e}")
+            rows = []
+    rows = [r for r in rows if r["total"] > 0]
+    if not rows:
+        return base_out
+    rows.sort(key=lambda r: r["total"], reverse=True)
+    top = rows[:10]
+    maxt = top[0]["total"] or 1
+    items: list[dict] = []
+    lines = [summary, "", "📊 Top clients by usage (this session):"]
+    for i, c in enumerate(top, 1):
+        icon = "🔌" if c["wired"] else "📶"
+        sub_bits = []
+        if c["ip"]:
+            sub_bits.append(c["ip"])
+        sub_bits.append(f"▼ {_fmt_bytes(c['rx'])} · ▲ {_fmt_bytes(c['tx'])}")
+        items.append({
+            "title": f"{icon} {c['name']}",
+            "subtitle": " · ".join(sub_bits),
+            "progress": round(c["total"] / maxt * 100),
+        })
+        lines.append(f"{i}. {c['name']} — {_fmt_bytes(c['total'])} "
+                     f"(▼{_fmt_bytes(c['rx'])} ▲{_fmt_bytes(c['tx'])})")
+    out = dict(base_out)
+    out["detail"] = "\n".join(lines)
+    return _attach_items(out, items, "apps.unifi.clients_top_count")
 
 
 async def _wlans_skill(host_row: dict, chip: dict, *,

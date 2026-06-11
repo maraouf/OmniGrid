@@ -71,6 +71,12 @@ def ensure_dirs() -> None:
     """Called once at startup from the lifespan handler."""
     os.makedirs(BACKUP_DIR, exist_ok=True)
     os.makedirs(AVATAR_DIR, exist_ok=True)
+    # Favicon proxy disk cache (bookmark / app tile icon fallback).
+    try:
+        from logic import favicon_cache as _favicon_cache
+        _favicon_cache.ensure_dir()
+    except Exception as e:  # noqa: BLE001
+        print(f"[favicon] ensure_dir skipped: {e}")
 
 
 def _safe_name(name: str) -> str:

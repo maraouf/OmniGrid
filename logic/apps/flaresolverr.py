@@ -213,6 +213,18 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "session_ids": ids,
         "fetched_at": int(now),
     }
+    # 30-day open-session usage trend from the lifespan sampler (FlareSolverr
+    # has no historical / request-volume API, so this is the only usage signal).
+    # Best-effort — never block the card on a sampler-table read.
+    try:
+        from logic.apps import flaresolverr_sampler as _fs_sampler  # noqa: PLC0415
+        from logic.tuning import Tunable as _Tunable  # noqa: PLC0415
+        from logic.tuning import tuning_int as _tuning_int  # noqa: PLC0415
+        out["usage"] = _fs_sampler.usage_summary(
+            str(host_id), int(service_idx),
+            days=_tuning_int(_Tunable.FLARESOLVERR_HISTORY_DAYS))
+    except Exception as e:  # noqa: BLE001
+        print(f"[flaresolverr] usage_summary skipped: {type(e).__name__}: {e}")
     print(f"[flaresolverr] INFO fetched host={host_id} ready={out['ready']} "
           f"ver={out['version'] or '-'} sessions={out['sessions']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
@@ -274,8 +286,16 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if ua:
         lines.append(f"🌐 UA: {ua}")
+    _usage = data.get("usage")
+    usage = _usage if isinstance(_usage, dict) else {}
+    peak = safe_int(usage.get("peak"))
+    active_days = safe_int(usage.get("active_days"))
+    if usage.get("samples"):
+        lines.append(f"📈 {usage.get('days', 30)}d usage: peak {peak} · "
+                     f"avg {usage.get('avg', 0)} · active {active_days} day(s)")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
-            "ready": bool(data.get("ready")), "version": ver, "sessions": sessions}
+            "ready": bool(data.get("ready")), "version": ver, "sessions": sessions,
+            "usage": usage}
 
 
 async def _sessions_skill(host_row: dict, chip: dict, *,
@@ -306,12 +326,14 @@ async def _sessions_skill(host_row: dict, chip: dict, *,
             },
         })
         lines.append(f"• {sid}")
-    out: dict = {"ok": True, "status": 200,
-                 "detail": "🧩 Active FlareSolverr sessions:\n" + "\n".join(lines)}
-    out["items"] = items
-    out["count"] = len(items)
-    out["count_i18n"] = "apps.flaresolverr.sessions_count"
-    return out
+    return {
+        "ok": True,
+        "status": 200,
+        "detail": "🧩 Active FlareSolverr sessions:\n" + "\n".join(lines),
+        "items": items,
+        "count": len(items),
+        "count_i18n": "apps.flaresolverr.sessions_count",
+    }
 
 
 async def _destroy_session_skill(host_row: dict, chip: dict, *,

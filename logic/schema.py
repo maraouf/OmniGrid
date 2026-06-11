@@ -550,6 +550,27 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ping_samples_ts
             ON ping_samples(ts);
 
+        -- FlareSolverr per-chip open-session-count history. The FlareSolverr
+        -- API exposes only the CURRENT open sessions (sessions.list) with no
+        -- historical / request-volume data, so the lifespan
+        -- ``flaresolverr_sampler`` records the live count per tick to give the
+        -- card a 30-day usage trend. One row per (host_id, service_idx, tick).
+        -- ``ready`` is INTEGER 0/1 (was the solver up at sample time).
+        CREATE TABLE IF NOT EXISTS flaresolverr_session_samples (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            sessions    INTEGER NOT NULL,
+            ready       INTEGER NOT NULL,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_flaresolverr_sessions_chip_ts
+            ON flaresolverr_session_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_flaresolverr_sessions_ts
+            ON flaresolverr_session_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

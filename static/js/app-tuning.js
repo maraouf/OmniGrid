@@ -311,6 +311,15 @@ export default {
     'tuning_weather_fetch_timeout_seconds',
     'tuning_weather_history_retention_days',
     'tuning_weather_sampler_interval_seconds',
+    // FlareSolverr usage sampler — open-session-count cadence + retention for
+    // the card's 30-day usage trend. No master-toggle section; edited from the
+    // generic Admin → Config tab.
+    'tuning_flaresolverr_sample_interval_seconds',
+    'tuning_flaresolverr_history_days',
+    // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
+    // timeout). Edited from the generic Admin → Config tab.
+    'tuning_favicon_cache_days',
+    'tuning_favicon_fetch_timeout_seconds',
     // Prayer Times — standalone subsystem with its own Admin → Prayer
     // Times section. The master enable toggle is a plain setting
     // (prayer_times_enabled), NOT a tunable; only the cache TTL + fetch
