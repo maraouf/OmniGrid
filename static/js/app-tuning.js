@@ -316,6 +316,14 @@ export default {
     // generic Admin → Config tab.
     'tuning_flaresolverr_sample_interval_seconds',
     'tuning_flaresolverr_history_days',
+    // ddns-updater history sampler — drives the public-IP-change timeline +
+    // failing-count sparkline (sample cadence + retention days).
+    'tuning_ddns_sample_interval_seconds',
+    'tuning_ddns_history_days',
+    // Speedtest Tracker long-horizon sampler — independent download/upload/ping
+    // trend surviving the upstream's own pruning (ingest cadence + retention).
+    'tuning_speedtest_sample_interval_seconds',
+    'tuning_speedtest_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

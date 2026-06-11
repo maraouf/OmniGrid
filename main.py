@@ -439,8 +439,13 @@ async def _lifespan(_app: FastAPI):
         from logic.db import iter_curated_hosts
         import socket as _socket
 
+        # noinspection DuplicatedCode
         def _dns_probe_all() -> dict:
-            """Return {ok_count, fail_count, samples_failed[:5]}."""
+            """Return {ok_count, fail_count, samples_failed[:5]}.
+
+            The per-host ``address``-fallback target chain below is the
+            canonical resolution shape shared with the other per-host probe
+            sites (SSH / SNMP / ping) by design — duplication accepted."""
             ok = 0
             fail = 0
             failed: list[str] = []
@@ -863,6 +868,28 @@ async def _lifespan(_app: FastAPI):
         _flaresolverr_sampler.flaresolverr_sampler_loop(),
         name="flaresolverr-sampler",
     )
+    # ddns-updater history sampler — records each configured ddns-updater
+    # chip's public IP + record totals + failing count every
+    # tuning_ddns_sample_interval_seconds (default 600s; 0 = inherit the
+    # global stats interval) into ddns_samples, driving the card's
+    # public-IP-change timeline + failing-count sparkline. ddns-updater keeps
+    # no history of its own, so this is the only way to show IP changes over
+    # time. Dormant-cheap when no ddns-updater chip is pinned.
+    from logic.apps import ddns_updater_sampler as _ddns_updater_sampler
+    ddns_updater_sampler = asyncio.create_task(
+        _ddns_updater_sampler.ddns_updater_sampler_loop(),
+        name="ddns-updater-sampler",
+    )
+    # Speedtest Tracker long-horizon sampler — ingests each configured chip's
+    # results into speedtest_samples every tuning_speedtest_sample_interval_seconds
+    # (default 900s; 0 = inherit the global stats interval), giving an
+    # INDEPENDENT download/upload/ping trend that survives Speedtest Tracker
+    # ageing out its own results. Dormant-cheap when no Speedtest chip is pinned.
+    from logic.apps import speedtest_tracker_sampler as _speedtest_sampler
+    speedtest_sampler = asyncio.create_task(
+        _speedtest_sampler.speedtest_tracker_sampler_loop(),
+        name="speedtest-sampler",
+    )
     try:
         yield
     finally:
@@ -872,7 +899,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
@@ -1099,8 +1126,10 @@ _get_remote_digest = registry.get_remote_digest
 # rest of this file — `_cache` is the one other logic modules also need,
 # so it's re-exported below with the cache-age collector wiring.
 # ============================================================================
+# noinspection DuplicatedCode
 from logic import gather as _gather_mod  # noqa: E402
 
+# noinspection DuplicatedCode
 _cache = _gather_mod.get_cache()
 _gather = _gather_mod.gather
 # `_tag_of` already aliased above from `registry.tag_of`; redundant

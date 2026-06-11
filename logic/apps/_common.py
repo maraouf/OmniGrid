@@ -33,6 +33,35 @@ def chip_is_docker_linked(chip: dict) -> bool:
                 or (chip.get("docker_stack") or "").strip())
 
 
+# ---------------------------------------------------------------------------
+# Per-app sampler scaffolding — shared by every logic/apps/<slug>_sampler.py
+# (flaresolverr / ddns / speedtest / …) so the instance-enum + interval-resolve
+# boilerplate lives in ONE place instead of being copy-pasted per sampler.
+# ---------------------------------------------------------------------------
+def sampler_instances(slug: str, log_tag: str) -> list:
+    """Configured chips for a per-app sampler as ``[(host_id, service_idx,
+    host_row, chip)]``. ``[]`` on any failure (the sampler stays dormant). Lazy
+    registry import avoids an import cycle at module load."""
+    try:
+        from logic.apps import registry as _registry  # noqa: PLC0415
+        return _registry.instances_for_slug(slug)
+    except Exception as e:  # noqa: BLE001
+        print(f"[{log_tag}] instance enum failed: {e}")
+        return []
+
+
+def resolve_sample_interval(interval_tunable) -> int:
+    """Resolve a per-app sampler's tick cadence (seconds): the app's dedicated
+    interval tunable, or — when it resolves to 0 — the global stats sample
+    interval (floored at 60s). ``interval_tunable`` is a ``Tunable`` member."""
+    from logic import tuning as _tuning  # noqa: PLC0415
+    from logic.tuning import Tunable as _Tunable  # noqa: PLC0415
+    iv = _tuning.tuning_int(interval_tunable)
+    if iv and iv > 0:
+        return iv
+    return max(60, _tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS))
+
+
 # Canonical timed-disable presets (label, seconds) shared by every fleet
 # DNS-blocker (Pi-hole / AdGuard / future). The provider's blocking timer
 # natively auto-re-enables after N seconds.

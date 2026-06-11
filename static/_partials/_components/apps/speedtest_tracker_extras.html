@@ -64,6 +64,27 @@
                    x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
             </div>
           </div>
+          <!-- Connection-quality row — jitter + packet loss (the latest test).
+               Shown only when the upstream reported them (Ookla includes
+               data.ping.jitter + data.packetLoss). Operators watch jitter as
+               closely as raw Mbps. -->
+          <template x-if="appsAppData(inst).latest && ((Number(appsAppData(inst).latest.jitter) || 0) > 0 || (Number(appsAppData(inst).latest.packet_loss) || 0) > 0)">
+            <div class="apps-speedtest-statgrid">
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.jitter') || 'Jitter'"></div>
+                <div class="fs-sm"
+                     x-text="speedtestPingLabel(appsAppData(inst).latest.jitter)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.packet_loss') || 'Packet loss'"></div>
+                <div class="fs-sm"
+                     :class="(Number(appsAppData(inst).latest.packet_loss) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                     x-text="speedtestPctLabel(appsAppData(inst).latest.packet_loss)"></div>
+              </div>
+            </div>
+          </template>
           <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
             <div class="space-y-1 apps-speedtest-trend">
               <!-- No per-chart reload button — the card header already carries a
@@ -165,6 +186,30 @@
                 </div>
               </div>
             </template>
+          </div>
+        </template>
+        <!-- ISP / test-server provenance footnote (Ookla data.isp +
+             data.server.name/location). Shown when the latest result carries
+             it. -->
+        <div x-show="appsAppData(inst).latest && (appsAppData(inst).latest.isp || appsAppData(inst).latest.server)"
+             class="fs-2xs text-[var(--text-faint)] truncate"
+             :title="speedtestProvenance(appsAppData(inst).latest)"
+             x-text="speedtestProvenance(appsAppData(inst).latest)"></div>
+        <!-- Long-horizon trend — from OmniGrid's INDEPENDENT speedtest_samples
+             history (survives the upstream ageing out its own results). Daily-
+             median download sparkline + the median download/upload/ping over
+             the retention window. Shown once the sampler has ≥ 2 daily points. -->
+        <template x-if="appsAppData(inst).trend && appsAppData(inst).trend.series && appsAppData(inst).trend.series.length >= 2">
+          <div class="space-y-1 pt-1 border-t border-[var(--border)]">
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.speedtest.longterm', { days: appsAppData(inst).trend.days }) || ('Long-term trend (' + appsAppData(inst).trend.days + ' days)')"></span>
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none"
+                 class="w-full h-8 apps-card-speedtest-chart">
+              <path :d="speedtestTrendSparkPath(appsAppData(inst).trend.series)"
+                    fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+            <div class="fs-2xs text-[var(--text-faint)]"
+                 x-text="(t('apps.speedtest.median_label') || 'Median') + ': ⬇️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_download) + '  ⬆️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_upload) + '  🏓 ' + speedtestPingLabel(appsAppData(inst).trend.median_ping)"></div>
           </div>
         </template>
       </div>

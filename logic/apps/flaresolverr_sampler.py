@@ -24,6 +24,7 @@ import time
 from collections import defaultdict
 
 from logic import tuning as _tuning
+from logic.apps._common import resolve_sample_interval, sampler_instances
 from logic.db import db_conn, prune_rows_older_than
 from logic.sampler_loop import lifespan_sampler_loop
 from logic.tuning import Tunable as _Tunable
@@ -32,24 +33,14 @@ _SLUG = "flaresolverr"
 
 
 def _instances() -> list:
-    """Configured FlareSolverr chips as ``[(host_id, service_idx, host_row,
-    chip)]``. Lazy registry import avoids an import cycle at module load.
-    ``[]`` on any failure (sampler stays dormant)."""
-    try:
-        from logic.apps import registry as _registry  # noqa: PLC0415
-        return _registry.instances_for_slug(_SLUG)
-    except Exception as e:  # noqa: BLE001
-        print(f"[flaresolverr_sampler] instance enum failed: {e}")
-        return []
+    """Configured FlareSolverr chips (delegates to the shared sampler helper)."""
+    return sampler_instances(_SLUG, "flaresolverr_sampler")
 
 
 def _resolve_interval() -> int:
     """Sample cadence (s): the dedicated tunable, or — when 0 — the global
     stats interval (floored at 60s)."""
-    iv = _tuning.tuning_int(_Tunable.FLARESOLVERR_SAMPLE_INTERVAL_SECONDS)
-    if iv and iv > 0:
-        return iv
-    return max(60, _tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS))
+    return resolve_sample_interval(_Tunable.FLARESOLVERR_SAMPLE_INTERVAL_SECONDS)
 
 
 async def _probe_one(host_id: str, service_idx: int,

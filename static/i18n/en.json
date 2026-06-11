@@ -1955,6 +1955,22 @@
           "label": "FlareSolverr usage history (days)",
           "help": "Retention window for the FlareSolverr open-session-count samples that drive the card's usage trend. Default 30 (the \"past 30 days\" view). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..365. Takes effect at the next hourly prune."
         },
+        "tuning_ddns_sample_interval_seconds": {
+          "label": "ddns-updater history sampler interval (seconds)",
+          "help": "How often the lifespan ddns-updater sampler records each configured ddns-updater chip's current public IP + record totals + failing count into the history table that drives the card's public-IP-change timeline + failing-count sparkline. Default 600 (10 min) — public IP changes are infrequent and the web-UI scrape is cheap. 0 inherits the global stats sample interval. Lower for finer-grained timeline resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick. (ddns-updater exposes no historical API, so this sampled history is the only IP-change signal.)"
+        },
+        "tuning_ddns_history_days": {
+          "label": "ddns-updater history retention (days)",
+          "help": "Retention window for the ddns-updater samples that drive the public-IP-change timeline + the failing-count sparkline. Default 90 — public IP changes are rare and worth keeping a quarter of. Older samples are pruned hourly. Lower to save disk; raise for a longer history. Range 1..730. Takes effect at the next hourly prune."
+        },
+        "tuning_speedtest_sample_interval_seconds": {
+          "label": "Speedtest history sampler interval (seconds)",
+          "help": "How often the lifespan Speedtest sampler ingests each configured Speedtest Tracker chip's results into OmniGrid's independent long-horizon history table (which survives the upstream ageing out its own results). Default 900 (15 min). The sampler ingests the whole results series each tick and de-duplicates, so this only needs to be shorter than the upstream's own retention window to never miss a result. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_speedtest_history_days": {
+          "label": "Speedtest history retention (days)",
+          "help": "Retention window for OmniGrid's independent Speedtest history (the long-term download/upload/ping trend that survives the upstream's own pruning). Default 365 (a year of medians). Older samples are pruned hourly. Lower to save disk; raise for a multi-year trend. Range 1..1095 (3 years). Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5460,7 +5476,11 @@
       "legend_ping": "ping",
       "axis_mbps": "Mbps (down / up)",
       "axis_ms": "ms (ping)",
-      "chart_aria": "Speedtest trend: download and upload in Mbps, ping in ms, over time"
+      "chart_aria": "Speedtest trend: download and upload in Mbps, ping in ms, over time",
+      "jitter": "Jitter",
+      "packet_loss": "Packet loss",
+      "longterm": "Long-term trend ({days} days)",
+      "median_label": "Median"
     },
     "adguard": {
       "username_label": "AdGuard username",
@@ -5668,6 +5688,7 @@
       "readarr_search_missing": "Search for missing books",
       "readarr_refresh": "Refresh book library",
       "ddns_status": "DNS records status",
+      "ddns_records": "List DNS records",
       "ddns_update": "Update DNS now",
       "prowlarr_status": "Prowlarr status",
       "prowlarr_indexers": "List indexers",
@@ -5910,7 +5931,14 @@
       "failing": "Failing",
       "public_ip": "Public IP",
       "loading": "Loading ddns-updater data…",
-      "fetch_failed": "ddns-updater fetch failed"
+      "fetch_failed": "ddns-updater fetch failed",
+      "ip_timeline_title": "Public IP changes",
+      "ago": "{ago} ago",
+      "fail_trend_title": "Failing records",
+      "fail_trend_caption": "Failing records, last {days} days",
+      "records_title": "Records",
+      "last_updated": "Updated {when}",
+      "more_records": "+{count} more"
     },
     "proxmox": {
       "token_label": "Proxmox API token",
@@ -6269,6 +6297,10 @@
       "password_label": "Console password",
       "password_placeholder_saved": "Saved — leave blank to keep",
       "password_placeholder_unset": "Admin password",
+      "totp_label": "2FA secret (only if 2FA is enabled)",
+      "totp_placeholder_saved": "Saved — leave blank to keep",
+      "totp_placeholder_unset": "base32 TOTP key (blank if no 2FA)",
+      "totp_hint": "Leave blank unless this RustDesk user has 2FA enabled. Paste the base32 setup key (the text shown alongside the QR when you turned on 2FA) so OmniGrid can generate the TOTP codes itself. Stored encrypted-at-rest. If you can't get the setup key, create a dedicated RustDesk user without 2FA instead.",
       "creds_hint": "The RustDesk Server Pro web-console login. Required for the device + user stats. The password is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Pro web console (default port 21114). The open-source server has no API, so this card needs RustDesk Server Pro. If your account has 2FA enabled the login is rejected (HTTP 400) — the automation API can not complete a TOTP step, so create a dedicated user without 2FA (web console → Settings → Users → add a user) and use those credentials here.",
       "verify_tls_label": "Verify TLS certificate (off for self-signed)",
       "cache_ttl_hint": "How long fetched RustDesk stats are cached before re-querying (5–3600s). Leave blank for the app default (60s).",

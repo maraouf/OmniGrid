@@ -66,6 +66,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "ddns_records",
+        "name": "List DNS records",
+        "ai_phrases": ("list my dns records, show ddns records, what dns records "
+                       "do i have, ddns record list, show all my dynamic dns "
+                       "entries, dns updater record list, what domains does ddns "
+                       "manage"),
+        "destructive": False,
+    },
+    {
         "id": "ddns_update",
         "name": "Update DNS now",
         "ai_phrases": ("update dns now, run ddns update, trigger ddns update, "
@@ -83,6 +92,13 @@ _ROW_RE = re.compile(r"<tr[^>]*>(?P<body>.*?)</tr>", re.S | re.I)
 _CELL_RE = re.compile(r'<td[^>]*\bdata-label="(?P<label>[^"]+)"[^>]*>(?P<value>.*?)</td>', re.S | re.I)
 _TAG_RE = re.compile(r"<[^>]+>")
 _IP_RE = re.compile(r"\b(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f:]{2,}:[0-9A-Fa-f:]+)\b")
+# ddns-updater appends a relative time to the status cell ("up to date,
+# 5 minutes ago" / "success, just now"). This pulls that suffix out so the
+# bare status word stays clean (for _classify) AND the "last updated" hint is
+# surfaced separately.
+_RELTIME_RE = re.compile(
+    r"\b(?:just now|\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago)\b",
+    re.I)
 
 
 def requires_api_key() -> bool:
@@ -116,28 +132,58 @@ def _classify(status: Any) -> str:
     return "pending"  # updating / unset / unknown
 
 
+def _split_status(raw: Any) -> tuple[str, str]:
+    """Split a ddns-updater status cell into ``(status_word, last_updated)``.
+
+    The cell text carries the bare constant plus a trailing relative time
+    (``up to date, 5 minutes ago``). This returns the status portion (with the
+    relative time + a trailing comma/dash stripped) and the relative time on
+    its own (``"5 minutes ago"`` / ``"just now"`` / ``""`` when absent), so the
+    card can show "last updated Xm ago" without polluting the status word that
+    ``_classify`` reads."""
+    s = str(raw or "").strip()
+    if not s:
+        return "", ""
+    m = _RELTIME_RE.search(s)
+    if not m:
+        return s, ""
+    last = m.group()
+    status = s[:m.start()].rstrip(" ,;–-").strip()
+    if not status:  # relative time came first — take whatever trails it
+        status = s[m.end():].strip(" ,;–-").strip()
+    return status, last
+
+
 def _parse_records(html_text: Any) -> list[dict]:
     """Parse the ddns-updater web-UI HTML into a list of record dicts
-    ``{domain, owner, provider, ip_version, status, current_ip}``. Defensive
-    over malformed HTML (returns ``[]``). Keys on the per-cell ``data-label``
-    attribute, so column reordering doesn't break it."""
+    ``{domain, owner, provider, ip_version, status, last_updated, current_ip,
+    previous_ips}``. Defensive over malformed HTML (returns ``[]``). Keys on the
+    per-cell ``data-label`` attribute, so column reordering doesn't break it.
+
+    The status cell's trailing relative time is split off into ``last_updated``
+    (``_split_status``) and the "Previous IPs" column — present in the HTML but
+    previously dropped — is captured as ``previous_ips`` so the card can show
+    the prior IP per domain."""
     if not isinstance(html_text, str) or not html_text:
         return []
     out: list[dict] = []
     for row in _ROW_RE.finditer(html_text):
         cells = {k.strip().lower(): _clean_cell(v)
                  for k, v in _CELL_RE.findall(row.group(1))}
-        status = (cells.get("update status") or cells.get("status")
-                  or cells.get("update") or "")
-        if not cells or ("domain" not in cells and not status):
+        status_raw = (cells.get("update status") or cells.get("status")
+                      or cells.get("update") or "")
+        if not cells or ("domain" not in cells and not status_raw):
             continue
+        status_word, last_updated = _split_status(status_raw)
         out.append({
             "domain": cells.get("domain", ""),
             "owner": cells.get("owner", ""),
             "provider": cells.get("provider", ""),
             "ip_version": cells.get("ip version", ""),
-            "status": status,
+            "status": status_word or status_raw,
+            "last_updated": last_updated,
             "current_ip": cells.get("current ip", ""),
+            "previous_ips": cells.get("previous ips", ""),
         })
     return out
 
@@ -156,12 +202,27 @@ def _shape(records: list[dict]) -> dict:
         if m:
             public_ip = m.group()
             break
+    # Compact per-record list for the expanded card + AI ("which domain on
+    # which provider, last updated when"). Capped so a huge record set can't
+    # bloat the payload; ``status`` is the classified bucket, ``status_raw``
+    # the human label.
+    compact = [{
+        "domain": r.get("domain", ""),
+        "provider": r.get("provider", ""),
+        "ip_version": r.get("ip_version", ""),
+        "status": _classify(r.get("status")),
+        "status_raw": r.get("status", ""),
+        "last_updated": r.get("last_updated", ""),
+        "current_ip": r.get("current_ip", ""),
+        "previous_ips": r.get("previous_ips", ""),
+    } for r in records[:50]]
     return {
         "records_total": total,
         "up_count": up,
         "fail_count": fail,
         "public_ip": public_ip,
         "failing_domains": failing[:8],
+        "records": compact,
     }
 
 
@@ -225,6 +286,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         records = []
     shaped = _shape(records)
     out: dict[str, Any] = {"available": True, "fetched_at": int(now), **shaped}
+    # Embed the public-IP-change timeline + fail-count sparkline from the
+    # lifespan sampler (best-effort — a sampler/DB hiccup must not fail the
+    # card). Empty/zeroed shape until the first samples accrue.
+    try:
+        from logic.apps import ddns_updater_sampler as _ddns_sampler  # noqa: PLC0415
+        out["history"] = _ddns_sampler.history_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[ddns] warning: history_summary({host_id}#{service_idx}) failed: {e}")
     _raw_statuses = sorted({str(r.get("status") or "").strip() for r in records} - {""})
     print(f"[ddns] INFO fetched host={host_id} records={out['records_total']} "
           f"up={out['up_count']} fail={out['fail_count']} ip={out['public_ip']} "
@@ -258,9 +327,62 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "ddns_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
+    if skill_id == "ddns_records":
+        return await _records_skill(host_row, chip, host_id=host_id,
+                                    service_idx=service_idx)
     if skill_id == "ddns_update":
         return await _update_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+_STATUS_EMOJI = {"ok": "✅", "fail": "❌", "pending": "⏳"}
+
+
+# noinspection DuplicatedCode
+async def _records_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None,
+                         service_idx: Optional[int] = None) -> dict:
+    """Read-only: live-fetch + list every record with its provider, status and
+    last-updated time. Never raises."""
+    print(f"[ddns] INFO ddns_records host={host_id} svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[ddns] warning: ddns_records host={host_id} could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    records = as_list(data.get("records"))
+    if not records:
+        return {"ok": True, "status": 200,
+                "detail": "No DNS records found in ddns-updater."}
+    lines: list[str] = []
+    for r in records[:30]:
+        if not isinstance(r, dict):
+            continue
+        emoji = _STATUS_EMOJI.get(str(r.get("status") or ""), "•")
+        domain = str(r.get("domain") or "?").strip()
+        provider = str(r.get("provider") or "").strip()
+        ipv = str(r.get("ip_version") or "").strip()
+        when = str(r.get("last_updated") or "").strip()
+        ip = str(r.get("current_ip") or "").strip()
+        bits = [f"{emoji} {domain}"]
+        meta = " · ".join(b for b in (provider, ipv) if b)
+        if meta:
+            bits.append(f"({meta})")
+        if ip:
+            bits.append(f"→ {ip}")
+        if when:
+            bits.append(f"· {when}")
+        lines.append(" ".join(bits))
+    extra = len(records) - 30
+    if extra > 0:
+        lines.append(f"…and {extra} more")
+    public_ip = str(data.get("public_ip") or "").strip()
+    head = f"🌐 {len(records)} DNS record{'s' if len(records) != 1 else ''}"
+    if public_ip:
+        head += f" · public IP {public_ip}"
+    return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines),
+            "records_total": safe_int(data.get("records_total"))}
 
 
 # noinspection DuplicatedCode
