@@ -110,12 +110,22 @@
                         </span>
                         <span x-show="rel.overview" class="apps-widget-arr-cal-pop-overview"
                               x-text="rel.overview"></span>
-                        <!-- Action pills — open in the source app + IMDb / TMDB. -->
-                        <span x-show="rel.app_url || rel.imdb_url || rel.tmdb_url"
+                        <!-- Action pills — open in the source app + IMDb / TMDB.
+                             The app pill resolves through arrCalItemAppUrl so a
+                             friendly link override counts even when the chip has
+                             no integration base (rel.app_url empty). -->
+                        <span x-show="arrCalItemAppUrl(rel) || rel.imdb_url || rel.tmdb_url"
                               class="apps-widget-arr-cal-pop-actions">
-                          <a x-show="arrCalItemAppUrl(rel)" :href="arrCalItemAppUrl(rel)" target="_blank"
-                             rel="noopener noreferrer"
+                          <!-- Source-app chip — ALWAYS shown so the operator sees
+                               which *arr the release came from. Clickable (opens
+                               the app, deep-linked) when a URL resolves (friendly
+                               override or the integration base); a plain identifier
+                               chip when neither is set. -->
+                          <a x-show="rel.service_slug"
+                             :href="arrCalItemAppUrl(rel) || null"
+                             target="_blank" rel="noopener noreferrer"
                              class="apps-widget-arr-cal-pop-link apps-widget-arr-cal-pop-link--app"
+                             :class="!arrCalItemAppUrl(rel) ? 'apps-widget-arr-cal-pop-link--nolink' : ''"
                              :aria-label="t('apps.custom.widget_arr_calendar_open_in', {app: arrCalServiceLabel(rel.service_slug)})">
                             <img :src="arrCalServiceIcon(rel.service_slug)" alt=""
                                  class="apps-widget-arr-cal-pop-linkicon"

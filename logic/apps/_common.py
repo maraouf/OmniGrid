@@ -292,6 +292,21 @@ def cache_key(host_id: str, service_idx: int) -> str:
     return f"{host_id}:{service_idx}"
 
 
+def resolve_userpass(chip: dict, *, password: "Optional[str]" = None,
+                     username: "Optional[str]" = None) -> "tuple[str, str]":
+    """Resolve ``(username, password)`` for a two-field-credential app (the
+    plain ``username`` chip field + the secret ``api_key`` chip field).
+
+    Explicit args win (a pre-save test passes the candidate values); else fall
+    back to the stored chip fields. Shared by every username+password app
+    (AdGuard Home / qBittorrent / Nginx Proxy Manager — the latter's "email"
+    IS the username field), folding the identical per-module ``_creds`` helper
+    into one place."""
+    u = (username if username is not None else "").strip() or (chip.get("username") or "").strip()
+    p = (password if password is not None else "").strip() or (chip.get("api_key") or "").strip()
+    return u, p
+
+
 def resolve_credential_target(host_row: dict, chip: dict,
                               candidate_key: str) -> "tuple[str, str, Optional[dict]]":
     """Resolve ``(api_key, base_url)`` for a per-app ``test_credential`` probe.

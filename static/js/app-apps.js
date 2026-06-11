@@ -1791,6 +1791,17 @@ export default {
     if (typeof raw.weather_show_conditions === 'boolean') {
       out.weather_show_conditions = raw.weather_show_conditions;
     }
+    // arr_calendar per-service "Open in app" link overrides — must be
+    // whitelisted here or they're stripped on every normalize pass (this
+    // sanitizer runs on BOTH load and save), which cleared the override URL on
+    // refresh. Persisted server-side via the views layout (ui_prefs → app_views
+    // table) so they survive a reload and sync across machines.
+    ['radarr', 'sonarr', 'lidarr', 'readarr'].forEach((svc) => {
+      const k = 'arr_link_' + svc;
+      if (typeof raw[k] === 'string' && raw[k].trim() && raw[k].length <= 256) {
+        out[k] = raw[k].trim();
+      }
+    });
     return out;
   },
 

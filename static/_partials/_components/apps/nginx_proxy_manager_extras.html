@@ -1,0 +1,79 @@
+<!-- Per-app expanded-card extras -- Nginx Proxy Manager (NPM).
+
+     Renders inside `apps-card.html` when the chip is the NPM catalog template
+     AND extras are visible. Data comes from `logic/apps/nginx_proxy_manager.py:
+     fetch_data` (token-auth'd REST), read through the cache-backed
+     `appsAppData(inst)` -- so the card never triggers a per-card round-trip on
+     the hot path. Reuses the shared `.apps-card-ups-*` stat-grid component (a
+     generic 2-col telemetry panel, not UPS-specific).
+
+     Helpers used (all from `static/js/apps/nginx_proxy_manager.js`):
+       npmIsApp(app) / npmData(inst) / npmCount(v) / npmProxyFraction(d) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="npmIsApp && npmIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && npmData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-npm-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Proxy hosts enabled / total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.proxy_hosts') || 'Proxy hosts'"></div>
+        <div class="apps-card-stat-value" x-text="npmProxyFraction(npmData(inst))"></div>
+      </div>
+      <!-- Certificates -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.certs') || 'Certificates'"></div>
+        <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).certs)"></div>
+      </div>
+      <!-- Redirections -->
+      <div class="apps-card-ups-stat" x-show="(Number(npmData(inst).redirections) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.redirections') || 'Redirections'"></div>
+        <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).redirections)"></div>
+      </div>
+      <!-- Streams -->
+      <div class="apps-card-ups-stat" x-show="(Number(npmData(inst).streams) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.streams') || 'Streams'"></div>
+        <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).streams)"></div>
+      </div>
+      <!-- 404 / dead hosts -->
+      <div class="apps-card-ups-stat" x-show="(Number(npmData(inst).dead_hosts) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.dead_hosts') || '404 hosts'"></div>
+        <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).dead_hosts)"></div>
+      </div>
+    </div>
+    <!-- Disabled-hosts footnote -- only when something is off. -->
+    <div x-show="(Number(npmData(inst).proxy_disabled) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--text-faint)]"
+         x-text="t('apps.npm.disabled_summary', { n: (Number(npmData(inst).proxy_disabled) || 0) })"></div>
+    <!-- Expiring-certs warning footnote. -->
+    <div x-show="(Number(npmData(inst).certs_expiring) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--warning)]"
+         x-text="t('apps.npm.expiring_summary', { n: (Number(npmData(inst).certs_expiring) || 0) })"></div>
+    <!-- NPM version footnote. -->
+    <div x-show="npmData(inst).version"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+         x-text="t('apps.version_footnote', { brand: 'NPM', v: (npmData(inst).version || '') })"></div>
+  </div>
+</template>
+<!-- No credentials yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="npmIsApp && npmIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.npm.no_creds') || 'No credentials set -- add the NPM admin email + password in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on npmData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="npmIsApp && npmIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !npmData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.npm.loading') || 'Loading NPM data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="npmIsApp && npmIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !npmData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.npm.fetch_failed') || 'NPM fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

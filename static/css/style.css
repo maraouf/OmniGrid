@@ -12958,6 +12958,18 @@ select.field-invalid {
   color: var(--widget-accent);
 }
 
+/* Source-app chip with no resolvable link — an identifier only, not clickable.
+   Drops the hover affordance so it doesn't read as a dead link. */
+.apps-widget-arr-cal-pop-link--nolink {
+  cursor: default;
+}
+
+.apps-widget-arr-cal-pop-link--nolink:hover {
+  background: var(--widget-accent-soft);
+  border-color: color-mix(in srgb, var(--widget-accent) 35%, var(--border));
+  color: var(--widget-accent);
+}
+
 .apps-widget-arr-cal-pop-linkicon {
   width: 12px;
   height: 12px;
