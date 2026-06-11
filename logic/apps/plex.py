@@ -117,6 +117,18 @@ SKILLS: tuple[dict, ...] = (
         # (re-scans for new / changed files; removes nothing).
         "destructive": False,
     },
+    {
+        "id": "plex_terminate_session",
+        "name": "Stop a Plex stream",
+        "ai_phrases": ("stop the plex stream, kill <name>'s stream, terminate plex "
+                       "session, stop playback for <name>, end the stream playing "
+                       "<title>, who can i kick off plex"),
+        # DESTRUCTIVE: ends an active playback session (kicks the viewer off).
+        # arg = a Session.id (the per-row Stop button) OR a user / title to match.
+        "arg": True,
+        "arg_hint": "the watcher's name or the title to stop (or the session id)",
+        "destructive": True,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -130,6 +142,10 @@ _data_cache: dict[str, tuple[float, dict]] = {}
 # all three keeps Music out of the Series group.
 _SERIES_TYPES = frozenset({"show", "season", "episode"})
 _MUSIC_TYPES = frozenset({"artist", "album", "track"})
+# Recently-added group → i18n key (reuses the Tautulli group labels). Anything
+# not movie / music buckets under Series.
+_RECENT_GROUP_KEY = {"movie": "apps.tautulli.group_movies",
+                     "music": "apps.tautulli.group_music"}
 
 # Cap on the per-section count calls in fetch_data — a Plex server usually has a
 # handful of sections; this bounds a pathological config.
@@ -274,8 +290,9 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     if "://" in p:
         parts = urlsplit(p)
         host = (parts.hostname or "").lower()
-        if parts.scheme in ("http", "https") and any(
-                host == h or host.endswith("." + h) for h in _AVATAR_PROXY_HOSTS):
+        host_ok = any(host == h or host.endswith("." + h)
+                      for h in _AVATAR_PROXY_HOSTS)
+        if parts.scheme in ("http", "https") and host_ok:
             return p, {"Accept": "*/*"}
         raise ValueError(f"image host not allowed: {host}")
     if not p.startswith("/") or ".." in p:
@@ -406,14 +423,25 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     shows += total
                 elif typ == "artist":
                     music += total
-            # Active playback sessions — nice-to-have; a failure must NOT fail the card.
+            # Active playback sessions — nice-to-have; a failure must NOT fail
+            # the card. Parse the Metadata so we can also count transcodes +
+            # total bandwidth (kbps), not just the session count.
             sessions_active = 0
+            sessions_transcoding = 0
+            bandwidth_kbps = 0
             try:
                 sr = await cli.get(base + "/status/sessions", headers=_headers(token))
                 if sr.status_code == 200:
-                    sessions_active = safe_int(_mc(sr.json()).get("size"))
+                    smeta = as_list(_mc(sr.json()).get("Metadata"))
+                    sessions_active = len(smeta)
+                    for _s in smeta:
+                        if not isinstance(_s, dict):
+                            continue
+                        if _is_transcoding(_s):
+                            sessions_transcoding += 1
+                        bandwidth_kbps += safe_int(as_dict(_s.get("Session")).get("bandwidth"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
-                sessions_active = 0
+                sessions_active = sessions_transcoding = bandwidth_kbps = 0
             ver_r = await cli.get(base + "/", headers=_headers(token))
             ver = _version_from(ver_r)
             try:
@@ -432,13 +460,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "music": music,
         "sections": len(keyed),
         "sessions_active": sessions_active,
+        "sessions_transcoding": sessions_transcoding,
+        "bandwidth_kbps": bandwidth_kbps,
         "version": ver,
         "platform": platform,
         "fetched_at": int(now),
     }
     print(f"[plex] INFO fetched host={host_id} libraries={out['libraries']} "
           f"movies={movies} shows={shows} music={music} "
-          f"sessions={sessions_active}")
+          f"sessions={sessions_active} transcoding={sessions_transcoding} "
+          f"bw_kbps={bandwidth_kbps}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -481,6 +512,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "plex_scan":
         return await _scan_skill(host_row, chip, host_id=host_id)
+    if skill_id == "plex_terminate_session":
+        return await _terminate_session_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -523,14 +556,55 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if music:
         lines.append(f"🎵 Music artists: {music:,}")
-    lines.append(f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}")
+    transcoding = safe_int(data.get("sessions_transcoding"))
+    mbps = _fmt_mbps(data.get("bandwidth_kbps"))
+    np_extra = []
+    if transcoding:
+        np_extra.append(f"{transcoding:,} transcoding")
+    if mbps:
+        np_extra.append(mbps)
+    np_tail = f" ({' · '.join(np_extra)})" if np_extra else ""
+    lines.append(f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}{np_tail}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "libraries": libs, "movies": movies, "shows": shows,
         "music": music, "sessions_active": sessions,
+        "sessions_transcoding": transcoding,
+        "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
     }
+
+
+def _is_transcoding(item: dict) -> bool:
+    """True when a session is actively transcoding video or audio (a
+    ``TranscodeSession`` with a ``transcode`` video/audio decision, or any
+    ``Media[].Part[].decision == 'transcode'``). A bare TranscodeSession that
+    only copies streams is NOT counted as transcoding."""
+    ts = as_dict(item.get("TranscodeSession"))
+    vdec = str(ts.get("videoDecision") or "").lower()
+    adec = str(ts.get("audioDecision") or "").lower()
+    if vdec == "transcode" or adec == "transcode":
+        return True
+    for m in as_list(item.get("Media")):
+        for p in as_list(as_dict(m).get("Part")):
+            if str(as_dict(p).get("decision") or "").lower() == "transcode":
+                return True
+    return False
+
+
+def _fmt_mbps(kbps: Any) -> str:
+    """Humanise a kbps bandwidth as Mbps (1 decimal), '' when zero/unknown."""
+    k = safe_int(kbps)
+    if k <= 0:
+        return ""
+    return f"{k / 1000:.1f} Mbps"
+
+
+def _session_id(item: dict) -> str:
+    """The terminable session id (``Session.id``) for a now-playing item, '' when
+    absent — the value ``/status/sessions/terminate?sessionId=`` expects."""
+    return str(as_dict(item.get("Session")).get("id") or "").strip()
 
 
 def _session_line(item: dict) -> str:
@@ -570,7 +644,13 @@ def _session_item(item: dict) -> Optional[dict]:
                  or item.get("thumb") or "").strip()
     offset = safe_int(item.get("viewOffset"))
     duration = safe_int(item.get("duration"))
-    out: dict = {"title": label, "subtitle": player}
+    # Subtitle: player · Transcode/Direct · bandwidth.
+    sub_bits = [player] if player else []
+    sub_bits.append("⚙️ Transcode" if _is_transcoding(item) else "▶️ Direct")
+    mbps = _fmt_mbps(as_dict(item.get("Session")).get("bandwidth"))
+    if mbps:
+        sub_bits.append(mbps)
+    out: dict = {"title": label, "subtitle": " · ".join(sub_bits)}
     if poster:
         out["poster"] = poster
         out["poster_proxy"] = True
@@ -581,6 +661,19 @@ def _session_item(item: dict) -> Optional[dict]:
         if avatar:
             out["avatar"] = avatar
             out["avatar_proxy"] = True
+    # Per-row ⏹ Stop button → terminate THIS stream (by its Session.id, so it's
+    # unambiguous), confirm-gated since it kicks the viewer off.
+    sid = _session_id(item)
+    if sid:
+        out["row_action"] = {
+            "skill_id": "plex_terminate_session",
+            "arg": sid,
+            "destructive": True,
+            "icon": "x",
+            "title_i18n": "apps.plex.stop_stream",
+            "confirm_i18n": "apps.plex.stop_stream_confirm",
+            "confirm_text_i18n": "apps.plex.stop_stream",
+        }
     return out
 
 
@@ -718,9 +811,7 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
                         or item.get("thumb") or "").strip()
         if not title or title == "?":
             continue
-        group_key = ("apps.tautulli.group_movies" if grp == "movie"
-                     else "apps.tautulli.group_music" if grp == "music"
-                     else "apps.tautulli.group_series")
+        group_key = _RECENT_GROUP_KEY.get(grp, "apps.tautulli.group_series")
         row: "dict[str, Any]" = {
             "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
             "subtitle": " · ".join(sub_parts),
@@ -841,3 +932,64 @@ async def _scan_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "Plex didn't accept the scan request"}
     return {"ok": True, "status": 200,
             "detail": f"🔄 Started a Plex library scan across {scanned:,} section(s)."}
+
+
+async def _terminate_session_skill(host_row: dict, chip: dict, *,
+                                   arg: Optional[str] = None,
+                                   host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE (arg): stop ONE active playback session. Resolves the target
+    from the active ``/status/sessions`` — an exact ``Session.id`` (the per-row
+    Stop button) first, else a substring match on the watcher / title / show
+    (the AI / Telegram free-text path) — then ``GET /status/sessions/terminate``.
+    Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no stream given (say e.g. \"stop John's stream\")"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[plex] INFO plex_terminate_session host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            sr = await cli.get(base + "/status/sessions", headers=_headers(token))
+            if sr.status_code in (401, 403):
+                return {"ok": False, "status": sr.status_code,
+                        "detail": "auth failed (check the Plex token)"}
+            if sr.status_code != 200:
+                return {"ok": False, "status": sr.status_code,
+                        "detail": f"HTTP {sr.status_code}"}
+            try:
+                meta = as_list(_mc(sr.json()).get("Metadata"))
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            target_id = ""
+            target_label = ""
+            for it in meta:
+                if not isinstance(it, dict):
+                    continue
+                sid = _session_id(it)
+                if sid and sid == needle:  # exact id — the per-row Stop button
+                    target_id, target_label = sid, _session_line(it)
+                    break
+                user = str(as_dict(it.get("User")).get("title") or "").lower()
+                gp = str(it.get("grandparentTitle") or "").lower()
+                title = str(it.get("title") or "").lower()
+                if not target_id and (nl in user or nl in title or nl in gp):
+                    target_id, target_label = sid, _session_line(it)
+            if not target_id:
+                return {"ok": False, "status": 404,
+                        "detail": f"no active Plex stream matched \"{needle}\""}
+            tr = await cli.get(base + "/status/sessions/terminate",
+                               headers=_headers(token),
+                               params={"sessionId": target_id,
+                                       "reason": "Stopped from OmniGrid"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"stop failed: {type(e).__name__}: {e}"}
+    if tr.status_code not in (200, 204):
+        return {"ok": False, "status": tr.status_code,
+                "detail": f"Plex didn't stop the stream (HTTP {tr.status_code})"}
+    what = (target_label or "the stream").lstrip("▶️ ").strip() or "the stream"
+    return {"ok": True, "status": 200, "detail": f"🛑 Stopped {what}."}

@@ -65,7 +65,7 @@ _API = "/proxy/network/integration/v1"
 # Legacy UniFi Network controller API base path. The Integration API (v1) has NO
 # WLAN-config endpoint, so the configured Wi-Fi-network (SSID) list is read from
 # the classic controller API instead — the modern API key authenticates BOTH
-# surfaces, so no separate session/cookie login is needed. See _fetch_wlan_names.
+# surfaces, so no separate session/cookie login is needed. See _fetch_wlan_details.
 _LEGACY_API = "/proxy/network/api"
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -369,29 +369,103 @@ async def _legacy_site_keys(cli: "httpx.AsyncClient", base: str, key: str) -> li
     return keys or ["default"]
 
 
-async def _fetch_wlan_names(cli: "httpx.AsyncClient", base: str, key: str) -> list[str]:
-    """Configured Wi-Fi-network (SSID) names via the LEGACY UniFi Network
-    controller API. The Integration API (v1) exposes no WLAN-config endpoint and
-    its client records don't carry the SSID name, so neither the Integration
-    ``/wlans`` route nor the distinct-client-SSID fallback can list the
-    configured networks — but the classic controller API's ``rest/wlanconf``
-    does, and the same ``X-API-KEY`` authenticates it (no cookie login needed).
+_SECURITY_LABEL = {
+    "open": "Open", "wpapsk": "WPA2", "wpapersonal": "WPA2", "wpa": "WPA",
+    "wpa2": "WPA2", "wpa3": "WPA3", "wpaeap": "WPA-Enterprise",
+}
 
-    Walks every site's ``/proxy/network/api/s/{site}/rest/wlanconf`` (site keys
-    from ``_legacy_site_keys``). Returns the sorted, de-duplicated
-    (case-insensitive) names, ``[]`` on any failure so the caller degrades to
-    the client-SSID heuristic."""
+
+def _wlan_security_label(w: dict) -> str:
+    """Readable security label for a wlanconf record (Open / WPA2 / WPA3 / …),
+    '' when not determinable."""
+    sec = str(w.get("security") or "").strip().lower()
+    mode = str(w.get("wpa_mode") or "").lower()
+    if "wpa3" in mode or "wpa3" in sec:
+        return "WPA3"
+    if not sec:
+        return ""
+    return _SECURITY_LABEL.get(sec, sec.upper())
+
+
+def _wlan_band_label(w: dict) -> str:
+    """Radio-band label ('2.4G' / '5G' / '6G', joined) across UniFi schema
+    versions — the ``wlan_bands`` list, else the legacy na/ng flags."""
+    names: list[str] = []
+    bands = w.get("wlan_bands")
+    pretty = {"2g": "2.4G", "5g": "5G", "6g": "6G"}
+    if isinstance(bands, list):
+        for b in bands:
+            names.append(pretty.get(str(b).lower(), str(b).upper()))
+    else:
+        band = str(w.get("wlan_band") or "").lower()
+        if w.get("ng_enabled") or band in ("2g", "both", ""):
+            names.append("2.4G")
+        if w.get("na_enabled") or band in ("5g", "both"):
+            names.append("5G")
+    return "/".join(dict.fromkeys(n for n in names if n))
+
+
+def _subnet_label(ip_subnet: str) -> str:
+    """Normalise a networkconf ``ip_subnet`` ('10.0.10.1/24', the gateway + CIDR)
+    to its NETWORK form ('10.0.10.0/24'). Raw value on parse failure, '' when
+    empty."""
+    s = (ip_subnet or "").strip()
+    if not s:
+        return ""
+    try:
+        import ipaddress  # noqa: PLC0415
+        return ipaddress.ip_interface(s).network.compressed
+    except (ValueError, TypeError):
+        return s
+
+
+async def _fetch_wlan_details(cli: "httpx.AsyncClient", base: str, key: str) -> list[dict]:
+    """Configured WLANs WITH subnet / VLAN / security / band, via the LEGACY
+    UniFi Network controller API. The Integration API (v1) exposes no WLAN-config
+    endpoint and its client records don't carry the SSID name, so neither the
+    Integration ``/wlans`` route nor the distinct-client-SSID fallback can list
+    the configured networks — but the classic controller API does, and the same
+    ``X-API-KEY`` authenticates it (no cookie login).
+
+    Joins ``rest/wlanconf`` (SSID + security + band + guest + ``networkconf_id``)
+    with ``rest/networkconf`` (subnet CIDR + VLAN) per site (site keys from
+    ``_legacy_site_keys``). Returns ``[{name, subnet, vlan, network_name,
+    security, guest, band, enabled}]`` sorted by name, de-duped (case-insensitive
+    on name), ``[]`` on any failure so the caller degrades to the client-SSID
+    heuristic."""
     from urllib.parse import quote  # noqa: PLC0415
-    names: set[str] = set()
+    out: list[dict] = []
+    seen: set[str] = set()
     for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
-        body = await _get_json(
-            cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/rest/wlanconf", key)
-        for w in as_list(as_dict(body).get("data")):
-            if isinstance(w, dict):
-                nm = str(w.get("name") or "").strip()
-                if nm:
-                    names.add(nm)
-    return sorted(names, key=str.lower)
+        site = quote(sk, safe="")
+        nets_body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{site}/rest/networkconf", key)
+        net_map: dict = {}
+        for n in as_list(as_dict(nets_body).get("data")):
+            if isinstance(n, dict) and n.get("_id"):
+                net_map[str(n.get("_id") or "")] = n
+        wl_body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{site}/rest/wlanconf", key)
+        for w in as_list(as_dict(wl_body).get("data")):
+            if not isinstance(w, dict):
+                continue
+            nm = str(w.get("name") or "").strip()
+            if not nm or nm.lower() in seen:
+                continue
+            seen.add(nm.lower())
+            net = net_map.get(str(w.get("networkconf_id") or "")) or {}
+            vlan = safe_int(net.get("vlan")) or None
+            out.append({
+                "name": nm,
+                "subnet": _subnet_label(str(net.get("ip_subnet") or "")),
+                "vlan": vlan,
+                "network_name": str(net.get("name") or "").strip(),
+                "security": _wlan_security_label(w),
+                "guest": bool(w.get("is_guest")),
+                "band": _wlan_band_label(w),
+                "enabled": bool(w.get("enabled", True)),
+            })
+    return sorted(out, key=lambda d: d["name"].lower())
 
 
 def _fmt_bytes(n: Any) -> str:
@@ -494,7 +568,7 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
     """Per-client SESSION usage (rx + tx bytes since the client connected) from
     the LEGACY controller ``stat/sta`` endpoint — the Integration API client
     record carries no traffic counters, so the top-by-usage ranking needs the
-    classic API (same ``X-API-KEY`` auth + per-site walk as ``_fetch_wlan_names``).
+    classic API (same ``X-API-KEY`` auth + per-site walk as ``_fetch_wlan_details``).
     Each row: ``{name, ip, wired, rx, tx, total, text}`` (bytes; ``text`` is the
     categorisation source). ``[]`` on any failure so the caller degrades to the
     plain count summary."""
@@ -557,9 +631,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 for s in sites[:_MAX_SITES] if s.get("id")
             ])
             # The Integration API has no WLAN-config endpoint — read the SSID
-            # list from the legacy controller API (same key). Cheap (1 + N-sites
-            # calls) and the whole fetch is cached, so no per-poll cost concern.
-            legacy_wlan_names = await _fetch_wlan_names(cli, base, key)
+            # list (+ subnet / VLAN / security) from the legacy controller API
+            # (same key). Cheap (2 + N-sites calls) and the whole fetch is
+            # cached, so no per-poll cost concern.
+            legacy_wlan_details = await _fetch_wlan_details(cli, base, key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[unifi] error: fetch host={host_id} base={base} "
               f"failed — {type(e).__name__}: {e}")
@@ -582,24 +657,29 @@ async def fetch_data(host_row: dict, chip: dict, *,
     updates = sum(1 for d in devices if _device_update_pending(d))
     # Configured Wi-Fi networks, most-authoritative-first:
     #   1) the Integration ``/wlans`` endpoint (if a future Network version adds
-    #      it — accurate configured NAMES);
-    #   2) the legacy controller ``rest/wlanconf`` (the real source today — the
-    #      Integration API has no WLAN-config route, see _fetch_wlan_names);
+    #      it — NAMES only);
+    #   2) the legacy controller ``rest/wlanconf`` + ``rest/networkconf`` (the
+    #      real source today — names PLUS subnet / VLAN / security / band; the
+    #      Integration API has no WLAN-config route, see _fetch_wlan_details);
     #   3) the distinct SSIDs seen across CURRENTLY-connected wireless clients
-    #      (a heuristic — misses idle SSIDs and the Integration client record may
-    #      not even carry the SSID, which is why 1+2 exist).
-    # Names are sorted + deduped (case-insensitive) for the card / skill.
+    #      (a heuristic — names only, misses idle SSIDs).
+    # `wlan_details` carries the rich rows (skill); `wlan_names` is the derived
+    # name list (card chip strip + back-compat), sorted + deduped.
     if wlans:
-        wlan_names = sorted({n for n in (_wlan_name(w) for w in wlans) if n},
-                            key=str.lower)
+        wlan_details = [{"name": n} for n in
+                        sorted({nm for nm in (_wlan_name(w) for w in wlans) if nm},
+                               key=str.lower)]
         wlan_src = "integration"
-    elif legacy_wlan_names:
-        wlan_names = legacy_wlan_names
+    elif legacy_wlan_details:
+        wlan_details = legacy_wlan_details
         wlan_src = "legacy"
     else:
-        wlan_names = sorted({s for s in (_client_ssid(c) for c in clients) if s},
-                            key=str.lower)
+        wlan_details = [{"name": s} for s in
+                        sorted({s for s in (_client_ssid(c) for c in clients) if s},
+                               key=str.lower)]
         wlan_src = "client-ssid"
+    wlan_names = sorted({str(d.get("name")) for d in wlan_details if d.get("name")},
+                        key=str.lower)
 
     out: dict[str, Any] = {
         "available": True,
@@ -617,6 +697,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "clients_wireless": max(0, len(clients) - wired),
         "wlans": len(wlan_names),
         "wlan_names": wlan_names[:_MAX_ROWS],
+        "wlan_details": wlan_details[:_MAX_ROWS],
         "fetched_at": int(now),
     }
     print(f"[unifi] INFO fetched host={host_id} sites={out['sites']} "
@@ -896,21 +977,46 @@ async def _clients_skill(host_row: dict, chip: dict, *,
 async def _wlans_skill(host_row: dict, chip: dict, *,
                        host_id: Optional[str] = None,
                        service_idx: Optional[int] = None) -> dict:
-    """Read-only: list the configured Wi-Fi networks (SSIDs) as rich rows. The
-    names come from the WLANs endpoint when available, else the distinct SSIDs
-    seen across wireless clients. Never raises."""
+    """Read-only: list the configured Wi-Fi networks (SSIDs) as rich rows with
+    their subnet / VLAN / security / band when available (from the legacy
+    wlanconf+networkconf join); falls back to name-only rows when only the
+    integration / client-SSID heuristic resolved them. Never raises."""
     print(f"[unifi] INFO unifi_wlans host={host_id} (live fetch)")
     data, err = await _live_data(host_row, chip, host_id, service_idx)
     if data is None:
         return err or {"ok": False, "detail": "fetch failed", "status": 0}
-    names = [str(n) for n in as_list(data.get("wlan_names")) if n]
-    if not names:
+    details = [d for d in as_list(data.get("wlan_details"))
+               if isinstance(d, dict) and d.get("name")]
+    if not details:
+        # Older cached payload / fallback path — names only.
+        details = [{"name": str(n)} for n in as_list(data.get("wlan_names")) if n]
+    if not details:
         return {"ok": True, "status": 200, "detail": "📶 No Wi-Fi networks found."}
-    items = [{"title": n, "subtitle": "SSID"} for n in names]
-    lines = [f"• {n}" for n in names]
+    items: list = []
+    lines: list = []
+    for d in details:
+        name = str(d.get("name") or "").strip()
+        if not name:
+            continue
+        bits: list = []
+        if d.get("subnet"):
+            bits.append(str(d["subnet"]))
+        if d.get("vlan"):
+            bits.append(f"VLAN {d['vlan']}")
+        if d.get("band"):
+            bits.append(str(d["band"]))
+        if d.get("security"):
+            bits.append(str(d["security"]))
+        if d.get("guest"):
+            bits.append("Guest")
+        if d.get("enabled") is False:
+            bits.append("Disabled")
+        sub = " · ".join(bits) if bits else "SSID"
+        items.append({"title": name, "subtitle": sub})
+        lines.append(f"• {name}" + (f"  ({sub})" if bits else ""))
     out: dict = {"ok": True, "status": 200,
-                 "detail": f"📶 {len(names)} Wi-Fi network(s):\n" + "\n".join(lines),
-                 "wlans": len(names)}
+                 "detail": f"📶 {len(items)} Wi-Fi network(s):\n" + "\n".join(lines),
+                 "wlans": len(items)}
     return _attach_items(out, items, "apps.unifi.wlans_count")
 
 

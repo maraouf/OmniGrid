@@ -1,7 +1,7 @@
 // noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
-// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,JSUnresolvedVariable,JSUnresolvedReference
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
 /* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
 
@@ -73,9 +73,41 @@ function tautulliBandwidth(kbps) {
   }
   const mbps = n / 1000;
   if (mbps < 1000) {
-    return mbps.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' Mbps';
+    return mbps.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Mbps';
   }
-  return (mbps / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' Gbps';
+  return (mbps / 1000).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Gbps';
+}
+
+// SVG `d` path for the plays-over-time sparkline (last 30 daily buckets), over
+// a 200x32 viewBox — mirrors the Tracearr / Speedtest sparkline. '' when < 2
+// points so the chart hides cleanly. `this` is the Alpine component.
+function tautulliPlaysPath(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  const raw = (d && Array.isArray(d.plays_series)) ? d.plays_series : [];
+  const series = raw.map(Number).filter(isFinite);
+  if (series.length < 2) {
+    return '';
+  }
+  const W = 200, H = 32;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, series.length - 1);
+  let path = '';
+  for (let i = 0; i < series.length; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((series[i] - min) / range) * H).toFixed(1);
+    path += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  return path.trim();
+}
+
+// True when there's a plays series worth charting (>= 2 points).
+function tautulliHasPlays(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  return !!(d && Array.isArray(d.plays_series) && d.plays_series.length >= 2);
 }
 
 // Extender record -- consumed by the generic helpers in
@@ -98,4 +130,6 @@ export const helpers = {
   tautulliData: tautulliData,
   tautulliCount: tautulliCount,
   tautulliBandwidth: tautulliBandwidth,
+  tautulliPlaysPath: tautulliPlaysPath,
+  tautulliHasPlays: tautulliHasPlays,
 };

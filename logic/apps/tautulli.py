@@ -56,7 +56,7 @@ from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
-from logic.coerce import safe_int
+from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("tautulli",)
@@ -67,6 +67,9 @@ SLUGS: tuple[str, ...] = ("tautulli",)
 # with Series).
 _SERIES_TYPES = frozenset({"show", "season", "episode"})
 _MUSIC_TYPES = frozenset({"artist", "album", "track"})
+# Recently-added group → i18n key. Anything not movie / music buckets as Series.
+_RECENT_GROUP_KEY = {"movie": "apps.tautulli.group_movies",
+                     "music": "apps.tautulli.group_music"}
 # Per-library section_type → emoji fallback for the libraries list. Used only
 # when the NAME-keyword scan below finds nothing — many Plex libraries share a
 # type (e.g. "Music Videos" + "Personal" are both ``movie``), so keying purely
@@ -107,6 +110,7 @@ def _lib_emoji_for(name: str, ltype: str) -> str:
         if kw in low:
             return emoji
     return _LIB_EMOJI.get((ltype or "").strip().lower(), "📁")
+
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
 # matches the rest of the family.
@@ -236,6 +240,23 @@ def _fmt_bandwidth(kbps: Any) -> str:
     return f"{mbps / 1000.0:,.1f} Gbps"
 
 
+def _shape_plays_series(data: Any) -> list:
+    """Sum a ``cmd=get_plays_by_date`` payload into per-day TOTAL play counts
+    (across the Movies / TV / Music series) — the plays-over-time chart series.
+    Returns ``[]`` on any unexpected shape so the chart hides cleanly."""
+    d = as_dict(data)
+    cats = as_list(d.get("categories"))
+    series = as_list(d.get("series"))
+    if not cats or not series:
+        return []
+    totals = [0] * len(cats)
+    for s in series:
+        pts = as_list(as_dict(s).get("data"))
+        for i in range(min(len(pts), len(totals))):
+            totals[i] += safe_int(pts[i])
+    return totals
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -280,6 +301,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 libraries = 0
                 total_items = 0
             version = await _fetch_version(cli, base, api_key)
+            # Plays-over-time (last 30 days) — drives the card chart. Best-effort
+            # (nice-to-have; a failure must NOT fail the card).
+            plays_series: list = []
+            try:
+                pbd = await _call(cli, base, api_key, "get_plays_by_date",
+                                  time_range=30)
+                plays_series = _shape_plays_series(pbd)
+            except RuntimeError:
+                plays_series = []
     except RuntimeError as e:
         print(f"[tautulli] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -292,12 +322,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "bandwidth_kbps": safe_int(act.get("total_bandwidth")),
         "libraries": safe_int(libraries),
         "total_items": safe_int(total_items),
+        "plays_series": plays_series,
+        "plays_30d": sum(plays_series),
         "version": version,
         "fetched_at": int(now),
     }
     print(f"[tautulli] INFO fetched host={host_id} streams={out['streams']} "
           f"transcodes={out['transcodes']} bw={out['bandwidth_kbps']}kbps "
-          f"libraries={out['libraries']} items={out['total_items']}")
+          f"libraries={out['libraries']} items={out['total_items']} "
+          f"plays30d={out['plays_30d']}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -359,6 +392,19 @@ SKILLS: tuple[dict, ...] = (
                        "plays, who watched what, plex history, recently played"),
         "destructive": False,
     },
+    {
+        "id": "tautulli_terminate_session",
+        "name": "Stop a Plex stream",
+        "ai_phrases": ("stop the plex stream, kill <name>'s stream, terminate "
+                       "session, stop playback for <name>, end the stream playing "
+                       "<title>, who can i kick off plex"),
+        # DESTRUCTIVE: ends an active playback session via Tautulli's
+        # terminate_session. arg = a session_key (the per-row Stop button) OR a
+        # user / title to match against the active sessions.
+        "arg": True,
+        "arg_hint": "the watcher's name or the title to stop (or the session key)",
+        "destructive": True,
+    },
 )
 
 
@@ -367,8 +413,11 @@ SKILLS: tuple[dict, ...] = (
 # ---------------------------------------------------------------------------
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
-    """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id."""
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id.
+    ``arg`` carries the target (session key / user / title) for the terminate
+    skill."""
     if skill_id == "tautulli_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
@@ -380,6 +429,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _recently_added_skill(host_row, chip, host_id=host_id)
     if skill_id == "tautulli_history":
         return await _history_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tautulli_terminate_session":
+        return await _terminate_session_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -426,6 +477,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     lines.append(f"📚 Libraries: {libraries:,}")
     if items:
         lines.append(f"🎬 Items: {items:,}")
+    plays_30d = safe_int(data.get("plays_30d"))
+    if plays_30d:
+        lines.append(f"📈 Plays (30d): {plays_30d:,}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -433,6 +487,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "streams": streams, "transcodes": transcodes, "direct_play": direct,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "libraries": libraries, "total_items": items,
+        "plays_30d": plays_30d,
     }
 
 
@@ -467,6 +522,19 @@ def _activity_item(s: dict) -> Optional[dict]:
         if avatar:
             out["avatar"] = avatar
             out["avatar_proxy"] = True
+    # Per-row ⏹ Stop button → terminate THIS stream by its session_key,
+    # confirm-gated (it kicks the viewer off).
+    skey = str(s.get("session_key") or "").strip()
+    if skey:
+        out["row_action"] = {
+            "skill_id": "tautulli_terminate_session",
+            "arg": skey,
+            "destructive": True,
+            "icon": "x",
+            "title_i18n": "apps.tautulli.stop_stream",
+            "confirm_i18n": "apps.tautulli.stop_stream_confirm",
+            "confirm_text_i18n": "apps.tautulli.stop_stream",
+        }
     return out
 
 
@@ -516,6 +584,51 @@ async def _activity_skill(host_row: dict, chip: dict, *,
     return out
 
 
+async def _terminate_session_skill(host_row: dict, chip: dict, *,
+                                   arg: Optional[str] = None,
+                                   host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE (arg): stop ONE active playback session. Resolves the target
+    from ``cmd=get_activity`` — an exact ``session_key`` (the per-row Stop
+    button) first, else a substring match on the watcher / title (the AI /
+    Telegram free-text path) — then ``cmd=terminate_session``. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no stream given (say e.g. \"stop John's stream\")"}
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[tautulli] INFO tautulli_terminate_session host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            data = await _call(cli, base, api_key, "get_activity")
+            sessions = as_list(as_dict(data).get("sessions"))
+            target_key = ""
+            target_label = ""
+            for s in sessions:
+                if not isinstance(s, dict):
+                    continue
+                skey = str(s.get("session_key") or "").strip()
+                title = str(s.get("full_title") or s.get("title") or "").strip()
+                user = str(s.get("friendly_name") or s.get("user") or "").strip()
+                if skey and skey == needle:  # exact key — the per-row Stop button
+                    target_key, target_label = skey, f"{user} — {title}".strip(" —")
+                    break
+                if not target_key and (nl in title.lower() or nl in user.lower()):
+                    target_key, target_label = skey, f"{user} — {title}".strip(" —")
+            if not target_key:
+                return {"ok": False, "status": 404,
+                        "detail": f"no active Plex stream matched \"{needle}\""}
+            await _call(cli, base, api_key, "terminate_session",
+                        session_key=target_key, message="Stopped from OmniGrid")
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": f"stop failed: {e}"}
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Stopped {target_label or 'the stream'}."}
+
+
 async def _libraries_skill(host_row: dict, chip: dict, *,
                            host_id: Optional[str] = None) -> dict:
     """Read-only: list Plex libraries + their item counts from
@@ -532,7 +645,7 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": str(e)}
     libs = data if isinstance(data, list) else []
     lines = []
-    used: set[str] = set()       # glyphs already taken — keep each library distinct
+    used: set[str] = set()  # glyphs already taken — keep each library distinct
     pool = iter(_LIB_DEDUP_POOL)
     for lib in libs[:25]:
         if not isinstance(lib, dict):
@@ -632,9 +745,7 @@ async def _recently_added_skill(host_row: dict, chip: dict, *,
                 sub_parts.append(yr)
             thumb = str(it.get("grandparent_thumb") or it.get("parent_thumb")
                         or it.get("thumb") or "").strip()
-        group_key = ("apps.tautulli.group_movies" if grp == "movie"
-                     else "apps.tautulli.group_music" if grp == "music"
-                     else "apps.tautulli.group_series")
+        group_key = _RECENT_GROUP_KEY.get(grp, "apps.tautulli.group_series")
         row: "dict[str, Any]" = {
             "title": title + (f" ({yr})" if grp == "movie" and yr else ""),
             "subtitle": " · ".join(sub_parts),

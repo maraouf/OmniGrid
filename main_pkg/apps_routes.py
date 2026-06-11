@@ -1002,7 +1002,7 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
     _hit = await asyncio.to_thread(image_cache.get, url, _cache_tag)
     if _hit is not None:
         return Response(content=_hit[0], media_type=_hit[1],
-                        headers={"Cache-Control": "public, max-age=86400",
+                        headers={"Cache-Control": "public, max-age=604800, immutable",
                                  "X-OmniGrid-Cache": "hit"})
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
@@ -1049,7 +1049,7 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         ctype = sniffed
     await asyncio.to_thread(image_cache.put, url, body, ctype, _cache_tag)
     return Response(content=body, media_type=ctype,
-                    headers={"Cache-Control": "public, max-age=86400",
+                    headers={"Cache-Control": "public, max-age=604800, immutable",
                              "X-OmniGrid-Cache": "miss"})
 
 

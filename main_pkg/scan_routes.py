@@ -2025,7 +2025,7 @@ async def api_image_proxy(url: str):
     _hit = await asyncio.to_thread(image_cache.get, url)
     if _hit is not None:
         return Response(content=_hit[0], media_type=_hit[1],
-                        headers={"Cache-Control": "public, max-age=86400",
+                        headers={"Cache-Control": "public, max-age=604800, immutable",
                                  "X-OmniGrid-Cache": "hit"})
     # follow_redirects=False: TMDB serves images directly, and NOT following a
     # redirect keeps the host-allowlist airtight (a redirect off TMDB to an
@@ -2050,7 +2050,7 @@ async def api_image_proxy(url: str):
         raise HTTPException(413, "upstream image too large")
     await asyncio.to_thread(image_cache.put, url, body, ctype)
     return Response(content=body, media_type=ctype,
-                    headers={"Cache-Control": "public, max-age=86400",
+                    headers={"Cache-Control": "public, max-age=604800, immutable",
                              "X-OmniGrid-Cache": "miss"})
 
 
@@ -2128,7 +2128,7 @@ async def api_widget_favicon(url: str):
         raise HTTPException(
             403, "refusing to fetch a favicon for a private/internal host that "
                  "isn't in your hosts list")
-    _hdr = {"Cache-Control": "public, max-age=86400"}
+    _hdr = {"Cache-Control": "public, max-age=604800, immutable"}
     hit = await asyncio.to_thread(_fc.get, u)
     if hit is not None:
         return Response(content=hit[0], media_type=hit[1],
