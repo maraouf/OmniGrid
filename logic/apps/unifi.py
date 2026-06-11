@@ -591,9 +591,12 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
             # Categorisation text — name + hostname + vendor OUI for the best
             # device-type keyword match (e.g. "MacBook Pro Laptop" → Laptop).
             cat_text = " ".join(x for x in (nm, hn, vendor) if x) or name
+            # The associated Wi-Fi network (SSID) for a wireless client —
+            # `essid` on the stat/sta record; '' for wired clients.
+            ssid = str(c.get("essid") or "").strip()
             out.append({"name": name, "ip": str(c.get("ip") or "").strip(),
-                        "wired": bool(c.get("is_wired")), "rx": rx, "tx": tx,
-                        "total": rx + tx, "text": cat_text})
+                        "wired": bool(c.get("is_wired")), "ssid": ssid,
+                        "rx": rx, "tx": tx, "total": rx + tx, "text": cat_text})
     return out
 
 
@@ -957,7 +960,9 @@ async def _clients_skill(host_row: dict, chip: dict, *,
     for i, c in enumerate(top, 1):
         emoji, clean_name = _client_display(c["name"], c.get("text") or "",
                                             bool(c["wired"]))
-        conn = "🔌" if c["wired"] else "📶"
+        ssid = c.get("ssid") or ""
+        # Wired → 🔌; wireless → 📶 + the associated Wi-Fi network (SSID).
+        conn = "🔌" if c["wired"] else (f"📶 {ssid}" if ssid else "📶")
         sub_bits = [conn]
         if c["ip"]:
             sub_bits.append(c["ip"])
@@ -967,7 +972,9 @@ async def _clients_skill(host_row: dict, chip: dict, *,
             "subtitle": " · ".join(sub_bits),
             "progress": round(c["total"] / maxt * 100),
         })
-        lines.append(f"{i}. {emoji} {clean_name} — {_fmt_bytes(c['total'])} "
+        loc_bits = [b for b in (c["ip"], (f"📶 {ssid}" if (not c["wired"] and ssid) else "")) if b]
+        loc = (" [" + " · ".join(loc_bits) + "]") if loc_bits else ""
+        lines.append(f"{i}. {emoji} {clean_name}{loc} — {_fmt_bytes(c['total'])} "
                      f"(▼{_fmt_bytes(c['rx'])} ▲{_fmt_bytes(c['tx'])})")
     out = dict(base_out)
     out["detail"] = "\n".join(lines)
