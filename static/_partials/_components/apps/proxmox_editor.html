@@ -1,0 +1,78 @@
+<!-- Per-app editor fields -- Proxmox VE (hypervisor management).
+
+     Renders inside the Admin -> Apps per-instance editor, gated on
+     `proxmoxIsApp(...)`. Proxmox authenticates with an API token sent in the
+     `Authorization: PVEAPIToken=user@realm!tokenid=secret` header -- the WHOLE
+     `user@realm!tokenid=secret` string is stored in the chip's secret `api_key`
+     field (never returned; only an `api_key_set` flag, keep-current-if-blank on
+     save). Set the chip URL to the Proxmox host (default port 8006). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="proxmoxIsApp && proxmoxIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+  <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
+    <div>
+      <label for="apps-instance-proxmox-token"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.proxmox.token_label') || 'Proxmox API token'"></label>
+      <input id="apps-instance-proxmox-token"
+             type="password" x-model="appsInstanceEditForm.api_key"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="appsInstanceEditForm.api_key_set
+               ? (t('apps.proxmox.token_placeholder_saved') || 'Saved -- leave blank to keep')
+               : (t('apps.proxmox.token_placeholder_unset') || 'user@realm!tokenid=secret')"
+             autocomplete="off" spellcheck="false">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.proxmox.token_hint') || 'A Proxmox API token (Datacenter -> Permissions -> API Tokens -> Add). Paste the WHOLE token value in the form user@realm!tokenid=secret (e.g. root@pam!omnigrid=xxxxxxxx-...). The token needs at least PVEAuditor on / for the stats, plus VM.PowerMgmt to start / stop guests. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Proxmox host (default port 8006).'"></p>
+    </div>
+    <!-- TLS verification — OFF by default (Proxmox ships a self-signed cert on
+         :8006). Turn ON only when fronted by a real cert. -->
+    <label class="flex items-center gap-2 fs-xs">
+      <input type="checkbox" x-model="appsInstanceEditForm.verify_tls">
+      <span x-text="t('apps.proxmox.verify_tls_label') || 'Verify TLS certificate (off for self-signed)'"></span>
+    </label>
+    <!-- Per-instance data-cache TTL (contained in the app, NOT a global Config
+         tunable). Blank = the app default (30s); backend clamps 5..3600. -->
+    <div>
+      <label for="apps-instance-proxmox-cache-ttl"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.cache_ttl_label') || 'Data cache TTL (seconds)'"></label>
+      <div class="flex flex-wrap items-center gap-2">
+        <input id="apps-instance-proxmox-cache-ttl"
+               type="number" min="5" max="3600" step="1"
+               x-model="appsInstanceEditForm.cache_ttl"
+               @change="appsInstanceEditForm.cache_ttl = appsClampCacheTtl(appsInstanceEditForm.cache_ttl)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.cache_ttl_placeholder') || 'App default'"
+               autocomplete="off">
+        <div class="bounds-chips" role="group"
+             :aria-label="t('admin.config.bounds.group_label') || 'Bounds'">
+          <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title') || 'Minimum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
+            </svg>
+            <span>5</span>
+          </span>
+          <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title') || 'Maximum'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
+            </svg>
+            <span>3600</span>
+          </span>
+          <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title') || 'Default'">
+            <svg width="11" height="11" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
+            </svg>
+            <span>30</span>
+          </span>
+        </div>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.proxmox.cache_ttl_hint') || 'How long fetched Proxmox stats are cached before re-querying (5–3600s). Leave blank for the app default (30s).'"></p>
+    </div>
+    <!-- Shared Test-connection unit (same button + result box as the Portainer
+         / OIDC admin panels). tcRun is the per-app test fn; tcResult is its
+         reactive {pending, ok, detail} result. -->
+    <div x-data="{ tcRun: () => testInstanceCredential(), tcResult: () => appsInstanceTestResult, tcLastTs: () => appsInstanceEditForm.last_test_ok_ts }">
+      <!-- INCLUDE: _components/og-test-connection.html -->
+    </div>
+  </div>
+</template>

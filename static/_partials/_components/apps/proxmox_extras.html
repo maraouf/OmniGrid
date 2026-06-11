@@ -1,0 +1,79 @@
+<!-- Per-app expanded-card extras -- Proxmox VE (hypervisor management).
+
+     Renders inside `apps-card.html` when the chip is the Proxmox catalog
+     template AND extras are visible. Data comes from
+     `logic/apps/proxmox.py:fetch_data` (one /cluster/resources call), read
+     through the cache-backed `appsAppData(inst)`. Reuses the shared
+     `.apps-card-ups-*` stat-grid (a generic telemetry panel).
+
+     Helpers used (all from `static/js/apps/proxmox.js`):
+       proxmoxIsApp(app) / proxmoxData(inst) / proxmoxCount(v) /
+       proxmoxFraction(inst, kind) / proxmoxStorage(inst) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="proxmoxIsApp && proxmoxIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && proxmoxData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-proxmox-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Nodes online/total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.nodes') || 'Nodes'"></div>
+        <div class="apps-card-stat-value" x-text="proxmoxFraction(inst, 'node')"></div>
+      </div>
+      <!-- VMs running/total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.vms') || 'VMs'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(proxmoxData(inst).vms_running) || 0) > 0 ? 'text-[var(--success)]' : ''"
+             x-text="proxmoxFraction(inst, 'vm')"></div>
+      </div>
+      <!-- Containers running/total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.containers') || 'Containers'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(proxmoxData(inst).cts_running) || 0) > 0 ? 'text-[var(--success)]' : ''"
+             x-text="proxmoxFraction(inst, 'ct')"></div>
+      </div>
+      <!-- Cluster CPU % -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.cpu') || 'CPU'"></div>
+        <div class="apps-card-stat-value" x-text="proxmoxCount(proxmoxData(inst).cpu_percent) + '%'"></div>
+      </div>
+      <!-- Cluster Memory % -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.memory') || 'Memory'"></div>
+        <div class="apps-card-stat-value" x-text="proxmoxCount(proxmoxData(inst).mem_percent) + '%'"></div>
+      </div>
+    </div>
+    <!-- Storage + version footnote. -->
+    <div x-show="proxmoxStorage(inst) || proxmoxData(inst).version"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
+      <span x-show="proxmoxStorage(inst)"
+            x-text="t('apps.proxmox.storage_footnote', { used: proxmoxStorage(inst), pct: (Number(proxmoxData(inst).storage_percent) || 0) })"></span>
+      <span x-show="proxmoxData(inst).version"
+            x-text="t('apps.version_footnote', { brand: 'Proxmox', v: (proxmoxData(inst).version || '') })"></span>
+    </div>
+  </div>
+</template>
+<!-- No token yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="proxmoxIsApp && proxmoxIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.proxmox.no_token') || 'No API token set -- add one in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on proxmoxData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="proxmoxIsApp && proxmoxIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !proxmoxData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.proxmox.loading') || 'Loading Proxmox data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="proxmoxIsApp && proxmoxIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !proxmoxData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.proxmox.fetch_failed') || 'Proxmox fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>
