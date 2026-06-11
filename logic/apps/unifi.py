@@ -42,6 +42,7 @@ Upstream API reference: UniFi Network Integration API v1 — base
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any, Optional
 
@@ -454,6 +455,41 @@ def _client_category(text: str) -> str:
     return ""
 
 
+# Device-type EMOJI per category — the at-a-glance icon for each client row.
+_DEVICE_EMOJI = {
+    "Router": "🛜", "Laptop": "💻", "Desktop": "🖥️", "Phone": "📱",
+    "Tablet": "📱", "TV": "📺", "Multimedia": "📺", "Console": "🎮",
+    "IoT Hub": "🏠", "Camera": "📷", "Printer": "🖨️", "NAS": "🗄️",
+    "Server": "🖥️", "Watch": "⌚",
+}
+# A leading "[Category] " token UniFi (or the operator) already put on the
+# client NAME — stripped + turned into the device emoji so it isn't shown twice.
+_LEADING_CATEGORY = re.compile(r"^\s*\[(?P<cat>[^]]+)]\s*")
+
+
+def _client_display(name: str, text: str, wired: bool) -> "tuple[str, str]":
+    """``(emoji, clean_name)`` for a client row: a device-type emoji + the name
+    with any leading ``[Category]`` bracket removed (so the category shows as an
+    ICON instead of duplicated text). The category is read from that existing
+    bracket when it maps to a known type, else inferred from the name / vendor
+    text; the emoji falls back to the wired/wireless glyph when unknown."""
+    raw = (name or "").strip()
+    cat = ""
+    clean = raw
+    m = _LEADING_CATEGORY.match(raw)
+    if m:
+        bracket = m.group("cat").strip().lower()
+        for label in _DEVICE_EMOJI:
+            if bracket == label.lower():
+                cat = label
+                clean = _LEADING_CATEGORY.sub("", raw).strip() or raw
+                break
+    if not cat:
+        cat = _client_category(text or raw)
+    emoji = _DEVICE_EMOJI.get(cat) or ("🔌" if wired else "📶")
+    return emoji, clean
+
+
 async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> list[dict]:
     """Per-client SESSION usage (rx + tx bytes since the client connected) from
     the LEGACY controller ``stat/sta`` endpoint — the Integration API client
@@ -838,19 +874,19 @@ async def _clients_skill(host_row: dict, chip: dict, *,
     items: list[dict] = []
     lines = [summary, "", "📊 Top clients by usage (this session):"]
     for i, c in enumerate(top, 1):
-        icon = "🔌" if c["wired"] else "📶"
-        cat = _client_category(c.get("text") or c["name"])
-        label = f"[{cat}] {c['name']}" if cat else c["name"]
-        sub_bits = []
+        emoji, clean_name = _client_display(c["name"], c.get("text") or "",
+                                            bool(c["wired"]))
+        conn = "🔌" if c["wired"] else "📶"
+        sub_bits = [conn]
         if c["ip"]:
             sub_bits.append(c["ip"])
         sub_bits.append(f"▼ {_fmt_bytes(c['rx'])} · ▲ {_fmt_bytes(c['tx'])}")
         items.append({
-            "title": f"{icon} {label}",
+            "title": f"{emoji} {clean_name}",
             "subtitle": " · ".join(sub_bits),
             "progress": round(c["total"] / maxt * 100),
         })
-        lines.append(f"{i}. {label} — {_fmt_bytes(c['total'])} "
+        lines.append(f"{i}. {emoji} {clean_name} — {_fmt_bytes(c['total'])} "
                      f"(▼{_fmt_bytes(c['rx'])} ▲{_fmt_bytes(c['tx'])})")
     out = dict(base_out)
     out["detail"] = "\n".join(lines)
