@@ -87,6 +87,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "rundeck_executions",
+        "name": "Recent Rundeck executions",
+        "ai_phrases": ("recent rundeck executions, last executions, execution "
+                       "history, did the job succeed or fail, last job runs, "
+                       "rundeck run history, recent job results, what failed "
+                       "in rundeck"),
+        "destructive": False,
+    },
+    {
         "id": "rundeck_run_job",
         "name": "Run a Rundeck job",
         "ai_phrases": ("run the <name> job, execute <name>, trigger the <name> "
@@ -310,6 +319,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _jobs_skill(host_row, chip, host_id=host_id)
     if skill_id == "rundeck_running":
         return await _running_skill(host_row, chip, host_id=host_id)
+    if skill_id == "rundeck_executions":
+        return await _executions_skill(host_row, chip, host_id=host_id)
     if skill_id == "rundeck_run_job":
         return await _run_job_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -429,6 +440,77 @@ async def _running_skill(host_row: dict, chip: dict, *,
     out: dict = {"ok": True, "status": 200,
                  "detail": f"▶️ {len(execs)} execution(s) running:\n" + "\n".join(lines)}
     return _attach_items(out, items, "apps.rundeck.running_count")
+
+
+# Rundeck execution status → emoji for the recent-executions list.
+_EXEC_STATUS_EMOJI = {
+    "succeeded": "✅", "failed": "❌", "aborted": "⏹️", "running": "🟢",
+    "timedout": "⏱️", "timeout": "⏱️", "scheduled": "🕒", "queued": "🕒",
+    "missed": "⚠️", "partial": "🟡", "other": "🟡", "incomplete": "🟡",
+}
+
+
+def _exec_status_label(status: str) -> "tuple[str, str]":
+    """``(emoji, Title-cased label)`` for a Rundeck execution status. Unknown
+    statuses get a neutral ⚪ + the raw value."""
+    s = (status or "").strip().lower()
+    return _EXEC_STATUS_EMOJI.get(s, "⚪"), (s.capitalize() if s else "unknown")
+
+
+def _exec_started_ms(e: dict) -> int:
+    """Execution start time in epoch-ms for newest-first sorting (Rundeck's
+    ``date-started`` is ``{unixtime, date}``); 0 when absent."""
+    ds = e.get("date-started")
+    return safe_int(as_dict(ds).get("unixtime")) if isinstance(ds, dict) else 0
+
+
+async def _executions_skill(host_row: dict, chip: dict, *,
+                            host_id: Optional[str] = None) -> dict:
+    """Read-only: the most recent executions across projects with their final
+    status (✅ succeeded / ❌ failed / ⏹️ aborted / 🟢 running / ⏱️ timed out /
+    🟡 partial / …), newest first. Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[rundeck] INFO rundeck_executions host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
+                                     follow_redirects=True) as cli:
+            projs = await _get(cli, base + _API + "/projects", token)
+            names = [str(p.get("name") or "").strip()
+                     for p in as_list(projs) if isinstance(p, dict) and p.get("name")]
+            nested = await asyncio.gather(*[
+                _get(cli, base + _API + f"/project/{p}/executions?max=10", token)
+                for p in names[:_MAX_PROJECTS]
+            ]) if names else []
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    execs: list = []
+    for body in nested:
+        execs.extend(e for e in as_list(as_dict(body).get("executions"))
+                     if isinstance(e, dict))
+    if not execs:
+        return {"ok": True, "status": 200, "detail": "📜 No recent Rundeck executions."}
+    execs.sort(key=_exec_started_ms, reverse=True)
+    items: list = []
+    lines: list = []
+    for e in execs[:_MAX_ROWS]:
+        job = as_dict(e.get("job"))
+        name = str(job.get("name") or "").strip() or f"execution #{safe_int(e.get('id'))}"
+        proj = str(e.get("project") or job.get("project") or "").strip()
+        user = str(e.get("user") or "").strip()
+        emoji, label = _exec_status_label(str(e.get("status") or ""))
+        bits = [f"{emoji} {label}"]
+        if proj:
+            bits.append(proj)
+        if user:
+            bits.append(f"by {user}")
+        sub = " · ".join(bits)
+        items.append({"title": name, "subtitle": sub})
+        lines.append(f"• {name}  ({sub})")
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "📜 Recent Rundeck executions:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.rundeck.executions_count")
 
 
 async def _run_job_skill(host_row: dict, chip: dict, *,

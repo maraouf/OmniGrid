@@ -45,6 +45,7 @@ from . import nginx_proxy_manager
 from . import pihole
 from . import plex
 from . import prowlarr
+from . import proxmox
 from . import qbittorrent
 from . import radarr
 from . import readarr
@@ -79,7 +80,8 @@ def _register(module: ModuleType) -> None:
 for _mod in (adguardhome, adguardhome_sync, apc, apprise, bazarr, ddns_updater,
              emby, flaresolverr, forgejo, gitsync, grafana, jellyfin, kavita,
              lidarr, netbootxyz, nginx_proxy_manager, pihole, plex, prowlarr,
-             qbittorrent, radarr, readarr, rundeck, rustdesk, seerr, sonarr,
+             proxmox, qbittorrent, radarr, readarr, rundeck, rustdesk, seerr,
+             sonarr,
              speedtest_tracker, tautulli, tdarr, tracearr, unifi):
     _register(_mod)
 
