@@ -1121,7 +1121,7 @@ async def api_hosts_debug(
     # the next request — no list-edit drift class.
     from logic.tuning import tuning_int as _tuning_int, TUNABLES as _TUNABLES
     counters["tunables"] = {}
-    for key in _TUNABLES.keys():
+    for key in _TUNABLES:
         try:
             counters["tunables"][key] = _tuning_int(key)
         except (ValueError, TypeError, KeyError):
@@ -1879,7 +1879,7 @@ def _bucket_drawer_series(series: list, hours: int, target_points: int = 120) ->
     all_keys: set[str] = set()
     for r in series:
         if isinstance(r, dict):
-            for k in r.keys():
+            for k in r:
                 if k not in ("t", "ts"):
                     all_keys.add(k)
     kinds: dict[str, str] = {k: _classify_key(series, k) for k in all_keys}

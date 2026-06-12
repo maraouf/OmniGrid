@@ -47,6 +47,26 @@
              x-text="embyCount(embyData(inst).sessions_active)"></div>
       </div>
     </div>
+    <!-- Streaming detail: total bandwidth + transcode / direct-play split,
+         shown only while something is playing. -->
+    <div x-show="(Number(embyData(inst).sessions_active) || 0) > 0"
+         class="flex flex-wrap items-center gap-x-4 gap-y-0.5 fs-xs mt-1.5">
+      <span x-show="(Number(embyData(inst).bandwidth_bps) || 0) > 0" class="inline-flex items-center gap-1"
+            :title="t('apps.emby.bandwidth_title') || 'Total streaming bandwidth'">
+        <span class="text-[var(--info)]" aria-hidden="true">📶</span>
+        <span class="mono" x-text="embyBandwidth(embyData(inst).bandwidth_bps)"></span>
+      </span>
+      <span x-show="(Number(embyData(inst).transcodes) || 0) > 0" class="inline-flex items-center gap-1"
+            :title="t('apps.emby.transcodes_title') || 'Transcoding streams'">
+        <span class="text-[var(--warning)]" aria-hidden="true">🔄</span>
+        <span class="mono" x-text="t('apps.emby.transcodes_n', { n: embyCount(embyData(inst).transcodes) })"></span>
+      </span>
+      <span x-show="(Number(embyData(inst).direct_streams) || 0) > 0" class="inline-flex items-center gap-1"
+            :title="t('apps.emby.direct_title') || 'Direct-play streams'">
+        <span class="text-[var(--success)]" aria-hidden="true">▶️</span>
+        <span class="mono" x-text="t('apps.emby.direct_n', { n: embyCount(embyData(inst).direct_streams) })"></span>
+      </span>
+    </div>
     <!-- All libraries (name + item count) + grand total — a multi-library
          server shows EVERY library here, not just the Movies/Series/Songs grid. -->
     <div x-show="(embyData(inst).library_list || []).length" class="mt-2">

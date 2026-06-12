@@ -1209,7 +1209,7 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     prt_levels = _walk("prt_supply_level")
     if prt_descrs:
         supplies = []
-        for oid in prt_descrs.keys():
+        for oid in prt_descrs:
             idx = _last_index(oid, _OID_PRT_SUPPLIES_DESCR)
             name = _coerce_str(prt_descrs.get(oid)).strip()
             max_cap = _coerce_int(_pick(prt_maxs, idx))
@@ -1239,7 +1239,7 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
         mounts = []
         disk_total_sum = 0
         disk_used_sum = 0
-        for oid in ucd_paths.keys():
+        for oid in ucd_paths:
             idx = oid.rsplit(".", 1)[-1]
             path = _coerce_str(_pick(ucd_paths, idx)).strip()
             total_kb = _coerce_int(_pick(ucd_totals, idx))
@@ -2926,7 +2926,7 @@ def _summarise_entity_rows(descrs: dict, names: dict, serials: dict,
     out = []
     seen_idx = set()
     for src in (descrs or {}, names or {}, serials or {}, models or {}, firmwares or {}):
-        for oid in src.keys():
+        for oid in src:
             # Trailing dotted index after the .1.x.x.x.x.x prefix.
             idx = oid.rsplit(".", 1)[-1]
             seen_idx.add(idx)
@@ -2952,7 +2952,7 @@ def _summarise_storage_rows(walks: dict) -> list[dict]:
     units = walks.get("unit") or {}
     useds = walks.get("used") or {}
     out = []
-    for oid in sizes.keys():
+    for oid in sizes:
         idx = _last_index(oid, _OID_HR_STORAGE_SIZE)
         out.append({
             "idx": idx,
@@ -2970,7 +2970,7 @@ def _summarise_iface_rows(if_descr: dict, if_oper: dict,
                           if_in: dict, if_out: dict) -> list[dict]:
     """Per-interface row summary for the debug surface."""
     out = []
-    for oid in (if_descr or {}).keys():
+    for oid in (if_descr or {}):
         idx = _last_index(oid, _OID_IF_DESCR)
         out.append({
             "idx": idx,

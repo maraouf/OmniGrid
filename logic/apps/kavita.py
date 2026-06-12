@@ -93,6 +93,22 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "kavita_recently_added",
+        "name": "Recently added",
+        "ai_phrases": ("what's new on kavita, recently added to kavita, latest "
+                       "additions, new chapters on kavita, what got added "
+                       "recently, recently updated series, new manga, new comics"),
+        "destructive": False,
+    },
+    {
+        "id": "kavita_on_deck",
+        "name": "On deck",
+        "ai_phrases": ("what am i reading on kavita, continue reading, on deck, "
+                       "my in-progress series, what should i read next, "
+                       "kavita continue reading, resume reading"),
+        "destructive": False,
+    },
+    {
         "id": "kavita_search",
         "name": "Search the library",
         "ai_phrases": ("search <title> on kavita, find <title> in my library, "
@@ -125,6 +141,70 @@ def requires_api_key() -> bool:
     """Kavita authenticates via an API key exchanged for a JWT; the editor MUST
     render the api_key input + Test-connection button."""
     return True
+
+
+# Kavita cover endpoints that the image-proxy hook will serve. The api_key rides
+# the query string (Kavita's Image controller accepts it so covers work in an
+# <img src>), resolved SERVER-SIDE so it never reaches the browser.
+_COVER_PREFIXES = ("series-cover", "volume-cover", "chapter-cover",
+                   "collection-cover", "reading-list-cover", "cover-upload")
+
+
+def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]":
+    """Per-app image-proxy hook — turn a Kavita cover reference (e.g.
+    ``series-cover?seriesId=123``) into the authenticated upstream URL
+    ``<base>/api/Image/<path>&apiKey=<key>``. The api_key rides the query string
+    and is resolved SERVER-SIDE (OmniGrid fetches the bytes), so it never reaches
+    the browser. SSRF-guarded: the path must be a bare relative reference to a
+    known cover endpoint (no scheme, no traversal)."""
+    from urllib.parse import quote  # noqa: PLC0415
+    api_key = (chip.get("api_key") or "").strip()
+    p = (path or "").strip().lstrip("/")
+    if not p or "://" in p or ".." in p:
+        raise ValueError("invalid image path")
+    if not p.startswith(_COVER_PREFIXES):
+        raise ValueError("image path not allowed")
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        raise ValueError("no upstream URL configured")
+    sep = "&" if "?" in p else "?"
+    return f"{base.rstrip('/')}/api/Image/{p}{sep}apiKey={quote(api_key)}", {}
+
+
+def _recent_item(s: Any) -> Optional[dict]:
+    """One recently-updated series as a rich skill-result item (poster via the
+    image proxy + 'N new chapters' subtitle). ``None`` for a malformed row."""
+    if not isinstance(s, dict):
+        return None
+    sid = safe_int(s.get("seriesId") or s.get("id"))
+    name = str(s.get("seriesName") or s.get("name") or "?").strip()
+    count = safe_int(s.get("count"))
+    out: dict = {"title": name}
+    if count:
+        out["subtitle"] = (f"{count:,} new chapter" + ("s" if count != 1 else ""))
+    if sid:
+        out["poster"] = f"series-cover?seriesId={sid}"
+        out["poster_proxy"] = True
+    return out
+
+
+def _ondeck_item(s: Any) -> Optional[dict]:
+    """One on-deck (continue-reading) series as a rich skill-result item (poster +
+    a read-progress bar). ``None`` for a malformed row."""
+    if not isinstance(s, dict):
+        return None
+    sid = safe_int(s.get("id"))
+    name = str(s.get("name") or "?").strip()
+    read = safe_int(s.get("pagesRead"))
+    total = safe_int(s.get("pages"))
+    out: dict = {"title": name}
+    if total:
+        out["progress"] = min(100, max(0, round(read / total * 100)))
+        out["subtitle"] = f"{read:,}/{total:,} pages"
+    if sid:
+        out["poster"] = f"series-cover?seriesId={sid}"
+        out["poster_proxy"] = True
+    return out
 
 
 def _bearer(token: str) -> dict:
@@ -305,11 +385,26 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "version": version,
         "fetched_at": int(now),
     }
+    # Library-growth retention trend — best-effort; the sampler may have no rows
+    # yet (fresh pin) → zeroed shape.
+    out["trend"] = _safe_trend(str(host_id or ""), int(service_idx or 0))
     print(f"[kavita] INFO fetched host={host_id} libraries={out['libraries']} "
           f"series={out['series_count']} volumes={out['volume_count']} "
           f"chapters={out['chapter_count']} size={out['total_size']}")
     _data_cache[ck] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort ``kavita_sampler.trend_summary`` — a zeroed shape on any error
+    (a fresh pin with no samples, or an import hiccup) so the card never fails on
+    the trend embed."""
+    try:
+        from logic.apps import kavita_sampler as _s  # noqa: PLC0415
+        return _s.trend_summary(host_id, service_idx)
+    except (ImportError, RuntimeError, ValueError):
+        return {"days": 0, "samples": 0, "latest_series": 0, "latest_size": 0,
+                "series_added": 0, "series_series": [], "size_series": []}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -345,6 +440,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                    service_idx=service_idx)
     if skill_id == "kavita_libraries":
         return await _libraries_skill(host_row, chip, host_id=host_id)
+    if skill_id == "kavita_recently_added":
+        return await _recently_added_skill(host_row, chip, host_id=host_id)
+    if skill_id == "kavita_on_deck":
+        return await _on_deck_skill(host_row, chip, host_id=host_id)
     if skill_id == "kavita_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "kavita_scan":
@@ -444,6 +543,120 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         return {"ok": True, "status": 200, "detail": "📚 No libraries configured."}
     return {"ok": True, "status": 200,
             "detail": f"📚 Libraries ({len(lines):,}):\n" + "\n".join(lines)}
+
+
+#   The auth + httpx-client + error-branch scaffolding below is shape-similar to
+#   the sibling list skills — the sanctioned per-app encapsulation pattern; each
+#   differs in endpoint + parse, so it stays inline.
+# noinspection DuplicatedCode
+async def _recently_added_skill(host_row: dict, chip: dict, *,
+                                host_id: Optional[str] = None) -> dict:
+    """Read-only: recently-updated series (Kavita's stable "what's new" feed) via
+    ``POST /api/Series/recently-updated-series``, rendered as a rich poster list
+    (covers through the image proxy). Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[kavita] INFO kavita_recently_added host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, _ = await _authenticate(cli, base, api_key)
+            r = await cli.post(base + "/api/Series/recently-updated-series",
+                               headers=_bearer(token))
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code not in (200, 204):
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    series: list = []
+    if r.status_code == 200:
+        try:
+            body = r.json()
+        except (ValueError, TypeError):
+            return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+        if isinstance(body, list):
+            series = body
+    if not series:
+        return {"ok": True, "status": 200,
+                "detail": "📚 Nothing has been added to Kavita recently."}
+    lines: list = []
+    items: list = []
+    for s in series[:20]:
+        it = _recent_item(s)
+        if not it:
+            continue
+        cnt = safe_int(s.get("count"))  # s is a dict (else _recent_item returned None)
+        lines.append(f"• {it['title']}" + (f" ({cnt:,} new)" if cnt else ""))
+        items.append(it)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🆕 Recently added to Kavita:\n" + "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.kavita.recently_added_count"
+    return out
+
+
+async def _on_deck_skill(host_row: dict, chip: dict, *,
+                         host_id: Optional[str] = None) -> dict:
+    """Read-only: on-deck / continue-reading series via ``POST
+    /api/Series/on-deck``, a rich poster list with read-progress bars. The
+    endpoint shape is version-volatile (bare list vs paginated wrapper, and some
+    builds reject the body) — degrades gracefully on a non-200. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[kavita] INFO kavita_on_deck host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, _ = await _authenticate(cli, base, api_key)
+            r = await cli.post(base + "/api/Series/on-deck", headers=_bearer(token),
+                               params={"pageNumber": 1, "pageSize": 20}, json={})
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code not in (200, 204):
+        return {"ok": True, "status": 200,
+                "detail": (f"📖 Couldn't read your on-deck list (Kavita returned "
+                           f"HTTP {r.status_code}) — the continue-reading endpoint "
+                           "varies by Kavita version.")}
+    series: list = []
+    if r.status_code == 200:
+        try:
+            body = r.json()
+        except (ValueError, TypeError):
+            return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+        if isinstance(body, list):
+            series = body
+        elif isinstance(body, dict):
+            for key in ("result", "results", "items", "data"):
+                v = body.get(key)
+                if isinstance(v, list):
+                    series = v
+                    break
+    if not series:
+        return {"ok": True, "status": 200,
+                "detail": "📖 Nothing on deck — you're all caught up on Kavita."}
+    lines: list = []
+    items: list = []
+    for s in series[:20]:
+        it = _ondeck_item(s)
+        if not it:
+            continue
+        sub = it.get("subtitle")
+        lines.append(f"• {it['title']}" + (f" — {sub}" if sub else ""))
+        items.append(it)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "📖 On deck (continue reading):\n" + "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.kavita.on_deck_count"
+    return out
 
 
 async def _search_skill(host_row: dict, chip: dict, *,

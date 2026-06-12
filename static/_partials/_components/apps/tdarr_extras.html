@@ -57,6 +57,26 @@
             <div class="apps-card-stat-label" x-text="t('apps.tdarr.workers') || 'Workers'"></div>
             <div class="apps-card-stat-value" x-text="tdarrWorkers(tdarrData(inst))"></div>
           </div>
+          <!-- Failed transcodes (table3) — warning-tinted when > 0. -->
+          <div x-show="(Number(tdarrData(inst).transcode_failed) || 0) > 0" class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.failed') || 'Failed'"></div>
+            <div class="apps-card-stat-value text-[var(--danger)]" x-text="tdarrCount(tdarrData(inst).transcode_failed)"></div>
+          </div>
+        </div>
+        <!-- Live transcode SPEED (fps, when processing) + per-transcode
+             effectiveness (avg GB reclaimed). -->
+        <div x-show="(Number(tdarrData(inst).fps) || 0) > 0 || (Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0) > 0"
+             class="flex flex-wrap items-center gap-x-4 gap-y-0.5 fs-xs mt-1.5">
+          <span x-show="(Number(tdarrData(inst).fps) || 0) > 0" class="inline-flex items-center gap-1"
+                :title="t('apps.tdarr.fps_title') || 'Live transcode speed'">
+            <span class="text-[var(--info)]" aria-hidden="true">⚡</span>
+            <span class="mono" x-text="tdarrFps(tdarrData(inst).fps)"></span>
+          </span>
+          <span x-show="(Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0) > 0" class="inline-flex items-center gap-1"
+                :title="t('apps.tdarr.avg_saved_title') || 'Average space reclaimed per transcode'">
+            <span class="text-[var(--success)]" aria-hidden="true">📉</span>
+            <span class="mono" x-text="(t('apps.tdarr.avg_saved', { gb: (Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0).toFixed(2) }) || ((Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0).toFixed(2) + ' GB/file'))"></span>
+          </span>
         </div>
         <!-- "Now processing" lives on the "Tdarr status" ACTION (skill button),
              NOT here — the always-on extras card shows CACHED fetch_data, so its
@@ -75,6 +95,44 @@
               <template x-for="s in tdarrBreakdown(tdarrData(inst), bd.key)" :key="s.name">
                 <span class="chip pill-muted fs-3xs" x-text="s.name + ' · ' + tdarrCount(s.count)"></span>
               </template>
+            </div>
+          </div>
+        </template>
+        <!-- Retention trend (from OmniGrid's tdarr_samples): cumulative space-
+             saved + transcode-queue burn-down + per-day throughput. Drawer-only
+             (`appsExtrasInDrawer`) — no room on the apps-grid card; shown once
+             ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tdarrTrend(inst) && tdarrTrend(inst).series_saved && tdarrTrend(inst).series_saved.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <!-- Cumulative space reclaimed over time ("X TB and counting"). -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.tdarr.saved_trend', { days: tdarrTrend(inst).days }) || ('Space reclaimed (' + tdarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="tdarrTrendPath(tdarrTrend(inst).series_saved)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.tdarr.saved_total') || 'Total reclaimed') + ': ' + tdarrSpace({ space_saved_gb: tdarrTrend(inst).latest_saved_gb })"></div>
+            </div>
+            <!-- Transcode-queue burn-down. -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.tdarr.queue_trend', { days: tdarrTrend(inst).days }) || ('Transcode queue (' + tdarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="tdarrTrendPath(tdarrTrend(inst).series_queue)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.tdarr.queue_peak') || 'Peak') + ' ' + tdarrCount(tdarrTrend(inst).peak_queue) + ' · ' + (t('apps.tdarr.now_label') || 'now') + ' ' + tdarrCount(tdarrTrend(inst).latest_queue)"></div>
+            </div>
+            <!-- Per-day throughput (transcodes completed/day). -->
+            <div x-show="tdarrTrend(inst).series_throughput && tdarrTrend(inst).series_throughput.length >= 2" class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.tdarr.throughput_trend', { days: tdarrTrend(inst).days }) || ('Throughput / day (' + tdarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="tdarrTrendPath(tdarrTrend(inst).series_throughput)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(tdarrTrend(inst).window_throughput) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.tdarr.window_throughput', { count: tdarrCount(tdarrTrend(inst).window_throughput), days: tdarrTrend(inst).days }) || (tdarrCount(tdarrTrend(inst).window_throughput) + ' transcoded in ' + tdarrTrend(inst).days + ' days')"></div>
             </div>
           </div>
         </template>

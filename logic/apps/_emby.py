@@ -266,14 +266,25 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
             # (``/Sessions`` returns idle sessions too). Nice-to-have; a failure
             # must NOT fail the card.
             sessions_active = 0
+            transcodes = 0
+            bandwidth_bps = 0
             try:
                 sr = await cli.get(base + "/Sessions", headers=headers(key, cfg.scheme))
                 if sr.status_code == 200:
-                    sessions_active = sum(
-                        1 for s in as_list(sr.json())
-                        if isinstance(s, dict) and s.get("NowPlayingItem"))
+                    for s in as_list(sr.json()):
+                        if not (isinstance(s, dict) and s.get("NowPlayingItem")):
+                            continue
+                        sessions_active += 1
+                        ti = as_dict(s.get("TranscodingInfo"))
+                        method = str(as_dict(s.get("PlayState")).get("PlayMethod") or "").lower()
+                        if "transcode" in method or ti:
+                            transcodes += 1
+                        # Bandwidth (bps): the transcode TARGET bitrate when
+                        # transcoding, else the source item's own bitrate.
+                        bandwidth_bps += (safe_int(ti.get("Bitrate"))
+                                          or safe_int(as_dict(s.get("NowPlayingItem")).get("Bitrate")))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
-                sessions_active = 0
+                sessions_active = transcodes = bandwidth_bps = 0
             # Version (nice-to-have).
             try:
                 version = version_from(
@@ -305,12 +316,16 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "libraries": libraries,
         "library_list": library_list,
         "sessions_active": sessions_active,
+        "transcodes": transcodes,
+        "direct_streams": max(0, sessions_active - transcodes),
+        "bandwidth_bps": bandwidth_bps,
         "version": version,
         "fetched_at": int(now),
     }
     print(f"[{cfg.log_tag}] INFO fetched host={host_id} movies={out['movies']} "
           f"series={out['series']} episodes={out['episodes']} songs={out['songs']} "
-          f"libraries={libraries} sessions={sessions_active}")
+          f"libraries={libraries} sessions={sessions_active} "
+          f"transcodes={transcodes} bw={bandwidth_bps}bps")
     cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -329,6 +344,9 @@ def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict
         "items_total": safe_int(data.get("items_total")),
         "libraries": safe_int(data.get("libraries")),
         "sessions_active": safe_int(data.get("sessions_active")),
+        "transcodes": safe_int(data.get("transcodes")),
+        "direct_streams": safe_int(data.get("direct_streams")),
+        "bandwidth_bps": safe_int(data.get("bandwidth_bps")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -508,11 +526,12 @@ def _session_line(s: dict) -> str:
     return f"▶️ {user} — {label}{pct}{where}"
 
 
-def _session_item(s: dict) -> Optional[dict]:
+def _session_item(s: dict, cfg: Config) -> Optional[dict]:
     """One now-playing session as a rich skill-result item: title poster (series
     poster for episodes, else the item primary — proxied), the watching user +
     their avatar (proxied, when set), a device / state / play-method subtitle,
-    and a play-progress bar. Parallel to ``_session_line``."""
+    a play-progress bar, and a per-row ⏹ Stop ``row_action`` (terminate THIS
+    session by its id). Parallel to ``_session_line``."""
     if not isinstance(s, dict):
         return None
     now = as_dict(s.get("NowPlayingItem"))
@@ -545,6 +564,19 @@ def _session_item(s: dict) -> Optional[dict]:
         if user_id and avatar_tag:
             out["avatar"] = f"/Users/{user_id}/Images/Primary?tag={avatar_tag}"
             out["avatar_proxy"] = True
+    # Per-row ⏹ Stop button → terminate THIS session by its id, confirm-gated
+    # (it kicks the viewer off).
+    sess_id = str(s.get("Id") or "").strip()
+    if sess_id:
+        out["row_action"] = {
+            "skill_id": f"{cfg.slug}_terminate_session",
+            "arg": sess_id,
+            "destructive": True,
+            "icon": "x",
+            "title_i18n": f"apps.{cfg.slug}.stop_stream",
+            "confirm_i18n": f"apps.{cfg.slug}.stop_stream_confirm",
+            "confirm_text_i18n": f"apps.{cfg.slug}.stop_stream",
+        }
     return out
 
 
@@ -579,11 +611,66 @@ async def now_playing_skill(host_row: dict, chip: dict, *,
         ln = _session_line(s)
         if ln:
             lines.append("  " + ln)
-        it = _session_item(s)
+        it = _session_item(s, cfg)
         if it:
             items.append(it)
     out: dict = {"ok": True, "status": 200, "detail": "\n".join(lines)}
     return _attach_items(out, items, f"apps.{cfg.slug}.now_playing_count")
+
+
+async def terminate_session_skill(host_row: dict, chip: dict, *,
+                                  arg: Optional[str], host_id: Optional[str],
+                                  cfg: Config) -> dict:
+    """DESTRUCTIVE (arg): stop ONE active playback session. Resolves the target
+    from ``GET /Sessions`` — an exact session ``Id`` (the per-row Stop button)
+    first, else a substring match on the watcher / title (the AI / Telegram
+    free-text path) — then ``POST /Sessions/{id}/Playing/Stop`` (the Playstate
+    Stop command, supported by both Emby and Jellyfin). Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no stream given (say e.g. \"stop John's stream\")"}
+    key, base, err = _resolve_skill_target(host_row, chip, cfg=cfg)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[{cfg.log_tag}] INFO {cfg.slug}_terminate_session host={host_id} target={needle!r}")
+    r = await _skill_request("GET", base, "/Sessions", key=key, cfg=cfg,
+                             timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        sessions = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    target_id = ""
+    target_label = ""
+    for s in sessions:
+        if not (isinstance(s, dict) and s.get("NowPlayingItem")):
+            continue
+        sid = str(s.get("Id") or "").strip()
+        now = as_dict(s.get("NowPlayingItem"))
+        title = str(now.get("SeriesName") or now.get("Name") or "").strip()
+        user = str(s.get("UserName") or "").strip()
+        if sid and sid == needle:  # exact id — the per-row Stop button
+            target_id, target_label = sid, f"{user} — {title}".strip(" —")
+            break
+        if not target_id and (nl in title.lower() or nl in user.lower()):
+            target_id, target_label = sid, f"{user} — {title}".strip(" —")
+    if not target_id:
+        return {"ok": False, "status": 404,
+                "detail": f"no active {cfg.brand} stream matched \"{needle}\""}
+    sr = await _skill_request("POST", base, f"/Sessions/{target_id}/Playing/Stop",
+                              key=key, cfg=cfg, timeout=15.0, verb="stop", guard=False)
+    if isinstance(sr, dict):
+        return sr
+    ae = _auth_error(sr, cfg)
+    if ae:
+        return ae
+    if sr.status_code not in (200, 202, 204):
+        return {"ok": False, "status": sr.status_code, "detail": f"HTTP {sr.status_code}"}
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Stopped {target_label or ('the ' + cfg.brand + ' stream')}."}
 
 
 # Recently-added: per-library fetch breadth. Items are pulled PER library (by
@@ -838,6 +925,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                   service_idx=service_idx, cfg=cfg, cache=cache)
     if skill_id == f"{cfg.slug}_now_playing":
         return await now_playing_skill(host_row, chip, host_id=host_id, cfg=cfg)
+    if skill_id == f"{cfg.slug}_terminate_session":
+        return await terminate_session_skill(host_row, chip, arg=arg,
+                                             host_id=host_id, cfg=cfg)
     if skill_id == f"{cfg.slug}_recently_added":
         return await recently_added_skill(host_row, chip, host_id=host_id, cfg=cfg)
     if skill_id == f"{cfg.slug}_search":
@@ -869,6 +959,17 @@ def build_skills(slug: str, brand: str) -> "tuple[dict, ...]":
                            f"now playing on {slug}, current {slug} sessions, "
                            f"is anyone streaming {slug}"),
             "destructive": False,
+        },
+        {
+            "id": f"{slug}_terminate_session",
+            "name": f"Stop a {b} stream",
+            "ai_phrases": (f"stop the {slug} stream, kill <name>'s stream, "
+                           f"terminate <title> on {slug}, stop <user>'s playback, "
+                           f"end the {slug} stream, stop streaming <title>, "
+                           f"kick someone off {slug}"),
+            "arg": True,
+            "arg_hint": "the watcher name or title of the stream to stop",
+            "destructive": True,
         },
         {
             "id": f"{slug}_recently_added",
