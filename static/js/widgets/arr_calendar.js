@@ -320,17 +320,25 @@ export const helpers = {
     // GUARANTEE the tile's refresh pill spins on EVERY month change — toggle it
     // here around the whole call rather than relying solely on
     // _ensureArrCalendar's internal toggle (which a cache hit early-returns
-    // past, so a cached month would show no feedback at all). Promise.resolve
-    // handles both the cached path (returns undefined → resolves immediately,
-    // brief spin) and the fetch path (returns the fetch promise → spins until
-    // it lands). The card keeps the previous month's data until the new window
-    // arrives (widgetHasData stays true so the pill stays visible).
+    // past, so a cached month would show no feedback at all). A MINIMUM visible
+    // spin duration is enforced so a cache hit (or a fast LAN fetch) still
+    // flashes a perceptible spin instead of toggling on→off within one
+    // microtask. _ensureArrCalendar's own finally may clear the flag early on a
+    // real fetch, so we re-assert it in our finally before the timed clear.
+    // The card keeps the previous month's data until the new window arrives
+    // (widgetHasData stays true so the pill stays visible).
     if (!this.appsWidgetRefreshing) {
       this.appsWidgetRefreshing = {};
     }
     this.appsWidgetRefreshing.arr_calendar = true;
+    const startedAt = Date.now();
+    const MIN_SPIN_MS = 450;
     Promise.resolve(this._ensureArrCalendar()).finally(() => {
-      this.appsWidgetRefreshing.arr_calendar = false;
+      const remaining = Math.max(0, MIN_SPIN_MS - (Date.now() - startedAt));
+      this.appsWidgetRefreshing.arr_calendar = true;
+      setTimeout(() => {
+        this.appsWidgetRefreshing.arr_calendar = false;
+      }, remaining);
     });
   },
   arrCalPrevMonth() {

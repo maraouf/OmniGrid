@@ -371,7 +371,18 @@ async def _telegram_post(
         )
         if r.status_code != 200:
             if not silent_failure:
-                print(f"[telegram_listener] {log_label} failed: HTTP {r.status_code}: {r.text[:200]}")
+                # Surface the Telegram API's own `description` (human-readable —
+                # "Bad Request: message is too long" / "can't parse entities")
+                # rather than the raw JSON envelope, so a send failure is
+                # traceable at a glance in Admin → Logs. Falls back to the raw
+                # body when the response isn't the expected JSON shape.
+                try:
+                    _desc = str((r.json() or {}).get("description") or "").strip()
+                except (ValueError, TypeError):
+                    _desc = ""
+                _detail = _desc or r.text[:200]
+                print(f"[telegram_listener] {log_label} failed: "
+                      f"HTTP {r.status_code} — {_detail}")
             return False, {}
         try:
             return True, (r.json() or {})

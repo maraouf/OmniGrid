@@ -639,6 +639,36 @@ SKILLS: tuple[dict, ...] = (
                        "requeue all failed, re-process failed transcodes"),
         "destructive": True,
     },
+    {
+        "id": "tdarr_pause",
+        "name": "Pause pipeline",
+        "ai_phrases": ("pause tdarr, pause the pipeline, pause all nodes, stop "
+                       "transcoding, halt tdarr, pause transcodes, pause processing"),
+        "destructive": True,
+    },
+    {
+        "id": "tdarr_resume",
+        "name": "Resume pipeline",
+        "ai_phrases": ("resume tdarr, resume the pipeline, resume all nodes, "
+                       "unpause tdarr, start transcoding again, continue tdarr, "
+                       "resume processing"),
+        "destructive": False,
+    },
+    {
+        "id": "tdarr_scan",
+        "name": "Scan libraries",
+        "ai_phrases": ("scan tdarr, scan libraries, find new files, tdarr library "
+                       "scan, rescan tdarr, look for new media, scan for new files"),
+        "destructive": False,
+    },
+    {
+        "id": "tdarr_cancel_workers",
+        "name": "Cancel running jobs",
+        "ai_phrases": ("cancel tdarr jobs, cancel running workers, kill tdarr "
+                       "workers, stop the running transcodes, cancel current jobs, "
+                       "abort tdarr workers"),
+        "destructive": True,
+    },
 )
 
 
@@ -658,6 +688,14 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _requeue_bloated_skill(host_row, chip, host_id=host_id)
     if skill_id == "tdarr_requeue_failed":
         return await _requeue_failed_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tdarr_pause":
+        return await _pause_skill(host_row, chip, host_id=host_id)  # default: pause
+    if skill_id == "tdarr_resume":
+        return await _pause_skill(host_row, chip, host_id=host_id, paused=False)
+    if skill_id == "tdarr_scan":
+        return await _scan_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tdarr_cancel_workers":
+        return await _cancel_workers_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -1219,3 +1257,156 @@ def _fmt_gb(gb: Any) -> str:
     if g >= 1024:
         return f"{g / 1024:,.1f} TB"
     return f"{g:,.1f} GB"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline-control actions (pause / resume / scan / cancel running jobs)
+#
+# These hit Tdarr's action endpoints which answer a successful action with a
+# 2xx whose body is empty / a bare ``true`` / JSON — so they go through
+# ``_action_post`` (success == 2xx, no JSON parse) rather than ``_post`` /
+# ``_cruddb`` (which require a JSON body and would mis-read an empty 200 as a
+# failure). Node + worker IDs come from the same ``/get-nodes`` payload the card
+# already reads (keyed by nodeID; each node's ``workers`` keyed by workerID).
+# ---------------------------------------------------------------------------
+# noinspection DuplicatedCode
+async def _action_post(cli: httpx.AsyncClient, base: str, api_key: str,
+                       path: str, body: dict) -> None:
+    """POST a Tdarr action endpoint. Success is any 2xx (the response body is
+    not parsed — these endpoints may answer with an empty body / bare ``true``).
+    Raises ``RuntimeError`` on transport / auth / non-2xx."""
+    try:
+        r = await cli.post(base.rstrip("/") + _API + path,
+                           headers=_headers(api_key), json=body)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"request failed: {type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError("auth failed: Tdarr requires an API key (set it in the editor)")
+    if r.status_code >= 300:
+        raise RuntimeError(f"HTTP {r.status_code} for {path}")
+
+
+async def _set_all_nodes_paused(cli: httpx.AsyncClient, base: str, api_key: str,
+                                paused: bool) -> "tuple[int, int]":
+    """POST ``/update-node`` per registered node, flipping ``nodePaused``.
+    Returns ``(changed, total)``. A single node's failure is logged + skipped so
+    one bad node doesn't abort the whole pause/resume."""
+    nodes = as_dict(await _get(cli, base, api_key, "/get-nodes"))
+    total = 0
+    changed = 0
+    for node_id, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+        total += 1
+        nid = str(node.get("_id") or node_id or "").strip()
+        if not nid:
+            continue
+        try:
+            await _action_post(cli, base, api_key, "/update-node",
+                               {"data": {"nodeID": nid,
+                                         "nodeUpdates": {"nodePaused": paused}}})
+            changed += 1
+        except RuntimeError as e:
+            print(f"[tdarr] warning: update-node {nid} failed — {e}")
+    return changed, total
+
+
+async def _pause_skill(host_row: dict, chip: dict, *,
+                       host_id: Optional[str] = None, paused: bool = True) -> dict:
+    """Pause (or resume) the whole transcode pipeline by setting ``nodePaused``
+    on every registered Tdarr node. Never raises."""
+    verb = "pause" if paused else "resume"
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tdarr] INFO tdarr_{verb} host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            changed, total = await _set_all_nodes_paused(cli, base, api_key, paused)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    if total == 0:
+        return {"ok": False, "status": 0,
+                "detail": "no Tdarr nodes are registered (nothing to "
+                          f"{verb})."}
+    emoji = "⏸️" if paused else "▶️"
+    state = "Paused" if paused else "Resumed"
+    return {"ok": True, "status": 200,
+            "detail": f"{emoji} {state} the pipeline on {changed:,}/{total:,} node(s)."}
+
+
+async def _scan_skill(host_row: dict, chip: dict, *,
+                      host_id: Optional[str] = None) -> dict:
+    """Trigger a find-new scan across every configured Tdarr library
+    (``POST /scan-files`` with ``mode=scanFindNew`` per library). Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tdarr] INFO tdarr_scan host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            libs = as_list(await _cruddb(cli, base, api_key, {
+                "collection": "LibrarySettingsJSONDB", "mode": "getAll",
+                "docID": "", "obj": {}}))
+            scanned = 0
+            for lib in libs:
+                lid = str(as_dict(lib).get("_id") or "").strip()
+                if not lid:
+                    continue
+                try:
+                    await _action_post(cli, base, api_key, "/scan-files",
+                                       {"data": {"scanConfig": {
+                                           "dbID": lid, "arrayOrPath": [],
+                                           "mode": "scanFindNew"}}})
+                    scanned += 1
+                except RuntimeError as e:
+                    print(f"[tdarr] warning: scan-files {lid} failed — {e}")
+    except (httpx.HTTPError, OSError, RuntimeError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"scan failed: {type(e).__name__}: {e}"}
+    if scanned == 0:
+        return {"ok": False, "status": 0,
+                "detail": "no Tdarr libraries configured to scan."}
+    return {"ok": True, "status": 200,
+            "detail": f"🔍 Started a find-new scan across {scanned:,} library(ies)."}
+
+
+async def _cancel_workers_skill(host_row: dict, chip: dict, *,
+                                host_id: Optional[str] = None) -> dict:
+    """Cancel every RUNNING worker job across all nodes (``POST /kill-worker``
+    per active worker). A no-op (friendly success) when nothing is running.
+    Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tdarr] INFO tdarr_cancel_workers host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            nodes = as_dict(await _get(cli, base, api_key, "/get-nodes"))
+            killed = 0
+            for node_id, node in nodes.items():
+                if not isinstance(node, dict):
+                    continue
+                nid = str(node.get("_id") or node_id or "").strip()
+                for worker_id, w in as_dict(node.get("workers")).items():
+                    if not isinstance(w, dict) or not w.get("job"):
+                        continue
+                    wid = str(w.get("_id") or worker_id or "").strip()
+                    try:
+                        await _action_post(cli, base, api_key, "/kill-worker",
+                                           {"data": {"nodeID": nid, "workerID": wid}})
+                        killed += 1
+                    except RuntimeError as e:
+                        print(f"[tdarr] warning: kill-worker {wid} failed — {e}")
+    except (httpx.HTTPError, OSError, RuntimeError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"cancel failed: {type(e).__name__}: {e}"}
+    if killed == 0:
+        return {"ok": True, "status": 200,
+                "detail": "▶️ No Tdarr workers were running."}
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Cancelled {killed:,} running job(s)."}
