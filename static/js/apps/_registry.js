@@ -49,6 +49,7 @@ import * as kavita from './kavita.js?v=__APP_VERSION__';
 import * as lidarr from './lidarr.js?v=__APP_VERSION__';
 import * as netbootxyz from './netbootxyz.js?v=__APP_VERSION__';
 import * as nginxProxyManager from './nginx_proxy_manager.js?v=__APP_VERSION__';
+import * as opnsense from './opnsense.js?v=__APP_VERSION__';
 import * as pihole from './pihole.js?v=__APP_VERSION__';
 import * as plex from './plex.js?v=__APP_VERSION__';
 import * as prowlarr from './prowlarr.js?v=__APP_VERSION__';
@@ -69,7 +70,7 @@ import * as unifi from './unifi.js?v=__APP_VERSION__';
 // Add new per-app modules above (one import) and below (one
 // entry in `_modules`) -- the rest is fully generic.
 
-const _modules = [adguardHome, adguardHomeSync, apc, apprise, bazarr, ddnsUpdater, emby, flaresolverr, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, netbootxyz, nginxProxyManager, pihole, plex, prowlarr, proxmox, qbittorrent, radarr, readarr, rundeck, rustdesk, seerr, sonarr, speedtestTracker, tautulli, tdarr, tracearr, unifi];
+const _modules = [adguardHome, adguardHomeSync, apc, apprise, bazarr, ddnsUpdater, emby, flaresolverr, forgejo, gitsync, grafana, jellyfin, kavita, lidarr, netbootxyz, nginxProxyManager, opnsense, pihole, plex, prowlarr, proxmox, qbittorrent, radarr, readarr, rundeck, rustdesk, seerr, sonarr, speedtestTracker, tautulli, tdarr, tracearr, unifi];
 
 // Named extractors -- keep `.map(extract).filter(predicate)`
 // from firing PyCharm's anonymous-function / chained-call

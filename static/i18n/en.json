@@ -5552,7 +5552,8 @@
       "jitter": "Jitter",
       "packet_loss": "Packet loss",
       "longterm": "Long-term trend ({days} days)",
-      "median_label": "Median"
+      "median_label": "Median",
+      "failed_stat": "{count} failed ({pct}%) in {days}d"
     },
     "adguard": {
       "username_label": "AdGuard username",
@@ -5638,6 +5639,7 @@
     "skills": {
       "run_speedtest": "Run speed test",
       "latest_speedtest": "Show latest speed test",
+      "run_speedtest_server": "Run speed test against a server",
       "adguard_status": "Show AdGuard status",
       "adguard_enable": "Enable protection",
       "adguard_disable": "Disable protection",
@@ -5737,6 +5739,10 @@
       "proxmox_containers": "List Proxmox containers",
       "proxmox_start_guest": "Start a Proxmox VM / container",
       "proxmox_stop_guest": "Stop a Proxmox VM / container",
+      "opnsense_status": "OPNsense status",
+      "opnsense_gateways": "List OPNsense gateways",
+      "opnsense_services": "List OPNsense services",
+      "opnsense_restart_service": "Restart an OPNsense service",
       "seerr_status": "Seerr status",
       "seerr_requests": "List requests",
       "seerr_request_movie": "Request a movie",
@@ -6106,6 +6112,26 @@
       "no_token": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Proxmox data…",
       "fetch_failed": "Proxmox fetch failed"
+    },
+    "opnsense": {
+      "key_label": "OPNsense API key",
+      "key_placeholder": "API key (the long base64 key)",
+      "secret_label": "OPNsense API secret",
+      "secret_placeholder_saved": "Saved — leave blank to keep",
+      "secret_placeholder_unset": "API secret",
+      "creds_hint": "OPNsense API key + secret (System → Access → Users → edit a user → API keys → +). They are sent as HTTP Basic auth (key = username, secret = password). The user needs read access to the diagnostics / firmware / gateway pages. The secret is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the OPNsense web UI root (https, default :443).",
+      "verify_tls_label": "Verify TLS certificate (off for self-signed)",
+      "gateways": "Gateways",
+      "services": "Services",
+      "memory": "Memory",
+      "load": "Load",
+      "states": "FW states",
+      "leases": "DHCP",
+      "update_available": "⬆️ update available",
+      "uptime": "up",
+      "no_key": "No API key / secret set — add them in Admin → Apps to enable.",
+      "loading": "Loading OPNsense data…",
+      "fetch_failed": "OPNsense fetch failed"
     },
     "prowlarr": {
       "api_key_label": "Prowlarr API key",
