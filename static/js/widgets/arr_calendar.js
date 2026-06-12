@@ -317,29 +317,40 @@ export const helpers = {
     this.arrCalViewYM = d.getFullYear() + '-'
       + (d.getMonth() + 1 < 10 ? '0' : '') + (d.getMonth() + 1);
     this.arrCalCloseDay();
-    // GUARANTEE the tile's refresh pill spins on EVERY month change — toggle it
-    // here around the whole call rather than relying solely on
-    // _ensureArrCalendar's internal toggle (which a cache hit early-returns
-    // past, so a cached month would show no feedback at all). A MINIMUM visible
-    // spin duration is enforced so a cache hit (or a fast LAN fetch) still
-    // flashes a perceptible spin instead of toggling on→off within one
-    // microtask. _ensureArrCalendar's own finally may clear the flag early on a
-    // real fetch, so we re-assert it in our finally before the timed clear.
     // The card keeps the previous month's data until the new window arrives
-    // (widgetHasData stays true so the pill stays visible).
+    // (widgetHasData stays true so the refresh pill stays visible). Spin it for
+    // the whole month change via the SINGLE spin owner below.
+    this._arrCalSpin(this._ensureArrCalendar());
+  },
+
+  // Single owner of the tile's refresh-pill spinner for the arr_calendar
+  // widget — set the flag true SYNCHRONOUSLY (so the pill spins on EVERY
+  // trigger, including an instant cache hit where `p` resolves in a microtask)
+  // and hold it for a guaranteed-visible MIN window around `p` before clearing.
+  // `_ensureArrCalendar` no longer toggles the flag itself (it used to, which
+  // raced this owner — a fast fetch's internal clear flipped the pill off
+  // mid-spin), so this is the ONE place the flag is managed for mount +
+  // month-nav. The manual-refresh path is owned by `refreshWidget` instead.
+  _arrCalSpin(p) {
     if (!this.appsWidgetRefreshing) {
       this.appsWidgetRefreshing = {};
     }
     this.appsWidgetRefreshing.arr_calendar = true;
-    const startedAt = Date.now();
+    if (this._arrCalSpinTimer) {
+      clearTimeout(this._arrCalSpinTimer);
+      this._arrCalSpinTimer = null;
+    }
     const MIN_SPIN_MS = 450;
-    Promise.resolve(this._ensureArrCalendar()).finally(() => {
+    const startedAt = Date.now();
+    const stop = () => {
       const remaining = Math.max(0, MIN_SPIN_MS - (Date.now() - startedAt));
-      this.appsWidgetRefreshing.arr_calendar = true;
-      setTimeout(() => {
+      this._arrCalSpinTimer = setTimeout(() => {
         this.appsWidgetRefreshing.arr_calendar = false;
+        this._arrCalSpinTimer = null;
       }, remaining);
-    });
+    };
+    Promise.resolve(p).then(stop, stop);
+    return p;
   },
   arrCalPrevMonth() {
     this.arrCalShiftMonth(-1);
@@ -373,13 +384,11 @@ export const helpers = {
       return;  // a fetch for this month is already in flight
     }
     this._arrCalFetching = ym;
-    // Spin the tile's refresh pill for EVERY real network fetch (mount /
-    // month-nav / refresh) from one place — a cached month early-returns above,
-    // so the pill only spins on an actual fetch.
-    if (!this.appsWidgetRefreshing) {
-      this.appsWidgetRefreshing = {};
-    }
-    this.appsWidgetRefreshing.arr_calendar = true;
+    // NOTE: the refresh-pill spinner is owned by `_arrCalSpin` (mount +
+    // month-nav) / `refreshWidget` (manual refresh), NOT here — this fn used to
+    // toggle `appsWidgetRefreshing.arr_calendar` itself, which RACED those
+    // owners (a fast fetch's internal clear flipped the pill off mid-spin, so
+    // the spin never registered). It now only manages the fetch + cache.
     const parts = ym.split('-');
     const y = Number(parts[0]);
     const m = Number(parts[1]);
@@ -406,9 +415,8 @@ export const helpers = {
         if (this._arrCalFetching === ym) {
           this._arrCalFetching = '';
         }
-        if (this.appsWidgetRefreshing) {
-          this.appsWidgetRefreshing.arr_calendar = false;
-        }
+        // Spinner clear is owned by the caller's spin manager (_arrCalSpin /
+        // refreshWidget), not here — see the note at the top of this fn.
       });
   },
 };

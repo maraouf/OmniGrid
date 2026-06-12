@@ -83,6 +83,29 @@ function opnsenseGateways(inst) {
   return (d && Array.isArray(d.gateways)) ? d.gateways : [];
 }
 
+// Humanise a bytes-per-second rate -> "1.5 MB/s" (decimal/1000). '0 B/s' for
+// non-positive / non-finite.
+function opnsenseBps(v) {
+  let b = Number(v);
+  if (!isFinite(b) || b <= 0) {
+    return '0 B/s';
+  }
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  let i = 0;
+  while (b >= 1000 && i < units.length - 1) {
+    b /= 1000;
+    i++;
+  }
+  return (i === 0 ? Math.round(b) : b.toFixed(1)) + ' ' + units[i];
+}
+
+// The per-interface throughput rows [{name, rx_bps, tx_bps}] — [] when none.
+function opnsenseInterfaces(inst) {
+  /* jshint validthis: true */
+  const d = opnsenseData.call(this, inst);
+  return (d && Array.isArray(d.interfaces)) ? d.interfaces : [];
+}
+
 // Humanise uptime seconds -> "Xd Yh" / "Yh Zm" / "Zm"; '' when zero/unknown.
 function opnsenseUptime(inst) {
   /* jshint validthis: true */
@@ -122,4 +145,6 @@ export const helpers = {
   opnsenseFraction: opnsenseFraction,
   opnsenseGateways: opnsenseGateways,
   opnsenseUptime: opnsenseUptime,
+  opnsenseBps: opnsenseBps,
+  opnsenseInterfaces: opnsenseInterfaces,
 };

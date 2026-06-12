@@ -2131,6 +2131,10 @@
           "label": "App extras freshness TTL (seconds)",
           "help": "How long an expanded app card's per-app extras (Speedtest Tracker / APC UPS / etc.) stay fresh before the SPA auto-refreshes them. A cached /app-data response older than this is treated as stale: the stale values keep rendering while a background fetch revalidates (stale-while-revalidate), so an open card updates on its own instead of waiting for a manual Refresh. Default 90s. Lower to 30-60s for near-real-time speedtest / UPS readouts; raise to 300+ to reduce upstream polling. Set 0 to disable auto-refresh entirely (fetch-once until the operator forces a reload). Range 0..3600."
         },
+        "tuning_apc_history_days": {
+          "label": "APC UPS sparkline window (days)",
+          "help": "Time window for the APC UPS card's battery / output-load / runtime-remaining trend sparkline. APC has no sampler of its own — it reads the already-persisted SNMP host samples (host_snmp_samples), so this is purely how far back the sparkline plots; the actual data availability is bounded by your SNMP sample retention (Stats history retention). Default 7 days. Lower for a tighter recent view; raise for a longer trend. Range 1..90. Takes effect on the next card refresh."
+        },
         "tuning_apps_tile_render_batch": {
           "label": "Apps tile-render batch size",
           "help": "How many app cards the Apps view readies per render tick. To avoid building every card body in one reactive flush (a page-hang), the view stages cards in via a paced queue; this is the batch size readied per tick. Higher fills the visible grid faster (fewer ticks); lower yields more to the browser between batches. Default 4. Raise toward 8-12 on a fast client with many apps for a snappier fill; lower toward 1 if a heavy custom-widget fleet stutters during the staggered fill. Range 1..20. Takes effect on the next Apps-view load."
@@ -5482,6 +5486,9 @@
       "runtime": "Runtime remaining",
       "battery_temp": "Battery temperature",
       "battery_state": "Battery state",
+      "runtime_trend": "Runtime trend",
+      "low": "low",
+      "trend_caption": "Last {days} days",
       "loading": "Loading UPS data…",
       "fetch_failed": "UPS fetch failed",
       "no_data": "No UPS data reported for this host"
@@ -6138,10 +6145,13 @@
       "verify_tls_label": "Verify TLS certificate (off for self-signed)",
       "gateways": "Gateways",
       "services": "Services",
+      "cpu": "CPU",
       "memory": "Memory",
       "load": "Load",
       "states": "FW states",
       "leases": "DHCP",
+      "throughput": "Throughput",
+      "interfaces": "Interfaces",
       "update_available": "⬆️ update available",
       "uptime": "up",
       "no_key": "No API key / secret set — add them in Admin → Apps to enable.",

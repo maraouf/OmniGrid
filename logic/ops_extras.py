@@ -67,6 +67,7 @@ from logic.tuning import tuning_int as _tuning_int, Tunable as _Tunable
 # here directly. Non-underscore names (`notify`, `Operation`,
 # `persist_history`) WOULD round-trip but explicit imports keep the
 # IDE happy + the dependency obvious at a glance.
+from logic.datetime_fmt import format_duration  # noqa: E402
 from logic.ops import (  # noqa: E402
     Operation,
     _human_bytes,
@@ -688,7 +689,7 @@ async def do_update_stack(
         op.done("success")
         await notify(
             f"✅ Stack updated: {op.target_name}",
-            f"Duration: {op.to_dict()['duration']:.1f}s", "success",
+            f"Duration: {format_duration(op.to_dict()['duration'])}", "success",
             event="stack_update_success", actor_username=op.actor,
             target_kind="stack", target_id=str(op.target_id),
         )
@@ -1396,7 +1397,7 @@ async def do_retag_container_to_latest(
         op.done("success")
         await notify(
             f"✅ Container retagged: {op.target_name}",
-            f"Switched to :latest — duration: {op.to_dict()['duration']:.1f}s",
+            f"Switched to :latest — duration: {format_duration(op.to_dict()['duration'])}",
             "success",
             event="container_update_success", actor_username=op.actor,
             target_kind="container", target_id=str(op.target_id),

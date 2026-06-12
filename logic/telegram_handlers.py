@@ -1804,15 +1804,19 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
     """``/upcoming`` — upcoming releases across every configured Radarr / Sonarr
     / Lidarr / Readarr instance (the same data the release-calendar widget +
     the AI ``upcoming_releases`` tool use): title + release date + air time +
-    runtime + a one-line synopsis, grouped by date. Optional args:
-    ``/upcoming [days] [movies|series|music|books]`` — e.g. ``/upcoming 30
-    movies``. Linked-only (it reads the user's configured apps)."""
+    runtime + a one-line synopsis, grouped by date. Window defaults to 7 days;
+    optional args ``/upcoming [days] [movies|series|music|books]`` — e.g.
+    ``/upcoming 30 movies`` — override it. Episode air times are shifted from
+    the upstream UTC into the operator's timezone (movies / albums / books are
+    date-only releases, so they carry no broadcast time); runtimes render
+    human-readable (``102m`` → ``1h 42m``). Linked-only (reads the user's apps)."""
     _tl = _listener()
     sender_id = (msg.get("from") or {}).get("id") if isinstance(msg, dict) else None
     username = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
     # Parse [days] + [media-type] out of the free-form args (order-agnostic).
     from logic.apps.arr_calendar import normalize_media_type, upcoming_items
-    days = 14
+    from logic.datetime_fmt import format_runtime
+    days = 7
     media_type = ""
     for a in (args or []):
         tok = str(a or "").strip()
@@ -1846,11 +1850,24 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
     shown = 0
     truncated = False
     for it in items:
-        date_raw = str(it.get("date") or "")
+        # Air time is UTC upstream — shift episodes (which carry a real
+        # airdate_utc) into the operator's timezone so BOTH the date header and
+        # the time read in local clock (a tz shift can cross midnight, so the
+        # local date drives the grouping). Date-only releases (movies / albums /
+        # books) keep their raw release date + no time.
+        adt = str(it.get("airdate_utc") or "").strip()
+        disp_date, disp_time = ("", "")
+        if adt:
+            disp_date, disp_time = _airtime_local(adt, fmt)
+        if not disp_date:
+            disp_date = _fmt_date_user(str(it.get("date") or ""), fmt)
+        if not disp_time:
+            tm = str(it.get("time") or "").strip()
+            disp_time = _fmt_clock_user(tm, fmt) if tm else ""
         block: list[str] = []
-        new_date = date_raw != last_date
+        new_date = disp_date != last_date
         if new_date:
-            block.append(f"\n<b>{_tl._escape(_fmt_date_user(date_raw, fmt))}</b>")
+            block.append(f"\n<b>{_tl._escape(disp_date)}</b>")
         emoji = _UPCOMING_TYPE_EMOJI.get(str(it.get("type") or ""), "•")
         title = _tl._escape(str(it.get("title") or "?"))
         # subtitle (episode code / album), air time, runtime → a compact meta tail.
@@ -1858,12 +1875,11 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
         sub = str(it.get("subtitle") or "").strip()
         if sub:
             meta.append(_tl._escape(sub))
-        tm = str(it.get("time") or "").strip()
-        if tm:
-            meta.append(_tl._escape(_fmt_clock_user(tm, fmt)))
-        rt = int(it.get("runtime_min") or 0)
-        if rt > 0:
-            meta.append(f"{rt}m")
+        if disp_time:
+            meta.append(_tl._escape(disp_time))
+        rt_txt = format_runtime(it.get("runtime_min"))
+        if rt_txt:
+            meta.append(rt_txt)
         meta_txt = (" · " + " · ".join(meta)) if meta else ""
         block.append(f"{emoji} <b>{title}</b>{meta_txt}")
         overview = str(it.get("overview") or "").strip()
@@ -1879,10 +1895,10 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
         running += block_len
         shown += 1
         if new_date:
-            last_date = date_raw
+            last_date = disp_date
     if truncated:
         lines.append(f"\n<i>…and {len(items) - shown} more — narrow the window "
-                     f"(e.g. /upcoming 7) or filter by type.</i>")
+                     f"(e.g. /upcoming 3) or filter by type.</i>")
     svcs = res.get("services") or []
     if svcs:
         lines.append(f"\n<i>from {_tl._escape(', '.join(svcs))}</i>")
@@ -2977,6 +2993,21 @@ def _user_dt_fmt(username) -> str:
         return DEFAULT_DATETIME_FORMAT
 
 
+def _minute_time_fmt(fmt) -> str:
+    """The user's TIME-ONLY format with any seconds token dropped — clock
+    sources (prayer / moon rise-set, *arr air times) are minute-granular, so a
+    default ``HH:mm:ss`` user format would otherwise render a meaningless
+    ``:00`` on every time. Falls back to ``HH:mm``. Shared by ``_fmt_clock_user``
+    + ``_airtime_local``."""
+    import re as _re
+    from logic.datetime_fmt import strip_date_tokens
+    tfmt = strip_date_tokens(fmt)
+    for tok in (":ss", ".ss", " ss", "ss"):
+        tfmt = tfmt.replace(tok, "")
+    tfmt = _re.sub(r"\bs\b", "", tfmt)
+    return _re.sub(r"\s{2,}", " ", tfmt).strip() or "HH:mm"
+
+
 def _fmt_clock_user(time_str, fmt) -> str:
     """Reformat a clock-time string into the user's TIME-ONLY format (12h vs
     24h per their datetime_format). Accepts 24h ``"04:10"`` / ``"04:10:00"``
@@ -3000,18 +3031,35 @@ def _fmt_clock_user(time_str, fmt) -> str:
         return time_str
     # noinspection PyBroadException
     try:
-        from logic.datetime_fmt import apply_datetime_format, strip_date_tokens
-        tfmt = strip_date_tokens(fmt)
-        # Clock sources (prayer / moon rise-set) have MINUTE granularity, so
-        # drop any seconds token — a default 'HH:mm:ss' user format would
-        # otherwise render a meaningless ':00' on every time.
-        for tok in (":ss", ".ss", " ss", "ss"):
-            tfmt = tfmt.replace(tok, "")
-        tfmt = _re.sub(r"\bs\b", "", tfmt)
-        tfmt = _re.sub(r"\s{2,}", " ", tfmt).strip() or "HH:mm"
-        return apply_datetime_format(parsed, tfmt)
+        from logic.datetime_fmt import apply_datetime_format
+        return apply_datetime_format(parsed, _minute_time_fmt(fmt))
     except Exception:  # noqa: BLE001
         return time_str
+
+
+def _airtime_local(airdate_utc, fmt) -> "tuple[str, str]":
+    """Convert a full UTC ISO air datetime (Sonarr ``airDateUtc``) to the
+    operator's configured timezone and return ``(local_date_str,
+    local_time_str)`` rendered in the user's date-only + time-only formats.
+
+    The *arr calendar emits air times in UTC; this is the ONE place a Telegram
+    reply shifts them into the operator's local clock (via
+    ``format_user_datetime``, which converts to the scheduler timezone before
+    rendering) so an episode's broadcast time reads correctly AND a tz shift
+    that crosses midnight lands the row under the right local date. Returns
+    ``("", "")`` for an empty / unparseable input so the caller falls back to
+    the raw date-only value. Minute-granular time (seconds token dropped)."""
+    s = str(airdate_utc or "").strip()
+    if not s:
+        return "", ""
+    # noinspection PyBroadException
+    try:
+        from logic.datetime_fmt import format_user_datetime, strip_time_tokens
+        date_str = format_user_datetime(s, strip_time_tokens(fmt)) or ""
+        time_str = format_user_datetime(s, _minute_time_fmt(fmt)) or ""
+        return date_str, time_str
+    except Exception:  # noqa: BLE001
+        return "", ""
 
 
 def _fmt_date_user(date_str, fmt) -> str:

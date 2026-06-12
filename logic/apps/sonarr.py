@@ -518,6 +518,11 @@ async def calendar_items(host_row: dict, chip: dict, *,
             # only the air-time rendered, reading as a missing runtime).
             "runtime": max(0, safe_int(ep.get("runtime")) or safe_int(series.get("runtime"))),
             "time": _servarr.release_time(when_full),
+            # Full UTC ISO datetime (Sonarr airDateUtc) when it carries a real
+            # air time, so a tz-aware consumer (the Telegram /upcoming command)
+            # can render the broadcast time in the operator's timezone instead
+            # of raw UTC. "" when the upstream only gives a date.
+            "airdate_utc": when_full if _servarr.release_time(when_full) else "",
             # See radarr.calendar_items — app_path lets the widget rebuild the
             # deep link against a friendly reverse-proxy URL override.
             "app_url": ((web + app_path) if (web and app_path) else web),

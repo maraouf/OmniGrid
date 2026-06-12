@@ -486,6 +486,11 @@ async def calendar_items(host_row: dict, chip: dict, *,
             "overview": _servarr.clamp_overview(m.get("overview")),
             "runtime": max(0, _servarr.safe_int(m.get("runtime"))),
             "time": _servarr.release_time(when_full),
+            # Full UTC ISO datetime when it carries a real (non-midnight) time,
+            # so a tz-aware consumer (the Telegram /upcoming command) can render
+            # the air time in the operator's timezone. Movie releases are
+            # date-only (midnight), so this is "" for movies — no broadcast time.
+            "airdate_utc": when_full if _servarr.release_time(when_full) else "",
             # `app_url` is the integration-base deep link (machine host:port);
             # `app_path` lets the widget rebuild the link against an operator's
             # friendly reverse-proxy URL override without touching the probe.

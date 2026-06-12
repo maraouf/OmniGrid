@@ -48,8 +48,11 @@ async def upcoming_items(*, days: int = 14, media_type: str = "",
     instance for the next ``days`` (clamped 1..90).
 
     Returns ``{configured, services, window, count, items, errors}`` where each
-    item is a normalised ``{date, time, title, subtitle, type, service,
-    overview, runtime_min}`` row (soonest-first, capped at ``limit``).
+    item is a normalised ``{date, time, airdate_utc, title, subtitle, type,
+    service, overview, runtime_min}`` row (soonest-first, capped at ``limit``).
+    ``airdate_utc`` is the full UTC ISO datetime for rows with a real air time
+    (Sonarr episodes), or ``""`` for date-only releases (movies / albums /
+    books) — a tz-aware caller renders the time in the operator's timezone.
     ``media_type`` filters to one kind (accepts a synonym via
     ``normalize_media_type``); ``title`` filters to a title/subtitle substring.
     Shared by the AI ``upcoming_releases`` tool + the Telegram ``/upcoming``
@@ -82,6 +85,10 @@ async def upcoming_items(*, days: int = 14, media_type: str = "",
         out_items.append({
             "date": str(it.get("date") or ""),
             "time": str(it.get("time") or ""),
+            # Full UTC ISO datetime when the row has a real air time (Sonarr
+            # episodes); "" for date-only releases (movies / albums / books). A
+            # tz-aware consumer renders the broadcast time in the local tz.
+            "airdate_utc": str(it.get("airdate_utc") or ""),
             "title": t_title,
             "subtitle": subtitle,
             "type": str(it.get("type") or ""),
