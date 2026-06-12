@@ -450,6 +450,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "health_issues": safe_int(health_issues),
         "version": ver,
         "fetched_at": int(now),
+        # Counter-rate retention trend (per-day query/grab throughput + daily
+        # failure-rate) — best-effort; the sampler may have no rows yet (fresh pin).
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
     }
     _worst = out["worst_failing"]
     print(f"[prowlarr] INFO fetched host={host_id} indexers={enabled}/{total} "
@@ -460,6 +463,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort ``prowlarr_sampler.trend_summary`` — a zeroed shape on any
+    error (a fresh pin with no samples, or an import hiccup) so the card never
+    fails on the trend embed."""
+    try:
+        from logic.apps import prowlarr_sampler as _s  # noqa: PLC0415
+        return _s.trend_summary(host_id, service_idx)
+    except (ImportError, RuntimeError, ValueError):
+        return {"days": 0, "samples": 0, "window_queries": 0, "window_grabs": 0,
+                "latest_fail_rate": 0.0, "avg_fail_rate": 0.0, "series_queries": [],
+                "series_grabs": [], "series_fail_rate": []}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -640,6 +656,7 @@ async def _indexers_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
 
 
+# noinspection DuplicatedCode
 async def _indexer_stats_skill(host_row: dict, chip: dict, *,
                                host_id: Optional[str] = None,
                                service_idx: Optional[int] = None) -> dict:
@@ -755,6 +772,7 @@ async def _toggle_indexer_skill(host_row: dict, chip: dict, *,
             idx, ierr = await _resolve_configured_indexer(cli, base, api_key, name)
             if ierr is not None:
                 return ierr
+            idx = idx or {}
             rid = safe_int(idx.get("id"))
             label = str(idx.get("name") or name)
             if bool(idx.get("enable")) == enable:
@@ -776,6 +794,7 @@ async def _toggle_indexer_skill(host_row: dict, chip: dict, *,
             "detail": f"Prowlarr returned HTTP {pr.status_code} trying to {verb} “{label}”."}
 
 
+# noinspection DuplicatedCode
 async def _test_indexer_skill(host_row: dict, chip: dict, *,
                               arg: Optional[str] = None,
                               host_id: Optional[str] = None) -> dict:
@@ -796,6 +815,7 @@ async def _test_indexer_skill(host_row: dict, chip: dict, *,
             idx, ierr = await _resolve_configured_indexer(cli, base, api_key, name)
             if ierr is not None:
                 return ierr
+            idx = idx or {}
             label = str(idx.get("name") or name)
             print(f"[prowlarr] INFO prowlarr_test_indexer host={host_id} name={label!r} (live test)")
             tr = await cli.post(base + "/api/v1/indexer/test",
@@ -1479,8 +1499,8 @@ async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
             if not _FLARE_ERROR_RE.search(_resp_text(tr)):
                 return  # doesn't need FlareSolverr
             _needed += 1
-            _tags = _body.get("tags")
-            _cur_tags = _tags if isinstance(_tags, list) else []
+            _raw_tags = _body.get("tags")
+            _cur_tags = _raw_tags if isinstance(_raw_tags, list) else []
             new_body = dict(_body)
             new_body["tags"] = sorted(set(_cur_tags) | flare_set)
             try:

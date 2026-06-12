@@ -510,7 +510,7 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict], *,
     # Test path passes bypass_master_gate=True so it can probe before the
     # master switch is saved on (per-host opt-in below still applies).
     if (not bypass_master_gate
-            and (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true"):
+        and (_get_setting(Settings.SSH_ENABLED, "true") or "true").lower() != "true"):
         return {
             "host": "",
             "user": g["user"],

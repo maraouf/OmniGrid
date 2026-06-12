@@ -607,6 +607,7 @@ def _session_id(item: dict) -> str:
     return str(as_dict(item.get("Session")).get("id") or "").strip()
 
 
+# noinspection DuplicatedCode
 def _session_line(item: dict) -> str:
     """One now-playing line: ``▶️ <user> — <title> (<pct>%) on <player>``.
     Handles movies (``title``) + episodes (``grandparentTitle - title``)."""
@@ -625,6 +626,7 @@ def _session_line(item: dict) -> str:
     return f"▶️ {who} — {label}{pct}{where}"
 
 
+# noinspection DuplicatedCode
 def _session_item(item: dict) -> Optional[dict]:
     """One now-playing session as a rich skill-result item: title poster (show
     poster for episodes, else the item thumb — proxied), the watching user +
@@ -934,6 +936,7 @@ async def _scan_skill(host_row: dict, chip: dict, *,
             "detail": f"🔄 Started a Plex library scan across {scanned:,} section(s)."}
 
 
+# noinspection DuplicatedCode
 async def _terminate_session_skill(host_row: dict, chip: dict, *,
                                    arg: Optional[str] = None,
                                    host_id: Optional[str] = None) -> dict:

@@ -2027,6 +2027,14 @@
           "label": "Kavita history retention (days)",
           "help": "Retention window for the Kavita samples that drive the library-growth line (series count + total size over time). Default 365 (the growth story is most satisfying over a long window). Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_prowlarr_sample_interval_seconds": {
+          "label": "Prowlarr sampler interval (seconds)",
+          "help": "How often the lifespan Prowlarr sampler snapshots each configured instance's cumulative query / grab / failed counters into the history table that drives the per-day throughput + daily failure-rate trend (the counters are diffed day-over-day). Default 900 (15 min). 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_prowlarr_history_days": {
+          "label": "Prowlarr history retention (days)",
+          "help": "Retention window for the Prowlarr samples that drive the per-day query / grab throughput + the daily failure-rate trend. Default 90 (a rate trend doesn't need a full year). Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5474,6 +5482,7 @@
       "health_issues": "Health issues",
       "loading": "Loading Bazarr data…",
       "missing_count": "{count} missing subtitles",
+      "search_item": "Search subtitles",
       "group_movies": "Movies",
       "group_episodes": "Episodes"
     },
@@ -5666,6 +5675,7 @@
       "tautulli_libraries": "List libraries",
       "tautulli_recently_added": "Recently added",
       "tautulli_history": "Recent history",
+      "tautulli_most_watched": "Most watched",
       "tautulli_terminate_session": "Stop a stream",
       "jellyfin_status": "Jellyfin status",
       "jellyfin_now_playing": "What's playing on Jellyfin",
@@ -5746,6 +5756,7 @@
       "radarr_remove_movie": "Remove a movie",
       "bazarr_search_wanted": "Search for missing subtitles",
       "bazarr_wanted": "List missing subtitles",
+      "bazarr_search_subtitles": "Search subtitles for an item",
       "sonarr_status": "Sonarr status",
       "sonarr_upcoming": "Upcoming episodes",
       "sonarr_queue": "Download queue",
@@ -6098,6 +6109,10 @@
       "queries": "Queries",
       "grabs": "Grabs",
       "failure_rate": "Failure rate",
+      "throughput_trend": "Queries / grabs per day ({days} days)",
+      "window_totals": "{queries} queries · {grabs} grabs in {days} days",
+      "failrate_trend": "Failure rate per day ({days} days)",
+      "avg_failrate": "Avg {pct}% failure",
       "most_failing": "Most failing",
       "slowest": "Slowest",
       "health_issues_n": "{n} health issue(s)",
@@ -6139,6 +6154,14 @@
       "items_n": "{n} items",
       "plays_30d": "Plays (30d)",
       "plays_chart": "Plays (last 30 days)",
+      "top_watcher": "Top watcher",
+      "top_watchers": "Top watchers (30d)",
+      "most_played": "Most played (30d)",
+      "plays_n": "{n} plays",
+      "dayofweek": "Plays by day",
+      "hourofday": "Plays by hour",
+      "busiest": "Busiest: {label} ({n} plays)",
+      "busiest_hour": "Busiest hour: {label} ({n} plays)",
       "stop_stream": "Stop stream",
       "stop_stream_confirm": "Stop this Plex stream?",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",

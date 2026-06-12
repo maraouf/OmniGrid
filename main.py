@@ -578,7 +578,7 @@ async def _lifespan(_app: FastAPI):
         with db_conn() as c:
             node_names = sorted(set((_cache.get("nodes") or {}).values()))
             schedules.seed_default_schedules(c, node_names)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[scheduler] seed_default_schedules failed: {e}")
 
     # Pre-seed caches from the persisted snapshot tables in
@@ -998,6 +998,13 @@ async def _lifespan(_app: FastAPI):
         _kavita_sampler.kavita_sampler_loop(),
         name="kavita-sampler",
     )
+    # Prowlarr counter-rate retention sampler — diffs the cumulative query/grab/
+    # failed counters into per-day throughput + a daily failure-rate trend.
+    from logic.apps import prowlarr_sampler as _prowlarr_sampler
+    prowlarr_sampler = asyncio.create_task(
+        _prowlarr_sampler.prowlarr_sampler_loop(),
+        name="prowlarr-sampler",
+    )
     try:
         yield
     finally:
@@ -1007,13 +1014,13 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (kavita_sampler, tdarr_sampler, qbittorrent_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, qbittorrent_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
                 pass
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"[lifespan] shutdown error: {e}")
 
 
@@ -1077,6 +1084,9 @@ _CONFIG_ERROR_HTML = """<!doctype html>
 
 @app.middleware("http")
 async def _config_error_guard(request: Request, call_next):
+    """Middleware: when ``DB_PATH_ERROR`` is latched (init_db couldn't open the
+    SQLite DB), short-circuit every request to the failsafe config-error page
+    EXCEPT the config-passthrough paths (login / static / healthz / version)."""
     err = _db.DB_PATH_ERROR
     if not err:
         return await call_next(request)
@@ -1105,6 +1115,9 @@ async def _config_error_guard(request: Request, call_next):
 # detail stays internal so we don't leak stack traces over the wire.
 @app.exception_handler(Exception)
 async def _log_unhandled_exception(request: Request, exc: Exception):
+    """Global exception handler: print the full traceback (with the request
+    method + path) so Admin -> Logs captures every unhandled error, then return
+    a JSON 500 with the exception class + message."""
     import traceback as _tb
     tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
     method = request.method
@@ -1132,6 +1145,9 @@ _IMMUTABLE_DEV_MARKER = "0.0.0-dev"
 
 @app.middleware("http")
 async def _immutable_versioned_assets(request: Request, call_next):
+    """Middleware: stamp ``Cache-Control: immutable`` (1yr) on a successful
+    GET/HEAD for a NON-``/api/`` asset carrying a ``?v=<version>`` cache-bust
+    param (the dev marker is exempt) so versioned static assets cache hard."""
     resp = await call_next(request)
     try:
         if request.method in ("GET", "HEAD") and resp.status_code == 200:
@@ -1213,6 +1229,8 @@ _pg = portainer.pg
 
 
 def _node_for_container(container_id: str) -> Optional[str]:
+    """The Swarm node hostname a container lives on (via the cached node map) —
+    used to target worker-node container ops with ``X-PortainerAgent-Target``."""
     return portainer.node_for_container(_cache, container_id)
 
 
@@ -1386,6 +1404,9 @@ def spawn_background_task(coro, *, label: str = ""):
 # emitting its banner lines before the sweep runs (cosmetic).
 # ============================================================================
 async def _log_pruner_loop() -> None:
+    """Lifespan task: prune the persistent log files past the
+    ``LOG_RETENTION_DAYS`` window on an hourly sweep (first run after a 60s
+    warm-up delay)."""
     import asyncio
     from logic import logs as _logs_mod
     await asyncio.sleep(60)
@@ -1395,7 +1416,7 @@ async def _log_pruner_loop() -> None:
             removed = _logs_mod.prune_old_logs(days)
             if removed:
                 print(f"[logs] pruned {removed} log file(s) older than {days}d")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"[logs] pruner tick error: {e}")
         await asyncio.sleep(3600)
 
@@ -1916,6 +1937,11 @@ from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
 # refs against each module's runtime __dict__ to surface every leak.
 # Re-run after refactors that move underscore helpers between modules.
 def _wire_cross_module_underscore_globals() -> None:
+    """Eagerly copy cross-module underscore-prefixed helpers into each consumer
+    module's ``__dict__`` after the ``main_pkg/*`` star-imports complete — closes
+    the PEP 562 ``__getattr__`` gap where a bare ``LOAD_GLOBAL`` of a sibling's
+    ``_helper`` from a function body would NameError at call time (see CLAUDE.md
+    'Cross-module underscore-name LOAD_GLOBAL leaks')."""
     import sys as _sys
     # Rebind map — names from sibling modules that the consumer references
     # under a DIFFERENT alias than the source-side name. Map shape:

@@ -61,6 +61,7 @@ def _ts_epoch(ts: Any) -> int:
     return int(dt.timestamp())
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Ingest one chip's results series into ``speedtest_samples`` (INSERT OR
@@ -116,6 +117,7 @@ def _prune_old_samples() -> int:
     return prune_rows_older_than("speedtest_samples", cutoff)
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body: ingest every configured Speedtest chip in parallel, then
     run the hourly retention prune (offloaded to a worker thread)."""
@@ -147,6 +149,7 @@ async def speedtest_tracker_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Long-horizon download/upload/ping trend for one chip from the local

@@ -44,6 +44,7 @@ def _resolve_interval() -> int:
     return resolve_sample_interval(_Tunable.DDNS_SAMPLE_INTERVAL_SECONDS)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Record one chip's sample: public IP + record totals + failing count. A
@@ -88,6 +89,7 @@ def _prune_old_samples() -> int:
     return prune_rows_older_than("ddns_samples", cutoff)
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body: probe every configured ddns-updater chip in parallel,
     then run the hourly retention prune (offloaded to a worker thread)."""

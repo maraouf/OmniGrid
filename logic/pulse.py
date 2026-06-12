@@ -663,7 +663,7 @@ async def probe_pulse(
     except Exception as e:
         # Surface the failure in stdout so it lands in Admin → Logs.
         # Pre-fix the error string was returned silently in the API
-        # response and operators saw "Pulse: down" on the Hosts page
+        # response and users saw "Pulse: down" on the Hosts page
         # with no log entry explaining why. Print BEFORE
         # returning so the same error reaches the persistent log
         # capture even when callers don't surface the response field.
@@ -672,16 +672,12 @@ async def probe_pulse(
         # Latch unreachable on ConnectError / Timeout so the next
         # cold-cache caller uses the SHORT timeout. Same shape as
         # the Beszel unreachable-latch pattern.
-        try:
-            import httpx as _httpx
-            if isinstance(e, (
-                _httpx.ConnectError, _httpx.ConnectTimeout,
-                _httpx.ReadTimeout, _httpx.RemoteProtocolError,
+        if isinstance(e, (
+                httpx.ConnectError, httpx.ConnectTimeout,
+                httpx.ReadTimeout, httpx.RemoteProtocolError,
                 OSError,
-            )):
-                _mark_unreachable()
-        except Exception:  # noqa: BLE001
-            pass
+        )):
+            _mark_unreachable()
         return {"hosts": {}, "error": str(e)}
     # Nodes live at ``state.nodes`` in every Pulse version we've seen.
     nodes = state.get("nodes") or []

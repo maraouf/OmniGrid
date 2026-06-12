@@ -1223,14 +1223,14 @@ async def api_apps_list(_admin: AdminUser, force: bool = False):
 
 # Release-calendar widget fan-out — in-process cache keyed by the date window
 # (short TTL so a burst of widget polls / month re-renders doesn't re-hit every
-# *arr). Bounded as the operator navigates months.
+# *arr). Bounded as the user navigates months.
 _ARR_CAL_CACHE: "dict[str, tuple[float, dict]]" = {}
 _ARR_CAL_TTL_S = 60.0
+
+
 # The fan-out itself (which *arr slugs, the per-instance calendar_items merge)
 # lives in the shared ``logic/apps/arr_calendar.py`` aggregator, consumed by
 # both this widget route AND the AI palette's upcoming_releases tool.
-
-
 @app.get("/api/apps/arr-calendar")
 async def api_apps_arr_calendar(_admin: AdminUser, start: str = "", end: str = ""):
     """Admin-only: upcoming-release calendar across every CONFIGURED Radarr /

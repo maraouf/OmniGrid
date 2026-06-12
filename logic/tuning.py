@@ -115,6 +115,8 @@ class Tunable(str, Enum):
     TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
+    PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
+    PROWLARR_SAMPLE_INTERVAL_SECONDS = "tuning_prowlarr_sample_interval_seconds"
     SLOW_QUERY_THRESHOLD_MS = "tuning_slow_query_threshold_ms"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
@@ -1448,6 +1450,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # (series count + total size over time). Default 365 (the growth story is
     # most satisfying over a long window); lower to save disk.
     "tuning_kavita_history_days": ("KAVITA_HISTORY_DAYS", 365, 1, 1095),
+    # How often the Prowlarr sampler snapshots each chip's cumulative query /
+    # grab / failed counters into prowlarr_samples (diffed into per-day rates).
+    # 0 = inherit the global stats interval. Default 900 (15 min).
+    "tuning_prowlarr_sample_interval_seconds": ("PROWLARR_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for prowlarr_samples — drives the per-day query /
+    # grab throughput + daily failure-rate trend. Default 90 (a rate trend
+    # doesn't need a full year); lower to save disk.
+    "tuning_prowlarr_history_days": ("PROWLARR_HISTORY_DAYS", 90, 1, 1095),
 
     # ----- Speedtest Tracker ------------------------------------------------
 

@@ -277,7 +277,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
             token = str(as_dict(body).get("token") or "") if isinstance(body, dict) else ""
             # 2FA challenge — NPM returns {requires_2fa, challenge_token}.
             if not token and isinstance(body, dict) and body.get("requires_2fa") \
-                    and body.get("challenge_token"):
+                and body.get("challenge_token"):
                 totp_secret = ((pay.get("totp_secret") or "").strip()
                                or str(chip.get("totp_secret") or ""))
                 if not totp_secret:
@@ -460,6 +460,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
@@ -490,6 +491,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
             "proxy_hosts": hosts, "certs_expiring": expiring}
 
 
+# noinspection DuplicatedCode
 async def _proxy_hosts_skill(host_row: dict, chip: dict, *,
                              host_id: Optional[str] = None) -> dict:
     """Read-only: list proxy hosts as rich rows (domain + on/off state +

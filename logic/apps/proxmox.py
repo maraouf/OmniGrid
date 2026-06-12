@@ -372,6 +372,7 @@ def _resolve_skill_target(host_row: dict, chip: dict) -> "tuple[str, str, Option
     return token, base, None
 
 
+# noinspection DuplicatedCode
 def _fmt_bytes(n: Any) -> str:
     """Humanise a byte count (B / KB / MB / GB / TB, 1024-base)."""
     v = float(max(0, safe_int(n)))
@@ -382,6 +383,7 @@ def _fmt_bytes(n: Any) -> str:
     return f"{v:.1f} TB"
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:

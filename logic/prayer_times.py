@@ -122,13 +122,13 @@ _neg_until: dict[tuple[float, float, int, int], float] = {}
 
 
 def is_enabled() -> bool:
-    """Master gate. Operator flips ``prayer_times_enabled`` (Admin →
+    """Master gate. The user flips ``prayer_times_enabled`` (Admin →
     Prayer Times) to authorise outbound calls to api.aladhan.com.
     A plain DB-backed setting (like ``weather_enabled``) — NOT a tunable —
     so the admin toggle loads with the rest of the settings (default OFF
     for privacy)."""
     try:
-        return get_setting_bool(Settings.PRAYER_TIMES_ENABLED, False)
+        return get_setting_bool(Settings.PRAYER_TIMES_ENABLED)
     except (KeyError, ValueError, TypeError):
         return False
 

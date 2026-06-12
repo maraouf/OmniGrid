@@ -240,21 +240,68 @@ def _fmt_bandwidth(kbps: Any) -> str:
     return f"{mbps / 1000.0:,.1f} Gbps"
 
 
-def _shape_plays_series(data: Any) -> list:
-    """Sum a ``cmd=get_plays_by_date`` payload into per-day TOTAL play counts
-    (across the Movies / TV / Music series) — the plays-over-time chart series.
-    Returns ``[]`` on any unexpected shape so the chart hides cleanly."""
+def _sum_series(data: Any) -> "tuple[list, list]":
+    """``(categories, per-category totals)`` summed across a ``get_plays_by_*``
+    payload's Movies / TV / Music series. ``([], [])`` on an unexpected shape.
+    Shared by the plays-over-time line + the day-of-week / hour-of-day
+    distributions (all are the same Highcharts ``{categories, series}`` shape)."""
     d = as_dict(data)
-    cats = as_list(d.get("categories"))
+    cats = [str(c).strip() for c in as_list(d.get("categories"))]
     series = as_list(d.get("series"))
     if not cats or not series:
-        return []
+        return [], []
     totals = [0] * len(cats)
     for s in series:
         pts = as_list(as_dict(s).get("data"))
         for i in range(min(len(pts), len(totals))):
             totals[i] += safe_int(pts[i])
-    return totals
+    return cats, totals
+
+
+def _shape_plays_series(data: Any) -> list:
+    """Per-day TOTAL play counts (across the Movies / TV / Music series) — the
+    plays-over-time chart series. ``[]`` on any unexpected shape."""
+    return _sum_series(data)[1]
+
+
+def _shape_distribution(data: Any) -> dict:
+    """A ``get_plays_by_dayofweek`` / ``get_plays_by_hourofday`` payload as
+    ``{labels, values}`` — total plays per category (day name / hour).
+    ``{labels: [], values: []}`` on any unexpected shape."""
+    cats, totals = _sum_series(data)
+    return {"labels": cats, "values": totals}
+
+
+def _shape_home_stats(data: Any) -> dict:
+    """Parse a ``cmd=get_home_stats`` payload into ``{top_users, top_media}``.
+    ``top_users`` is ``[{name, plays, avatar}]`` (the most-active watchers);
+    ``top_media`` is ``[{title, plays, type}]`` merged across the top-movies +
+    top-tv stat groups (plays desc). Best-effort over the stat groups — empty
+    lists on an unexpected shape."""
+    top_users: list = []
+    top_media: list = []
+    for g in as_list(data):
+        gd = as_dict(g)
+        sid = str(gd.get("stat_id") or "").strip()
+        rows = as_list(gd.get("rows"))
+        if sid == "top_users":
+            for r in rows[:5]:
+                rd = as_dict(r)
+                top_users.append({
+                    "name": str(rd.get("friendly_name") or rd.get("user") or "?").strip(),
+                    "plays": safe_int(rd.get("total_plays")),
+                    "avatar": str(rd.get("user_thumb") or "").strip(),
+                })
+        elif sid in ("top_movies", "top_tv"):
+            for r in rows[:5]:
+                rd = as_dict(r)
+                top_media.append({
+                    "title": str(rd.get("title") or "?").strip(),
+                    "plays": safe_int(rd.get("total_plays")),
+                    "type": "movie" if sid == "top_movies" else "tv",
+                })
+    top_media.sort(key=lambda m: m["plays"], reverse=True)
+    return {"top_users": top_users, "top_media": top_media[:5]}
 
 
 # noinspection DuplicatedCode
@@ -310,6 +357,27 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 plays_series = _shape_plays_series(pbd)
             except RuntimeError:
                 plays_series = []
+            # Home stats — top watchers + most-played media (last 30d). The
+            # signature Tautulli insight; drawer-only, best-effort.
+            try:
+                home = _shape_home_stats(await _call(
+                    cli, base, api_key, "get_home_stats", time_range=30, stats_count=5))
+            except RuntimeError:
+                home = {"top_users": [], "top_media": []}
+            # Play distribution by day-of-week + hour-of-day (last 30d) — the
+            # "when is the server busy" charts. Best-effort.
+            dayofweek = {"labels": [], "values": []}
+            hourofday = {"labels": [], "values": []}
+            try:
+                dayofweek = _shape_distribution(await _call(
+                    cli, base, api_key, "get_plays_by_dayofweek", time_range=30))
+            except RuntimeError:
+                dayofweek = {"labels": [], "values": []}
+            try:
+                hourofday = _shape_distribution(await _call(
+                    cli, base, api_key, "get_plays_by_hourofday", time_range=30))
+            except RuntimeError:
+                hourofday = {"labels": [], "values": []}
     except RuntimeError as e:
         print(f"[tautulli] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -324,13 +392,18 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "total_items": safe_int(total_items),
         "plays_series": plays_series,
         "plays_30d": sum(plays_series),
+        "top_users": home["top_users"],
+        "top_media": home["top_media"],
+        "dayofweek": dayofweek,
+        "hourofday": hourofday,
         "version": version,
         "fetched_at": int(now),
     }
     print(f"[tautulli] INFO fetched host={host_id} streams={out['streams']} "
           f"transcodes={out['transcodes']} bw={out['bandwidth_kbps']}kbps "
           f"libraries={out['libraries']} items={out['total_items']} "
-          f"plays30d={out['plays_30d']}")
+          f"plays30d={out['plays_30d']} top_users={len(out['top_users'])} "
+          f"dow={len(dayofweek['values'])} hod={len(hourofday['values'])}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -347,6 +420,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "libraries": safe_int(data.get("libraries")),
         "total_items": safe_int(data.get("total_items")),
+        "plays_30d": safe_int(data.get("plays_30d")),
+        "top_user": (as_dict(as_list(data.get("top_users"))[0]).get("name")
+                     if as_list(data.get("top_users")) else ""),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -393,6 +469,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "tautulli_most_watched",
+        "name": "Most watched",
+        "ai_phrases": ("who watches plex the most, top users on plex, most "
+                       "active watchers, most played movies, most watched shows, "
+                       "top media on plex, plex top stats, who streams the most, "
+                       "what's most popular on plex"),
+        "destructive": False,
+    },
+    {
         "id": "tautulli_terminate_session",
         "name": "Stop a Plex stream",
         "ai_phrases": ("stop the plex stream, kill <name>'s stream, terminate "
@@ -429,6 +514,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _recently_added_skill(host_row, chip, host_id=host_id)
     if skill_id == "tautulli_history":
         return await _history_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tautulli_most_watched":
+        return await _most_watched_skill(host_row, chip, host_id=host_id,
+                                         service_idx=service_idx)
     if skill_id == "tautulli_terminate_session":
         return await _terminate_session_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -445,6 +533,37 @@ def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dic
     if not base:
         return "", "", {"ok": False, "status": 0, "detail": "no upstream URL configured"}
     return api_key, base, None
+
+
+async def _most_watched_skill(host_row: dict, chip: dict, *,
+                              host_id: Optional[str] = None,
+                              service_idx: Optional[int] = None) -> dict:
+    """Read-only: the top watchers + most-played media (last 30d) from
+    ``cmd=get_home_stats`` (served via fetch_data's cache). Never raises."""
+    print(f"[tautulli] INFO tautulli_most_watched host={host_id} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    top_users = as_list(data.get("top_users"))
+    top_media = as_list(data.get("top_media"))
+    if not top_users and not top_media:
+        return {"ok": True, "status": 200,
+                "detail": ("📊 No watch stats for the last 30 days "
+                           "(Tautulli's home stats are empty).")}
+    lines: list = []
+    if top_users:
+        lines.append("👥 Top watchers (30d):")
+        for u in top_users[:5]:
+            ud = as_dict(u)
+            lines.append(f"  • {ud.get('name') or '?'} — {safe_int(ud.get('plays')):,} plays")
+    if top_media:
+        lines.append("🎬 Most played (30d):")
+        for m in top_media[:5]:
+            md = as_dict(m)
+            lines.append(f"  • {md.get('title') or '?'} — {safe_int(md.get('plays')):,} plays")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
 
 
 # noinspection DuplicatedCode
@@ -584,6 +703,7 @@ async def _activity_skill(host_row: dict, chip: dict, *,
     return out
 
 
+# noinspection DuplicatedCode
 async def _terminate_session_skill(host_row: dict, chip: dict, *,
                                    arg: Optional[str] = None,
                                    host_id: Optional[str] = None) -> dict:

@@ -1326,7 +1326,7 @@ async def probe_hub(
     # noinspection PyBroadException
     except Exception as e:  # noqa: BLE001
         # Surface the probe failure in stdout so it lands in Admin →
-        # Logs. Mirrors the Pulse fix — operators should be
+        # Logs. Mirrors the Pulse fix — users should be
         # able to see WHY the provider is down without grepping the
         # raw container log.
         print(f"[beszel] probe failed: {type(e).__name__}: {e} "
@@ -1337,20 +1337,16 @@ async def probe_hub(
         # ConnectTimeout + ReadTimeout + RemoteProtocolError; the
         # auth-failure path raises RuntimeError further up + doesn't
         # latch (different signal — credentials, not reachability).
-        try:
-            import httpx as _httpx
-            if isinstance(e, (
-                _httpx.ConnectError, _httpx.ConnectTimeout,
-                _httpx.ReadTimeout, _httpx.RemoteProtocolError,
+        if isinstance(e, (
+                httpx.ConnectError, httpx.ConnectTimeout,
+                httpx.ReadTimeout, httpx.RemoteProtocolError,
                 OSError,
-            )):
-                _mark_unreachable()
-        except Exception:  # noqa: BLE001
-            pass
+        )):
+            _mark_unreachable()
         return {"systems": {}, "error": str(e)}
 
-    # Log the first system_stats row's ``efs`` contents so an
-    # operator can confirm what Beszel is actually sending for each
+    # Log the first system_stats row's ``efs`` contents so a
+    # user can confirm what Beszel is actually sending for each
     # host. An empty ``efs`` on a machine with multiple mounts means
     # the Beszel agent wasn't started with ``EXTRA_FILESYSTEMS=...``.
     # The "no efs key" warning is guarded by a one-shot module flag

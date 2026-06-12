@@ -339,9 +339,9 @@ def _worker_fps(w: dict) -> float:
     raw = str(w.get("statistics") or w.get("outputFileSizeInGbStr") or "").strip()
     if raw:
         import re as _re  # noqa: PLC0415
-        m = _re.search(r"fps[=:\s]+([0-9]+(?:\.[0-9]+)?)", raw, _re.IGNORECASE)
+        m = _re.search(r"fps[=:\s]+(?P<fps>[0-9]+(?:\.[0-9]+)?)", raw, _re.IGNORECASE)
         if m:
-            return safe_float(m.group(1))
+            return safe_float(m.group("fps"))
     return 0.0
 
 
@@ -554,10 +554,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "containers": pies.get("containers", []),
         "version": version,
         "fetched_at": int(now),
+        # Retention trend (cumulative space-saved + queue burn-down + throughput) —
+        # best-effort; the sampler may have no rows yet (fresh pin) → zeroed shape.
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
     }
-    # Retention trend (cumulative space-saved + queue burn-down + throughput) —
-    # best-effort; the sampler may have no rows yet (fresh pin) → zeroed shape.
-    out["trend"] = _safe_trend(str(host_id or ""), int(service_idx or 0))
     print(f"[tdarr] INFO fetched host={host_id} files={out['total_files']} "
           f"tq={out['transcode_queue']} hq={out['health_queue']} "
           f"failed={out['transcode_failed']}/{out['health_failed']} "

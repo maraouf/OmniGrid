@@ -43,6 +43,7 @@ def _resolve_interval() -> int:
     return resolve_sample_interval(_Tunable.FLARESOLVERR_SAMPLE_INTERVAL_SECONDS)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Record one chip's sample: live session count + ready flag. A solver
@@ -87,6 +88,7 @@ def _prune_old_samples() -> int:
     return prune_rows_older_than("flaresolverr_session_samples", cutoff)
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body: probe every configured FlareSolverr chip in parallel,
     then run the hourly retention prune (offloaded to a worker thread)."""
@@ -118,6 +120,7 @@ async def flaresolverr_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def usage_summary(host_id: str, service_idx: int,
                   days: int = 30, *, max_points: int = 30) -> dict:
     """30-day open-session usage trend for one chip. Returns
