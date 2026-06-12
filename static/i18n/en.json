@@ -1967,6 +1967,18 @@
           "label": "ddns-updater stale-record threshold (hours)",
           "help": "A ddns-updater record counts as STALE — and is shown in the card's stale-record count — when its last successful update is older than this many hours. This flags a record that thinks it is fine but silently stopped re-pushing (distinct from a failing record, which is counted separately). Tune to your update cadence: a 5-minute push cadence wants a low threshold (e.g. 1-2h); a once-a-day cadence wants a higher one (e.g. 48h). Default 24. Range 1..8760. Takes effect on the next card refresh."
         },
+        "tuning_fing_sample_interval_seconds": {
+          "label": "Fing occupancy sampler interval (seconds)",
+          "help": "How often the lifespan Fing sampler records each configured Fing chip's online / total device counts into the history table that drives the card's online-device occupancy trend. Default 600 (10 min) — presence on a home network moves slowly and the Local-API device scrape is cheap. 0 inherits the global stats sample interval. Lower for finer-grained trend resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick. (Fing's Local API is current-state-only, so this sampled history is the only presence-over-time signal.)"
+        },
+        "tuning_fing_history_days": {
+          "label": "Fing occupancy history retention (days)",
+          "help": "Retention window for the Fing samples that drive the online-device occupancy sparkline. Default 90 — a quarter of network-presence history is plenty for spotting weekday / weekend occupancy patterns. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
+        },
+        "tuning_fing_new_device_hours": {
+          "label": "Fing new-device window (hours)",
+          "help": "A Fing device first-seen within this many hours counts as NEW — the actionable \"an unknown device just joined your network\" signal surfaced on the card + status skill. Default 24. Lower it for a tighter alert window; raise it to keep a recently-added device flagged for longer. Range 1..8760. Takes effect on the next card refresh."
+        },
         "tuning_speedtest_sample_interval_seconds": {
           "label": "Speedtest history sampler interval (seconds)",
           "help": "How often the lifespan Speedtest sampler ingests each configured Speedtest Tracker chip's results into OmniGrid's independent long-horizon history table (which survives the upstream ageing out its own results). Default 900 (15 min). The sampler ingests the whole results series each tick and de-duplicates, so this only needs to be shorter than the upstream's own retention window to never miss a result. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -5743,6 +5755,9 @@
       "opnsense_gateways": "List OPNsense gateways",
       "opnsense_services": "List OPNsense services",
       "opnsense_restart_service": "Restart an OPNsense service",
+      "fing_status": "Fing network status",
+      "fing_devices": "List Fing devices",
+      "fing_device": "Is a device online (Fing)",
       "seerr_status": "Seerr status",
       "seerr_requests": "List requests",
       "seerr_request_movie": "Request a movie",
@@ -6132,6 +6147,24 @@
       "no_key": "No API key / secret set — add them in Admin → Apps to enable.",
       "loading": "Loading OPNsense data…",
       "fetch_failed": "OPNsense fetch failed"
+    },
+    "fing": {
+      "api_key_label": "Fing Local API key",
+      "api_key_placeholder_saved": "Saved — leave blank to keep",
+      "api_key_placeholder_unset": "Local API key",
+      "api_key_hint": "Enable the Fing Agent / Fing Desktop Local API and copy its API key. It is sent as the ?auth=<key> query parameter on every call (not a header). The secret is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Fing agent (default :49090).",
+      "online": "Online",
+      "offline": "Offline",
+      "new": "New",
+      "types": "Types",
+      "peak": "Peak online",
+      "new_days": "New-device days",
+      "devices": "Devices",
+      "trend_caption": "Online devices, last {days} days",
+      "new_footnote": "🆕 {n} new device(s) recently joined",
+      "no_key": "No Local API key set — add it in Admin → Apps to enable.",
+      "loading": "Loading Fing data…",
+      "fetch_failed": "Fing fetch failed"
     },
     "prowlarr": {
       "api_key_label": "Prowlarr API key",

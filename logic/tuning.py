@@ -94,6 +94,9 @@ class Tunable(str, Enum):
     DDNS_STALE_RECORD_HOURS = "tuning_ddns_stale_record_hours"
     FAVICON_CACHE_DAYS = "tuning_favicon_cache_days"
     FAVICON_FETCH_TIMEOUT_SECONDS = "tuning_favicon_fetch_timeout_seconds"
+    FING_HISTORY_DAYS = "tuning_fing_history_days"
+    FING_NEW_DEVICE_HOURS = "tuning_fing_new_device_hours"
+    FING_SAMPLE_INTERVAL_SECONDS = "tuning_fing_sample_interval_seconds"
     FLARESOLVERR_HISTORY_DAYS = "tuning_flaresolverr_history_days"
     FLARESOLVERR_SAMPLE_INTERVAL_SECONDS = "tuning_flaresolverr_sample_interval_seconds"
     GATHER_CLIENT_TIMEOUT_SECONDS = "tuning_gather_client_timeout_seconds"
@@ -1377,6 +1380,23 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # record that silently stopped re-pushing is visible). Tune to your update
     # cadence: a 5-minute push cadence wants a low threshold, a daily one higher.
     "tuning_ddns_stale_record_hours": ("DDNS_STALE_RECORD_HOURS", 24, 1, 8760),
+
+    # ----- Fing (network device inventory) ----------------------------------
+
+    # How often the lifespan Fing sampler records each configured Fing chip's
+    # online / total device counts into fing_samples (0 = inherit the global
+    # stats sample interval). Default 600 (10 min) — presence on a home network
+    # moves slowly and the Local-API device scrape is cheap.
+    "tuning_fing_sample_interval_seconds": ("FING_SAMPLE_INTERVAL_SECONDS", 600, 0, 86400),
+    # Retention window (days) for fing_samples — drives the online-device
+    # occupancy trend sparkline. Default 90 (a quarter of network-presence
+    # history is plenty for spotting weekday / weekend occupancy patterns).
+    "tuning_fing_history_days": ("FING_HISTORY_DAYS", 90, 1, 730),
+    # A Fing device first-seen within this many hours counts as NEW (the
+    # actionable "an unknown device just joined your network" signal surfaced on
+    # the card + status skill). Default 24 — lower it for a tighter alert window,
+    # raise it to keep a recently-added device flagged for longer.
+    "tuning_fing_new_device_hours": ("FING_NEW_DEVICE_HOURS", 24, 1, 8760),
 
     # ----- AdGuard Home -----------------------------------------------------
 

@@ -404,6 +404,14 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "Fing", "slug": "fing", "icon": "fing",
+        "description": "Fing network device inventory + presence (Local API)",
+        "default_ports": [
+            {"port": 49090, "protocol": "http", "label": "Local API",
+             "probe_path": "/1/devices", "probe_status": 0},
+        ],
+    },
+    {
         "name": "Homebridge", "slug": "homebridge", "icon": "homebridge",
         "description": "HomeKit bridge for non-native accessories",
         "default_ports": [

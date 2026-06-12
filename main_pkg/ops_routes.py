@@ -1797,6 +1797,11 @@ class SettingsIn(BaseModel):
     tuning_ddns_sample_interval_seconds: Optional[str] = None
     tuning_ddns_history_days: Optional[str] = None
     tuning_ddns_stale_record_hours: Optional[str] = None
+    # Fing network-occupancy sampler — online-device trend (sample cadence,
+    # 0 = inherit global stats interval + retention + the new-device window).
+    tuning_fing_sample_interval_seconds: Optional[str] = None
+    tuning_fing_history_days: Optional[str] = None
+    tuning_fing_new_device_hours: Optional[str] = None
     # Speedtest Tracker long-horizon sampler — ingest cadence (0 = inherit
     # global stats interval) + retention for the independent trend that
     # survives the upstream's own pruning.
