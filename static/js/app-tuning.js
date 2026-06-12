@@ -336,6 +336,10 @@ export default {
     // + retention).
     'tuning_seerr_sample_interval_seconds',
     'tuning_seerr_history_days',
+    // Shared *arr (Radarr / Sonarr / Lidarr / Readarr) retention sampler —
+    // library-growth + missing-backlog + disk-runway trend (cadence + retention).
+    'tuning_servarr_sample_interval_seconds',
+    'tuning_servarr_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

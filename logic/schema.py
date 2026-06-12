@@ -693,6 +693,33 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_seerr_samples_ts
             ON seerr_samples(ts);
 
+        -- Servarr-family (Radarr / Sonarr / Lidarr / Readarr) per-(host, tick)
+        -- snapshot. The *arr apps expose no upstream history for library size /
+        -- missing backlog / free disk, so the shared lifespan ``servarr_sampler``
+        -- records each *arr instance's normalised gauges per tick.
+        -- ``trend_summary`` rolls them into a daily-AVERAGE sparkline (library
+        -- growth + missing backlog) and a disk-free-runway projection (linear
+        -- fit over the daily ``disk_free_gb`` points). ``slug`` distinguishes
+        -- which *arr produced the row so one table serves all four apps.
+        -- ``ts`` is the sampler wall-clock.
+        CREATE TABLE IF NOT EXISTS servarr_samples (
+            ts           INTEGER NOT NULL,
+            host_id      TEXT    NOT NULL,
+            service_idx  INTEGER NOT NULL,
+            slug         TEXT    NOT NULL DEFAULT '',
+            total        INTEGER NOT NULL DEFAULT 0,
+            missing      INTEGER NOT NULL DEFAULT 0,
+            queue        INTEGER NOT NULL DEFAULT 0,
+            disk_free_gb REAL    NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_servarr_samples_chip_ts
+            ON servarr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_servarr_samples_ts
+            ON servarr_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

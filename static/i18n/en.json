@@ -1995,6 +1995,14 @@
           "label": "Seerr backlog history retention (days)",
           "help": "Retention window for the Seerr request-backlog samples that drive the pending-over-time trend (pending-stuck detection). Default 90. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
         },
+        "tuning_servarr_sample_interval_seconds": {
+          "label": "*arr (Radarr/Sonarr/Lidarr/Readarr) sampler interval (seconds)",
+          "help": "How often the shared lifespan *arr sampler snapshots every pinned Radarr / Sonarr / Lidarr / Readarr instance's library total / missing backlog / download queue / free-disk gauges into the history table that drives each *arr card's library-growth + missing-backlog sparkline and the disk-free-runway projection. Default 900 (15 min) — the library and disk move slowly. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_servarr_history_days": {
+          "label": "*arr history retention (days)",
+          "help": "Retention window for the shared *arr (Radarr/Sonarr/Lidarr/Readarr) samples that drive the library-growth, missing-backlog and disk-free-runway trends. Default 365 (a year of daily points — a longer window gives a more confident disk-runway fit). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5879,6 +5887,8 @@
       "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Radarr (5–3600s). Leave blank for the app default (60s).",
       "movies": "Movies",
       "missing": "Missing",
+      "cutoff_unmet": "Below cutoff",
+      "library_size": "Library size",
       "downloading": "Downloading",
       "disk_free": "Disk free",
       "health_issues_n": "{n} health issue(s)",
@@ -5888,7 +5898,13 @@
       "storage": "Storage",
       "disk_free_short": "free",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
-      "queue_delete_title": "Remove from queue"
+      "queue_delete_title": "Remove from queue",
+      "library_trend": "Library growth ({days} days)",
+      "missing_trend": "Missing backlog ({days} days)",
+      "disk_trend": "Free disk ({days} days)",
+      "peak_missing": "Peak missing",
+      "disk_runway": "Disk full in ~{days} days at this fill rate",
+      "disk_runway_safe": "Free disk is stable — no runway concern"
     },
     "sonarr": {
       "api_key_label": "Sonarr API key",
