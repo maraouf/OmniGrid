@@ -258,6 +258,7 @@ def _severity_for(text: str, _stream: str) -> str:
     return "INFO"
 
 
+# noinspection DuplicatedCode
 def _persist_line(record: dict[str, Any]) -> None:
     """Append one line to today's file in a standard log format:
 
@@ -432,6 +433,7 @@ def redact_secrets(text: str) -> str:
     return out
 
 
+# noinspection DuplicatedCode
 def recent_lines_window(*, hours: int = 24,
                         levels: Optional[Iterable[str]] = None,
                         limit: int = 200) -> list[dict]:

@@ -193,7 +193,7 @@ async def probe_token(
         if status == 401:
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",
-                    "error": f"OAuth2 auth rejected (401) — check credentials. Tried: "
+                    "error": "OAuth2 auth rejected (401) — check credentials. Tried: "
                              + ", ".join(m for m, _, _ in attempts)}
         if status >= 400:
             return {"ok": False, "token_type": "", "expires_in": 0,

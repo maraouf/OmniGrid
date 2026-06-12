@@ -437,6 +437,7 @@ async def _send_reply(client: httpx.AsyncClient, text: str,
         return None
 
 
+# noinspection DuplicatedCode
 async def _send_photo(
     client: httpx.AsyncClient, photo_url: str, caption: str = "",
     reply_markup: Optional[dict] = None,
@@ -1060,6 +1061,7 @@ def _lookup_user_role(username: str) -> Optional[str]:
 lookup_user_role = _lookup_user_role
 
 
+# noinspection DuplicatedCode
 def _load_user_weather_pref(username: str) -> Optional[dict]:
     """Read the topbar weather widget's persisted settings for one
     user. The SPA stores these as flat keys on ``ui_prefs`` (not
@@ -1146,6 +1148,7 @@ from logic.telegram_handlers import (  # noqa: E402
     _cmd_skills,
     _cmd_time,
     _cmd_unlink,
+    _cmd_upcoming,
     _cmd_update,
     _cmd_version,
     _cmd_weather,
@@ -1372,6 +1375,13 @@ _COMMANDS: dict[str, dict[str, Any]] = {
         "handler": _cmd_hijri,
         "usage": "/hijri",
         "description": "Show today's Hijri (Islamic) calendar date",
+        "category": "info",
+        "access": "linked",
+    },
+    "/upcoming": {
+        "handler": _cmd_upcoming,
+        "usage": "/upcoming [days] [movies|series|music|books]",
+        "description": "Upcoming releases across your *arr apps (movies / episodes / albums / books) with dates + synopsis",
         "category": "info",
         "access": "linked",
     },
@@ -1762,6 +1772,7 @@ async def _handle_callback_query(client: httpx.AsyncClient, cb: dict) -> None:
 
 
 # noinspection SpellCheckingInspection
+# noinspection DuplicatedCode
 async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
     """Authorize + parse + dispatch one incoming Update."""
     # Belt-and-braces dedupe: if we've already processed this exact

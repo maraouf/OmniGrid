@@ -79,6 +79,68 @@ function qbittorrentSpeed(bytesPerS) {
   return val.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' ' + units[idx];
 }
 
+// Format a byte count as a human size (B … TiB) — for the all-time transfer
+// totals + free-disk. '—' for missing / zero.
+function qbittorrentBytes(v) {
+  const n = Number(v);
+  if (v == null || !isFinite(n) || n <= 0) {
+    return '—';
+  }
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+  let val = n;
+  let idx = 0;
+  while (val >= 1024 && idx < units.length - 1) {
+    val /= 1024;
+    idx += 1;
+  }
+  return val.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' ' + units[idx];
+}
+
+// Transfer-speed / free-disk trend block from the lifespan qbittorrent_sampler,
+// or null while idle / no samples yet.
+function qbittorrentTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.qbittorrentData ? this.qbittorrentData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on every
+// Alpine flush).
+const _qbittorrentTrendMemo = new WeakMap();
+
+// SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function qbittorrentTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_qbittorrentTrendMemo.has(arr)) {
+    return _qbittorrentTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _qbittorrentTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. qBittorrent gets a
 // 2-column span + a vertical telemetry-card layout like the *arr family.
@@ -99,4 +161,7 @@ export const helpers = {
   qbittorrentData: qbittorrentData,
   qbittorrentCount: qbittorrentCount,
   qbittorrentSpeed: qbittorrentSpeed,
+  qbittorrentBytes: qbittorrentBytes,
+  qbittorrentTrend: qbittorrentTrend,
+  qbittorrentTrendPath: qbittorrentTrendPath,
 };

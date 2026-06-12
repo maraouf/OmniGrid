@@ -148,6 +148,7 @@ async def api_debug_subject(
         # `ctn:` prefix (legitimate short form), OR (b) minimum length
         # ≥ 12 chars (long enough to be a real id hash). Bare-id
         # equality at line 12266-67 still works for the full hash.
+        # noinspection PyShadowingNames
         def _id_matches(it: dict) -> bool:
             if it.get("id") == id or it.get("raw_id") == id:
                 return True
@@ -387,6 +388,7 @@ async def api_debug_subject(
 
 
 # noinspection PyShadowingBuiltins,PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.get("/api/hosts/debug")
 async def api_hosts_debug(
     id: str = "",
@@ -1277,6 +1279,7 @@ async def api_ssh_test(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/hosts/{host_id}/ssh/run")
 async def api_ssh_run(
     host_id: str,

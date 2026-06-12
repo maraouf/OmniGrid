@@ -470,6 +470,7 @@ def recent_samples(host_id: str, since_ts: int) -> list[dict]:
     ]
 
 
+# noinspection DuplicatedCode
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     """Newest-first recent rows for the debug endpoint."""
     if not host_id:

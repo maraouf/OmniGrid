@@ -142,6 +142,26 @@ SKILLS: tuple[dict, ...] = (
                      "files); the drawer's per-row trash button supplies it"),
     },
     {
+        "id": "qbittorrent_pause_torrent",
+        "name": "Pause a torrent",
+        "ai_phrases": ("pause a torrent, pause this download, stop a torrent, "
+                       "pause torrent <hash>, halt this download, pause that one"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("the torrent HASH to pause; the drawer's per-row pause "
+                     "button supplies it"),
+    },
+    {
+        "id": "qbittorrent_resume_torrent",
+        "name": "Resume a torrent",
+        "ai_phrases": ("resume a torrent, start a torrent, unpause this download, "
+                       "resume torrent <hash>, continue this download, start that one"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("the torrent HASH to resume; the drawer's per-row resume "
+                     "button supplies it"),
+    },
+    {
         "id": "qbittorrent_resume_all",
         "name": "Resume all torrents",
         "ai_phrases": ("resume all torrents, start all torrents, unpause "
@@ -228,6 +248,38 @@ async def _api_version(cli: httpx.AsyncClient, base: str) -> str:
         return ""
 
 
+# 1 GiB in bytes — qBittorrent reports free disk in bytes; the card renders GiB.
+_GIB = 1024 ** 3
+
+
+async def _server_state(cli: httpx.AsyncClient, base: str) -> dict:
+    """``server_state`` block from ``GET /api/v2/sync/maindata`` (authenticated) —
+    carries ``free_space_on_disk`` / ``global_ratio`` / ``alltime_dl`` /
+    ``alltime_ul`` / ``connection_status``. ``{}`` on any failure (these are
+    nice-to-haves, never load-bearing)."""
+    try:
+        r = await cli.get(base + "/api/v2/sync/maindata")
+        if r.status_code == 200:
+            body = r.json()
+            if isinstance(body, dict) and isinstance(body.get("server_state"), dict):
+                return body["server_state"]
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return {}
+    return {}
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort transfer-speed / free-disk trend from the qBittorrent sampler.
+    Returns the ``trend_summary`` dict, or ``{}`` on any failure (a missing
+    sampler / empty table must never fail the card)."""
+    try:
+        from logic.apps import qbittorrent_sampler  # noqa: PLC0415
+        return qbittorrent_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[qbittorrent] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
 # Torrent ``state`` → coarse bucket for the card counts + the list skill.
 # (Completed-ness is computed separately from ``progress`` by the callers.)
 def _classify(state: Any) -> str:
@@ -253,6 +305,21 @@ def _fmt_speed(bytes_per_s: Any) -> str:
     if v <= 0:
         return "0 B/s"
     units = ("B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s")
+    idx = 0
+    while v >= 1024 and idx < len(units) - 1:
+        v /= 1024
+        idx += 1
+    return f"{v:,.1f} {units[idx]}"
+
+
+# noinspection DuplicatedCode
+def _fmt_size_bytes(num_bytes: Any) -> str:
+    """Render a byte count as a human size (B … TiB) — for the all-time
+    transfer totals + free-disk. ``"0 B"`` for zero / missing."""
+    v = safe_float(num_bytes)
+    if v <= 0:
+        return "0 B"
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
     idx = 0
     while v >= 1024 and idx < len(units) - 1:
         v /= 1024
@@ -338,6 +405,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             tr = await cli.get(info_url)
             tor = await cli.get(base + "/api/v2/torrents/info")
             ver = await _api_version(cli, base)
+            srv = await _server_state(cli, base)
     except RuntimeError as e:
         print(f"[qbittorrent] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -381,6 +449,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             paused += 1
         if safe_float(t.get("progress")) >= 1.0:
             completed += 1
+    free_space_gb = round(safe_float(srv.get("free_space_on_disk")) / _GIB, 1)
     out: dict[str, Any] = {
         "available": True,
         "dl_speed": safe_int(info.get("dl_info_speed")),
@@ -392,12 +461,23 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "seeding": seeding,
         "paused": paused,
         "completed": completed,
+        # server_state extras (from sync/maindata) — tolerated on failure.
+        "free_space_gb": free_space_gb,
+        "global_ratio": round(safe_float(srv.get("global_ratio")), 2),
+        "alltime_dl": safe_int(srv.get("alltime_dl")),
+        "alltime_ul": safe_int(srv.get("alltime_ul")),
+        "connection_status": str(srv.get("connection_status") or "").strip().lower(),
         "version": ver,
         "fetched_at": int(now),
+        # Transfer-speed sparkline + disk-free-runway from qbittorrent_samples
+        # (drawer-only chart). Tolerated on failure — the card renders without it.
+        "trend": _safe_trend(host_id, service_idx),
     }
     print(f"[qbittorrent] INFO fetched host={host_id} torrents={out['torrents_total']} "
           f"dl={out['downloading']} seed={out['seeding']} paused={out['paused']} "
-          f"dl_speed={out['dl_speed']} up_speed={out['up_speed']}")
+          f"dl_speed={out['dl_speed']} up_speed={out['up_speed']} "
+          f"ratio={out['global_ratio']} free_gb={free_space_gb} "
+          f"conn={out['connection_status'] or '?'}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -416,6 +496,11 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "seeding": safe_int(data.get("seeding")),
         "paused": safe_int(data.get("paused")),
         "completed": safe_int(data.get("completed")),
+        "free_space_gb": safe_float(data.get("free_space_gb")),
+        "global_ratio": safe_float(data.get("global_ratio")),
+        "alltime_dl": safe_int(data.get("alltime_dl")),
+        "alltime_ul": safe_int(data.get("alltime_ul")),
+        "connection_status": data.get("connection_status") or "",
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -444,6 +529,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _add_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "qbittorrent_delete":
         return await _delete_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "qbittorrent_pause_torrent":
+        return await _set_one_skill(host_row, chip, arg=arg, resume=False, host_id=host_id)
+    if skill_id == "qbittorrent_resume_torrent":
+        return await _set_one_skill(host_row, chip, arg=arg, resume=True, host_id=host_id)
     if skill_id == "qbittorrent_resume_all":
         return await _set_all_skill(host_row, chip, resume=True, host_id=host_id)
     if skill_id == "qbittorrent_pause_all":
@@ -773,6 +862,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
     seed = safe_int(data.get("seeding"))
     paused = safe_int(data.get("paused"))
     done = safe_int(data.get("completed"))
+    ratio = safe_float(data.get("global_ratio"))
+    free_gb = safe_float(data.get("free_space_gb"))
+    alltime_dl = safe_int(data.get("alltime_dl"))
+    alltime_ul = safe_int(data.get("alltime_ul"))
+    conn = str(data.get("connection_status") or "").strip().lower()
     lines = [
         f"⬇️ Download: {_fmt_speed(data.get('dl_speed'))}",
         f"⬆️ Upload: {_fmt_speed(data.get('up_speed'))}",
@@ -782,12 +876,23 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"✅ Completed: {done:,}",
         f"📦 Total torrents: {total:,}",
     ]
+    if ratio > 0:
+        lines.append(f"⚖️ Global ratio: {ratio:.2f}")
+    if alltime_dl > 0 or alltime_ul > 0:
+        lines.append(f"📊 All-time: ↓ {_fmt_size_bytes(alltime_dl)} / ↑ {_fmt_size_bytes(alltime_ul)}")
+    if free_gb > 0:
+        lines.append(f"💽 Free disk: {_fmt_size_bytes(free_gb * _GIB)}")
+    if conn and conn != "connected":
+        lines.append(f"⚠️ Connection: {conn}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "torrents_total": total, "downloading": dl, "seeding": seed,
         "paused": paused, "completed": done,
+        "global_ratio": ratio, "free_space_gb": free_gb,
+        "alltime_dl": alltime_dl, "alltime_ul": alltime_ul,
+        "connection_status": conn,
     }
 
 
@@ -905,11 +1010,17 @@ async def _downloading_skill(host_row: dict, chip: dict, *,
         thash = str(t.get("hash") or "").strip()
         row: "dict[str, Any]" = {"title": name, "subtitle": sub, "progress": pct}
         if thash:
-            row["row_action"] = {
-                "skill_id": "qbittorrent_delete", "arg": thash,
-                "icon": "trash-2", "destructive": True,
-                "confirm_i18n": "apps.qbittorrent.delete_confirm",
-                "title_i18n": "apps.qbittorrent.delete_title"}
+            # Two per-row buttons (the drawer renders `row_actions[]`): pause
+            # (non-destructive) + delete (destructive — the SPA confirms first).
+            row["row_actions"] = [
+                {"skill_id": "qbittorrent_pause_torrent", "arg": thash,
+                 "icon": "pause", "destructive": False,
+                 "title_i18n": "apps.qbittorrent.pause_title"},
+                {"skill_id": "qbittorrent_delete", "arg": thash,
+                 "icon": "trash-2", "destructive": True,
+                 "confirm_i18n": "apps.qbittorrent.delete_confirm",
+                 "title_i18n": "apps.qbittorrent.delete_title"},
+            ]
         rich.append(row)
     head = f"📥 Downloading ({len(active)}):"
     return {"ok": True, "status": 200,
@@ -1081,4 +1192,44 @@ async def _set_all_skill(host_row: dict, chip: dict, *, resume: bool,
         msg = ("▶️ Resumed all torrents on qBittorrent." if resume
                else "⏸️ Paused all torrents on qBittorrent.")
         return {"ok": True, "status": 200, "detail": msg}
+    return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+
+
+# noinspection DuplicatedCode
+async def _set_one_skill(host_row: dict, chip: dict, *, resume: bool,
+                         arg: Optional[str] = None,
+                         host_id: Optional[str] = None) -> dict:
+    """Action: pause (stop) OR resume (start) ONE torrent by hash
+    (``hashes=<hash>``). Tries the 4.x endpoint name first, falls back to the
+    5.x rename on 404. The drawer's per-row pause / resume button supplies the
+    hash. Never raises."""
+    h = (arg or "").strip()
+    verb = "resume" if resume else "pause"
+    if not _HASH_RE.match(h):
+        return {"ok": False, "status": 0,
+                "detail": f"no valid torrent hash given to {verb} (the per-row button supplies it)"}
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    endpoints = (("resume", "start") if resume else ("pause", "stop"))
+    print(f"[qbittorrent] INFO qbittorrent_{verb}_torrent host={host_id} hash={h[:12]}…")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            r = await cli.post(base + f"/api/v2/torrents/{endpoints[0]}",
+                               data={"hashes": h.lower()})
+            if r.status_code in (404, 405):
+                r = await cli.post(base + f"/api/v2/torrents/{endpoints[1]}",
+                                   data={"hashes": h.lower()})
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check username / password)"}
+    if 200 <= r.status_code < 300:
+        return {"ok": True, "status": 200,
+                "detail": ("▶️ Resumed the torrent." if resume else "⏸️ Paused the torrent.")}
     return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}

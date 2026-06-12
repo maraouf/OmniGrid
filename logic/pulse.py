@@ -505,6 +505,7 @@ def extract_guest_stats(guest: dict) -> dict:
     }
 
 
+# noinspection DuplicatedCode
 def extract_node_stats(node: dict) -> dict:
     """Shape one Pulse node record into OmniGrid's ``host_*`` fields.
 
@@ -731,10 +732,10 @@ async def probe_pulse(
             # ``nodes`` again (we handle those separately) so a guest
             # that somehow contains a node-shaped sub-object doesn't
             # double-count.
-            for k, v in container.items():
+            for k, _v in container.items():
                 if k == "nodes":
                     continue
-                collected.extend(_harvest(v, inherited_node))
+                collected.extend(_harvest(_v, inherited_node))
         return collected
 
     guests: list = _harvest(state)

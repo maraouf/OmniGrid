@@ -379,6 +379,7 @@ def _json_to_element(data, tag: str = "root") -> ET.Element:
     return el
 
 
+# noinspection DuplicatedCode
 async def _fetch_json(
     client: httpx.AsyncClient,
     base_url: str,
@@ -562,6 +563,7 @@ def _scrape_mounts(soup) -> Optional[ET.Element]:
     return root
 
 
+# noinspection DuplicatedCode
 def _scrape_net(soup) -> Optional[ET.Element]:
     """Extract the NIC list from Webmin's net/ifconfig HTML UI.
 

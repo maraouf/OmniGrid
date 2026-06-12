@@ -476,8 +476,8 @@ async def _guests_skill(host_row: dict, chip: dict, *, kind: str,
               if isinstance(r, dict) and str(r.get("type") or "").lower() == kind]
     if not guests:
         return {"ok": True, "status": 200, "detail": f"📦 No Proxmox {label} found."}
-    guests.sort(key=lambda r: (str(r.get("status") or "") != "running",
-                               str(r.get("name") or "").lower()))
+    guests.sort(key=lambda _r: (str(_r.get("status") or "") != "running",
+                                str(_r.get("name") or "").lower()))
     items: list = []
     lines: list = []
     for r in guests[:_MAX_ROWS]:

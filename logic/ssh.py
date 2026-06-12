@@ -1136,6 +1136,7 @@ class TerminalConfigError(Exception):
         self.code = code
 
 
+# noinspection DuplicatedCode
 async def open_shell(
     host_id: str,
     hosts_config: list[dict],

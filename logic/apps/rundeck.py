@@ -464,6 +464,7 @@ def _exec_started_ms(e: dict) -> int:
     return safe_int(as_dict(ds).get("unixtime")) if isinstance(ds, dict) else 0
 
 
+# noinspection DuplicatedCode
 async def _executions_skill(host_row: dict, chip: dict, *,
                             host_id: Optional[str] = None) -> dict:
     """Read-only: the most recent executions across projects with their final

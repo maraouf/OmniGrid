@@ -220,6 +220,7 @@ async def _probe_one_host(host: dict, sem: asyncio.Semaphore) -> dict:
     codes = host.get("accepted_status_codes") or []
     verify_tls = bool(host.get("verify_tls", True))
 
+    # noinspection DuplicatedCode
     async def _one(url: str) -> dict:
         async with sem:
             # DNS-failure short-circuit — synthesize a failure result
@@ -466,7 +467,7 @@ async def host_http_sampler_loop() -> None:
                             failing_url = ""
                             for r in results:
                                 if r.get("error"):
-                                    err_msg = str(r.get("error"))
+                                    err_msg = str(r.get("error", ""))
                                     failing_url = str(r.get("url") or "")
                                     break
                             await _rec_outcome(
@@ -728,6 +729,7 @@ def populate_host_http_merge(host_id: str, merged: dict, *, _latest: Optional[di
     merged["host_http_ts"] = latest.get("ts")
 
 
+# noinspection DuplicatedCode
 def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]:
     """Oldest-first rows for one host back to ``since_ts``.
 

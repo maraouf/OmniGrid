@@ -228,6 +228,7 @@ def resolve_chip(host_id: str, service_idx: int):
     return None, None, ""
 
 
+# noinspection DuplicatedCode
 def _load_hosts_and_catmap() -> "tuple[list, dict[int, dict[str, Any]]]":
     """Load ``hosts_config`` + the catalog id->row map ONCE. Shared by
     ``instances_for_slug`` + ``available_app_skills_context`` so the
@@ -280,6 +281,7 @@ def instances_for_slug(slug: str) -> list:
     return out
 
 
+# noinspection DuplicatedCode
 def available_app_skills_context(datetime_format: Optional[str] = None) -> list:
     """Build the AI / Telegram-AI ``app_skills`` context list: every pinned
     app chip whose app declares SKILLS AND (when the app requires it) has its

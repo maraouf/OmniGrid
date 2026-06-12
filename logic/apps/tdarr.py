@@ -254,6 +254,7 @@ async def _get(cli: httpx.AsyncClient, base: str, api_key: str, path: str) -> An
         raise RuntimeError("non-JSON from upstream")
 
 
+# noinspection DuplicatedCode
 async def _cruddb(cli: httpx.AsyncClient, base: str, api_key: str, data: dict,
                   *, parse_json: bool = True) -> Any:
     """One ``POST /api/v2/cruddb`` with the ``{"data": <data>}`` envelope.
@@ -345,6 +346,7 @@ def _worker_list(nodes: Any) -> list:
     return out
 
 
+# noinspection DuplicatedCode
 async def _post(cli: httpx.AsyncClient, base: str, api_key: str,
                 path: str, body: dict) -> Any:
     """Generic Tdarr POST (used for ``/stats/get-pies``). Raises ``RuntimeError``
@@ -600,6 +602,7 @@ def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dic
     return (chip.get("api_key") or "").strip(), base, None
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
@@ -1003,6 +1006,7 @@ def _ensure_requeue_failed(base: str, api_key: str, host_id: str) -> bool:
     return True
 
 
+# noinspection DuplicatedCode
 async def _requeue_bloated_skill(host_row: dict, chip: dict, *,
                                  host_id: Optional[str] = None) -> dict:
     """Destructive "queue bloated": reset every bloated file's DB status to
@@ -1065,6 +1069,7 @@ def _file_failed(f: dict) -> bool:
     return tdm in _FAILED_STATUSES_LC
 
 
+# noinspection DuplicatedCode
 async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
     """Every file whose transcode FAILED / was cancelled
     (``TranscodeDecisionMaker`` in ``_FAILED_STATUSES``), de-duped by ``_id``.
@@ -1102,6 +1107,7 @@ async def _find_failed(cli: httpx.AsyncClient, base: str, api_key: str) -> list:
     return failed
 
 
+# noinspection DuplicatedCode
 async def _requeue_failed_skill(host_row: dict, chip: dict, *,
                                 host_id: Optional[str] = None) -> dict:
     """Destructive "requeue failed": reset every FAILED / cancelled transcode's

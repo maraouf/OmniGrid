@@ -255,6 +255,7 @@ async def sampler_loop() -> None:
         await asyncio.sleep(interval)
 
 
+# noinspection DuplicatedCode
 def recent_samples(
     limit: int = 50,
     *,

@@ -355,6 +355,7 @@ class _UdpProtocol(asyncio.DatagramProtocol):
         """asyncio DatagramProtocol hook: store the transport for write access."""
         self.transport = transport
 
+    # noinspection PyUnusedLocal
     def datagram_received(self, data: bytes, addr) -> None:
         """asyncio DatagramProtocol hook: resolve the probe future on any reply."""
         if not self._future.done():

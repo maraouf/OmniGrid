@@ -268,6 +268,7 @@ def _compute_baselines_with_conn(c, host_id: str, target: str,
     return out
 
 
+# noinspection DuplicatedCode
 def compute_baselines(host_id: str, target: str = "", conn=None) -> dict[str, dict]:
     """Recompute baselines for ONE host. UPSERTs into `host_baselines`
     AND returns the in-memory map for the caller (sampler logs it).

@@ -570,6 +570,7 @@ async def gather_stats() -> None:
                     _unreach_ttl = 60.0
                 _now_ts = time.time()
 
+                # noinspection PyShadowingNames
                 async def _per_node(h: str):
                     """Per-host /containers/json fan-out; swallows per-node errors to keep the sweep alive.
                     Skips known-unreachable workers within the TTL window."""

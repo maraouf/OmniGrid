@@ -332,6 +332,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 # Skills
 # ---------------------------------------------------------------------------
+# noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
                     service_idx: Optional[int] = None,

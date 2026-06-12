@@ -75,6 +75,7 @@ async def _baseline_tick(tick: int) -> None:
     # thread offload still applies (the whole walk runs off the
     # event loop) so /api/healthz + /api/* stay responsive.
 
+    # noinspection PyShadowingNames
     def _walk(hosts, host_targets):
         """Single-threaded walk against one shared connection."""
         from logic.db import db_conn as _db_conn

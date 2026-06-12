@@ -425,6 +425,7 @@ def _status_in_accepted(status_code: int, accepted: Optional[Sequence[int]]) -> 
         return False
 
 
+# noinspection DuplicatedCode
 async def probe_http_health(
     url: str,
     *,

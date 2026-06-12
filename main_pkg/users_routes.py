@@ -636,6 +636,7 @@ async def api_reset_password(
     return {"ok": True}
 
 
+# noinspection DuplicatedCode
 @app.post("/api/users/{user_id}/disable-totp")
 async def api_admin_disable_totp(
     user_id: int,
@@ -708,6 +709,7 @@ class TotpForceIn(BaseModel):
     force: bool
 
 
+# noinspection DuplicatedCode
 @app.post("/api/users/{user_id}/totp-force")
 async def api_admin_totp_force(
     user_id: int,
@@ -1243,6 +1245,7 @@ async def api_create_schedule(
     return {"ok": True, "schedule": row}
 
 
+# noinspection DuplicatedCode
 @app.patch("/api/schedules/{schedule_id}")
 async def api_update_schedule(
     schedule_id: int,
@@ -1850,6 +1853,7 @@ async def serve_app_js_module(name: str = FastApiPath(...)):
 app.add_api_route("/js/{name}", serve_app_js_module, methods=["GET"])
 
 
+# noinspection DuplicatedCode
 async def serve_app_js_apps_module(name: str = FastApiPath(...)):
     """Serve a per-app SPA module (`static/js/apps/*.js`) with
     `__APP_VERSION__` substitution + no-cache revalidation.

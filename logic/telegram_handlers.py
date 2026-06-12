@@ -109,6 +109,7 @@ async def _gate_destructive(
 
 
 # noinspection PyProtectedMember
+# noinspection DuplicatedCode
 async def _try_dispatch_skill_command(
     client: httpx.AsyncClient, head: str, args: list, msg: dict,
 ) -> bool:
@@ -491,6 +492,7 @@ def _grouped_app_skills() -> "list[tuple[str, dict]]":
 
 
 # noinspection PyProtectedMember
+# noinspection DuplicatedCode
 async def _try_dispatch_skill_menu_command(
     client: httpx.AsyncClient, head: str, msg: dict,
 ) -> bool:
@@ -567,7 +569,7 @@ def _app_skills_overview_lines(esc) -> "list[str]":
 # noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
 # Telegram handlers have a fixed (client, args, msg) signature set by the
 # dispatcher; `args` is unused here (the roster takes no argument).
-async def _cmd_skills(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_skills(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """`/skills` — the per-app skill roster on its own (the `🧠 App skills`
     section of `/help`, nothing else). One tappable entry per pinned app;
     tap `/<app>` to see that app's commands, or just ask in plain text and
@@ -600,7 +602,7 @@ async def _cmd_skills(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_help(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_help(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """Auto-generated help — iterates `_COMMANDS` so adding a new
     handler shows up in `/help` with no extra wiring.
 
@@ -976,7 +978,7 @@ def _load_host_paused_set() -> set[str]:
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_hosts(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_hosts(client: httpx.AsyncClient, _args, _msg) -> None:
     """``/hosts`` — split the curated fleet into three grouped lists:
     Active (enabled + no failure-state markers), Down (enabled but has
     at least one failure-state row — whole-host or per-provider — i.e.
@@ -1165,7 +1167,7 @@ def _fmt_age(ts: float | int | None) -> str:
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_host(client: httpx.AsyncClient, args: list[str], _msg) -> None:
     """``/host <target>`` — probe live, then show fresh stats for one
     curated host (CPU / memory / disk / uptime + extended provider
     stats when present). Strategy: send a "🔄 Probing live data…"
@@ -1336,11 +1338,11 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             )
         else:
             providers_line = (
-                f"\n<i>No host-stats providers are mapped on this row. "
-                f"Open Admin → Hosts and set at least one of "
-                f"<code>snmp_name</code> / <code>beszel_name</code> / "
-                f"<code>pulse_name</code> / <code>webmin_name</code> / "
-                f"<code>ne_url</code>.</i>"
+                "\n<i>No host-stats providers are mapped on this row. "
+                "Open Admin → Hosts and set at least one of "
+                "<code>snmp_name</code> / <code>beszel_name</code> / "
+                "<code>pulse_name</code> / <code>webmin_name</code> / "
+                "<code>ne_url</code>.</i>"
             )
         warn = (
             f"⚠️ No readings for <b>{_listener()._escape(label)}</b> yet. "
@@ -1412,7 +1414,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                     if isinstance(ping_loss, (int, float)) and ping_loss > 0 else "")
         out.append(f"📡 <b>Ping:</b>   {float(ping_rtt):.1f} ms{loss_seg}")
     elif ping_alive is False:
-        out.append(f"📡 <b>Ping:</b>   unreachable")
+        out.append("📡 <b>Ping:</b>   unreachable")
 
     # ---- Extended stats — only emit sections with meaningful data --
     extended: list[str] = []
@@ -1458,7 +1460,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 bits.append(f"{_listener()._escape(str(tn))} {tc:.0f}°C")
         if bits:
             extra = f" + {len(temps) - 5} more" if len(temps) > 5 else ""
-            extended.append(f"🌡 <b>Temp:</b>   " + ", ".join(bits) + extra)
+            extended.append("🌡 <b>Temp:</b>   " + ", ".join(bits) + extra)
     # GPUs
     gpus = data.get("host_gpus")
     if isinstance(gpus, list) and gpus:
@@ -1473,7 +1475,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
                 seg += f" {float(util):.0f}%"
             bits.append(seg)
         if bits:
-            extended.append(f"🎮 <b>GPU:</b>    " + ", ".join(bits))
+            extended.append("🎮 <b>GPU:</b>    " + ", ".join(bits))
     # Containers
     ct = data.get("host_containers")
     if isinstance(ct, int) and ct > 0:
@@ -1555,6 +1557,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
+# noinspection DuplicatedCode
 async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/restart <target>`` — reboot a host via SSH.
 
@@ -1635,7 +1638,7 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_version(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/version`` (aliased as ``/ver``) — show the running OmniGrid
     version. Reads the version baked into the image at build time
     (`/app/VERSION.txt` populated by the deploy pipeline's
@@ -1742,7 +1745,7 @@ async def _cmd_version(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_ip(client: httpx.AsyncClient, _args, _msg) -> None:
     """``/ip`` — show the deployment's public IP + ISP / ASN / country
     via the same lookup the AI palette uses (ifconfig.co JSON). Gated
     on the `public_ip_enabled` setting (default OFF for privacy);
@@ -1792,6 +1795,78 @@ async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None
     await _listener()._send_reply(client, "\n".join(bits))
 
 
+# Type → emoji for the upcoming-release reply (movie / episode / album / book).
+_UPCOMING_TYPE_EMOJI = {"movie": "🎬", "episode": "📺", "album": "🎵", "book": "📚"}
+
+
+async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+    """``/upcoming`` — upcoming releases across every configured Radarr / Sonarr
+    / Lidarr / Readarr instance (the same data the release-calendar widget +
+    the AI ``upcoming_releases`` tool use): title + release date + air time +
+    runtime + a one-line synopsis, grouped by date. Optional args:
+    ``/upcoming [days] [movies|series|music|books]`` — e.g. ``/upcoming 30
+    movies``. Linked-only (it reads the operator's configured apps)."""
+    _tl = _listener()
+    sender_id = (msg.get("from") or {}).get("id") if isinstance(msg, dict) else None
+    username = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None
+    # Parse [days] + [media-type] out of the free-form args (order-agnostic).
+    from logic.apps.arr_calendar import normalize_media_type, upcoming_items
+    days = 14
+    media_type = ""
+    for a in (args or []):
+        tok = str(a or "").strip()
+        if tok.isdigit():
+            days = max(1, min(90, int(tok)))
+        elif normalize_media_type(tok):
+            media_type = tok
+    res = await upcoming_items(days=days, media_type=media_type, limit=25)
+    if not res.get("configured"):
+        await _tl._send_reply(
+            client,
+            "📅 No Radarr / Sonarr / Lidarr / Readarr instance is configured, so "
+            "there's no release calendar to read. Pin one in OmniGrid → Admin → Apps.")
+        return
+    items = res.get("items") or []
+    win = (res.get("window") or {}).get("days") or days
+    if not items:
+        kind = f" {media_type}" if media_type else ""
+        await _tl._send_reply(
+            client, f"📅 Nothing{kind} releasing in the next {win} days.")
+        return
+    fmt = _user_dt_fmt(username)
+    lines = [f"📅 <b>Upcoming releases — next {win} days</b>"]
+    last_date = None
+    for it in items:
+        date_raw = str(it.get("date") or "")
+        if date_raw != last_date:
+            last_date = date_raw
+            lines.append(f"\n<b>{_tl._escape(_fmt_date_user(date_raw, fmt))}</b>")
+        emoji = _UPCOMING_TYPE_EMOJI.get(str(it.get("type") or ""), "•")
+        title = _tl._escape(str(it.get("title") or "?"))
+        # subtitle (episode code / album), air time, runtime → a compact meta tail.
+        meta = []
+        sub = str(it.get("subtitle") or "").strip()
+        if sub:
+            meta.append(_tl._escape(sub))
+        tm = str(it.get("time") or "").strip()
+        if tm:
+            meta.append(_tl._escape(_fmt_clock_user(tm, fmt)))
+        rt = int(it.get("runtime_min") or 0)
+        if rt > 0:
+            meta.append(f"{rt}m")
+        meta_txt = (" · " + " · ".join(meta)) if meta else ""
+        lines.append(f"{emoji} <b>{title}</b>{meta_txt}")
+        overview = str(it.get("overview") or "").strip()
+        if overview:
+            if len(overview) > 160:
+                overview = overview[:159].rstrip() + "…"
+            lines.append(f"<i>{_tl._escape(overview)}</i>")
+    svcs = res.get("services") or []
+    if svcs:
+        lines.append(f"\n<i>from {_tl._escape(', '.join(svcs))}</i>")
+    await _tl._send_reply(client, "\n".join(lines))
+
+
 # noinspection PyUnusedLocal
 # noinspection PyUnusedLocal,PyProtectedMember,PyUnresolvedReferences
 # Telegram handlers have a fixed (client, args, msg) signature
@@ -1799,7 +1874,7 @@ async def _cmd_ip(client: httpx.AsyncClient, args: list[str], msg: dict) -> None
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_whoami(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """Debug aid — tells the user their Telegram user_id + the
     OmniGrid username they're linked to (or that they aren't) + their
     access level (role). Aliased as /myid."""
@@ -1842,7 +1917,7 @@ async def _cmd_whoami(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_time(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_time(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/time`` — show the current local time at the linked user's
     saved weather location. Uses Open-Meteo's resolved IANA timezone
     (returned alongside the weather response) so daylight-saving + tz
@@ -2098,6 +2173,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
+# noinspection DuplicatedCode
 async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/update`` — pull-and-recreate stacks / containers whose remote
     image digest differs from what's running locally.
@@ -2239,7 +2315,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
                 return
             if len(partial) > 1:
                 names = ", ".join(
-                    f"<code>{_listener()._escape(str(i.get('name')))}</code>"
+                    f"<code>{_listener()._escape(str(i.get('name', '')))}</code>"
                     for i in partial[:8]
                 )
                 more = f" (and {len(partial) - 8} more)" if len(partial) > 8 else ""
@@ -2265,7 +2341,7 @@ async def _cmd_update(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
         for i in targets[:10]:
             stack = i.get("stack") or "(no stack)"
             lines.append(
-                f"  • <code>{_listener()._escape(str(i.get('name')))}</code> "
+                f"  • <code>{_listener()._escape(str(i.get('name', '')))}</code> "
                 f"<i>({_listener()._escape(stack)})</i>"
             )
         if n > 10:
@@ -2508,7 +2584,7 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_unlink(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/unlink`` — drop the sender's Telegram → OmniGrid mapping."""
     sender_id_int = await _resolve_telegram_sender_id_int(client, msg)
     if sender_id_int is None:
@@ -2550,7 +2626,7 @@ async def _cmd_unlink(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 # `_listener()._X` access is the documented cross-module shim — see
 # the `_listener()` docstring at the top of this file.
 # noinspection PyProtectedMember
-async def _cmd_weather(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_weather(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/weather`` — fetch the linked OmniGrid user's saved weather
     location and return current conditions + a 3-day forecast snippet.
     """
@@ -2812,6 +2888,7 @@ _PRAYER_EMOJI = {
 
 
 # noinspection PyProtectedMember
+# noinspection DuplicatedCode
 async def _fetch_user_prayer(client: httpx.AsyncClient, msg: dict):
     """Shared helper for /prayer + /hijri — resolves the linked user's
     saved weather location + fetches today's prayer times. Sends the
@@ -2954,7 +3031,7 @@ def _fmt_prayer_countdown(secs) -> str:
 
 
 # noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
-async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+async def _cmd_prayer(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/prayer`` — today's five prayer times + the next prayer +
     countdown for the linked user's saved location, plus the Hijri date.
     Location comes from the same saved Weather location /weather uses."""
@@ -3015,7 +3092,8 @@ async def _cmd_prayer(client: httpx.AsyncClient, args: list[str], msg: dict) -> 
 
 
 # noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
-async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+# noinspection DuplicatedCode
+async def _cmd_hijri(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/hijri`` — today's Hijri (Islamic) calendar date for the
     linked user's saved location."""
     res = await _fetch_user_prayer(client, msg)
@@ -3032,14 +3110,14 @@ async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
         f"{hijri.get('day')} {hijri.get('month_en')} "
         f"{hijri.get('year')} {hijri.get('designation')}"
     )
-    lines = [f"📅 <b>Hijri date</b>", f"🌙 <b>{_listener()._escape(str(hijri_txt).strip())}</b>"]
+    lines = ["📅 <b>Hijri date</b>", f"🌙 <b>{_listener()._escape(str(hijri_txt).strip())}</b>"]
     if hijri.get("month_ar"):
         ar = f"{hijri.get('day')} {hijri.get('month_ar')} {hijri.get('year')}"
         lines.append(_listener()._escape(ar.strip()))
     if hijri.get("weekday_en"):
-        lines.append(f"<i>{_listener()._escape(str(hijri.get('weekday_en')))}</i>")
+        lines.append(f"<i>{_listener()._escape(str(hijri.get('weekday_en', '')))}</i>")
     if greg.get("date"):
-        gline = _fmt_date_user(str(greg.get("date")), fmt)
+        gline = _fmt_date_user(str(greg.get("date", "")), fmt)
         if greg.get("weekday"):
             gline += f" ({greg.get('weekday')})"
         lines.append(f"🗓️ {_listener()._escape(gline)}")
@@ -3047,7 +3125,8 @@ async def _cmd_hijri(client: httpx.AsyncClient, args: list[str], msg: dict) -> N
 
 
 # noinspection PyUnusedLocal,PyProtectedMember,PyBroadException
-async def _cmd_moon(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
+# noinspection DuplicatedCode
+async def _cmd_moon(client: httpx.AsyncClient, _args, msg: dict) -> None:
     """``/moon`` — moon-phase summary for the linked user's saved
     location. Requires the WeatherAPI.com provider (Open-Meteo does
     not return moon data); declines with a clear "switch provider"

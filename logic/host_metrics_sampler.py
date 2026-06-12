@@ -563,6 +563,7 @@ def _host_provider_config() -> dict[str, set[str]]:
     return out
 
 
+# noinspection DuplicatedCode
 async def _record_failure(
     host_id: str, now: float, error: str,
     *, round_threshold: Optional[int] = None,
@@ -1828,6 +1829,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
     return [_shape_row(r) for r in rows]
 
 
+# noinspection DuplicatedCode
 def last_samples(host_id: str, limit: int = 5) -> list[dict]:
     """Newest-first recent rows for the debug endpoint."""
     if not host_id:

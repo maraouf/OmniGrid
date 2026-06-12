@@ -718,6 +718,7 @@ async def api_admin_stats_database(
     return await asyncio.to_thread(_compute_admin_stats_database)
 
 
+# noinspection DuplicatedCode
 def _compute_admin_stats_database() -> dict:
     import os as _os
     out: dict = {
@@ -1040,6 +1041,7 @@ async def api_admin_stats_network(
         else fall back to the host_id itself (host stands alone)."""
         return canonical_map.get(canon_hid) or canon_hid
 
+    # noinspection DuplicatedCode
     def _run_net_queries():
         try:
             with db_conn() as c:
@@ -1399,6 +1401,7 @@ async def api_admin_stats_ai_cost(
     """
     import time as _time
     from datetime import datetime as _dt
+    # noinspection DuplicatedCode
     def _run_ai_cost():
         try:
             from logic.schedules import scheduler_tz as _stz

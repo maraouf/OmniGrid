@@ -475,7 +475,7 @@ async def fetch(lat: float, lon: float, *, label: str = "",
         return {"configured": True, "error": str(e),
                 "location": {"lat": qlat, "lon": qlon, "label": label}}
 
-    if str(j.get("code")) not in ("200", "200.0") and j.get("code") != 200:
+    if str(j.get("code", "")) not in ("200", "200.0") and j.get("code") != 200:
         _neg_until[key] = now + neg_ttl
         status = str(j.get("status") or j.get("data") or "unexpected response")
         print(f"[prayer_times] api.aladhan.com error for {label or f'{qlat},{qlon}'}: "

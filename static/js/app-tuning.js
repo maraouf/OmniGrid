@@ -340,6 +340,10 @@ export default {
     // library-growth + missing-backlog + disk-runway trend (cadence + retention).
     'tuning_servarr_sample_interval_seconds',
     'tuning_servarr_history_days',
+    // qBittorrent retention sampler — transfer-speed sparkline + disk-runway
+    // (snapshot cadence + retention).
+    'tuning_qbittorrent_sample_interval_seconds',
+    'tuning_qbittorrent_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

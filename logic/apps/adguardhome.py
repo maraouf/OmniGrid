@@ -388,6 +388,7 @@ async def _set_protection(base: str, auth: httpx.BasicAuth, enabled: bool,
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
+# noinspection DuplicatedCode
 async def _refresh_filters(base: str, auth: httpx.BasicAuth) -> None:
     """POST /control/filtering/refresh {whitelist:false}. Raises on failure."""
     try:
@@ -402,6 +403,7 @@ async def _refresh_filters(base: str, auth: httpx.BasicAuth) -> None:
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
+# noinspection DuplicatedCode
 async def _flush_cache(base: str, auth: httpx.BasicAuth) -> None:
     """POST /control/cache/clear — purge the resolver cache. Raises on failure."""
     try:
@@ -535,6 +537,7 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
 async def _skill_flush_cache() -> dict:
     """Flush the DNS resolver cache on EVERY AdGuard instance."""
 
+    # noinspection DuplicatedCode
     async def _one(hid, _sidx, hrow, chip):
         username, password = resolve_userpass(chip)
         base = resolve_base_url(hrow, chip)
@@ -559,6 +562,7 @@ async def _skill_set_rule(domain: str, block: bool) -> dict:
         return {"ok": False, "status": 0,
                 "detail": f"no domain given (say e.g. \"{verb} ads.example.com\")"}
 
+    # noinspection DuplicatedCode
     async def _one(hid, _sidx, hrow, chip):
         username, password = resolve_userpass(chip)
         base = resolve_base_url(hrow, chip)

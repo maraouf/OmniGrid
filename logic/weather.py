@@ -443,6 +443,7 @@ async def _fetch_open_meteo(
 # --------------------------------------------------------------------
 # WeatherAPI.com — requires API key, returns full astronomy block
 # --------------------------------------------------------------------
+# noinspection DuplicatedCode
 async def _fetch_weatherapi(
     lat: float, lon: float, *, label: str, fetched_at: int,
 ) -> dict:
