@@ -63,10 +63,39 @@
                  x-text="adguardsyncCount(adguardsyncData(inst).replicas_ok) + ' / ' + adguardsyncCount(adguardsyncData(inst).replicas_total)"></div>
           </div>
         </div>
-        <!-- Failing-replica footnote (only when > 0). -->
-        <div x-show="adguardsyncFailed(inst).length"
-             class="fs-3xs text-[var(--danger)] mt-1"
-             x-text="(t('apps.adguardsync.failing') || 'Failing') + ': ' + adguardsyncFailed(inst).join(', ')"></div>
+        <!-- Per-replica detail — which replica is stale + HOW stale (last-sync
+             age) + why (error, drawer-only so the grid card stays compact). -->
+        <template x-if="adguardsyncReplicas(inst).length">
+          <div class="mt-1 space-y-0.5">
+            <template x-for="(rep, ri) in adguardsyncReplicas(inst)" :key="(rep.host || '') + ':' + ri">
+              <div class="fs-3xs">
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="flex items-baseline gap-1 min-w-0">
+                    <span class="apps-ddns-dot"
+                          :class="rep.ok ? 'apps-ddns-dot--ok' : 'apps-ddns-dot--fail'"
+                          aria-hidden="true"></span>
+                    <span class="mono truncate" x-text="rep.host || '?'" :title="rep.host"></span>
+                  </span>
+                  <span class="text-[var(--text-faint)] shrink-0"
+                        x-show="adguardsyncRelAge(rep.last_sync)"
+                        x-text="t('apps.adguardsync.last_sync', { ago: adguardsyncRelAge(rep.last_sync) }) || ('synced ' + adguardsyncRelAge(rep.last_sync))"></span>
+                </div>
+                <!-- Error detail — drawer-only (too long for the grid card). -->
+                <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && !rep.ok && rep.error"
+                     class="text-[var(--danger)] ps-3 truncate" :title="rep.error"
+                     x-text="rep.error"></div>
+              </div>
+            </template>
+          </div>
+        </template>
+        <!-- Sync interval / total syncs footnote (best-effort — only when the
+             API exposes them). -->
+        <div x-show="adguardsyncData(inst).sync_interval || adguardsyncData(inst).total_syncs"
+             class="fs-3xs text-[var(--text-faint)] mt-1"
+             x-text="[
+               adguardsyncData(inst).sync_interval ? ((t('apps.adguardsync.interval') || 'Every') + ' ' + adguardsyncData(inst).sync_interval) : '',
+               adguardsyncData(inst).total_syncs ? (adguardsyncCount(adguardsyncData(inst).total_syncs) + ' ' + (t('apps.adguardsync.syncs') || 'syncs')) : ''
+             ].filter(Boolean).join(' · ')"></div>
         <!-- Version footnote (best-effort scrape from the sync web UI). -->
         <div x-show="adguardsyncData(inst).version"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono"

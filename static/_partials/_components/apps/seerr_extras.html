@@ -91,10 +91,28 @@
         </div>
       </div>
     </template>
+    <!-- Failed / stuck requests footnote (only when > 0 — very actionable). -->
+    <div x-show="(Number(seerrData(inst).failed_count) || 0) > 0"
+         class="fs-3xs text-[var(--danger)] mt-1"
+         x-text="(t('apps.seerr.failed') || 'Failed / stuck') + ': ' + seerrCount(seerrData(inst).failed_count)"></div>
     <!-- Open-issues footnote (only when > 0). -->
     <div x-show="(Number(seerrData(inst).issues_open) || 0) > 0"
          class="fs-3xs text-[var(--danger)] mt-1"
          x-text="(t('apps.seerr.issues_open') || 'Open issues') + ': ' + seerrCount(seerrData(inst).issues_open)"></div>
+    <!-- Pending-backlog trend (from OmniGrid's seerr_samples). Drawer-only
+         (`appsExtrasInDrawer`) — no room on the apps-grid card; shown once
+         ≥ 2 daily points exist. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && seerrTrend(inst) && seerrTrend(inst).series && seerrTrend(inst).series.length >= 2">
+      <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.seerr.backlog_trend', { days: seerrTrend(inst).days }) || ('Pending backlog (' + seerrTrend(inst).days + ' days)')"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="seerrTrendPath(seerrTrend(inst).series)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)]"
+             x-text="(t('apps.seerr.peak_pending') || 'Peak pending') + ': ' + seerrCount(seerrTrend(inst).peak_pending)"></div>
+      </div>
+    </template>
     <!-- Version footnote (when reported by /api/v1/status). -->
     <div x-show="seerrData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"

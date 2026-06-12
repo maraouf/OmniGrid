@@ -88,8 +88,10 @@
                  x-text="(t('apps.adguard.safebrowsing') || 'Safe-browsing') + ': ' + adguardInt(agg.safebrowsing) + ' · ' + (t('apps.adguard.parental') || 'Parental') + ': ' + adguardInt(agg.parental)"></div>
             <!-- Queries-vs-blocked time-bucket chart (from the same /control/stats
                  response — no extra call), summed across the fleet. Queries +
-                 blocked share one scale so blocked reads as a true proportion. -->
-            <template x-if="agg.queriesSeries && agg.queriesSeries.length >= 2">
+                 blocked share one scale so blocked reads as a true proportion.
+                 Drawer-only (`appsExtrasInDrawer`) — the apps-grid card has no
+                 room for the chart, so it shows only in the app drawer. -->
+            <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.queriesSeries && agg.queriesSeries.length >= 2">
               <div class="space-y-1 mt-1">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.adguard.activity') || 'Queries vs blocked'"></span>
@@ -108,8 +110,9 @@
               </div>
             </template>
             <!-- Long-horizon blocked-% trend (from OmniGrid's adguard_samples,
-                 surviving AdGuard's short rolling window + restarts). -->
-            <template x-if="agg.trend && agg.trend.series && agg.trend.series.length >= 2">
+                 surviving AdGuard's short rolling window + restarts). Drawer-
+                 only — no room on the apps-grid card. -->
+            <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.trend && agg.trend.series && agg.trend.series.length >= 2">
               <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
                 <span class="fs-2xs text-[var(--text-faint)] block"
                       x-text="t('apps.adguard.blocked_trend', { days: agg.trend.days }) || ('Blocked % trend (' + agg.trend.days + ' days)')"></span>

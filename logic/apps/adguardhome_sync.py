@@ -53,7 +53,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -146,6 +146,65 @@ def _status_ok(status: Any) -> bool:
     return str(status or "").strip().lower() == "success"
 
 
+def _pick(d: dict, *keys: str) -> Any:
+    """First non-empty value among ``keys`` in ``d`` (defensive over the
+    varying field names the sync API uses across versions). ``None`` when none
+    are present."""
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    return None
+
+
+def _rel_age(iso_str: Any) -> str:
+    """Human "Xs/m/h/d ago" for an ISO-8601 timestamp (best-effort — ``""`` on a
+    blank / unparseable / future value). Used by the status skill so AI /
+    Telegram can say HOW stale a replica is."""
+    s = str(iso_str or "").strip()
+    if not s:
+        return ""
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    secs = int((datetime.now(timezone.utc) - dt).total_seconds())
+    if secs < 0:
+        return ""
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
+
+
+def _replica_detail(r: dict) -> dict:
+    """Per-replica detail row for the card / skill: host + status + ok flag +
+    the error (when failing) + the last-sync timestamp + protection-enabled
+    (when the payload carries them). Defensive over the version-varying field
+    names — absent fields surface as ``""`` / ``None`` so the UI shows nothing
+    rather than a false claim."""
+    host = str(r.get("host") or r.get("url") or "?").strip()
+    status = str(r.get("status") or "").strip()
+    last_sync = _pick(r, "lastSync", "last_sync", "lastSyncTime",
+                      "lastSyncedAt", "time", "timestamp")
+    prot = _pick(r, "protection_enabled", "protectionEnabled")
+    return {
+        "host": host,
+        "status": status,
+        "ok": _status_ok(status),
+        "error": str(r.get("error") or "").strip()[:200],
+        "last_sync": str(last_sync or "").strip(),
+        "protection_enabled": (bool(prot) if prot is not None else None),
+    }
+
+
 def _shape_status(body: Any) -> dict:
     """Shape a ``/api/v1/status`` payload into the card's fields. Defensive
     over every key (a malformed body yields zeros, never raises)."""
@@ -155,29 +214,27 @@ def _shape_status(body: Any) -> dict:
     _replicas = body.get("replicas")
     replicas = _replicas if isinstance(_replicas, list) else []
 
-    rep_total = 0
-    rep_ok = 0
-    failed_names: list[str] = []
-    for r in replicas:
-        if not isinstance(r, dict):
-            continue
-        rep_total += 1
-        if _status_ok(r.get("status")):
-            rep_ok += 1
-        else:
-            name = str(r.get("host") or r.get("url") or "?").strip()
-            if name:
-                failed_names.append(name)
+    details = [_replica_detail(r) for r in replicas if isinstance(r, dict)]
+    rep_total = len(details)
+    rep_ok = sum(1 for d in details if d["ok"])
+    failed_names = [d["host"] for d in details if not d["ok"] and d["host"]]
     return {
         "sync_running": bool(body.get("syncRunning")),
         "origin_status": str(origin.get("status") or "").strip(),
         "origin_ok": _status_ok(origin.get("status")),
         "origin_host": str(origin.get("host") or origin.get("url") or "").strip(),
         "origin_protection": bool(origin.get("protection_enabled")) if origin.get("protection_enabled") is not None else None,
+        "origin_last_sync": str(_pick(origin, "lastSync", "last_sync", "lastSyncTime", "time") or "").strip(),
         "replicas_total": rep_total,
         "replicas_ok": rep_ok,
         "replicas_failed": rep_total - rep_ok,
         "failed_names": failed_names[:8],
+        # Per-replica detail (which replica is stale + HOW stale + why) — capped.
+        "replicas": details[:12],
+        # Best-effort scheduling / lifetime fields (surfaced only when present).
+        "sync_interval": str(_pick(body, "interval", "cron", "syncInterval", "schedule") or "").strip(),
+        "next_sync": str(_pick(body, "nextSync", "next_sync", "nextRun") or "").strip(),
+        "total_syncs": safe_int(_pick(body, "syncCount", "totalSyncs", "runs", "count")),
     }
 
 
@@ -317,6 +374,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "replicas_ok": safe_int(data.get("replicas_ok")),
         "replicas_total": safe_int(data.get("replicas_total")),
         "replicas_failed": safe_int(data.get("replicas_failed")),
+        "sync_interval": data.get("sync_interval") or "",
+        "total_syncs": safe_int(data.get("total_syncs")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -376,15 +435,38 @@ async def _status_skill(host_row: dict, chip: dict, *,
     origin_status = str(data.get("origin_status") or "").strip() or "unknown"
     rep_total = safe_int(data.get("replicas_total"))
     rep_ok = safe_int(data.get("replicas_ok"))
-    failed = as_list(data.get("failed_names"))
+    replicas = as_list(data.get("replicas"))
     lines = [
         f"{'🔄' if running else '✅'} Sync: {'running now' if running else 'idle'}",
         f"{'✅' if origin_ok else '❌'} Origin: {origin_status}",
         f"{'✅' if rep_total and rep_ok == rep_total else '⚠️'} Replicas: "
         f"{rep_ok}/{rep_total} in sync",
     ]
-    if failed:
-        lines.append("❌ Failing: " + ", ".join(str(f) for f in failed))
+    # Per-failing-replica detail — which one is stale, how stale, and why.
+    for r in replicas:
+        if not isinstance(r, dict) or r.get("ok"):
+            continue
+        host = str(r.get("host") or "?").strip()
+        bits = [f"❌ {host}"]
+        st = str(r.get("status") or "").strip()
+        if st:
+            bits.append(st)
+        age = _rel_age(r.get("last_sync"))
+        if age:
+            bits.append(f"last sync {age}")
+        err = str(r.get("error") or "").strip()
+        if err:
+            bits.append(err)
+        lines.append("   " + " · ".join(bits))
+    interval = str(data.get("sync_interval") or "").strip()
+    total = safe_int(data.get("total_syncs"))
+    if interval or total:
+        meta = []
+        if interval:
+            meta.append(f"⏱️ every {interval}")
+        if total:
+            meta.append(f"Σ {total} syncs")
+        lines.append("   ".join(meta))
     version = str(data.get("version") or "").strip()
     if version:
         lines.append(f"🏷️ Version: {version}")

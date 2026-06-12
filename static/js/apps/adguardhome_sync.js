@@ -87,6 +87,29 @@ function adguardsyncFailed(inst) {
   return d.failed_names;
 }
 
+// Per-replica detail rows ([] when payload absent). Each carries
+// {host, status, ok, error, last_sync, protection_enabled}.
+function adguardsyncReplicas(inst) {
+  /* jshint validthis: true */
+  const d = (this.adguardsyncData ? this.adguardsyncData(inst) : null);
+  return (d && Array.isArray(d.replicas)) ? d.replicas : [];
+}
+
+// Relative "5m" age for a replica's ISO last-sync timestamp ('' when blank /
+// unparseable). Uses the component's shared fmtAgo so the format matches the
+// rest of the UI; the template wraps it with an "ago" i18n label.
+function adguardsyncRelAge(iso) {
+  /* jshint validthis: true */
+  if (!iso) {
+    return '';
+  }
+  const ms = Date.parse(String(iso));
+  if (isNaN(ms)) {
+    return '';
+  }
+  return (typeof this.fmtAgo === 'function') ? this.fmtAgo(ms) : '';
+}
+
 // True when every configured replica is in sync (and at least one exists).
 function adguardsyncAllOk(inst) {
   // `this` is the Alpine component (merged in via `appsHelpers`).
@@ -123,5 +146,7 @@ export const helpers = {
   adguardsyncData: adguardsyncData,
   adguardsyncCount: adguardsyncCount,
   adguardsyncFailed: adguardsyncFailed,
+  adguardsyncReplicas: adguardsyncReplicas,
+  adguardsyncRelAge: adguardsyncRelAge,
   adguardsyncAllOk: adguardsyncAllOk,
 };

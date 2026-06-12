@@ -1987,6 +1987,14 @@
           "label": "Pi-hole history retention (days)",
           "help": "Retention window for the Pi-hole blocked-% trend samples. Default 90 (a quarter of daily points). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
         },
+        "tuning_seerr_sample_interval_seconds": {
+          "label": "Seerr backlog sampler interval (seconds)",
+          "help": "How often the lifespan Seerr sampler snapshots each configured Seerr chip's request-queue gauges (pending / processing / available / open issues) into the backlog history table that drives the card's pending-over-time trend. Default 900 (15 min) — the queue moves slowly. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_seerr_history_days": {
+          "label": "Seerr backlog history retention (days)",
+          "help": "Retention window for the Seerr request-backlog samples that drive the pending-over-time trend (pending-stuck detection). Default 90. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5467,7 +5475,10 @@
       "request_btn": "Request on Seerr",
       "loading": "Loading Seerr data…",
       "requests_count": "{count} requests",
-      "requested_by": "Requested by {name}"
+      "requested_by": "Requested by {name}",
+      "failed": "Failed / stuck",
+      "backlog_trend": "Pending backlog ({days} days)",
+      "peak_pending": "Peak pending"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",
@@ -5683,6 +5694,11 @@
       "seerr_status": "Seerr status",
       "seerr_requests": "List requests",
       "seerr_request_movie": "Request a movie",
+      "seerr_request_tv": "Request a TV show",
+      "seerr_approve_request": "Approve a request",
+      "seerr_decline_request": "Decline a request",
+      "seerr_retry_request": "Retry a failed request",
+      "seerr_resolve_issue": "Resolve an issue",
       "seerr_suggest_movie": "Suggest a movie",
       "seerr_set_filter": "Set a suggestion filter",
       "seerr_show_filters": "Show suggestion filters",
@@ -5919,7 +5935,10 @@
       "ok": "OK",
       "unknown": "Unknown",
       "replicas": "Replicas",
-      "failing": "Failing"
+      "failing": "Failing",
+      "last_sync": "synced {ago} ago",
+      "interval": "Every",
+      "syncs": "syncs"
     },
     "extras_filter_label": "Filter by extras",
     "filter_extras_only": "Extras only",
