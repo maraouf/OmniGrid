@@ -105,6 +105,46 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "prowlarr_indexer_stats",
+        "name": "Indexer stats",
+        "ai_phrases": ("indexer stats, which indexer is failing, indexer failure "
+                       "rate, slowest indexer, fastest indexer, which indexer is "
+                       "slow, indexer performance, most failing indexer, indexer "
+                       "queries and grabs, indexer response times, failing indexers"),
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_enable_indexer",
+        "name": "Enable an indexer",
+        "ai_phrases": ("enable indexer <name>, turn on <name>, enable <name> on "
+                       "prowlarr, re-enable <name>, switch on the <name> indexer"),
+        "arg": True,
+        "arg_hint": "the configured indexer name to enable",
+        "destructive": False,
+    },
+    {
+        "id": "prowlarr_disable_indexer",
+        "name": "Disable an indexer",
+        "ai_phrases": ("disable indexer <name>, turn off <name>, disable <name> on "
+                       "prowlarr, switch off the <name> indexer, disable the failing "
+                       "indexer, disable the dead indexer <name>, stop using <name>"),
+        # Disabling an indexer reduces search coverage, so it is gated like a
+        # destructive op (typed-confirm in the SPA) — the inverse of enable.
+        "arg": True,
+        "arg_hint": "the configured indexer name to disable",
+        "destructive": True,
+    },
+    {
+        "id": "prowlarr_test_indexer",
+        "name": "Test an indexer",
+        "ai_phrases": ("test indexer <name>, test <name> on prowlarr, check if "
+                       "<name> is working, is <name> reachable, test the <name> "
+                       "indexer connection, verify <name>"),
+        "arg": True,
+        "arg_hint": "the configured indexer name to run a live connectivity test against",
+        "destructive": False,
+    },
+    {
         "id": "prowlarr_app_sync",
         "name": "Sync indexers to apps",
         "ai_phrases": ("sync indexers to my apps, prowlarr app sync, push "
@@ -247,22 +287,59 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
                                           app_label="Prowlarr", api_version="v1")
 
 
-def _sum_indexer_stats(raw: Any) -> "tuple[int, int]":
-    """Sum lifetime ``numberOfQueries`` + ``numberOfGrabs`` across every indexer
-    in a ``/api/v1/indexerstats`` payload. Returns ``(queries, grabs)`` — both 0
-    on any shape / parse failure (stats are a nice-to-have, never load-bearing)."""
+# Minimum lifetime queries before an indexer's failure-rate / slowness counts as
+# "actionable" — a 1-of-1 failure (100%) shouldn't dominate the "most failing"
+# pick over a busy indexer at 35% of thousands.
+_STATS_MIN_QUERIES = 10
+
+
+def _indexer_stats_detail(raw: Any) -> dict:
+    """Per-indexer + aggregate breakdown from a ``/api/v1/indexerstats`` payload.
+
+    Returns ``{queries, grabs, failed, fail_rate_pct, per_indexer, worst_failing,
+    slowest}`` where ``per_indexer`` is one ``{name, queries, grabs, failed,
+    fail_rate_pct, avg_response_ms}`` row per indexer (sorted worst-failure-rate
+    first, then busiest), ``worst_failing`` is the highest-failure-rate indexer
+    with a meaningful query volume (the single most actionable Prowlarr insight —
+    'indexer X: 40% failure rate'), and ``slowest`` is the highest-average-
+    response indexer. Empty / zeroed shape on any parse failure (stats are a
+    nice-to-have, never load-bearing)."""
+    out: dict = {"queries": 0, "grabs": 0, "failed": 0, "fail_rate_pct": 0.0,
+                 "per_indexer": [], "worst_failing": None, "slowest": None}
     if not isinstance(raw, dict):
-        return 0, 0
+        return out
     rows = raw.get("indexers")
     if not isinstance(rows, list):
-        return 0, 0
-    queries = grabs = 0
+        return out
+    per: list[dict] = []
+    tq = tg = tf = 0
     for r in rows:
         if not isinstance(r, dict):
             continue
-        queries += safe_int(r.get("numberOfQueries"))
-        grabs += safe_int(r.get("numberOfGrabs"))
-    return queries, grabs
+        q = safe_int(r.get("numberOfQueries"))
+        g = safe_int(r.get("numberOfGrabs"))
+        fq = safe_int(r.get("numberOfFailedQueries"))
+        avg = safe_int(r.get("averageResponseTime"))  # ms
+        name = str(r.get("indexerName") or r.get("name") or "?").strip()
+        tq += q
+        tg += g
+        tf += fq
+        per.append({
+            "name": name, "queries": q, "grabs": g, "failed": fq,
+            "fail_rate_pct": round(fq / q * 100, 1) if q > 0 else 0.0,
+            "avg_response_ms": avg,
+        })
+    out["queries"] = tq
+    out["grabs"] = tg
+    out["failed"] = tf
+    out["fail_rate_pct"] = round(tf / tq * 100, 1) if tq > 0 else 0.0
+    per.sort(key=lambda p: (p["fail_rate_pct"], p["queries"]), reverse=True)
+    out["per_indexer"] = per
+    failing = [p for p in per if p["queries"] >= _STATS_MIN_QUERIES and p["failed"] > 0]
+    out["worst_failing"] = failing[0] if failing else None
+    busy = [p for p in per if p["queries"] >= _STATS_MIN_QUERIES and p["avg_response_ms"] > 0]
+    out["slowest"] = max(busy, key=lambda p: p["avg_response_ms"]) if busy else None
+    return out
 
 
 # noinspection DuplicatedCode
@@ -315,14 +392,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 apps_synced = 0
                 apps_names = []
-            queries = grabs = 0
+            stats: dict = {}
             try:
                 sr = await cli.get(base + "/api/v1/indexerstats",
                                    headers=_headers(api_key))
                 if sr.status_code == 200:
-                    queries, grabs = _sum_indexer_stats(sr.json())
+                    stats = _indexer_stats_detail(sr.json())
             except (httpx.HTTPError, OSError, ValueError, TypeError):
-                queries = grabs = 0
+                stats = {}
+            queries = safe_int(stats.get("queries"))
+            grabs = safe_int(stats.get("grabs"))
             health_issues = 0
             try:
                 hr = await cli.get(base + "/api/v1/health",
@@ -361,14 +440,24 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "apps_names": apps_names,
         "queries": safe_int(queries),
         "grabs": safe_int(grabs),
+        "failed_queries": safe_int(stats.get("failed")),
+        "fail_rate_pct": float(stats.get("fail_rate_pct") or 0.0),
+        "worst_failing": stats.get("worst_failing"),
+        "slowest_indexer": stats.get("slowest"),
+        # Capped per-indexer breakdown (worst-failure-rate first) for the
+        # rich indexer-stats skill + the AI context.
+        "indexer_stats": (stats.get("per_indexer") or [])[:15],
         "health_issues": safe_int(health_issues),
         "version": ver,
         "fetched_at": int(now),
     }
+    _worst = out["worst_failing"]
     print(f"[prowlarr] INFO fetched host={host_id} indexers={enabled}/{total} "
           f"apps={out['apps_synced']}{('=' + ','.join(apps_names)) if apps_names else ''} "
-          f"queries={out['queries']} "
-          f"grabs={out['grabs']} health={out['health_issues']}")
+          f"queries={out['queries']} grabs={out['grabs']} "
+          f"fail_rate={out['fail_rate_pct']}% "
+          f"worst={(str(_worst.get('name', '')) + ' ' + str(_worst.get('fail_rate_pct', 0)) + '%') if isinstance(_worst, dict) else 'none'} "
+          f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -386,6 +475,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "apps_names": as_list(data.get("apps_names")),
         "queries": safe_int(data.get("queries")),
         "grabs": safe_int(data.get("grabs")),
+        "failed_queries": safe_int(data.get("failed_queries")),
+        "fail_rate_pct": float(data.get("fail_rate_pct") or 0.0),
+        "worst_failing": data.get("worst_failing"),
+        "slowest_indexer": data.get("slowest_indexer"),
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -409,6 +502,17 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                    service_idx=service_idx)
     if skill_id == "prowlarr_indexers":
         return await _indexers_skill(host_row, chip, host_id=host_id)
+    if skill_id == "prowlarr_indexer_stats":
+        return await _indexer_stats_skill(host_row, chip, host_id=host_id,
+                                          service_idx=service_idx)
+    if skill_id == "prowlarr_enable_indexer":
+        return await _toggle_indexer_skill(host_row, chip, arg=arg, enable=True,
+                                           host_id=host_id)
+    if skill_id == "prowlarr_disable_indexer":
+        return await _toggle_indexer_skill(host_row, chip, arg=arg, enable=False,
+                                           host_id=host_id)
+    if skill_id == "prowlarr_test_indexer":
+        return await _test_indexer_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "prowlarr_app_sync":
         return await _command_skill(host_row, chip, command="ApplicationIndexerSync",
                                     started_msg="🔄 Started syncing indexers to every "
@@ -455,6 +559,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     apps_names = as_list(data.get("apps_names"))
     queries = safe_int(data.get("queries"))
     grabs = safe_int(data.get("grabs"))
+    fail_rate = float(data.get("fail_rate_pct") or 0.0)
+    worst = data.get("worst_failing")
+    slowest = data.get("slowest_indexer")
     health = safe_int(data.get("health_issues"))
     # Spell out the actual connected apps so the AI never invents names.
     apps_line = f"🔗 Apps synced: {apps:,}"
@@ -463,10 +570,18 @@ async def _status_skill(host_row: dict, chip: dict, *,
     lines = [
         f"🔍 Indexers: {enabled:,} / {total:,} enabled",
         apps_line,
-        f"📊 Queries: {queries:,}",
-        f"📥 Grabs: {grabs:,}",
-        f"{'⚠️' if health else '✅'} Health issues: {health:,}",
+        f"📊 Queries: {queries:,}  ·  📥 Grabs: {grabs:,}",
+        f"{'⚠️' if fail_rate >= 10 else '✅'} Query failure rate: {fail_rate}%",
     ]
+    # The single most actionable Prowlarr insight: which indexer is failing /
+    # slow. Only shown when there's a meaningful offender.
+    if isinstance(worst, dict) and worst.get("name"):
+        lines.append(f"🛑 Most failing: {worst.get('name')} "
+                     f"({worst.get('fail_rate_pct')}% of {safe_int(worst.get('queries')):,} queries)")
+    if isinstance(slowest, dict) and slowest.get("name"):
+        lines.append(f"🐢 Slowest: {slowest.get('name')} "
+                     f"({safe_int(slowest.get('avg_response_ms')):,}ms avg)")
+    lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -474,6 +589,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "indexers_total": total, "indexers_enabled": enabled,
         "apps_synced": apps, "apps_names": apps_names,
         "queries": queries, "grabs": grabs,
+        "fail_rate_pct": fail_rate, "worst_failing": worst,
+        "slowest_indexer": slowest,
         "health_issues": health,
     }
 
@@ -521,6 +638,181 @@ async def _indexers_skill(host_row: dict, chip: dict, *,
         return {"ok": True, "status": 200, "detail": "🔍 No indexers configured."}
     head = f"🔍 Indexers ({enabled:,} / {len(rows):,} enabled):"
     return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
+
+
+async def _indexer_stats_skill(host_row: dict, chip: dict, *,
+                               host_id: Optional[str] = None,
+                               service_idx: Optional[int] = None) -> dict:
+    """Read-only: per-indexer query / grab / failure-rate / avg-response
+    breakdown (worst-failure-rate first). Live-fetches via fetch_data (force).
+    Never raises — the single most actionable Prowlarr view ('which indexer is
+    failing / slow')."""
+    print(f"[prowlarr] INFO prowlarr_indexer_stats host={host_id} svc_idx={service_idx} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip,
+                                host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0),
+                                force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[prowlarr] warning: prowlarr_indexer_stats host={host_id} could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    per = as_list(data.get("indexer_stats"))
+    if not per:
+        return {"ok": True, "status": 200,
+                "detail": "📊 No indexer stats yet — Prowlarr records these once your "
+                          "apps start querying indexers."}
+    overall = float(data.get("fail_rate_pct") or 0.0)
+    lines = [f"📊 Indexer stats (overall query failure rate {overall}%):"]
+    for p in per[:20]:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or "?").strip()
+        q = safe_int(p.get("queries"))
+        g = safe_int(p.get("grabs"))
+        fr = float(p.get("fail_rate_pct") or 0.0)
+        avg = safe_int(p.get("avg_response_ms"))
+        flag = "🛑" if fr >= 25 else ("⚠️" if fr >= 10 else "✅")
+        meta = ", ".join(part for part in (
+            f"{q:,} queries", f"{g:,} grabs",
+            (f"{fr}% fail" if fr > 0 else ""),
+            (f"{avg:,}ms" if avg > 0 else ""),
+        ) if part)
+        lines.append(f"{flag} {name}: {meta}")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "fail_rate_pct": overall, "indexer_stats": per}
+
+
+async def _get_configured_indexers(cli: httpx.AsyncClient, base: str,
+                                   key: str) -> "tuple[Optional[list], Optional[dict]]":
+    """GET ``/api/v1/indexer`` → ``(indexers_list, None)`` on success, or
+    ``(None, error_skill_dict)`` when auth fails / non-200 / non-JSON. Shared by
+    the enable / disable / test skills (their guard blocks were identical)."""
+    r = await cli.get(base + "/api/v1/indexer", headers=_headers(key))
+    if r.status_code in (401, 403):
+        return None, {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+    if r.status_code != 200:
+        return None, {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        items = r.json()
+    except (ValueError, TypeError):
+        return None, {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    return (items if isinstance(items, list) else []), None
+
+
+def _match_indexer(items: list, name: str) -> "tuple[Optional[dict], str]":
+    """Find ONE configured indexer by ``name`` — exact (case-insensitive) then a
+    UNIQUE substring. Returns ``(indexer, "")`` on a single match, or
+    ``(None, reason)`` when nothing / several match (the reason is a
+    ready-to-show message)."""
+    nl = (name or "").strip().lower()
+    if not nl:
+        return None, "no indexer name given"
+    rows = [i for i in items if isinstance(i, dict)]
+    exact = [i for i in rows if str(i.get("name") or "").strip().lower() == nl]
+    if exact:
+        return exact[0], ""
+    subs = [i for i in rows if nl in str(i.get("name") or "").strip().lower()]
+    if len(subs) == 1:
+        return subs[0], ""
+    if len(subs) > 1:
+        names = ", ".join(sorted(str(i.get("name") or "") for i in subs[:8]))
+        return None, f"“{name}” matches several indexers ({names}…) — be more specific."
+    return None, f"no configured indexer named “{name}”. (Say “list indexers” to see them.)"
+
+
+async def _resolve_configured_indexer(cli: httpx.AsyncClient, base: str, key: str,
+                                      name: str) -> "tuple[Optional[dict], Optional[dict]]":
+    """GET the configured indexers + match ONE by ``name`` in one step. Returns
+    ``(indexer, None)`` on a unique match, or ``(None, err_skill_dict)`` when the
+    list fetch fails / nothing / several match. Shared opening for the enable /
+    disable / test skills (their GET-then-match block was identical)."""
+    items, gerr = await _get_configured_indexers(cli, base, key)
+    if gerr is not None:
+        return None, gerr
+    idx, reason = _match_indexer(items or [], name)
+    if idx is None:
+        return None, {"ok": False, "status": 404, "detail": reason}
+    return idx, None
+
+
+async def _toggle_indexer_skill(host_row: dict, chip: dict, *,
+                                arg: Optional[str] = None, enable: bool,
+                                host_id: Optional[str] = None) -> dict:
+    """Live WRITE: enable / disable ONE configured indexer by name
+    (``PUT /api/v1/indexer/{id}`` with ``enable`` flipped). Already-in-the-target-
+    state is a friendly no-op. Never raises."""
+    verb = "enable" if enable else "disable"
+    name = (arg or "").strip()
+    if not name:
+        return {"ok": False, "status": 0,
+                "detail": f"no indexer name given — which indexer should I {verb}?"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            idx, ierr = await _resolve_configured_indexer(cli, base, api_key, name)
+            if ierr is not None:
+                return ierr
+            rid = safe_int(idx.get("id"))
+            label = str(idx.get("name") or name)
+            if bool(idx.get("enable")) == enable:
+                return {"ok": True, "status": 200,
+                        "detail": f"{'✅' if enable else '⛔'} “{label}” is already {verb}d."}
+            body = dict(idx)
+            body["enable"] = enable
+            print(f"[prowlarr] INFO prowlarr_{verb}_indexer host={host_id} id={rid} name={label!r}")
+            pr = await cli.put(base + f"/api/v1/indexer/{rid}",
+                               headers=_headers(api_key), json=body)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    if pr.status_code in (200, 202):
+        return {"ok": True, "status": 200,
+                "detail": f"{'✅ Enabled' if enable else '⛔ Disabled'} “{label}” on Prowlarr."}
+    if pr.status_code in (401, 403):
+        return {"ok": False, "status": pr.status_code, "detail": "auth failed (check api_key)"}
+    return {"ok": False, "status": pr.status_code,
+            "detail": f"Prowlarr returned HTTP {pr.status_code} trying to {verb} “{label}”."}
+
+
+async def _test_indexer_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """Live connectivity test for ONE configured indexer by name
+    (``POST /api/v1/indexer/test`` with the indexer body). Reports reachable /
+    the upstream validation reason, and flags a Cloudflare/challenge block.
+    Never raises."""
+    name = (arg or "").strip()
+    if not name:
+        return {"ok": False, "status": 0,
+                "detail": "no indexer name given — which indexer should I test?"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            idx, ierr = await _resolve_configured_indexer(cli, base, api_key, name)
+            if ierr is not None:
+                return ierr
+            label = str(idx.get("name") or name)
+            print(f"[prowlarr] INFO prowlarr_test_indexer host={host_id} name={label!r} (live test)")
+            tr = await cli.post(base + "/api/v1/indexer/test",
+                                headers=_headers(api_key), json=idx)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"test failed: {type(e).__name__}: {e}"}
+    if tr.status_code in (200, 201):
+        return {"ok": True, "status": 200,
+                "detail": f"✅ “{label}” tested OK — reachable and authenticated."}
+    if tr.status_code in (401, 403):
+        return {"ok": False, "status": tr.status_code, "detail": "auth failed (check api_key)"}
+    body_text = _resp_text(tr)
+    reason = _short_reason(body_text)
+    flare = (" — looks like a Cloudflare/challenge block; try “fix flaresolverr”."
+             if _FLARE_ERROR_RE.search(body_text) else "")
+    return {"ok": False, "status": tr.status_code,
+            "detail": f"⚠️ “{label}” test failed" + (f": {reason}" if reason else "") + flare}
 
 
 def _fmt_bytes(n: Any) -> str:
@@ -1160,36 +1452,39 @@ async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
     deadline = time.time() + _FLARE_TEST_BUDGET_S
     tagged: list[str] = []
     errs: list[str] = []
-    checked = 0
-    needed = 0
-    remaining = 0
+    # `_`-prefixed so the nested _check_one's nonlocal references don't read as
+    # shadowing the enclosing scope (they ARE the enclosing accumulators by
+    # design); the output keys below stay the plain names.
+    _checked = 0
+    _needed = 0
+    _remaining = 0
 
-    async def _check_one(rid: int, body: dict) -> None:
-        nonlocal checked, needed, remaining
+    async def _check_one(_rid: int, _body: dict) -> None:
+        nonlocal _checked, _needed, _remaining
         async with sem:
             if time.time() >= deadline:
-                remaining += 1
+                _remaining += 1
                 return
-            nm = str(body.get("name") or rid)
+            nm = str(_body.get("name") or _rid)
             # Test the existing indexer config — the response (200 valid, or 400
             # with validationFailures incl. warnings) carries the FlareSolverr
             # requirement message when the site is Cloudflare-protected.
             try:
                 tr = await cli.post(base + "/api/v1/indexer/test",
-                                    headers=_headers(key), json=body)
+                                    headers=_headers(key), json=_body)
             except (httpx.HTTPError, OSError):
                 errs.append(nm)
                 return
-            checked += 1
+            _checked += 1
             if not _FLARE_ERROR_RE.search(_resp_text(tr)):
                 return  # doesn't need FlareSolverr
-            needed += 1
-            _tags = body.get("tags")
-            cur_tags = _tags if isinstance(_tags, list) else []
-            new_body = dict(body)
-            new_body["tags"] = sorted(set(cur_tags) | flare_set)
+            _needed += 1
+            _tags = _body.get("tags")
+            _cur_tags = _tags if isinstance(_tags, list) else []
+            new_body = dict(_body)
+            new_body["tags"] = sorted(set(_cur_tags) | flare_set)
             try:
-                pr = await cli.put(base + f"/api/v1/indexer/{rid}",
+                pr = await cli.put(base + f"/api/v1/indexer/{_rid}",
                                    headers=_headers(key), json=new_body)
             except (httpx.HTTPError, OSError):
                 errs.append(nm)
@@ -1200,9 +1495,9 @@ async def _apply_flaresolverr_tags(cli: httpx.AsyncClient, base: str, key: str,
                 errs.append(nm)
 
     await asyncio.gather(*[_check_one(rid, body) for rid, body in candidates])
-    return {"checked": checked, "needed": needed, "tagged": tagged,
+    return {"checked": _checked, "needed": _needed, "tagged": tagged,
             "already_tagged": already, "errs": errs,
-            "timed_out": remaining > 0, "remaining": remaining}
+            "timed_out": _remaining > 0, "remaining": _remaining}
 
 
 def _facet_label(privacy: str, lang_term: str, want_lang: str, all_mode: bool) -> str:
@@ -1220,6 +1515,7 @@ def _facet_label(privacy: str, lang_term: str, want_lang: str, all_mode: bool) -
     return " ".join(bits) if bits else "matching"
 
 
+# noinspection DuplicatedCode
 async def _bulk_add_indexers_skill(host_row: dict, chip: dict, *,
                                    arg: Optional[str] = None,
                                    host_id: Optional[str] = None) -> dict:

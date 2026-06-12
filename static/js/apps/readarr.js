@@ -61,6 +61,60 @@ function readarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Format a GiB value as a compact "N.N GB" label; '—' for missing / zero.
+function readarrGb(v) {
+  const n = Number(v);
+  if (v == null || !isFinite(n) || n <= 0) {
+    return '—';
+  }
+  return n.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' GB';
+}
+
+// Library/backlog/disk trend block from the shared lifespan servarr_sampler,
+// or null while idle / no samples yet.
+function readarrTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.readarrData ? this.readarrData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on
+// every Alpine flush).
+const _readarrTrendMemo = new WeakMap();
+
+// SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function readarrTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_readarrTrendMemo.has(arr)) {
+    return _readarrTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _readarrTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Readarr gets a
 // 2-column span + a vertical telemetry-card layout like Lidarr / Sonarr.
@@ -80,4 +134,7 @@ export const helpers = {
   readarrIsApp: isReadarrApp,
   readarrData: readarrData,
   readarrCount: readarrCount,
+  readarrGb: readarrGb,
+  readarrTrend: readarrTrend,
+  readarrTrendPath: readarrTrendPath,
 };

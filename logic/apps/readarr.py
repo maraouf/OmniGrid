@@ -222,6 +222,17 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the author name to remove from the Readarr library",
     },
     {
+        "id": "readarr_search_author",
+        "name": "Search for an author",
+        "ai_phrases": ("search for <author>, grab books by <author>, "
+                       "find <author> now, search readarr for <author>, "
+                       "look for books by <author>, download <author> now"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the author name to search for books now (must already "
+                    "be in the Readarr library)",
+    },
+    {
         "id": "readarr_search_missing",
         "name": "Search for missing books",
         "ai_phrases": ("search for missing books, find missing books, "
@@ -338,14 +349,30 @@ async def fetch_data(host_row: dict, chip: dict, *,
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 disks = []
             health_issues = 0
+            health_messages: list[str] = []
             try:
                 hr = await cli.get(base + "/api/v1/health",
                                    headers=_headers(api_key))
                 if hr.status_code == 200:
                     _hj = hr.json()
-                    health_issues = len(_hj) if isinstance(_hj, list) else 0
+                    if isinstance(_hj, list):
+                        health_issues = len(_hj)
+                        health_messages = [
+                            str(h.get("message") or "").strip()
+                            for h in _hj[:4] if isinstance(h, dict) and h.get("message")]
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 health_issues = 0
+            # Cutoff-unmet — books that HAVE a file but below the quality
+            # cutoff (distinct from "missing"). totalRecords from a 1-row page.
+            cutoff_unmet = 0
+            try:
+                cr = await cli.get(base + "/api/v1/wanted/cutoff",
+                                   headers=_headers(api_key),
+                                   params={"pageSize": "1", "includeAuthor": "false"})
+                if cr.status_code == 200:
+                    cutoff_unmet = safe_int((cr.json() or {}).get("totalRecords"))
+            except (httpx.HTTPError, OSError, ValueError, TypeError):
+                cutoff_unmet = 0
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[readarr] error: fetch host={host_id} url={author_url} "
@@ -366,27 +393,64 @@ async def fetch_data(host_row: dict, chip: dict, *,
     if not isinstance(authors, list):
         authors = []
     total = len(authors)
-    monitored = sum(1 for a in authors if isinstance(a, dict) and a.get("monitored"))
+    monitored = 0
+    books_have = 0
+    books_total = 0
+    size_bytes = 0.0
+    for a in authors:
+        if not isinstance(a, dict):
+            continue
+        if a.get("monitored"):
+            monitored += 1
+        st = as_dict(a.get("statistics"))
+        books_have += safe_int(st.get("bookFileCount"))
+        books_total += safe_int(st.get("bookCount"))
+        size_bytes += safe_float(st.get("sizeOnDisk"))
+    books_pct = int(round(books_have / books_total * 100)) if books_total > 0 else 0
+    library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
     out: dict[str, Any] = {
         "available": True,
         "authors_total": total,
         "monitored": monitored,
         "missing": safe_int(missing),
+        "cutoff_unmet": safe_int(cutoff_unmet),
+        "books_have": books_have,
+        "books_total": books_total,
+        "books_pct": books_pct,
+        "library_size_gb": library_size_gb,
         "queue": safe_int(queue),
         "disk_free_gb": disk_free_gb,
         "disk_total_gb": disk_total_gb,
         "disks": disks,
         "health_issues": safe_int(health_issues),
+        "health_messages": health_messages,
         "version": ver,
         "fetched_at": int(now),
+        # Library-growth + missing-backlog + disk-free-runway trend from the
+        # shared servarr_samples retention table (drawer-only chart). Tolerated
+        # on failure — the card renders fine without it.
+        "trend": _safe_trend(host_id, service_idx),
     }
-    print(f"[readarr] INFO fetched host={host_id} authors={total} "
-          f"monitored={monitored} missing={out['missing']} queue={out['queue']} "
+    print(f"[readarr] INFO fetched host={host_id} authors={total} books={books_total} "
+          f"monitored={monitored} missing={out['missing']} cutoff_unmet={out['cutoff_unmet']} "
+          f"have={books_have} size_gb={library_size_gb} queue={out['queue']} "
           f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
           f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort library / backlog / disk trend from the shared *arr sampler.
+    Returns the ``trend_summary`` dict, or ``{}`` on any failure (a missing
+    sampler / empty table must never fail the card)."""
+    try:
+        from logic.apps import servarr_sampler  # noqa: PLC0415
+        return servarr_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[readarr] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -399,6 +463,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "authors_total": safe_int(data.get("authors_total")),
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
+        "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "books_have": safe_int(data.get("books_have")),
+        "books_total": safe_int(data.get("books_total")),
+        "library_size_gb": safe_float(data.get("library_size_gb")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
         "disks": as_list(data.get("disks")),
@@ -438,6 +506,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _add_author_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "readarr_remove_author":
         return await _remove_author_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "readarr_search_author":
+        return await _search_author_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "readarr_search_missing":
         return await _command_skill(host_row, chip, command="MissingBookSearch",
                                     started_msg="🔍 Started a search for all monitored "
@@ -551,29 +621,46 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("authors_total"))
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
+    cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    books_have = safe_int(data.get("books_have"))
+    books_total = safe_int(data.get("books_total"))
+    books_pct = safe_int(data.get("books_pct"))
+    library_size_gb = safe_float(data.get("library_size_gb"))
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
     disks = as_list(data.get("disks"))
+    health_messages = as_list(data.get("health_messages"))
     lines = [
         f"📚 Authors: {total:,}",
         f"📁 Monitored: {monitored:,}",
-        f"{'❓' if missing else '✅'} Missing books: {missing:,}",
-        f"⬇️ Downloading: {queue:,}",
     ]
+    if books_total:
+        lines.append(f"📖 Books: {books_have:,} / {books_total:,} ({books_pct}%)")
+    lines.append(f"{'❓' if missing else '✅'} Missing books: {missing:,}")
+    if cutoff_unmet:
+        lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
+    if library_size_gb > 0:
+        lines.append(f"📦 Library size: {_fmt_size_gib(library_size_gb)}")
+    lines.append(f"⬇️ Downloading: {queue:,}")
     # Compact storage summary for the text surfaces (AI / Telegram); the web
     # drawer renders the per-mount CARDS from the result's `disks` field.
     storage_line = _storage_summary_line(disks, free_gb)
     if storage_line:
         lines.append(storage_line)
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
+    for msg in health_messages[:3]:
+        if msg:
+            lines.append(f"   • {msg}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "authors_total": total, "monitored": monitored, "missing": missing,
+        "cutoff_unmet": cutoff_unmet, "books_have": books_have,
+        "books_total": books_total, "library_size_gb": library_size_gb,
         "queue": queue, "disk_free_gb": free_gb, "disks": disks,
-        "health_issues": health,
+        "health_issues": health, "health_messages": health_messages,
     }
 
 
@@ -900,3 +987,52 @@ async def _remove_author_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": dr.status_code, "detail": "auth failed (check api_key)"}
     return {"ok": False, "status": dr.status_code,
             "detail": f"Readarr returned HTTP {dr.status_code} removing {label}"}
+
+
+# noinspection DuplicatedCode
+async def _search_author_skill(host_row: dict, chip: dict, *,
+                               arg: Optional[str] = None,
+                               host_id: Optional[str] = None) -> dict:
+    """Action skill: trigger a release search for ONE author already in the
+    library (``POST /api/v1/command {name: AuthorSearch, authorId: id}``). Looks
+    the author up by name first; not-in-library is a friendly hint to add it.
+    Non-destructive (queues a background search). Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no author name given — which author should I search for?"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v1/author", headers=_headers(api_key))
+            if r.status_code in (401, 403):
+                return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+            if r.status_code != 200:
+                return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+            try:
+                authors = r.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            a = _find_in_library(authors, query)
+            if not a:
+                return {"ok": True, "status": 200,
+                        "detail": f"❓ “{query}” is not in your Readarr library yet. "
+                                  f"(Ask me to add it — that searches automatically.)"}
+            aid = safe_int(a.get("id"))
+            label = str(a.get("authorName") or query)
+            print(f"[readarr] INFO readarr_search_author host={host_id} id={aid} name={label!r}")
+            pr = await cli.post(base + "/api/v1/command",
+                                headers=_headers(api_key),
+                                json={"name": "AuthorSearch", "authorId": aid})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"search failed: {type(e).__name__}: {e}"}
+    if pr.status_code in (200, 201):
+        return {"ok": True, "status": pr.status_code,
+                "detail": f"🔍 Started a book search for {label} on Readarr."}
+    if pr.status_code in (401, 403):
+        return {"ok": False, "status": pr.status_code, "detail": "auth failed (check api_key)"}
+    return {"ok": False, "status": pr.status_code,
+            "detail": f"Readarr returned HTTP {pr.status_code} searching for {label}"}

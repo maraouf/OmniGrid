@@ -383,6 +383,7 @@ async def api_services_discover_apply(host_id: str, payload: dict[str, Any], req
     }
 
 
+# noinspection DuplicatedCode
 @app.post("/api/services/catalog/{cid}/pin")
 async def api_services_catalog_pin(cid: int, payload: dict[str, Any], request: Request, _admin: AdminUser):
     """Admin-only: pin a catalog template to a host.
@@ -511,6 +512,7 @@ def _find_host_idx(hosts: list, host_id: str) -> int:
     return -1
 
 
+# noinspection DuplicatedCode
 @app.patch("/api/services/{host_id}/{service_idx}")
 async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, Any],
                            request: Request, _admin: AdminUser):
@@ -1224,9 +1226,9 @@ async def api_apps_list(_admin: AdminUser, force: bool = False):
 # *arr). Bounded as the operator navigates months.
 _ARR_CAL_CACHE: "dict[str, tuple[float, dict]]" = {}
 _ARR_CAL_TTL_S = 60.0
-# The *arr services that expose a release calendar (Prowlarr has none — it's an
-# indexer manager). Each module declares an async ``calendar_items``.
-_ARR_CAL_SLUGS = ("radarr", "sonarr", "lidarr", "readarr")
+# The fan-out itself (which *arr slugs, the per-instance calendar_items merge)
+# lives in the shared ``logic/apps/arr_calendar.py`` aggregator, consumed by
+# both this widget route AND the AI palette's upcoming_releases tool.
 
 
 @app.get("/api/apps/arr-calendar")
@@ -1247,7 +1249,6 @@ async def api_apps_arr_calendar(_admin: AdminUser, start: str = "", end: str = "
     """
     import time  # noqa: PLC0415
     from datetime import datetime, timedelta, timezone  # noqa: PLC0415
-    from logic.apps import registry as _reg  # noqa: PLC0415
 
     def _valid_ymd(s: str) -> bool:
         try:
@@ -1268,50 +1269,17 @@ async def api_apps_arr_calendar(_admin: AdminUser, start: str = "", end: str = "
     if cached and (now - cached[0]) < _ARR_CAL_TTL_S:
         return cached[1]
     start_iso, end_iso = start + "T00:00:00Z", end + "T23:59:59Z"
-    # Fan-out targets: every configured instance of a slug whose module exposes
-    # calendar_items.
-    targets = []
-    for slug in _ARR_CAL_SLUGS:
-        mod = _reg.module_for_slug(slug)
-        if mod is None or not hasattr(mod, "calendar_items"):
-            continue
-        for host_id, sidx, host_row, chip in _reg.instances_for_slug(slug):
-            if isinstance(chip, dict) and str(chip.get("api_key") or "").strip():
-                targets.append((slug, host_id, sidx, mod, host_row, chip))
-
-    async def _one(target):
-        t_slug, t_hid, t_sidx, t_mod, t_row, t_chip = target
-        try:
-            t_rows = await t_mod.calendar_items(t_row, t_chip, start=start_iso, end=end_iso)
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            raise
-        except Exception as e:  # noqa: BLE001 — one bad instance must not sink the rest
-            return t_slug, t_hid, t_sidx, [], f"{type(e).__name__}: {e}"
-        return t_slug, t_hid, t_sidx, t_rows, None
-
-    results = await asyncio.gather(*[_one(t) for t in targets])
-    items: list[dict] = []
-    services_active: set = set()
-    errors: dict[str, str] = {}
-    for r_slug, r_hid, r_sidx, r_rows, r_err in results:
-        if r_err:
-            errors[f"{r_slug}:{r_hid}:{r_sidx}"] = r_err
-            continue
-        if r_rows:
-            services_active.add(r_slug)
-        for r in r_rows:
-            if not isinstance(r, dict):
-                continue
-            r2 = dict(r)
-            r2["host_id"] = r_hid
-            r2["service_idx"] = r_sidx
-            items.append(r2)
+    # Fan out across every configured *arr instance via the shared aggregator
+    # (also consumed by the AI palette's upcoming_releases tool).
+    from logic.apps.arr_calendar import collect_calendar  # noqa: PLC0415
+    agg = await collect_calendar(start_iso, end_iso)
+    items = agg.get("items") or []
     out = {
-        "configured": bool(targets),
-        "services": sorted(services_active),
+        "configured": agg.get("configured", False),
+        "services": agg.get("services") or [],
         "items": items,
         "count": len(items),
-        "errors": errors,
+        "errors": agg.get("errors") or {},
         "start": start,
         "end": end,
         "fetched_at": int(now),
@@ -1636,6 +1604,7 @@ async def api_service_probe_now(host_id: str, service_idx: int, request: Request
     }
 
 
+# noinspection DuplicatedCode
 @app.get("/api/services/{host_id}/{service_idx}/debug")
 async def api_service_debug(host_id: str, service_idx: int, _admin: AdminUser):
     """Admin-only: full diagnostic for ONE app instance.
@@ -1856,6 +1825,7 @@ async def api_container_logs(raw_id: str, _admin: AdminUser,
     return {"raw_id": raw_id, "node": node_clean, "tail": tail_n, "logs": text}
 
 
+# noinspection DuplicatedCode
 @app.get("/api/service/{raw_id}/logs")
 async def api_service_logs(raw_id: str, _admin: AdminUser, tail: int = 200):
     """Admin-only: tail a Swarm SERVICE's logs via Portainer (the
@@ -3239,7 +3209,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
         # Beszel uses bare dict.get (no forgiving alias matching) — match
         # the pre-helper behaviour. Pulse passes _pulse.lookup, which
         # handles case + whitespace tolerance.
-        lookup_fn=lambda m, k: m.get(k),
+        lookup_fn=lambda m, _k: m.get(_k),
         hub_errors=state.get("errors") or {},
         status_field="beszel_status",
         pause_round_threshold=tuning.tuning_int(Tunable.BESZEL_FAILURE_PAUSE_ROUNDS),
@@ -4965,6 +4935,7 @@ async def api_app_views_update(view_id: str, payload: dict[str, Any], _user: Cur
     return {"view": _shape_app_view(new_row, _user)}
 
 
+# noinspection DuplicatedCode
 @app.delete("/api/apps/views/{view_id}")
 async def api_app_views_delete(view_id: str, _user: CurrentUser):
     """Delete a view. Owner only."""

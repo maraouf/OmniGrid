@@ -46,11 +46,67 @@
             <div class="apps-card-stat-label" x-text="t('apps.lidarr.monitored') || 'Monitored'"></div>
             <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).monitored)"></div>
           </div>
+          <!-- Albums (total) -->
+          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).albums_total) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.albums') || 'Albums'"></div>
+            <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).albums_total)"></div>
+          </div>
+          <!-- Tracks (have / total) -->
+          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).tracks_total) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.tracks') || 'Tracks'"></div>
+            <div class="apps-card-stat-value"
+                 x-text="lidarrCount(lidarrData(inst).tracks_have) + ' / ' + lidarrCount(lidarrData(inst).tracks_total)"></div>
+          </div>
+          <!-- Below quality cutoff -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.cutoff_unmet') || 'Below cutoff'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(lidarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                 x-text="lidarrCount(lidarrData(inst).cutoff_unmet)"></div>
+          </div>
+          <!-- Library size on disk -->
+          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).library_size_gb) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.library_size') || 'Library size'"></div>
+            <div class="apps-card-stat-value" x-text="lidarrGb(lidarrData(inst).library_size_gb)"></div>
+          </div>
         </div>
         <!-- Storage — every mount the app reports, each as a clean card
              with free / total + a colour-coded usage bar. Shared across
              the *arr family. -->
         <!-- INCLUDE: _components/apps/_arr_storage.html -->
+        <!-- Library-growth + missing-backlog + disk-free trend (from OmniGrid's
+             shared servarr_samples). Drawer-only (`appsExtrasInDrawer`) — no
+             room on the apps-grid card; shown once ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && lidarrTrend(inst) && lidarrTrend(inst).series_total && lidarrTrend(inst).series_total.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.lidarr.library_trend', { days: lidarrTrend(inst).days }) || ('Library growth (' + lidarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="lidarrTrendPath(lidarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <div class="space-y-1" x-show="(Number(lidarrTrend(inst).peak_missing) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.lidarr.missing_trend', { days: lidarrTrend(inst).days }) || ('Missing backlog (' + lidarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="lidarrTrendPath(lidarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.lidarr.peak_missing') || 'Peak missing') + ': ' + lidarrCount(lidarrTrend(inst).peak_missing)"></div>
+            </div>
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.lidarr.disk_trend', { days: lidarrTrend(inst).days }) || ('Free disk (' + lidarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="lidarrTrendPath(lidarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(lidarrTrend(inst).disk_runway_days) || 0) > 0"
+                   class="fs-3xs text-[var(--warning)]"
+                   x-text="t('apps.lidarr.disk_runway', { days: lidarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + lidarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + health issues. -->
         <div x-show="lidarrData(inst).version || (Number(lidarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

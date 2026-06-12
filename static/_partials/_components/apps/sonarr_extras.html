@@ -46,11 +46,62 @@
             <div class="apps-card-stat-label" x-text="t('apps.sonarr.monitored') || 'Monitored'"></div>
             <div class="apps-card-stat-value" x-text="sonarrCount(sonarrData(inst).monitored)"></div>
           </div>
+          <!-- Episodes (have / total) -->
+          <div class="apps-card-ups-stat" x-show="(Number(sonarrData(inst).episodes_total) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.sonarr.episodes') || 'Episodes'"></div>
+            <div class="apps-card-stat-value"
+                 x-text="sonarrCount(sonarrData(inst).episodes_have) + ' / ' + sonarrCount(sonarrData(inst).episodes_total)"></div>
+          </div>
+          <!-- Below quality cutoff -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.sonarr.cutoff_unmet') || 'Below cutoff'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(sonarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                 x-text="sonarrCount(sonarrData(inst).cutoff_unmet)"></div>
+          </div>
+          <!-- Library size on disk -->
+          <div class="apps-card-ups-stat" x-show="(Number(sonarrData(inst).library_size_gb) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.sonarr.library_size') || 'Library size'"></div>
+            <div class="apps-card-stat-value" x-text="sonarrGb(sonarrData(inst).library_size_gb)"></div>
+          </div>
         </div>
         <!-- Storage — every mount the app reports, each as a clean card
              with free / total + a colour-coded usage bar. Shared across
              the *arr family. -->
         <!-- INCLUDE: _components/apps/_arr_storage.html -->
+        <!-- Library-growth + missing-backlog + disk-free trend (from OmniGrid's
+             shared servarr_samples). Drawer-only (`appsExtrasInDrawer`) — no
+             room on the apps-grid card; shown once ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && sonarrTrend(inst) && sonarrTrend(inst).series_total && sonarrTrend(inst).series_total.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.sonarr.library_trend', { days: sonarrTrend(inst).days }) || ('Library growth (' + sonarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="sonarrTrendPath(sonarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <div class="space-y-1" x-show="(Number(sonarrTrend(inst).peak_missing) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.sonarr.missing_trend', { days: sonarrTrend(inst).days }) || ('Missing backlog (' + sonarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="sonarrTrendPath(sonarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.sonarr.peak_missing') || 'Peak missing') + ': ' + sonarrCount(sonarrTrend(inst).peak_missing)"></div>
+            </div>
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.sonarr.disk_trend', { days: sonarrTrend(inst).days }) || ('Free disk (' + sonarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="sonarrTrendPath(sonarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(sonarrTrend(inst).disk_runway_days) || 0) > 0"
+                   class="fs-3xs text-[var(--warning)]"
+                   x-text="t('apps.sonarr.disk_runway', { days: sonarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + sonarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + health issues. -->
         <div x-show="sonarrData(inst).version || (Number(sonarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
