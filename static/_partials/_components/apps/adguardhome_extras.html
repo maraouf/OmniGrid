@@ -67,7 +67,59 @@
                      :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + adguardInt(agg.topBlocked.count) + ')') : ''"
                      x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
               </div>
+              <div class="apps-card-ups-stat" x-show="agg.topQueried">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.adguard.top_queried') || 'Top queried'"></div>
+                <div class="apps-card-stat-value truncate"
+                     :title="agg.topQueried ? (agg.topQueried.name + ' (' + adguardInt(agg.topQueried.count) + ')') : ''"
+                     x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
+              </div>
+              <div class="apps-card-ups-stat" x-show="agg.topClient">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.adguard.top_client') || 'Top client'"></div>
+                <div class="apps-card-stat-value truncate"
+                     :title="agg.topClient ? (agg.topClient.name + ' (' + adguardInt(agg.topClient.count) + ')') : ''"
+                     x-text="agg.topClient ? agg.topClient.name : '—'"></div>
+              </div>
             </div>
+            <!-- Safe-browsing / parental block split (only when non-zero). -->
+            <div x-show="(agg.safebrowsing + agg.parental) > 0"
+                 class="fs-3xs text-[var(--text-faint)] mt-1"
+                 x-text="(t('apps.adguard.safebrowsing') || 'Safe-browsing') + ': ' + adguardInt(agg.safebrowsing) + ' · ' + (t('apps.adguard.parental') || 'Parental') + ': ' + adguardInt(agg.parental)"></div>
+            <!-- Queries-vs-blocked time-bucket chart (from the same /control/stats
+                 response — no extra call), summed across the fleet. Queries +
+                 blocked share one scale so blocked reads as a true proportion. -->
+            <template x-if="agg.queriesSeries && agg.queriesSeries.length >= 2">
+              <div class="space-y-1 mt-1">
+                <span class="fs-2xs text-[var(--text-faint)] block"
+                      x-text="t('apps.adguard.activity') || 'Queries vs blocked'"></span>
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="adguardSeriesPath(agg.queriesSeries, adguardSeriesMax(agg.queriesSeries))"
+                        fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="adguardSeriesPath(agg.blockedSeries, adguardSeriesMax(agg.queriesSeries))"
+                        fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+                </svg>
+                <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+                  <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span
+                    x-text="t('apps.adguard.legend_queries') || 'queries'"></span></span>
+                  <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--danger);"></span><span
+                    x-text="t('apps.adguard.legend_blocked') || 'blocked'"></span></span>
+                </div>
+              </div>
+            </template>
+            <!-- Long-horizon blocked-% trend (from OmniGrid's adguard_samples,
+                 surviving AdGuard's short rolling window + restarts). -->
+            <template x-if="agg.trend && agg.trend.series && agg.trend.series.length >= 2">
+              <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
+                <span class="fs-2xs text-[var(--text-faint)] block"
+                      x-text="t('apps.adguard.blocked_trend', { days: agg.trend.days }) || ('Blocked % trend (' + agg.trend.days + ' days)')"></span>
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="adguardTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                </svg>
+                <div class="fs-3xs text-[var(--text-faint)]"
+                     x-text="(t('apps.adguard.median_blocked') || 'Median blocked') + ': ' + adguardPct(agg.trend.median_pct)"></div>
+              </div>
+            </template>
             <!-- Protection status — green when every host is ON, amber when
                  some are OFF (the actionable warning). -->
             <div class="flex items-center gap-1.5 fs-2xs mt-1">
@@ -134,6 +186,15 @@
                   <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
                 </svg>
                 <span x-text="t('apps.adguard.action_refresh') || 'Refresh lists'"></span>
+              </button>
+              <button type="button" class="apps-card-action-pill whitespace-nowrap"
+                      :disabled="adguardSkillBusy(app, 'adguard_flush_cache')"
+                      @click.stop="adguardFleetSkill(app, 'adguard_flush_cache')"
+                      :title="t('apps.adguard.action_flush_title') || 'Flush the DNS resolver cache on every host'">
+                <svg width="11" height="11" :class="adguardSkillBusy(app, 'adguard_flush_cache') ? 'spin-md' : ''" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-trash-2"/>
+                </svg>
+                <span x-text="t('apps.adguard.action_flush') || 'Flush cache'"></span>
               </button>
               <button type="button" class="apps-card-action-pill whitespace-nowrap"
                       :disabled="adguardSkillBusy(app, 'adguard_status')"

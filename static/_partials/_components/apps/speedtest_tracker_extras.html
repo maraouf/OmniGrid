@@ -44,6 +44,28 @@
                    ? speedtestPingLabel(appsAppData(inst).latest.ping) : '--'"></div>
             </div>
           </div>
+          <!-- Connection-quality row — jitter + packet loss (the latest test).
+               Shown only when the upstream reported them (Ookla includes
+               data.ping.jitter + data.packetLoss). Operators watch jitter as
+               closely as raw Mbps. Sits ABOVE the averages (it describes the
+               latest test, like the latest down/up/ping row above it). -->
+          <template x-if="appsAppData(inst).latest && ((Number(appsAppData(inst).latest.jitter) || 0) > 0 || (Number(appsAppData(inst).latest.packet_loss) || 0) > 0)">
+            <div class="apps-speedtest-statgrid">
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.jitter') || 'Jitter'"></div>
+                <div class="fs-sm"
+                     x-text="speedtestPingLabel(appsAppData(inst).latest.jitter)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.packet_loss') || 'Packet loss'"></div>
+                <div class="fs-sm"
+                     :class="(Number(appsAppData(inst).latest.packet_loss) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                     x-text="speedtestPctLabel(appsAppData(inst).latest.packet_loss)"></div>
+              </div>
+            </div>
+          </template>
           <div class="apps-speedtest-statgrid">
             <div class="apps-card-stat">
               <div class="fs-2xs text-[var(--text-faint)]"
@@ -64,27 +86,6 @@
                    x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
             </div>
           </div>
-          <!-- Connection-quality row — jitter + packet loss (the latest test).
-               Shown only when the upstream reported them (Ookla includes
-               data.ping.jitter + data.packetLoss). Operators watch jitter as
-               closely as raw Mbps. -->
-          <template x-if="appsAppData(inst).latest && ((Number(appsAppData(inst).latest.jitter) || 0) > 0 || (Number(appsAppData(inst).latest.packet_loss) || 0) > 0)">
-            <div class="apps-speedtest-statgrid">
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
-                     x-text="t('apps.speedtest.jitter') || 'Jitter'"></div>
-                <div class="fs-sm"
-                     x-text="speedtestPingLabel(appsAppData(inst).latest.jitter)"></div>
-              </div>
-              <div class="apps-card-stat">
-                <div class="fs-2xs text-[var(--text-faint)]"
-                     x-text="t('apps.speedtest.packet_loss') || 'Packet loss'"></div>
-                <div class="fs-sm"
-                     :class="(Number(appsAppData(inst).latest.packet_loss) || 0) > 0 ? 'text-[var(--warning)]' : ''"
-                     x-text="speedtestPctLabel(appsAppData(inst).latest.packet_loss)"></div>
-              </div>
-            </div>
-          </template>
           <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
             <div class="space-y-1 apps-speedtest-trend">
               <!-- No per-chart reload button — the card header already carries a

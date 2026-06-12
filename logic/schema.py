@@ -621,6 +621,53 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_speedtest_samples_ts
             ON speedtest_samples(ts);
 
+        -- AdGuard Home per-(host, tick) snapshot. AdGuard keeps only a short
+        -- rolling stats window (and the counters reset on restart), so the
+        -- lifespan ``adguardhome_sampler`` records each AdGuard host's current
+        -- queries/blocked/clients counters per tick. ``trend_summary`` buckets
+        -- these by day, takes the daily MAX per host (the cumulative
+        -- today-counter peaks just before the daily reset ≈ that day's total),
+        -- sums across the fleet, and derives a daily blocked-% trend that
+        -- outlives AdGuard's own retention. ``ts`` is the sampler wall-clock.
+        CREATE TABLE IF NOT EXISTS adguard_samples (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            queries     INTEGER NOT NULL DEFAULT 0,
+            blocked     INTEGER NOT NULL DEFAULT 0,
+            clients     INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_adguard_samples_chip_ts
+            ON adguard_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_adguard_samples_ts
+            ON adguard_samples(ts);
+
+        -- Pi-hole per-(host, tick) snapshot. Pi-hole's FTL keeps its own long
+        -- DB, but the today-counters reset on restart, so the lifespan
+        -- ``pihole_sampler`` records each Pi-hole host's current
+        -- queries/blocked/clients counters per tick. ``trend_summary`` derives
+        -- the same fleet blocked-% daily trend as AdGuard (daily MAX per host →
+        -- summed across the fleet → blocked %). ``ts`` is the sampler
+        -- wall-clock.
+        CREATE TABLE IF NOT EXISTS pihole_samples (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            queries     INTEGER NOT NULL DEFAULT 0,
+            blocked     INTEGER NOT NULL DEFAULT 0,
+            clients     INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pihole_samples_chip_ts
+            ON pihole_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_pihole_samples_ts
+            ON pihole_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

@@ -65,7 +65,55 @@
                      :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
                      x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
               </div>
+              <div class="apps-card-ups-stat" x-show="agg.topQueried">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.pihole.top_queried') || 'Top queried'"></div>
+                <div class="apps-card-stat-value truncate"
+                     :title="agg.topQueried ? (agg.topQueried.name + ' (' + piholeInt(agg.topQueried.count) + ')') : ''"
+                     x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
+              </div>
+              <div class="apps-card-ups-stat" x-show="agg.topClient">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.pihole.top_client') || 'Top client'"></div>
+                <div class="apps-card-stat-value truncate"
+                     :title="agg.topClient ? (agg.topClient.name + ' (' + piholeInt(agg.topClient.count) + ')') : ''"
+                     x-text="agg.topClient ? agg.topClient.name : '—'"></div>
+              </div>
             </div>
+            <!-- Queries-vs-blocked time-bucket chart (from /api/history),
+                 summed across the fleet. Queries + blocked share one scale so
+                 blocked reads as a true proportion. -->
+            <template x-if="agg.queriesSeries && agg.queriesSeries.length >= 2">
+              <div class="space-y-1 mt-1">
+                <span class="fs-2xs text-[var(--text-faint)] block"
+                      x-text="t('apps.pihole.activity') || 'Queries vs blocked'"></span>
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="piholeSeriesPath(agg.queriesSeries, piholeSeriesMax(agg.queriesSeries))"
+                        fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                  <path :d="piholeSeriesPath(agg.blockedSeries, piholeSeriesMax(agg.queriesSeries))"
+                        fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+                </svg>
+                <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+                  <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span
+                    x-text="t('apps.pihole.legend_queries') || 'queries'"></span></span>
+                  <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--danger);"></span><span
+                    x-text="t('apps.pihole.legend_blocked') || 'blocked'"></span></span>
+                </div>
+              </div>
+            </template>
+            <!-- Long-horizon blocked-% trend (from OmniGrid's pihole_samples,
+                 surviving FTL's counter reset on restart). -->
+            <template x-if="agg.trend && agg.trend.series && agg.trend.series.length >= 2">
+              <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
+                <span class="fs-2xs text-[var(--text-faint)] block"
+                      x-text="t('apps.pihole.blocked_trend', { days: agg.trend.days }) || ('Blocked % trend (' + agg.trend.days + ' days)')"></span>
+                <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                  <path :d="piholeTrendPath(agg.trend.series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                </svg>
+                <div class="fs-3xs text-[var(--text-faint)]"
+                     x-text="(t('apps.pihole.median_blocked') || 'Median blocked') + ': ' + piholePct(agg.trend.median_pct)"></div>
+              </div>
+            </template>
             <!-- Protection status — green when every host is ON, amber when
                  some are OFF (the actionable warning). -->
             <div class="flex items-center gap-1.5 fs-2xs mt-1">

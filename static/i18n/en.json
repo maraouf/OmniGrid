@@ -1971,6 +1971,22 @@
           "label": "Speedtest history retention (days)",
           "help": "Retention window for OmniGrid's independent Speedtest history (the long-term download/upload/ping trend that survives the upstream's own pruning). Default 365 (a year of medians). Older samples are pruned hourly. Lower to save disk; raise for a multi-year trend. Range 1..1095 (3 years). Takes effect at the next hourly prune."
         },
+        "tuning_adguard_sample_interval_seconds": {
+          "label": "AdGuard history sampler interval (seconds)",
+          "help": "How often the lifespan AdGuard sampler snapshots each configured AdGuard host's queries/blocked/clients counters into the history table that drives the fleet card's blocked-% trend (which outlives AdGuard's short rolling stats window + survives a restart). Default 900 (15 min) — the today-counters move slowly and the probe is cheap. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_adguard_history_days": {
+          "label": "AdGuard history retention (days)",
+          "help": "Retention window for the AdGuard blocked-% trend samples. Default 90 (a quarter of daily points). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
+        },
+        "tuning_pihole_sample_interval_seconds": {
+          "label": "Pi-hole history sampler interval (seconds)",
+          "help": "How often the lifespan Pi-hole sampler snapshots each configured Pi-hole host's queries/blocked/clients counters into the history table that drives the fleet card's cross-restart blocked-% trend (Pi-hole's FTL today-counters reset on a restart). Default 900 (15 min). 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_pihole_history_days": {
+          "label": "Pi-hole history retention (days)",
+          "help": "Retention window for the Pi-hole blocked-% trend samples. Default 90 (a quarter of daily points). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..730. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5511,9 +5527,20 @@
       "action_status_title": "Refresh the aggregated stats",
       "action_ok": "Done",
       "action_failed": "Action failed",
+      "action_flush": "Flush cache",
+      "action_flush_title": "Flush the DNS resolver cache on every host",
       "no_instance": "No AdGuard instance to target",
       "confirm_disable_title": "Disable AdGuard protection?",
-      "confirm_disable_text": "This turns off DNS ad/tracker blocking across every AdGuard host."
+      "confirm_disable_text": "This turns off DNS ad/tracker blocking across every AdGuard host.",
+      "top_queried": "Top queried",
+      "top_client": "Top client",
+      "safebrowsing": "Safe-browsing",
+      "parental": "Parental",
+      "activity": "Queries vs blocked",
+      "legend_queries": "queries",
+      "legend_blocked": "blocked",
+      "blocked_trend": "Blocked % trend ({days} days)",
+      "median_blocked": "Median blocked"
     },
     "pihole": {
       "password_label": "Pi-hole password",
@@ -5543,7 +5570,14 @@
       "action_failed": "Action failed",
       "no_instance": "No Pi-hole instance to target",
       "confirm_disable_title": "Disable Pi-hole blocking?",
-      "confirm_disable_text": "This turns off DNS ad/tracker blocking across every Pi-hole host."
+      "confirm_disable_text": "This turns off DNS ad/tracker blocking across every Pi-hole host.",
+      "top_queried": "Top queried",
+      "top_client": "Top client",
+      "activity": "Queries vs blocked",
+      "legend_queries": "queries",
+      "legend_blocked": "blocked",
+      "blocked_trend": "Blocked % trend ({days} days)",
+      "median_blocked": "Median blocked"
     },
     "skills": {
       "run_speedtest": "Run speed test",
@@ -5560,6 +5594,9 @@
       "adguard_disable_24h": "Disable for 24 hours",
       "adguard_refresh": "Refresh blocklists",
       "adguard_reenable": "Re-enable (cancel timed disable)",
+      "adguard_flush_cache": "Flush DNS cache",
+      "adguard_block_domain": "Block a domain (fleet)",
+      "adguard_unblock_domain": "Unblock a domain (fleet)",
       "pihole_status": "Show Pi-hole status",
       "pihole_enable": "Enable blocking",
       "pihole_disable": "Disable blocking",
@@ -5572,6 +5609,8 @@
       "pihole_disable_24h": "Disable for 24 hours",
       "pihole_refresh": "Update gravity (blocklists)",
       "pihole_reenable": "Re-enable (cancel timed disable)",
+      "pihole_block_domain": "Block a domain (fleet)",
+      "pihole_unblock_domain": "Unblock a domain (fleet)",
       "bazarr_status": "Bazarr status",
       "plex_status": "Plex status",
       "plex_now_playing": "What's playing on Plex",

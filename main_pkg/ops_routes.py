@@ -1804,6 +1804,14 @@ class SettingsIn(BaseModel):
     # survives the upstream's own pruning.
     tuning_speedtest_sample_interval_seconds: Optional[str] = None
     tuning_speedtest_history_days: Optional[str] = None
+    # AdGuard Home blocked-% history sampler — snapshot cadence (0 = inherit
+    # global stats interval) + retention for the fleet blocked-% trend.
+    tuning_adguard_sample_interval_seconds: Optional[str] = None
+    tuning_adguard_history_days: Optional[str] = None
+    # Pi-hole blocked-% history sampler — snapshot cadence (0 = inherit global
+    # stats interval) + retention for the fleet cross-restart blocked-% trend.
+    tuning_pihole_sample_interval_seconds: Optional[str] = None
+    tuning_pihole_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None

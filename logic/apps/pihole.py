@@ -48,8 +48,8 @@ import httpx
 
 from logic.apps._common import (
     cache_key, fetch_gate, fleet_blocker_action, fleet_blocker_status,
-    fleet_disable_skills, fleet_instances, fleet_run_skill, peek_cache,
-    resolve_base_url, resolve_cache_ttl)
+    fleet_disable_skills, fleet_fan_out, fleet_instances, fleet_run_skill,
+    fleet_top, fmt_int_grouped, peek_cache, resolve_base_url, resolve_cache_ttl)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
@@ -95,6 +95,26 @@ SKILLS: tuple[dict, ...] = (
         "name": "Re-enable (cancel timed disable)",
         "ai_phrases": ("cancel timed disable, re-enable pihole now, "
                        "turn blocking back on, undo disable"),
+        "destructive": False,
+    },
+    {
+        "id": "pihole_block_domain",
+        "name": "Block a domain (fleet)",
+        "ai_phrases": ("block <domain> on pihole, block a domain everywhere, "
+                       "add to the denylist, block <domain> on all pi-holes, "
+                       "blacklist <domain>"),
+        "arg": True,
+        "arg_hint": "the domain to block on every Pi-hole host",
+        "destructive": True,
+    },
+    {
+        "id": "pihole_unblock_domain",
+        "name": "Unblock a domain (fleet)",
+        "ai_phrases": ("unblock <domain> on pihole, remove from the denylist, "
+                       "allow <domain> everywhere, unblock <domain> on all "
+                       "pi-holes, whitelist <domain>"),
+        "arg": True,
+        "arg_hint": "the domain to unblock on every Pi-hole host",
         "destructive": False,
     },
 )
@@ -237,6 +257,50 @@ def _version_str(info: Any) -> str:
     return ""
 
 
+def _top_domain(body: Any) -> Optional[dict]:
+    """First ``{domain, count}`` row from a /api/stats/top_domains response
+    → ``{name, count}`` or None."""
+    if not isinstance(body, dict):
+        return None
+    domains = body.get("domains")
+    if isinstance(domains, list) and domains and isinstance(domains[0], dict):
+        name = str(domains[0].get("domain") or "").strip()
+        if name:
+            return {"name": name, "count": safe_int(domains[0].get("count"))}
+    return None
+
+
+def _top_client(body: Any) -> Optional[dict]:
+    """First client from /api/stats/top_clients (``{clients:[{name, ip,
+    count}]}``) → ``{name, count}`` (name falls back to ip) or None."""
+    if not isinstance(body, dict):
+        return None
+    clients = body.get("clients")
+    if isinstance(clients, list) and clients and isinstance(clients[0], dict):
+        name = (str(clients[0].get("name") or "").strip()
+                or str(clients[0].get("ip") or "").strip())
+        if name:
+            return {"name": name, "count": safe_int(clients[0].get("count"))}
+    return None
+
+
+def _history_series(body: Any, cap: int = 48) -> "tuple[list, list]":
+    """Parse /api/history (``{history:[{timestamp, total, blocked, …}]}``) into
+    ``(queries_series, blocked_series)`` — per-bin total + blocked counts, last
+    ``cap`` bins, for the queries-vs-blocked card chart. ``([], [])`` when
+    absent / malformed."""
+    rows = body.get("history") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        return [], []
+    q, b = [], []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        q.append(safe_int(r.get("total")))
+        b.append(safe_int(r.get("blocked")))
+    return q[-cap:], b[-cap:]
+
+
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -272,11 +336,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
             sc, summary = await _authed_get(sid, "/api/stats/summary")
         if sc != 200 or not isinstance(summary, dict):
             raise RuntimeError(f"HTTP {sc} for {base}/api/stats/summary")
-        # Blocking status + top blocked + version — best-effort in parallel.
-        (_bc, blocking), (_tc, topd), (_vc, vinfo) = await asyncio.gather(
+        # Blocking status + tops + version + history — best-effort in parallel.
+        ((_bc, blocking), (_tc, topd), (_qc, topq), (_clc, topcl),
+         (_vc, vinfo), (_hc, history)) = await asyncio.gather(
             _authed_get(sid, "/api/dns/blocking"),
             _authed_get(sid, "/api/stats/top_domains?blocked=true&count=1"),
+            _authed_get(sid, "/api/stats/top_domains?blocked=false&count=1"),
+            _authed_get(sid, "/api/stats/top_clients?count=1"),
             _authed_get(sid, "/api/info/version"),
+            _authed_get(sid, "/api/history"),
         )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[pihole] error: fetch host={host_id} failed -- {type(e).__name__}: {e}")
@@ -310,12 +378,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         timer_remaining = safe_int(blocking.get("timer"))
     protection_enabled = blocking_state in ("", "enabled", "true")
 
-    top_blocked = None
-    if isinstance(topd, dict):
-        domains = topd.get("domains")
-        if isinstance(domains, list) and domains and isinstance(domains[0], dict):
-            top_blocked = {"name": str(domains[0].get("domain") or ""),
-                           "count": safe_int(domains[0].get("count"))}
+    top_blocked = _top_domain(topd)
+    top_queried = _top_domain(topq)
+    top_client = _top_client(topcl)
+    queries_series, blocked_series = _history_series(history)
 
     out: dict = {
         "ok": True,
@@ -330,9 +396,22 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "blocklist_rules": domains_blocked,
         "num_clients": num_clients,
         "top_blocked_domain": top_blocked,
+        "top_queried_domain": top_queried,
+        "top_client": top_client,
+        # 10-min binned queries-vs-blocked series (from /api/history) for the
+        # aggregated card chart — capped to the most recent 48 bins.
+        "queries_series": queries_series,
+        "blocked_series": blocked_series,
         "version": _version_str(vinfo),
         "fetched_at": int(now),
     }
+    # Fleet-wide long-horizon blocked-% trend (same for every host — the SPA
+    # aggregate reads it off the first OK host). Best-effort.
+    try:
+        from logic.apps import pihole_sampler as _ph_sampler  # noqa: PLC0415
+        out["fleet_trend"] = _ph_sampler.trend_summary()
+    except Exception as e:  # noqa: BLE001
+        print(f"[pihole] warning: trend_summary failed: {e}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -386,13 +465,58 @@ async def _run_gravity(base: str, sid: str) -> None:
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
+# noinspection DuplicatedCode
+def _extra_lines(ok_rows: list, _totals: dict) -> list:
+    """Pi-hole-specific extra stat lines for the fleet status: the top queried
+    domain + top client across the fleet. The extraction shape is shared with
+    AdGuard's _avg_processing_lines by design (fleet-app convention). Passed as
+    ``extra_lines_fn`` to ``fleet_blocker_status``."""
+    lines = []
+    tq = fleet_top(ok_rows, "top_queried_domain")
+    if tq and tq.get("name"):
+        lines.append(f"🔎 Top queried: {tq.get('name')} ({fmt_int_grouped(tq.get('count'))})")
+    tc = fleet_top(ok_rows, "top_client")
+    if tc and tc.get("name"):
+        lines.append(f"💻 Top client: {tc.get('name')} ({fmt_int_grouped(tc.get('count'))})")
+    return lines
+
+
 async def _skill_status() -> dict:
     """Read-only: live-fetch every instance + aggregate into a formatted
-    detail block (web inline + Telegram + AI). Pi-hole has no avg-processing
-    metric, so no extra_lines. Never raises."""
+    detail block (web inline + Telegram + AI). The top-queried / top-client
+    lines are Pi-hole's extra_lines (it has no avg-processing metric like
+    AdGuard). Never raises."""
     return await fleet_blocker_status(
         _instances(), fetch_data, app_label="Pi-hole",
-        header="🕳️ Pi-hole", protection_label="Blocking")
+        header="🕳️ Pi-hole", protection_label="Blocking",
+        extra_lines_fn=_extra_lines)
+
+
+async def _set_domain(base: str, sid: str, domain: str, block: bool) -> None:
+    """Add (block) / remove (unblock) ``domain`` on the host's exact denylist
+    via POST /api/domains/deny/exact {domain} / DELETE /api/domains/deny/exact/
+    {domain}. Idempotent — a 409 'already exists' (add) and a 404 'not found'
+    (remove) are treated as success. Raises RuntimeError otherwise."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=12.0, follow_redirects=True) as cli:
+            if block:
+                r = await cli.post(base + "/api/domains/deny/exact",
+                                   json={"domain": domain},
+                                   headers={"X-FTL-SID": sid})
+            else:
+                r = await cli.request("DELETE",
+                                      base + "/api/domains/deny/exact/" + domain,
+                                      headers={"X-FTL-SID": sid})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"{type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError(f"auth failed: HTTP {r.status_code}")
+    # 409 = already on the list (add); 404 = wasn't on the list (remove) — both
+    # are the requested end-state, so treat as success.
+    if r.status_code in (200, 201, 204) or (block and r.status_code == 409) \
+        or (not block and r.status_code == 404):
+        return
+    raise RuntimeError(f"HTTP {r.status_code}")
 
 
 async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
@@ -429,16 +553,49 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
                                       refresh_verb="gravity updated")
 
 
+async def _skill_set_domain(domain: str, block: bool) -> dict:
+    """Block / unblock ``domain`` on EVERY Pi-hole instance (fleet write)."""
+    needle = (domain or "").strip().lower()
+    if not needle:
+        verb = "block" if block else "unblock"
+        return {"ok": False, "status": 0,
+                "detail": f"no domain given (say e.g. \"{verb} ads.example.com\")"}
+
+    async def _one(hid, _sidx, hrow, chip):
+        password = _password(chip)
+        base = resolve_base_url(hrow, chip)
+        if not (password and base):
+            return hid, False, "no creds / url"
+        try:
+            sid = await _get_sid(base, password)
+            await _set_domain(base, sid, needle, block)
+        except RuntimeError as e:
+            if "auth failed" in str(e):
+                _sid_cache.pop(_sid_key(resolve_base_url(hrow, chip)), None)
+            return hid, False, str(e)
+        return hid, True, ""
+
+    verb = f"blocked {needle}" if block else f"unblocked {needle}"
+    return await fleet_fan_out(_instances(), _one, app_label="Pi-hole",
+                               verb=verb, log_tag="pihole",
+                               log_extra=f"action={'block' if block else 'unblock'} domain={needle}")
+
+
 # noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
-    """Dispatch one Pi-hole skill. Action skills (enable / disable* /
-    refresh / reenable) FAN OUT to every Pi-hole instance regardless of
-    the targeted chip — fleet-level by design, so the per-chip args the
-    route passes are intentionally unused (the registry contract requires
-    the signature). ``pihole_status`` is read-only. Raises ValueError on
-    an unknown skill id."""
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one Pi-hole skill. Action skills (enable / disable* / refresh /
+    reenable / block / unblock) FAN OUT to every Pi-hole instance regardless of
+    the targeted chip — fleet-level by design, so the per-chip args the route
+    passes are intentionally unused (the registry contract requires the
+    signature). ``pihole_status`` is read-only. Raises ValueError on an unknown
+    skill id."""
+    if skill_id == "pihole_block_domain":
+        return await _skill_set_domain(arg or "", block=True)
+    if skill_id == "pihole_unblock_domain":
+        return await _skill_set_domain(arg or "", block=False)
     return await fleet_run_skill(skill_id, prefix="pihole",
                                  status_fn=_skill_status,
                                  action_fn=_skill_fleet_action, skills=SKILLS)
