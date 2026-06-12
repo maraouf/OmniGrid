@@ -1837,11 +1837,20 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
     fmt = _user_dt_fmt(username)
     lines = [f"📅 <b>Upcoming releases — next {win} days</b>"]
     last_date = None
+    # Telegram rejects any message over 4096 chars (HTML tags included) with an
+    # HTTP 400 — which `_send_reply` swallows, so an over-long reply silently
+    # vanishes. Build under a conservative budget, breaking cleanly BETWEEN
+    # items (never mid-tag), and append a "…and N more" hint when we stop.
+    _BUDGET = 3800
+    running = len(lines[0])
+    shown = 0
+    truncated = False
     for it in items:
         date_raw = str(it.get("date") or "")
-        if date_raw != last_date:
-            last_date = date_raw
-            lines.append(f"\n<b>{_tl._escape(_fmt_date_user(date_raw, fmt))}</b>")
+        block: list[str] = []
+        new_date = date_raw != last_date
+        if new_date:
+            block.append(f"\n<b>{_tl._escape(_fmt_date_user(date_raw, fmt))}</b>")
         emoji = _UPCOMING_TYPE_EMOJI.get(str(it.get("type") or ""), "•")
         title = _tl._escape(str(it.get("title") or "?"))
         # subtitle (episode code / album), air time, runtime → a compact meta tail.
@@ -1856,16 +1865,34 @@ async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -
         if rt > 0:
             meta.append(f"{rt}m")
         meta_txt = (" · " + " · ".join(meta)) if meta else ""
-        lines.append(f"{emoji} <b>{title}</b>{meta_txt}")
+        block.append(f"{emoji} <b>{title}</b>{meta_txt}")
         overview = str(it.get("overview") or "").strip()
         if overview:
             if len(overview) > 160:
                 overview = overview[:159].rstrip() + "…"
-            lines.append(f"<i>{_tl._escape(overview)}</i>")
+            block.append(f"<i>{_tl._escape(overview)}</i>")
+        block_len = sum(len(b) + 1 for b in block)
+        if shown > 0 and running + block_len > _BUDGET:
+            truncated = True
+            break
+        lines.extend(block)
+        running += block_len
+        shown += 1
+        if new_date:
+            last_date = date_raw
+    if truncated:
+        lines.append(f"\n<i>…and {len(items) - shown} more — narrow the window "
+                     f"(e.g. /upcoming 7) or filter by type.</i>")
     svcs = res.get("services") or []
     if svcs:
         lines.append(f"\n<i>from {_tl._escape(', '.join(svcs))}</i>")
-    await _tl._send_reply(client, "\n".join(lines))
+    # Safety net: tag-aware hard cap so a single pathological item can't push the
+    # message past Telegram's 4096 limit (closes any open tag at the cut).
+    from logic.telegram_ai import _truncate_telegram_html  # noqa: PLC0415
+    # Cap at 4000 (not 4096) — the tag-aware truncator appends close tags after
+    # the cut, so the result can exceed the requested max by the suffix length;
+    # 4000 leaves headroom under Telegram's hard 4096 limit.
+    await _tl._send_reply(client, _truncate_telegram_html("\n".join(lines), 4000))
 
 
 # noinspection PyUnusedLocal

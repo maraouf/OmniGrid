@@ -74,6 +74,11 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_history_op_type ON history(op_type);
         CREATE INDEX IF NOT EXISTS idx_history_target_name ON history(target_name);
         CREATE INDEX IF NOT EXISTS idx_history_status ON history(status);
+        -- Composite (actor, ts DESC): serves both the actor-filtered COUNT(*)
+        -- AND the `WHERE actor=? ORDER BY ts DESC` page in the schedule-queue /
+        -- audit views. Without it, COUNT(*) WHERE actor=? full-scans history
+        -- (a ~290ms slow query on a large audit trail).
+        CREATE INDEX IF NOT EXISTS idx_history_actor_ts ON history(actor, ts DESC);
         -- idx_history_target_kind is created by migration — keep it
         -- there so legacy DBs (where the table exists without the
         -- column at init_db time) don't fail the executescript before

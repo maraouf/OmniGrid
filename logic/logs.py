@@ -189,6 +189,19 @@ _RE_ALREADY_PREFIXED = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?\s+(?:INFO|WARN|ERROR|SUCCESS|DEBUG|CRITICAL)\b",
     re.IGNORECASE,
 )
+# OmniGrid app-log convention: a line whose `[tag]` prefix is IMMEDIATELY
+# followed by an explicit level word — `[tdarr] INFO fetched ... failed=5/0`,
+# `[seerr] error: ...`, `[snmp] warning: ...` — has self-declared its severity.
+# That declared level is AUTHORITATIVE over the body-keyword scan, so a stat
+# summary that happens to contain a count label like `failed=5` / `errors=0`
+# isn't mis-bucketed as ERROR. Only the level token RIGHT AFTER the tag counts
+# (so `[ssh] run ERROR ...` — where "run" follows the tag — still falls through
+# to the body scan and is correctly classified ERROR).
+_RE_TAG_LEVEL = re.compile(
+    r"^\[[a-z0-9_]+]\s+(?P<lvl>INFO|DEBUG|TRACE|WARN|WARNING|ERROR|"
+    r"CRITICAL|FATAL|SUCCESS)\b",
+    re.IGNORECASE,
+)
 
 
 def _severity_for(text: str, _stream: str) -> str:
@@ -214,6 +227,20 @@ def _severity_for(text: str, _stream: str) -> str:
     """
     if not text:
         return "INFO"
+    # Structured `[tag] LEVEL ...` prefix wins over every body scan — the app
+    # explicitly declared this line's severity (see _RE_TAG_LEVEL). Trusting it
+    # stops a count label like `failed=5` / `errors=0` in an INFO stat summary
+    # from being mis-bucketed ERROR.
+    _tag_level = _RE_TAG_LEVEL.match(text)
+    if _tag_level is not None:
+        _lvl = _tag_level.group("lvl").upper()
+        if _lvl in ("ERROR", "CRITICAL", "FATAL"):
+            return "ERROR"
+        if _lvl in ("WARN", "WARNING"):
+            return "WARN"
+        if _lvl == "SUCCESS":
+            return "SUCCESS"
+        return "INFO"  # INFO / DEBUG / TRACE
     # Early-position scan (first 120 chars) — explicit-marker tokens
     # near the start of the line take precedence over body-keyword
     # matches. Without this, a WARN-intent line whose BODY mentions
