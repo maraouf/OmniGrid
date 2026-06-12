@@ -115,24 +115,28 @@ function adguardAggregate(app) {
     ready: false, loading: false,
     n: 0, okN: 0,
     queries: 0, blocked: 0, pct: 0, rules: 0, clients: 0, avgMs: 0,
-    topBlocked: null,
+    safebrowsing: 0, parental: 0,
+    topBlocked: null, topQueried: null, topClient: null,
+    queriesSeries: [], blockedSeries: [],
+    trend: null,
     protOn: 0, protTotal: 0, protOffHosts: [],
     failedHosts: [], version: '',
   };
   const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
   out.n = insts.length;
   let wSum = 0;  // query-weighted avg-ms numerator
+  const qSeriesList = [];  // per-host queries time-bucket arrays
+  const bSeriesList = [];  // per-host blocked time-bucket arrays
+  const pickTop = (cur, t) => (
+    (t && t.name && (!cur || _num(t.count) > _num(cur.count)))
+      ? {name: String(t.name), count: _num(t.count)} : cur);
   for (const inst of insts) {
     const d = (typeof this.appsAppData === 'function') ? this.appsAppData(inst) : null;
     if (d == null || d.__pending) {
       out.loading = true;
       continue;
     }
-    if (d.__error) {
-      out.failedHosts.push(inst.host_address || inst.host_id || '?');
-      continue;
-    }
-    if (!d.ok) {
+    if (d.__error || !d.ok) {
       out.failedHosts.push(inst.host_address || inst.host_id || '?');
       continue;
     }
@@ -140,6 +144,8 @@ function adguardAggregate(app) {
     out.queries += _num(d.queries_today);
     out.blocked += _num(d.blocked_today);
     out.clients += _num(d.num_clients);
+    out.safebrowsing += _num(d.safebrowsing_today);
+    out.parental += _num(d.parental_today);
     out.rules = Math.max(out.rules, _num(d.blocklist_rules));
     wSum += _num(d.avg_processing_ms) * _num(d.queries_today);
     out.protTotal += 1;
@@ -151,15 +157,94 @@ function adguardAggregate(app) {
     if (!out.version && d.version) {
       out.version = String(d.version);
     }
-    const t = d.top_blocked_domain;
-    if (t && t.name && (!out.topBlocked || _num(t.count) > _num(out.topBlocked.count))) {
-      out.topBlocked = {name: String(t.name), count: _num(t.count)};
+    out.topBlocked = pickTop(out.topBlocked, d.top_blocked_domain);
+    out.topQueried = pickTop(out.topQueried, d.top_queried_domain);
+    out.topClient = pickTop(out.topClient, d.top_client);
+    if (Array.isArray(d.queries_series) && d.queries_series.length) {
+      qSeriesList.push(d.queries_series);
+    }
+    if (Array.isArray(d.blocked_series) && d.blocked_series.length) {
+      bSeriesList.push(d.blocked_series);
+    }
+    // The fleet blocked-% trend is identical on every host — take the first.
+    if (!out.trend && d.fleet_trend && typeof d.fleet_trend === 'object') {
+      out.trend = d.fleet_trend;
     }
   }
+  out.queriesSeries = _sumAlign(qSeriesList);
+  out.blockedSeries = _sumAlign(bSeriesList);
   out.pct = out.queries > 0 ? (out.blocked / out.queries) * 100 : 0;
   out.avgMs = out.queries > 0 ? (wSum / out.queries) : 0;
   out.ready = out.okN > 0;
   return out;
+}
+
+// Element-wise sum a list of numeric arrays, right-aligned to the SHORTEST
+// (the most-recent buckets line up across hosts whose stats windows differ).
+// [] when there's nothing to sum.
+function _sumAlign(arrays) {
+  if (!Array.isArray(arrays) || !arrays.length) {
+    return [];
+  }
+  let minLen = Infinity;
+  for (const a of arrays) {
+    if (Array.isArray(a) && a.length < minLen) {
+      minLen = a.length;
+    }
+  }
+  if (!isFinite(minLen) || minLen < 1) {
+    return [];
+  }
+  const out = new Array(minLen).fill(0);
+  for (const a of arrays) {
+    const off = a.length - minLen;  // right-align (drop oldest extra buckets)
+    for (let i = 0; i < minLen; i++) {
+      out[i] += _num(a[off + i]);
+    }
+  }
+  return out;
+}
+
+// SVG path for a numeric array over a 200x32 viewBox, normalised to an
+// explicit `max` (so two series — queries + blocked — share one scale and
+// blocked reads as a true proportion of queries). '' when < 2 points.
+function adguardSeriesPath(arr, max) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  const width = 200, height = 32, n = arr.length;
+  const top = (Number(max) > 0) ? Number(max) : Math.max(1, ...arr.map(_num));
+  const stepX = width / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (height - (_num(arr[i]) / top) * height).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  return d.trim();
+}
+
+// Max across one-or-more numeric arrays (for the shared queries/blocked scale).
+function adguardSeriesMax() {
+  let m = 0;
+  for (let a = 0; a < arguments.length; a++) {
+    const arr = arguments[a];
+    if (Array.isArray(arr)) {
+      for (let i = 0; i < arr.length; i++) {
+        const v = _num(arr[i]);
+        if (v > m) {
+          m = v;
+        }
+      }
+    }
+  }
+  return m;
+}
+
+// Self-normalised SVG path for the blocked-% daily trend (numeric array).
+// '' when < 2 points.
+function adguardTrendPath(arr) {
+  return adguardSeriesPath(arr, adguardSeriesMax(arr));
 }
 
 function adguardDisablePresets() {
@@ -215,8 +300,10 @@ async function adguardFleetSkill(app, skillId, opts) {
     const r = await fetch('/api/services/' + encodeURIComponent(target.host_id)
       + '/' + encodeURIComponent(target.service_idx)
       + '/skill/' + encodeURIComponent(skillId),
-      {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: true})});
+      {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j && j.ok) {
       this.showToast((this.t('apps.adguard.action_ok') || 'Done')
@@ -262,6 +349,9 @@ export const helpers = {
   adguardInt: adguardInt,
   adguardPct: adguardPct,
   adguardMs: adguardMs,
+  adguardSeriesPath: adguardSeriesPath,
+  adguardSeriesMax: adguardSeriesMax,
+  adguardTrendPath: adguardTrendPath,
   adguardDisablePresets: adguardDisablePresets,
   adguardSkillBusy: adguardSkillBusy,
   adguardFleetSkill: adguardFleetSkill,

@@ -102,23 +102,26 @@ function piholeAggregate(app) {
     ready: false, loading: false,
     n: 0, okN: 0,
     queries: 0, blocked: 0, pct: 0, rules: 0, clients: 0,
-    topBlocked: null,
+    topBlocked: null, topQueried: null, topClient: null,
+    queriesSeries: [], blockedSeries: [],
+    trend: null,
     protOn: 0, protTotal: 0, protOffHosts: [],
     failedHosts: [], version: '',
   };
   const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
   out.n = insts.length;
+  const qSeriesList = [];
+  const bSeriesList = [];
+  const pickTop = (cur, t) => (
+    (t && t.name && (!cur || _num(t.count) > _num(cur.count)))
+      ? {name: String(t.name), count: _num(t.count)} : cur);
   for (const inst of insts) {
     const d = (typeof this.appsAppData === 'function') ? this.appsAppData(inst) : null;
     if (d == null || d.__pending) {
       out.loading = true;
       continue;
     }
-    if (d.__error) {
-      out.failedHosts.push(inst.host_address || inst.host_id || '?');
-      continue;
-    }
-    if (!d.ok) {
+    if (d.__error || !d.ok) {
       out.failedHosts.push(inst.host_address || inst.host_id || '?');
       continue;
     }
@@ -136,14 +139,89 @@ function piholeAggregate(app) {
     if (!out.version && d.version) {
       out.version = String(d.version);
     }
-    const t = d.top_blocked_domain;
-    if (t && t.name && (!out.topBlocked || _num(t.count) > _num(out.topBlocked.count))) {
-      out.topBlocked = {name: String(t.name), count: _num(t.count)};
+    out.topBlocked = pickTop(out.topBlocked, d.top_blocked_domain);
+    out.topQueried = pickTop(out.topQueried, d.top_queried_domain);
+    out.topClient = pickTop(out.topClient, d.top_client);
+    if (Array.isArray(d.queries_series) && d.queries_series.length) {
+      qSeriesList.push(d.queries_series);
+    }
+    if (Array.isArray(d.blocked_series) && d.blocked_series.length) {
+      bSeriesList.push(d.blocked_series);
+    }
+    if (!out.trend && d.fleet_trend && typeof d.fleet_trend === 'object') {
+      out.trend = d.fleet_trend;
     }
   }
+  out.queriesSeries = _sumAlign(qSeriesList);
+  out.blockedSeries = _sumAlign(bSeriesList);
   out.pct = out.queries > 0 ? (out.blocked / out.queries) * 100 : 0;
   out.ready = out.okN > 0;
   return out;
+}
+
+// Element-wise sum a list of numeric arrays, right-aligned to the SHORTEST
+// (the most-recent bins line up across hosts whose history windows differ).
+function _sumAlign(arrays) {
+  if (!Array.isArray(arrays) || !arrays.length) {
+    return [];
+  }
+  let minLen = Infinity;
+  for (const a of arrays) {
+    if (Array.isArray(a) && a.length < minLen) {
+      minLen = a.length;
+    }
+  }
+  if (!isFinite(minLen) || minLen < 1) {
+    return [];
+  }
+  const out = new Array(minLen).fill(0);
+  for (const a of arrays) {
+    const off = a.length - minLen;
+    for (let i = 0; i < minLen; i++) {
+      out[i] += _num(a[off + i]);
+    }
+  }
+  return out;
+}
+
+// SVG path for a numeric array over a 200x32 viewBox, normalised to an explicit
+// `max` (so queries + blocked share one scale). '' when < 2 points.
+function piholeSeriesPath(arr, max) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  const width = 200, height = 32, n = arr.length;
+  const top = (Number(max) > 0) ? Number(max) : Math.max(1, ...arr.map(_num));
+  const stepX = width / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (height - (_num(arr[i]) / top) * height).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  return d.trim();
+}
+
+// Max across one-or-more numeric arrays (for the shared queries/blocked scale).
+function piholeSeriesMax() {
+  let m = 0;
+  for (let a = 0; a < arguments.length; a++) {
+    const arr = arguments[a];
+    if (Array.isArray(arr)) {
+      for (let i = 0; i < arr.length; i++) {
+        const v = _num(arr[i]);
+        if (v > m) {
+          m = v;
+        }
+      }
+    }
+  }
+  return m;
+}
+
+// Self-normalised SVG path for the blocked-% daily trend. '' when < 2 points.
+function piholeTrendPath(arr) {
+  return piholeSeriesPath(arr, piholeSeriesMax(arr));
 }
 
 function piholeDisablePresets() {
@@ -199,8 +277,10 @@ async function piholeFleetSkill(app, skillId, opts) {
     const r = await fetch('/api/services/' + encodeURIComponent(target.host_id)
       + '/' + encodeURIComponent(target.service_idx)
       + '/skill/' + encodeURIComponent(skillId),
-      {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({confirm: true})});
+      {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({confirm: true})
+      });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j && j.ok) {
       this.showToast((this.t('apps.pihole.action_ok') || 'Done')
@@ -245,6 +325,9 @@ export const helpers = {
   piholeAggregate: piholeAggregate,
   piholeInt: piholeInt,
   piholePct: piholePct,
+  piholeSeriesPath: piholeSeriesPath,
+  piholeSeriesMax: piholeSeriesMax,
+  piholeTrendPath: piholeTrendPath,
   piholeDisablePresets: piholeDisablePresets,
   piholeSkillBusy: piholeSkillBusy,
   piholeFleetSkill: piholeFleetSkill,

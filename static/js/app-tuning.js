@@ -324,6 +324,14 @@ export default {
     // trend surviving the upstream's own pruning (ingest cadence + retention).
     'tuning_speedtest_sample_interval_seconds',
     'tuning_speedtest_history_days',
+    // AdGuard Home blocked-% history sampler — fleet trend surviving AdGuard's
+    // short rolling stats window + restarts (snapshot cadence + retention).
+    'tuning_adguard_sample_interval_seconds',
+    'tuning_adguard_history_days',
+    // Pi-hole blocked-% history sampler — fleet cross-restart trend (snapshot
+    // cadence + retention).
+    'tuning_pihole_sample_interval_seconds',
+    'tuning_pihole_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

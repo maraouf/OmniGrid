@@ -62,6 +62,153 @@ def resolve_sample_interval(interval_tunable) -> int:
     return max(60, _tuning.tuning_int(_Tunable.STATS_SAMPLE_INTERVAL_SECONDS))
 
 
+async def run_sampler_tick(tick: int, *, instances_fn, probe_fn, interval_fn,
+                           log_tag: str, prune_table: str,
+                           history_days_tunable) -> None:
+    """Generic per-app sampler tick body: probe every configured instance in
+    parallel, then — once an hour — prune ``<prune_table>`` to the retention
+    window. Shared by every ``<slug>_sampler._tick`` (the probe / interval
+    callbacks + the table + retention tunable are the only differences), so the
+    gather + prune-cadence boilerplate lives in ONE place. ``probe_fn`` is the
+    sampler's ``_probe_one(host_id, service_idx, host_row, chip)`` coroutine."""
+    import asyncio as _asyncio  # noqa: PLC0415
+    instances = instances_fn()
+    if instances:
+        await _asyncio.gather(
+            *(probe_fn(*t) for t in instances), return_exceptions=True)
+    interval = interval_fn()
+    if tick % max(1, 3600 // max(1, interval)) == 0:
+        import time as _time  # noqa: PLC0415
+        from logic import tuning as _tuning  # noqa: PLC0415
+        from logic.db import prune_rows_older_than  # noqa: PLC0415
+        from logic.sampler_metrics import prune_with_metrics  # noqa: PLC0415
+        days = _tuning.tuning_int(history_days_tunable)
+        cutoff = int(_time.time()) - days * 86400
+        table = _safe_table(prune_table)
+
+        def _prune() -> int:
+            return prune_rows_older_than(table, cutoff)
+
+        n = await prune_with_metrics(log_tag, _prune)
+        if n:
+            print(f"[{log_tag}] pruned {n} rows older than {days}d")
+
+
+# ---------------------------------------------------------------------------
+# Fleet DNS-blocker sampler scaffolding — shared by adguardhome_sampler.py +
+# pihole_sampler.py (both snapshot the SAME queries/blocked/clients shape into
+# their own <slug>_samples table + derive the SAME fleet blocked-% trend), so
+# the probe-write + trend math live in ONE place.
+# ---------------------------------------------------------------------------
+def _safe_table(table: str) -> str:
+    """Guard a sampler table name before f-stringing it into SQL — it's always
+    a hardcoded module constant, never user input, but validate anyway."""
+    if not table.replace("_", "").isalnum():
+        raise ValueError(f"unsafe table name: {table!r}")
+    return table
+
+
+async def probe_blocker_sample(fetch_fn, table: str, host_id: str,
+                               service_idx: int, host_row: dict, chip: dict,
+                               log_tag: str) -> None:
+    """Fetch one fleet-blocker host via ``fetch_fn(force=True)`` and snapshot
+    its queries / blocked / clients counters into ``<table>`` (one row per
+    tick). A host that's down / unreachable skips the write (no phantom 0 row);
+    a code bug also skips. Shared by the AdGuard + Pi-hole samplers — only the
+    fetch_fn + table + log_tag differ."""
+    import asyncio as _asyncio  # noqa: PLC0415
+    import time as _time  # noqa: PLC0415
+    from logic.db import db_conn  # noqa: PLC0415
+    try:
+        data = await fetch_fn(host_row, chip, host_id=host_id,
+                              service_idx=int(service_idx), force=True)
+    except (_asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except (ValueError, RuntimeError) as e:
+        print(f"[{log_tag}] probe {host_id}#{service_idx} down: {e}")
+        return
+    except Exception as e:  # noqa: BLE001
+        print(f"[{log_tag}] probe {host_id}#{service_idx} error: {type(e).__name__}: {e}")
+        return
+    if not isinstance(data, dict) or not data.get("ok"):
+        return
+    row = (int(_time.time()), host_id, int(service_idx),
+           int(data.get("queries_today") or 0), int(data.get("blocked_today") or 0),
+           int(data.get("num_clients") or 0))
+    try:
+        with db_conn() as c:
+            c.execute(
+                f"INSERT OR REPLACE INTO {_safe_table(table)} "
+                "(ts, host_id, service_idx, queries, blocked, clients) "
+                "VALUES (?,?,?,?,?,?)", row)
+    except Exception as e:  # noqa: BLE001
+        print(f"[{log_tag}] write {host_id}#{service_idx} failed: {e}")
+
+
+def fleet_blocker_trend_summary(table: str, days_tunable, days: int = 0, *,
+                                max_points: int = 90) -> dict:
+    """Fleet-wide daily blocked-% trend from a ``<table>`` of queries/blocked
+    snapshots. Returns ``{days, samples, median_pct, latest_pct, series}`` where
+    ``series`` is up to ``max_points`` daily blocked-% points (oldest-first,
+    days WITH data only) computed by taking each host's daily-MAX queries+blocked
+    (the cumulative today-counter peaks just before the daily reset ≈ that day's
+    total), summing across the fleet per day, then ``blocked/queries*100``.
+    Zeroed shape when no samples yet — never raises. Shared by the AdGuard +
+    Pi-hole samplers; only the table + retention tunable differ."""
+    import time as _time  # noqa: PLC0415
+    from collections import defaultdict as _defaultdict  # noqa: PLC0415
+    from logic import tuning as _tuning  # noqa: PLC0415
+    from logic.db import db_conn  # noqa: PLC0415
+    win = int(days) if days else _tuning.tuning_int(days_tunable)
+    out: dict = {"days": int(win), "samples": 0, "median_pct": 0.0,
+                 "latest_pct": 0.0, "series": []}
+    cutoff = int(_time.time()) - int(win) * 86400
+    try:
+        with db_conn() as c:
+            rows = c.execute(
+                f"SELECT ts, host_id, service_idx, queries, blocked "
+                f"FROM {_safe_table(table)} WHERE ts >= ? ORDER BY ts ASC",
+                (cutoff,),
+            ).fetchall()
+    except Exception as e:  # noqa: BLE001
+        print(f"[{table}] trend_summary failed: {e}")
+        return out
+    if not rows:
+        return out
+    out["samples"] = len(rows)
+    day_host_q: dict = _defaultdict(int)
+    day_host_b: dict = _defaultdict(int)
+    for r in rows:
+        key = (int(r["ts"]) // 86400, str(r["host_id"]), int(r["service_idx"]))
+        q = int(r["queries"] or 0)
+        b = int(r["blocked"] or 0)
+        if q > day_host_q[key]:
+            day_host_q[key] = q
+        if b > day_host_b[key]:
+            day_host_b[key] = b
+    day_q: dict = _defaultdict(int)
+    day_b: dict = _defaultdict(int)
+    for (day, _h, _s), q in day_host_q.items():
+        day_q[day] += q
+    for (day, _h, _s), b in day_host_b.items():
+        day_b[day] += b
+    series = []
+    for day in sorted(day_q):
+        q = day_q[day]
+        series.append(round((day_b[day] / q) * 100.0, 2) if q > 0 else 0.0)
+    if not series:
+        return out
+    if len(series) > max_points:
+        stride = len(series) / float(max_points)
+        series = [series[int(i * stride)] for i in range(max_points)]
+    out["series"] = series
+    out["latest_pct"] = series[-1]
+    srt = sorted(series)
+    mid = len(srt) // 2
+    out["median_pct"] = srt[mid] if len(srt) % 2 else round((srt[mid - 1] + srt[mid]) / 2.0, 2)
+    return out
+
+
 # Canonical timed-disable presets (label, seconds) shared by every fleet
 # DNS-blocker (Pi-hole / AdGuard / future). The provider's blocking timer
 # natively auto-re-enables after N seconds.

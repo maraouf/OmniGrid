@@ -62,6 +62,8 @@ class Tunable(str, Enum):
     Every addition to ``TUNABLES`` must add a matching member here; the
     smoke check in ``__main__`` catches missing / extra members.
     """
+    ADGUARD_HISTORY_DAYS = "tuning_adguard_history_days"
+    ADGUARD_SAMPLE_INTERVAL_SECONDS = "tuning_adguard_sample_interval_seconds"
     AI_CONVERSATION_EXPORT_ENABLED = "tuning_ai_conversation_export_enabled"
     AI_CONVERSATION_PERSIST_INTERVAL_MS = "tuning_ai_conversation_persist_interval_ms"
     AI_EXTENDED_HTTP_TIMEOUT_SECONDS = "tuning_ai_extended_http_timeout_seconds"
@@ -137,6 +139,8 @@ class Tunable(str, Enum):
     NOTIFICATIONS_POLL_INTERVAL_SECONDS = "tuning_notifications_poll_interval_seconds"
     OIDC_HTTP_TIMEOUT_SECONDS = "tuning_oidc_http_timeout_seconds"
     OPS_POLL_INTERVAL_SECONDS = "tuning_ops_poll_interval_seconds"
+    PIHOLE_HISTORY_DAYS = "tuning_pihole_history_days"
+    PIHOLE_SAMPLE_INTERVAL_SECONDS = "tuning_pihole_sample_interval_seconds"
     PING_CONCURRENCY = "tuning_ping_concurrency"
     PING_COOLDOWN_SECONDS = "tuning_ping_cooldown_seconds"
     PING_DEFAULT_PORT = "tuning_ping_default_port"
@@ -1356,6 +1360,29 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # usage trends since IP changes are rare + worth keeping a quarter of).
     "tuning_ddns_history_days": ("DDNS_HISTORY_DAYS", 90, 1, 730),
 
+    # ----- AdGuard Home -----------------------------------------------------
+
+    # How often the lifespan AdGuard sampler snapshots each configured AdGuard
+    # host's queries/blocked/clients counters into the history table that drives
+    # the fleet blocked-% trend (0 = inherit the global stats sample interval).
+    # Default 900 (15 min) — the today-counters move slowly + the probe is cheap.
+    "tuning_adguard_sample_interval_seconds": ("ADGUARD_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for adguard_samples — the blocked-% trend that
+    # outlives AdGuard's own short rolling stats window + survives a restart.
+    # Default 90 (a quarter of daily points).
+    "tuning_adguard_history_days": ("ADGUARD_HISTORY_DAYS", 90, 1, 730),
+
+    # ----- Pi-hole ----------------------------------------------------------
+
+    # How often the lifespan Pi-hole sampler snapshots each configured Pi-hole
+    # host's queries/blocked/clients counters into the history table that drives
+    # the fleet blocked-% trend (0 = inherit the global stats sample interval).
+    # Default 900 (15 min).
+    "tuning_pihole_sample_interval_seconds": ("PIHOLE_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for pihole_samples — the cross-restart blocked-%
+    # trend (FTL's today-counters reset on restart). Default 90.
+    "tuning_pihole_history_days": ("PIHOLE_HISTORY_DAYS", 90, 1, 730),
+
     # ----- Speedtest Tracker ------------------------------------------------
 
     # How often the lifespan Speedtest sampler ingests each configured chip's
@@ -1584,12 +1611,22 @@ _ENUM_REF_RE = re.compile(r"\b_?tuning_int\s*\(\s*(?:_Tunable|Tunable)\.(?P<name
 # at logic/host_http_sampler.py) would falsely report as "no live consumer"
 # in the Admin → Config audit. New helpers that take a ``Tunable``
 # parameter and forward to ``tuning_int`` MUST be appended here so the
-# audit stays honest. The regex matches the helper-name + first arg.
+# audit stays honest. The regex matches the helper-name + a ``Tunable.X``
+# member in ANY argument position of the call (positional or keyword) — so a
+# helper that takes the Tunable as a 2nd-positional / kwarg (e.g.
+# ``fleet_blocker_trend_summary(table, Tunable.X)`` /
+# ``run_sampler_tick(..., history_days_tunable=Tunable.X)``) is still detected.
 _INDIRECT_CONSUMER_HELPERS: tuple[str, ...] = (
     "resolve_provider_interval",
     # Shared per-app sampler cadence resolver (logic/apps/_common.py) — every
     # <slug>_sampler.py forwards its <APP>_SAMPLE_INTERVAL_SECONDS Tunable here.
     "resolve_sample_interval",
+    # Shared fleet-blocker trend reader (logic/apps/_common.py) — AdGuard +
+    # Pi-hole samplers forward their <APP>_HISTORY_DAYS Tunable as the 2nd arg.
+    "fleet_blocker_trend_summary",
+    # Shared generic sampler tick (logic/apps/_common.py) — every <slug>_sampler
+    # forwards its <APP>_HISTORY_DAYS Tunable via the history_days_tunable kwarg.
+    "run_sampler_tick",
 )
 # Build the helper-name alternation fragment. When the list has ONE
 # entry the fragment is the bare name (no group); when it has 2+ entries
@@ -1606,9 +1643,14 @@ else:
 # The inner `(?:_Tunable|Tunable)` group IS a genuine multi-alternation
 # (typed-enum reference may be aliased to `_Tunable` at the import
 # site) — kept non-capturing because we don't need the match value.
+# ``[^)]*?`` (non-greedy, stops at the first close-paren) lets the Tunable
+# sit in ANY argument position of the call — first-positional (the original
+# ``resolve_*`` helpers), 2nd-positional, or a kwarg — while still scoping the
+# match to within the one call's parens. The registered helpers never take a
+# Tunable after a nested-paren arg, so the first ``)`` always closes the call.
 _INDIRECT_REF_RE = re.compile(
     r"\b" + _HELPER_ALT
-    + r"\s*\(\s*(?:_Tunable|Tunable)\.(?P<name>[A-Z][A-Z0-9_]+)\b"
+    + r"\s*\([^)]*?(?:_Tunable|Tunable)\.(?P<name>[A-Z][A-Z0-9_]+)\b"
 )
 _INDIRECT_BARE_STR_RE = re.compile(
     r"\b" + _HELPER_ALT

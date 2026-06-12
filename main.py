@@ -890,6 +890,28 @@ async def _lifespan(_app: FastAPI):
         _speedtest_sampler.speedtest_tracker_sampler_loop(),
         name="speedtest-sampler",
     )
+    # AdGuard Home blocked-% history sampler — snapshots each configured AdGuard
+    # host's queries/blocked/clients counters every
+    # tuning_adguard_sample_interval_seconds (default 900s; 0 = inherit the
+    # global stats interval) into adguard_samples, driving the fleet card's
+    # blocked-% trend that outlives AdGuard's short rolling stats window +
+    # survives a restart. Dormant-cheap when no AdGuard chip is pinned.
+    from logic.apps import adguardhome_sampler as _adguard_sampler
+    adguard_sampler = asyncio.create_task(
+        _adguard_sampler.adguardhome_sampler_loop(),
+        name="adguard-sampler",
+    )
+    # Pi-hole blocked-% history sampler — snapshots each configured Pi-hole
+    # host's queries/blocked/clients counters every
+    # tuning_pihole_sample_interval_seconds (default 900s; 0 = inherit the
+    # global stats interval) into pihole_samples, driving the fleet card's
+    # cross-restart blocked-% trend (FTL's today-counters reset on restart).
+    # Dormant-cheap when no Pi-hole chip is pinned.
+    from logic.apps import pihole_sampler as _pihole_sampler
+    pihole_sampler = asyncio.create_task(
+        _pihole_sampler.pihole_sampler_loop(),
+        name="pihole-sampler",
+    )
     try:
         yield
     finally:
@@ -899,7 +921,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

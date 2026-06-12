@@ -56,8 +56,9 @@ import httpx
 
 from logic.apps._common import (
     cache_key, fetch_gate, fleet_blocker_action, fleet_blocker_status,
-    fleet_disable_skills, fleet_instances, fleet_run_skill, peek_cache,
-    resolve_base_url, resolve_cache_ttl, resolve_userpass)
+    fleet_disable_skills, fleet_fan_out, fleet_instances, fleet_run_skill,
+    fleet_top, fmt_int_grouped, peek_cache, resolve_base_url, resolve_cache_ttl,
+    resolve_userpass)
 from logic.coerce import safe_float, safe_int
 
 # Catalog template slugs handled by this module. The catalog ships
@@ -104,6 +105,33 @@ SKILLS: tuple[dict, ...] = (
         "name": "Re-enable (cancel timed disable)",
         "ai_phrases": ("cancel timed disable, re-enable adguard now, "
                        "turn protection back on, undo disable"),
+        "destructive": False,
+    },
+    {
+        "id": "adguard_flush_cache",
+        "name": "Flush DNS cache",
+        "ai_phrases": ("flush adguard dns cache, clear dns cache, clear adguard "
+                       "cache, flush the cache, purge dns cache"),
+        "destructive": False,
+    },
+    {
+        "id": "adguard_block_domain",
+        "name": "Block a domain (fleet)",
+        "ai_phrases": ("block <domain> on adguard, block a domain everywhere, "
+                       "add a blocking rule, block <domain> on all adguards, "
+                       "blacklist <domain>"),
+        "arg": True,
+        "arg_hint": "the domain to block on every AdGuard host",
+        "destructive": True,
+    },
+    {
+        "id": "adguard_unblock_domain",
+        "name": "Unblock a domain (fleet)",
+        "ai_phrases": ("unblock <domain> on adguard, remove a blocking rule, "
+                       "allow <domain> everywhere, unblock <domain> on all "
+                       "adguards, whitelist <domain>"),
+        "arg": True,
+        "arg_hint": "the domain to unblock on every AdGuard host",
         "destructive": False,
     },
 )
@@ -187,6 +215,17 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
+def _series(arr: Any, cap: int = 48) -> list:
+    """Coerce an AdGuard stats time-bucket array (``dns_queries`` /
+    ``blocked_filtering`` — one int per stats interval) into a clean list of
+    ints, capped to the last ``cap`` buckets for a tidy sparkline. ``[]`` when
+    absent / malformed."""
+    if not isinstance(arr, list):
+        return []
+    out = [safe_int(x) for x in arr if isinstance(x, (int, float))]
+    return out[-cap:]
+
+
 def _top_entry(items: Any) -> Optional[dict]:
     """AdGuard ``top_blocked_domains`` / ``top_clients`` rows are either
     single-key dicts ``{"<name>": <count>}`` or ``{"name", "count"}``.
@@ -251,13 +290,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
     filt = filt or {}
 
     queries = safe_int(stats.get("num_dns_queries"))
-    blocked = (safe_int(stats.get("num_blocked_filtering"))
-               + safe_int(stats.get("num_replaced_safebrowsing"))
-               + safe_int(stats.get("num_replaced_parental")))
+    safebrowsing = safe_int(stats.get("num_replaced_safebrowsing"))
+    parental = safe_int(stats.get("num_replaced_parental"))
+    blocked = safe_int(stats.get("num_blocked_filtering")) + safebrowsing + parental
     blocked_pct = round((blocked / queries) * 100.0, 2) if queries > 0 else 0.0
     avg_ms = round(safe_float(stats.get("avg_processing_time")) * 1000.0, 2)
     top_blocked = _top_entry(stats.get("top_blocked_domains"))
+    top_queried = _top_entry(stats.get("top_queried_domains"))
     clients = stats.get("top_clients")
+    top_client = _top_entry(clients)
     num_clients = len(clients) if isinstance(clients, list) else 0
 
     rules = 0
@@ -276,13 +317,31 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "queries_today": queries,
         "blocked_today": blocked,
         "blocked_pct": blocked_pct,
+        "safebrowsing_today": safebrowsing,
+        "parental_today": parental,
         "blocklist_rules": rules,
         "num_clients": num_clients,
         "avg_processing_ms": avg_ms,
         "top_blocked_domain": top_blocked,
+        "top_queried_domain": top_queried,
+        "top_client": top_client,
+        # Time-bucketed arrays straight from the SAME /control/stats response
+        # (no extra call) — drive the aggregated queries-vs-blocked sparkline.
+        # Capped to the last 48 buckets so a wide window stays a tidy chart.
+        "queries_series": _series(stats.get("dns_queries")),
+        "blocked_series": _series(stats.get("blocked_filtering")),
+        "time_units": str(stats.get("time_units") or "").strip(),
         "version": str(status.get("version") or "").strip(),
         "fetched_at": int(now),
     }
+    # Fleet-wide long-horizon blocked-% trend (same value for every host —
+    # the SPA aggregate reads it off the first OK host). Best-effort: a
+    # sampler / DB hiccup must not fail the card.
+    try:
+        from logic.apps import adguardhome_sampler as _ag_sampler  # noqa: PLC0415
+        out["fleet_trend"] = _ag_sampler.trend_summary()
+    except Exception as e:  # noqa: BLE001
+        print(f"[adguard] warning: trend_summary failed: {e}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -343,16 +402,94 @@ async def _refresh_filters(base: str, auth: httpx.BasicAuth) -> None:
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
+async def _flush_cache(base: str, auth: httpx.BasicAuth) -> None:
+    """POST /control/cache/clear — purge the resolver cache. Raises on failure."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth, follow_redirects=True) as cli:
+            r = await cli.post(base + "/control/cache/clear")
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"{type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError(f"auth failed: HTTP {r.status_code}")
+    if r.status_code not in (200, 204):
+        raise RuntimeError(f"HTTP {r.status_code}")
+
+
+def _block_rule(domain: str) -> str:
+    """The AdGuard user-rule that blocks ``domain`` (adblock syntax)."""
+    return f"||{domain}^"
+
+
+async def _set_user_rule(base: str, auth: httpx.BasicAuth, domain: str,
+                         block: bool) -> str:
+    """Add (block=True) / remove (block=False) a domain's blocking rule in the
+    host's user rules via a read-modify-write: GET /control/filtering/status →
+    user_rules[] → POST /control/filtering/set_rules {rules:[...]}. Returns a
+    short status word ('added' / 'removed' / 'already' / 'absent') or raises
+    RuntimeError. Idempotent — adding an existing rule (or removing a missing
+    one) is a no-op."""
+    rule = _block_rule(domain)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/control/filtering/status",
+                              headers={"Accept": "application/json"})
+            if r.status_code in (401, 403):
+                raise RuntimeError(f"auth failed: HTTP {r.status_code}")
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            try:
+                body = r.json() or {}
+            except (ValueError, TypeError):
+                raise RuntimeError("non-JSON from filtering/status")
+            rules = [str(x) for x in (body.get("user_rules") or []) if isinstance(x, str)]
+            present = rule in rules
+            if block:
+                if present:
+                    return "already"
+                rules.append(rule)
+            else:
+                # Remove the exact block rule AND a bare-domain / @@allow variant.
+                variants = {rule, domain, f"@@||{domain}^"}
+                new_rules = [x for x in rules if x.strip() not in variants]
+                if len(new_rules) == len(rules):
+                    return "absent"
+                rules = new_rules
+            rr = await cli.post(base + "/control/filtering/set_rules",
+                                json={"rules": rules})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"{type(e).__name__}: {e}")
+    if rr.status_code in (401, 403):
+        raise RuntimeError(f"auth failed: HTTP {rr.status_code}")
+    if rr.status_code not in (200, 204):
+        raise RuntimeError(f"HTTP {rr.status_code}")
+    return "added" if block else "removed"
+
+
+# noinspection DuplicatedCode
 def _avg_processing_lines(ok_rows: list, totals: dict) -> list:
-    """AdGuard-specific extra stat line for the fleet status: the
-    query-weighted average DNS processing time across hosts (Pi-hole has
-    no equivalent metric). Passed as ``extra_lines_fn`` to
-    ``fleet_blocker_status``."""
+    """AdGuard-specific extra stat lines for the fleet status: the
+    query-weighted average DNS processing time across hosts (Pi-hole has no
+    equivalent), plus the fleet's top queried domain + top client + the
+    safebrowsing / parental block split. Passed as ``extra_lines_fn`` to
+    ``fleet_blocker_status``. The top-queried/top-client extraction shape is
+    shared with Pi-hole's _extra_lines by design (fleet-app convention)."""
     queries = totals["queries"]
     wsum = sum(safe_float(r.get("avg_processing_ms")) * safe_int(r.get("queries_today"))
                for r in ok_rows)
     avg_ms = round(wsum / queries, 1) if queries > 0 else 0.0
-    return [f"⏱️ Avg processing: {avg_ms} ms"]
+    lines = [f"⏱️ Avg processing: {avg_ms} ms"]
+    tq = fleet_top(ok_rows, "top_queried_domain")
+    if tq and tq.get("name"):
+        lines.append(f"🔎 Top queried: {tq.get('name')} ({fmt_int_grouped(tq.get('count'))})")
+    tc = fleet_top(ok_rows, "top_client")
+    if tc and tc.get("name"):
+        lines.append(f"💻 Top client: {tc.get('name')} ({fmt_int_grouped(tc.get('count'))})")
+    sb = sum(safe_int(r.get("safebrowsing_today")) for r in ok_rows)
+    par = sum(safe_int(r.get("parental_today")) for r in ok_rows)
+    if sb or par:
+        lines.append(f"🦠 Safe-browsing: {fmt_int_grouped(sb)} · 👶 Parental: {fmt_int_grouped(par)}")
+    return lines
 
 
 async def _skill_status() -> dict:
@@ -395,17 +532,69 @@ async def _skill_fleet_action(action: str, seconds: int = 0) -> dict:
                                       log_tag="adguard", refresh_verb="refreshed")
 
 
+async def _skill_flush_cache() -> dict:
+    """Flush the DNS resolver cache on EVERY AdGuard instance."""
+
+    async def _one(hid, _sidx, hrow, chip):
+        username, password = resolve_userpass(chip)
+        base = resolve_base_url(hrow, chip)
+        if not (password and base):
+            return hid, False, "no creds / url"
+        try:
+            await _flush_cache(base, httpx.BasicAuth(username, password))
+        except RuntimeError as e:
+            return hid, False, str(e)
+        return hid, True, ""
+
+    return await fleet_fan_out(_instances(), _one, app_label="AdGuard",
+                               verb="cache flushed", log_tag="adguard",
+                               log_extra="action=flush_cache")
+
+
+async def _skill_set_rule(domain: str, block: bool) -> dict:
+    """Block / unblock ``domain`` on EVERY AdGuard instance (fleet write)."""
+    needle = (domain or "").strip().lower()
+    if not needle:
+        verb = "block" if block else "unblock"
+        return {"ok": False, "status": 0,
+                "detail": f"no domain given (say e.g. \"{verb} ads.example.com\")"}
+
+    async def _one(hid, _sidx, hrow, chip):
+        username, password = resolve_userpass(chip)
+        base = resolve_base_url(hrow, chip)
+        if not (password and base):
+            return hid, False, "no creds / url"
+        try:
+            await _set_user_rule(base, httpx.BasicAuth(username, password),
+                                 needle, block)
+        except RuntimeError as e:
+            return hid, False, str(e)
+        return hid, True, ""
+
+    verb = f"blocked {needle}" if block else f"unblocked {needle}"
+    return await fleet_fan_out(_instances(), _one, app_label="AdGuard",
+                               verb=verb, log_tag="adguard",
+                               log_extra=f"action={'block' if block else 'unblock'} domain={needle}")
+
+
 # noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
     """Dispatch one AdGuard skill via the shared fleet dispatch ladder.
-    Action skills (enable / disable* / refresh / reenable) FAN OUT to
-    every AdGuard instance regardless of the targeted chip — fleet-level by
-    design, so the per-chip ``host_row`` / ``chip`` / ``host_id`` /
-    ``service_idx`` the route passes are intentionally unused (the registry
-    contract requires the signature). ``adguard_status`` is read-only.
-    Raises ValueError on an unknown skill id."""
+    Action skills (enable / disable* / refresh / reenable / flush / block /
+    unblock) FAN OUT to every AdGuard instance regardless of the targeted
+    chip — fleet-level by design, so the per-chip ``host_row`` / ``chip`` /
+    ``host_id`` / ``service_idx`` the route passes are intentionally unused
+    (the registry contract requires the signature). ``adguard_status`` is
+    read-only. Raises ValueError on an unknown skill id."""
+    if skill_id == "adguard_flush_cache":
+        return await _skill_flush_cache()
+    if skill_id == "adguard_block_domain":
+        return await _skill_set_rule(arg or "", block=True)
+    if skill_id == "adguard_unblock_domain":
+        return await _skill_set_rule(arg or "", block=False)
     return await fleet_run_skill(skill_id, prefix="adguard",
                                  status_fn=_skill_status,
                                  action_fn=_skill_fleet_action, skills=SKILLS)
