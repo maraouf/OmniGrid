@@ -52,6 +52,13 @@
                  :class="(Number(radarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                  x-text="radarrCount(radarrData(inst).missing)"></div>
           </div>
+          <!-- Below quality cutoff (has a file but below the cutoff) -->
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.radarr.cutoff_unmet') || 'Below cutoff'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(radarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                 x-text="radarrCount(radarrData(inst).cutoff_unmet)"></div>
+          </div>
           <!-- Downloading (queue) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.radarr.downloading') || 'Downloading'"></div>
@@ -59,11 +66,52 @@
                  :class="(Number(radarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="radarrCount(radarrData(inst).queue)"></div>
           </div>
+          <!-- Library size on disk -->
+          <div class="apps-card-ups-stat" x-show="(Number(radarrData(inst).library_size_gb) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.radarr.library_size') || 'Library size'"></div>
+            <div class="apps-card-stat-value" x-text="radarrGb(radarrData(inst).library_size_gb)"></div>
+          </div>
         </div>
         <!-- Storage — every mount the app reports (root / library volume /
              remote shares), each as a clean card with free / total + a
              colour-coded usage bar. Shared across the *arr family. -->
         <!-- INCLUDE: _components/apps/_arr_storage.html -->
+        <!-- Library-growth + missing-backlog + disk-free trend (from OmniGrid's
+             shared servarr_samples). Drawer-only (`appsExtrasInDrawer`) — no
+             room on the apps-grid card; shown once ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && radarrTrend(inst) && radarrTrend(inst).series_total && radarrTrend(inst).series_total.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <!-- Library growth (total movies over time). -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.radarr.library_trend', { days: radarrTrend(inst).days }) || ('Library growth (' + radarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="radarrTrendPath(radarrTrend(inst).series_total)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <!-- Missing backlog over time (only when there's ever been a backlog). -->
+            <div class="space-y-1" x-show="(Number(radarrTrend(inst).peak_missing) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.radarr.missing_trend', { days: radarrTrend(inst).days }) || ('Missing backlog (' + radarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="radarrTrendPath(radarrTrend(inst).series_missing)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.radarr.peak_missing') || 'Peak missing') + ': ' + radarrCount(radarrTrend(inst).peak_missing)"></div>
+            </div>
+            <!-- Free disk over time + the disk-runway projection footnote. -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.radarr.disk_trend', { days: radarrTrend(inst).days }) || ('Free disk (' + radarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="radarrTrendPath(radarrTrend(inst).series_disk_free)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(radarrTrend(inst).disk_runway_days) || 0) > 0"
+                   class="fs-3xs text-[var(--warning)]"
+                   x-text="t('apps.radarr.disk_runway', { days: radarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + radarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + health issues (when reported). -->
         <div x-show="radarrData(inst).version || (Number(radarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

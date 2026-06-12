@@ -396,11 +396,50 @@ async def _lifespan(_app: FastAPI):
     # spawn on a partial schema; operator sees a readable diagnostic
     # in the browser instead of the samplers crash-looping against a
     # half-initialised DB.
-    try:
-        init_db()
-    except Exception as e:
-        _db_mod.DB_PATH_ERROR = f"init_db failed: {e}"
-        print(f"[boot] CONFIG ERROR: init_db failed: {e}")
+    #
+    # init_db can hit a TRANSIENT "database is locked" during a start-first
+    # deploy rollover: the OLD container still holds the bind-mounted SQLite
+    # DB open (its samplers mid-commit) while the NEW container boots, so the
+    # new process's first schema-write contends for SQLite's single writer
+    # lock and — when the contention outlasts the modest 2s per-connection
+    # busy_timeout — raises `sqlite3.OperationalError: database is locked`.
+    # Pre-fix that one transient miss latched DB_PATH_ERROR and wedged the
+    # whole app on the config-error page until a manual restart, even though
+    # the lock clears within seconds once the old task stops. So RETRY the
+    # whole (fully idempotent) init_db over the rollover window before giving
+    # up. The 45s budget sits well inside the compose healthcheck
+    # `start_period: 180s` warm-up (a failing healthcheck doesn't count yet)
+    # AND comfortably past the `monitor: 30s` rollover window, so the new
+    # container can't be SIGKILLed for taking the time to wait the lock out.
+    # A NON-lock error (a genuine schema bug) fails fast — no point waiting.
+    _init_ok = False
+    _init_err: "Optional[BaseException]" = None
+    _init_attempt = 0
+    _init_deadline = time.monotonic() + 45.0
+    while True:
+        _init_attempt += 1
+        try:
+            init_db()
+            _init_ok = True
+            break
+        except sqlite3.OperationalError as e:
+            _init_err = e
+            _msg = str(e).lower()
+            _transient = ("database is locked" in _msg) or ("database is busy" in _msg)
+            if not _transient or time.monotonic() >= _init_deadline:
+                break
+            _backoff = min(3.0, 0.5 * _init_attempt)
+            print(f"[boot] init_db: database is locked (attempt {_init_attempt} — "
+                  f"likely a start-first deploy rollover with the previous container "
+                  f"still holding the DB). Retrying in {_backoff:.1f}s.")
+            time.sleep(_backoff)
+        except Exception as e:  # noqa: BLE001
+            _init_err = e
+            break
+    if not _init_ok:
+        _db_mod.DB_PATH_ERROR = f"init_db failed: {_init_err}"
+        print(f"[boot] CONFIG ERROR: init_db failed after {_init_attempt} attempt(s): "
+              f"{_init_err}")
         print("[boot] Skipping every background worker until init_db can complete. "
               "The app is serving the config-error page.")
         yield
@@ -922,6 +961,17 @@ async def _lifespan(_app: FastAPI):
         _seerr_sampler.seerr_sampler_loop(),
         name="seerr-sampler",
     )
+    # Shared Servarr-family (Radarr / Sonarr / Lidarr / Readarr) retention
+    # sampler — snapshots every pinned *arr instance's library total / missing
+    # backlog / queue / free-disk gauges every tuning_servarr_sample_interval_seconds
+    # (default 900s; 0 = inherit the global stats interval) into servarr_samples,
+    # driving each *arr card's library-growth + missing-backlog sparkline AND the
+    # disk-free-runway projection. Dormant-cheap when no *arr chip is pinned.
+    from logic.apps import servarr_sampler as _servarr_sampler
+    servarr_sampler = asyncio.create_task(
+        _servarr_sampler.servarr_sampler_loop(),
+        name="servarr-sampler",
+    )
     try:
         yield
     finally:
@@ -931,7 +981,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

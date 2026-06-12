@@ -159,6 +159,17 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the movie title to remove from the Radarr library",
     },
     {
+        "id": "radarr_search_movie",
+        "name": "Search for a movie",
+        "ai_phrases": ("search for <title>, find <title> now, grab <title>, "
+                       "search radarr for <title>, look for a release of <title>, "
+                       "download <title> now, search for the movie <title>"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the movie title to search for a release now (must already "
+                    "be in the Radarr library)",
+    },
+    {
         "id": "radarr_search_missing",
         "name": "Search for missing movies",
         "ai_phrases": ("search for missing movies, find missing movies, "
@@ -266,14 +277,32 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 disks = []
             disk_free_gb, disk_total_gb = _primary_disk(disks)
             health_issues = 0
+            health_messages: list[str] = []
             try:
                 hr = await cli.get(base + "/api/v3/health",
                                    headers=_headers(api_key))
                 if hr.status_code == 200:
                     _hj = hr.json()
-                    health_issues = len(_hj) if isinstance(_hj, list) else 0
+                    if isinstance(_hj, list):
+                        health_issues = len(_hj)
+                        # Surface the actual messages (cap 4) — the count alone
+                        # doesn't tell the operator what's wrong.
+                        health_messages = [
+                            str(h.get("message") or "").strip()
+                            for h in _hj[:4] if isinstance(h, dict) and h.get("message")]
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 health_issues = 0
+            # Cutoff-unmet — movies that HAVE a file but below the quality
+            # cutoff (distinct from "missing"). totalRecords from a 1-row page.
+            cutoff_unmet = 0
+            try:
+                cr = await cli.get(base + "/api/v3/wanted/cutoff",
+                                   headers=_headers(api_key),
+                                   params={"pageSize": "1"})
+                if cr.status_code == 200:
+                    cutoff_unmet = safe_int((cr.json() or {}).get("totalRecords"))
+            except (httpx.HTTPError, OSError, ValueError, TypeError):
+                cutoff_unmet = 0
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[radarr] error: fetch host={host_id} url={movies_url} "
@@ -296,33 +325,56 @@ async def fetch_data(host_row: dict, chip: dict, *,
     total = len(movies)
     monitored = 0
     missing = 0
+    size_bytes = 0.0
     for m in movies:
         if not isinstance(m, dict):
             continue
+        size_bytes += safe_float(m.get("sizeOnDisk"))
         is_monitored = bool(m.get("monitored"))
         if is_monitored:
             monitored += 1
             if not m.get("hasFile"):
                 missing += 1
+    library_size_gb = round(size_bytes / _GIB, 1)
     out: dict[str, Any] = {
         "available": True,
         "movies_total": total,
         "monitored": monitored,
         "missing": missing,
+        "cutoff_unmet": safe_int(cutoff_unmet),
+        "library_size_gb": library_size_gb,
         "queue": safe_int(queue),
         "disk_free_gb": disk_free_gb,
         "disk_total_gb": disk_total_gb,
         "disks": disks,
         "health_issues": safe_int(health_issues),
+        "health_messages": health_messages,
         "version": ver,
         "fetched_at": int(now),
+        # Library-growth + missing-backlog + disk-free-runway trend from the
+        # shared servarr_samples retention table (drawer-only chart). Tolerated
+        # on failure — the card renders fine without it.
+        "trend": _safe_trend(host_id, service_idx),
     }
     print(f"[radarr] INFO fetched host={host_id} movies={total} "
-          f"monitored={monitored} missing={missing} queue={out['queue']} "
+          f"monitored={monitored} missing={missing} cutoff_unmet={out['cutoff_unmet']} "
+          f"size_gb={library_size_gb} queue={out['queue']} "
           f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
           f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort library / backlog / disk trend from the shared *arr sampler.
+    Returns the ``trend_summary`` dict, or ``{}`` on any failure (a missing
+    sampler / empty table must never fail the card)."""
+    try:
+        from logic.apps import servarr_sampler  # noqa: PLC0415
+        return servarr_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[radarr] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -336,6 +388,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "movies_total": safe_int(data.get("movies_total")),
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
+        "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "library_size_gb": safe_float(data.get("library_size_gb")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
         "disks": as_list(data.get("disks")),
@@ -377,6 +431,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _add_movie_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "radarr_remove_movie":
         return await _remove_movie_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "radarr_search_movie":
+        return await _search_movie_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "radarr_search_missing":
         return await _command_skill(host_row, chip, command="MissingMoviesSearch",
                                     started_msg="🔍 Started a search for all monitored "
@@ -592,29 +648,41 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("movies_total"))
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
+    cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    library_size_gb = safe_float(data.get("library_size_gb"))
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
     health = safe_int(data.get("health_issues"))
     disks = as_list(data.get("disks"))
+    health_messages = as_list(data.get("health_messages"))
     lines = [
         f"🎬 Movies: {total:,}",
         f"📁 Monitored: {monitored:,}",
         f"{'❓' if missing else '✅'} Missing: {missing:,}",
-        f"⬇️ Downloading: {queue:,}",
     ]
+    if cutoff_unmet:
+        lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
+    if library_size_gb > 0:
+        lines.append(f"🎞️ Library size: {_fmt_size_gib(library_size_gb)}")
+    lines.append(f"⬇️ Downloading: {queue:,}")
     # Compact storage summary for the text surfaces (AI / Telegram); the web
     # drawer renders the per-mount CARDS from the result's `disks` field.
     storage_line = _storage_summary_line(disks, free_gb)
     if storage_line:
         lines.append(storage_line)
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
+    # Surface the actual health messages (not just the count) so the AI can act.
+    for msg in health_messages[:3]:
+        if msg:
+            lines.append(f"   • {msg}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "movies_total": total, "monitored": monitored, "missing": missing,
+        "cutoff_unmet": cutoff_unmet, "library_size_gb": library_size_gb,
         "queue": queue, "disk_free_gb": free_gb, "disks": disks,
-        "health_issues": health,
+        "health_issues": health, "health_messages": health_messages,
     }
 
 
@@ -820,3 +888,52 @@ async def _remove_movie_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": dr.status_code, "detail": "auth failed (check api_key)"}
     return {"ok": False, "status": dr.status_code,
             "detail": f"Radarr returned HTTP {dr.status_code} removing {label}"}
+
+
+# noinspection DuplicatedCode
+async def _search_movie_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """Action skill: trigger a release search for ONE movie already in the
+    library (``POST /api/v3/command {name: MoviesSearch, movieIds: [id]}``).
+    Looks the movie up by title first; not-in-library is a friendly hint to add
+    it. Non-destructive (queues a background search). Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no movie title given — which movie should I search for?"}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + "/api/v3/movie", headers=_headers(api_key))
+            if r.status_code in (401, 403):
+                return {"ok": False, "status": r.status_code, "detail": "auth failed (check api_key)"}
+            if r.status_code != 200:
+                return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+            try:
+                movies = r.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            m = _find_in_library(movies, query)
+            if not m:
+                return {"ok": True, "status": 200,
+                        "detail": f"❓ “{query}” is not in your Radarr library yet. "
+                                  f"(Ask me to add it — that searches automatically.)"}
+            mid = safe_int(m.get("id"))
+            label = f"{str(m.get('title') or query)}{_year_suffix(m.get('year'))}"
+            print(f"[radarr] INFO radarr_search_movie host={host_id} id={mid} title={label!r}")
+            pr = await cli.post(base + "/api/v3/command",
+                                headers=_headers(api_key),
+                                json={"name": "MoviesSearch", "movieIds": [mid]})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"search failed: {type(e).__name__}: {e}"}
+    if pr.status_code in (200, 201):
+        return {"ok": True, "status": pr.status_code,
+                "detail": f"🔍 Started a release search for {label} on Radarr."}
+    if pr.status_code in (401, 403):
+        return {"ok": False, "status": pr.status_code, "detail": "auth failed (check api_key)"}
+    return {"ok": False, "status": pr.status_code,
+            "detail": f"Radarr returned HTTP {pr.status_code} searching for {label}"}

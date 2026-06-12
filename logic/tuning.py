@@ -198,6 +198,8 @@ class Tunable(str, Enum):
     SEERR_HISTORY_DAYS = "tuning_seerr_history_days"
     SEERR_SAMPLE_INTERVAL_SECONDS = "tuning_seerr_sample_interval_seconds"
     SEERR_SUGGEST_COOLDOWN_HOURS = "tuning_seerr_suggest_cooldown_hours"
+    SERVARR_HISTORY_DAYS = "tuning_servarr_history_days"
+    SERVARR_SAMPLE_INTERVAL_SECONDS = "tuning_servarr_sample_interval_seconds"
     SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
     SERVICE_PROBE_SAMPLE_INTERVAL_SECONDS = "tuning_service_probe_sample_interval_seconds"
@@ -1395,6 +1397,19 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for seerr_samples — drives the request-backlog
     # trend (pending-stuck detection). Default 90.
     "tuning_seerr_history_days": ("SEERR_HISTORY_DAYS", 90, 1, 730),
+
+    # ----- Servarr family (Radarr / Sonarr / Lidarr / Readarr) --------------
+
+    # How often the SHARED lifespan *arr sampler snapshots each Radarr / Sonarr
+    # / Lidarr / Readarr instance's library total / missing backlog / queue /
+    # free-disk gauges into servarr_samples (0 = inherit the global stats
+    # interval). Default 900 (15 min) — the library + disk move slowly, so a
+    # coarse cadence keeps the table small while still resolving the trend.
+    "tuning_servarr_sample_interval_seconds": ("SERVARR_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for servarr_samples — drives the per-*arr
+    # library-growth + missing-backlog sparkline AND the disk-free-runway
+    # projection (a longer window = a more confident runway fit). Default 365.
+    "tuning_servarr_history_days": ("SERVARR_HISTORY_DAYS", 365, 1, 1095),
 
     # ----- Speedtest Tracker ------------------------------------------------
 
