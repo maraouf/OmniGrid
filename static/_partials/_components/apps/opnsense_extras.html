@@ -1,0 +1,106 @@
+<!-- Per-app expanded-card extras -- OPNsense (firewall / router).
+
+     Renders inside `apps-card.html` when the chip is the OPNsense catalog
+     template AND extras are visible. Data comes from
+     `logic/apps/opnsense.py:fetch_data` (a fan-out of tolerated diagnostics
+     reads), through the cache-backed `appsAppData(inst)`. Reuses the shared
+     `.apps-card-ups-*` stat-grid (a generic telemetry panel).
+
+     Helpers used (all from `static/js/apps/opnsense.js`):
+       opnsenseIsApp(app) / opnsenseData(inst) / opnsenseCount(v) /
+       opnsenseFraction(inst, kind) / opnsenseGateways(inst) /
+       opnsenseUptime(inst) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="opnsenseIsApp && opnsenseIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && opnsenseData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-opnsense-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Gateways online/total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.gateways') || 'Gateways'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(opnsenseData(inst).gateways_online) || 0) < (Number(opnsenseData(inst).gateways_total) || 0) ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+             x-text="opnsenseFraction(inst, 'gateways')"></div>
+      </div>
+      <!-- Services running/total -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.services') || 'Services'"></div>
+        <div class="apps-card-stat-value" x-text="opnsenseFraction(inst, 'services')"></div>
+      </div>
+      <!-- Memory % -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.memory') || 'Memory'"></div>
+        <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).mem_percent) + '%'"></div>
+      </div>
+      <!-- Load (1 min) -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.load') || 'Load'"></div>
+        <div class="apps-card-stat-value" x-text="(Number(opnsenseData(inst).load_1m) || 0).toFixed(2)"></div>
+      </div>
+      <!-- Firewall states -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.states') || 'FW states'"></div>
+        <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).pf_states_current)"></div>
+      </div>
+      <!-- DHCP leases -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.leases') || 'DHCP'"></div>
+        <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).dhcp_leases)"></div>
+      </div>
+    </div>
+    <!-- Version (+ update badge) / uptime / temperature footnote. -->
+    <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
+      <span x-show="opnsenseData(inst).version"
+            x-text="t('apps.version_footnote', { brand: 'OPNsense', v: (opnsenseData(inst).version || '') })"></span>
+      <span x-show="opnsenseData(inst).update_available"
+            class="text-[var(--warning)]"
+            x-text="t('apps.opnsense.update_available') || '⬆️ update available'"></span>
+      <span x-show="opnsenseUptime(inst)"
+            x-text="(t('apps.opnsense.uptime') || 'up') + ' ' + opnsenseUptime(inst)"></span>
+      <span x-show="(Number(opnsenseData(inst).temp_max_c) || 0) > 0"
+            x-text="(Number(opnsenseData(inst).temp_max_c) || 0) + '°C'"></span>
+    </div>
+    <!-- Gateway detail list (status dot + name + latency / loss). Shown when
+         there's at least one gateway. -->
+    <template x-if="opnsenseGateways(inst).length">
+      <div class="mt-2">
+        <div class="apps-card-stat-label mb-1" x-text="t('apps.opnsense.gateways') || 'Gateways'"></div>
+        <template x-for="(gw, gi) in opnsenseGateways(inst).slice(0, 6)" :key="(gw.name || '') + ':' + gi">
+          <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
+            <span class="flex items-baseline gap-1 min-w-0">
+              <span class="apps-ddns-dot"
+                    :class="(gw.status === 'down' || gw.status === 'force_down') ? 'apps-ddns-dot--fail' : ((gw.status === 'loss' || gw.status === 'delay') ? 'apps-ddns-dot--pending' : 'apps-ddns-dot--ok')"
+                    aria-hidden="true"></span>
+              <span class="mono truncate" x-text="gw.name || '?'" :title="gw.address || gw.name"></span>
+            </span>
+            <span class="text-[var(--text-faint)] shrink-0 mono"
+                  x-text="(Number(gw.delay) || 0).toFixed(1) + 'ms · ' + (Number(gw.loss) || 0).toFixed(1) + '%'"></span>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</template>
+<!-- No credentials yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="opnsenseIsApp && opnsenseIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.opnsense.no_key') || 'No API key / secret set -- add them in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on opnsenseData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="opnsenseIsApp && opnsenseIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !opnsenseData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.opnsense.loading') || 'Loading OPNsense data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="opnsenseIsApp && opnsenseIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !opnsenseData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.opnsense.fetch_failed') || 'OPNsense fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

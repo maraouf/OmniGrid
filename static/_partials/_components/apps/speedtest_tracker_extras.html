@@ -213,6 +213,11 @@
             </svg>
             <div class="fs-2xs text-[var(--text-faint)]"
                  x-text="(t('apps.speedtest.median_label') || 'Median') + ': ⬇️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_download) + '  ⬆️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_upload) + '  🏓 ' + speedtestPingLabel(appsAppData(inst).trend.median_ping)"></div>
+            <!-- Reliability: failed / errored tests over the retention window
+                 (amber, only when > 0). A flaky ISP shows up here. -->
+            <div x-show="(Number(appsAppData(inst).trend.failed_count) || 0) > 0"
+                 class="fs-2xs text-[var(--warning)]"
+                 x-text="t('apps.speedtest.failed_stat', { count: (Number(appsAppData(inst).trend.failed_count) || 0), pct: (Number(appsAppData(inst).trend.failed_pct) || 0), days: appsAppData(inst).trend.days }) || ((Number(appsAppData(inst).trend.failed_count) || 0) + ' failed (' + (Number(appsAppData(inst).trend.failed_pct) || 0) + '%) in ' + appsAppData(inst).trend.days + 'd')"></div>
           </div>
         </template>
       </div>

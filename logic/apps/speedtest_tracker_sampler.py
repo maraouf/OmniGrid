@@ -161,6 +161,7 @@ def trend_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.SPEEDTEST_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "median_download": 0.0,
                  "median_upload": 0.0, "median_ping": 0.0, "series": [],
+                 "failed_count": 0, "failed_pct": 0.0,
                  "first_ts": 0, "last_ts": 0}
     if not host_id:
         return out
@@ -180,14 +181,24 @@ def trend_summary(host_id: str, service_idx: int,
     out["samples"] = len(rows)
     out["first_ts"] = int(rows[0]["ts"])
     out["last_ts"] = int(rows[-1]["ts"])
-    out["median_download"] = round(float(median([float(r["download"]) for r in rows])), 2)
-    out["median_upload"] = round(float(median([float(r["upload"]) for r in rows])), 2)
-    out["median_ping"] = round(float(median([float(r["ping"]) for r in rows])), 1)
+    # A FAILED / errored test is stored as a zero-download row (the upstream
+    # returns no bandwidth for it). Count those separately so a flaky-ISP signal
+    # is visible — AND so the failed zeros don't depress the medians / sparkline,
+    # which should reflect SUCCESSFUL throughput only.
+    ok_rows = [r for r in rows if float(r["download"] or 0) > 0]
+    out["failed_count"] = len(rows) - len(ok_rows)
+    out["failed_pct"] = (round(out["failed_count"] / len(rows) * 100, 1)
+                         if rows else 0.0)
+    if ok_rows:
+        out["median_download"] = round(float(median([float(r["download"]) for r in ok_rows])), 2)
+        out["median_upload"] = round(float(median([float(r["upload"]) for r in ok_rows])), 2)
+        out["median_ping"] = round(float(median([float(r["ping"]) for r in ok_rows])), 1)
     # Daily-MEDIAN download — bucket by day, median per day, oldest-first. Only
     # days with data (gaps collapse rather than 0-fill). Downsample to
     # max_points by striding so a multi-year window stays a tidy sparkline.
+    # Successful rows only (a failed zero would read as a misleading outage).
     by_day: dict = {}
-    for r in rows:
+    for r in ok_rows:
         d = int(r["ts"]) // 86400
         by_day.setdefault(d, []).append(float(r["download"]))
     daily = [round(float(median(by_day[d])), 2) for d in sorted(by_day)]

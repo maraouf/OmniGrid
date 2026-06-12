@@ -66,6 +66,19 @@ SKILLS: tuple[dict, ...] = (
                        "latest download upload ping, speed test result"),
         "destructive": False,
     },
+    {
+        # Arg skill: run a test against a NAMED Ookla server. Resolves the term
+        # to a server id from GET /api/v1/servers, then queues a run against it
+        # (POST /api/v1/speedtests/run?server_id=<id>). AI / Telegram only — the
+        # arg is the server name / location / sponsor.
+        "id": "run_speedtest_server",
+        "name": "Run speed test against a server",
+        "ai_phrases": ("run a speed test against, speedtest against, test speed "
+                       "using server, run speedtest on server, speed test from, "
+                       "test against the london server, speedtest via"),
+        "destructive": False,
+        "arg": True,
+    },
 )
 
 # Bounded per-(host_id, service_idx) cache so repeat reads within
@@ -458,6 +471,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _trigger_speedtest(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "latest_speedtest":
         return await _fetch_latest_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if skill_id == "run_speedtest_server":
+        return await _trigger_speedtest_server(host_row, chip, arg=_kw.get("arg"),
+                                               host_id=host_id, service_idx=service_idx)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -546,6 +562,15 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
             f"⬇️ {_fmt_mbps(avg.get('download'))}   "
             f"⬆️ {_fmt_mbps(avg.get('upload'))}   "
             f"🏓 {_fmt_ms(avg.get('ping'))}")
+    # Reliability over the long-horizon sampler window — only when some failed.
+    _trend = (data or {}).get("trend") if isinstance(data, dict) else None
+    if isinstance(_trend, dict):
+        _failed = int(_trend.get("failed_count") or 0)
+        if _failed > 0:
+            lines.append(
+                f"⚠️ {_failed} failed test{'s' if _failed != 1 else ''} "
+                f"({float(_trend.get('failed_pct') or 0):.1f}%) in "
+                f"{int(_trend.get('days') or 0)}d")
     detail = "\n".join(lines)
     image_url = (latest.get("image_url") or "").strip()
     if image_url:
@@ -565,6 +590,7 @@ async def _fetch_latest_skill(host_row: dict, chip: dict, *,
     }
 
 
+# noinspection DuplicatedCode
 async def _trigger_speedtest(host_row: dict, chip: dict, *,
                              host_id: Optional[str] = None,
                              service_idx: Optional[int] = None) -> dict:
@@ -628,3 +654,87 @@ async def _trigger_speedtest(host_row: dict, chip: dict, *,
           f"resource is /api/v1/results). Run the test from the Speedtest "
           f"Tracker UI / its scheduler, or confirm the correct trigger path.")
     return {"ok": False, "detail": last_detail or f"HTTP {last_status}", "status": last_status}
+
+
+# noinspection DuplicatedCode
+async def _trigger_speedtest_server(host_row: dict, chip: dict, *,
+                                    arg: Optional[str] = None,
+                                    host_id: Optional[str] = None,
+                                    service_idx: Optional[int] = None) -> dict:
+    """Arg skill: queue a speed test against a NAMED Ookla server.
+
+    Resolves the free-text ``arg`` (server name / location / sponsor / id) to a
+    server id from ``GET /api/v1/servers`` (substring match, or a bare numeric
+    arg used directly), then ``POST /api/v1/speedtests/run?server_id=<id>`` (the
+    documented optional query param). Never raises — config / upstream failures
+    come back as ``{ok: False, detail}``."""
+    needle = str(arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no server given — say e.g. \"run a speed test against London\""}
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "detail": "api_key not set for this instance", "status": 0}
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "detail": "no upstream URL configured for this instance", "status": 0}
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    print(f"[speedtest] INFO run_speedtest_server host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            # Resolve the server id. A bare numeric arg is used directly; else
+            # match the term against each server's name / location / sponsor /
+            # host from GET /api/v1/servers.
+            server_label = needle
+            if needle.isdigit():
+                server_id = needle
+            else:
+                sr = await cli.get(base + "/api/v1/servers", headers=headers)
+                if sr.status_code in (401, 403):
+                    return {"ok": False, "status": sr.status_code,
+                            "detail": "auth failed (check api_key)"}
+                if sr.status_code != 200:
+                    return {"ok": False, "status": sr.status_code,
+                            "detail": f"could not list servers (HTTP {sr.status_code})"}
+                try:
+                    _body = sr.json()
+                except (ValueError, TypeError):
+                    return {"ok": False, "status": 502, "detail": "non-JSON server list"}
+                servers = _body.get("data") if isinstance(_body, dict) else _body
+                if not isinstance(servers, list):
+                    servers = []
+                nl = needle.lower()
+                match = None
+                for s in servers:
+                    if not isinstance(s, dict):
+                        continue
+                    hay = " ".join(str(s.get(k) or "") for k in
+                                   ("name", "location", "sponsor", "host", "country")).lower()
+                    if nl in hay:
+                        match = s
+                        break
+                if match is None:
+                    return {"ok": False, "status": 404,
+                            "detail": f"no Ookla server matched \"{needle}\""}
+                server_id = str(match.get("id") or "").strip()
+                server_label = (str(match.get("name") or match.get("sponsor") or needle).strip()
+                                + (f" ({match.get('location')})" if match.get("location") else ""))
+                if not server_id:
+                    return {"ok": False, "status": 502,
+                            "detail": f"matched \"{server_label}\" but it has no server id"}
+            rr = await cli.post(base + "/api/v1/speedtests/run",
+                                headers=headers, params={"server_id": server_id})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[speedtest] error: run_speedtest_server host={host_id} failed — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0, "detail": f"{type(e).__name__}: {e}"}
+    if rr.status_code in (401, 403):
+        return {"ok": False, "status": rr.status_code, "detail": "auth failed (check api_key)"}
+    if rr.status_code in (200, 201, 202, 204):
+        if host_id is not None and service_idx is not None:
+            _data_cache.pop(cache_key(host_id, service_idx), None)
+        return {"ok": True, "status": rr.status_code,
+                "detail": f"🚀 Queued a speed test against “{server_label}” — the "
+                          f"result lands on the card in ~10-60s."}
+    return {"ok": False, "status": rr.status_code,
+            "detail": f"run against “{server_label}” returned HTTP {rr.status_code}"}
