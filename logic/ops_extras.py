@@ -1230,6 +1230,7 @@ def _retag_image_string(
     return f"{repo}:{nt}"
 
 
+# noinspection DuplicatedCode
 async def do_retag_container_to_latest(
     op: Operation, container_id: str, new_tag: str = "latest",
 ) -> None:

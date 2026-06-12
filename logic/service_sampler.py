@@ -731,6 +731,7 @@ def bulk_latest_for_hosts(host_ids: list) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 def bulk_latest_per_port_for_hosts(host_ids: list) -> dict:
     """bulk version of :func:`latest_per_port_for_host` for many hosts.
 
@@ -883,6 +884,7 @@ def latest_per_port_for_host(host_id: str, service_idx: int) -> list[dict]:
     ]
 
 
+# noinspection DuplicatedCode
 def latest_per_port_all_for_host(host_id: str) -> dict:
     """Latest per-PORT probe outcomes for EVERY chip on one host, in a
     SINGLE query — keyed by ``service_idx``.
@@ -944,6 +946,7 @@ def latest_per_port_all_for_host(host_id: str) -> dict:
 _APPS_SPARK_MAX_POINTS = 24
 
 
+# noinspection DuplicatedCode
 def history_rollup_all_for_host(host_id: str,
                                 max_points: int = _APPS_SPARK_MAX_POINTS) -> dict:
     """Recent per-chip ROLLUP uptime history for EVERY chip on one host,
@@ -1033,6 +1036,7 @@ def _hostid_in_clause(host_ids: list[str]) -> tuple[str, list[str]]:
     return f"host_id IN ({placeholders})", list(host_ids)
 
 
+# noinspection DuplicatedCode
 def latest_for_hosts(host_ids: list[str]) -> dict:
     """Multi-host batched companion to :func:`latest_for_host`. Returns
     ``{host_id: {service_idx: {alive, rtt_ms, ts, error}, ...}, ...}``
@@ -1078,6 +1082,7 @@ def latest_for_hosts(host_ids: list[str]) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 def latest_per_port_all_for_hosts(host_ids: list[str]) -> dict:
     """Multi-host batched companion to
     :func:`latest_per_port_all_for_host`. Returns
@@ -1127,6 +1132,7 @@ def latest_per_port_all_for_hosts(host_ids: list[str]) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 def history_rollup_all_for_hosts(host_ids: list[str],
                                  max_points: int = _APPS_SPARK_MAX_POINTS) -> dict:
     """Multi-host batched companion to

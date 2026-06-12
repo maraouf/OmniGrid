@@ -772,6 +772,7 @@ def _clean_alias_dict(d, value_transform=None) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer) -> dict:
     # Late import — `_ai_supported_providers` lives in
     # `main_pkg.admin_stats_routes` which is loaded AFTER this module

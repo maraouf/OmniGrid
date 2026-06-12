@@ -241,6 +241,7 @@ def invalidate_auth_settings_cache() -> None:
 # ----------------------------------------------------------------------------
 # Schema
 # ----------------------------------------------------------------------------
+# noinspection DuplicatedCode
 def init_auth_schema(conn: sqlite3.Connection) -> None:
     """Idempotent CREATE TABLE / CREATE INDEX for the auth tables —
     `users` / `sessions` / `api_tokens` / `user_credentials`. Safe to
@@ -865,6 +866,7 @@ def update_ui_prefs(
     return merged
 
 
+# noinspection DuplicatedCode
 def get_user_notify_prefs(conn: sqlite3.Connection, user_id: int) -> dict:
     """Return the per-user notification opt-in map.
 
@@ -1698,6 +1700,7 @@ def rate_limit_check(ip: str, username: Optional[str] = None) -> None:
             )
 
 
+# noinspection DuplicatedCode
 def rate_limit_record_failure(ip: str, username: Optional[str] = None) -> None:
     """Increment both the IP bucket AND the (ip, username) bucket.
     Lockouts on either bucket independently — same window + threshold."""

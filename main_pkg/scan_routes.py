@@ -164,6 +164,7 @@ def _resolve_host_probe_target(h: dict, hid: str) -> str:
     )
 
 
+# noinspection DuplicatedCode
 async def _run_port_scan_async(
     *,
     hid: str,
@@ -2146,6 +2147,7 @@ async def api_widget_favicon(url: str):
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/weather/test")
 async def api_weather_test(
     body: dict,
@@ -2385,6 +2387,7 @@ async def api_weather_history(
 # the AI palette, and the Telegram /prayer + /hijri commands.
 # ============================================================================
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.get("/api/prayer-times")
 async def api_prayer_times(
     lat: Optional[float] = None,
@@ -2498,6 +2501,7 @@ async def api_prayer_times_test(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.get("/api/prayer-times/history")
 async def api_prayer_times_history(
     limit: int = 100,

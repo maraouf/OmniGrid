@@ -95,6 +95,7 @@ def _latest_ups_sample(host_id: str) -> dict:
     return out
 
 
+# noinspection PyUnusedLocal
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int, force: bool = False) -> dict:
     """Return the latest UPS sample for the APC card. Reads the

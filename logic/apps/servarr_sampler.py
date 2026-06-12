@@ -30,7 +30,8 @@ from collections import defaultdict
 from typing import Optional
 
 from logic import tuning as _tuning
-from logic.apps._common import resolve_sample_interval, run_sampler_tick
+from logic.apps._common import (
+    disk_runway_days, resolve_sample_interval, run_sampler_tick)
 from logic.coerce import safe_float, safe_int
 from logic.db import db_conn
 from logic.tuning import Tunable as _Tunable
@@ -146,36 +147,6 @@ async def servarr_sampler_loop() -> None:
     )
 
 
-def _disk_runway_days(day_disk: "list[tuple[int, float]]") -> Optional[int]:
-    """Project days-until-disk-full from a list of ``(day_index, free_gb)``
-    points via an ordinary-least-squares linear fit on the FREE-space series.
-    Returns the projected days from the latest sample until free space hits 0
-    when the trend is declining (slope < 0) AND there are >= 3 distinct days;
-    ``None`` otherwise (flat / growing free space, or too few points). Capped at
-    a 10-year horizon so a near-flat decline doesn't render an absurd number."""
-    if len(day_disk) < 3:
-        return None
-    n = len(day_disk)
-    xs = [float(d) for d, _ in day_disk]
-    ys = [float(v) for _, v in day_disk]
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    sxx = sum((x - mean_x) ** 2 for x in xs)
-    if sxx <= 0:
-        return None
-    sxy = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(n))
-    slope = sxy / sxx  # GiB of free space gained per day (negative = filling)
-    if slope >= 0:
-        return None  # free space flat or growing — no runway concern
-    latest_free = ys[-1]
-    if latest_free <= 0:
-        return 0
-    days = latest_free / (-slope)
-    if days <= 0:
-        return 0
-    return int(min(days, 3650))  # cap at ~10 years
-
-
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Library-growth + missing-backlog + disk-free trend for one *arr chip.
@@ -230,8 +201,7 @@ def trend_summary(host_id: str, service_idx: int,
     series_disk = [round(d_sum[d] / max(1, cnt[d]), 1) for d in ordered]
     # Disk-runway projection uses the FULL (unsampled) daily free-space series so
     # the linear fit sees every point regardless of the chart's max_points cap.
-    out["disk_runway_days"] = _disk_runway_days(
-        list(zip(range(len(series_disk)), series_disk)))
+    out["disk_runway_days"] = disk_runway_days(series_disk)
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]

@@ -50,6 +50,38 @@ def sampler_instances(slug: str, log_tag: str) -> list:
         return []
 
 
+def disk_runway_days(free_series: list, *, cap_days: int = 3650) -> Optional[int]:
+    """Project days-until-disk-full from a FREE-space series (oldest-first GiB
+    values, one per day) via an ordinary-least-squares linear fit on the
+    day-index.
+
+    Returns the projected days from the LATEST sample until free space reaches 0
+    when the trend is DECLINING (slope < 0) AND there are >= 3 points; ``None``
+    when free space is flat / growing or there are too few points. Capped at
+    ``cap_days`` (~10 years) so a near-flat decline can't render an absurd
+    number. Shared by the qBittorrent + *arr retention samplers (both surface a
+    'disk full in ~N days at this fill rate' projection)."""
+    pts = [float(v) for v in (free_series or [])]
+    n = len(pts)
+    if n < 3:
+        return None
+    xs = list(range(n))
+    mean_x = sum(xs) / n
+    mean_y = sum(pts) / n
+    sxx = sum((x - mean_x) ** 2 for x in xs)
+    if sxx <= 0:
+        return None
+    sxy = sum((xs[i] - mean_x) * (pts[i] - mean_y) for i in range(n))
+    slope = sxy / sxx  # GiB of free space gained per day (negative = filling)
+    if slope >= 0:
+        return None
+    latest = pts[-1]
+    if latest <= 0:
+        return 0
+    days = latest / (-slope)
+    return 0 if days <= 0 else int(min(days, cap_days))
+
+
 def resolve_sample_interval(interval_tunable) -> int:
     """Resolve a per-app sampler's tick cadence (seconds): the app's dedicated
     interval tunable, or — when it resolves to 0 — the global stats sample

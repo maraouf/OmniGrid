@@ -765,19 +765,6 @@ async def _tool_ssh_diag(args: dict, _ctx: dict) -> dict:
     }
 
 
-# Synonyms the operator's natural language uses for each *arr media kind →
-# the per-app calendar row's `type` field (movie / episode / album / book).
-# Empty string = no type filter (return everything upcoming).
-_UPCOMING_TYPE_MAP = {
-    "movie": "movie", "movies": "movie", "film": "movie", "films": "movie",
-    "series": "episode", "show": "episode", "shows": "episode", "tv": "episode",
-    "episode": "episode", "episodes": "episode",
-    "album": "album", "albums": "album", "music": "album", "song": "album",
-    "songs": "album", "track": "album", "tracks": "album",
-    "book": "book", "books": "book", "audiobook": "book", "audiobooks": "book",
-}
-
-
 async def _tool_upcoming_releases(args: dict, _ctx: dict) -> dict:
     """Aggregate UPCOMING releases across every configured Radarr / Sonarr /
     Lidarr / Readarr instance over the next N days, with the full detail the
@@ -791,61 +778,20 @@ async def _tool_upcoming_releases(args: dict, _ctx: dict) -> dict:
     ``title`` (substring to filter to one title, e.g. 'when does Dune release').
     Returns ``{configured, services, window, count, items, errors}`` where each
     item carries date / time / title / subtitle / type / service / overview /
-    runtime_min. Never raises — a fetch failure comes back in the result."""
+    runtime_min. Delegates to the shared ``arr_calendar.upcoming_items`` (also
+    used by the Telegram ``/upcoming`` command). Never raises — a fetch failure
+    comes back in the result."""
     import asyncio as _asyncio  # noqa: PLC0415
-    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
-    from logic.apps.arr_calendar import collect_calendar  # noqa: PLC0415
+    from logic.apps.arr_calendar import upcoming_items  # noqa: PLC0415
     try:
-        days = max(1, min(90, int(args.get("days") or 14)))
-    except (TypeError, ValueError):
-        days = 14
-    want_type = _UPCOMING_TYPE_MAP.get((args.get("media_type") or "").strip().lower(), "")
-    title_q = (args.get("title") or "").strip().lower()
-    now = datetime.now(timezone.utc)
-    start_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_iso = (now + timedelta(days=days)).strftime("%Y-%m-%dT23:59:59Z")
-    try:
-        agg = await collect_calendar(start_iso, end_iso)
+        return await upcoming_items(
+            days=args.get("days") or 14,
+            media_type=(args.get("media_type") or ""),
+            title=(args.get("title") or ""), limit=40)
     except (_asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001
         return {"error": f"calendar fetch failed: {type(e).__name__}: {e}", "items": []}
-    out_items = []
-    for it in (agg.get("items") or []):
-        if not isinstance(it, dict):
-            continue
-        if want_type and str(it.get("type") or "").lower() != want_type:
-            continue
-        title = str(it.get("title") or "")
-        subtitle = str(it.get("subtitle") or "")
-        if title_q and title_q not in (title + " " + subtitle).lower():
-            continue
-        try:
-            runtime_min = max(0, int(it.get("runtime") or 0))
-        except (TypeError, ValueError):
-            runtime_min = 0
-        out_items.append({
-            "date": str(it.get("date") or ""),
-            "time": str(it.get("time") or ""),
-            "title": title,
-            "subtitle": subtitle,
-            "type": str(it.get("type") or ""),
-            "service": str(it.get("service_slug") or ""),
-            "overview": str(it.get("overview") or ""),
-            "runtime_min": runtime_min,
-        })
-    # Soonest-first; cap so the model gets a focused list, not a wall.
-    out_items.sort(key=lambda r: (r.get("date") or "", r.get("time") or ""))
-    out_items = out_items[:40]
-    return {
-        "configured": bool(agg.get("configured")),
-        "services": agg.get("services") or [],
-        "window": {"start": start_iso[:10], "end": end_iso[:10], "days": days},
-        "filters": {"media_type": want_type, "title": title_q},
-        "count": len(out_items),
-        "items": out_items,
-        "errors": agg.get("errors") or {},
-    }
 
 
 PALETTE_TOOL_CATALOGUE: dict = {

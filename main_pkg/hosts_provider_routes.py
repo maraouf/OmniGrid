@@ -735,6 +735,7 @@ async def api_hosts_disk_projection(
     }
 
 
+# noinspection DuplicatedCode
 @app.get("/api/hosts/{host_id}/snmp/iface_history")
 async def api_hosts_snmp_iface_history(
     host_id: str, hours: int = 1,
@@ -819,6 +820,7 @@ async def api_hosts_snmp_iface_history(
     return {"ifaces": ifaces, "error": None, "bucket_seconds": bucket}
 
 
+# noinspection DuplicatedCode
 @app.get("/api/hosts/{host_id}/snmp/temp_history")
 async def api_hosts_snmp_temp_history(
     host_id: str, hours: int = 1,
@@ -1591,44 +1593,6 @@ def _require_reauth(request: Request, u: AdminUser) -> auth.User:
     return u
 
 
-"""Continuation of `main` (routes module under `main_pkg/`) — extracted to keep main.py under the
-line-count "uncomfortable to navigate" threshold. Re-exported via
-`from main_routes import *` at the bottom of `main.py`, which pulls
-every public symbol (including FastAPI routes registered through
-`@app.<verb>(...)`) back into the main namespace.
-
-Loading order:
-  1. main.py runs top-to-bottom, defining `app`, every helper,
-     and roughly the first half of the routes.
-  2. main.py end: `from main_routes import *` triggers main_routes load.
-  3. main_routes.py top: `from main import *` pulls EVERY symbol
-     main has defined so far (`app`, helpers, Pydantic models,
-     etc.) into main_routes's namespace so the route decorators
-     below can reference them.
-  4. main_routes.py body runs; routes register against the shared
-     `app` instance.
-  5. main_routes.py finishes; control returns to main.py's star-
-     import which now has every main_routes symbol available.
-"""
-"""
-OmniGrid — Portainer-native update dashboard.
-
-Endpoints:
-  GET  /api/items                     - All services + containers with status
-  GET  /api/item/{raw_id}             - Single item detail
-  POST /api/update/stack/{id}         - Update stack (Prune+PullImage)
-  POST /api/update/container/{id}     - Recreate standalone container
-  POST /api/restart/service/{id}      - Force restart a Swarm service
-  GET  /api/ops   /  /api/ops/{id}    - Live operation status
-  GET  /api/history                   - Persisted history
-  GET  /api/ignores  /  POST  /  DELETE
-  GET  /api/settings /  POST
-  POST /api/notify-test
-  GET  /api/healthz
-  GET  /metrics                       - Prometheus scrape endpoint
-"""
-
-
 # Module-wide suppression for the recurring project-pattern lint noise that
 # the operator validates and accepts: defensive broad-except guards (project
 # convention is to catch + log + continue at API-boundary sites so a single
@@ -1660,6 +1624,7 @@ Endpoints:
 # helpers, Pydantic models, etc.
 
 
+# noinspection DuplicatedCode
 @app.post("/api/hosts/bulk/pause")
 async def api_hosts_bulk_pause(
     body: HostsBulkPauseIn,
@@ -1779,6 +1744,7 @@ async def api_hosts_bulk_pause(
     }
 
 
+# noinspection DuplicatedCode
 @app.post("/api/hosts/bulk/resume")
 async def api_hosts_bulk_resume(
     body: HostsBulkResumeIn,
@@ -1865,6 +1831,7 @@ async def api_hosts_bulk_resume(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/hosts/bulk/snmp_vendors")
 async def api_hosts_bulk_snmp_vendors(
     body: HostsBulkSnmpVendorsIn,
@@ -1939,6 +1906,7 @@ async def api_hosts_bulk_snmp_vendors(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/hosts/bulk/snmp_tunables")
 async def api_hosts_bulk_snmp_tunables(
     body: HostsBulkSnmpTunablesIn,

@@ -681,7 +681,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
                         sorted({s for s in (_client_ssid(c) for c in clients) if s},
                                key=str.lower)]
         wlan_src = "client-ssid"
-    wlan_names = sorted({str(d.get("name")) for d in wlan_details if d.get("name")},
+    wlan_names = sorted({str(d.get("name", "")) for d in wlan_details if d.get("name")},
                         key=str.lower)
 
     out: dict[str, Any] = {
@@ -901,7 +901,7 @@ async def _devices_skill(host_row: dict, chip: dict, *,
     if not devices:
         return {"ok": True, "status": 200, "detail": "📡 No UniFi devices found."}
     rows = [r for r in (_device_row(d) for d in devices) if r is not None]
-    rows.sort(key=lambda r: (_BUCKET_ORDER.get(r["_bucket"], 9), r["title"].lower()))
+    rows.sort(key=lambda _r: (_BUCKET_ORDER.get(_r["_bucket"], 9), _r["title"].lower()))
     mixed = len({r["_bucket"] for r in rows}) > 1
     items: list = []
     lines: list = []

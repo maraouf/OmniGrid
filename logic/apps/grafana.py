@@ -471,6 +471,7 @@ def _ds_row(ds: dict) -> Optional[dict]:
     return {"title": name, "subtitle": " · ".join(bits)}
 
 
+# noinspection DuplicatedCode
 async def _datasources_skill(host_row: dict, chip: dict, *,
                              host_id: Optional[str] = None) -> dict:
     """Read-only: list configured datasources (``GET /api/datasources``) as rich
@@ -496,6 +497,7 @@ async def _datasources_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, "apps.grafana.datasources_count")
 
 
+# noinspection DuplicatedCode
 async def _search_skill(host_row: dict, chip: dict, *,
                         arg: Optional[str] = None,
                         host_id: Optional[str] = None) -> dict:

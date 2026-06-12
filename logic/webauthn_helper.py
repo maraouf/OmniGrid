@@ -391,6 +391,7 @@ def make_authentication_options(
     return options_dict, bytes(options.challenge)
 
 
+# noinspection DuplicatedCode
 def verify_authentication(
     *,
     credential_json: dict,

@@ -109,6 +109,8 @@ class Tunable(str, Enum):
     DNS_FAILED_SKIP_SECONDS = "tuning_dns_failed_skip_seconds"
     BESZEL_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_beszel_probe_timeout_unreachable_seconds"
     PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_pulse_probe_timeout_unreachable_seconds"
+    QBITTORRENT_HISTORY_DAYS = "tuning_qbittorrent_history_days"
+    QBITTORRENT_SAMPLE_INTERVAL_SECONDS = "tuning_qbittorrent_sample_interval_seconds"
     SLOW_QUERY_THRESHOLD_MS = "tuning_slow_query_threshold_ms"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
@@ -1410,6 +1412,20 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # library-growth + missing-backlog sparkline AND the disk-free-runway
     # projection (a longer window = a more confident runway fit). Default 365.
     "tuning_servarr_history_days": ("SERVARR_HISTORY_DAYS", 365, 1, 1095),
+
+    # ----- qBittorrent ------------------------------------------------------
+
+    # How often the lifespan qBittorrent sampler snapshots each instance's
+    # dl/up transfer speed + free-disk + torrent count into qbittorrent_samples
+    # (0 = inherit the global stats interval). Default 300 (5 min) — transfer
+    # speeds move fast, but a 5-min cadence resolves the trend without bloating
+    # the table; lower it (e.g. 60) for a finer speed sparkline.
+    "tuning_qbittorrent_sample_interval_seconds": ("QBITTORRENT_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # Retention window (days) for qbittorrent_samples — drives the transfer-speed
+    # sparkline AND the free-disk-runway projection (a longer window = a more
+    # confident runway fit). Default 30. Lower to save disk; raise for a longer
+    # trend.
+    "tuning_qbittorrent_history_days": ("QBITTORRENT_HISTORY_DAYS", 30, 1, 1095),
 
     # ----- Speedtest Tracker ------------------------------------------------
 

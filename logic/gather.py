@@ -518,6 +518,7 @@ def apply_host_snapshot_fallback(
             info["_meta_stale_grace_remaining_s"] = grace_remaining
 
 
+# noinspection DuplicatedCode
 def seed_nodes_info_from_snapshots() -> int:
     """Populate ``_cache["nodes_info"]`` from persisted snapshots.
 
@@ -919,6 +920,7 @@ def _extract_service_ports(svc: dict) -> list[dict]:
     return out
 
 
+# noinspection DuplicatedCode
 def _extract_container_ports(cont: dict) -> list[dict]:
     """Return ``[{published, target, protocol}, …]`` for a container.
 
@@ -1212,6 +1214,7 @@ async def _gather_impl() -> None:
         #
         # Errors per-node are swallowed — a 500 on one daemon shouldn't
         # blank the whole Nodes view. Missing nodes keep docker_disk_bytes=0.
+        # noinspection PyShadowingNames
         async def _one_df(target_host: str):
             """Fetch /system/df for ONE Docker host via Portainer-agent routing.
 
@@ -1229,8 +1232,8 @@ async def _gather_impl() -> None:
                     return target_host, 0
                 j = r.json() or {}
                 df_total = int(j.get("LayersSize") or 0)
-                for c in (j.get("Containers") or []):
-                    df_total += int(c.get("SizeRw") or 0)
+                for cont in (j.get("Containers") or []):
+                    df_total += int(cont.get("SizeRw") or 0)
                 for v in (j.get("Volumes") or []):
                     usage = (v.get("UsageData") or {}).get("Size", 0)
                     if isinstance(usage, (int, float)) and usage > 0:
@@ -1449,6 +1452,7 @@ async def _gather_impl() -> None:
             snmp_timeout = float(_tuning.tuning_int(Tunable.SNMP_PROBE_TIMEOUT_SECONDS))
             snmp_sem = asyncio.Semaphore(_tuning.tuning_int(Tunable.SNMP_CONCURRENCY))
 
+            # noinspection PyShadowingNames
             async def _one_snmp(h: str):
                 snmp_row = _match_hosts_row(h, snmp_hosts_cfg)
                 # per-host opt-in gate. Skip when the row lacks
@@ -1566,6 +1570,7 @@ async def _gather_impl() -> None:
             except (ImportError, KeyError, ValueError, TypeError):
                 _ne_to = 10.0
             async with httpx.AsyncClient(verify=False, timeout=_ne_to) as ne_client:
+                # noinspection PyShadowingNames
                 async def _ne_probe(h):
                     # Resolution order for the target URL:
                     # 1. explicit per-host override from the overrides map
@@ -1618,6 +1623,7 @@ async def _gather_impl() -> None:
 
             webmin_hosts_cfg = _load_hosts_config_for_gather()
 
+            # noinspection PyShadowingNames
             async def _one_webmin(h: str):
                 url = webmin_aliases.get(h) or ""
                 if not url:
@@ -1788,15 +1794,15 @@ async def _gather_impl() -> None:
                 if no node has the container. Per-attempt exceptions are
                 swallowed so one slow daemon doesn't black-hole the probe.
                 """
-                for h in hostnames:
+                for hn in hostnames:
                     try:
                         r = await client.get(
                             f"{portainer.PORTAINER_URL}{ep}/containers/{probe_cid}/json",
-                            headers=portainer.headers(agent_target=h),
+                            headers=portainer.headers(agent_target=hn),
                             timeout=_orphan_probe_to,
                         )
                         if r.status_code == 200:
-                            return probe_cid, h
+                            return probe_cid, hn
                     except (httpx.HTTPError, OSError):
                         continue
                 return probe_cid, None
@@ -2327,7 +2333,7 @@ async def _gather_impl() -> None:
         _cache["container_node_by_id"] = container_node_by_id
         _cache["stacks"] = sorted(
             groups.values(),
-            key=lambda s: (s["name"] or "").lower(),
+            key=lambda _s: (_s["name"] or "").lower(),
         )
         _cache["ts"] = time.time()
         # Fresh gather just landed — drop the boot-time stale marker so

@@ -190,6 +190,7 @@ async def _probe_icmp(host: str, count: int, timeout_seconds: float) -> dict:
     }
 
 
+# noinspection DuplicatedCode
 async def probe_ping(
     host: str,
     *,

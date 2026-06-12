@@ -299,6 +299,7 @@ class _SamplesPruneIn(BaseModel):
     host_id: str
 
 
+# noinspection DuplicatedCode
 @app.delete("/api/admin/stats/samples/by-host")
 async def api_admin_stats_samples_prune_orphan(
     body: _SamplesPruneIn,
@@ -1441,6 +1442,7 @@ async def api_ai_memory_forget(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/ai/host-filter")
 async def api_ai_host_filter(
     body: AiPaletteIn,
@@ -1753,6 +1755,7 @@ async def api_admin_notify_templates_set(
     return _shape_notify_template_row(event)
 
 
+# noinspection DuplicatedCode
 @app.post("/api/admin/notify-templates/{event}/preview")
 async def api_admin_notify_templates_preview(
     event: str,
@@ -1825,6 +1828,7 @@ async def api_admin_notify_templates_preview(
     }
 
 
+# noinspection DuplicatedCode
 @app.post("/api/admin/notify-templates/{event}/test")
 async def api_admin_notify_templates_test(
     event: str,

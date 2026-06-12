@@ -434,6 +434,7 @@ def _load_user_filters(username: Optional[str]) -> dict:
         return _coerce_filters(None)
 
 
+# noinspection DuplicatedCode
 def _save_user_filters(username: Optional[str], filters: dict) -> bool:
     """Persist a user's Seerr suggestion filters into their ui_prefs (merge,
     cache-invalidated via auth.update_ui_prefs). Returns True on success."""
@@ -511,6 +512,7 @@ def _suggest_max_page(chip: dict) -> int:
                      _SUGGEST_MAX_PAGE_LO, _SUGGEST_MAX_PAGE_HI)
 
 
+# noinspection DuplicatedCode
 def _load_recent_suggestion_ids(username: Optional[str], cooldown_hours: int) -> "set[int]":
     """Set of TMDB ids the user was suggested within the cooldown window.
     Returns empty on no user / dedupe disabled / any failure (never raises)."""
@@ -546,6 +548,7 @@ def _load_recent_suggestion_ids(username: Optional[str], cooldown_hours: int) ->
         return set()
 
 
+# noinspection DuplicatedCode
 def _record_suggestion(username: Optional[str], tmdb_id: int) -> None:
     """Append a suggested TMDB id (with now-ms) to the user's recent list,
     pruning stale entries (> ceiling) + capping length. Never raises."""
@@ -1331,6 +1334,7 @@ async def _requests_skill(host_row: dict, chip: dict, *,
                                      follow_redirects=True) as cli:
             sem = asyncio.Semaphore(_REQUEST_TITLE_CONCURRENCY)
 
+            # noinspection PyShadowingNames
             async def _detail(mt: str, tid: int) -> "tuple[str, str]":
                 async with sem:
                     return await _seerr_media_detail(cli, base, api_key, mt, tid)
@@ -1460,6 +1464,7 @@ _SEERR_STATUS_LABEL = {
 # is structurally shared with radarr / sonarr's command + add skills — the
 # deliberate per-app encapsulation pattern (CLAUDE.md). Content differs (app
 # name, endpoint), so it stays inline rather than coupling the modules.
+# noinspection DuplicatedCode
 async def _request_skill(host_row: dict, chip: dict, *,
                          arg: Optional[str] = None,
                          host_id: Optional[str] = None) -> dict:
@@ -1534,6 +1539,7 @@ async def _request_skill(host_row: dict, chip: dict, *,
                       + (f" — {_body}" if _body else "")}
 
 
+# noinspection DuplicatedCode
 async def _seerr_search_tv(base: str, api_key: str, query: str) -> Optional[dict]:
     """Resolve a TV show by title via Seerr's TMDB-backed search. Returns the
     top ``mediaType == 'tv'`` result as ``{id, title, year, status}`` or
@@ -1678,6 +1684,7 @@ async def _find_request(cli: httpx.AsyncClient, base: str, api_key: str,
     return partial
 
 
+# noinspection DuplicatedCode
 async def _approve_decline_skill(host_row: dict, chip: dict, *,
                                  arg: Optional[str] = None,
                                  host_id: Optional[str] = None,
@@ -1727,6 +1734,7 @@ async def _approve_decline_skill(host_row: dict, chip: dict, *,
             "detail": f"Seerr returned HTTP {r.status_code} {verb}ing {label}"}
 
 
+# noinspection DuplicatedCode
 async def _retry_skill(host_row: dict, chip: dict, *,
                        arg: Optional[str] = None,
                        host_id: Optional[str] = None) -> dict:
@@ -1793,6 +1801,7 @@ async def _seerr_list_issues(cli: httpx.AsyncClient, base: str, api_key: str,
         return []
 
 
+# noinspection DuplicatedCode
 async def _find_open_issue(cli: httpx.AsyncClient, base: str, api_key: str,
                            query: str) -> "Optional[tuple[int, str, str]]":
     """Find the OPEN issue whose media title matches ``query``. Returns
@@ -1828,6 +1837,7 @@ async def _find_open_issue(cli: httpx.AsyncClient, base: str, api_key: str,
     return partial
 
 
+# noinspection DuplicatedCode
 async def _resolve_issue_skill(host_row: dict, chip: dict, *,
                                arg: Optional[str] = None,
                                host_id: Optional[str] = None) -> dict:
@@ -2058,6 +2068,7 @@ async def _seerr_movie_cast(base: str, api_key: str, tmdb_id: int) -> list[str]:
         return []
 
 
+# noinspection DuplicatedCode
 async def _seerr_discover_candidates(base: str, api_key: str,
                                      image_base: str, *,
                                      max_page: int = _SUGGEST_MAX_PAGE_DEFAULT) -> list[dict]:

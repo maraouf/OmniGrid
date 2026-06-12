@@ -74,22 +74,9 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     tuning,
 )
 
-# `_sqlite_like_escape` is defined in main_pkg.hosts_routes. We CAN'T
-# import it at the top level — hosts_routes is FAR DOWN the load chain
-# (after ops_routes itself in main.py), so a top-level import here
-# would trigger hosts_routes' tail chain (hosts_ssh_routes →
-# hosts_provider_routes → scan_routes → auth_routes → users_routes)
-# BEFORE ops_routes finishes registering its own decorators. That puts
-# every ops_routes route AFTER auth_routes' StaticFiles catch-all mount
-# in router-registration order — meaning /api/ops, /api/events, etc.
-# 404 because the catch-all matches first.
-# Deferred via TYPE_CHECKING (False at runtime → no chain trigger).
-# Runtime resolution happens via `from main import *` (line 60) which
-# re-exports the symbol once main's namespace has been populated.
 from typing import TYPE_CHECKING as _TYPE_CHECKING  # noqa: E402
 
 if _TYPE_CHECKING:
-    from main_pkg.hosts_routes import _sqlite_like_escape  # noqa: F401
     # IDE-only — `schedules` arrives at runtime via main.py's
     # `from logic import schedules` re-exported through the
     # `from main import *` star-import at the top of this file.
@@ -273,6 +260,7 @@ async def _service_set_networks(
     )
 
 
+# noinspection DuplicatedCode
 async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
     """Background task — find overlay matching subnet, remove it,
     force-update the service. Single Operation row + history entry."""
@@ -569,7 +557,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
             # been one of them. Re-fetch and bump ForceUpdate so the
             # task respawns onto the freshly-created overlay.
             if service_id and service_id not in originals:
-                op.log(f"Force-updating originally-targeted service")
+                op.log("Force-updating originally-targeted service")
                 svc = await portainer.pg(
                     client,
                     f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
@@ -981,6 +969,7 @@ async def api_history(
     }
 
 
+# noinspection DuplicatedCode
 @app.get("/api/history.json")
 async def api_history_json_export(
     limit: int = 5000,
@@ -1001,6 +990,7 @@ async def api_history_json_export(
     )
 
 
+# noinspection DuplicatedCode
 @app.get("/api/history.csv")
 async def api_history_csv_export(
     limit: int = 5000,
@@ -1821,6 +1811,11 @@ class SettingsIn(BaseModel):
     # for the library-growth + missing-backlog + disk-runway trend.
     tuning_servarr_sample_interval_seconds: Optional[str] = None
     tuning_servarr_history_days: Optional[str] = None
+    # qBittorrent transfer-speed + free-disk retention sampler — snapshot cadence
+    # (0 = inherit global stats interval) + retention for the speed sparkline +
+    # disk-free-runway projection.
+    tuning_qbittorrent_sample_interval_seconds: Optional[str] = None
+    tuning_qbittorrent_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None

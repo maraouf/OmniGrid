@@ -55,7 +55,57 @@
             <span class="text-[var(--success)]" aria-hidden="true">⬆️</span>
             <span class="mono" x-text="qbittorrentSpeed(qbittorrentData(inst).up_speed)"></span>
           </span>
+          <!-- Global ratio (from sync/maindata). -->
+          <span x-show="(Number(qbittorrentData(inst).global_ratio) || 0) > 0"
+                class="inline-flex items-center gap-1"
+                :title="t('apps.qbittorrent.ratio') || 'Global ratio'">
+            <span class="text-[var(--text-faint)]" aria-hidden="true">⚖️</span>
+            <span class="mono" x-text="(Number(qbittorrentData(inst).global_ratio) || 0).toFixed(2)"></span>
+          </span>
+          <!-- Free disk. -->
+          <span x-show="(Number(qbittorrentData(inst).free_space_gb) || 0) > 0"
+                class="inline-flex items-center gap-1"
+                :title="t('apps.qbittorrent.free_disk') || 'Free disk'">
+            <span class="text-[var(--text-faint)]" aria-hidden="true">💽</span>
+            <span class="mono" x-text="qbittorrentBytes((Number(qbittorrentData(inst).free_space_gb) || 0) * 1073741824)"></span>
+          </span>
         </div>
+        <!-- All-time totals + a non-connected warning. -->
+        <div x-show="(Number(qbittorrentData(inst).alltime_dl) || 0) > 0 || (Number(qbittorrentData(inst).alltime_ul) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-1"
+             x-text="(t('apps.qbittorrent.alltime') || 'All-time') + ': ↓ ' + qbittorrentBytes(qbittorrentData(inst).alltime_dl) + ' / ↑ ' + qbittorrentBytes(qbittorrentData(inst).alltime_ul)"></div>
+        <div x-show="qbittorrentData(inst).connection_status && qbittorrentData(inst).connection_status !== 'connected'"
+             class="fs-3xs text-[var(--warning)] mt-0.5"
+             x-text="'⚠️ ' + (t('apps.qbittorrent.connection') || 'Connection') + ': ' + qbittorrentData(inst).connection_status"></div>
+        <!-- Transfer-speed + free-disk trend (from OmniGrid's qbittorrent_samples).
+             Drawer-only (`appsExtrasInDrawer`) — no room on the apps-grid card;
+             shown once ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && qbittorrentTrend(inst) && qbittorrentTrend(inst).series_dl && qbittorrentTrend(inst).series_dl.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <!-- Download/upload speed over time (two lines, shared sparkline area). -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.qbittorrent.speed_trend', { days: qbittorrentTrend(inst).days }) || ('Transfer speed (' + qbittorrentTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_dl)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_up)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="'↓ ' + qbittorrentSpeed(qbittorrentTrend(inst).latest_dl) + ' · ↑ ' + qbittorrentSpeed(qbittorrentTrend(inst).latest_up) + ' · ' + (t('apps.qbittorrent.peak_dl') || 'peak ↓') + ' ' + qbittorrentSpeed(qbittorrentTrend(inst).peak_dl)"></div>
+            </div>
+            <!-- Free disk over time + the disk-runway projection footnote. -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.qbittorrent.disk_trend', { days: qbittorrentTrend(inst).days }) || ('Free disk (' + qbittorrentTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="qbittorrentTrendPath(qbittorrentTrend(inst).series_free)" fill="none" stroke="var(--text-dim)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(qbittorrentTrend(inst).disk_runway_days) || 0) > 0"
+                   class="fs-3xs text-[var(--warning)]"
+                   x-text="t('apps.qbittorrent.disk_runway', { days: qbittorrentTrend(inst).disk_runway_days }) || ('Disk full in ~' + qbittorrentTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version. -->
         <div x-show="qbittorrentData(inst).version"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono"

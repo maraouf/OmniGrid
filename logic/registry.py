@@ -437,6 +437,7 @@ async def _fetch_github_latest_release(
     return None
 
 
+# noinspection DuplicatedCode
 async def _fetch_github_release_notes(
     client: httpx.AsyncClient, owner: str, repo: str, tag: str,
 ) -> Optional[dict]:
@@ -631,6 +632,7 @@ async def get_release_notes(image: str) -> dict:
         return out
 
 
+# noinspection DuplicatedCode
 async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[str]:
     """HEAD (fallback GET) the registry's manifest endpoint and return the
     ``Docker-Content-Digest`` header.

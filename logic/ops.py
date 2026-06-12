@@ -1423,6 +1423,7 @@ async def _notify_medium_apprise(
         return {"ok": False, "error": str(e)}
 
 
+# noinspection DuplicatedCode
 async def _notify_medium_app(
     *, title: str, body: str, severity: str,
     event: Optional[str], actor_username: Optional[str],
@@ -1624,6 +1625,7 @@ def _resolve_fleet_event_routing(event: str) -> Optional[dict]:
         return None
 
 
+# noinspection DuplicatedCode
 async def notify(
     title: str, body: str, status: str = "info", *,
     event: Optional[str] = None,

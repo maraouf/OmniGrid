@@ -676,6 +676,7 @@ def history_series(host_id: str, hours: int) -> list[dict]:
     return series
 
 
+# noinspection DuplicatedCode
 def services_for_host(host_id: str) -> list[dict]:
     """Return the per-unit service snapshot for one host.
 

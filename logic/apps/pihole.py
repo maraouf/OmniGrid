@@ -450,6 +450,7 @@ async def _set_blocking(base: str, sid: str, enabled: bool, timer_s: int = 0) ->
         raise RuntimeError(f"HTTP {r.status_code}")
 
 
+# noinspection DuplicatedCode
 async def _run_gravity(base: str, sid: str) -> None:
     """POST /api/action/gravity — runs ``pihole -g`` (gravity / blocklist
     update). The endpoint may stream output; we just need a non-error
@@ -492,6 +493,7 @@ async def _skill_status() -> dict:
         extra_lines_fn=_extra_lines)
 
 
+# noinspection DuplicatedCode
 async def _set_domain(base: str, sid: str, domain: str, block: bool) -> None:
     """Add (block) / remove (unblock) ``domain`` on the host's exact denylist
     via POST /api/domains/deny/exact {domain} / DELETE /api/domains/deny/exact/
@@ -561,6 +563,7 @@ async def _skill_set_domain(domain: str, block: bool) -> dict:
         return {"ok": False, "status": 0,
                 "detail": f"no domain given (say e.g. \"{verb} ads.example.com\")"}
 
+    # noinspection DuplicatedCode
     async def _one(hid, _sidx, hrow, chip):
         password = _password(chip)
         base = resolve_base_url(hrow, chip)

@@ -22,6 +22,85 @@ import asyncio
 # indexer manager). Each module declares an async ``calendar_items``.
 ARR_CAL_SLUGS: tuple[str, ...] = ("radarr", "sonarr", "lidarr", "readarr")
 
+# Synonyms the operator's natural language uses for each *arr media kind →
+# the per-app calendar row's ``type`` field (movie / episode / album / book).
+# Empty string = no type filter (return everything upcoming). Shared by the AI
+# palette's ``upcoming_releases`` tool AND the Telegram ``/upcoming`` command.
+MEDIA_TYPE_MAP: dict[str, str] = {
+    "movie": "movie", "movies": "movie", "film": "movie", "films": "movie",
+    "series": "episode", "show": "episode", "shows": "episode", "tv": "episode",
+    "episode": "episode", "episodes": "episode",
+    "album": "album", "albums": "album", "music": "album", "song": "album",
+    "songs": "album", "track": "album", "tracks": "album",
+    "book": "book", "books": "book", "audiobook": "book", "audiobooks": "book",
+}
+
+
+def normalize_media_type(word) -> str:
+    """Map a free-text media-kind word to the canonical per-app ``type`` value
+    (``movie`` / ``episode`` / ``album`` / ``book``), or ``""`` for no filter."""
+    return MEDIA_TYPE_MAP.get(str(word or "").strip().lower(), "")
+
+
+async def upcoming_items(*, days: int = 14, media_type: str = "",
+                         title: str = "", limit: int = 40) -> dict:
+    """Aggregate + filter + sort UPCOMING releases across every configured *arr
+    instance for the next ``days`` (clamped 1..90).
+
+    Returns ``{configured, services, window, count, items, errors}`` where each
+    item is a normalised ``{date, time, title, subtitle, type, service,
+    overview, runtime_min}`` row (soonest-first, capped at ``limit``).
+    ``media_type`` filters to one kind (accepts a synonym via
+    ``normalize_media_type``); ``title`` filters to a title/subtitle substring.
+    Shared by the AI ``upcoming_releases`` tool + the Telegram ``/upcoming``
+    command. Never raises — a fetch failure surfaces in the result's ``errors``."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    try:
+        win = max(1, min(90, int(days or 14)))
+    except (TypeError, ValueError):
+        win = 14
+    want = normalize_media_type(media_type)
+    title_q = str(title or "").strip().lower()
+    now = datetime.now(timezone.utc)
+    start_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = (now + timedelta(days=win)).strftime("%Y-%m-%dT23:59:59Z")
+    agg = await collect_calendar(start_iso, end_iso)
+    out_items: list[dict] = []
+    for it in (agg.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        if want and str(it.get("type") or "").lower() != want:
+            continue
+        t_title = str(it.get("title") or "")
+        subtitle = str(it.get("subtitle") or "")
+        if title_q and title_q not in (t_title + " " + subtitle).lower():
+            continue
+        try:
+            runtime_min = max(0, int(it.get("runtime") or 0))
+        except (TypeError, ValueError):
+            runtime_min = 0
+        out_items.append({
+            "date": str(it.get("date") or ""),
+            "time": str(it.get("time") or ""),
+            "title": t_title,
+            "subtitle": subtitle,
+            "type": str(it.get("type") or ""),
+            "service": str(it.get("service_slug") or ""),
+            "overview": str(it.get("overview") or ""),
+            "runtime_min": runtime_min,
+        })
+    out_items.sort(key=lambda r: (r.get("date") or "", r.get("time") or ""))
+    out_items = out_items[:max(1, int(limit or 40))]
+    return {
+        "configured": bool(agg.get("configured")),
+        "services": agg.get("services") or [],
+        "window": {"start": start_iso[:10], "end": end_iso[:10], "days": win},
+        "filters": {"media_type": want, "title": title_q},
+        "count": len(out_items),
+        "items": out_items,
+        "errors": agg.get("errors") or {},
+    }
+
 
 async def collect_calendar(start_iso: str, end_iso: str) -> dict:
     """Aggregate upcoming-release rows across every configured *arr instance

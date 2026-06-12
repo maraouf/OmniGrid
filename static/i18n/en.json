@@ -2003,6 +2003,14 @@
           "label": "*arr history retention (days)",
           "help": "Retention window for the shared *arr (Radarr/Sonarr/Lidarr/Readarr) samples that drive the library-growth, missing-backlog and disk-free-runway trends. Default 365 (a year of daily points — a longer window gives a more confident disk-runway fit). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_qbittorrent_sample_interval_seconds": {
+          "label": "qBittorrent sampler interval (seconds)",
+          "help": "How often the lifespan qBittorrent sampler snapshots each configured instance's download/upload speed + free disk + torrent count into the history table that drives the card's transfer-speed sparkline and the disk-free-runway projection (qBittorrent keeps no speed history of its own). Default 300 (5 min) — transfer speeds move fast, but a 5-minute cadence resolves the trend without bloating the table; lower it (e.g. 60) for a finer sparkline. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_qbittorrent_history_days": {
+          "label": "qBittorrent history retention (days)",
+          "help": "Retention window for the qBittorrent samples that drive the transfer-speed sparkline and the disk-free-runway projection. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend (a longer window gives a more confident disk-runway fit). Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -6185,7 +6193,16 @@
       "fetch_failed": "qBittorrent fetch failed",
       "downloading_now_count": "{count} downloading",
       "delete_confirm": "Delete this torrent and its downloaded files?",
-      "delete_title": "Delete torrent"
+      "delete_title": "Delete torrent",
+      "pause_title": "Pause torrent",
+      "ratio": "Global ratio",
+      "free_disk": "Free disk",
+      "alltime": "All-time",
+      "connection": "Connection",
+      "speed_trend": "Transfer speed ({days} days)",
+      "disk_trend": "Free disk ({days} days)",
+      "peak_dl": "peak ↓",
+      "disk_runway": "Disk full in ~{days} days at this fill rate"
     },
     "plex": {
       "api_key_label": "Plex token",

@@ -690,6 +690,7 @@ async def _search_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, "apps.forgejo.repos_count")
 
 
+# noinspection DuplicatedCode
 async def _starred_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
     """Read-only: the repos the token's user has starred, as rich rows

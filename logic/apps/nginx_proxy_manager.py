@@ -176,7 +176,7 @@ async def _get_token(cli: "httpx.AsyncClient", base: str, email: str,
             return ""
         try:
             r2 = await cli.post(base + "/api/tokens/2fa",
-                                json={"challenge_token": str(body.get("challenge_token")),
+                                json={"challenge_token": str(body.get("challenge_token", "")),
                                       "code": code},
                                 headers={"Content-Type": "application/json",
                                          "Accept": "application/json"})
@@ -290,7 +290,7 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                     return {"ok": False, "status": 0,
                             "detail": "the 2FA secret isn't a valid base32 TOTP key"}
                 r2 = await cli.post(base + "/api/tokens/2fa",
-                                    json={"challenge_token": str(body.get("challenge_token")),
+                                    json={"challenge_token": str(body.get("challenge_token", "")),
                                           "code": code},
                                     headers={"Content-Type": "application/json",
                                              "Accept": "application/json"})
@@ -512,8 +512,8 @@ async def _proxy_hosts_skill(host_row: dict, chip: dict, *,
     if not hosts_l:
         return {"ok": True, "status": 200, "detail": "🌐 No proxy hosts configured."}
     # Disabled first, then by primary domain.
-    hosts_l.sort(key=lambda h: (1 if h.get("enabled") else 0,
-                                str((as_list(h.get("domain_names")) or [""])[0]).lower()))
+    hosts_l.sort(key=lambda _h: (1 if _h.get("enabled") else 0,
+                                 str((as_list(_h.get("domain_names")) or [""])[0]).lower()))
     items: list = []
     lines: list = []
     for h in hosts_l[:_MAX_ROWS]:
@@ -533,6 +533,7 @@ async def _proxy_hosts_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, "apps.npm.hosts_count")
 
 
+# noinspection DuplicatedCode
 async def _expiring_certs_skill(host_row: dict, chip: dict, *,
                                 host_id: Optional[str] = None) -> dict:
     """Read-only: list SSL certs sorted by soonest expiry, flagging those within
@@ -584,6 +585,7 @@ async def _expiring_certs_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, "apps.npm.certs_count")
 
 
+# noinspection DuplicatedCode
 async def _toggle_host_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str], enable: bool,
                              host_id: Optional[str] = None) -> dict:

@@ -1987,6 +1987,7 @@ _VENDOR_WALK_CONCURRENCY_TUNABLE: dict[str, _Tunable] = {
 }
 
 
+# noinspection DuplicatedCode
 async def probe_snmp(
     host: str,
     *,
@@ -2069,8 +2070,8 @@ async def probe_snmp(
     if auth is None:
         return {
             "hosts": {},
-            "error": f"snmp: v3 selected without a username — set "
-                     f"snmp_v3_user or fall back to v2c",
+            "error": "snmp: v3 selected without a username — set "
+                     "snmp_v3_user or fall back to v2c",
         }
 
     # reuse the module-level SnmpEngine singleton instead of
@@ -2430,6 +2431,7 @@ async def probe_snmp(
             "_resolved_value", "_resolved_dict", "_resolved_list",
         })
 
+        # noinspection DuplicatedCode
         async def _bounded(coro):
             # When an outer ``asyncio.wait_for`` cancels the gather,
             # any wrapper that hadn't yet acquired ``walk_sem`` gets a

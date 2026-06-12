@@ -184,6 +184,7 @@ _provider_state_cache: dict = {"ts": 0.0, "by_host": {}}
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 def _build_provider_state_index() -> dict:
     """One-shot full-table scan; returns ``{host_id: {provider: stateDict}}``.
 
@@ -989,6 +990,7 @@ def _clean_host_ssh(raw: Any) -> dict:
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 def _clean_host_ping(raw: Any) -> dict:
     """Normalise the per-host ``ping`` sub-dict.
 
@@ -1020,6 +1022,7 @@ def _clean_host_ping(raw: Any) -> dict:
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 def _clean_host_snmp(raw: Any) -> dict:
     """Normalise the per-host ``snmp`` override sub-dict.
 
@@ -1138,6 +1141,7 @@ def _clean_host_snmp(raw: Any) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 def _clean_host_http_probe(raw: Any) -> dict:
     """Normalise the per-host ``http_probe`` sub-dict.
 
@@ -1509,6 +1513,7 @@ def _coerce_int(v) -> Optional[int]:
         return None
 
 
+# noinspection DuplicatedCode
 def _save_hosts_config(hosts: list[dict]) -> list[dict]:
     """Persist the curated hosts list and return what we saved.
 
@@ -2048,6 +2053,7 @@ async def api_hosts_resume_sampling(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/hosts/{host_id}/provider/{provider}/resume")
 async def api_hosts_provider_resume(
     host_id: str, provider: str,
@@ -2702,7 +2708,7 @@ async def api_hosts_test(
                     first_err = ""
                     for rr in results:
                         if rr.get("error"):
-                            first_err = str(rr.get("error"))[:100]
+                            first_err = str(rr.get("error", ""))[:100]
                             break
                     out["http_probe"] = {
                         "ok": False, "skipped": False,

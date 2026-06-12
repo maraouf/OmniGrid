@@ -42,6 +42,7 @@ _AI_MEMORY_SEEDS: tuple[str, ...] = (
 )
 
 
+# noinspection DuplicatedCode
 def init_db():
     """Boot orchestrator — create all SQLite tables idempotently and apply pending migrations."""
     with db_conn() as c:
@@ -719,6 +720,30 @@ def init_db():
         -- see ping_samples / stats_samples for the same pattern).
         CREATE INDEX IF NOT EXISTS idx_servarr_samples_ts
             ON servarr_samples(ts);
+
+        -- qBittorrent per-(host, tick) snapshot. qBittorrent exposes only the
+        -- CURRENT transfer speeds + free disk (no built-in speed history), so the
+        -- lifespan ``qbittorrent_sampler`` records each instance's dl/up speed +
+        -- free-disk + torrent count per tick. ``trend_summary`` draws the
+        -- transfer-speed sparkline + a free-disk-runway projection (linear fit
+        -- over the daily ``free_space_gb`` points). ``ts`` is the sampler
+        -- wall-clock; speeds are bytes/s, free space is GiB.
+        CREATE TABLE IF NOT EXISTS qbittorrent_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            dl_speed      INTEGER NOT NULL DEFAULT 0,
+            up_speed      INTEGER NOT NULL DEFAULT 0,
+            free_space_gb REAL    NOT NULL DEFAULT 0,
+            torrents      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_qbittorrent_samples_chip_ts
+            ON qbittorrent_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_qbittorrent_samples_ts
+            ON qbittorrent_samples(ts);
 
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by

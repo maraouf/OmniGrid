@@ -174,6 +174,7 @@ def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
     ))
 
 
+# noinspection DuplicatedCode
 def _next_fixed_time_run(
     hh: int, mm: int, last_run_at: Optional[int], now: Optional[float] = None,
 ) -> int:
@@ -312,6 +313,7 @@ def _next_weekly_run(
     return int(now_ts + 86400)
 
 
+# noinspection DuplicatedCode
 def _next_monthly_run(
     hh: int, mm: int, day_of_month: int,
     last_run_at: Optional[int], now: Optional[float] = None,
@@ -1078,6 +1080,7 @@ async def _run_gather_refresh(_params: dict) -> tuple[str, Awaitable[tuple[int, 
     return op_id, task  # type: ignore[return-value]
 
 
+# noinspection DuplicatedCode
 async def _run_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Create a full backup zip via :func:`logic.backups.create_backup`.
 
@@ -1092,6 +1095,7 @@ async def _run_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         started = time.time()
@@ -1169,6 +1173,7 @@ async def _run_asset_inventory_refresh(
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import asset_inventory as _ai
@@ -1287,6 +1292,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import logs as _logs_mod
@@ -1368,6 +1374,7 @@ async def _run_prune_notifications(
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import tuning as _tuning_mod
@@ -1554,6 +1561,7 @@ async def _run_swarm_agent_health(
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import stats as _stats_mod
@@ -2366,6 +2374,7 @@ async def _run_port_scan_refresh(
     return op_id, task  # type: ignore[return-value]
 
 
+# noinspection DuplicatedCode
 def _record_history_row(
     op_id: str,
     started: float,
@@ -2425,6 +2434,7 @@ async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, s
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import config_export as _cfg_export
@@ -2476,6 +2486,7 @@ async def _run_config_backup(_params: dict) -> tuple[str, Awaitable[tuple[int, s
     return op_id, task  # type: ignore[return-value]
 
 
+# noinspection DuplicatedCode
 async def _run_prune_config_backups(_params: dict) -> tuple[str, Awaitable[tuple[int, str]]]:
     """Prune older config-backup snapshots down to
     ``tuning_config_backup_retention_count``. Mirrors the ``prune_logs``
@@ -2493,6 +2504,7 @@ async def _run_prune_config_backups(_params: dict) -> tuple[str, Awaitable[tuple
     """
     op_id = "sched-" + secrets.token_hex(4)
 
+    # noinspection DuplicatedCode
     async def runner() -> tuple[int, str]:
         """Inner coroutine spawned by this runner; returns (duration_seconds, status). Fire-and-forget — caller spawns via asyncio.create_task and the schedule loop awaits the resolved task."""
         from logic import config_export as _cfg_export

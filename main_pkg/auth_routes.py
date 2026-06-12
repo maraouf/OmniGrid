@@ -560,6 +560,7 @@ async def api_local_login(
     return resp
 
 
+# noinspection DuplicatedCode
 @app.post("/api/local-auth/totp")
 async def api_local_login_totp(
     request: Request,
@@ -691,6 +692,7 @@ async def api_local_login_totp(
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/local-auth/totp-setup-confirm")
 async def api_local_login_totp_setup_confirm(
     request: Request,
@@ -923,6 +925,7 @@ async def api_local_login_webauthn_start(
     })
 
 
+# noinspection DuplicatedCode
 @app.post("/api/local-auth/webauthn-finish")
 async def api_local_login_webauthn_finish(
     body: WebauthnLoginFinishIn,
@@ -1134,6 +1137,7 @@ async def api_local_logout(request: Request):
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/local-auth/bootstrap")
 async def api_local_bootstrap(
     request: Request,
@@ -1655,6 +1659,7 @@ async def api_me_telegram_unlink(request: Request):
 
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
+# noinspection DuplicatedCode
 @app.post("/api/me/ui-prefs/beacon")
 async def api_me_ui_prefs_beacon(body: UiPrefsIn, request: Request):
     """Beacon-friendly variant of PATCH /api/me/ui-prefs.
@@ -2171,6 +2176,7 @@ async def api_me_totp_enroll_start(user: CurrentUser):
     }
 
 
+# noinspection DuplicatedCode
 @app.post("/api/me/totp/enroll-confirm")
 async def api_me_totp_enroll_confirm(
     body: TotpEnrollConfirmIn,

@@ -506,7 +506,7 @@ async def _pairs_skill(host_row: dict, chip: dict, *,
     # flat, unheadered list (no divider clutter).
     mixed = len({r["_state"] for r in rows}) > 1
     if mixed:
-        rows.sort(key=lambda r: _STATE_META[r["_state"]][2])
+        rows.sort(key=lambda _r: _STATE_META[_r["_state"]][2])
     items: list[dict] = []
     lines: list[str] = []
     for r in rows:
@@ -629,6 +629,7 @@ async def _resolve_pair(cli: httpx.AsyncClient, base: str, token: str,
                   "detail": f"no sync pair named “{name}” — available: {avail or '(none)'}"}
 
 
+# noinspection DuplicatedCode
 async def _pair_action_skill(host_row: dict, chip: dict, *, arg: Optional[str],
                              action: str, host_id: Optional[str] = None) -> dict:
     """Action (arg): resolve a pair by name then ``sync`` / ``pause`` / ``unpause``

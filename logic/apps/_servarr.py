@@ -230,6 +230,7 @@ def poster_url(item: Any) -> str:
     return ""
 
 
+# noinspection DuplicatedCode
 def remote_poster_url(item: Any) -> str:
     """The allowlisted PUBLIC-CDN ``remoteUrl`` for a *arr item (``poster`` then
     ``cover`` art), or ``""`` when none. This is the RELIABLE half of
@@ -508,6 +509,7 @@ def _version_key(ver: Any) -> tuple:
     return tuple(safe_int(p) for p in parts)
 
 
+# noinspection DuplicatedCode
 async def check_update_skill(host_row: dict, chip: dict, *, app_label: str,
                              api_version: str, host_id: Optional[str] = None,
                              actor_username: Optional[str] = None) -> dict:
