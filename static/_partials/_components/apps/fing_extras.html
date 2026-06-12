@@ -1,0 +1,124 @@
+<!-- Per-app expanded-card extras -- Fing (network device inventory + presence).
+
+     Renders inside `apps-card.html` when the chip is the Fing catalog template
+     AND extras are visible. Data comes from `logic/apps/fing.py:fetch_data`
+     (GET /1/devices?auth=<key>), read through the cache-backed
+     `appsAppData(inst)`. The occupancy sparkline is the lifespan `fing_sampler`'s
+     online-device daily-MAX series (Fing's Local API is current-state-only).
+     Reuses the shared `.apps-card-ups-*` stat-grid + the generic `.apps-spark`
+     sparkline + the `.apps-ddns-dot` status dots.
+
+     Helpers used (all from `static/js/apps/fing.js`):
+       fingIsApp(app) / fingData(inst) / fingCount(v) / fingDevices(inst) /
+       fingByType(inst) / fingHistory(inst) / fingSparkPoints(inst) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="fingIsApp && fingIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && fingData(inst)">
+  <!--suppress JSUnresolvedVariable -->
+  <div class="apps-card-ups" :data-fing-host="inst.host_id">
+    <!-- Per-host header (host name only when the app has > 1 instance). -->
+    <div x-show="(app.instances || []).length > 1"
+         class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
+         x-text="inst.host_address || inst.host_id"></div>
+    <div class="apps-card-ups-grid">
+      <!-- Online / total. -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.fing.online') || 'Online'"></div>
+        <div class="apps-card-stat-value text-[var(--success)]"
+             x-text="fingCount(fingData(inst).devices_online) + ' / ' + fingCount(fingData(inst).devices_total)"></div>
+      </div>
+      <!-- Offline. -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.fing.offline') || 'Offline'"></div>
+        <div class="apps-card-stat-value" x-text="fingCount(fingData(inst).devices_offline)"></div>
+      </div>
+      <!-- New devices (recent). -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.fing.new') || 'New'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(fingData(inst).new_devices) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+             x-text="fingCount(fingData(inst).new_devices)"></div>
+      </div>
+      <!-- Device-type count. -->
+      <div class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.fing.types') || 'Types'"></div>
+        <div class="apps-card-stat-value" x-text="fingCount(fingByType(inst).length)"></div>
+      </div>
+    </div>
+    <!-- Online-device occupancy trend — daily-MAX online count sampled by the
+         lifespan fing_sampler (Fing's Local API is current-state-only, so this
+         sampled count is the only presence-over-time signal). Shown once at
+         least one sample exists. -->
+    <template x-if="fingHistory(inst) && fingHistory(inst).samples > 0">
+      <div class="mt-2">
+        <div class="apps-card-ups-grid">
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.fing.peak') || 'Peak online'"></div>
+            <div class="apps-card-stat-value" x-text="fingCount(fingHistory(inst).peak_online)"></div>
+          </div>
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.fing.new_days') || 'New-device days'"></div>
+            <div class="apps-card-stat-value" x-text="fingCount(fingHistory(inst).new_event_days)"></div>
+          </div>
+        </div>
+        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="fingSparkPoints(inst)"></polyline>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)] mono"
+             x-text="t('apps.fing.trend_caption', { days: fingHistory(inst).days }) || ('Online devices, last ' + fingHistory(inst).days + ' days')"></div>
+      </div>
+    </template>
+    <!-- Device-type breakdown chips (top types by count). -->
+    <template x-if="fingByType(inst).length">
+      <div class="mt-2 flex flex-wrap gap-1">
+        <template x-for="(tp, ti) in fingByType(inst)" :key="(tp.name || '') + ':' + ti">
+          <span class="chip pill-muted fs-3xs"
+                x-text="(tp.name || '?') + ' ' + fingCount(tp.count)"></span>
+        </template>
+      </div>
+    </template>
+    <!-- Device list (online first). name + type/vendor/ip + 🆕 badge. -->
+    <template x-if="fingDevices(inst).length">
+      <div class="mt-2">
+        <div class="apps-card-stat-label mb-1" x-text="t('apps.fing.devices') || 'Devices'"></div>
+        <template x-for="(dv, di) in fingDevices(inst).slice(0, 12)" :key="(dv.mac || dv.ip || dv.name || '') + ':' + di">
+          <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
+            <span class="flex items-baseline gap-1 min-w-0">
+              <span class="apps-ddns-dot"
+                    :class="dv.online ? 'apps-ddns-dot--ok' : 'apps-ddns-dot--fail'"
+                    aria-hidden="true"></span>
+              <span class="mono truncate" x-text="dv.name || '?'" :title="(dv.mac || '') + ' · ' + (dv.ip || '')"></span>
+              <span x-show="dv.new" class="text-[var(--warning)]" x-text="'🆕'"></span>
+            </span>
+            <span class="text-[var(--text-faint)] shrink-0 mono truncate"
+                  x-text="[dv.type, dv.vendor, dv.ip].filter(Boolean).join(' · ')"></span>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- Footnote — new-device call-out when any device is recently first-seen. -->
+    <div class="fs-3xs mt-1 mono"
+         x-show="(Number(fingData(inst).new_devices) || 0) > 0">
+      <span class="text-[var(--warning)]"
+            x-text="t('apps.fing.new_footnote', { n: (Number(fingData(inst).new_devices) || 0) }) || ('🆕 ' + (Number(fingData(inst).new_devices) || 0) + ' new device(s) recently joined')"></span>
+    </div>
+  </div>
+</template>
+<!-- No credentials yet — idle and unconfigured. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="fingIsApp && fingIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">
+  <p class="fs-xs text-[var(--text-faint)] italic"
+     x-text="t('apps.fing.no_key') || 'No Local API key set -- add it in Admin -> Apps to enable.'"></p>
+</template>
+<!-- Loading — first fetch in flight (panel above gates on fingData). -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="fingIsApp && fingIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !fingData(inst) && appsAppDataStatus(inst) === 'pending'">
+  <p class="fs-xs text-[var(--text-faint)] italic inline-flex items-center gap-1.5">
+    <span class="spin" aria-hidden="true"></span>
+    <span x-text="t('apps.fing.loading') || 'Loading Fing data…'"></span></p>
+</template>
+<!-- Error — upstream fetch failed. -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="fingIsApp && fingIsApp(app) && appsShowExtras(app, inst, (typeof item !== 'undefined' ? item : null)) && !fingData(inst) && appsAppDataStatus(inst) === 'error'">
+  <p class="fs-xs text-[var(--danger)] italic"
+     x-text="(t('apps.fing.fetch_failed') || 'Fing fetch failed') + ': ' + appsAppDataError(inst)"></p>
+</template>

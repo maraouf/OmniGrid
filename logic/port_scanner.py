@@ -93,7 +93,7 @@ DEFAULT_PORTS: tuple[int, ...] = (
     9091, 9100, 9117, 9120, 9191, 9200, 9300, 9392, 9393, 9401, 9418, 9419,
     9443, 9500, 9696, 9981, 10000, 10001, 10050, 11211, 11443, 19999, 25565, 27017,
     21114, 21115, 21116, 21117, 21118, 21119,
-    27018, 32400, 32469, 32500, 32769, 41080, 44444, 45876, 49669, 50000,
+    27018, 32400, 32469, 32500, 32769, 41080, 44444, 45876, 49090, 49669, 50000,
     51510, 51511, 51820, 53000, 57221,
     # Operator-requested additions:
     1514, 1515, 1516, 1517, 1518, 1519, 1520,  # syslog-TLS / Splunk fwd range (1521 oracle already above)
@@ -181,7 +181,7 @@ _PORT_HINTS: dict[int, str] = {
     27017: "mongodb", 27018: "mongodb", 32400: "plex", 32469: "plex-dlna",
     32500: "plex", 32769: "aiohttp",
     41080: "deluge", 44444: "fing-agent", 45876: "beszel-agent",
-    49669: "manageengine", 50000: "jenkins",
+    49090: "fing", 49669: "manageengine", 50000: "jenkins",
     51510: "qbittorrent", 51511: "qbittorrent", 51820: "wireguard",
     53000: "tautulli", 57221: "tailscale",
     1514: "syslog-tls", 1515: "syslog-tls", 1516: "syslog-tls",

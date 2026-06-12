@@ -919,6 +919,18 @@ async def _lifespan(_app: FastAPI):
         _ddns_updater_sampler.ddns_updater_sampler_loop(),
         name="ddns-updater-sampler",
     )
+    # Fing network-occupancy sampler — records each configured Fing chip's
+    # total / online device counts + a new-device count every
+    # tuning_fing_sample_interval_seconds (default 600s; 0 = inherit the global
+    # stats interval) into fing_samples, driving the card's online-device
+    # occupancy trend. Fing's Local API is current-state-only, so this is the
+    # only way to show presence over time. Dormant-cheap when no Fing chip is
+    # pinned (keeps ticking so a runtime pin takes effect without a restart).
+    from logic.apps import fing_sampler as _fing_sampler
+    fing_sampler = asyncio.create_task(
+        _fing_sampler.fing_sampler_loop(),
+        name="fing-sampler",
+    )
     # Speedtest Tracker long-horizon sampler — ingests each configured chip's
     # results into speedtest_samples every tuning_speedtest_sample_interval_seconds
     # (default 900s; 0 = inherit the global stats interval), giving an
@@ -1014,7 +1026,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, qbittorrent_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, qbittorrent_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

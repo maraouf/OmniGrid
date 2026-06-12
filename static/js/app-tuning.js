@@ -321,6 +321,11 @@ export default {
     'tuning_ddns_sample_interval_seconds',
     'tuning_ddns_history_days',
     'tuning_ddns_stale_record_hours',
+    // Fing network-occupancy sampler — drives the online-device trend
+    // (sample cadence + retention days + the new-device-window hours).
+    'tuning_fing_sample_interval_seconds',
+    'tuning_fing_history_days',
+    'tuning_fing_new_device_hours',
     // Speedtest Tracker long-horizon sampler — independent download/upload/ping
     // trend surviving the upstream's own pruning (ingest cadence + retention).
     'tuning_speedtest_sample_interval_seconds',

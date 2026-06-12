@@ -600,6 +600,28 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_ddns_samples_ts
             ON ddns_samples(ts);
 
+        -- Fing online-device occupancy history. Fing's Local API is current-
+        -- state-only, so the lifespan ``fing_sampler`` records each configured
+        -- Fing chip's total / online device counts + a new-device count per
+        -- tick. The daily-MAX of ``devices_online`` drives the expanded card's
+        -- occupancy sparkline ("how many devices are typically on the network");
+        -- ``new_devices`` flags days an unknown device first appeared. One row
+        -- per (host_id, service_idx, tick).
+        CREATE TABLE IF NOT EXISTS fing_samples (
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            service_idx    INTEGER NOT NULL,
+            devices_total  INTEGER NOT NULL DEFAULT 0,
+            devices_online INTEGER NOT NULL DEFAULT 0,
+            new_devices    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_fing_samples_chip_ts
+            ON fing_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_fing_samples_ts
+            ON fing_samples(ts);
+
         -- Speedtest Tracker long-horizon history. Speedtest Tracker KEEPS its
         -- own results history, but prunes it on the operator's configured
         -- retention schedule — so the lifespan ``speedtest_tracker_sampler``

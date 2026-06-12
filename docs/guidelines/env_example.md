@@ -749,6 +749,16 @@ WEATHER_SAMPLER_INTERVAL_SECONDS = 3600
 FLARESOLVERR_SAMPLE_INTERVAL_SECONDS = 600
 FLARESOLVERR_HISTORY_DAYS = 30
 
+# Fing network-occupancy sampler. Fing's Local API is current-state-only, so the
+# lifespan sampler records each configured Fing chip's online / total device
+# counts to drive the card's online-device occupancy trend.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window; *_NEW_DEVICE_HOURS = the
+# first-seen window under which a device counts as "new" on the card.
+FING_SAMPLE_INTERVAL_SECONDS = 600
+FING_HISTORY_DAYS = 90
+FING_NEW_DEVICE_HOURS = 24
+
 # Favicon proxy (bookmark / app tile icon fallback). The icon resolver's final
 # step (brand → catalog → favicon → letter-avatar) fetches a site's favicon
 # server-side, caches it to /app/data/favicons/, and serves it from OmniGrid's
@@ -1195,6 +1205,9 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `WEATHER_SAMPLER_INTERVAL_SECONDS`             | Runtime    | `3600`                  | Lifespan-managed weather sampler cadence. 0 disables the historical-data sampler. Range 0..86400.                                                                                                                                                                                                                                                                                             |
 | `FLARESOLVERR_SAMPLE_INTERVAL_SECONDS`         | Runtime    | `600`                   | FlareSolverr usage sampler cadence — records each FlareSolverr chip's live open-session count for the card's 30-day usage trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                        |
 | `FLARESOLVERR_HISTORY_DAYS`                     | Runtime    | `30`                    | Retention window (days) for the FlareSolverr open-session-count samples driving the card usage trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                            |
+| `FING_SAMPLE_INTERVAL_SECONDS`                  | Runtime    | `600`                   | Fing occupancy sampler cadence — records each Fing chip's online / total device counts for the card's online-device trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                             |
+| `FING_HISTORY_DAYS`                             | Runtime    | `90`                    | Retention window (days) for the Fing online-device samples driving the occupancy sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                                       |
+| `FING_NEW_DEVICE_HOURS`                         | Runtime    | `24`                    | A Fing device first-seen within this many hours counts as NEW on the card + status skill. Range 1..8760.                                                                                                                                                                                                                                                                                      |
 | `FAVICON_CACHE_DAYS`                            | Runtime    | `30`                    | Disk-cache TTL (days) for a fetched site favicon (bookmark / app tile icon fallback) under `/app/data/favicons/`. Range 1..365.                                                                                                                                                                                                                                                               |
 | `FAVICON_FETCH_TIMEOUT_SECONDS`                 | Runtime    | `8`                     | Per-fetch wall-clock (s) for the favicon proxy's upstream GET(s). Range 2..60.                                                                                                                                                                                                                                                                                                                |
 | `ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS`        | Runtime    | `10`                    | OAuth2 token-handshake timeout for the asset-inventory client. Range 2..120.                                                                                                                                                                                                                                                                                                                  |
