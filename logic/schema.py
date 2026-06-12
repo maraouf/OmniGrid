@@ -745,6 +745,48 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_qbittorrent_samples_ts
             ON qbittorrent_samples(ts);
 
+        -- Tdarr transcode-pipeline retention. One row per (tdarr chip, tick).
+        -- ``space_saved_gb`` + ``transcodes`` are CUMULATIVE running totals
+        -- (Tdarr's StatisticsJSONDB.sizeDiff / totalTranscodeCount), so the
+        -- trend reads them as a cumulative line ("reclaimed X TB and counting")
+        -- + a per-day DIFF (throughput). ``transcode_queue`` is a GAUGE (daily
+        -- avg → burn-down). ``ts`` is the sampler wall-clock.
+        CREATE TABLE IF NOT EXISTS tdarr_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            total_files     INTEGER NOT NULL DEFAULT 0,
+            transcode_queue INTEGER NOT NULL DEFAULT 0,
+            space_saved_gb  REAL    NOT NULL DEFAULT 0,
+            transcodes      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tdarr_samples_chip_ts
+            ON tdarr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_tdarr_samples_ts
+            ON tdarr_samples(ts);
+
+        -- Kavita library-growth retention. One row per (kavita chip, tick). All
+        -- columns are CUMULATIVE running totals (a library only grows), so the
+        -- trend reads them as each day's LAST value (a growth line). ``ts`` is
+        -- the sampler wall-clock; total_size is bytes.
+        CREATE TABLE IF NOT EXISTS kavita_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            series_count  INTEGER NOT NULL DEFAULT 0,
+            volume_count  INTEGER NOT NULL DEFAULT 0,
+            chapter_count INTEGER NOT NULL DEFAULT 0,
+            total_size    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_kavita_samples_chip_ts
+            ON kavita_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_kavita_samples_ts
+            ON kavita_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

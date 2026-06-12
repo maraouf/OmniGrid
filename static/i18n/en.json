@@ -2011,6 +2011,22 @@
           "label": "qBittorrent history retention (days)",
           "help": "Retention window for the qBittorrent samples that drive the transfer-speed sparkline and the disk-free-runway projection. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend (a longer window gives a more confident disk-runway fit). Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_tdarr_sample_interval_seconds": {
+          "label": "Tdarr sampler interval (seconds)",
+          "help": "How often the lifespan Tdarr sampler snapshots each configured instance's cumulative space-saved + transcode count + queue depth into the history table that drives the card's space-reclaimed line, transcode-queue burn-down, and per-day throughput. Default 900 (15 min) — the cumulative totals move slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_tdarr_history_days": {
+          "label": "Tdarr history retention (days)",
+          "help": "Retention window for the Tdarr samples that drive the cumulative space-reclaimed line, the transcode-queue burn-down, and the per-day throughput chart. Default 365 (the space-saved story is most satisfying over a long window). Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
+        },
+        "tuning_kavita_sample_interval_seconds": {
+          "label": "Kavita sampler interval (seconds)",
+          "help": "How often the lifespan Kavita sampler snapshots each configured instance's library totals (series / volume / chapter counts + total size) into the history table that drives the card's library-growth line. Default 900 (15 min) — a library grows slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_kavita_history_days": {
+          "label": "Kavita history retention (days)",
+          "help": "Retention window for the Kavita samples that drive the library-growth line (series count + total size over time). Default 365 (the growth story is most satisfying over a long window). Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_asset_inventory_token_timeout_seconds": {
           "label": "Asset inventory — token probe timeout (seconds)",
           "help": "Wall-clock cap for the OAuth2 `client_credentials` token-probe handshake against the asset-inventory API. Default 10s. Operators behind a slow corporate network or with the asset API behind a tunnel can bump this to 30-60s; tight-watchdog deploys can lower to 3-5s. Range 2..120. Takes effect on the next probe."
@@ -5767,6 +5783,8 @@
       "prowlarr_search": "Search indexers",
       "kavita_status": "Kavita status",
       "kavita_libraries": "List libraries",
+      "kavita_recently_added": "Recently added",
+      "kavita_on_deck": "On deck",
       "kavita_search": "Search the library",
       "kavita_scan": "Scan libraries",
       "prowlarr_available_indexers": "Find indexers to add",
@@ -6098,6 +6116,12 @@
       "volumes": "Volumes",
       "size": "Size",
       "chapters_n": "{n} chapters",
+      "recently_added_count": "{count} recently added",
+      "on_deck_count": "{count} on deck",
+      "series_trend": "Library growth ({days} days)",
+      "series_added": "+{count} series in {days} days",
+      "size_trend": "Library size ({days} days)",
+      "size_now": "Now",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Kavita data…",
       "fetch_failed": "Kavita fetch failed"
@@ -6173,6 +6197,17 @@
       "containers": "Containers",
       "transcodes_n": "{n} transcodes",
       "bloated_count": "{count} bloated",
+      "failed": "Failed",
+      "fps_title": "Live transcode speed (frames/second across active workers)",
+      "avg_saved_title": "Average space reclaimed per completed transcode",
+      "avg_saved": "{gb} GB/file",
+      "saved_trend": "Space reclaimed ({days} days)",
+      "saved_total": "Total reclaimed",
+      "queue_trend": "Transcode queue ({days} days)",
+      "queue_peak": "Peak",
+      "now_label": "now",
+      "throughput_trend": "Throughput / day ({days} days)",
+      "window_throughput": "{count} transcoded in {days} days",
       "loading": "Loading Tdarr data…",
       "fetch_failed": "Tdarr fetch failed"
     },
@@ -6242,6 +6277,13 @@
       "songs": "Songs",
       "now_playing": "Now playing",
       "now_playing_count": "{count} playing",
+      "transcodes_n": "{n} transcoding",
+      "direct_n": "{n} direct",
+      "bandwidth_title": "Total streaming bandwidth",
+      "transcodes_title": "Transcoding streams",
+      "direct_title": "Direct-play streams",
+      "stop_stream": "Stop stream",
+      "stop_stream_confirm": "Stop this stream? The viewer will be disconnected.",
       "all_libraries": "Libraries",
       "items_count": "{n} items total",
       "libraries_footnote": "{n} libraries",
@@ -6261,6 +6303,13 @@
       "songs": "Songs",
       "now_playing": "Now playing",
       "now_playing_count": "{count} playing",
+      "transcodes_n": "{n} transcoding",
+      "direct_n": "{n} direct",
+      "bandwidth_title": "Total streaming bandwidth",
+      "transcodes_title": "Transcoding streams",
+      "direct_title": "Direct-play streams",
+      "stop_stream": "Stop stream",
+      "stop_stream_confirm": "Stop this stream? The viewer will be disconnected.",
       "all_libraries": "Libraries",
       "items_count": "{n} items total",
       "libraries_footnote": "{n} libraries",

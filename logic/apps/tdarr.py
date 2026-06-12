@@ -326,9 +326,43 @@ def _count_workers(nodes: Any) -> "tuple[int, int]":
     return active, len(nd)
 
 
+def _worker_fps(w: dict) -> float:
+    """A worker's live transcode SPEED in fps. Tdarr exposes it under a few key
+    names across versions (``fps`` / ``fpsAverage`` / a string ``"23.97 fps"``
+    in ``statistics``) — try them in turn, parsing a leading float."""
+    for key in ("fps", "fpsAverage", "fpsCurrent"):
+        v = safe_float(w.get(key))
+        if v > 0:
+            return v
+    # Some builds only expose it as a string under `statistics` (e.g. ffmpeg's
+    # "frame= … fps=23.97 …" line, or a bare "23.97 fps").
+    raw = str(w.get("statistics") or w.get("outputFileSizeInGbStr") or "").strip()
+    if raw:
+        import re as _re  # noqa: PLC0415
+        m = _re.search(r"fps[=:\s]+([0-9]+(?:\.[0-9]+)?)", raw, _re.IGNORECASE)
+        if m:
+            return safe_float(m.group(1))
+    return 0.0
+
+
+def _total_fps(nodes: Any) -> float:
+    """Aggregate live transcode throughput (fps) summed across every ACTIVE
+    worker in a ``get-nodes`` payload — the pipeline's current SPEED, not just
+    its %. 0 when nothing is processing or no build reports fps."""
+    total = 0.0
+    for node in as_dict(nodes).values():
+        if not isinstance(node, dict):
+            continue
+        for w in as_dict(node.get("workers")).values():
+            if isinstance(w, dict) and w.get("job"):
+                total += _worker_fps(w)
+    return round(total, 1)
+
+
 def _worker_list(nodes: Any) -> list:
-    """Per-active-worker detail ``[{node, file, pct, type}]`` from a ``get-nodes``
-    payload — what each worker is processing right now (basename + %)."""
+    """Per-active-worker detail ``[{node, file, pct, type, fps}]`` from a
+    ``get-nodes`` payload — what each worker is processing right now (basename +
+    % + live fps)."""
     out = []
     for node in as_dict(nodes).values():
         if not isinstance(node, dict):
@@ -342,6 +376,7 @@ def _worker_list(nodes: Any) -> list:
                 "file": os.path.basename(str(w.get("file") or "").strip()) or "?",
                 "pct": round(safe_float(w.get("percentage")), 1),
                 "type": str(w.get("workerType") or w.get("type") or "").strip(),
+                "fps": _worker_fps(w),
             })
     return out
 
@@ -453,13 +488,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
             except RuntimeError:
                 _version = ""
-            _wa, _nodes, _wl = 0, 0, []
+            _wa, _nodes, _wl, _fps = 0, 0, [], 0.0
             try:
                 nd = await _get(cli, base, api_key, "/get-nodes")
                 _wa, _nodes = _count_workers(nd)
                 _wl = _worker_list(nd)
+                _fps = _total_fps(nd)
             except RuntimeError:
-                _wa, _nodes, _wl = 0, 0, []
+                _wa, _nodes, _wl, _fps = 0, 0, [], 0.0
             # Library breakdowns (resolutions / codecs / containers) — best-effort
             # per-library get-pies aggregation, BOUNDED so a slow library can't
             # time out the whole card; empty on timeout (the card hides them).
@@ -468,10 +504,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     _fetch_pies(cli, base, api_key), timeout=_PIES_BUDGET_S)
             except (asyncio.TimeoutError, RuntimeError):
                 _pies = {"resolutions": [], "codecs": [], "containers": []}
-            return _stats, _version, _wa, _nodes, _wl, _pies
+            return _stats, _version, _wa, _nodes, _wl, _pies, _fps
 
     try:
-        stats, version, workers_active, nodes, worker_list, pies = \
+        stats, version, workers_active, nodes, worker_list, pies, fps = \
             await asyncio.wait_for(_collect(), timeout=_CARD_TOTAL_BUDGET_S)
     except (RuntimeError, asyncio.TimeoutError) as e:
         # Transient upstream slowness (e.g. Tdarr busy while a bloated scan
@@ -491,14 +527,25 @@ async def fetch_data(host_row: dict, chip: dict, *,
             raise RuntimeError(f"card fetch exceeded {_CARD_TOTAL_BUDGET_S:.0f}s budget")
         print(f"[tdarr] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
+    transcodes = safe_int(stats.get("totalTranscodeCount"))
+    space_saved = round(safe_float(stats.get("sizeDiff")), 1)
     out: dict[str, Any] = {
         "available": True,
         "total_files": safe_int(stats.get("totalFileCount")),
-        "transcodes": safe_int(stats.get("totalTranscodeCount")),
+        "transcodes": transcodes,
         "health_checks": safe_int(stats.get("totalHealthCheckCount")),
         "transcode_queue": safe_int(stats.get("table1Count")),
         "health_queue": safe_int(stats.get("table4Count")),
-        "space_saved_gb": round(safe_float(stats.get("sizeDiff")), 1),
+        # Failed / error buckets (table3 = transcode failed, table6 = health-
+        # check failed) — surfaced so the card can flag a stuck pipeline.
+        "transcode_failed": safe_int(stats.get("table3Count")),
+        "health_failed": safe_int(stats.get("table6Count")),
+        "space_saved_gb": space_saved,
+        # Avg space reclaimed per completed transcode — a "how effective" number.
+        "avg_saved_per_transcode_gb": (round(space_saved / transcodes, 2)
+                                       if transcodes else 0.0),
+        # Live pipeline SPEED (fps summed across active workers) — not just %.
+        "fps": fps,
         "workers_active": workers_active,
         "nodes": nodes,
         "workers": worker_list,
@@ -508,13 +555,30 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "version": version,
         "fetched_at": int(now),
     }
+    # Retention trend (cumulative space-saved + queue burn-down + throughput) —
+    # best-effort; the sampler may have no rows yet (fresh pin) → zeroed shape.
+    out["trend"] = _safe_trend(str(host_id or ""), int(service_idx or 0))
     print(f"[tdarr] INFO fetched host={host_id} files={out['total_files']} "
           f"tq={out['transcode_queue']} hq={out['health_queue']} "
+          f"failed={out['transcode_failed']}/{out['health_failed']} "
           f"transcodes={out['transcodes']} healthchecks={out['health_checks']} "
-          f"saved={out['space_saved_gb']}GB workers={workers_active}/{nodes} "
+          f"saved={out['space_saved_gb']}GB fps={fps} workers={workers_active}/{nodes} "
           f"res={len(out['resolutions'])} codecs={len(out['codecs'])}")
     _data_cache[ck] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort ``tdarr_sampler.trend_summary`` — a zeroed shape on any error
+    (a fresh pin with no samples, or an import-time hiccup) so the card never
+    fails on the trend embed."""
+    try:
+        from logic.apps import tdarr_sampler as _s  # noqa: PLC0415
+        return _s.trend_summary(host_id, service_idx)
+    except (ImportError, RuntimeError, ValueError, sqlite3.Error):
+        return {"days": 0, "samples": 0, "latest_saved_gb": 0.0, "latest_queue": 0,
+                "peak_queue": 0, "window_throughput": 0, "series_saved": [],
+                "series_queue": [], "series_throughput": []}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -529,7 +593,11 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "health_checks": safe_int(data.get("health_checks")),
         "transcode_queue": safe_int(data.get("transcode_queue")),
         "health_queue": safe_int(data.get("health_queue")),
+        "transcode_failed": safe_int(data.get("transcode_failed")),
+        "health_failed": safe_int(data.get("health_failed")),
         "space_saved_gb": safe_float(data.get("space_saved_gb")),
+        "avg_saved_per_transcode_gb": safe_float(data.get("avg_saved_per_transcode_gb")),
+        "fps": safe_float(data.get("fps")),
         "workers_active": safe_int(data.get("workers_active")),
         "nodes": safe_int(data.get("nodes")),
         "version": data.get("version") or "",
@@ -648,7 +716,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
         tq = safe_int(data.get("transcode_queue"))
         hq = safe_int(data.get("health_queue"))
         saved = safe_float(data.get("space_saved_gb"))
+        fps = safe_float(data.get("fps"))
+        failed = safe_int(data.get("transcode_failed"))
         summary = f"📊 Transcode queue: {tq:,} · Health queue: {hq:,} · Saved: {_fmt_gb(saved)}"
+        if fps > 0:
+            summary += f" · Speed: {fps:,.0f} fps"
+        if failed > 0:
+            summary += f" · ⚠️ {failed:,} failed"
     except (ValueError, RuntimeError):
         summary = ""
     if not lines:

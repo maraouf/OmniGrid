@@ -1816,6 +1816,13 @@ class SettingsIn(BaseModel):
     # disk-free-runway projection.
     tuning_qbittorrent_sample_interval_seconds: Optional[str] = None
     tuning_qbittorrent_history_days: Optional[str] = None
+    # Tdarr retention sampler — cumulative space-saved + queue burn-down + per-day
+    # throughput.
+    tuning_tdarr_sample_interval_seconds: Optional[str] = None
+    tuning_tdarr_history_days: Optional[str] = None
+    # Kavita library-growth retention sampler.
+    tuning_kavita_sample_interval_seconds: Optional[str] = None
+    tuning_kavita_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None

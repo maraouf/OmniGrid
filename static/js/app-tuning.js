@@ -344,6 +344,12 @@ export default {
     // (snapshot cadence + retention).
     'tuning_qbittorrent_sample_interval_seconds',
     'tuning_qbittorrent_history_days',
+    // Tdarr retention sampler (snapshot cadence + retention).
+    'tuning_tdarr_sample_interval_seconds',
+    'tuning_tdarr_history_days',
+    // Kavita library-growth retention sampler.
+    'tuning_kavita_sample_interval_seconds',
+    'tuning_kavita_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

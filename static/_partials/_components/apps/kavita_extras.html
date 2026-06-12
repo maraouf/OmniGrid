@@ -43,6 +43,33 @@
             <div class="apps-card-stat-value" x-text="kavitaSize(kavitaData(inst).total_size)"></div>
           </div>
         </div>
+        <!-- Library-growth trend (from OmniGrid's kavita_samples): series count
+             + total size over time. Drawer-only (`appsExtrasInDrawer`) — no room
+             on the apps-grid card; shown once ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && kavitaTrend(inst) && kavitaTrend(inst).series_series && kavitaTrend(inst).series_series.length >= 2">
+          <div class="space-y-2 mt-1 pt-1 border-t border-[var(--border)]">
+            <!-- Series count over time (the growth line). -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.kavita.series_trend', { days: kavitaTrend(inst).days }) || ('Library growth (' + kavitaTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="kavitaTrendPath(kavitaTrend(inst).series_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(kavitaTrend(inst).series_added) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.kavita.series_added', { count: kavitaCount(kavitaTrend(inst).series_added), days: kavitaTrend(inst).days }) || ('+' + kavitaCount(kavitaTrend(inst).series_added) + ' series in ' + kavitaTrend(inst).days + ' days')"></div>
+            </div>
+            <!-- Total library size over time. -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.kavita.size_trend', { days: kavitaTrend(inst).days }) || ('Library size (' + kavitaTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="kavitaTrendPath(kavitaTrend(inst).size_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.kavita.size_now') || 'Now') + ': ' + kavitaSize(kavitaTrend(inst).latest_size)"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + chapter count. -->
         <div x-show="kavitaData(inst).version || (Number(kavitaData(inst).chapter_count) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

@@ -111,6 +111,10 @@ class Tunable(str, Enum):
     PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_pulse_probe_timeout_unreachable_seconds"
     QBITTORRENT_HISTORY_DAYS = "tuning_qbittorrent_history_days"
     QBITTORRENT_SAMPLE_INTERVAL_SECONDS = "tuning_qbittorrent_sample_interval_seconds"
+    TDARR_HISTORY_DAYS = "tuning_tdarr_history_days"
+    TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
+    KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
+    KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     SLOW_QUERY_THRESHOLD_MS = "tuning_slow_query_threshold_ms"
     HOST_PROVIDER_CONFIG_CACHE_TTL_SECONDS = "tuning_host_provider_config_cache_ttl_seconds"
     HOST_SNAPSHOT_STALE_FIELD_MAX_AGE_HOURS = "tuning_host_snapshot_stale_field_max_age_hours"
@@ -1426,6 +1430,24 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # confident runway fit). Default 30. Lower to save disk; raise for a longer
     # trend.
     "tuning_qbittorrent_history_days": ("QBITTORRENT_HISTORY_DAYS", 30, 1, 1095),
+    # How often the Tdarr sampler snapshots each chip's cumulative space-saved +
+    # transcode count + queue into tdarr_samples. 0 = inherit the global stats
+    # interval. Default 900 (15 min) — the cumulative totals move slowly, so a
+    # coarse cadence captures the trend without bloating the table.
+    "tuning_tdarr_sample_interval_seconds": ("TDARR_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for tdarr_samples — drives the cumulative space-
+    # saved line, the transcode-queue burn-down, and the per-day throughput.
+    # Default 365 (the space-saved story is most satisfying over a long window);
+    # lower to save disk.
+    "tuning_tdarr_history_days": ("TDARR_HISTORY_DAYS", 365, 1, 1095),
+    # How often the Kavita sampler snapshots each chip's library totals (series /
+    # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
+    # global stats interval. Default 900 (15 min) — a library grows slowly.
+    "tuning_kavita_sample_interval_seconds": ("KAVITA_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for kavita_samples — drives the library-growth line
+    # (series count + total size over time). Default 365 (the growth story is
+    # most satisfying over a long window); lower to save disk.
+    "tuning_kavita_history_days": ("KAVITA_HISTORY_DAYS", 365, 1, 1095),
 
     # ----- Speedtest Tracker ------------------------------------------------
 

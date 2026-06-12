@@ -70,6 +70,25 @@ function embyCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Format a bits/second figure as a human streaming bandwidth (kbps / Mbps /
+// Gbps). '—' for zero / missing.
+function embyBandwidth(bps) {
+  const n = Number(bps);
+  if (bps == null || !isFinite(n) || n <= 0) {
+    return '—';
+  }
+  if (n >= 1e9) {
+    return (n / 1e9).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Gbps';
+  }
+  if (n >= 1e6) {
+    return (n / 1e6).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Mbps';
+  }
+  if (n >= 1e3) {
+    return (n / 1e3).toLocaleString(undefined, {maximumFractionDigits: 0}) + ' kbps';
+  }
+  return n.toLocaleString() + ' bps';
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Emby gets a
 // 2-column span so the 4-stat panel doesn't squeeze the per-instance host
@@ -91,4 +110,5 @@ export const helpers = {
   embyIsApp: isEmbyApp,
   embyData: embyData,
   embyCount: embyCount,
+  embyBandwidth: embyBandwidth,
 };
