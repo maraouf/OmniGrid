@@ -6274,6 +6274,7 @@
       "now_playing": "Now playing",
       "now_playing_count": "{count} playing",
       "transcoding_footnote": "{n} transcoding",
+      "direct_footnote": "{n} direct",
       "bandwidth_footnote": "{bw} total",
       "stop_stream": "Stop stream",
       "stop_stream_confirm": "Stop this Plex stream?",
