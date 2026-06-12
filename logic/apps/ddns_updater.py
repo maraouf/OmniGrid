@@ -154,6 +154,29 @@ def _split_status(raw: Any) -> tuple[str, str]:
     return status, last
 
 
+# Maps a ddns-updater relative-time suffix ("5 minutes ago" / "just now") to an
+# age in SECONDS so the card can flag records that haven't re-pushed recently.
+_RELTIME_UNIT_S = {"second": 1, "minute": 60, "hour": 3600, "day": 86400,
+                   "week": 604800, "month": 2592000, "year": 31536000}
+_RELTIME_PARSE_RE = re.compile(
+    r"(?P<n>\d+)\s+(?P<unit>second|minute|hour|day|week|month|year)s?\s+ago", re.I)
+
+
+def _reltime_to_seconds(rel: Any) -> Optional[int]:
+    """Parse a ddns-updater relative-time string into an age in seconds.
+    ``"just now"`` → 0; ``"5 minutes ago"`` → 300; an empty / unparseable string
+    → None (unknown age — NOT treated as stale)."""
+    s = str(rel or "").strip().lower()
+    if not s:
+        return None
+    if "just now" in s:
+        return 0
+    m = _RELTIME_PARSE_RE.search(s)
+    if not m:
+        return None
+    return int(m.group("n")) * _RELTIME_UNIT_S[m.group("unit").lower()]
+
+
 def _parse_records(html_text: Any) -> list[dict]:
     """Parse the ddns-updater web-UI HTML into a list of record dicts
     ``{domain, owner, provider, ip_version, status, last_updated, current_ip,
@@ -196,6 +219,20 @@ def _shape(records: list[dict]) -> dict:
     fail = sum(1 for r in records if _classify(r.get("status")) == "fail")
     failing = [r.get("domain") or r.get("owner") or "?"
                for r in records if _classify(r.get("status")) == "fail"]
+    # "Stale" records: an OK (success / up-to-date) record whose last successful
+    # update is older than the operator-tunable threshold — a record that thinks
+    # it's fine but silently stopped re-pushing (distinct from a failing record,
+    # which is already counted above). Age comes from the scraped relative-time
+    # suffix; a record with no parseable age is NOT counted.
+    from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+    stale_after_s = max(1, tuning_int(Tunable.DDNS_STALE_RECORD_HOURS)) * 3600
+    stale = 0
+    for r in records:
+        if _classify(r.get("status")) != "ok":
+            continue
+        age = _reltime_to_seconds(r.get("last_updated"))
+        if age is not None and age > stale_after_s:
+            stale += 1
     public_ip = ""
     for r in records:
         m = _IP_RE.search(str(r.get("current_ip") or ""))
@@ -220,6 +257,8 @@ def _shape(records: list[dict]) -> dict:
         "records_total": total,
         "up_count": up,
         "fail_count": fail,
+        "stale_count": stale,
+        "stale_after_hours": stale_after_s // 3600,
         "public_ip": public_ip,
         "failing_domains": failing[:8],
         "records": compact,
@@ -312,6 +351,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "records_total": safe_int(data.get("records_total")),
         "up_count": safe_int(data.get("up_count")),
         "fail_count": safe_int(data.get("fail_count")),
+        "stale_count": safe_int(data.get("stale_count")),
         "public_ip": data.get("public_ip") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -404,6 +444,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("records_total"))
     up = safe_int(data.get("up_count"))
     fail = safe_int(data.get("fail_count"))
+    stale = safe_int(data.get("stale_count"))
+    stale_hrs = safe_int(data.get("stale_after_hours"))
     ip = str(data.get("public_ip") or "").strip()
     failing = as_list(data.get("failing_domains"))
     lines = [
@@ -415,9 +457,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"❌ Failing: {fail}")
         if failing:
             lines.append("   " + ", ".join(str(d) for d in failing))
+    if stale:
+        lines.append(f"🕒 Stale (no update in >{stale_hrs}h): {stale}")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "records_total": total, "up_count": up, "fail_count": fail,
-            "public_ip": ip}
+            "stale_count": stale, "public_ip": ip}
 
 
 async def _update_skill(host_row: dict, chip: dict, *,

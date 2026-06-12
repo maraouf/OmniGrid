@@ -320,6 +320,7 @@ export default {
     // failing-count sparkline (sample cadence + retention days).
     'tuning_ddns_sample_interval_seconds',
     'tuning_ddns_history_days',
+    'tuning_ddns_stale_record_hours',
     // Speedtest Tracker long-horizon sampler — independent download/upload/ping
     // trend surviving the upstream's own pruning (ingest cadence + retention).
     'tuning_speedtest_sample_interval_seconds',

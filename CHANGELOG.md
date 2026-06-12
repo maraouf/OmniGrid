@@ -28,6 +28,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Added
 
+- ddns-updater — the card now flags **stale records**: a DNS record that reports success but hasn't actually re-pushed within a threshold (default 24 h, tunable in Admin → Config) shows an amber "N stale (no update in >24h)" note, and the **status** action reports it too. Catches a record that silently stopped updating even though it doesn't look like it's failing.
 - Tdarr — new pipeline-control actions on the card + AI / Telegram: **Pause** / **Resume** the whole transcode pipeline, **Scan libraries** (find-new), and **Cancel running jobs**. Pause and Cancel are confirm-gated; Resume and Scan are one-click. Complements the existing bloated / failed re-queue actions so the rich Tdarr card is now fully controllable without leaving OmniGrid.
 - Plex — the card's active-stream line now shows the **transcode-vs-direct-play split** (e.g. "2 transcoding · 3 direct") alongside the total stream bandwidth, bringing Plex to parity with the Jellyfin / Emby cards. The same split is reported in the **status** AI / Telegram action and the AI context. No extra calls — the data already comes from the active-sessions read.
 - Bazarr — the "List missing subtitles" wanted list is now actionable: each movie / episode row gets a 🔍 **Search** button that searches every provider for that item's missing subtitles and grabs the best match. A matching **"Search subtitles for an item"** AI / Telegram action does the same by title ("search subtitles for Dune").

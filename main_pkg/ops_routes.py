@@ -1796,6 +1796,7 @@ class SettingsIn(BaseModel):
     # sparkline (sample cadence, 0 = inherit global stats interval + retention).
     tuning_ddns_sample_interval_seconds: Optional[str] = None
     tuning_ddns_history_days: Optional[str] = None
+    tuning_ddns_stale_record_hours: Optional[str] = None
     # Speedtest Tracker long-horizon sampler — ingest cadence (0 = inherit
     # global stats interval) + retention for the independent trend that
     # survives the upstream's own pruning.
