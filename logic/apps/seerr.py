@@ -138,6 +138,58 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the movie title (or a numeric TMDB id)",
     },
     {
+        "id": "seerr_request_tv",
+        "name": "Request a TV show",
+        "ai_phrases": ("request a tv show, request the series <title>, add the "
+                       "show <title>, get the tv series <title>, request <title> "
+                       "tv, download the show <title>, i want to watch the series "
+                       "<title>"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the TV show title (or a numeric TMDB id) — all seasons are requested",
+    },
+    {
+        "id": "seerr_approve_request",
+        "name": "Approve a request",
+        "ai_phrases": ("approve <title>, approve the request for <title>, "
+                       "approve the pending request <title>, accept <title>, "
+                       "ok <title>, let <title> download"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the title of the PENDING request to approve",
+    },
+    {
+        "id": "seerr_decline_request",
+        "name": "Decline a request",
+        "ai_phrases": ("decline <title>, reject <title>, decline the request "
+                       "for <title>, deny <title>, refuse <title>, turn down "
+                       "<title>"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": "the title of the PENDING request to decline",
+    },
+    {
+        "id": "seerr_retry_request",
+        "name": "Retry a failed request",
+        "ai_phrases": ("retry <title>, retry the failed request <title>, "
+                       "re-download <title>, try <title> again, the request for "
+                       "<title> failed retry it, re-send <title> to the "
+                       "downloader"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the title of the FAILED request to retry",
+    },
+    {
+        "id": "seerr_resolve_issue",
+        "name": "Resolve an issue",
+        "ai_phrases": ("resolve the issue for <title>, mark the <title> issue "
+                       "resolved, close the issue on <title>, the issue with "
+                       "<title> is fixed, mark issue resolved <title>"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": "the title of the media whose OPEN issue to mark resolved",
+    },
+    {
         "id": "seerr_suggest_movie",
         "name": "Suggest a movie",
         "ai_phrases": ("suggest a movie, recommend a movie, what should i "
@@ -816,6 +868,26 @@ _TOP_USERS_TAKE = 10  # how many to pull (API sorts requests-desc)
 _TOP_USERS_DISPLAY = 5  # how many to surface on the card
 
 
+async def _fetch_failed_count(cli: httpx.AsyncClient, base: str, key: str) -> int:
+    """Best-effort count of FAILED / stuck requests via
+    ``GET /api/v1/request?filter=failed&take=1`` (reads ``pageInfo.results`` —
+    the total, not the page). A stuck-request count is very actionable ("3
+    requests failed"). ``0`` on any failure / when the build doesn't support the
+    ``failed`` filter (never load-bearing)."""
+    try:
+        r = await cli.get(base + "/api/v1/request", headers=_headers(key),
+                          params={"take": 1, "filter": "failed"})
+    except (httpx.HTTPError, OSError):
+        return 0
+    if getattr(r, "status_code", 0) != 200:
+        return 0
+    try:
+        page = as_dict((r.json() or {}).get("pageInfo"))
+        return safe_int(page.get("results"))
+    except (ValueError, TypeError):
+        return 0
+
+
 async def _fetch_top_users(cli: httpx.AsyncClient, base: str, key: str) -> list:
     """Best-effort top requesting users via ``GET /api/v1/user?sort=requests``.
     Returns up to ``_TOP_USERS_DISPLAY`` of ``{id, name, avatar, count}`` (an
@@ -924,6 +996,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 issues_open = 0
             # Top requesters — tolerated; a failure must NOT fail the card.
             top_users = await _fetch_top_users(cli, base, api_key)
+            # Failed / stuck request count — tolerated (build may not support it).
+            failed_count = await _fetch_failed_count(cli, base, api_key)
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] error: fetch host={host_id} url={count_url} "
@@ -955,12 +1029,21 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "tv_count": safe_int(body.get("tv")),
         "top_users": top_users,
         "issues_open": safe_int(issues_open),
+        "failed_count": safe_int(failed_count),
         "version": ver,
         "fetched_at": int(now),
     }
+    # Embed the request-backlog trend (pending over time) from the lifespan
+    # sampler — best-effort, a sampler / DB hiccup must not fail the card.
+    try:
+        from logic.apps import seerr_sampler as _seerr_sampler  # noqa: PLC0415
+        out["trend"] = _seerr_sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[seerr] warning: trend_summary({host_id}#{service_idx}) failed: {e}")
     print(f"[seerr] INFO fetched host={host_id} pending={out['pending']} "
           f"approved={out['approved']} processing={out['processing']} "
-          f"available={out['available_count']} issues={out['issues_open']}")
+          f"available={out['available_count']} issues={out['issues_open']} "
+          f"failed={out['failed_count']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -983,6 +1066,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "total": safe_int(data.get("total")),
         "top_users": as_list(data.get("top_users")),
         "issues_open": safe_int(data.get("issues_open")),
+        "failed_count": safe_int(data.get("failed_count")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -1010,6 +1094,18 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      actor_username=actor_username)
     if skill_id == "seerr_request_movie":
         return await _request_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "seerr_request_tv":
+        return await _request_tv_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "seerr_approve_request":
+        return await _approve_decline_skill(host_row, chip, arg=arg,
+                                            host_id=host_id)
+    if skill_id == "seerr_decline_request":
+        return await _approve_decline_skill(host_row, chip, arg=arg,
+                                            host_id=host_id, approve=False)
+    if skill_id == "seerr_retry_request":
+        return await _retry_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "seerr_resolve_issue":
+        return await _resolve_issue_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "seerr_suggest_movie":
         return await _suggest_skill(host_row, chip, host_id=host_id,
                                     actor_username=actor_username)
@@ -1071,6 +1167,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     avail = safe_int(data.get("available_count"))
     total = safe_int(data.get("total"))
     issues = safe_int(data.get("issues_open"))
+    failed = safe_int(data.get("failed_count"))
     lines = [
         f"⏳ Pending approval: {pend:,}",
         f"✅ Approved: {appr:,}",
@@ -1078,6 +1175,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"🎬 Available: {avail:,}",
         f"📋 Total requests: {total:,}",
     ]
+    if failed:
+        lines.append(f"❌ Failed / stuck: {failed:,}")
     if issues:
         lines.append(f"⚠️ Open issues: {issues:,}")
     return {
@@ -1086,6 +1185,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "status": 200,
         "pending": pend, "approved": appr, "processing": proc,
         "available_count": avail, "total": total, "issues_open": issues,
+        "failed_count": failed,
     }
 
 
@@ -1432,6 +1532,343 @@ async def _request_skill(host_row: dict, chip: dict, *,
     return {"ok": False, "status": r.status_code,
             "detail": f"Seerr returned HTTP {r.status_code} requesting {label}"
                       + (f" — {_body}" if _body else "")}
+
+
+async def _seerr_search_tv(base: str, api_key: str, query: str) -> Optional[dict]:
+    """Resolve a TV show by title via Seerr's TMDB-backed search. Returns the
+    top ``mediaType == 'tv'`` result as ``{id, title, year, status}`` or
+    ``None`` on no match / failure. Mirrors ``_seerr_search_movie`` but keys on
+    the tv fields (``name`` / ``firstAirDate``)."""
+    url = base + "/api/v1/search"
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url, headers=_headers(api_key),
+                              params={"query": query, "page": 1})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: tv search failed for {query!r} — {type(e).__name__}: {e}")
+        return None
+    if r.status_code != 200:
+        print(f"[seerr] warning: tv search HTTP {r.status_code} for {query!r}")
+        return None
+    try:
+        _raw = (r.json() or {}).get("results")
+        results: list = _raw if isinstance(_raw, list) else []
+    except (ValueError, TypeError):
+        return None
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        if (item.get("mediaType") or "").strip().lower() != "tv":
+            continue
+        media_info = as_dict(item.get("mediaInfo"))
+        return {
+            "id": safe_int(item.get("id")),
+            "title": str(item.get("name") or item.get("originalName") or "").strip(),
+            "year": _year_of(str(item.get("firstAirDate") or "")),
+            "status": safe_int((media_info or {}).get("status")),
+        }
+    return None
+
+
+# noinspection DuplicatedCode
+# The resolve-then-POST shape mirrors _request_skill (movie) by design — only
+# the mediaType + the all-seasons body + the tv search differ.
+async def _request_tv_skill(host_row: dict, chip: dict, *,
+                            arg: Optional[str] = None,
+                            host_id: Optional[str] = None) -> dict:
+    """Action skill: request a TV show BY TITLE (or numeric TMDB id) — all
+    seasons. Resolves the title via Seerr's tv search, then POSTs
+    ``/api/v1/request`` with ``seasons:"all"``. Never raises; an already-in-
+    pipeline show is a friendly (ok=True) no-op."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no TV show title given — tell me which show to request"}
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    title = query
+    year = ""
+    if query.isdigit():
+        tmdb_id = int(query)
+        already_status = 0
+    else:
+        match = await _seerr_search_tv(base, api_key, query)
+        if not match or not match.get("id"):
+            return {"ok": False, "status": 404,
+                    "detail": f"no TV show found matching “{query}”"}
+        tmdb_id = safe_int(match.get("id"))
+        title = match.get("title") or query
+        year = match.get("year") or ""
+        already_status = safe_int(match.get("status"))
+    label = f"{title}" + (f" ({year})" if year else "")
+    if already_status in _SEERR_STATUS_LABEL:
+        return {"ok": True, "status": 200,
+                "detail": f"📺 {label} is {_SEERR_STATUS_LABEL[already_status]} on Seerr.",
+                "tmdb_id": tmdb_id}
+    print(f"[seerr] INFO seerr_request_tv host={host_id} title={label!r} tmdb_id={tmdb_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.post(base + "/api/v1/request", headers=_headers(api_key),
+                               json={"mediaType": "tv", "mediaId": tmdb_id,
+                                     "seasons": "all"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: tv request failed for {label!r} — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"request failed: {type(e).__name__}: {e}"}
+    if r.status_code in (200, 201):
+        return {"ok": True, "status": r.status_code,
+                "detail": f"📺 Requested {label} (all seasons) on Seerr — it'll "
+                          f"start downloading once approved.", "tmdb_id": tmdb_id}
+    if r.status_code == 409:
+        return {"ok": True, "status": 409,
+                "detail": f"📺 {label} was already requested on Seerr.", "tmdb_id": tmdb_id}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check Seerr api_key)"}
+    try:
+        _body = (r.text or "")[:160]
+    except (ValueError, TypeError):
+        _body = ""
+    return {"ok": False, "status": r.status_code,
+            "detail": f"Seerr returned HTTP {r.status_code} requesting {label}"
+                      + (f" — {_body}" if _body else "")}
+
+
+async def _find_request(cli: httpx.AsyncClient, base: str, api_key: str,
+                        query: str, filt: str) -> "Optional[tuple[int, str, str]]":
+    """Find the request (in status ``filt`` — 'pending' / 'failed' / …) whose
+    resolved title matches ``query``. Returns ``(request_id, label,
+    media_type)`` — an exact (year-stripped) title match wins, else the first
+    substring match. ``None`` when nothing matches."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return None
+    results = await _seerr_list_requests(cli, base, api_key, filt,
+                                         _REQUEST_LIST_TAKE)
+    cands: list = []
+    for req in results:
+        if not isinstance(req, dict):
+            continue
+        rid = safe_int(req.get("id"))
+        media = as_dict(req.get("media"))
+        tid = safe_int(media.get("tmdbId"))
+        mtype = str(media.get("mediaType") or "movie").strip().lower()
+        if rid and tid:
+            cands.append((rid, mtype, tid))
+    if not cands:
+        return None
+    details = await asyncio.gather(
+        *[_seerr_media_detail(cli, base, api_key, mt, tid) for (_, mt, tid) in cands])
+    partial = None
+    for (rid, mtype, tid), (label, _poster) in zip(cands, details):
+        lab = (label or f"TMDB {tid}").strip()
+        ll = lab.lower()
+        base_title = re.sub(r"\s*\(\d{4}\)\s*$", "", ll).strip()
+        if base_title == needle or ll == needle:
+            return rid, lab, mtype
+        if partial is None and (needle in ll or ll.startswith(needle)):
+            partial = (rid, lab, mtype)
+    return partial
+
+
+async def _approve_decline_skill(host_row: dict, chip: dict, *,
+                                 arg: Optional[str] = None,
+                                 host_id: Optional[str] = None,
+                                 approve: bool = True) -> dict:
+    """Action skill: approve / decline a PENDING request by title. Finds the
+    matching pending request, then POSTs ``/api/v1/request/{id}/{approve|
+    decline}``. Decline is destructive (confirm-gated). Never raises."""
+    verb = "approve" if approve else "decline"
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": f"no title given — tell me which pending request to {verb}"}
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[seerr] INFO seerr_{verb}_request host={host_id} query={query!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            match = await _find_request(cli, base, api_key, query, "pending")
+            if not match:
+                return {"ok": False, "status": 404,
+                        "detail": f"no PENDING request matched “{query}” — only "
+                                  f"pending requests can be {verb}d"}
+            rid, label, mtype = match
+            r = await cli.post(f"{base}/api/v1/request/{rid}/{verb}",
+                               headers=_headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: {verb} failed for {query!r} — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    icon = "📺" if mtype == "tv" else "🎬"
+    if r.status_code in (200, 201):
+        if approve:
+            return {"ok": True, "status": r.status_code,
+                    "detail": f"✅ Approved {icon} {label} — it'll start downloading now."}
+        return {"ok": True, "status": r.status_code,
+                "detail": f"🚫 Declined {icon} {label}."}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check Seerr api_key)"}
+    return {"ok": False, "status": r.status_code,
+            "detail": f"Seerr returned HTTP {r.status_code} {verb}ing {label}"}
+
+
+async def _retry_skill(host_row: dict, chip: dict, *,
+                       arg: Optional[str] = None,
+                       host_id: Optional[str] = None) -> dict:
+    """Action skill: retry a FAILED request by title (re-trigger the download).
+    Finds the matching failed request, then POSTs ``/api/v1/request/{id}/retry``.
+    Non-destructive (re-trying is safe). Never raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no title given — tell me which failed request to retry"}
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[seerr] INFO seerr_retry_request host={host_id} query={query!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            match = await _find_request(cli, base, api_key, query, "failed")
+            if not match:
+                return {"ok": False, "status": 404,
+                        "detail": f"no FAILED request matched “{query}” — only "
+                                  f"failed requests can be retried"}
+            rid, label, mtype = match
+            r = await cli.post(f"{base}/api/v1/request/{rid}/retry",
+                               headers=_headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: retry failed for {query!r} — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"retry failed: {type(e).__name__}: {e}"}
+    icon = "📺" if mtype == "tv" else "🎬"
+    if r.status_code in (200, 201):
+        return {"ok": True, "status": r.status_code,
+                "detail": f"🔄 Retrying {icon} {label} — Seerr is re-sending it to "
+                          f"the downloader."}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check Seerr api_key)"}
+    return {"ok": False, "status": r.status_code,
+            "detail": f"Seerr returned HTTP {r.status_code} retrying {label}"}
+
+
+async def _seerr_list_issues(cli: httpx.AsyncClient, base: str, api_key: str,
+                             filt: str, take: int) -> list:
+    """One page of issues for a status filter ('open' / 'resolved' / 'all').
+    Returns the raw results list (each a dict whose 'media' sub-object carries
+    tmdbId / mediaType + the issue 'id'). [] on any failure."""
+    try:
+        r = await cli.get(base + "/api/v1/issue", headers=_headers(api_key),
+                          params={"take": take, "filter": filt, "sort": "added"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: issue list ({filt}) failed — {type(e).__name__}: {e}")
+        return []
+    if r.status_code != 200:
+        print(f"[seerr] warning: issue list ({filt}) HTTP {r.status_code}")
+        return []
+    try:
+        _raw = (r.json() or {}).get("results")
+        return _raw if isinstance(_raw, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+async def _find_open_issue(cli: httpx.AsyncClient, base: str, api_key: str,
+                           query: str) -> "Optional[tuple[int, str, str]]":
+    """Find the OPEN issue whose media title matches ``query``. Returns
+    ``(issue_id, label, media_type)`` — exact (year-stripped) title wins, else
+    the first substring match. ``None`` when nothing matches."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return None
+    results = await _seerr_list_issues(cli, base, api_key, "open", _REQUEST_LIST_TAKE)
+    cands: list = []
+    for iss in results:
+        if not isinstance(iss, dict):
+            continue
+        iid = safe_int(iss.get("id"))
+        media = as_dict(iss.get("media"))
+        tid = safe_int(media.get("tmdbId"))
+        mtype = str(media.get("mediaType") or "movie").strip().lower()
+        if iid and tid:
+            cands.append((iid, mtype, tid))
+    if not cands:
+        return None
+    details = await asyncio.gather(
+        *[_seerr_media_detail(cli, base, api_key, mt, tid) for (_, mt, tid) in cands])
+    partial = None
+    for (iid, mtype, tid), (label, _poster) in zip(cands, details):
+        lab = (label or f"TMDB {tid}").strip()
+        ll = lab.lower()
+        base_title = re.sub(r"\s*\(\d{4}\)\s*$", "", ll).strip()
+        if base_title == needle or ll == needle:
+            return iid, lab, mtype
+        if partial is None and (needle in ll or ll.startswith(needle)):
+            partial = (iid, lab, mtype)
+    return partial
+
+
+async def _resolve_issue_skill(host_row: dict, chip: dict, *,
+                               arg: Optional[str] = None,
+                               host_id: Optional[str] = None) -> dict:
+    """Action skill: mark an OPEN issue resolved by media title. Finds the
+    matching open issue, then POSTs ``/api/v1/issue/{id}/resolved``. Never
+    raises."""
+    query = (arg or "").strip()
+    if not query:
+        return {"ok": False, "status": 0,
+                "detail": "no title given — tell me which issue to mark resolved"}
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[seerr] INFO seerr_resolve_issue host={host_id} query={query!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            match = await _find_open_issue(cli, base, api_key, query)
+            if not match:
+                return {"ok": False, "status": 404,
+                        "detail": f"no OPEN issue matched “{query}”"}
+            iid, label, mtype = match
+            r = await cli.post(f"{base}/api/v1/issue/{iid}/resolved",
+                               headers=_headers(api_key))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[seerr] warning: resolve-issue failed for {query!r} — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"resolve failed: {type(e).__name__}: {e}"}
+    icon = "📺" if mtype == "tv" else "🎬"
+    if r.status_code in (200, 201):
+        return {"ok": True, "status": r.status_code,
+                "detail": f"✅ Marked the issue for {icon} {label} as resolved."}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check Seerr api_key)"}
+    return {"ok": False, "status": r.status_code,
+            "detail": f"Seerr returned HTTP {r.status_code} resolving the issue for {label}"}
 
 
 # How many candidates to library-check per page (one discover page is ~20

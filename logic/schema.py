@@ -668,6 +668,31 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_pihole_samples_ts
             ON pihole_samples(ts);
 
+        -- Seerr (Overseerr / Jellyseerr) request-backlog history. Seerr's own
+        -- dashboard shows CURRENT counts only, so the lifespan ``seerr_sampler``
+        -- snapshots each configured Seerr chip's request-queue gauges per tick
+        -- (pending / processing / available / open issues). ``trend_summary``
+        -- derives a daily-avg pending-backlog sparkline so an operator can spot
+        -- "processing has been stuck at 5 for a week" / "pending spiked when I
+        -- shared the server". ``ts`` is the sampler wall-clock; the columns are
+        -- GAUGES (current depth), not cumulative counters.
+        CREATE TABLE IF NOT EXISTS seerr_samples (
+            ts          INTEGER NOT NULL,
+            host_id     TEXT    NOT NULL,
+            service_idx INTEGER NOT NULL,
+            pending     INTEGER NOT NULL DEFAULT 0,
+            processing  INTEGER NOT NULL DEFAULT 0,
+            available   INTEGER NOT NULL DEFAULT 0,
+            issues_open INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_seerr_samples_chip_ts
+            ON seerr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone;
+        -- see ping_samples / stats_samples for the same pattern).
+        CREATE INDEX IF NOT EXISTS idx_seerr_samples_ts
+            ON seerr_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

@@ -76,6 +76,51 @@ function seerrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Request-backlog trend block {days, samples, peak_pending, latest_pending,
+// series} from the lifespan seerr_sampler, or null while idle / no samples yet.
+function seerrTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.seerrData ? this.seerrData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` per numeric series array (the canonical SVG-builder
+// memo — avoids re-render flicker on every Alpine flush).
+const _seerrTrendMemo = new WeakMap();
+
+// SVG polyline points for the pending-backlog sparkline over a 0..200 × 0..32
+// viewBox. '' when < 2 points.
+function seerrTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_seerrTrendMemo.has(arr)) {
+    return _seerrTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _seerrTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Seerr gets a
 // 2-column span so the request-queue panel doesn't squeeze the
@@ -98,4 +143,6 @@ export const helpers = {
   seerrIsApp: isSeerrApp,
   seerrData: seerrData,
   seerrCount: seerrCount,
+  seerrTrend: seerrTrend,
+  seerrTrendPath: seerrTrendPath,
 };

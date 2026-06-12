@@ -332,6 +332,10 @@ export default {
     // cadence + retention).
     'tuning_pihole_sample_interval_seconds',
     'tuning_pihole_history_days',
+    // Seerr request-backlog sampler — pending-over-time trend (snapshot cadence
+    // + retention).
+    'tuning_seerr_sample_interval_seconds',
+    'tuning_seerr_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

@@ -195,6 +195,8 @@ class Tunable(str, Enum):
     SNMP_WALK_CONCURRENCY_SYNOLOGY = "tuning_snmp_walk_concurrency_synology"
     SNMP_WALK_CONCURRENCY_UCD = "tuning_snmp_walk_concurrency_ucd"
     SNMP_WALL_CLOCK_BUDGET_SECONDS = "tuning_snmp_wall_clock_budget_seconds"
+    SEERR_HISTORY_DAYS = "tuning_seerr_history_days"
+    SEERR_SAMPLE_INTERVAL_SECONDS = "tuning_seerr_sample_interval_seconds"
     SEERR_SUGGEST_COOLDOWN_HOURS = "tuning_seerr_suggest_cooldown_hours"
     SERVICE_PROBE_CONCURRENCY = "tuning_service_probe_concurrency"
     SERVICE_PROBE_FAILURE_PAUSE_ROUNDS = "tuning_service_probe_failure_pause_rounds"
@@ -1382,6 +1384,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for pihole_samples — the cross-restart blocked-%
     # trend (FTL's today-counters reset on restart). Default 90.
     "tuning_pihole_history_days": ("PIHOLE_HISTORY_DAYS", 90, 1, 730),
+
+    # ----- Seerr (Overseerr / Jellyseerr) -----------------------------------
+
+    # How often the lifespan Seerr sampler snapshots each configured Seerr
+    # chip's request-queue gauges (pending / processing / available / issues)
+    # into the backlog history table (0 = inherit the global stats interval).
+    # Default 900 (15 min) — the queue moves slowly.
+    "tuning_seerr_sample_interval_seconds": ("SEERR_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for seerr_samples — drives the request-backlog
+    # trend (pending-stuck detection). Default 90.
+    "tuning_seerr_history_days": ("SEERR_HISTORY_DAYS", 90, 1, 730),
 
     # ----- Speedtest Tracker ------------------------------------------------
 

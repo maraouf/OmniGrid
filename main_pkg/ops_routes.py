@@ -1812,6 +1812,10 @@ class SettingsIn(BaseModel):
     # stats interval) + retention for the fleet cross-restart blocked-% trend.
     tuning_pihole_sample_interval_seconds: Optional[str] = None
     tuning_pihole_history_days: Optional[str] = None
+    # Seerr request-backlog sampler — snapshot cadence (0 = inherit global
+    # stats interval) + retention for the pending-backlog trend.
+    tuning_seerr_sample_interval_seconds: Optional[str] = None
+    tuning_seerr_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None
