@@ -49,12 +49,16 @@
              x-text="plexCount(plexData(inst).sessions_active)"></div>
       </div>
     </div>
-    <!-- Active-stream detail — transcodes + total bandwidth, only while
-         something is playing (otherwise it reads as redundant 0s). -->
+    <!-- Active-stream detail — the transcode-vs-direct-play split + total
+         bandwidth, only while something is playing (otherwise it reads as
+         redundant 0s). Transcoding is warning-tinted (it's the load signal). -->
     <div x-show="(Number(plexData(inst).sessions_active) || 0) > 0"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-show="(Number(plexData(inst).sessions_transcoding) || 0) > 0"
+            class="text-[var(--warning)]"
             x-text="t('apps.plex.transcoding_footnote', { n: (Number(plexData(inst).sessions_transcoding) || 0) })"></span>
+      <span x-show="(Number(plexData(inst).direct_streams) || 0) > 0"
+            x-text="t('apps.plex.direct_footnote', { n: (Number(plexData(inst).direct_streams) || 0) })"></span>
       <span x-show="plexBandwidth(inst)"
             x-text="t('apps.plex.bandwidth_footnote', { bw: plexBandwidth(inst) })"></span>
     </div>

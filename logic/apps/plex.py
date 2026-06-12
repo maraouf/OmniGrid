@@ -461,6 +461,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "sections": len(keyed),
         "sessions_active": sessions_active,
         "sessions_transcoding": sessions_transcoding,
+        # Direct play / direct stream = every active session that ISN'T
+        # transcoding (the transcode-vs-direct split, parity with the
+        # Jellyfin / Emby cards). Clamped at 0 defensively.
+        "direct_streams": max(0, sessions_active - sessions_transcoding),
         "bandwidth_kbps": bandwidth_kbps,
         "version": ver,
         "platform": platform,
@@ -486,6 +490,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "shows": safe_int(data.get("shows")),
         "music": safe_int(data.get("music")),
         "sessions_active": safe_int(data.get("sessions_active")),
+        "sessions_transcoding": safe_int(data.get("sessions_transcoding")),
+        "direct_streams": safe_int(data.get("direct_streams")),
+        "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -557,10 +564,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if music:
         lines.append(f"🎵 Music artists: {music:,}")
     transcoding = safe_int(data.get("sessions_transcoding"))
+    direct = safe_int(data.get("direct_streams"))
     mbps = _fmt_mbps(data.get("bandwidth_kbps"))
     np_extra = []
     if transcoding:
         np_extra.append(f"{transcoding:,} transcoding")
+    if direct:
+        np_extra.append(f"{direct:,} direct")
     if mbps:
         np_extra.append(mbps)
     np_tail = f" ({' · '.join(np_extra)})" if np_extra else ""
@@ -572,6 +582,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "libraries": libs, "movies": movies, "shows": shows,
         "music": music, "sessions_active": sessions,
         "sessions_transcoding": transcoding,
+        "direct_streams": direct,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
     }
 
