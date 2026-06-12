@@ -91,6 +91,7 @@ class Tunable(str, Enum):
     CONFIG_BACKUP_RETENTION_COUNT = "tuning_config_backup_retention_count"
     DDNS_HISTORY_DAYS = "tuning_ddns_history_days"
     DDNS_SAMPLE_INTERVAL_SECONDS = "tuning_ddns_sample_interval_seconds"
+    DDNS_STALE_RECORD_HOURS = "tuning_ddns_stale_record_hours"
     FAVICON_CACHE_DAYS = "tuning_favicon_cache_days"
     FAVICON_FETCH_TIMEOUT_SECONDS = "tuning_favicon_fetch_timeout_seconds"
     FLARESOLVERR_HISTORY_DAYS = "tuning_flaresolverr_history_days"
@@ -1371,6 +1372,11 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # timeline + the failing-count sparkline. Default 90 (longer than the
     # usage trends since IP changes are rare + worth keeping a quarter of).
     "tuning_ddns_history_days": ("DDNS_HISTORY_DAYS", 90, 1, 730),
+    # A ddns-updater record counts as "stale" when its last successful update
+    # is older than this many hours (the card surfaces a stale-record count so a
+    # record that silently stopped re-pushing is visible). Tune to your update
+    # cadence: a 5-minute push cadence wants a low threshold, a daily one higher.
+    "tuning_ddns_stale_record_hours": ("DDNS_STALE_RECORD_HOURS", 24, 1, 8760),
 
     # ----- AdGuard Home -----------------------------------------------------
 

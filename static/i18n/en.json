@@ -1963,6 +1963,10 @@
           "label": "ddns-updater history retention (days)",
           "help": "Retention window for the ddns-updater samples that drive the public-IP-change timeline + the failing-count sparkline. Default 90 — public IP changes are rare and worth keeping a quarter of. Older samples are pruned hourly. Lower to save disk; raise for a longer history. Range 1..730. Takes effect at the next hourly prune."
         },
+        "tuning_ddns_stale_record_hours": {
+          "label": "ddns-updater stale-record threshold (hours)",
+          "help": "A ddns-updater record counts as STALE — and is shown in the card's stale-record count — when its last successful update is older than this many hours. This flags a record that thinks it is fine but silently stopped re-pushing (distinct from a failing record, which is counted separately). Tune to your update cadence: a 5-minute push cadence wants a low threshold (e.g. 1-2h); a once-a-day cadence wants a higher one (e.g. 48h). Default 24. Range 1..8760. Takes effect on the next card refresh."
+        },
         "tuning_speedtest_sample_interval_seconds": {
           "label": "Speedtest history sampler interval (seconds)",
           "help": "How often the lifespan Speedtest sampler ingests each configured Speedtest Tracker chip's results into OmniGrid's independent long-horizon history table (which survives the upstream ageing out its own results). Default 900 (15 min). The sampler ingests the whole results series each tick and de-duplicates, so this only needs to be shorter than the upstream's own retention window to never miss a result. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6078,7 +6082,8 @@
       "fail_trend_caption": "Failing records, last {days} days",
       "records_title": "Records",
       "last_updated": "Updated {when}",
-      "more_records": "+{count} more"
+      "more_records": "+{count} more",
+      "stale_footnote": "{count} stale (no update in >{hours}h)"
     },
     "proxmox": {
       "token_label": "Proxmox API token",

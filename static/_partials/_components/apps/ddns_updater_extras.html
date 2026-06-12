@@ -45,6 +45,11 @@
         <div x-show="ddnsFailing(inst).length"
              class="fs-3xs text-[var(--danger)] mt-1"
              x-text="(t('apps.ddns.failing') || 'Failing') + ': ' + ddnsFailing(inst).join(', ')"></div>
+        <!-- Stale-record footnote (an OK record that hasn't re-pushed within the
+             threshold — amber, only when > 0). -->
+        <div x-show="(Number(ddnsData(inst).stale_count) || 0) > 0"
+             class="fs-3xs text-[var(--warning)] mt-1"
+             x-text="t('apps.ddns.stale_footnote', { count: (Number(ddnsData(inst).stale_count) || 0), hours: (Number(ddnsData(inst).stale_after_hours) || 24) }) || ((Number(ddnsData(inst).stale_count) || 0) + ' stale (no update in >' + (Number(ddnsData(inst).stale_after_hours) || 24) + 'h)')"></div>
 
         <!-- Public-IP-change timeline (newest-first). From the lifespan ddns
              sampler — shown once at least one change has been recorded. -->
