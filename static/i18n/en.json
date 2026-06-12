@@ -5914,6 +5914,9 @@
       "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Sonarr (5–3600s). Leave blank for the app default (60s).",
       "series": "Series",
       "missing": "Missing eps",
+      "episodes": "Episodes",
+      "cutoff_unmet": "Below cutoff",
+      "library_size": "Library size",
       "downloading": "Downloading",
       "monitored": "Monitored",
       "storage": "Storage",
@@ -5923,7 +5926,12 @@
       "loading": "Loading Sonarr data…",
       "fetch_failed": "Sonarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
-      "queue_delete_title": "Remove from queue"
+      "queue_delete_title": "Remove from queue",
+      "library_trend": "Library growth ({days} days)",
+      "missing_trend": "Missing backlog ({days} days)",
+      "disk_trend": "Free disk ({days} days)",
+      "peak_missing": "Peak missing",
+      "disk_runway": "Disk full in ~{days} days at this fill rate"
     },
     "apprise": {
       "url_hint": "Apprise has no API key. Set the instance URL (above) to the apprise-api root, e.g. http://apprise.example.com:8005 — or paste the full .../notify/<key> URL for a non-default config key.",
@@ -5967,6 +5975,10 @@
       "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Lidarr (5–3600s). Leave blank for the app default (60s).",
       "artists": "Artists",
       "missing": "Missing albums",
+      "albums": "Albums",
+      "tracks": "Tracks",
+      "cutoff_unmet": "Below cutoff",
+      "library_size": "Library size",
       "downloading": "Downloading",
       "monitored": "Monitored",
       "storage": "Storage",
@@ -5976,7 +5988,12 @@
       "loading": "Loading Lidarr data…",
       "fetch_failed": "Lidarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
-      "queue_delete_title": "Remove from queue"
+      "queue_delete_title": "Remove from queue",
+      "library_trend": "Library growth ({days} days)",
+      "missing_trend": "Missing backlog ({days} days)",
+      "disk_trend": "Free disk ({days} days)",
+      "peak_missing": "Peak missing",
+      "disk_runway": "Disk full in ~{days} days at this fill rate"
     },
     "readarr": {
       "api_key_label": "Readarr API key",
@@ -5986,6 +6003,9 @@
       "cache_ttl_hint": "How long the fetched library summary is cached before re-querying Readarr (5–3600s). Leave blank for the app default (60s).",
       "authors": "Authors",
       "missing": "Missing books",
+      "books": "Books",
+      "cutoff_unmet": "Below cutoff",
+      "library_size": "Library size",
       "downloading": "Downloading",
       "monitored": "Monitored",
       "storage": "Storage",
@@ -5995,7 +6015,12 @@
       "loading": "Loading Readarr data…",
       "fetch_failed": "Readarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
-      "queue_delete_title": "Remove from queue"
+      "queue_delete_title": "Remove from queue",
+      "library_trend": "Library growth ({days} days)",
+      "missing_trend": "Missing backlog ({days} days)",
+      "disk_trend": "Free disk ({days} days)",
+      "peak_missing": "Peak missing",
+      "disk_runway": "Disk full in ~{days} days at this fill rate"
     },
     "ddns": {
       "no_auth_hint": "ddns-updater has no authentication — set the instance URL (its web UI root) above; no API key is needed.",
@@ -6046,6 +6071,9 @@
       "apps_synced": "Apps synced",
       "queries": "Queries",
       "grabs": "Grabs",
+      "failure_rate": "Failure rate",
+      "most_failing": "Most failing",
+      "slowest": "Slowest",
       "health_issues_n": "{n} health issue(s)",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Prowlarr data…",

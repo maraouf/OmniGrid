@@ -43,7 +43,25 @@
             <div class="apps-card-stat-label" x-text="t('apps.prowlarr.grabs') || 'Grabs'"></div>
             <div class="apps-card-stat-value" x-text="prowlarrCount(prowlarrData(inst).grabs)"></div>
           </div>
+          <!-- Query failure rate (across all indexers) -->
+          <div class="apps-card-ups-stat" x-show="(Number(prowlarrData(inst).queries) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.prowlarr.failure_rate') || 'Failure rate'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(prowlarrData(inst).fail_rate_pct) || 0) >= 25 ? 'text-[var(--danger)]' : ((Number(prowlarrData(inst).fail_rate_pct) || 0) >= 10 ? 'text-[var(--warning)]' : 'text-[var(--success)]')"
+                 x-text="(Number(prowlarrData(inst).fail_rate_pct) || 0).toFixed(1) + '%'"></div>
+          </div>
         </div>
+        <!-- Most-failing + slowest indexer — the single most actionable Prowlarr
+             insight ('indexer X: 40% failure rate'). Shown only when a
+             meaningful offender exists (>= a few queries). -->
+        <template x-if="prowlarrData(inst).worst_failing && prowlarrData(inst).worst_failing.name">
+          <div class="fs-3xs text-[var(--warning)] mt-1"
+               x-text="'🛑 ' + (t('apps.prowlarr.most_failing') || 'Most failing') + ': ' + prowlarrData(inst).worst_failing.name + ' (' + (Number(prowlarrData(inst).worst_failing.fail_rate_pct) || 0).toFixed(1) + '% of ' + prowlarrCount(prowlarrData(inst).worst_failing.queries) + ' queries)'"></div>
+        </template>
+        <template x-if="prowlarrData(inst).slowest_indexer && prowlarrData(inst).slowest_indexer.name">
+          <div class="fs-3xs text-[var(--text-faint)] mt-0.5"
+               x-text="'🐢 ' + (t('apps.prowlarr.slowest') || 'Slowest') + ': ' + prowlarrData(inst).slowest_indexer.name + ' (' + prowlarrCount(prowlarrData(inst).slowest_indexer.avg_response_ms) + 'ms avg)'"></div>
+        </template>
         <!-- Connected-app names: the REAL synced *arr apps (Sonarr / Radarr /
              Whisparr / …), rendered as brand-icon chips rather than a raw
              comma-joined string. Lives outside the stat-grid so the 1x1..4x2
