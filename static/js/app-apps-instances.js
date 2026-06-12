@@ -1192,7 +1192,11 @@ export default {
         const j = await r.json().catch(() => ({}));
         throw new Error(this.fmtApiError(j, r.status));
       }
-      this.appsInstanceEditOpen = false;
+      // Refresh the instances table + the Apps view/drawer BEFORE closing so
+      // the popup stays open (with its saving spinner) until the save AND the
+      // dependent reloads finalize. Closing the moment the PATCH returned —
+      // then reloading underneath — made the popup vanish while the table
+      // still showed the old values, reading as "closed mid-save".
       await this.loadAppsInstances();
       // Await the Apps-view refresh + re-sync an open drawer so the edit
       // (URL / ports / icon / link) reflects in the top-level Apps view
@@ -1202,6 +1206,8 @@ export default {
         this._resyncDrawerApp();
         this._resyncDrawerAppHost();
       }
+      // Everything persisted + reloaded — now it's safe to close.
+      this.appsInstanceEditOpen = false;
     } catch (err) {
       this.appsInstanceEditError = (err && err.message) ? err.message : String(err);
     } finally {

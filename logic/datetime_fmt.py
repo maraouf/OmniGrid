@@ -288,3 +288,52 @@ def get_user_datetime_format(username: str) -> str:
         return DEFAULT_DATETIME_FORMAT
     fmt = (prefs.get("datetime_format") or "").strip()
     return fmt or DEFAULT_DATETIME_FORMAT
+
+
+def format_duration(seconds: Union[int, float, None]) -> str:
+    """Format an elapsed duration for operator-facing copy (notifications,
+    Telegram replies, AI responses, log summaries) — the shared, canonical
+    duration humaniser.
+
+    Under a minute stays as fractional seconds (``"42.3s"``); a minute or
+    more is broken into ``Xm Y.Ys`` (``311.9`` → ``"5m 11.9s"``) and an hour
+    or more into ``Xh Ym Z.Zs`` (``3661.5`` → ``"1h 1m 1.5s"``). The
+    sub-second remainder is folded into the seconds component so the original
+    one-decimal precision is preserved across the conversion. Never raises —
+    a non-numeric / negative input clamps to ``"0.0s"``."""
+    try:
+        s = max(0.0, float(seconds or 0))
+    except (TypeError, ValueError):
+        return "0.0s"
+    if s < 60:
+        return f"{s:.1f}s"
+    total = int(s)
+    frac = s - total
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    parts.append(f"{m}m")
+    parts.append(f"{sec + frac:.1f}s")
+    return " ".join(parts)
+
+
+def format_runtime(minutes: Union[int, float, None]) -> str:
+    """Format a runtime given in WHOLE MINUTES as human-readable hours +
+    minutes — the shared helper for media runtimes (movie / episode
+    durations). ``102`` → ``"1h 42m"``, ``45`` → ``"45m"``, ``120`` → ``"2h"``.
+    Returns ``""`` for a zero / missing / non-numeric value (so a caller can
+    simply skip an empty runtime). Never raises."""
+    try:
+        m = max(0, int(minutes or 0))
+    except (TypeError, ValueError):
+        return ""
+    if m == 0:
+        return ""
+    h, mm = divmod(m, 60)
+    if h and mm:
+        return f"{h}h {mm}m"
+    if h:
+        return f"{h}h"
+    return f"{mm}m"

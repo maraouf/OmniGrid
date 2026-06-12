@@ -60,6 +60,11 @@ SLUGS: tuple[str, ...] = ("opnsense",)
 DEFAULT_CACHE_TTL_S = 30
 _data_cache: dict[str, tuple[float, dict]] = {}
 
+# Per-(host_id, service_idx) previous interface byte-counters for throughput
+# rate-diffing. ``traffic/interface`` returns CUMULATIVE per-NIC byte counters
+# (not rates), so we diff consecutive samples — {ck: (epoch, {iface: (rx, tx)})}.
+_iface_counters: dict[str, tuple[float, dict]] = {}
+
 # Cap on the rich-item rows a list skill returns.
 _MAX_ROWS = 50
 
@@ -325,15 +330,24 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 fw_json = as_dict(fw.json())
             except (ValueError, TypeError):
                 fw_json = {}
-            # Everything else is tolerated + fetched in parallel.
-            res, stime, temp, gw, svc, pf, leases = await asyncio.gather(
-                _get_json(cli, base, "/api/diagnostics/system/system_resources"),
-                _get_json(cli, base, "/api/diagnostics/system/system_time"),
-                _get_json(cli, base, "/api/diagnostics/system/system_temperature"),
+            # Everything else is tolerated + fetched in parallel. NOTE: the
+            # SystemController actions are camelCase in the URL
+            # (systemResources / systemTime / systemTemperature) — the
+            # snake_case forms return the login HTML, which silently zeroed
+            # memory / load / uptime. service/search is a GET (an empty POST
+            # body returned no rows). DHCP is Kea-first (the default backend on
+            # 25.x/26.x) with an ISC fallback. traffic/interface gives
+            # cumulative per-NIC byte counters we rate-diff for throughput.
+            res, stime, temp, gw, svc, pf, leases, traffic, activity = await asyncio.gather(
+                _get_json(cli, base, "/api/diagnostics/system/systemResources"),
+                _get_json(cli, base, "/api/diagnostics/system/systemTime"),
+                _get_json(cli, base, "/api/diagnostics/system/systemTemperature"),
                 _get_json(cli, base, "/api/routes/gateway/status"),
-                _post_json(cli, base, "/api/core/service/search"),
+                _get_json(cli, base, "/api/core/service/search?current=1&rowCount=1000"),
                 _get_json(cli, base, "/api/diagnostics/firewall/pf_states"),
-                _get_json(cli, base, "/api/dhcpv4/leases/searchLease"),
+                _fetch_dhcp_leases(cli, base),
+                _get_json(cli, base, "/api/diagnostics/traffic/interface"),
+                _get_json(cli, base, "/api/diagnostics/activity/getActivity"),
             )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[opnsense] error: fetch host={host_id} base={base} failed — "
@@ -351,14 +365,23 @@ async def fetch_data(host_row: dict, chip: dict, *,
     gw_list, gw_total, gw_online, worst_gw = _gateways_shape(as_dict(gw))
     svc_list, svc_total, svc_running = _services_shape(as_dict(svc))
     pf_d = as_dict(pf)
-    pf_current = safe_int(pf_d.get("current") or as_dict(pf_d.get("details")).get("current"))
-    pf_limit = safe_int(pf_d.get("limit") or as_dict(pf_d.get("details")).get("limit"))
-    leases_total = safe_int(as_dict(leases).get("total"))
+    pf_current = safe_int(pf_d.get("current"))
+    pf_limit = safe_int(pf_d.get("limit"))
+    leases_total = safe_int(leases)
     temp_max_c = _temp_max(temp)
+    cpu_percent = _cpu_from_activity(activity)
+    # CPU% has no clean snapshot endpoint; when getActivity isn't readable
+    # (privilege not granted) fall back to a load-vs-cores proxy.
+    cores = _activity_cores(activity)
+    if cpu_percent <= 0 < cores:
+        cpu_percent = round(min(100.0, load_1m / cores * 100), 1)
+    net_rx_bps, net_tx_bps, iface_list = _throughput(host_id, service_idx,
+                                                     as_dict(traffic), now)
     out: dict[str, Any] = {
         "available": True,
         "version": version,
         "update_available": update_available,
+        "cpu_percent": cpu_percent,
         "mem_used": mem_used,
         "mem_total": mem_total,
         "mem_percent": mem_percent,
@@ -377,32 +400,114 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "pf_states_limit": pf_limit,
         "dhcp_leases": leases_total,
         "temp_max_c": temp_max_c,
+        "net_rx_bps": net_rx_bps,
+        "net_tx_bps": net_tx_bps,
+        "interfaces": iface_list,
         "fetched_at": int(now),
     }
     print(f"[opnsense] INFO fetched host={host_id} v={version} "
-          f"upd={update_available} mem={mem_percent}% load={out['load_1m']} "
-          f"gw={gw_online}/{gw_total} svc={svc_running}/{svc_total} "
-          f"pf={pf_current} leases={leases_total} temp={temp_max_c}C")
+          f"upd={update_available} cpu={cpu_percent}% mem={mem_percent}% "
+          f"load={out['load_1m']} gw={gw_online}/{gw_total} "
+          f"svc={svc_running}/{svc_total} pf={pf_current} leases={leases_total} "
+          f"net={net_rx_bps}/{net_tx_bps}B/s temp={temp_max_c}C")
     _data_cache[ck] = (now, out)
     return out
 
 
-# noinspection DuplicatedCode
-async def _post_json(cli: httpx.AsyncClient, base: str, path: str) -> Any:
-    """Tolerated POST (OPNsense ``*/search`` endpoints are POST) → parsed JSON,
-    or ``None`` on any failure. Sends an empty search body (defaults to the full
-    first page)."""
-    try:
-        r = await cli.post(base + path, headers={"Accept": "application/json"},
-                           json={"current": 1, "rowCount": 200, "searchPhrase": ""})
-    except (httpx.HTTPError, OSError):
-        return None
-    if r.status_code != 200:
-        return None
-    try:
-        return r.json()
-    except (ValueError, TypeError):
-        return None
+async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
+    """Active DHCP lease count. OPNsense 25.x/26.x defaults to **Kea** DHCP, so
+    try ``/api/kea/leases4/search`` first and fall back to the legacy **ISC**
+    ``/api/dhcpv4/leases/searchLease``. Counts rows whose state reads as active
+    (so expired / backup leases don't inflate the number); falls back to the
+    upstream ``total`` when no per-row state is present. 0 on any failure."""
+    for path in ("/api/kea/leases4/search", "/api/dhcpv4/leases/searchLease"):
+        data = as_dict(await _get_json(cli, base, path))
+        rows = as_list(data.get("rows"))
+        if rows:
+            active = sum(
+                1 for r in rows if isinstance(r, dict)
+                and str(r.get("state") or r.get("status") or "active").strip().lower()
+                in ("active", "online", "bound", "")
+            )
+            return active or len(rows)
+        total = safe_int(data.get("total"))
+        if total:
+            return total
+    return 0
+
+
+def _cpu_from_activity(activity: Any) -> float:
+    """CPU% from ``/api/diagnostics/activity/getActivity`` — there is no clean
+    snapshot CPU endpoint, so parse the ``top``-style header rows the same way
+    Homarr / homepage do: find the ``CPU: … X% idle`` line and return
+    ``100 - idle``. 0.0 when the activity payload isn't readable (the privilege
+    may not be granted) so the caller can fall back to a load-based proxy."""
+    headers = as_list(as_dict(activity).get("headers"))
+    import re as _re  # noqa: PLC0415
+    for h in headers:
+        m = _re.search(r"(?P<idle>[0-9.]+)%\s*idle", str(h or ""))
+        if m:
+            try:
+                return round(max(0.0, min(100.0, 100.0 - float(m.group("idle")))), 1)
+            except (ValueError, TypeError):
+                return 0.0
+    return 0.0
+
+
+def _activity_cores(activity: Any) -> int:
+    """Best-effort CPU-core count from the getActivity header rows (``N CPUs:``)
+    — used to scale the load-average CPU% fallback. 0 when not found."""
+    headers = as_list(as_dict(activity).get("headers"))
+    import re as _re  # noqa: PLC0415
+    for h in headers:
+        m = _re.search(r"(?P<n>\d+)\s+CPUs?:", str(h or ""))
+        if m:
+            return safe_int(m.group("n"))
+    return 0
+
+
+def _throughput(host_id: str, service_idx: int, traffic: dict,
+                now: float) -> "tuple[int, int, list]":
+    """Rate-diff ``traffic/interface``'s CUMULATIVE per-NIC byte counters into
+    bytes-per-second. Returns ``(total_rx_bps, total_tx_bps, per_iface_list)``
+    where each iface row is ``{name, rx_bps, tx_bps}``. The first sample (no
+    predecessor) yields zeros — the next tick establishes the baseline.
+    Counter resets / reboots (negative delta) and absurd gaps are skipped, never
+    synthesized as a spike (the host_net_sampler discipline)."""
+    ck = cache_key(host_id, service_idx)
+    ifaces = as_dict(traffic.get("interfaces"))
+    cur: dict = {}
+    for key, info in ifaces.items():
+        d = as_dict(info)
+        cur[key] = (safe_int(d.get("bytes received")), safe_int(d.get("bytes transmitted")))
+    prev = _iface_counters.get(ck)
+    _iface_counters[ck] = (now, cur)
+    if not prev:
+        return 0, 0, []
+    prev_ts, prev_cnts = prev
+    dt = now - prev_ts
+    if dt < 1 or dt > 900:  # too-short / stale gap — skip this rate
+        return 0, 0, []
+    total_rx = 0
+    total_tx = 0
+    rows: list = []
+    for key, (rx, tx) in cur.items():
+        if key not in prev_cnts:
+            continue
+        prx, ptx = prev_cnts[key]
+        d_rx = rx - prx
+        d_tx = tx - ptx
+        if d_rx < 0 or d_tx < 0:  # counter reset / reboot — skip
+            continue
+        rx_bps = int(d_rx / dt)
+        tx_bps = int(d_tx / dt)
+        total_rx += rx_bps
+        total_tx += tx_bps
+        name = str(as_dict(ifaces.get(key)).get("name") or key).strip() or key
+        rows.append({"name": name, "rx_bps": rx_bps, "tx_bps": tx_bps})
+    # Busiest interfaces first (rx+tx), capped for the card.
+    rows.sort(key=lambda r: (r["rx_bps"] + r["tx_bps"]), reverse=True)
+    return total_rx, total_tx, rows[:_MAX_ROWS]
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -414,11 +519,14 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     return {
         "version": data.get("version") or "",
         "update_available": bool(data.get("update_available")),
+        "cpu_percent": safe_float(data.get("cpu_percent")),
         "mem_percent": safe_float(data.get("mem_percent")),
         "load_1m": safe_float(data.get("load_1m")),
         "gateways_online": safe_int(data.get("gateways_online")),
         "gateways_total": safe_int(data.get("gateways_total")),
         "services_running": safe_int(data.get("services_running")),
+        "net_rx_bps": safe_int(data.get("net_rx_bps")),
+        "net_tx_bps": safe_int(data.get("net_tx_bps")),
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -462,6 +570,19 @@ def _fmt_gib(n: Any) -> str:
     return f"{b / 1073741824:.1f} GiB"
 
 
+def _fmt_bps(n: Any) -> str:
+    """Render a bytes-per-second rate as human-readable bandwidth
+    (B/s · KB/s · MB/s · GB/s, decimal/1000). ``0`` for non-positive."""
+    b = float(safe_int(n))
+    if b <= 0:
+        return "0 B/s"
+    for unit in ("B/s", "KB/s", "MB/s", "GB/s"):
+        if b < 1000:
+            return f"{b:.0f} {unit}" if unit == "B/s" else f"{b:.1f} {unit}"
+        b /= 1000.0
+    return f"{b:.1f} TB/s"
+
+
 # noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
@@ -485,7 +606,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
            f"{worst.get('delay')}ms" if worst and (gw_total != gw_online or safe_float(worst.get('loss')) > 0) else ""),
         f"⚙️ Services: {safe_int(data.get('services_running'))}/"
         f"{safe_int(data.get('services_total'))} running",
-        f"🧠 Memory: {safe_float(data.get('mem_percent'))}%"
+        f"🖥️ CPU: {safe_float(data.get('cpu_percent'))}%"
+        + f" · 🧠 Memory: {safe_float(data.get('mem_percent'))}%"
         + (f" ({_fmt_gib(data.get('mem_used'))} / {_fmt_gib(data.get('mem_total'))})"
            if safe_int(data.get('mem_total')) else "")
         + f" · ⚖️ load {data.get('load_1m')} / {data.get('load_5m')} / {data.get('load_15m')}",
@@ -493,6 +615,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
         + (f" / {safe_int(data.get('pf_states_limit')):,}" if safe_int(data.get('pf_states_limit')) else "")
         + f" · 📇 DHCP leases: {safe_int(data.get('dhcp_leases'))}",
     ]
+    if safe_int(data.get("net_rx_bps")) or safe_int(data.get("net_tx_bps")):
+        lines.append(f"🌐 Throughput: ↓ {_fmt_bps(data.get('net_rx_bps'))} · "
+                     f"↑ {_fmt_bps(data.get('net_tx_bps'))}")
     if safe_int(data.get("uptime_s")):
         lines.append(f"⏱️ Uptime: {_fmt_uptime(safe_int(data.get('uptime_s')))}")
     if safe_float(data.get("temp_max_c")) > 0:
@@ -581,7 +706,7 @@ async def _restart_service_skill(host_row: dict, chip: dict, *,
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True,
                                      auth=httpx.BasicAuth(username, password)) as cli:
-            svc = await _post_json(cli, base, "/api/core/service/search")
+            svc = await _get_json(cli, base, "/api/core/service/search?current=1&rowCount=1000")
             rows = as_list(as_dict(svc).get("rows"))
             match = None
             for s in rows:

@@ -4907,7 +4907,9 @@ export default {
         const j = await r.json().catch(() => ({}));
         throw new Error(this.fmtApiError(j, r.status));
       }
-      this.appsInstanceEditOpen = false;
+      // Refresh BEFORE closing so the popup stays open (saving spinner) until
+      // the save AND the dependent reloads finalize — closing mid-refresh made
+      // it read as "closed while still saving".
       await this.loadAppsInstances();
       // Await the Apps-view refresh + re-sync an open drawer so the edit
       // (URL / ports / icon / link) reflects in the top-level Apps view
@@ -4917,6 +4919,7 @@ export default {
         this._resyncDrawerApp();
         this._resyncDrawerAppHost();
       }
+      this.appsInstanceEditOpen = false;
     } catch (err) {
       this.appsInstanceEditError = (err && err.message) ? err.message : String(err);
     } finally {
