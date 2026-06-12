@@ -787,7 +787,7 @@ async def _tool_upcoming_releases(args: dict, _ctx: dict) -> dict:
         return await upcoming_items(
             days=args.get("days") or 14,
             media_type=(args.get("media_type") or ""),
-            title=(args.get("title") or ""), limit=40)
+            title=(args.get("title") or ""))
     except (_asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e:  # noqa: BLE001

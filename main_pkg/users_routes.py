@@ -1814,6 +1814,7 @@ def _refresh_app_js_modules() -> None:
 _refresh_app_js_modules()
 
 
+# noinspection DuplicatedCode
 async def serve_app_js_module(name: str = FastApiPath(...)):
     """Serve a SPA-side JS module with `__APP_VERSION__` substitution.
 

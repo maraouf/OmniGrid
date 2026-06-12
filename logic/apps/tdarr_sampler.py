@@ -47,6 +47,7 @@ def _resolve_interval() -> int:
     return resolve_sample_interval(_Tunable.TDARR_SAMPLE_INTERVAL_SECONDS)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Snapshot one Tdarr host's cumulative space-saved + transcode count +
@@ -80,6 +81,7 @@ async def _probe_one(host_id: str, service_idx: int,
         print(f"[tdarr_sampler] write {host_id}#{service_idx} failed: {e}")
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body (delegates to the shared generic sampler tick: probe every
     Tdarr host + the hourly retention prune)."""
@@ -103,6 +105,7 @@ async def tdarr_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Transcode-pipeline trend for one Tdarr chip. Returns ``{days, samples,

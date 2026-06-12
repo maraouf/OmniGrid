@@ -1455,17 +1455,17 @@ async def api_me(request: Request):
             # surfaces a checkbox here on the next /api/me round-trip.
             "snmp_vendor_keys": _snmp_vendor_keys_sorted(),
         },
+        # Surface the SESSION_SECRET-auto-generated state to admins.
+        # When SESSION_SECRET isn't set in the env, logic/auth.py generates an
+        # ephemeral one at boot — every container restart invalidates every
+        # session. Today the only signal is a one-line print at boot, buried
+        # in logs. Exposing this boolean lets the SPA render a dismissible
+        # warning banner so users know their sessions die on every redeploy.
+        # Boolean only (no message string) — i18n surface lives in en.json.
+        # Always included so the SPA can also clear a stale "dismissed" flag
+        # once SESSION_SECRET is finally set in the env.
+        "session_secret_auto": (auth.auto_secret_warning() is not None),
     }
-    # Surface the SESSION_SECRET-auto-generated state to admins.
-    # When SESSION_SECRET isn't set in the env, logic/auth.py generates an
-    # ephemeral one at boot — every container restart invalidates every
-    # session. Today the only signal is a one-line print at boot, buried
-    # in logs. Exposing this boolean lets the SPA render a dismissible
-    # warning banner so operators know their sessions die on every redeploy.
-    # Boolean only (no message string) — i18n surface lives in en.json.
-    # Always included so the SPA can also clear a stale "dismissed" flag
-    # once SESSION_SECRET is finally set in the env.
-    out["session_secret_auto"] = (auth.auto_secret_warning() is not None)
     # bootstrap admin env vars still set in `.env` AFTER the
     # users table has been seeded. The bootstrap path is then a harmless
     # no-op on every restart, but two operational risks remain: (a) wiping

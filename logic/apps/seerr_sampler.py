@@ -80,6 +80,7 @@ async def _probe_one(host_id: str, service_idx: int,
         print(f"[seerr_sampler] write {host_id}#{service_idx} failed: {e}")
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body (delegates to the shared generic sampler tick: probe every
     Seerr host + the hourly retention prune)."""
@@ -103,6 +104,7 @@ async def seerr_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Request-backlog trend for one Seerr chip. Returns ``{days, samples,

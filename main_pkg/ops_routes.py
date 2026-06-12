@@ -191,6 +191,8 @@ async def api_remove_container(
 
 
 class CleanupOverlayIn(BaseModel):
+    """Request body for the cleanup-overlay-network op — the leaked overlay
+    ``subnet`` + the ``service_id`` whose VXLAN sandbox-join failed."""
     subnet: str
     service_id: str
 
@@ -477,7 +479,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                             networks=orig["networks"], op=op,
                             log_msg=f"Restoring network reference on service {cur_spec.get('Name', sid[:12])!r} (after rm failure)",
                         )
-                    except Exception as _re:
+                    except Exception as _re:  # noqa: BLE001
                         _restore_errors.append(f"{sid[:12]}: {_re}")
                 err_tail = (" RESTORE-FAILED for: " + "; ".join(_restore_errors)
                             if _restore_errors else
@@ -513,7 +515,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                             f"HTTP {r2.status_code}: {r2.text[:200]}",
                             "error",
                         )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     op.log(f"WARN — restore exception for service {sid[:12]}: {e}", "error")
 
             # Step 7.5 — orphan-family cleanup. When multiple
@@ -545,7 +547,7 @@ async def _do_cleanup_overlay_network(op, subnet: str, service_id: str) -> None:
                         )
                     else:
                         op.log(f"Orphan {orphan_name!r} removed", "success")
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     op.log(f"WARN — orphan rm exception for {orphan_name!r}: {e}", "error")
 
             # Step 8 — force-update the originally-targeted service
@@ -789,7 +791,7 @@ async def api_events(request: Request):
                             pass
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 # Defensive — log and signal end-of-stream so the
                 # outer loop exits cleanly on bus malfunction.
                 print(f"[events] subscribe iterator failed: {e}")
@@ -1050,6 +1052,8 @@ async def api_history_clear(_admin: AdminUser):
 
 
 class IgnoreIn(BaseModel):
+    """Request body for adding an ignore rule — a ``pattern`` + its ``kind``
+    (``image`` substring / ``stack`` exact match) + an optional ``reason``."""
     pattern: str
     kind: str
     reason: Optional[str] = ""
@@ -1126,6 +1130,9 @@ async def api_del_ignore(
 
 
 class SettingsIn(BaseModel):
+    """The additive PUT body for ``POST /api/settings`` — every UI-managed
+    setting + ``tuning_*`` knob as an Optional field (``None`` = keep current;
+    non-empty overwrites). See CLAUDE.md 'Settings API is additive'."""
     # Per-service "enabled" master switches. Default true (legacy
     # behaviour preserved on first boot). When false, the service's
     # consumer code short-circuits — values stay in the settings
@@ -1823,6 +1830,9 @@ class SettingsIn(BaseModel):
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None
+    # Prowlarr counter-rate retention sampler.
+    tuning_prowlarr_sample_interval_seconds: Optional[str] = None
+    tuning_prowlarr_history_days: Optional[str] = None
     # Favicon proxy (bookmark / app tile icon fallback) — disk-cache TTL +
     # per-fetch wall-clock.
     tuning_favicon_cache_days: Optional[str] = None

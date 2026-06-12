@@ -85,6 +85,7 @@ def _total_of(slug: str, data: dict) -> int:
     return safe_int(val)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int, host_row: dict,
                      chip: dict, slug: str) -> None:
     """Snapshot one *arr instance's normalised gauges (library total / missing
@@ -124,6 +125,7 @@ async def _probe_one(host_id: str, service_idx: int, host_row: dict,
         print(f"[servarr_sampler] write {slug} {host_id}#{service_idx} failed: {e}")
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body (delegates to the shared generic sampler tick: probe every
     *arr instance + the hourly retention prune)."""
@@ -147,6 +149,7 @@ async def servarr_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Library-growth + missing-backlog + disk-free trend for one *arr chip.

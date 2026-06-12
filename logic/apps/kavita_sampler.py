@@ -41,6 +41,7 @@ def _resolve_interval() -> int:
     return resolve_sample_interval(_Tunable.KAVITA_SAMPLE_INTERVAL_SECONDS)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Snapshot one Kavita host's library totals. A host that's down / has no
@@ -79,6 +80,7 @@ async def _probe_one(host_id: str, service_idx: int,
         print(f"[kavita_sampler] write {host_id}#{service_idx} failed: {e}")
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body (delegates to the shared generic sampler tick: probe every
     Kavita host + the hourly retention prune)."""
@@ -102,6 +104,7 @@ async def kavita_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
     """Library-growth trend for one Kavita chip. Returns ``{days, samples,

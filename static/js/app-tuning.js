@@ -350,6 +350,9 @@ export default {
     // Kavita library-growth retention sampler.
     'tuning_kavita_sample_interval_seconds',
     'tuning_kavita_history_days',
+    // Prowlarr counter-rate retention sampler.
+    'tuning_prowlarr_sample_interval_seconds',
+    'tuning_prowlarr_history_days',
     // Favicon proxy — bookmark / app tile icon fallback (cache TTL + fetch
     // timeout). Edited from the generic Admin → Config tab.
     'tuning_favicon_cache_days',

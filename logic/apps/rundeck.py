@@ -291,6 +291,7 @@ def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
     return out
 
 
+# noinspection DuplicatedCode
 async def _all_jobs(cli: "httpx.AsyncClient", base: str, token: str) -> list:
     """Every job across the console's projects (capped). Each row carries its
     project + group so the skills can label + resolve by name."""
@@ -401,6 +402,7 @@ async def _jobs_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, "apps.rundeck.jobs_count")
 
 
+# noinspection DuplicatedCode
 async def _running_skill(host_row: dict, chip: dict, *,
                          host_id: Optional[str] = None) -> dict:
     """Read-only: list currently-running executions as rich rows (job name +

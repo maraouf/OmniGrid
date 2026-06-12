@@ -38,6 +38,7 @@ def _resolve_interval() -> int:
     return resolve_sample_interval(_Tunable.ADGUARD_SAMPLE_INTERVAL_SECONDS)
 
 
+# noinspection DuplicatedCode
 async def _probe_one(host_id: str, service_idx: int,
                      host_row: dict, chip: dict) -> None:
     """Snapshot one AdGuard host's queries/blocked/clients counters (delegates
@@ -48,6 +49,7 @@ async def _probe_one(host_id: str, service_idx: int,
                                "adguard_sampler")
 
 
+# noinspection DuplicatedCode
 async def _tick(tick: int) -> None:
     """Per-tick body (delegates to the shared generic sampler tick: probe every
     AdGuard host + the hourly retention prune)."""
@@ -70,6 +72,7 @@ async def adguardhome_sampler_loop() -> None:
     )
 
 
+# noinspection DuplicatedCode
 def trend_summary(days: int = 0, *, max_points: int = 90) -> dict:
     """Fleet-wide daily blocked-% trend from the local history (delegates to the
     shared ``fleet_blocker_trend_summary`` helper — only the table + retention

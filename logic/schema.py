@@ -787,6 +787,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_kavita_samples_ts
             ON kavita_samples(ts);
 
+        -- Prowlarr counter-rate retention. One row per (prowlarr chip, tick).
+        -- All columns are CUMULATIVE lifetime counters (indexerstats totals), so
+        -- the trend DIFFS consecutive days into per-day query / grab throughput
+        -- + a daily failure rate (a negative delta = a stats reset → clamped 0).
+        CREATE TABLE IF NOT EXISTS prowlarr_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            total_queries INTEGER NOT NULL DEFAULT 0,
+            total_grabs   INTEGER NOT NULL DEFAULT 0,
+            total_failed  INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_prowlarr_samples_chip_ts
+            ON prowlarr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_prowlarr_samples_ts
+            ON prowlarr_samples(ts);
+
         -- Public-IP change history. Records every CHANGED outcome from
         -- logic.public_ip.fetch() (operator-opt-in, gated by
         -- public_ip_enabled). ONE row per change — duplicate IPs

@@ -212,7 +212,6 @@ def requires_api_key() -> bool:
     return True
 
 
-
 async def _login(cli: httpx.AsyncClient, base: str, username: str, password: str) -> None:
     """``POST /api/v2/auth/login`` — on success the client's cookie jar holds the
     SID cookie (auto-sent on subsequent calls). No-op when BOTH username +

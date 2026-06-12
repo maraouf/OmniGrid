@@ -384,10 +384,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "total_size": safe_int(total_size),
         "version": version,
         "fetched_at": int(now),
+        # Library-growth retention trend — best-effort; the sampler may have no
+        # rows yet (fresh pin) → zeroed shape.
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
     }
-    # Library-growth retention trend — best-effort; the sampler may have no rows
-    # yet (fresh pin) → zeroed shape.
-    out["trend"] = _safe_trend(str(host_id or ""), int(service_idx or 0))
     print(f"[kavita] INFO fetched host={host_id} libraries={out['libraries']} "
           f"series={out['series_count']} volumes={out['volume_count']} "
           f"chapters={out['chapter_count']} size={out['total_size']}")
@@ -518,14 +518,12 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": str(e)}
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"library fetch failed: {type(e).__name__}: {e}"}
-    # 204 No Content = reachable Kavita with no libraries (falls through to the
-    # "No libraries configured" reply below), not an error.
+    # 204 No Content = reachable Kavita with no libraries (the empty init falls
+    # through to the "No libraries configured" reply below), not an error.
     items: list = []
-    if r.status_code == 204:
-        items = []
-    elif r.status_code != 200:
+    if r.status_code not in (200, 204):
         return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
-    else:
+    if r.status_code == 200:
         try:
             items = r.json()
         except (ValueError, TypeError):

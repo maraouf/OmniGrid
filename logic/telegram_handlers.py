@@ -1799,13 +1799,14 @@ async def _cmd_ip(client: httpx.AsyncClient, _args, _msg) -> None:
 _UPCOMING_TYPE_EMOJI = {"movie": "🎬", "episode": "📺", "album": "🎵", "book": "📚"}
 
 
+# noinspection PyProtectedMember
 async def _cmd_upcoming(client: httpx.AsyncClient, args: list[str], msg: dict) -> None:
     """``/upcoming`` — upcoming releases across every configured Radarr / Sonarr
     / Lidarr / Readarr instance (the same data the release-calendar widget +
     the AI ``upcoming_releases`` tool use): title + release date + air time +
     runtime + a one-line synopsis, grouped by date. Optional args:
     ``/upcoming [days] [movies|series|music|books]`` — e.g. ``/upcoming 30
-    movies``. Linked-only (it reads the operator's configured apps)."""
+    movies``. Linked-only (it reads the user's configured apps)."""
     _tl = _listener()
     sender_id = (msg.get("from") or {}).get("id") if isinstance(msg, dict) else None
     username = _tl._lookup_omnigrid_user(sender_id) if sender_id is not None else None

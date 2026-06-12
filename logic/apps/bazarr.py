@@ -81,6 +81,19 @@ SKILLS: tuple[dict, ...] = (
                        "need subtitles, show subtitle backlog, wanted subtitles"),
         "destructive": False,
     },
+    {
+        "id": "bazarr_search_subtitles",
+        "name": "Search subtitles for an item",
+        "ai_phrases": ("search subtitles for <title>, find subtitles for "
+                       "<title>, get subtitles for <title>, download subtitles "
+                       "for <title>, grab subtitles for this, search for the "
+                       "subtitle of <title>"),
+        # arg-carrying → AI / Telegram (resolve a title against the wanted list)
+        # AND the per-row Search button on the wanted-list items (arg = the id).
+        "arg": True,
+        "arg_hint": "the movie / episode title to search subtitles for",
+        "destructive": False,
+    },
 )
 
 # Per-(host_id, service_idx) data cache. Default TTL overridable per chip
@@ -97,6 +110,7 @@ def requires_api_key() -> bool:
 
 
 def _headers(key: str) -> dict:
+    """Bazarr auth headers — every endpoint requires ``X-API-KEY`` (not Bearer)."""
     return {"X-API-KEY": key, "Accept": "application/json"}
 
 
@@ -113,11 +127,12 @@ def _version_from(resp) -> str:
         return ""
 
 
+# noinspection DuplicatedCode
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Bazarr's auth-required ``/api/system/status`` with the supplied
     X-API-KEY. Returns ``{ok, detail, status}`` for direct SPA consumption.
     Falls back to the chip's stored ``api_key`` when ``candidate_key`` is
-    blank so the operator can re-test after first save without retyping."""
+    blank so the user can re-test after first save without retyping."""
     key, base, err = resolve_credential_target(host_row, chip, candidate_key)
     if err:
         return err
@@ -230,6 +245,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _search_wanted_skill(host_row, chip, host_id=host_id)
     if skill_id == "bazarr_wanted":
         return await _wanted_skill(host_row, chip, host_id=host_id)
+    if skill_id == "bazarr_search_subtitles":
+        return await _search_subtitles_skill(host_row, chip, arg=_kw.get("arg"),
+                                             host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -470,6 +488,15 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
             row: "dict[str, Any]" = {"title": t, "subtitle": sub,
                                      "group": "apps.bazarr.group_movies"}
             _stamp_poster(row, meta)
+            _rid = safe_int(m.get("radarrId"))
+            if _rid:
+                # Per-row 🔍 Search button → search providers for THIS movie's
+                # missing subtitles (non-destructive — a download is additive).
+                row["row_action"] = {
+                    "skill_id": "bazarr_search_subtitles", "arg": f"movie:{_rid}",
+                    "icon": "search", "destructive": False,
+                    "title_i18n": "apps.bazarr.search_item",
+                }
             rich.append(row)
     if e_total:
         lines.append(f"📺 Episodes missing subtitles: {e_total:,}")
@@ -482,10 +509,155 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
             row = {"title": t, "subtitle": (f"missing {langs}" if langs else ""),
                    "group": "apps.bazarr.group_episodes"}
             _stamp_poster(row, series_meta.get(safe_int(ep.get("sonarrSeriesId"))) or {})
+            _sid = safe_int(ep.get("sonarrSeriesId"))
+            _eid = safe_int(ep.get("sonarrEpisodeId"))
+            if _eid:
+                # Per-row 🔍 Search button → search providers for THIS episode's
+                # missing subtitles (the download needs both series + episode id).
+                row["row_action"] = {
+                    "skill_id": "bazarr_search_subtitles",
+                    "arg": f"episode:{_sid}:{_eid}",
+                    "icon": "search", "destructive": False,
+                    "title_i18n": "apps.bazarr.search_item",
+                }
             rich.append(row)
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "count": (m_total + e_total),
             "count_i18n": "apps.bazarr.missing_count", "items": rich}
+
+
+async def _fetch_wanted_rows(cli, base: str, api_key: str, sub_path: str) -> list:
+    """The wanted-list rows (dicts) for movies / episodes — ``[]`` on any
+    failure. Shared by the resolver + the wanted skill's fetch."""
+    try:
+        r = await cli.get(base + sub_path, headers=_headers(api_key),
+                          params={"length": "500", "start": "0"})
+        if r.status_code != 200:
+            return []
+        body = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
+    rows = body.get("data") if isinstance(body, dict) else body
+    return [x for x in rows if isinstance(x, dict)] if isinstance(rows, list) else []
+
+
+async def _resolve_subtitle_target(cli, base: str, api_key: str, needle: str):
+    """Resolve a search arg to ``(kind, ids, title)``. ``needle`` is either an
+    explicit id form from the per-row button (``movie:<radarrId>`` /
+    ``episode:<seriesId>:<episodeId>``) OR a free-text title (the AI / Telegram
+    path) matched against the current wanted list. Returns the tuple, or a ready
+    ``{ok, ...}`` dict (not-found / nothing-matched) for the caller to return."""
+    nl = needle.lower()
+    movies = await _fetch_wanted_rows(cli, base, api_key, "/api/movies/wanted")
+    eps = await _fetch_wanted_rows(cli, base, api_key, "/api/episodes/wanted")
+    if needle.startswith("movie:"):
+        mid = safe_int(needle.split(":", 1)[1])
+        for m in movies:
+            if safe_int(m.get("radarrId")) == mid:
+                return "movie", {"movie_id": mid}, (_wanted_title(m) or f"movie #{mid}")
+        return {"ok": False, "status": 404,
+                "detail": "that movie isn't in Bazarr's wanted list anymore"}
+    if needle.startswith("episode:"):
+        parts = needle.split(":")
+        eid = safe_int(parts[2]) if len(parts) > 2 else 0
+        sid = safe_int(parts[1]) if len(parts) > 1 else 0
+        for e in eps:
+            if safe_int(e.get("sonarrEpisodeId")) == eid:
+                return ("episode",
+                        {"series_id": sid or safe_int(e.get("sonarrSeriesId")),
+                         "episode_id": eid}, (_wanted_title(e) or f"episode #{eid}"))
+        return {"ok": False, "status": 404,
+                "detail": "that episode isn't in Bazarr's wanted list anymore"}
+    # Free-text title match (the AI / Telegram path).
+    for m in movies:
+        if nl in _wanted_title(m).lower():
+            return "movie", {"movie_id": safe_int(m.get("radarrId"))}, _wanted_title(m)
+    for e in eps:
+        if nl in _wanted_title(e).lower():
+            return ("episode",
+                    {"series_id": safe_int(e.get("sonarrSeriesId")),
+                     "episode_id": safe_int(e.get("sonarrEpisodeId"))},
+                    _wanted_title(e))
+    return {"ok": True, "status": 200,
+            "detail": f"🔍 Nothing in the wanted list matches \"{needle}\"."}
+
+
+# noinspection DuplicatedCode
+async def _search_subtitles_skill(host_row: dict, chip: dict, *,
+                                  arg: Optional[str] = None,
+                                  host_id: Optional[str] = None) -> dict:
+    """Action (arg): search providers for ONE wanted item's missing subtitles and
+    best-effort download the highest-scoring match. ``arg`` is the per-row
+    button's ``movie:<id>`` / ``episode:<seriesId>:<episodeId>`` OR a free-text
+    title. Uses Bazarr's manual provider search (``GET /api/providers/...``); the
+    download (``POST`` same endpoint) is best-effort — degrades to "found N, open
+    Bazarr to pick" when the download shape differs by version. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no item given — say e.g. \"search subtitles for Dune\""}
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[bazarr] INFO bazarr_search_subtitles host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            target = await _resolve_subtitle_target(cli, base, api_key, needle)
+            if isinstance(target, dict):  # not-found / nothing-matched
+                return target
+            kind, ids, title = target
+            if kind == "movie":
+                endpoint = "/api/providers/movies"
+                params = {"radarrid": ids["movie_id"]}
+            else:
+                endpoint = "/api/providers/episodes"
+                params = {"episodeid": ids["episode_id"]}
+            sr = await cli.get(base + endpoint, headers=_headers(api_key), params=params)
+            if sr.status_code in (401, 403):
+                return {"ok": False, "status": sr.status_code, "detail": "auth failed (check api_key)"}
+            if sr.status_code != 200:
+                return {"ok": False, "status": sr.status_code,
+                        "detail": f"provider search returned HTTP {sr.status_code}"}
+            try:
+                body = sr.json()
+            except (ValueError, TypeError):
+                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            results = body.get("data") if isinstance(body, dict) else body
+            results = [r for r in results if isinstance(r, dict)] if isinstance(results, list) else []
+            if not results:
+                return {"ok": True, "status": 200,
+                        "detail": f"🔍 No subtitles found from any provider for {title}."}
+            best = max(results, key=lambda r: safe_int(r.get("score")))
+            lang = best.get("language")
+            if isinstance(lang, dict):
+                lang_code = str(lang.get("code2") or "").strip()
+            else:
+                lang_code = str(lang or "").strip()
+            dl = dict(params)
+            if kind == "episode":
+                dl["seriesid"] = ids["series_id"]
+            dl.update({"hi": best.get("hearing_impaired"), "forced": best.get("forced"),
+                       "provider": best.get("provider"), "subtitle": best.get("subtitle"),
+                       "original_format": best.get("original_format"), "language": lang_code})
+            downloaded = False
+            try:
+                pr = await cli.post(base + endpoint, headers=_headers(api_key),
+                                    data={k: v for k, v in dl.items() if v is not None})
+                downloaded = 200 <= pr.status_code < 300
+            except (httpx.HTTPError, OSError):
+                downloaded = False
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"search failed: {type(e).__name__}: {e}"}
+    n = len(results)
+    score = safe_int(best.get("score"))
+    if downloaded:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ Downloaded a subtitle for {title} "
+                          f"({n:,} found, best score {score})."}
+    return {"ok": True, "status": 200,
+            "detail": f"🔍 Found {n:,} subtitle(s) for {title} (best score "
+                      f"{score}) — open Bazarr to download one."}
 
 
 # noinspection DuplicatedCode

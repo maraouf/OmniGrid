@@ -38,7 +38,6 @@ from logic.tuning import Tunable, tuning_int
 from logic import public_ip as _public_ip
 from logic.sampler_metrics import record_tick as _record_tick
 
-
 # Give boot-time schema migrations time to land before the first probe,
 # matching the weather / host_baseline samplers' first-tick delay.
 _FIRST_TICK_DELAY_SECONDS = 30

@@ -110,6 +110,73 @@ function tautulliHasPlays(inst) {
   return !!(d && Array.isArray(d.plays_series) && d.plays_series.length >= 2);
 }
 
+// The #1 watcher (last 30d) for the card's "Top watcher" stat, or null.
+function tautulliTopUser(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  const u = (d && Array.isArray(d.top_users)) ? d.top_users : [];
+  return u.length ? u[0] : null;
+}
+
+// Memo: stable bar-rect array per numeric `values` array (avoids re-render
+// flicker on every Alpine flush — the bars are an object array `x-for` reads).
+const _tautulliBarsMemo = new WeakMap();
+
+// SVG bar-rect geometry [{x, y, w, h}] for a distribution (day-of-week /
+// hour-of-day) over a 0..200 × 0..32 viewBox, auto-scaled to the series max.
+// [] for an empty / missing series. Memoised on the array ref.
+function tautulliBars(values) {
+  if (!Array.isArray(values) || !values.length) {
+    return [];
+  }
+  if (_tautulliBarsMemo.has(values)) {
+    return _tautulliBarsMemo.get(values);
+  }
+  const W = 200, H = 32, n = values.length;
+  const gap = n > 16 ? 0.5 : 1;
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const v = Number(values[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  max = max || 1;
+  const slot = W / n;
+  const bw = Math.max(0.5, slot - gap);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const h = Math.max(0, (Number(values[i]) || 0) / max * H);
+    out.push({
+      x: (i * slot).toFixed(2), y: (H - h).toFixed(2),
+      w: bw.toFixed(2), h: h.toFixed(2)
+    });
+  }
+  _tautulliBarsMemo.set(values, out);
+  return out;
+}
+
+// The busiest category {label, value} in a distribution {labels, values}, or
+// null when empty / all-zero.
+function tautulliPeak(dist) {
+  if (!dist || !Array.isArray(dist.values) || !dist.values.length) {
+    return null;
+  }
+  let maxI = 0, maxV = -Infinity;
+  for (let i = 0; i < dist.values.length; i++) {
+    const v = Number(dist.values[i]) || 0;
+    if (v > maxV) {
+      maxV = v;
+      maxI = i;
+    }
+  }
+  if (maxV <= 0) {
+    return null;
+  }
+  const labels = Array.isArray(dist.labels) ? dist.labels : [];
+  return {label: String(labels[maxI] || ''), value: maxV};
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tautulli gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -132,4 +199,7 @@ export const helpers = {
   tautulliBandwidth: tautulliBandwidth,
   tautulliPlaysPath: tautulliPlaysPath,
   tautulliHasPlays: tautulliHasPlays,
+  tautulliTopUser: tautulliTopUser,
+  tautulliBars: tautulliBars,
+  tautulliPeak: tautulliPeak,
 };

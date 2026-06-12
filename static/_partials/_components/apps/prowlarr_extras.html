@@ -82,6 +82,35 @@
             </span>
           </div>
         </template>
+        <!-- Counter-rate retention trend (from OmniGrid's prowlarr_samples):
+             per-day query / grab throughput + a daily failure-rate. Drawer-only
+             (`appsExtrasInDrawer`) — no room on the apps-grid card; shown once
+             ≥ 2 daily points exist. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && prowlarrTrend(inst) && prowlarrTrend(inst).series_queries && prowlarrTrend(inst).series_queries.length >= 2">
+          <div class="space-y-2 mt-2 pt-2 border-t border-[var(--border)]">
+            <!-- Query / grab throughput per day (two lines, shared scale). -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.prowlarr.throughput_trend', { days: prowlarrTrend(inst).days }) || ('Queries / grabs per day (' + prowlarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_queries)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_grabs)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.prowlarr.window_totals', { queries: prowlarrCount(prowlarrTrend(inst).window_queries), grabs: prowlarrCount(prowlarrTrend(inst).window_grabs), days: prowlarrTrend(inst).days })"></div>
+            </div>
+            <!-- Daily failure-rate trend. -->
+            <div class="space-y-1">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.prowlarr.failrate_trend', { days: prowlarrTrend(inst).days }) || ('Failure rate per day (' + prowlarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_fail_rate)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              </svg>
+              <div x-show="(Number(prowlarrTrend(inst).avg_fail_rate) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.prowlarr.avg_failrate', { pct: (Number(prowlarrTrend(inst).avg_fail_rate) || 0).toFixed(1) })"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + health issues. -->
         <div x-show="prowlarrData(inst).version || (Number(prowlarrData(inst).health_issues) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

@@ -468,6 +468,7 @@ async def _fetch_wlan_details(cli: "httpx.AsyncClient", base: str, key: str) -> 
     return sorted(out, key=lambda d: d["name"].lower())
 
 
+# noinspection DuplicatedCode
 def _fmt_bytes(n: Any) -> str:
     """Humanise a byte count (B / KB / MB / GB / TB, 1024-base, 1 decimal above
     bytes)."""
@@ -786,6 +787,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
 def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
     """Attach the rich-item list + count + count-i18n key to a skill result
     (no-op when empty). Returns ``out`` for one-line use."""
@@ -810,6 +812,7 @@ async def _live_data(host_row: dict, chip: dict, host_id: Optional[str],
     return data, None
 
 
+# noinspection DuplicatedCode
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:

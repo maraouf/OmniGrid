@@ -47,6 +47,11 @@
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.plays_30d') || 'Plays (30d)'"></div>
             <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).plays_30d)"></div>
           </div>
+          <!-- Top watcher (last 30d). -->
+          <div class="apps-card-ups-stat" x-show="tautulliTopUser(inst)">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.top_watcher') || 'Top watcher'"></div>
+            <div class="apps-card-stat-value fs-sm truncate" x-text="(tautulliTopUser(inst) || {}).name || '—'"></div>
+          </div>
         </div>
         <!-- Plays-over-time sparkline (last 30 days) — like the Tracearr graph. -->
         <div x-show="tautulliHasPlays(inst)" class="mt-2">
@@ -56,6 +61,62 @@
             <path :d="tautulliPlaysPath(inst)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
           </svg>
         </div>
+        <!-- Analytics: top watchers / most-played + play-distribution charts
+             (the signature Tautulli insight). Drawer-only (`appsExtrasInDrawer`)
+             — no room on the apps-grid card. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (((tautulliData(inst).top_users || []).length) || ((tautulliData(inst).top_media || []).length) || tautulliPeak(tautulliData(inst).dayofweek) || tautulliPeak(tautulliData(inst).hourofday))">
+          <div class="space-y-2 mt-2 pt-2 border-t border-[var(--border)]">
+            <!-- Top watchers (avatar via the pms_image_proxy hook). -->
+            <div x-show="(tautulliData(inst).top_users || []).length" class="space-y-1">
+              <div class="apps-card-stat-label" x-text="t('apps.tautulli.top_watchers') || 'Top watchers (30d)'"></div>
+              <template x-for="u in (tautulliData(inst).top_users || []).slice(0, 5)" :key="u.name">
+                <div class="flex items-center gap-2 fs-2xs min-w-0">
+                  <img x-show="u.avatar" :src="appsImageProxyUrl(inst, u.avatar)" alt="" loading="lazy"
+                       class="w-4 h-4 rounded-full shrink-0 object-cover"/>
+                  <span class="truncate text-[var(--text-dim)]" x-text="u.name"></span>
+                  <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
+                        x-text="t('apps.tautulli.plays_n', { n: tautulliCount(u.plays) })"></span>
+                </div>
+              </template>
+            </div>
+            <!-- Most-played media. -->
+            <div x-show="(tautulliData(inst).top_media || []).length" class="space-y-1">
+              <div class="apps-card-stat-label" x-text="t('apps.tautulli.most_played') || 'Most played (30d)'"></div>
+              <template x-for="m in (tautulliData(inst).top_media || []).slice(0, 5)" :key="m.title">
+                <div class="flex items-center gap-2 fs-2xs min-w-0">
+                  <span aria-hidden="true" x-text="m.type === 'movie' ? '🎬' : '📺'"></span>
+                  <span class="truncate text-[var(--text-dim)]" x-text="m.title"></span>
+                  <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
+                        x-text="t('apps.tautulli.plays_n', { n: tautulliCount(m.plays) })"></span>
+                </div>
+              </template>
+            </div>
+            <!-- Plays by day-of-week (bar chart) + busiest-day caption. -->
+            <div x-show="tautulliPeak(tautulliData(inst).dayofweek)" class="space-y-1">
+              <div class="apps-card-stat-label" x-text="t('apps.tautulli.dayofweek') || 'Plays by day'"></div>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                   :aria-label="t('apps.tautulli.dayofweek') || 'Plays by day'">
+                <template x-for="(b, i) in tautulliBars((tautulliData(inst).dayofweek || {}).values)" :key="i">
+                  <rect :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="var(--info)"/>
+                </template>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.tautulli.busiest', { label: (tautulliPeak(tautulliData(inst).dayofweek) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).dayofweek) || {}).value) })"></div>
+            </div>
+            <!-- Plays by hour-of-day (bar chart) + busiest-hour caption. -->
+            <div x-show="tautulliPeak(tautulliData(inst).hourofday)" class="space-y-1">
+              <div class="apps-card-stat-label" x-text="t('apps.tautulli.hourofday') || 'Plays by hour'"></div>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                   :aria-label="t('apps.tautulli.hourofday') || 'Plays by hour'">
+                <template x-for="(b, i) in tautulliBars((tautulliData(inst).hourofday || {}).values)" :key="i">
+                  <rect :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="var(--success)"/>
+                </template>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.tautulli.busiest_hour', { label: (tautulliPeak(tautulliData(inst).hourofday) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).hourofday) || {}).value) })"></div>
+            </div>
+          </div>
+        </template>
         <!-- Footnote: version + total library items. -->
         <div x-show="tautulliData(inst).version || (Number(tautulliData(inst).total_items) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">
