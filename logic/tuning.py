@@ -248,6 +248,7 @@ class Tunable(str, Enum):
     TELEGRAM_DESTRUCTIVE_COOLDOWN_SECONDS = "tuning_telegram_destructive_cooldown_seconds"
     TELEGRAM_HTTP_TIMEOUT_SECONDS = "tuning_telegram_http_timeout_seconds"
     TELEGRAM_LONG_POLL_TIMEOUT_SECONDS = "tuning_telegram_long_poll_timeout_seconds"
+    VERSION_POLL_INTERVAL_SECONDS = "tuning_version_poll_interval_seconds"
     WEATHER_CACHE_TTL_SECONDS = "tuning_weather_cache_ttl_seconds"
     WEATHER_FETCH_TIMEOUT_SECONDS = "tuning_weather_fetch_timeout_seconds"
     WEATHER_HISTORY_RETENTION_DAYS = "tuning_weather_history_retention_days"
@@ -356,6 +357,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # deployments) or raise for fast multi-node Swarms. Same bound
     # applies to bulk `/restart`-style dispatches.
     "tuning_telegram_bulk_update_concurrency": ("TELEGRAM_BULK_UPDATE_CONCURRENCY", 4, 1, 16),
+    # New-version watcher poll cadence (seconds). The SPA's
+    # `startVersionWatcher` polls `/api/version` on this interval so a
+    # deploy that lands while the operator has the tab open surfaces the
+    # "New version — reload" banner. Default 60s; lower it (e.g. 15-30s)
+    # to shorten the detection lag on a fast-iterating deploy, raise it
+    # to cut idle traffic. `/api/version` is a cheap public endpoint so
+    # the floor is 10s. Delivered to the SPA via `client_config.version_poll_ms`
+    # (× 1000). Range 10..3600.
+    "tuning_version_poll_interval_seconds": ("VERSION_POLL_INTERVAL_SECONDS", 60, 10, 3600),
     # Seerr movie-suggestion dedupe cooldown (hours). When the AI suggests
     # a movie (Telegram or SPA palette), its TMDB id is recorded per user;
     # for this many hours that id is skipped so the same film doesn't cycle

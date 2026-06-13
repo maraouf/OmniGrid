@@ -191,6 +191,17 @@ SKILLS: tuple[dict, ...] = (
                      "download client); the drawer's per-row trash button supplies it"),
     },
     {
+        "id": "readarr_queue_blocklist_search",
+        "name": "Blocklist & search a stuck download",
+        "ai_phrases": ("blocklist and search readarr, blocklist a stuck download, "
+                       "this book download is stuck try another release, "
+                       "blocklist and re-search, force a new release readarr"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id (the drawer's per-row blocklist button "
+                     "supplies it as '<queue_id>:<book_id>')"),
+    },
+    {
         "id": "readarr_author_info",
         "name": "Look up an author",
         "ai_phrases": ("do i have <author>, is <author> in my library, "
@@ -409,12 +420,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     books_pct = int(round(books_have / books_total * 100)) if books_total > 0 else 0
     library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
+    # Books releasing TODAY — one cheap calendar call, the card's "Today" chip.
+    calendar_today = await _servarr.fetch_today_calendar_count(
+        host_row, chip, api_version="v1", app_label="Readarr")
     out: dict[str, Any] = {
         "available": True,
         "authors_total": total,
         "monitored": monitored,
         "missing": safe_int(missing),
         "cutoff_unmet": safe_int(cutoff_unmet),
+        "calendar_today": safe_int(calendar_today),
         "books_have": books_have,
         "books_total": books_total,
         "books_pct": books_pct,
@@ -500,6 +515,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
                                                  app_label="Readarr", api_version="v1",
                                                  host_id=host_id)
+    if skill_id == "readarr_queue_blocklist_search":
+        return await _servarr.queue_blocklist_search_skill(
+            host_row, chip, arg=arg, app_label="Readarr", api_version="v1",
+            parent_id_field="bookId", search_command="BookSearch",
+            search_ids_field="bookIds", host_id=host_id)
     if skill_id == "readarr_author_info":
         return await _author_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "readarr_add_author":
@@ -772,11 +792,21 @@ async def _queue_skill(host_row: dict, chip: dict, *,
                     "progress": pct}
                 qid = safe_int(q.get("id"))
                 if qid:
-                    row["row_action"] = {
-                        "skill_id": "readarr_queue_delete", "arg": str(qid),
-                        "icon": "trash-2", "destructive": True,
-                        "confirm_i18n": "apps.readarr.queue_delete_confirm",
-                        "title_i18n": "apps.readarr.queue_delete_title"}
+                    # Remove-from-queue + blocklist-&-search (the stuck-grab
+                    # fix). The blocklist arg carries the parent bookId so the
+                    # re-search needs no extra queue lookup.
+                    pid = safe_int(q.get("bookId"))
+                    row["row_actions"] = [
+                        {"skill_id": "readarr_queue_delete", "arg": str(qid),
+                         "icon": "trash-2", "destructive": True,
+                         "confirm_i18n": "apps.readarr.queue_delete_confirm",
+                         "title_i18n": "apps.readarr.queue_delete_title"},
+                        {"skill_id": "readarr_queue_blocklist_search",
+                         "arg": f"{qid}:{pid}", "icon": "refresh-cw",
+                         "destructive": True,
+                         "confirm_i18n": "apps.readarr.blocklist_search_confirm",
+                         "title_i18n": "apps.readarr.blocklist_search_title"},
+                    ]
                 rich.append(row)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         return {"ok": False, "status": 0, "detail": f"queue fetch failed: {type(e).__name__}: {e}"}

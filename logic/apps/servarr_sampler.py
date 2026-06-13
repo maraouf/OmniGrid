@@ -155,25 +155,27 @@ def trend_summary(host_id: str, service_idx: int,
     """Library-growth + missing-backlog + disk-free trend for one *arr chip.
 
     Returns ``{days, samples, latest_total, peak_missing, latest_missing,
-    latest_disk_free_gb, disk_runway_days, series_total, series_missing,
-    series_disk_free}`` where each ``series_*`` is up to ``max_points`` daily-
-    AVERAGE points (oldest-first, days WITH data only — the gauges are current
-    depth, so a 0-fill day would be a false reading). ``disk_runway_days`` is the
-    projected days until the library disk is full (``None`` when free space is
-    flat / growing or there's too little history). Zeroed shape when no samples
-    yet — never raises."""
+    latest_disk_free_gb, disk_runway_days, latest_queue, peak_queue,
+    series_total, series_missing, series_disk_free, series_queue}`` where each
+    ``series_*`` is up to ``max_points`` daily-AVERAGE points (oldest-first, days
+    WITH data only — the gauges are current depth, so a 0-fill day would be a
+    false reading). ``disk_runway_days`` is the projected days until the library
+    disk is full (``None`` when free space is flat / growing or there's too
+    little history). Zeroed shape when no samples yet — never raises."""
     win = int(days) if days else _tuning.tuning_int(_Tunable.SERVARR_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "latest_total": 0,
                  "peak_missing": 0, "latest_missing": 0,
                  "latest_disk_free_gb": 0.0, "disk_runway_days": None,
-                 "series_total": [], "series_missing": [], "series_disk_free": []}
+                 "latest_queue": 0, "peak_queue": 0,
+                 "series_total": [], "series_missing": [], "series_disk_free": [],
+                 "series_queue": []}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, total, missing, disk_free_gb FROM servarr_samples "
+                "SELECT ts, total, missing, queue, disk_free_gb FROM servarr_samples "
                 "WHERE host_id=? AND service_idx=? AND ts >= ? ORDER BY ts ASC",
                 (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -185,22 +187,27 @@ def trend_summary(host_id: str, service_idx: int,
     out["samples"] = len(rows)
     out["latest_total"] = safe_int(rows[-1]["total"])
     out["latest_missing"] = safe_int(rows[-1]["missing"])
+    out["latest_queue"] = safe_int(rows[-1]["queue"])
     out["latest_disk_free_gb"] = round(safe_float(rows[-1]["disk_free_gb"]), 1)
     out["peak_missing"] = max(safe_int(r["missing"]) for r in rows)
+    out["peak_queue"] = max(safe_int(r["queue"]) for r in rows)
     # Daily-AVERAGE per metric (gauge → mean per day), days with data only.
     t_sum: dict = defaultdict(int)
     m_sum: dict = defaultdict(int)
+    q_sum: dict = defaultdict(int)
     d_sum: dict = defaultdict(float)
     cnt: dict = defaultdict(int)
     for r in rows:
         day = int(r["ts"]) // 86400
         t_sum[day] += safe_int(r["total"])
         m_sum[day] += safe_int(r["missing"])
+        q_sum[day] += safe_int(r["queue"])
         d_sum[day] += safe_float(r["disk_free_gb"])
         cnt[day] += 1
     ordered = sorted(cnt)
     series_total = [round(t_sum[d] / max(1, cnt[d]), 1) for d in ordered]
     series_missing = [round(m_sum[d] / max(1, cnt[d]), 1) for d in ordered]
+    series_queue = [round(q_sum[d] / max(1, cnt[d]), 1) for d in ordered]
     series_disk = [round(d_sum[d] / max(1, cnt[d]), 1) for d in ordered]
     # Disk-runway projection uses the FULL (unsampled) daily free-space series so
     # the linear fit sees every point regardless of the chart's max_points cap.
@@ -210,8 +217,10 @@ def trend_summary(host_id: str, service_idx: int,
         idx = [int(i * stride) for i in range(max_points)]
         series_total = [series_total[i] for i in idx]
         series_missing = [series_missing[i] for i in idx]
+        series_queue = [series_queue[i] for i in idx]
         series_disk = [series_disk[i] for i in idx]
     out["series_total"] = series_total
     out["series_missing"] = series_missing
+    out["series_queue"] = series_queue
     out["series_disk_free"] = series_disk
     return out

@@ -10227,6 +10227,29 @@
                           </a>
                         </template>
                       </div>
+                      <!-- Uptime / port-health sparkline + latency — the same
+                           appsInstanceSpark the apps-page card renders, surfaced
+                           in the drawer too (gated on >1 history point). -->
+                      <div class="apps-card-spark-row mt-1"
+                           x-show="(inst.last_probe && inst.last_probe.rtt_ms) || (inst.status_history || []).length > 1">
+                        <template x-if="(inst.status_history || []).length > 1">
+                          <template x-for="sp in [appsInstanceSpark(inst)]" :key="'drawerspark'">
+                          <span class="apps-spark-wrap apps-spark-wrap--wide"
+                                :title="sp ? t('apps.spark_title', { pct: sp.pct, n: sp.n }) : ''">
+                            <svg class="apps-spark"
+                                 :class="(sp && sp.allUp) ? 'apps-spark--up' : 'apps-spark--mixed'"
+                                 height="14" viewBox="0 0 48 12" preserveAspectRatio="none" aria-hidden="true">
+                              <polyline :points="sp ? sp.points : ''"
+                                        fill="none" stroke="currentColor" stroke-width="1.25"
+                                        vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+                            </svg>
+                          </span>
+                          </template>
+                        </template>
+                        <span x-show="inst.last_probe && inst.last_probe.rtt_ms"
+                              class="apps-card-latency apps-card-latency--spark"
+                              x-text="(inst.last_probe && inst.last_probe.rtt_ms) ? appsLatencyMs(inst.last_probe.rtt_ms) : ''"></span>
+                      </div>
                       <div class="flex items-center gap-2 mt-2 flex-wrap">
                         <button type="button" x-show="isAdmin()" @click.stop="appDrawerProbeNow(inst)"
                                 :disabled="appProbeBusy(inst)"

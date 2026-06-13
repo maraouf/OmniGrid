@@ -47,6 +47,7 @@ from main import *  # noqa: E402,F401,F403
 # so they're safe + they silence the IDE in every scope (TYPE_CHECKING
 # blocks DON'T propagate into nested function/closure scopes).
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    sqlite3,
     AdminUser,
     BaseModel,
     HTTPException,
@@ -85,7 +86,6 @@ if _TYPE_CHECKING:
     from logic import schedules  # noqa: F401
 import asyncio
 import json
-import sqlite3
 import time
 from typing import Optional
 
@@ -1590,6 +1590,10 @@ class SettingsIn(BaseModel):
     # `client_config.ops_poll_ms` and uses it as the setTimeout delay
     # between consecutive ops polls.
     tuning_ops_poll_interval_seconds: Optional[str] = None
+    # New-version watcher poll cadence (seconds). Drives the SPA's
+    # `startVersionWatcher` /api/version poll, delivered via
+    # `client_config.version_poll_ms`.
+    tuning_version_poll_interval_seconds: Optional[str] = None
     # persistent-log retention in days. Daily files under
     # /app/data/logs/ older than this get deleted by the lifespan
     # _log_pruner_loop().

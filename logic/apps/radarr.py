@@ -127,6 +127,17 @@ SKILLS: tuple[dict, ...] = (
                      "download client); the drawer's per-row trash button supplies it"),
     },
     {
+        "id": "radarr_queue_blocklist_search",
+        "name": "Blocklist & search a stuck download",
+        "ai_phrases": ("blocklist and search radarr, blocklist a stuck download, "
+                       "this download is stuck try another release, "
+                       "blocklist and re-search, force a new release radarr"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id (the drawer's per-row blocklist button "
+                     "supplies it as '<queue_id>:<movie_id>')"),
+    },
+    {
         "id": "radarr_movie_info",
         "name": "Look up a movie",
         "ai_phrases": ("do i have <title>, is <title> in my library, "
@@ -336,12 +347,17 @@ async def fetch_data(host_row: dict, chip: dict, *,
             if not m.get("hasFile"):
                 missing += 1
     library_size_gb = round(size_bytes / _GIB, 1)
+    # Movies releasing TODAY (digital/physical/cinema) — one cheap calendar
+    # call, surfaced as the card's "Today" chip. Tolerated on failure (0).
+    calendar_today = await _servarr.fetch_today_calendar_count(
+        host_row, chip, api_version="v3", app_label="Radarr")
     out: dict[str, Any] = {
         "available": True,
         "movies_total": total,
         "monitored": monitored,
         "missing": missing,
         "cutoff_unmet": safe_int(cutoff_unmet),
+        "calendar_today": safe_int(calendar_today),
         "library_size_gb": library_size_gb,
         "queue": safe_int(queue),
         "disk_free_gb": disk_free_gb,
@@ -425,6 +441,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
                                                  app_label="Radarr", api_version="v3",
                                                  host_id=host_id)
+    if skill_id == "radarr_queue_blocklist_search":
+        return await _servarr.queue_blocklist_search_skill(
+            host_row, chip, arg=arg, app_label="Radarr", api_version="v3",
+            parent_id_field="movieId", search_command="MoviesSearch",
+            search_ids_field="movieIds", host_id=host_id)
     if skill_id == "radarr_movie_info":
         return await _movie_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "radarr_add_movie":
@@ -617,11 +638,20 @@ async def _queue_skill(host_row: dict, chip: dict, *,
             "progress": pct}
         qid = safe_int(q.get("id"))
         if qid:
-            row["row_action"] = {
-                "skill_id": "radarr_queue_delete", "arg": str(qid),
-                "icon": "trash-2", "destructive": True,
-                "confirm_i18n": "apps.radarr.queue_delete_confirm",
-                "title_i18n": "apps.radarr.queue_delete_title"}
+            # Two per-row actions: remove-from-queue (trash) AND blocklist &
+            # re-search (the stuck-grab fix). The blocklist arg carries the
+            # parent movieId so the re-search needs no extra queue lookup.
+            pid = safe_int(q.get("movieId"))
+            row["row_actions"] = [
+                {"skill_id": "radarr_queue_delete", "arg": str(qid),
+                 "icon": "trash-2", "destructive": True,
+                 "confirm_i18n": "apps.radarr.queue_delete_confirm",
+                 "title_i18n": "apps.radarr.queue_delete_title"},
+                {"skill_id": "radarr_queue_blocklist_search", "arg": f"{qid}:{pid}",
+                 "icon": "refresh-cw", "destructive": True,
+                 "confirm_i18n": "apps.radarr.blocklist_search_confirm",
+                 "title_i18n": "apps.radarr.blocklist_search_title"},
+            ]
         rich.append(row)
     return {"ok": True, "status": 200,
             "detail": f"⬇️ Downloading ({len(records)}):\n" + "\n".join(lines),

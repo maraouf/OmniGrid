@@ -60,7 +60,6 @@ import httpx  # noqa: F401,F811  (used at runtime; star-import shadow flags as u
 import hashlib
 import json
 import os
-import sqlite3
 from logic.coerce import as_list
 import time
 from typing import Any, Iterable, Optional
@@ -74,6 +73,7 @@ from typing import Any, Iterable, Optional
 # module is loaded from main's tail star-import chain), so they're a
 # safe no-op runtime-wise + a full silencing of the IDE.
 from main import (  # noqa: E402,F401  — re-imports for IDE static-analysis
+    sqlite3,
     AdminUser,
     CurrentUser,
     HTTPException,
@@ -3121,7 +3121,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                             await _record_provider_outcome(h["id"], "snmp", True)
                         except (asyncio.CancelledError, KeyboardInterrupt):
                             raise
-                        except Exception as ex: # noqa: BLE001
+                        except Exception as ex:  # noqa: BLE001
                             print(f"[hosts] snmp success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
                     else:
@@ -3179,7 +3179,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                 )
                             except (asyncio.CancelledError, KeyboardInterrupt):
                                 raise
-                            except Exception as ex: # noqa: BLE001
+                            except Exception as ex:  # noqa: BLE001
                                 print(f"[hosts] snmp failure-record "
                                       f"failed for {h.get('id')!r}: {ex}")
             hosts_map = result.get("hosts") or {}
@@ -3343,7 +3343,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                             await _record_provider_outcome(h["id"], "webmin", True)
                         except (asyncio.CancelledError, KeyboardInterrupt):
                             raise
-                        except Exception as ex: # noqa: BLE001
+                        except Exception as ex:  # noqa: BLE001
                             print(f"[hosts] webmin success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
                     else:
@@ -3395,7 +3395,7 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                 )
                             except (asyncio.CancelledError, KeyboardInterrupt):
                                 raise
-                            except Exception as ex: # noqa: BLE001
+                            except Exception as ex:  # noqa: BLE001
                                 print(f"[hosts] webmin failure-record "
                                       f"failed for {h.get('id')!r}: {ex}")
             hosts_map: dict = result.get("hosts") or {} if isinstance(result, dict) else {}

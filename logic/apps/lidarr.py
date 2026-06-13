@@ -160,6 +160,17 @@ SKILLS: tuple[dict, ...] = (
                      "download client); the drawer's per-row trash button supplies it"),
     },
     {
+        "id": "lidarr_queue_blocklist_search",
+        "name": "Blocklist & search a stuck download",
+        "ai_phrases": ("blocklist and search lidarr, blocklist a stuck download, "
+                       "this album download is stuck try another release, "
+                       "blocklist and re-search, force a new release lidarr"),
+        "destructive": True,
+        "arg": True,
+        "arg_hint": ("the queue record id (the drawer's per-row blocklist button "
+                     "supplies it as '<queue_id>:<album_id>')"),
+    },
+    {
         "id": "lidarr_artist_info",
         "name": "Look up an artist",
         "ai_phrases": ("do i have <artist>, is <artist> in my library, "
@@ -380,12 +391,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     tracks_pct = int(round(tracks_have / tracks_total * 100)) if tracks_total > 0 else 0
     library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
+    # Albums releasing TODAY — one cheap calendar call, the card's "Today" chip.
+    calendar_today = await _servarr.fetch_today_calendar_count(
+        host_row, chip, api_version="v1", app_label="Lidarr")
     out: dict[str, Any] = {
         "available": True,
         "artists_total": total,
         "monitored": monitored,
         "missing": safe_int(missing),
         "cutoff_unmet": safe_int(cutoff_unmet),
+        "calendar_today": safe_int(calendar_today),
         "albums_total": albums_total,
         "tracks_have": tracks_have,
         "tracks_total": tracks_total,
@@ -473,6 +488,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _servarr.queue_delete_skill(host_row, chip, arg=arg,
                                                  app_label="Lidarr", api_version="v1",
                                                  host_id=host_id)
+    if skill_id == "lidarr_queue_blocklist_search":
+        return await _servarr.queue_blocklist_search_skill(
+            host_row, chip, arg=arg, app_label="Lidarr", api_version="v1",
+            parent_id_field="albumId", search_command="AlbumSearch",
+            search_ids_field="albumIds", host_id=host_id)
     if skill_id == "lidarr_artist_info":
         return await _artist_info_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "lidarr_add_artist":
@@ -755,11 +775,20 @@ async def _queue_skill(host_row: dict, chip: dict, *,
             "progress": pct}
         qid = safe_int(q.get("id"))
         if qid:
-            row["row_action"] = {
-                "skill_id": "lidarr_queue_delete", "arg": str(qid),
-                "icon": "trash-2", "destructive": True,
-                "confirm_i18n": "apps.lidarr.queue_delete_confirm",
-                "title_i18n": "apps.lidarr.queue_delete_title"}
+            # Remove-from-queue + blocklist-&-search (the stuck-grab fix). The
+            # blocklist arg carries the parent albumId so the re-search needs no
+            # extra queue lookup.
+            pid = safe_int(q.get("albumId"))
+            row["row_actions"] = [
+                {"skill_id": "lidarr_queue_delete", "arg": str(qid),
+                 "icon": "trash-2", "destructive": True,
+                 "confirm_i18n": "apps.lidarr.queue_delete_confirm",
+                 "title_i18n": "apps.lidarr.queue_delete_title"},
+                {"skill_id": "lidarr_queue_blocklist_search", "arg": f"{qid}:{pid}",
+                 "icon": "refresh-cw", "destructive": True,
+                 "confirm_i18n": "apps.lidarr.blocklist_search_confirm",
+                 "title_i18n": "apps.lidarr.blocklist_search_title"},
+            ]
         rich.append(row)
     if rich:
         _a0 = as_dict(records[0].get("album"))

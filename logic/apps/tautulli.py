@@ -299,6 +299,11 @@ def _shape_home_stats(data: Any) -> dict:
                     "title": str(rd.get("title") or "?").strip(),
                     "plays": safe_int(rd.get("total_plays")),
                     "type": "movie" if sid == "top_movies" else "tv",
+                    # Plex art path for the rich-item poster (proxied server-side
+                    # via image_proxy_url). grandparent_thumb is the show poster
+                    # for episode rows; thumb is the movie poster.
+                    "thumb": str(rd.get("thumb")
+                                 or rd.get("grandparent_thumb") or "").strip(),
                 })
     top_media.sort(key=lambda m: m["plays"], reverse=True)
     return {"top_users": top_users, "top_media": top_media[:5]}
@@ -553,17 +558,40 @@ async def _most_watched_skill(host_row: dict, chip: dict, *,
                 "detail": ("📊 No watch stats for the last 30 days "
                            "(Tautulli's home stats are empty).")}
     lines: list = []
+    # Rich rows for the SPA's generic skill-result renderer: top watchers carry
+    # their Plex avatar (user_thumb) and most-played media carry their poster
+    # (thumb), both proxied server-side via image_proxy_url + grouped with a
+    # divider. `detail` is kept verbatim for AI / Telegram (no image surface).
+    items: list = []
     if top_users:
         lines.append("👥 Top watchers (30d):")
         for u in top_users[:5]:
             ud = as_dict(u)
-            lines.append(f"  • {ud.get('name') or '?'} — {safe_int(ud.get('plays')):,} plays")
+            name = str(ud.get("name") or "?").strip()
+            plays = safe_int(ud.get("plays"))
+            lines.append(f"  • {name} — {plays:,} plays")
+            row: dict = {"title": name, "subtitle": f"{plays:,} plays",
+                         "group": "apps.tautulli.top_watchers"}
+            avatar = str(ud.get("avatar") or "").strip()
+            if avatar:
+                row["poster"] = avatar
+                row["poster_proxy"] = True
+            items.append(row)
     if top_media:
         lines.append("🎬 Most played (30d):")
         for m in top_media[:5]:
             md = as_dict(m)
-            lines.append(f"  • {md.get('title') or '?'} — {safe_int(md.get('plays')):,} plays")
-    return {"ok": True, "status": 200, "detail": "\n".join(lines)}
+            title = str(md.get("title") or "?").strip()
+            plays = safe_int(md.get("plays"))
+            lines.append(f"  • {title} — {plays:,} plays")
+            row = {"title": title, "subtitle": f"{plays:,} plays",
+                   "group": "apps.tautulli.most_played"}
+            thumb = str(md.get("thumb") or "").strip()
+            if thumb:
+                row["poster"] = thumb
+                row["poster_proxy"] = True
+            items.append(row)
+    return {"ok": True, "status": 200, "detail": "\n".join(lines), "items": items}
 
 
 # noinspection DuplicatedCode

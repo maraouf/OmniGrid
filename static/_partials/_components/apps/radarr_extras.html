@@ -66,12 +66,24 @@
                  :class="(Number(radarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="radarrCount(radarrData(inst).queue)"></div>
           </div>
+          <!-- Releasing today (calendar) — only when something is due today. -->
+          <div class="apps-card-ups-stat" x-show="(Number(radarrData(inst).calendar_today) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.radarr.releasing_today') || 'Today'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="radarrCount(radarrData(inst).calendar_today)"></div>
+          </div>
           <!-- Library size on disk -->
           <div class="apps-card-ups-stat" x-show="(Number(radarrData(inst).library_size_gb) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.radarr.library_size') || 'Library size'"></div>
             <div class="apps-card-stat-value" x-text="radarrGb(radarrData(inst).library_size_gb)"></div>
           </div>
         </div>
+        <!-- Disk-fill projection chip — the forward-looking "disk full in ~N
+             days at current growth" signal derived from the retention series.
+             Card-level (always visible, not drawer-only) since it's the single
+             highest-value forward signal. -->
+        <div x-show="radarrTrend(inst) && (Number(radarrTrend(inst).disk_runway_days) || 0) > 0"
+             class="fs-3xs text-[var(--warning)] mt-1"
+             x-text="t('apps.radarr.disk_runway', { days: radarrTrend(inst) ? radarrTrend(inst).disk_runway_days : 0 }) || ('Disk full in ~' + (radarrTrend(inst) ? radarrTrend(inst).disk_runway_days : 0) + ' days at this fill rate')"></div>
         <!-- Storage — every mount the app reports (root / library volume /
              remote shares), each as a clean card with free / total + a
              colour-coded usage bar. Shared across the *arr family. -->
@@ -109,6 +121,16 @@
               <div x-show="(Number(radarrTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.radarr.disk_runway', { days: radarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + radarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+            <!-- Download-queue depth over time (only when there's ever been a queue). -->
+            <div class="space-y-1" x-show="(Number(radarrTrend(inst).peak_queue) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.radarr.queue_trend', { days: radarrTrend(inst).days }) || ('Download queue (' + radarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="radarrTrendPath(radarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.radarr.peak_queue') || 'Peak queue') + ': ' + radarrCount(radarrTrend(inst).peak_queue)"></div>
             </div>
           </div>
         </template>

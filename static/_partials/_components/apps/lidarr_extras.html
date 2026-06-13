@@ -41,6 +41,11 @@
                  :class="(Number(lidarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="lidarrCount(lidarrData(inst).queue)"></div>
           </div>
+          <!-- Releasing today (calendar) — only when something is due today. -->
+          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).calendar_today) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.releasing_today') || 'Today'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="lidarrCount(lidarrData(inst).calendar_today)"></div>
+          </div>
           <!-- Monitored artists -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.lidarr.monitored') || 'Monitored'"></div>
@@ -70,6 +75,11 @@
             <div class="apps-card-stat-value" x-text="lidarrGb(lidarrData(inst).library_size_gb)"></div>
           </div>
         </div>
+        <!-- Disk-fill projection chip — "disk full in ~N days at current growth"
+             from the retention series. Card-level (always visible). -->
+        <div x-show="lidarrTrend(inst) && (Number(lidarrTrend(inst).disk_runway_days) || 0) > 0"
+             class="fs-3xs text-[var(--warning)] mt-1"
+             x-text="t('apps.lidarr.disk_runway', { days: lidarrTrend(inst) ? lidarrTrend(inst).disk_runway_days : 0 }) || ('Disk full in ~' + (lidarrTrend(inst) ? lidarrTrend(inst).disk_runway_days : 0) + ' days at this fill rate')"></div>
         <!-- Storage — every mount the app reports, each as a clean card
              with free / total + a colour-coded usage bar. Shared across
              the *arr family. -->
@@ -104,6 +114,16 @@
               <div x-show="(Number(lidarrTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.lidarr.disk_runway', { days: lidarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + lidarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+            <!-- Download-queue depth over time (only when there's ever been a queue). -->
+            <div class="space-y-1" x-show="(Number(lidarrTrend(inst).peak_queue) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.lidarr.queue_trend', { days: lidarrTrend(inst).days }) || ('Download queue (' + lidarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="lidarrTrendPath(lidarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.lidarr.peak_queue') || 'Peak queue') + ': ' + lidarrCount(lidarrTrend(inst).peak_queue)"></div>
             </div>
           </div>
         </template>
