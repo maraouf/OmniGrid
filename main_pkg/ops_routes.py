@@ -1811,6 +1811,8 @@ class SettingsIn(BaseModel):
     # global stats interval) + retention for the fleet blocked-% trend.
     tuning_adguard_sample_interval_seconds: Optional[str] = None
     tuning_adguard_history_days: Optional[str] = None
+    tuning_adguardsync_sample_interval_seconds: Optional[str] = None
+    tuning_adguardsync_history_days: Optional[str] = None
     # Pi-hole blocked-% history sampler — snapshot cadence (0 = inherit global
     # stats interval) + retention for the fleet cross-restart blocked-% trend.
     tuning_pihole_sample_interval_seconds: Optional[str] = None

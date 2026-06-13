@@ -79,6 +79,21 @@
                      :title="agg.topClient ? (agg.topClient.name + ' (' + piholeInt(agg.topClient.count) + ')') : ''"
                      x-text="agg.topClient ? agg.topClient.name : '—'"></div>
               </div>
+              <!-- P1 — % of queries answered straight from cache (the classic
+                   Pi-hole bragging-rights stat). -->
+              <div class="apps-card-ups-stat" x-show="agg.cachePct > 0">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.pihole.cached') || 'From cache'"></div>
+                <div class="apps-card-stat-value" x-text="piholePct(agg.cachePct)"></div>
+              </div>
+              <!-- P1 — busiest forwarding upstream resolver. -->
+              <div class="apps-card-ups-stat" x-show="agg.topUpstream">
+                <div class="apps-card-stat-label"
+                     x-text="t('apps.pihole.top_upstream') || 'Top upstream'"></div>
+                <div class="apps-card-stat-value truncate"
+                     :title="agg.topUpstream ? (agg.topUpstream.name + ' (' + piholeInt(agg.topUpstream.count) + ')') : ''"
+                     x-text="agg.topUpstream ? agg.topUpstream.name : '—'"></div>
+              </div>
             </div>
             <!-- Queries-vs-blocked time-bucket chart (from /api/history),
                  summed across the fleet. Queries + blocked share one scale so
@@ -100,6 +115,41 @@
                   <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--danger);"></span><span
                     x-text="t('apps.pihole.legend_blocked') || 'blocked'"></span></span>
                 </div>
+              </div>
+            </template>
+            <!-- P2 — top-blocked + top-permitted domain distributions: horizontal
+                 bars merged across the fleet (data already in /api/stats/
+                 top_domains). Drawer-only. Bars scale to each list's #1. -->
+            <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topBlockedList && agg.topBlockedList.length">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.pihole.top_blocked_dist') || 'Top blocked domains'"></div>
+                <template x-for="(b, bi) in agg.topBlockedList" :key="'blk:' + (b.name || '') + ':' + bi">
+                  <div class="flex items-center gap-2 fs-3xs py-0.5">
+                    <span class="mono truncate basis-[42%] shrink-0" :title="b.name" x-text="b.name || '?'"></span>
+                    <span class="apps-skill-item-bar flex-auto">
+                      <span class="apps-skill-item-bar-fill"
+                            :style="'width:' + (agg.topBlockedList[0].count > 0 ? Math.round(b.count / agg.topBlockedList[0].count * 100) : 0) + '%'"></span>
+                    </span>
+                    <span class="text-[var(--text-faint)] shrink-0 mono" x-text="piholeInt(b.count)"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topPermittedList && agg.topPermittedList.length">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.pihole.top_permitted_dist') || 'Top permitted domains'"></div>
+                <template x-for="(p, pi) in agg.topPermittedList" :key="'prm:' + (p.name || '') + ':' + pi">
+                  <div class="flex items-center gap-2 fs-3xs py-0.5">
+                    <span class="mono truncate basis-[42%] shrink-0" :title="p.name" x-text="p.name || '?'"></span>
+                    <span class="apps-skill-item-bar flex-auto">
+                      <span class="apps-skill-item-bar-fill apps-skill-item-bar-fill--ok"
+                            :style="'width:' + (agg.topPermittedList[0].count > 0 ? Math.round(p.count / agg.topPermittedList[0].count * 100) : 0) + '%'"></span>
+                    </span>
+                    <span class="text-[var(--text-faint)] shrink-0 mono" x-text="piholeInt(p.count)"></span>
+                  </div>
+                </template>
               </div>
             </template>
             <!-- Long-horizon blocked-% trend (from OmniGrid's pihole_samples,

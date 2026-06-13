@@ -134,6 +134,27 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the domain to unblock on every AdGuard host",
         "destructive": False,
     },
+    {
+        "id": "adguard_unblock_client",
+        "name": "Stop blocking ads for a client (fleet)",
+        "ai_phrases": ("stop blocking ads for the <client>, disable filtering for "
+                       "the tv, turn off ad blocking for <device>, let <client> "
+                       "through, stop filtering the living-room tv, unblock the "
+                       "<client> device"),
+        "arg": True,
+        "arg_hint": "the AdGuard client name or IP to STOP filtering (e.g. living-room TV)",
+        "destructive": True,
+    },
+    {
+        "id": "adguard_block_client",
+        "name": "Resume blocking ads for a client (fleet)",
+        "ai_phrases": ("resume blocking ads for the <client>, re-enable filtering "
+                       "for the tv, turn ad blocking back on for <device>, start "
+                       "filtering the <client> again"),
+        "arg": True,
+        "arg_hint": "the AdGuard client name or IP to RESUME filtering",
+        "destructive": False,
+    },
 )
 
 # Every skill above is FLEET-wide — `run_skill` ignores the targeted chip
@@ -561,13 +582,16 @@ def _avg_processing_lines(ok_rows: list, totals: dict) -> list:
         lines.append(f"🦠 Safe-browsing: {fmt_int_grouped(sb)} · 👶 Parental: {fmt_int_grouped(par)}")
     # Slowest upstream resolver across the fleet (the "why is DNS slow" stat).
     worst = None
+    worst_ms = -1.0
     for r in ok_rows:
         su = r.get("slowest_upstream")
-        if isinstance(su, dict) and (worst is None
-                                     or safe_float(su.get("ms")) > safe_float(worst.get("ms"))):
-            worst = su
+        if isinstance(su, dict):
+            ms = safe_float(su.get("ms"))
+            if ms > worst_ms:
+                worst_ms = ms
+                worst = su
     if worst and worst.get("name"):
-        lines.append(f"🐌 Slowest upstream: {worst.get('name')} ({safe_float(worst.get('ms'))} ms)")
+        lines.append(f"🐌 Slowest upstream: {worst.get('name')} ({worst_ms} ms)")
     cr = sum(safe_int(r.get("custom_rules")) for r in ok_rows)
     if cr:
         lines.append(f"📝 Custom rules: {fmt_int_grouped(cr)}")
@@ -661,6 +685,102 @@ async def _skill_set_rule(domain: str, block: bool) -> dict:
                                log_extra=f"action={'block' if block else 'unblock'} domain={needle}")
 
 
+# noinspection DuplicatedCode
+async def _set_client_filtering(base: str, auth: "httpx.BasicAuth",
+                                needle: str, enabled: bool) -> bool:
+    """Find the AdGuard client whose ``name`` or one of its ``ids`` (IP / MAC /
+    CIDR) matches ``needle`` (case-insensitive; exact-name preferred, then
+    substring, then id), then ``POST /control/clients/update`` with
+    ``filtering_enabled`` toggled. Returns ``True`` when a client matched + was
+    updated, ``False`` when no client matched on this host (a no-op — the caller
+    aggregates matches across the fleet). Raises ``RuntimeError`` on a transport
+    / auth / HTTP error so the caller can surface it."""
+    nl = needle.strip().lower()
+    async with httpx.AsyncClient(verify=False, timeout=12.0, auth=auth,
+                                 follow_redirects=True) as cli:
+        try:
+            r = await cli.get(base + "/control/clients",
+                              headers={"Accept": "application/json"})
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            raise RuntimeError(f"{type(e).__name__}: {e}")
+        if r.status_code in (401, 403):
+            raise RuntimeError(f"auth failed: HTTP {r.status_code}")
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        try:
+            body = r.json()
+        except (ValueError, TypeError):
+            raise RuntimeError("non-JSON from /control/clients")
+        clients = body.get("clients") if isinstance(body, dict) else None
+        match = None
+        sub = None
+        for c in (clients if isinstance(clients, list) else []):
+            if not isinstance(c, dict):
+                continue
+            name = str(c.get("name") or "").strip().lower()
+            ids = [str(x).strip().lower() for x in (c.get("ids") or []) if x]
+            if nl and nl == name:
+                match = c
+                break
+            if nl and (nl in name or nl in ids) and sub is None:
+                sub = c
+        match = match or sub
+        if match is None:
+            return False
+        updated = dict(match)
+        updated["filtering_enabled"] = bool(enabled)
+        try:
+            rr = await cli.post(base + "/control/clients/update",
+                                json={"name": match.get("name"), "data": updated},
+                                headers={"Accept": "application/json"})
+        except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+            raise RuntimeError(f"{type(e).__name__}: {e}")
+        if rr.status_code in (401, 403):
+            raise RuntimeError(f"auth failed: HTTP {rr.status_code}")
+        if rr.status_code not in (200, 204):
+            raise RuntimeError(f"HTTP {rr.status_code}")
+        return True
+
+
+async def _skill_set_client(needle: str, block: bool) -> dict:
+    """Toggle per-client DNS filtering across the fleet — ``block=False`` stops
+    blocking ads for the client (``filtering_enabled=false``), ``block=True``
+    resumes it. Finds the client on whichever instance(s) have it (not every
+    host knows every client) and aggregates the matches. Never raises."""
+    needle = (needle or "").strip()
+    if not needle:
+        verb = "resume blocking ads for" if block else "stop blocking ads for"
+        return {"ok": False, "status": 0,
+                "detail": f"no client given (say e.g. \"{verb} the living-room TV\")"}
+    matched = 0
+    fails: list = []
+    for (hid, _sidx, hrow, chip) in _instances():
+        username, password = resolve_userpass(chip)
+        base = resolve_base_url(hrow, chip)
+        if not (password and base):
+            fails.append(f"{hid}: no creds / url")
+            continue
+        try:
+            if await _set_client_filtering(base, httpx.BasicAuth(username, password),
+                                           needle, enabled=block):
+                matched += 1
+        except RuntimeError as e:
+            fails.append(f"{hid}: {e}")
+    print(f"[adguard] INFO client-filtering needle={needle!r} block={block} "
+          f"matched={matched} fails={len(fails)}")
+    if matched == 0 and not fails:
+        return {"ok": False, "status": 404,
+                "detail": f"no AdGuard client matched \"{needle}\" on any host"}
+    if matched == 0:
+        return {"ok": False, "status": 502,
+                "detail": "client update failed — " + "; ".join(str(f) for f in fails)}
+    state = "🛡️ resumed ad-blocking for" if block else "🚫 stopped ad-blocking for"
+    detail = f"{state} \"{needle}\" on {matched} host{'s' if matched != 1 else ''}"
+    if fails:
+        detail += f" ({len(fails)} host error{'s' if len(fails) != 1 else ''})"
+    return {"ok": True, "status": 200, "detail": detail}
+
+
 # noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
@@ -679,6 +799,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _skill_set_rule(arg or "", block=True)
     if skill_id == "adguard_unblock_domain":
         return await _skill_set_rule(arg or "", block=False)
+    if skill_id == "adguard_unblock_client":
+        return await _skill_set_client(arg or "", block=False)
+    if skill_id == "adguard_block_client":
+        return await _skill_set_client(arg or "", block=True)
     return await fleet_run_skill(skill_id, prefix="adguard",
                                  status_fn=_skill_status,
                                  action_fn=_skill_fleet_action, skills=SKILLS)

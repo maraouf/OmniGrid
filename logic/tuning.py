@@ -64,6 +64,8 @@ class Tunable(str, Enum):
     """
     ADGUARD_HISTORY_DAYS = "tuning_adguard_history_days"
     ADGUARD_SAMPLE_INTERVAL_SECONDS = "tuning_adguard_sample_interval_seconds"
+    ADGUARDSYNC_HISTORY_DAYS = "tuning_adguardsync_history_days"
+    ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS = "tuning_adguardsync_sample_interval_seconds"
     AI_CONVERSATION_EXPORT_ENABLED = "tuning_ai_conversation_export_enabled"
     AI_CONVERSATION_PERSIST_INTERVAL_MS = "tuning_ai_conversation_persist_interval_ms"
     AI_EXTENDED_HTTP_TIMEOUT_SECONDS = "tuning_ai_extended_http_timeout_seconds"
@@ -1417,6 +1419,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # outlives AdGuard's own short rolling stats window + survives a restart.
     # Default 90 (a quarter of daily points).
     "tuning_adguard_history_days": ("ADGUARD_HISTORY_DAYS", 90, 1, 730),
+    # How often the AdGuard Home Sync sampler records each configured AGS chip's
+    # replica in-sync count into adguardhome_sync_samples for the sync-reliability
+    # trend (0 = inherit the global stats sample interval). Default 900 (15 min) —
+    # syncs run on their own schedule + the status probe is cheap.
+    "tuning_adguardsync_sample_interval_seconds": ("ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for adguardhome_sync_samples — the sync-reliability
+    # trend that survives the sync tool keeping no history of its own. Default 90.
+    "tuning_adguardsync_history_days": ("ADGUARDSYNC_HISTORY_DAYS", 90, 1, 730),
 
     # ----- Pi-hole ----------------------------------------------------------
 

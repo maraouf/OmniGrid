@@ -25,7 +25,8 @@
          (.stats-card-skel) until ITS data source has loaded, so a slow
          fetch (e.g. the COUNT-scan-backed summary cards) never blocks the
          rest of the grid from painting. Overview cards gate on
-         statsOverviewLoaded; the six summary cards gate on
+         statsOverviewLoaded; the seven summary cards (db size, samplers,
+         total samples, incidents, network, AI cost, AI jobs) gate on
          statsSummaryLoaded (loaded in parallel from a separate endpoint). -->
     <div class="p-5 stats-card-grid">
 

@@ -5225,6 +5225,12 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   transition: width 0.3s ease;
 }
 
+/* Permitted/allowed distribution bars (e.g. Pi-hole top-permitted domains)
+   render green to distinguish them from the default (blocked) bars. */
+.apps-skill-item-bar-fill--ok {
+  background: var(--success);
+}
+
 /* Progress row: the bar fills the remaining width with the % label pinned
    to its right (e.g. Tdarr status — each transcoding worker's progress). */
 .apps-skill-item-progress {
@@ -14714,6 +14720,23 @@ a.apps-drawer-tile-name {
 .apps-spark-wrap--wide .apps-spark {
   width: 100%;
   height: 14px;
+}
+
+/* APC UPS trend sparklines (runtime-remaining headline + battery / output-load
+   minis) read in the expanded card / drawer. They reuse .apps-spark but need a
+   comfortable readable height — the dense 56x14 .apps-spark above is sized for
+   the in-card uptime trend and otherwise clobbers these to tiny. Two-class
+   selectors so they win over both .apps-spark rules regardless of source order;
+   the SVG keeps viewBox 0 0 100 24 + preserveAspectRatio=none so points stretch
+   to fill the larger box. */
+.apps-spark.apps-spark--trend {
+  width: 100%;
+  height: 46px;
+}
+
+.apps-spark.apps-spark--mini {
+  width: 100%;
+  height: 32px;
 }
 
 .apps-card-latency--spark {

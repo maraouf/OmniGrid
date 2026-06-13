@@ -123,6 +123,48 @@ function adguardsyncAllOk(inst) {
   return Boolean(d.origin_ok) && total > 0 && ok === total;
 }
 
+// Per-instance sync-reliability history (the lifespan sampler's series),
+// embedded on the per-app data as `history`. Null when absent / not yet sampled.
+function adguardsyncHistory(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  if (!inst || !this.appsAppData) {
+    return null;
+  }
+  const d = this.appsAppData(inst);
+  return (d && d.history && typeof d.history === 'object') ? d.history : null;
+}
+
+// Memo: stable `:points` string per series array reference (the canonical
+// SVG-builder memo — avoids re-render flicker on every Alpine flush).
+const _adguardsyncSparkMemo = new WeakMap();
+
+// SVG polyline points for the sync-reliability trend (daily-MIN in-sync %)
+// over a 0..100 × 0..24 viewBox. '' when < 2 points. Scaled to a FIXED 0..100
+// ceiling so a dip reads as "% of replicas in sync that day" against 100%.
+function adguardsyncSyncSpark(inst) {
+  /* jshint validthis: true */
+  const h = adguardsyncHistory.call(this, inst);
+  const series = (h && Array.isArray(h.sync_pct_series)) ? h.sync_pct_series : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  if (_adguardsyncSparkMemo.has(series)) {
+    return _adguardsyncSparkMemo.get(series);
+  }
+  const W = 100, H = 24, n = series.length;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const pct = Math.max(0, Math.min(100, Number(series[i]) || 0));
+    const x = (i / (n - 1)) * W;
+    const y = H - (pct / 100) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _adguardsyncSparkMemo.set(series, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. requiresApiKey
 // is false: the sync API's HTTP Basic auth is OPTIONAL, so the card +
@@ -149,4 +191,6 @@ export const helpers = {
   adguardsyncReplicas: adguardsyncReplicas,
   adguardsyncRelAge: adguardsyncRelAge,
   adguardsyncAllOk: adguardsyncAllOk,
+  adguardsyncHistory: adguardsyncHistory,
+  adguardsyncSyncSpark: adguardsyncSyncSpark,
 };

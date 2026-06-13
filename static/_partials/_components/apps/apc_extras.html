@@ -88,7 +88,7 @@
                   <span class="fs-3xs text-[var(--text-faint)] mono"
                         x-text="(apcHistory(inst).runtime_low_min != null ? ((t('apps.ups.low') || 'low') + ' ' + apcHistory(inst).runtime_low_min + 'm') : '')"></span>
                 </div>
-                <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
                   <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'runtime')"></polyline>
                 </svg>
               </div>
@@ -98,7 +98,7 @@
               <template x-if="(apcHistory(inst).battery_series || []).length > 1">
                 <div>
                   <div class="apps-card-stat-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
-                  <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
                     <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'battery')"></polyline>
                   </svg>
                 </div>
@@ -106,7 +106,7 @@
               <template x-if="(apcHistory(inst).load_series || []).length > 1">
                 <div>
                   <div class="apps-card-stat-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
-                  <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
                     <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'load')"></polyline>
                   </svg>
                 </div>

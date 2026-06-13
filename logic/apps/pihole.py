@@ -117,6 +117,16 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the domain to unblock on every Pi-hole host",
         "destructive": False,
     },
+    {
+        "id": "pihole_block_regex",
+        "name": "Add a regex block (fleet)",
+        "ai_phrases": ("block a regex on pihole, add a regex denylist rule, block "
+                       "a wildcard domain, block everything matching <pattern>, "
+                       "add a regex block <pattern>, block all <brand> subdomains"),
+        "arg": True,
+        "arg_hint": "the regex / wildcard pattern to block on every Pi-hole host (e.g. (^|\\.)ads\\..*)",
+        "destructive": True,
+    },
 )
 
 # Module-wide fleet flag — the registry stamps ``fleet: True`` onto each
@@ -270,6 +280,61 @@ def _top_domain(body: Any) -> Optional[dict]:
     return None
 
 
+def _top_domain_list(body: Any, cap: int = 10) -> list:
+    """Full top-N ``[{name, count}]`` (highest-first, capped) from a
+    /api/stats/top_domains response — P2 distribution bars. [] when absent."""
+    out: list = []
+    if not isinstance(body, dict):
+        return out
+    domains = body.get("domains")
+    if isinstance(domains, list):
+        for d in domains:
+            if isinstance(d, dict):
+                name = str(d.get("domain") or "").strip()
+                if name:
+                    out.append({"name": name, "count": safe_int(d.get("count"))})
+    out.sort(key=lambda r: r["count"], reverse=True)
+    return out[:cap]
+
+
+def _upstreams_shape(body: Any) -> dict:
+    """Parse /api/stats/upstreams (Pi-hole v6) into ``{cache_pct, forwarded_pct,
+    top_upstream}`` — P1 cache-vs-forwarded split. The ``upstreams`` list mixes
+    the synthetic ``cache`` + ``blocklist`` entries with the real forwarding
+    resolvers; cache_pct = cache / total, top_upstream = the busiest real
+    resolver. Zeroed shape when absent."""
+    out: dict = {"cache_pct": 0.0, "forwarded_pct": 0.0, "top_upstream": None}
+    ups = body.get("upstreams") if isinstance(body, dict) else None
+    if not isinstance(ups, list):
+        return out
+    total = 0
+    cache = 0
+    forwarded = 0
+    top = None
+    top_count = -1
+    for u in ups:
+        if not isinstance(u, dict):
+            continue
+        cnt = safe_int(u.get("count"))
+        total += cnt
+        nm = str(u.get("name") or "").strip().lower()
+        if nm == "cache":
+            cache += cnt
+        elif nm == "blocklist":
+            continue  # blocked locally, not a forwarding upstream
+        else:
+            forwarded += cnt
+            label = str(u.get("name") or "").strip() or str(u.get("ip") or "").strip()
+            if label and cnt > top_count:
+                top_count = cnt
+                top = {"name": label, "count": cnt}
+    if total > 0:
+        out["cache_pct"] = round(cache / total * 100.0, 1)
+        out["forwarded_pct"] = round(forwarded / total * 100.0, 1)
+    out["top_upstream"] = top
+    return out
+
+
 def _top_client(body: Any) -> Optional[dict]:
     """First client from /api/stats/top_clients (``{clients:[{name, ip,
     count}]}``) → ``{name, count}`` (name falls back to ip) or None."""
@@ -338,13 +403,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
             raise RuntimeError(f"HTTP {sc} for {base}/api/stats/summary")
         # Blocking status + tops + version + history — best-effort in parallel.
         ((_bc, blocking), (_tc, topd), (_qc, topq), (_clc, topcl),
-         (_vc, vinfo), (_hc, history)) = await asyncio.gather(
+         (_vc, vinfo), (_hc, history), (_uc, upstreams)) = await asyncio.gather(
             _authed_get(sid, "/api/dns/blocking"),
-            _authed_get(sid, "/api/stats/top_domains?blocked=true&count=1"),
-            _authed_get(sid, "/api/stats/top_domains?blocked=false&count=1"),
+            _authed_get(sid, "/api/stats/top_domains?blocked=true&count=10"),
+            _authed_get(sid, "/api/stats/top_domains?blocked=false&count=10"),
             _authed_get(sid, "/api/stats/top_clients?count=1"),
             _authed_get(sid, "/api/info/version"),
             _authed_get(sid, "/api/history"),
+            _authed_get(sid, "/api/stats/upstreams"),
         )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[pihole] error: fetch host={host_id} failed -- {type(e).__name__}: {e}")
@@ -382,6 +448,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
     top_queried = _top_domain(topq)
     top_client = _top_client(topcl)
     queries_series, blocked_series = _history_series(history)
+    # P2 — full top-blocked / top-permitted distributions for the bar chart.
+    top_blocked_list = _top_domain_list(topd)
+    top_permitted_list = _top_domain_list(topq)
+    # P1 — cache-vs-forwarded split + busiest upstream resolver.
+    ups = _upstreams_shape(upstreams)
 
     out: dict = {
         "ok": True,
@@ -398,6 +469,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "top_blocked_domain": top_blocked,
         "top_queried_domain": top_queried,
         "top_client": top_client,
+        # P1 — cache-vs-forwarded query split + busiest upstream resolver.
+        "cache_pct": ups["cache_pct"],
+        "forwarded_pct": ups["forwarded_pct"],
+        "top_upstream": ups["top_upstream"],
+        # P2 — top-blocked / top-permitted distribution lists (top 10 each).
+        "top_blocked_list": top_blocked_list,
+        "top_permitted_list": top_permitted_list,
         # 10-min binned queries-vs-blocked series (from /api/history) for the
         # aggregated card chart — capped to the most recent 48 bins.
         "queries_series": queries_series,
@@ -584,6 +662,52 @@ async def _skill_set_domain(domain: str, block: bool) -> dict:
                                log_extra=f"action={'block' if block else 'unblock'} domain={needle}")
 
 
+async def _add_regex_deny(base: str, sid: str, pattern: str) -> None:
+    """Add a REGEX/wildcard denylist rule via POST /api/domains/deny/regex
+    ``{domain: <pattern>}``. Idempotent — a 409 'already exists' is the
+    requested end-state, so treated as success. Raises RuntimeError otherwise."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=12.0, follow_redirects=True) as cli:
+            r = await cli.post(base + "/api/domains/deny/regex",
+                               json={"domain": pattern}, headers={"X-FTL-SID": sid})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        raise RuntimeError(f"{type(e).__name__}: {e}")
+    if r.status_code in (401, 403):
+        raise RuntimeError(f"auth failed: HTTP {r.status_code}")
+    if r.status_code in (200, 201, 204) or r.status_code == 409:
+        return
+    raise RuntimeError(f"HTTP {r.status_code}")
+
+
+async def _skill_block_regex(pattern: str) -> dict:
+    """Add a regex/wildcard block rule on EVERY Pi-hole instance (fleet write).
+    Complements the exact pihole_block_domain — one regex catches a whole family
+    (e.g. all of a brand's tracker subdomains)."""
+    needle = (pattern or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no regex given (say e.g. \"block regex (^|\\\\.)ads\\\\..*\")"}
+
+    # noinspection DuplicatedCode
+    async def _one(hid, _sidx, hrow, chip):
+        password = _password(chip)
+        base = resolve_base_url(hrow, chip)
+        if not (password and base):
+            return hid, False, "no creds / url"
+        try:
+            sid = await _get_sid(base, password)
+            await _add_regex_deny(base, sid, needle)
+        except RuntimeError as e:
+            if "auth failed" in str(e):
+                _sid_cache.pop(_sid_key(resolve_base_url(hrow, chip)), None)
+            return hid, False, str(e)
+        return hid, True, ""
+
+    return await fleet_fan_out(_instances(), _one, app_label="Pi-hole",
+                               verb=f"added regex block {needle}", log_tag="pihole",
+                               log_extra=f"action=block_regex pattern={needle}")
+
+
 # noinspection PyUnusedLocal
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
@@ -599,6 +723,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _skill_set_domain(arg or "", block=True)
     if skill_id == "pihole_unblock_domain":
         return await _skill_set_domain(arg or "", block=False)
+    if skill_id == "pihole_block_regex":
+        return await _skill_block_regex(arg or "")
     return await fleet_run_skill(skill_id, prefix="pihole",
                                  status_fn=_skill_status,
                                  action_fn=_skill_fleet_action, skills=SKILLS)

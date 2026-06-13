@@ -337,6 +337,8 @@ export default {
     // short rolling stats window + restarts (snapshot cadence + retention).
     'tuning_adguard_sample_interval_seconds',
     'tuning_adguard_history_days',
+    'tuning_adguardsync_sample_interval_seconds',
+    'tuning_adguardsync_history_days',
     // Pi-hole blocked-% history sampler — fleet cross-restart trend (snapshot
     // cadence + retention).
     'tuning_pihole_sample_interval_seconds',

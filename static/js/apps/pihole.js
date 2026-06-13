@@ -107,11 +107,19 @@ function piholeAggregate(app) {
     trend: null,
     protOn: 0, protTotal: 0, protOffHosts: [],
     failedHosts: [], version: '',
+    // P1 — query-weighted cache-vs-forwarded split + busiest upstream resolver.
+    cachePct: 0, forwardedPct: 0, topUpstream: null,
+    // P2 — merged top-blocked / top-permitted distributions (top 10 each).
+    topBlockedList: [], topPermittedList: [],
   };
   const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
   out.n = insts.length;
   const qSeriesList = [];
   const bSeriesList = [];
+  let cacheWeighted = 0;  // P1 query-weighted cache% numerator
+  let fwdWeighted = 0;
+  const blockedAcc = {};  // P2 domain -> summed blocked count
+  const permittedAcc = {};
   const pickTop = (cur, t) => (
     (t && t.name && (!cur || _num(t.count) > _num(cur.count)))
       ? {name: String(t.name), count: _num(t.count)} : cur);
@@ -142,6 +150,23 @@ function piholeAggregate(app) {
     out.topBlocked = pickTop(out.topBlocked, d.top_blocked_domain);
     out.topQueried = pickTop(out.topQueried, d.top_queried_domain);
     out.topClient = pickTop(out.topClient, d.top_client);
+    out.topUpstream = pickTop(out.topUpstream, d.top_upstream);
+    cacheWeighted += _num(d.cache_pct) * _num(d.queries_today);
+    fwdWeighted += _num(d.forwarded_pct) * _num(d.queries_today);
+    if (Array.isArray(d.top_blocked_list)) {
+      for (const row of d.top_blocked_list) {
+        if (row && row.name) {
+          blockedAcc[row.name] = (blockedAcc[row.name] || 0) + _num(row.count);
+        }
+      }
+    }
+    if (Array.isArray(d.top_permitted_list)) {
+      for (const row of d.top_permitted_list) {
+        if (row && row.name) {
+          permittedAcc[row.name] = (permittedAcc[row.name] || 0) + _num(row.count);
+        }
+      }
+    }
     if (Array.isArray(d.queries_series) && d.queries_series.length) {
       qSeriesList.push(d.queries_series);
     }
@@ -155,6 +180,16 @@ function piholeAggregate(app) {
   out.queriesSeries = _sumAlign(qSeriesList);
   out.blockedSeries = _sumAlign(bSeriesList);
   out.pct = out.queries > 0 ? (out.blocked / out.queries) * 100 : 0;
+  // P1 — query-weighted cache / forwarded percentages across the fleet.
+  out.cachePct = out.queries > 0 ? (cacheWeighted / out.queries) : 0;
+  out.forwardedPct = out.queries > 0 ? (fwdWeighted / out.queries) : 0;
+  // P2 — finalise the merged top-blocked / top-permitted distributions.
+  const _finalise = (acc) => Object.keys(acc)
+    .map((name) => ({name: name, count: acc[name]}))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+  out.topBlockedList = _finalise(blockedAcc);
+  out.topPermittedList = _finalise(permittedAcc);
   out.ready = out.okN > 0;
   return out;
 }
