@@ -139,6 +139,62 @@ async def _get_json(cli: httpx.AsyncClient, base: str, path: str) -> Any:
         return None
 
 
+# noinspection DuplicatedCode
+async def _post_json(cli: httpx.AsyncClient, base: str, path: str,
+                     body: Optional[dict] = None) -> Any:
+    """One tolerated POST → parsed JSON, or ``None`` on any failure. OPNsense's
+    grid endpoints (``*/search``) are POST with a JSON body; some builds also
+    accept GET. Used by the search-style fetches that returned nothing on GET."""
+    try:
+        r = await cli.post(base + path, json=(body or {}),
+                           headers={"Accept": "application/json"})
+    except (httpx.HTTPError, OSError):
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        return r.json()
+    except (ValueError, TypeError):
+        return None
+
+
+async def _fetch_services(cli: httpx.AsyncClient, base: str) -> Any:
+    """Running-services grid. OPNsense's ``/api/core/service/search`` is a POST
+    grid endpoint (``{current, rowCount, searchPhrase}``); fall back to GET for
+    builds that accept it. Returns the first response that carries ``rows``."""
+    body = {"current": 1, "rowCount": -1, "sort": {}, "searchPhrase": ""}
+    for getter in (
+        _post_json(cli, base, "/api/core/service/search", body),
+        _get_json(cli, base, "/api/core/service/search?current=1&rowCount=1000"),
+    ):
+        data = as_dict(await getter)
+        if as_list(data.get("rows")):
+            return data
+    return {}
+
+
+async def _fetch_pf_states(cli: httpx.AsyncClient, base: str) -> "tuple[int, int]":
+    """pf state-table ``(current, limit)``. Tries ``firewall/pf_states`` (a
+    ``{current, limit}`` summary OR a ``{total, rows}`` list) then the
+    ``firewall/pf_statistics`` counters endpoint (``current_entries`` /
+    ``state_limit`` under various nestings). 0/0 when neither responds."""
+    pf = as_dict(await _get_json(cli, base, "/api/diagnostics/firewall/pf_states"))
+    cur = (safe_int(pf.get("current")) or safe_int(pf.get("total"))
+           or len(as_list(pf.get("rows"))))
+    lim = safe_int(pf.get("limit"))
+    if cur or lim:
+        return cur, lim
+    # Fallback: the statistics endpoint (counter-style shape).
+    st = as_dict(await _get_json(cli, base, "/api/diagnostics/firewall/pf_statistics"))
+    # The count + limit live under a few possible keys / a nested 'state' block.
+    nest = as_dict(st.get("state")) or as_dict(st.get("states")) or st
+    cur = (safe_int(nest.get("current_entries")) or safe_int(nest.get("current"))
+           or safe_int(nest.get("entries")) or safe_int(st.get("current_entries")))
+    lim = (safe_int(nest.get("limit")) or safe_int(nest.get("state_limit"))
+           or safe_int(st.get("state_limit")))
+    return cur, lim
+
+
 def _loadavg(system_time: dict) -> "tuple[float, float, float]":
     """Parse OPNsense ``system_time.loadavg`` ("0.12, 0.34, 0.56" — or a list)
     into ``(l1, l5, l15)``. Zeros when absent / unparseable."""
@@ -343,8 +399,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _get_json(cli, base, "/api/diagnostics/system/systemTime"),
                 _get_json(cli, base, "/api/diagnostics/system/systemTemperature"),
                 _get_json(cli, base, "/api/routes/gateway/status"),
-                _get_json(cli, base, "/api/core/service/search?current=1&rowCount=1000"),
-                _get_json(cli, base, "/api/diagnostics/firewall/pf_states"),
+                _fetch_services(cli, base),
+                _fetch_pf_states(cli, base),
                 _fetch_dhcp_leases(cli, base),
                 _get_json(cli, base, "/api/diagnostics/traffic/interface"),
                 _get_json(cli, base, "/api/diagnostics/activity/getActivity"),
@@ -373,15 +429,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
     uptime_s = _uptime_seconds(stime_d)
     gw_list, gw_total, gw_online, worst_gw = _gateways_shape(as_dict(gw))
     svc_list, svc_total, svc_running = _services_shape(as_dict(svc))
-    pf_d = as_dict(pf)
-    # pf_states shape varies by version: a {current, limit} summary, a
-    # {total, rows:[...]} paginated list, or a bare list of states. Take the
-    # count from whichever is present so the card never reads a false 0.
-    pf_current = (safe_int(pf_d.get("current"))
-                  or safe_int(pf_d.get("total"))
-                  or len(as_list(pf_d.get("rows")))
-                  or (len(pf) if isinstance(pf, list) else 0))
-    pf_limit = safe_int(pf_d.get("limit"))
+    # pf state-table count + limit — _fetch_pf_states already tries pf_states
+    # (summary / list shapes) then the pf_statistics counters fallback.
+    pf_current, pf_limit = pf
     leases_total = safe_int(leases)
     temp_max_c = _temp_max(temp)
     cpu_percent = _cpu_from_activity(activity)
@@ -432,17 +482,22 @@ async def fetch_data(host_row: dict, chip: dict, *,
 async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
     """Active DHCP lease count. OPNsense 25.x/26.x defaults to **Kea** DHCP, so
     try ``/api/kea/leases4/search`` first and fall back to the legacy **ISC**
-    ``/api/dhcpv4/leases/searchLease``. Counts rows whose state reads as active
-    (so expired / backup leases don't inflate the number); falls back to the
-    upstream ``total`` when no per-row state is present. 0 on any failure."""
-    for path in ("/api/kea/leases4/search", "/api/dhcpv4/leases/searchLease"):
+    ``/api/dhcpv4/leases/search_lease`` (and its camelCase alias). All are GET
+    bootgrid endpoints. Active-state differs by backend: Kea uses a numeric
+    ``state`` (``"0"`` = active), ISC a string (``"active"``); both are matched
+    below. Falls back to the row count / upstream ``total`` when no per-row state
+    is present. 0 on any failure."""
+    active_words = ("active", "online", "bound", "0", "")
+    for path in ("/api/kea/leases4/search",
+                 "/api/dhcpv4/leases/search_lease",
+                 "/api/dhcpv4/leases/searchLease"):
         data = as_dict(await _get_json(cli, base, path))
         rows = as_list(data.get("rows"))
         if rows:
             active = sum(
                 1 for r in rows if isinstance(r, dict)
                 and str(r.get("state") or r.get("status") or "active").strip().lower()
-                in ("active", "online", "bound", "")
+                in active_words
             )
             return active or len(rows)
         total = safe_int(data.get("total"))
