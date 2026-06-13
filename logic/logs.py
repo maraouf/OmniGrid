@@ -340,7 +340,7 @@ def _persist_line(record: dict[str, Any]) -> None:
             _LOG_FH = open(target, "a", encoding="utf-8", buffering=1)
             _LOG_FH_PATH = target
         _LOG_FH.write(line)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Close the kept-open handle on ANY error so the next call
         # retries opening fresh (e.g. transient EBADF / EIO survives
         # one bad write instead of forever-failing). Same local-bind

@@ -74,7 +74,7 @@ try:
 
     WEBAUTHN_AVAILABLE = True
     WEBAUTHN_IMPORT_ERROR: Optional[str] = None
-except Exception as _import_err:  # pragma: no cover - import-time guard
+except Exception as _import_err:  # pragma: no cover - import-time guard # noqa: BLE001
     WEBAUTHN_AVAILABLE = False
     WEBAUTHN_IMPORT_ERROR = str(_import_err)
     base64url_to_bytes = None  # type: ignore[assignment]

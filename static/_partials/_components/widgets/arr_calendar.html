@@ -88,7 +88,8 @@
                     </div>
                     <div class="apps-widget-arr-cal-pop-item">
                       <img x-show="arrCalItemPoster(rel)" :src="arrCalItemPoster(rel)"
-                           alt="" loading="lazy" class="apps-widget-arr-cal-pop-poster"
+                           alt="" loading="lazy" class="apps-widget-arr-cal-pop-poster img-shimmer"
+                           @load="$event.target.classList.add('img-loaded')"
                            @error="$event.target.style.display='none'">
                       <div class="apps-widget-arr-cal-pop-meta">
                         <span class="apps-widget-arr-cal-pop-title" x-text="rel.title"></span>

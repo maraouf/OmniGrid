@@ -187,6 +187,7 @@ def _shape_row_for_db(host_id: str, stats: dict, now: float) -> Optional[tuple]:
 
 
 async def _persist_tick(rows: list[tuple]) -> None:
+    """Bulk-insert this tick's Pulse sample rows (no-op on an empty batch)."""
     if not rows:
         return
     try:

@@ -58,6 +58,7 @@ Endpoints:
 # = Depends(auth.require_admin)` parameter (PyCharm cannot narrow through
 # FastAPI's Depends() injection). Real bugs OUTSIDE these noise classes are
 # fixed inline.
+import asyncio
 from main import *  # noqa: E402,F401,F403
 # IDE contract: PyCharm/Pyright can't trace `from X import *`, so
 # every name resolved through the wildcard above would be flagged as
@@ -617,7 +618,7 @@ async def api_local_login_totp(
             raise HTTPException(status_code=400, detail="TOTP not enrolled.")
         try:
             secret_plain = totp.decrypt_secret(secret_ct)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[totp] decrypt secret FAILED for user {u.username}: {e}")
             raise HTTPException(status_code=500, detail="TOTP decrypt failed.")
         verified = False
@@ -686,7 +687,9 @@ async def api_local_login_totp(
             target_kind="user", target_id=u.username,
             metadata={"ip": ip, "method": "local_totp"},
         )
-    except Exception as _e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] user_login (totp) dropped: {_e}")
     return resp
 
@@ -763,7 +766,9 @@ async def api_local_login_totp_setup_confirm(
             target_kind="user", target_id=u.username,
             metadata={"ip": ip, "method": "local_totp_setup"},
         )
-    except Exception as _e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] user_login (totp setup) dropped: {_e}")
     return resp
 
@@ -777,10 +782,14 @@ async def api_local_login_totp_setup_confirm(
 # session cookie yet (auth-optional path).
 # ============================================================================
 class WebauthnLoginStartIn(BaseModel):
+    """Request body for WebAuthn login start — the challenge id minted at the
+    password step that the SPA echoes back to fetch assertion options."""
     challenge_id: str
 
 
 class WebauthnLoginFinishIn(BaseModel):
+    """Request body for WebAuthn login finish — the challenge id + the raw
+    ``PublicKeyCredential`` assertion JSON from the authenticator."""
     challenge_id: str
     credential: dict  # raw PublicKeyCredential JSON from the SPA
 
@@ -965,7 +974,7 @@ async def api_local_login_webauthn_finish(
         )
     try:
         credential_id_bytes = webauthn_h.b64u_decode(raw_id)
-    except Exception:
+    except Exception: # noqa: BLE001
         auth.rate_limit_record_failure(ip)
         raise HTTPException(
             status_code=400, detail="Malformed credential id.",
@@ -992,7 +1001,7 @@ async def api_local_login_webauthn_finish(
                 public_key=stored["public_key"],
                 current_sign_count=stored["sign_count"],
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             _consume_webauthn_login_challenge(body.challenge_id)
             auth.rate_limit_record_failure(ip)
             print(f"[webauthn] {u.username} verify FAILED: {e}")
@@ -1042,7 +1051,9 @@ async def api_local_login_webauthn_finish(
             target_kind="user", target_id=u.username,
             metadata={"ip": ip, "method": "local_passkey"},
         )
-    except Exception as _e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] user_login (webauthn) dropped: {_e}")
     return resp
 
@@ -1817,6 +1828,8 @@ async def api_me_notify_prefs(
 
 
 class ProfileIn(BaseModel):
+    """Request body for the self-service profile update (display name / bio /
+    email); each field optional = leave unchanged."""
     display_name: Optional[str] = None
     bio: Optional[str] = None
     email: Optional[str] = None
@@ -2084,15 +2097,21 @@ async def api_serve_avatar(fname: str, _user: CurrentUser):
 # Profile -> Two-factor authentication (TOTP) —.
 # ============================================================================
 class TotpEnrollConfirmIn(BaseModel):
+    """Request body confirming TOTP enrolment — the pending secret + the 6-digit
+    code the user read off their authenticator to prove it's synced."""
     secret: str
     code: str
 
 
 class TotpDisableIn(BaseModel):
+    """Request body for disabling TOTP — the account password, re-checked as a
+    step-up before removing the second factor."""
     password: str
 
 
 def _totp_authentik_guard(user: auth.User) -> None:
+    """Reject TOTP self-service for Authentik (SSO) users — they manage 2FA in
+    their IdP, so OmniGrid never holds their second factor."""
     if user.auth_source == "authentik":
         raise HTTPException(
             status_code=400,
@@ -2217,7 +2236,7 @@ async def api_me_totp_enroll_confirm(
                 actor=user.username,
                 message=f"TOTP enrolled by user {user.username}",
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[totp] self-enroll audit-row write failed: {e}")
     print(f"[totp] {user.username} enrolled")
     return {
@@ -2250,7 +2269,7 @@ async def api_me_totp_regenerate_codes(
                 actor=user.username,
                 message=f"TOTP backup codes regenerated by user {user.username}",
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[totp] self-regenerate audit-row write failed: {e}")
     print(f"[totp] {user.username} regenerated backup codes")
     return {"ok": True, "backup_codes": backup_plain}
@@ -2295,7 +2314,7 @@ async def api_me_totp_disable(
                 actor=user.username,
                 message=f"TOTP self-disabled by user {user.username}",
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[totp] self-disable audit-row write failed: {e}")
     print(f"[totp] {user.username} disabled")
     return {"ok": True}
@@ -2314,6 +2333,8 @@ class WebauthnRegisterStartIn(BaseModel):
 
 
 class WebauthnRegisterFinishIn(BaseModel):
+    """Request body for WebAuthn passkey enrolment finish — the raw attestation
+    ``PublicKeyCredential`` JSON + an optional friendly name for the key."""
     credential: dict
     friendly_name: Optional[str] = None
 

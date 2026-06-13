@@ -58,6 +58,7 @@ def _sampler_interval_seconds() -> int:
 
 
 def _retention_days() -> int:
+    """Retention window in days for prayer-times samples (tunable)."""
     try:
         return int(tuning_int(Tunable.PRAYER_TIMES_HISTORY_RETENTION_DAYS))
     except (KeyError, ValueError, TypeError):
@@ -65,6 +66,7 @@ def _retention_days() -> int:
 
 
 def _quantise(v: float) -> float:
+    """Round a coordinate to 3 decimals to match the prayer-times cache key."""
     # 3 decimals — matches logic.prayer_times's cache key (round(lat, 3)).
     return round(float(v), 3)
 

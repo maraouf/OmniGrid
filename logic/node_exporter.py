@@ -89,6 +89,7 @@ _EXCLUDED_NIC_EXACT = {"lo"}
 
 
 def _is_excluded_nic(name: str) -> bool:
+    """True for a NIC name we skip (loopback / docker / veth / virtual interfaces)."""
     if name in _EXCLUDED_NIC_EXACT:
         return True
     return any(name.startswith(p) for p in _EXCLUDED_NIC_PREFIXES)
@@ -207,10 +208,12 @@ _EXCLUDED_DEVSTAT_PREFIXES = (
 
 
 def _is_excluded_disk(name: str) -> bool:
+    """True for a Linux disk name we skip (pseudo / virtual devices)."""
     return any(name.startswith(p) for p in _EXCLUDED_DISK_PREFIXES)
 
 
 def _is_excluded_devstat(name: str) -> bool:
+    """True for a FreeBSD devstat device we skip (passthrough / memdisk / cd-rom)."""
     return any(name.startswith(p) for p in _EXCLUDED_DEVSTAT_PREFIXES)
 
 
@@ -850,7 +853,7 @@ async def probe_node(
 
     try:
         stats = parse_exporter_text(text)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"exporter_error": f"parse: {e}"}
     # Separate pass for network counters. Two fields are added to the
     # returned dict — both ABSOLUTE counter values, not rates. The
@@ -865,7 +868,7 @@ async def probe_node(
         stats["host_net_rx_total"] = int(net.get("total_rx") or 0)
         stats["host_net_tx_total"] = int(net.get("total_tx") or 0)
         stats["ne_net_ifaces"] = net.get("interfaces") or []
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Non-fatal — a malformed exporter line shouldn't blank the rest
         # of the dict. Log once so operators can find it in Admin → Logs.
         print(f"[node_exporter] network counter parse failed: {e}")
@@ -883,7 +886,7 @@ async def probe_node(
         if disk.get("total_written") is not None:
             stats["host_disk_write_total"] = int(disk["total_written"])
         stats["ne_disk_devices"] = disk.get("devices") or []
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[node_exporter] disk counter parse failed: {e}")
     stats["exporter_error"] = None
     return stats

@@ -15,6 +15,7 @@ yet (V1 scope). If refresh cadence grows, layer a cache on top the same
 way ``logic/registry.py`` does for registry tokens.
 """
 from __future__ import annotations
+import asyncio
 
 import base64
 import json
@@ -38,6 +39,7 @@ from logic.tuning import Tunable, tuning_int as _tuning_int
 # of asset-inventory must stay usable even when other tunables are
 # broken).
 def _token_timeout_seconds() -> float:
+    """OAuth token-request timeout in seconds (tunable)."""
     try:
         return float(_tuning_int(Tunable.ASSET_INVENTORY_TOKEN_TIMEOUT_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -45,6 +47,7 @@ def _token_timeout_seconds() -> float:
 
 
 def _fetch_timeout_seconds() -> float:
+    """Asset-list fetch timeout in seconds (tunable)."""
     try:
         return float(_tuning_int(Tunable.ASSET_INVENTORY_FETCH_TIMEOUT_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -58,6 +61,7 @@ def _fetch_timeout_seconds() -> float:
 # OR when its dirname is empty (e.g. someone set `DB_PATH=omnigrid.db`
 # with no leading directory — uncommon but possible).
 def _default_cache_path() -> str:
+    """Default asset-inventory cache path (alongside the SQLite DB)."""
     db_path = env_get(EnvKey.DB_PATH, "/app/data/omnigrid.db")
     data_dir = os.path.dirname(db_path) or "/app/data"
     return os.path.join(data_dir, "asset_inventory.json")
@@ -203,7 +207,9 @@ async def probe_token(
             return {"ok": False, "token_type": "", "expires_in": 0,
                     "access_token": "",
                     "error": f"token endpoint returned non-JSON: {preview}"}
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return {"ok": False, "token_type": "", "expires_in": 0,
                 "access_token": "", "error": f"{type(e).__name__}: {e}"}
     access_token = str(payload.get("access_token") or "")
@@ -263,7 +269,9 @@ async def fetch_assets(
     except ValueError as e:
         return {"ok": False, "assets": [],
                 "error": f"asset list returned non-JSON: {e}"}
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return {"ok": False, "assets": [], "error": f"{type(e).__name__}: {e}"}
     # Accept a top-level list OR an object with {assets: [...]} / {data: [...]}
     # so this consumer works with a variety of upstream shapes without
@@ -427,7 +435,9 @@ async def _post_asset_api(
             # Admin-only endpoint URL — validated upstream via
             # ``is_safe_http_url``. See ``logic/url_safety.py``.
             r = await client.post(endpoint_url, data=body, headers=headers)  # lgtm[py/full-ssrf]
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         og_err = _err.classify_exception(e)
         return {"ok": False, "assets": [], "error": og_err.message,
                 "error_code": og_err.code, "error_params": og_err.params,
@@ -726,7 +736,7 @@ def save_cache(
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
         os.replace(tmp_path, cache_path)
-    except Exception:
+    except Exception: # noqa: BLE001
         # Clean up the temp file on any failure — stale .tmp files
         # would otherwise accumulate in the data dir.
         try:
@@ -805,7 +815,7 @@ async def refresh_cache(
         assets = fetch_result.get("assets") or []
         try:
             save_cache(assets, cache_path=cache_path, upstream=base_url)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             og_err = _err.make_error(
                 _err.ASSET_CACHE_WRITE_FAILED,
                 override_message=f"cache write failed: {type(e).__name__}: {e}",
@@ -845,7 +855,7 @@ async def refresh_cache(
     assets = fetch_result.get("assets") or []
     try:
         save_cache(assets, cache_path=cache_path, upstream=base_url)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {
             "ok": False, "count": len(assets), "ts": 0,
             "upstream": base_url,

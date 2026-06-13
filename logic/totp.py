@@ -68,6 +68,7 @@ def _derive_fernet_key(session_secret: bytes) -> bytes:
 
 
 def _fernet() -> Fernet:
+    """Build the Fernet cipher (HKDF-derived from ``SESSION_SECRET``) used to encrypt TOTP secrets at rest."""
     # Late import keeps the auth module from depending on totp at import.
     from logic import auth as _auth
     secret = _auth.SESSION_SECRET
@@ -143,6 +144,7 @@ def format_backup_code_for_display(plain: str) -> str:
 
 
 def _normalise_for_compare(code: str) -> str:
+    """Strip spaces / dashes from a TOTP code before comparison."""
     return (code or "").replace(" ", "").replace("-", "").strip()
 
 

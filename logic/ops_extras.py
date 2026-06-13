@@ -114,7 +114,9 @@ async def notify_with_retry(
             if attempt > 0:
                 print(f"[{label}] retry succeeded on attempt {attempt + 1}")
             return
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             if attempt >= retries:
                 # `dropped` keeps the persistent-log severity classifier
                 # off the ERROR bucket — caller already sees a
@@ -538,6 +540,7 @@ async def _await_stack_convergence(
     )
 
 
+# noinspection DuplicatedCode
 async def do_update_stack(
     op: Operation,
     stack_id: int,
@@ -693,7 +696,9 @@ async def do_update_stack(
             event="stack_update_success", actor_username=op.actor,
             target_kind="stack", target_id=str(op.target_id),
         )
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
@@ -919,7 +924,9 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         await notify(f"✅ Container updated: {op.target_name}", "", "success",
                      event="container_update_success", actor_username=op.actor,
                      target_kind="container", target_id=str(op.target_id))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         await _notify_container_op_failure(op, e, kind_label="update")
     finally:
         persist_history(op)
@@ -1402,13 +1409,16 @@ async def do_retag_container_to_latest(
             event="container_update_success", actor_username=op.actor,
             target_kind="container", target_id=str(op.target_id),
         )
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         await _notify_container_op_failure(op, e, kind_label="retag")
     finally:
         persist_history(op)
         gather.invalidate_cache()
 
 
+# noinspection DuplicatedCode
 async def do_restart_container(op: Operation, container_id: str) -> None:
     """Restart one standalone container via Portainer's
     ``/containers/{id}/restart`` endpoint. Threads
@@ -1431,7 +1441,9 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
         await notify(f"🔄 Container restarted: {op.target_name}", "", "success",
                      event="container_restart_success", actor_username=op.actor,
                      target_kind="container", target_id=str(op.target_id))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error",
@@ -1442,6 +1454,7 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
         gather.invalidate_cache()
 
 
+# noinspection DuplicatedCode
 async def do_remove_container(op: Operation, container_id: str) -> None:
     """Force-remove one container + its anonymous volumes via Portainer's
     ``DELETE /containers/{id}?force=true&v=true`` endpoint. Idempotent
@@ -1485,7 +1498,9 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
         await notify(f"🗑 Container removed: {op.target_name}", "", "success",
                      event="container_remove_success", actor_username=op.actor,
                      target_kind="container", target_id=str(op.target_id))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error",
@@ -1496,6 +1511,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
         gather.invalidate_cache()
 
 
+# noinspection DuplicatedCode
 async def do_restart_service(op: Operation, service_id: str) -> None:
     """Restart one Swarm service by bumping its `TaskTemplate.ForceUpdate`
     counter — Docker treats the increment as a "re-deploy without
@@ -1522,7 +1538,9 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
         await notify(f"🔄 Service restarted: {op.target_name}", "", "success",
                      event="service_restart_success", actor_username=op.actor,
                      target_kind="service", target_id=str(op.target_id))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
@@ -1583,6 +1601,7 @@ async def discover_swarm_agent_service(client: httpx.AsyncClient) -> tuple[Optio
     return matches[0]["id"], matches[0]["name"], matches
 
 
+# noinspection DuplicatedCode
 async def do_restart_swarm_agent(op: Operation) -> None:
     """Force-update the Portainer agent global service so every node
     restart-spawns its agent task and re-registers with the manager.
@@ -1634,7 +1653,9 @@ async def do_restart_swarm_agent(op: Operation) -> None:
             event="swarm_agent_restart_success", actor_username=op.actor,
             target_kind="service", target_id=str(op.target_id),
         )
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(
@@ -1648,6 +1669,7 @@ async def do_restart_swarm_agent(op: Operation) -> None:
         gather.invalidate_cache()
 
 
+# noinspection DuplicatedCode
 async def do_prune_node(op: Operation, hostname: str) -> dict:
     """Run a ``docker system prune``-equivalent on a single Swarm node.
 
@@ -1724,7 +1746,9 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
             metadata={"reclaimed_bytes": totals["space_reclaimed"], **totals},
         )
         return totals
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error",

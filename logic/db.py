@@ -485,6 +485,7 @@ def _check_slow_query(sql: str, t0: float) -> None:
 # the `streak % N` modulo comparison and the `int(now_mono -
 # prev["first_ts"])` arithmetic both raise type warnings.
 class _SlowQueryStreakEntry(TypedDict):
+    """Per-query slow-query streak bookkeeping (consecutive count + first-seen ts)."""
     streak: int
     first_ts: float
 

@@ -1148,6 +1148,7 @@ _VALID_SEVERITIES = ("info", "warning", "error", "success")
 
 
 def _coerce_severity(status: Optional[str]) -> str:
+    """Normalise a status string to a valid severity (defaults to ``'info'``)."""
     s = (status or "info").strip().lower()
     if s in _VALID_SEVERITIES:
         return s

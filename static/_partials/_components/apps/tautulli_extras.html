@@ -72,7 +72,9 @@
               <template x-for="u in (tautulliData(inst).top_users || []).slice(0, 5)" :key="u.name">
                 <div class="flex items-center gap-2 fs-2xs min-w-0">
                   <img x-show="u.avatar" :src="appsImageProxyUrl(inst, u.avatar)" alt="" loading="lazy"
-                       class="w-4 h-4 rounded-full shrink-0 object-cover"/>
+                       class="w-4 h-4 rounded-full shrink-0 object-cover img-shimmer"
+                       @load="$event.target.classList.add('img-loaded')"
+                       @error="$event.target.style.display='none'"/>
                   <span class="truncate text-[var(--text-dim)]" x-text="u.name"></span>
                   <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
                         x-text="t('apps.tautulli.plays_n', { n: tautulliCount(u.plays) })"></span>

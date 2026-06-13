@@ -117,6 +117,7 @@ def _curated_ping_hosts() -> list[dict]:
 
 
 def _resolve_default_port() -> int:
+    """Resolve the default ping probe port (tunable, clamped 1..65535; default 443)."""
     # `tuning_ping_default_port` clamps to 1..65535 in TUNABLES, so the
     # resolver returns a valid port. Defaults to 443 (HTTPS) when no
     # override is set.
@@ -172,7 +173,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             err = f"{type(e).__name__}: {str(e)[:120]}" if str(e) else type(e).__name__
             print(f"[ping_sampler] {host['id']!r} probe exception: {err}")
             result = {
@@ -215,7 +216,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                         float(result.get("loss_pct") or 0.0),
                     ),
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[ping_sampler] {host['id']!r} DB insert failed: {e}")
             return
         # SSE — publish once per insert. Payload is intentionally
@@ -231,7 +232,7 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
                 "rtt_ms": result.get("rtt_ms"),
                 "loss_pct": result.get("loss_pct"),
             })
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[ping_sampler] SSE publish failed for {host['id']!r}: {e}")
         rtt_blurb = (
             f"rtt={result['rtt_ms']:.1f}ms" if result.get("rtt_ms") is not None
@@ -256,13 +257,14 @@ async def _probe_one(host: dict, sem: asyncio.Semaphore) -> None:
 
 
 def _prune_old_samples() -> int:
+    """Delete ping samples older than the retention window; returns the deleted-row count."""
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
         # Chunked delete (writer lock released per chunk) instead of one big
         # DELETE — same predicate, bounded lock-hold, seeks idx_ping_samples_ts.
         return prune_rows_older_than("ping_samples", cutoff)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ping_sampler] prune failed: {e}")
         return 0
 
@@ -345,7 +347,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 1000) -> list[dict]
                 "ORDER BY ts ASC LIMIT ?",
                 (host_id, int(since_ts), int(limit)),
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ping_sampler] recent_samples({host_id!r}) failed: {e}")
         return []
     return [_shape_row(r) for r in rows]
@@ -364,13 +366,14 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
                 "ORDER BY ts DESC LIMIT ?",
                 (host_id, int(limit)),
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ping_sampler] last_samples({host_id!r}) failed: {e}")
         return []
     return [_shape_row(r) for r in rows]
 
 
 def _shape_row(r) -> dict:
+    """Shape a ping_samples DB row into the API dict."""
     return {
         "ts": int(r["ts"]),
         "alive": bool(r["alive"]),

@@ -27,10 +27,12 @@ import pytest
 
 
 def _import_helper():
+    """Import + return the ``logic.webauthn_helper`` module under test."""
     return importlib.import_module("logic.webauthn_helper")
 
 
 def test_module_imports():
+    """The helper imports and exposes its capability flag whether or not the optional webauthn dep is installed."""
     h = _import_helper()
     # Helper exposes a capability flag whether or not the underlying
     # webauthn package installed -- callers branch on it.
@@ -39,6 +41,7 @@ def test_module_imports():
 
 
 def test_friendly_name_validation():
+    """``validate_friendly_name`` accepts a normal key name unchanged."""
     h = _import_helper()
     assert h.validate_friendly_name("YubiKey 5C") == "YubiKey 5C"
     assert h.validate_friendly_name("  trimmed  ") == "trimmed"
@@ -50,6 +53,7 @@ def test_friendly_name_validation():
 
 
 def test_b64u_roundtrip():
+    """base64url encode/decode round-trips (skipped when webauthn is unavailable)."""
     h = _import_helper()
     if not h.WEBAUTHN_AVAILABLE:
         pytest.skip("webauthn package not installed")
@@ -65,6 +69,7 @@ def test_b64u_roundtrip():
 
 
 def test_make_registration_options_shape():
+    """``make_registration_options`` returns the expected options shape (skipped when webauthn is unavailable)."""
     h = _import_helper()
     if not h.WEBAUTHN_AVAILABLE:
         pytest.skip("webauthn package not installed")
@@ -88,6 +93,7 @@ def test_make_registration_options_shape():
 
 
 def test_make_authentication_options_with_no_credentials():
+    """``make_authentication_options`` handles an empty credential list (skipped when webauthn is unavailable)."""
     h = _import_helper()
     if not h.WEBAUTHN_AVAILABLE:
         pytest.skip("webauthn package not installed")

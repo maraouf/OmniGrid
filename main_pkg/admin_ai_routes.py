@@ -286,7 +286,7 @@ async def api_admin_stats_samples_by_host(
                     })
                 out["rows"] = shaped
                 out["total"] = sum(r["rows"] for r in shaped)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["error"] = str(e)
 
     await asyncio.to_thread(_compute_by_host)
@@ -340,7 +340,7 @@ async def api_admin_stats_samples_prune_orphan(
                 actor=admin.username,
                 message=f"Pruned {deleted} rows from {table} for {host_col}={host_id}",
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "deleted": deleted, "table": table, "host_id": host_id}
 
@@ -531,7 +531,7 @@ async def api_admin_ai_dashboard(
                         float(r["avg_acc"]) if r["avg_acc"] is not None else None
                     ),
                 })
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # DB blip is non-fatal — fall back to the empty shape so the SPA
         # renders the empty-state instead of erroring.
         print(f"[ai] dashboard aggregate failed: {e}")
@@ -618,7 +618,7 @@ async def api_admin_ai_jobs(
             )
             row = c.execute(count_sql, params[:-2]).fetchone()
             total = int(row["n"] or 0) if row else 0
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ai] jobs query failed: {e}")
     return {
         "window_hours": hours,
@@ -1327,6 +1327,7 @@ async def api_ai_memory_list(
 
 
 class AiMemoryIn(BaseModel):
+    """Request body for adding an AI memory — the lesson text + its source (``operator`` / ``ai`` / ``system``)."""
     text: str
     source: Optional[str] = "operator"
 
@@ -1750,7 +1751,7 @@ async def api_admin_notify_templates_set(
                     message=f"notification template {event!r} touched "
                             f"({', '.join(touched)}) by {_admin.username or 'operator'}",
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[notify] template-update audit-row write failed: {e}")
     return _shape_notify_template_row(event)
 
@@ -1890,7 +1891,9 @@ async def api_admin_notify_templates_test(
                 "host": samples.get("host") or "",
             },
         )
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return {
             "ok": False,
             "error": f"{type(e).__name__}: {e}",
@@ -1991,7 +1994,7 @@ def _stamp_test_success(provider: str, result: dict, target: str = "") -> dict:
         return result
     try:
         set_setting(last_test_success_key(provider), str(int(time.time())))
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[test] last_test_success stamp failed for {provider}: {e}")
     return result
 
@@ -2115,7 +2118,9 @@ async def api_portainer_test(
             "detail": _humanise_probe_error(raw, "Portainer"),
             "endpoint_id": endpoint_id,
         }, target=url)
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         # Network-level failures (DNS / refused / TLS / timeout) are
         # the cases the humaniser was designed for — let them flow
         # through it instead of surfacing the raw exception repr.
@@ -2809,7 +2814,7 @@ def _audit_asset_refresh(admin: auth.User, result: dict, auth_mode: str) -> None
                          f"auth_mode={auth_mode}"),
                 error=(result.get("error") if result else None) or None,
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[asset_inventory] manual-refresh audit-row write failed: {e}")
 
 

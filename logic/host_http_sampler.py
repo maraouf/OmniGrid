@@ -356,6 +356,7 @@ def _persist_rows(host_id: str, results: list[dict], ts: int) -> int:
 
 
 def _prune_old_samples() -> int:
+    """Delete HTTP-probe samples older than the retention window; returns the deleted-row count."""
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:

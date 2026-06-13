@@ -327,6 +327,7 @@ def _persist_row(host_id: str, service_idx: int, alive: bool,
 
 
 def _prune_old_samples() -> int:
+    """Delete service-probe samples older than the retention window; returns the deleted-row count."""
     days = tuning.tuning_int(_Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:

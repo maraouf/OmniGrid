@@ -733,6 +733,8 @@ def init_db():
             processing  INTEGER NOT NULL DEFAULT 0,
             available   INTEGER NOT NULL DEFAULT 0,
             issues_open INTEGER NOT NULL DEFAULT 0,
+            approved    INTEGER NOT NULL DEFAULT 0,
+            declined    INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_seerr_samples_chip_ts
@@ -1318,6 +1320,11 @@ def init_db():
                 # could only show a CURRENT snapshot bar. Sampler writes
                 # `s.get("size_root")` each tick.
                 "ALTER TABLE stats_samples ADD COLUMN size_root REAL",
+                # Seerr request-state composition history (P2 stacked chart) —
+                # approved / declined depth per tick, alongside the existing
+                # pending / processing / available gauges.
+                "ALTER TABLE seerr_samples ADD COLUMN approved INTEGER DEFAULT 0",
+                "ALTER TABLE seerr_samples ADD COLUMN declined INTEGER DEFAULT 0",
                 # wall-clock of the MOST RECENT probe failure.
                 # ``first_failure_ts`` already records the start of the
                 # streak; this is the timestamp of the latest failed

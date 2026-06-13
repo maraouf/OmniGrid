@@ -191,7 +191,7 @@ async def fetch(force: bool = False, bypass_gate: bool = False) -> Optional[dict
         if ip_val:
             _record_ip_change(int(now), ip_val, out)
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[public_ip] history write failed: {e}")
     return out
 

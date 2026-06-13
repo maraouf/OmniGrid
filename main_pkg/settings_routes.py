@@ -685,7 +685,7 @@ async def api_set_settings(
                     actor=_admin.username,
                     message=message,
                 )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[ops] settings_update audit-row skipped: {_e!r}")
     return result
 
@@ -774,6 +774,7 @@ def _clean_alias_dict(d, value_transform=None) -> dict:
 
 # noinspection DuplicatedCode
 async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer) -> dict:
+    """Inner implementation of the settings PUT — validate + persist each field of the ``SettingsIn`` body."""
     # Late import — `_ai_supported_providers` lives in
     # `main_pkg.admin_stats_routes` which is loaded AFTER this module
     # in the main.py chain; a module-top import would cycle. Function-
@@ -1082,7 +1083,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             try:
                 from zoneinfo import ZoneInfo
                 ZoneInfo(tz_name)  # raises on invalid
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 raise HTTPException(
                     status_code=400,
                     detail=f"scheduler_timezone {tz_name!r} is not a valid IANA name: {e}",
@@ -1386,7 +1387,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             _asyncssh.import_private_key(
                 s.ssh_default_private_key, passphrase=pw_candidate,
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             raise HTTPException(
                 status_code=400,
                 detail=f"ssh_default_private_key failed to parse: {type(e).__name__}: {e}",
@@ -2064,7 +2065,7 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
             {"version": _settings_version_for_payload()},
             client_id=_request_client_id(request),
         )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[events] settings:updated publish failed: {e}")
     return {"status": "ok"}
 

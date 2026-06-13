@@ -28,6 +28,7 @@ Flow:
      ``auth.auto_provision_authentik()``, mints a normal ``og_session``
      cookie, 302s the browser to the validated ``next`` path.
 """
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -145,11 +146,14 @@ def invalidate_cache() -> None:
 # Settings accessor — thin wrapper so callers don't have to thread a conn.
 # ----------------------------------------------------------------------------
 def _settings() -> dict:
+    """Load the auth settings dict (opens its own DB connection)."""
     with db_conn() as c:
         return auth.get_auth_settings(c)
 
 
 def _verify_tls() -> bool:
+    """True when OmniGrid should verify the OIDC issuer's TLS cert (DB-backed via
+    Settings -> Authentik OIDC; defaults on so public issuers aren't downgraded)."""
     # True when OmniGrid should verify the issuer's TLS cert against its
     # trust store. Homelab installs behind an internal CA flip this off via
     # the Settings → Authentik OIDC panel; the default stays on so
@@ -296,7 +300,9 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
                 }
             return {"ok": True, "status": 200, "detail": f"OK — issuer: {doc.get('issuer', 'unknown')}"}
         return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code} from {url}"}
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         # httpx ConnectTimeout / ConnectError frequently stringify to an
         # empty string, leaving the SPA with `detail: "ConnectTimeout: "`
         # — same anti-pattern that bit telegram_listener / registry.py
@@ -346,17 +352,23 @@ async def test_discovery(issuer_url: str, verify_tls: Optional[bool] = None) -> 
 # cookie because the user isn't authenticated yet.
 # ----------------------------------------------------------------------------
 def _sign_flow(payload: str) -> str:
+    """HMAC-SHA256 sign a flow-state payload with ``SESSION_SECRET`` (base64url,
+    padding stripped)."""
     sig = hmac.new(auth.SESSION_SECRET, payload.encode(), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
 
 
 def _encode_flow(data: dict) -> str:
+    """Serialise + sign the OIDC flow-state dict into a ``<b64>.<sig>`` cookie
+    value (carried across the redirect to the IdP and back)."""
     raw = json.dumps(data, separators=(",", ":"))
     b64 = base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode("ascii")
     return f"{b64}.{_sign_flow(b64)}"
 
 
 def _decode_flow(cookie: str) -> Optional[dict]:
+    """Verify + decode a signed flow-state cookie; ``None`` on a bad signature /
+    malformed value."""
     try:
         b64, sig = cookie.split(".", 1)
     except ValueError:
@@ -474,7 +486,9 @@ async def login(request: Request):
         doc = await _fetch_discovery(issuer)
     except HTTPException:
         raise
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"OIDC discovery error: {e}")
 
     auth_ep = doc.get("authorization_endpoint")
@@ -754,7 +768,9 @@ async def callback(request: Request):
             event="user_login",
             actor_username=u.username,
         )
-    except Exception as _e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] user_login (oidc) failed: {_e}")
     return resp
 
@@ -831,6 +847,9 @@ async def _validate_id_token(
 
 
 def _find_key(jwks: dict, kid: Optional[str]) -> Optional[dict]:
+    """Select the JWKS key whose ``kid`` matches; ``None`` when ``kid`` is absent
+    or unmatched (rejecting a missing ``kid`` avoids a rotation-downgrade attack
+    where a suppressed header forces verification against ``keys[0]``)."""
     # Reject `kid is None`. Pre-fix this returned
     # `keys[0]` blindly, which during a multi-key JWKS rotation lets an
     # attacker who suppresses the `kid` header force verification
@@ -853,6 +872,8 @@ def _find_key(jwks: dict, kid: Optional[str]) -> Optional[dict]:
 # Helpers used by both routes
 # ----------------------------------------------------------------------------
 def _is_https(request: Request) -> bool:
+    """True when the request arrived over HTTPS (honours ``X-Forwarded-Proto``
+    from the reverse proxy)."""
     proto = request.headers.get("x-forwarded-proto", "").lower()
     return proto == "https" or request.url.scheme == "https"
 

@@ -68,6 +68,16 @@
         <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).total)"></div>
       </div>
     </div>
+    <!-- Median requested→available latency — "fulfilled in ~X days median"
+         over the recent available requests (createdAt → media.mediaAddedAt).
+         Hidden when no samples. -->
+    <div x-show="(Number(seerrData(inst).availability_sample_count) || 0) > 0"
+         class="fs-2xs text-[var(--text-faint)] mt-1.5 inline-flex items-center gap-1">
+      <svg width="11" height="11" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-timer"/>
+      </svg>
+      <span x-text="t('apps.seerr.availability_latency', { days: seerrData(inst).availability_median_days, n: seerrData(inst).availability_sample_count }) || ('Fulfilled in ~' + seerrData(inst).availability_median_days + ' days median (' + seerrData(inst).availability_sample_count + ' recent)')"></span>
+    </div>
     <!-- Top requesters — avatar + name + request count (from
          GET /api/v1/user?sort=requests; hidden when none). -->
     <template x-if="(seerrData(inst).top_users || []).length">
@@ -77,7 +87,7 @@
           <template x-for="u in (seerrData(inst).top_users || [])" :key="u.id + ':' + u.name">
             <div class="flex items-center gap-1.5 fs-xs">
               <template x-if="u.avatar">
-                <img :src="appsImageProxyUrl(inst, u.avatar)" alt="" class="w-4 h-4 rounded-full object-cover flex-shrink-0" loading="lazy">
+                <img :src="appsImageProxyUrl(inst, u.avatar)" alt="" class="w-4 h-4 rounded-full object-cover flex-shrink-0 img-shimmer" loading="lazy" @load="$event.target.classList.add('img-loaded')" @error="$event.target.style.display='none'">
               </template>
               <template x-if="!u.avatar">
                 <svg width="14" height="14" class="text-[var(--text-faint)] flex-shrink-0" aria-hidden="true">
@@ -111,6 +121,33 @@
         </svg>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="(t('apps.seerr.peak_pending') || 'Peak pending') + ': ' + seerrCount(seerrTrend(inst).peak_pending)"></div>
+      </div>
+    </template>
+    <!-- Request-state composition (available / approved / declined) over the
+         window — daily-avg stacked bars, drawer-only, shown once ≥ 2 days
+         of samples exist. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && seerrTrend(inst) && (seerrTrend(inst).composition || []).length >= 2">
+      <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.seerr.state_composition') || 'Request states over time'"></span>
+        <div class="flex items-end gap-px h-10">
+          <template x-for="(c, ci) in seerrTrend(inst).composition" :key="ci">
+            <div class="flex-1 flex flex-col justify-end min-w-0"
+                 :title="(t('apps.seerr.available') || 'Available') + ': ' + c.available + ' · ' + (t('apps.seerr.approved') || 'Approved') + ': ' + c.approved + ' · ' + (t('apps.seerr.declined') || 'Declined') + ': ' + c.declined">
+              <div class="seerr-comp seerr-comp--declined"
+                   :style="'height:' + Math.round((c.declined / (seerrTrend(inst).composition_max || 1)) * 100) + '%'"></div>
+              <div class="seerr-comp seerr-comp--approved"
+                   :style="'height:' + Math.round((c.approved / (seerrTrend(inst).composition_max || 1)) * 100) + '%'"></div>
+              <div class="seerr-comp seerr-comp--available"
+                   :style="'height:' + Math.round((c.available / (seerrTrend(inst).composition_max || 1)) * 100) + '%'"></div>
+            </div>
+          </template>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 fs-3xs text-[var(--text-faint)]">
+          <span class="inline-flex items-center gap-1"><span class="seerr-comp-dot seerr-comp--available"></span><span x-text="t('apps.seerr.available') || 'Available'"></span></span>
+          <span class="inline-flex items-center gap-1"><span class="seerr-comp-dot seerr-comp--approved"></span><span x-text="t('apps.seerr.approved') || 'Approved'"></span></span>
+          <span class="inline-flex items-center gap-1"><span class="seerr-comp-dot seerr-comp--declined"></span><span x-text="t('apps.seerr.declined') || 'Declined'"></span></span>
+        </div>
       </div>
     </template>
     <!-- Version footnote (when reported by /api/v1/status). -->

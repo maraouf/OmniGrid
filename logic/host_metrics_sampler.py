@@ -112,10 +112,14 @@ from logic.merge import is_positive_number as _is_meaningful_number  # noqa: E40
 
 
 def _delta_seconds_ok(delta_seconds: float) -> bool:
+    """True when a counter-rate time delta is in-bounds (skip-don't-synthesize:
+    reject clock skew / long outages outside the sane window)."""
     return _MIN_DELTA_SECONDS <= delta_seconds <= _MAX_DELTA_SECONDS
 
 
 def _delta_bytes_ok(delta_bytes: int) -> bool:
+    """True when a counter byte delta is in-bounds (reject negative / rollover /
+    absurd jumps so a reboot or wrap isn't stored as a spike)."""
     return _MIN_DELTA_BYTES <= delta_bytes <= _MAX_DELTA_BYTES
 
 
@@ -374,7 +378,7 @@ def _get_failure_state(host_id: str, provider: str = "") -> Optional[dict]:
             )
             row = cur.fetchone()
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)!r} "
               f"failure-state read error: {e}")
         return None
@@ -552,7 +556,7 @@ def _host_provider_config() -> dict[str, set[str]]:
                 configured.add("service_probe")
             out[hid] = configured
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # DB read failure is non-fatal — fall back to "every provider
         # configured" (legacy behaviour) so a transient blip doesn't
         # silently disable failure recording for a real outage.
@@ -659,7 +663,7 @@ async def _record_failure(
                         (now, bare_host, provider or "", err_short),
                     )
                 # noinspection PyBroadException
-                except Exception as ev_err:
+                except Exception as ev_err: # noqa: BLE001
                     print(f"[host_metrics_sampler] {log_label!r} "
                           f"failure-event log write failed: {ev_err}")
                 print(f"[host_metrics_sampler] {log_label!r} AUTO-PAUSED after "
@@ -763,7 +767,7 @@ async def _record_failure(
                         label=f"host_paused_notify {host_id!r}",
                     )
                 # noinspection PyBroadException
-                except Exception as e:
+                except Exception as e: # noqa: BLE001
                     print(f"[host_metrics_sampler] {host_id!r} notify dispatch failed: {e}")
                 # SSE — paused transition. SPA reacts by re-fetching the
                 # one host (banner appears in the drawer immediately
@@ -782,7 +786,7 @@ async def _record_failure(
                         payload["provider"] = provider
                     _events.publish("host:failure_state_changed", payload)
                 # noinspection PyBroadException
-                except Exception as ee:
+                except Exception as ee: # noqa: BLE001
                     print(f"[events] host:failure_state_changed publish failed: {ee}")
             else:
                 c.execute(
@@ -792,7 +796,7 @@ async def _record_failure(
                     (new_fails, now, err_short, host_id, provider),
                 )
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] {_log_label_with_target(bare_host, provider)!r} failure-state write error: {e}")
 
 
@@ -931,7 +935,7 @@ async def record_provider_outcome(
                         (host_id, provider, now_ts),
                     )
             # noinspection PyBroadException
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)} last_ok upsert failed: {e}")
     else:
         await _record_failure(  # audit: bare-failure-ok
@@ -987,11 +991,11 @@ def _clear_failure(
                         (time.time(), host_id, provider or "", actor),
                     )
                 # noinspection PyBroadException
-                except Exception as ev_err:
+                except Exception as ev_err: # noqa: BLE001
                     print(f"[host_metrics_sampler] {log_label!r} "
                           f"recovery-event log write failed: {ev_err}")
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] {_log_label_with_target(host_id, provider)!r} failure-state clear error: {e}")
         return
     if had_row:
@@ -1007,7 +1011,7 @@ def _clear_failure(
                 payload["provider"] = provider
             _events.publish("host:failure_state_changed", payload)
         # noinspection PyBroadException
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[events] host:failure_state_changed clear publish failed: {e}")
 
 
@@ -1067,7 +1071,9 @@ async def _probe_one(
         try:
             stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
         # noinspection PyBroadException
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[host_metrics_sampler] {hid!r} target={ne_url} probe error: {e}")
             # Unified outcome — TWO writes via ONE state machine: the
             # whole-host bare-key row (provider="") + the per-(provider,
@@ -1548,6 +1554,8 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
 
 
 def _prune_old_samples() -> int:
+    """Delete host-metrics / SNMP / incident rows older than the retention window;
+    returns the total deleted-row count."""
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
@@ -1587,7 +1595,7 @@ def _prune_old_samples() -> int:
             removed += prune_rows_older_than("host_port_scans", port_scan_cutoff)
         return removed
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] prune failed: {e}")
         return 0
 
@@ -1767,7 +1775,9 @@ async def host_metrics_sampler_loop() -> None:
                     print(f"[host_metrics_sampler] pruned {n} rows older than "
                           f"{days}d")
         # noinspection PyBroadException
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             _tick_ok = False
             _tick_err = type(e).__name__
             print(f"[host_metrics_sampler] tick error: {e}")
@@ -1823,7 +1833,7 @@ def recent_samples(host_id: str, since_ts: int, limit: int = 500) -> list[dict]:
                 (host_id, int(since_ts), int(limit)),
             ).fetchall()
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] recent_samples({host_id!r}) failed: {e}")
         return []
     return [_shape_row(r) for r in rows]
@@ -1843,7 +1853,7 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
                 (host_id, int(limit)),
             ).fetchall()
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_metrics_sampler] last_samples({host_id!r}) failed: {e}")
         return []
     return [_shape_row(r) for r in rows]
@@ -2005,6 +2015,8 @@ def history_series(host_id: str, hours: int) -> list[dict]:
 # or ``python logic/host_metrics_sampler.py``. Exits 0 on pass.
 # ---------------------------------------------------------------------------
 def _smoke_test() -> int:
+    """Standalone parser smoke-test over a fixture payload; returns a process
+    exit code (0 = pass). Run via ``python logic/host_metrics_sampler.py``."""
     fixture = """\
 # minimal node-exporter response covering the fields _compute_row reads
 node_memtotal_bytes 8589934592

@@ -107,6 +107,8 @@ def bootstrap_portainer_settings(conn: sqlite3.Connection) -> None:
 
 
 def _encode_setting(v) -> str:
+    """Encode a setting value for the DB: booleans as ``'true'`` / ``'false'``
+    strings, everything else via ``str()``."""
     if v is True:
         return "true"
     if v is False:
@@ -115,6 +117,8 @@ def _encode_setting(v) -> str:
 
 
 def _refresh_portainer_cache(conn: sqlite3.Connection) -> None:
+    """Reload the in-process Portainer settings cache from the ``settings`` table
+    (URL normalised to no trailing slash, ``endpoint_id`` coerced to int)."""
     global _portainer_cache, _portainer_cache_valid
     placeholders = ",".join("?" for _ in _PORTAINER_SETTING_KEYS)
     rows = conn.execute(
@@ -195,23 +199,30 @@ def is_configured() -> bool:
 # still work after the refactor.
 # ----------------------------------------------------------------------------
 def _url() -> str:
+    """Cached Portainer base URL (empty string when unset)."""
     return str(get_portainer_settings().get("portainer_url") or "")
 
 
 def _api_key() -> str:
+    """Cached Portainer API key (empty string when unset)."""
     return str(get_portainer_settings().get("portainer_api_key") or "")
 
 
 def _endpoint_id() -> int:
+    """Cached Portainer endpoint ID (defaults to 1)."""
     val = get_portainer_settings().get("portainer_endpoint_id") or 1
     return int(val)
 
 
 def _verify_tls() -> bool:
+    """Cached Portainer TLS-verification flag (defaults to True)."""
     return bool(get_portainer_settings().get("portainer_verify_tls", True))
 
 
 def __getattr__(name: str):
+    """Back-compat shim for the old module-level ``PORTAINER_*`` constants —
+    resolve each through the cached settings dict so UI changes apply without a
+    restart (PEP 562 module ``__getattr__``)."""
     # Backwards compatibility for the old module-level constants. Every
     # read goes through the cached settings dict so UI changes are
     # picked up without restart. This is the minimum-diff path described

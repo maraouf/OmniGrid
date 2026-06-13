@@ -102,7 +102,7 @@ def seed_stats_cache_from_db() -> int:
                                    FROM stats_samples)
                              WHERE rn = 1
                              """).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[sampler] seed_stats_cache_from_db failed: {e}")
         return 0
     if not rows:
@@ -256,7 +256,7 @@ async def stats_sampler_loop() -> None:
             try:
                 if _snapshot_db_size_to_db():
                     print("[sampler] recorded db-size sample")
-            except Exception as db_e:
+            except Exception as db_e: # noqa: BLE001
                 print(f"[sampler] db-size sample skipped: {db_e}")
             interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
@@ -282,11 +282,15 @@ async def stats_sampler_loop() -> None:
                     db_pruned = await asyncio.to_thread(_prune_db_size_samples)
                     if db_pruned:
                         print(f"[sampler] pruned {db_pruned} db-size sample(s)")
-                except Exception as dbp_e:
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    raise
+                except Exception as dbp_e: # noqa: BLE001
                     print(f"[sampler] db-size prune skipped: {dbp_e}")
             if n:
                 print(f"[sampler] wrote {n} samples")
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             _tick_ok = False
             _tick_err = type(e).__name__
             print(f"[sampler] error: {e}")
@@ -337,6 +341,7 @@ def stats_history(item_ids: list[str], since: float) -> dict[str, list[dict]]:
 # Live per-container stats polling.
 # ---------------------------------------------------------------------
 def _parse_stats_payload(s: dict) -> dict:
+    """Parse a Docker ``/stats`` payload into ``cpu_percent`` / ``mem_usage`` / ``mem_limit``."""
     cpu_now = ((s.get("cpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
     cpu_prev = ((s.get("precpu_stats") or {}).get("cpu_usage") or {}).get("total_usage", 0)
     sys_now = (s.get("cpu_stats") or {}).get("system_cpu_usage", 0)
@@ -425,7 +430,9 @@ async def _one_container_stats(
                 # the cid, which won't change with a retry.
                 if r.status_code < 500 or attempt == 2:
                     break
-            except Exception as e:
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e: # noqa: BLE001
                 targeted_err = f"{type(e).__name__}: {e}"
                 if attempt == 2:
                     break
@@ -440,7 +447,9 @@ async def _one_container_stats(
         if r.status_code == 200:
             return _parse_stats_payload(r.json())
         untargeted_status = r.status_code
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         untargeted_err = f"{type(e).__name__}: {e}"
 
     # Brute-force fallback — try each OTHER known Swarm hostname as
@@ -650,7 +659,9 @@ async def gather_stats() -> None:
                     client, f"{ep}/containers/json?all=1&size=1",
                 )
                 print(f"[stats] gather_stats: containers fetched={len(containers)}")
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[stats] gather_stats: containers fetch FAILED: {type(e).__name__}: {e}")
             containers = []
 
@@ -722,7 +733,9 @@ async def gather_stats() -> None:
         _tasks_target = f"{portainer.PORTAINER_URL.rstrip('/')}{_tasks_path}"
         try:
             tasks = await portainer.pg(client, _tasks_path)
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             # Defence-in-depth on empty exception body — ConnectTimeout
             # often stringifies blank, leaving the log line as
             # `tasks fetch FAILED: ConnectTimeout:` with nothing
@@ -949,5 +962,5 @@ async def gather_stats() -> None:
                 "with_size": with_size,
                 "ts": _stats_cache["ts"],
             })
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[events] gather_stats publish failed: {e}")

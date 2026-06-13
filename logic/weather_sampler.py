@@ -56,6 +56,7 @@ def _sampler_interval_seconds() -> int:
 
 
 def _retention_days() -> int:
+    """Retention window in days for weather samples (tunable)."""
     try:
         return int(tuning_int(Tunable.WEATHER_HISTORY_RETENTION_DAYS))
     except (KeyError, ValueError, TypeError):
@@ -63,6 +64,7 @@ def _retention_days() -> int:
 
 
 def _quantise(v: float) -> float:
+    """Round a coordinate to 2 decimals to match the weather cache key."""
     return round(float(v), 2)
 
 

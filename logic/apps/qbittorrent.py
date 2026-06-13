@@ -898,6 +898,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
 # Free-text state filter → the buckets _classify emits. Blank → active
 # (downloading + seeding); 'all' → every torrent.
 def _resolve_list_filter(arg: Optional[str]) -> "tuple[set, str]":
+    """Resolve a list-filter arg to ``(status_set, label)`` — defaults to active (downloading + seeding)."""
     a = (arg or "").strip().lower()
     if not a:
         return {"downloading", "seeding"}, "active"

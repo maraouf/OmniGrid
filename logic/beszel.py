@@ -100,6 +100,7 @@ def _warned_no_mounts_add(host_key: str) -> None:
 
 
 def _cache_key(base_url: str, identity: str) -> tuple[str, str]:
+    """PocketBase token-cache key for a ``(base_url, identity)`` pair."""
     # PyCharm's "Remove redundant parentheses" inspector flagged every
     # paren / no-paren form of the return value (both `return (a, b)`
     # AND bare-comma `return a, b` AND the two-line split with a
@@ -284,6 +285,7 @@ async def _get_token(
     password: str,
     force_refresh: bool = False,
 ) -> str:
+    """Authenticate against the Beszel PocketBase hub and return a cached auth token."""
     key = _cache_key(base_url, identity)
     if not force_refresh:
         entry = _token_cache.get(key)

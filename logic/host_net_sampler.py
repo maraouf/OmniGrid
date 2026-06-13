@@ -171,7 +171,9 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
         _ne_to = 10.0
     try:
         stats = await _ne.probe_node(client, ne_url, timeout=_ne_to)
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         # Per-host failure isolation — log and move on. Next tick
         # retries; no cumulative state to clean up beyond the cached
         # counter pair, which we intentionally leave in place so a
@@ -350,7 +352,7 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
                 "VALUES (?, ?, ?, ?)",
                 (int(now), hid, float(rx_rate), float(tx_rate)),
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_net_sampler] {hid!r} target={ne_url} DB insert failed: {e}")
         return
     print(f"[host_net_sampler] {hid!r} target={ne_url} "
@@ -358,13 +360,14 @@ async def _probe_one(client: httpx.AsyncClient, host: dict) -> None:
 
 
 def _prune_old_samples() -> int:
+    """Delete net-rate samples older than the retention window; returns the deleted-row count."""
     days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
     cutoff = int(time.time() - days * 86400)
     try:
         # Chunked delete (writer lock released per chunk) instead of one big
         # DELETE — same predicate, bounded lock-hold, seeks idx_host_net_samples_ts.
         return prune_rows_older_than("host_net_samples", cutoff)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_net_sampler] prune failed: {e}")
         return 0
 
@@ -459,7 +462,7 @@ def recent_samples(host_id: str, since_ts: int) -> list[dict]:
                 "ORDER BY ts ASC",
                 (host_id, int(since_ts)),
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_net_sampler] recent_samples({host_id!r}) failed: {e}")
         return []
     return [
@@ -483,7 +486,7 @@ def last_samples(host_id: str, limit: int = 5) -> list[dict]:
                 "ORDER BY ts DESC LIMIT ?",
                 (host_id, int(limit)),
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[host_net_sampler] last_samples({host_id!r}) failed: {e}")
         return []
     return [

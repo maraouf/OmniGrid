@@ -5207,6 +5207,58 @@ body.ai-pinned > .og-app-shell--ai-pinned {
   background: var(--surface-3);
 }
 
+/* Animated shimmer shown WHILE a proxied poster / thumbnail / avatar image is
+   loading — replaces the flat grey placeholder so the user sees the image is
+   in flight (not just missing). The <img>'s own background animates a skeleton
+   shimmer until the image paints over it; the markup's `@load` handler adds
+   `.img-loaded` to stop the shimmer cleanly (so a transparent image doesn't
+   keep shimmering behind it), and the existing `@error` handler hides a broken
+   image. Shared across every image-proxy surface (the generic rich-item poster
+   list used by the arr family / Seerr / Tautulli / Tracearr / Plex / Bazarr,
+   the release-calendar poster, the AI-sidebar poster, and the small byline
+   avatars) by adding the `img-shimmer` class to each <img>. */
+.img-shimmer:not(.img-loaded) {
+  background-color: var(--surface-3);
+  background-image: linear-gradient(100deg,
+      transparent 25%, var(--surface-2) 45%, var(--surface-2) 55%, transparent 75%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.25s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .img-shimmer:not(.img-loaded) {
+    animation: none;
+  }
+}
+
+/* Seerr request-state composition chart — per-day stacked bar segments
+   (available / approved / declined) + the legend dots. Heights are set inline
+   per-bar (runtime % of the window's max stacked total); the colour modifiers
+   are shared by the bar segments AND the legend dots. */
+.seerr-comp {
+  width: 100%;
+}
+
+.seerr-comp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+
+.seerr-comp--available {
+  background: var(--info);
+}
+
+.seerr-comp--approved {
+  background: var(--success);
+}
+
+.seerr-comp--declined {
+  background: var(--danger);
+}
+
 /* Per-row progress bar for download-queue / torrent rich items. */
 .apps-skill-item-bar {
   display: block;

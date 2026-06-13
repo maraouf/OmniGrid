@@ -111,6 +111,7 @@ def _scan_file(path: Path, rules: list[dict]) -> list[tuple[int, str, dict]]:
 
 
 def main() -> int:
+    """Run the stale-section-name check; returns a process exit code (0 = pass)."""
     rules = _load_rules()
     files = _iter_surface_files()
     if not files:

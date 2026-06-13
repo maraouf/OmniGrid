@@ -251,10 +251,12 @@ def resolve_sampler_locations(
 
 
 def _quantise_key(lat: float, lon: float) -> tuple[float, float]:
+    """Round a lat/lon to 2 decimals so nearby coordinates share one cache entry."""
     return round(float(lat), 2), round(float(lon), 2)
 
 
 def _cache_ttl() -> float:
+    """Weather response cache TTL in seconds (tunable, default 600)."""
     try:
         return float(tuning_int(Tunable.WEATHER_CACHE_TTL_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -262,6 +264,7 @@ def _cache_ttl() -> float:
 
 
 def _fetch_timeout() -> float:
+    """Per-request weather HTTP timeout in seconds (tunable)."""
     try:
         return float(tuning_int(Tunable.WEATHER_FETCH_TIMEOUT_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -361,6 +364,9 @@ async def fetch(lat: float, lon: float, *, label: str = "", force: bool = False)
 async def _fetch_open_meteo(
     lat: float, lon: float, *, label: str, fetched_at: int,
 ) -> dict:
+    """Fetch + normalise current weather + forecast from the Open-Meteo provider
+    into the compact ``{temp_c, humidity, wind_kmh, code, condition, forecast,
+    ...}`` shape. Returns ``{configured: False, ...}`` when the base URL is unset."""
     upstream = base_url()
     if not upstream:
         return {"configured": False, "supports_moon": False, "provider": "open-meteo",
@@ -447,6 +453,9 @@ async def _fetch_open_meteo(
 async def _fetch_weatherapi(
     lat: float, lon: float, *, label: str, fetched_at: int,
 ) -> dict:
+    """Fetch + normalise current weather + forecast (incl. moon data) from the
+    WeatherAPI provider into the compact weather shape. Returns
+    ``{configured: False, ...}`` when the API key is unset."""
     api_key = (get_setting(Settings.WEATHER_API_KEY) or "").strip()
     if not api_key:
         return {"configured": False, "supports_moon": True, "provider": "weatherapi"}
@@ -543,6 +552,7 @@ async def _fetch_weatherapi(
 
 
 def _to_float(v):
+    """Coerce a value to float; ``None`` when it's missing / unparseable."""
     if v is None:
         return None
     try:

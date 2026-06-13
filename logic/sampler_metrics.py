@@ -174,7 +174,9 @@ async def prune_with_metrics(name: str, prune_fn) -> int:
     t0 = time.perf_counter()
     try:
         result = await _asyncio.to_thread(prune_fn)
-    except Exception:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception: # noqa: BLE001
         # Still record the duration even on failure so the panel
         # surfaces "prune crashed at <ts> after Nms" instead of a
         # silently-frozen prune metric.

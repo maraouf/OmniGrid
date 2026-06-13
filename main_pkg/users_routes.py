@@ -75,6 +75,7 @@ Endpoints:
 # = Depends(auth.require_admin)` parameter (PyCharm cannot narrow through
 # FastAPI's Depends() injection). Real bugs OUTSIDE these noise classes are
 # fixed inline.
+import asyncio
 from main import *  # noqa: E402,F401,F403
 # IDE contract: PyCharm/Pyright can't trace `from X import *`, so
 # every name resolved through the wildcard above would be flagged as
@@ -153,6 +154,8 @@ from main_pkg.hosts_routes import *  # noqa: E402,F401,F403
 
 
 def _webauthn_self_guard(user: auth.User) -> None:
+    """Reject passkey self-management for callers that can't own one — bearer-token
+    identities (negative id) and Authentik (SSO) users, who manage 2FA in their IdP."""
     if user.id < 0:
         raise HTTPException(400, "API tokens cannot manage passkeys")
     if user.auth_source == "authentik":
@@ -357,7 +360,7 @@ async def api_me_webauthn_register_finish(
             expected_origin=state["origin"],
             expected_rp_id=state["rp_id"],
         )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[webauthn] {user.username} register verify FAILED: {e}")
         # Generic detail to the client (mirrors the login path) — the raw
         # verifier exception (which step failed: challenge / origin / rp_id /
@@ -412,7 +415,7 @@ async def api_me_webauthn_register_finish(
                 message=(f"passkey {friendly!r} registered by user {user.username} "
                          f"(rp_id={state.get('rp_id') or '?'})"),
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[webauthn] self-register audit-row write failed: {e}")
     print(f"[webauthn] {user.username} enrolled passkey "
           f"id={row_id} name={friendly!r}")
@@ -445,7 +448,7 @@ async def api_me_webauthn_delete(
                     actor=user.username,
                     message=f"passkey id={credential_row_id} revoked by user {user.username}",
                 )
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 print(f"[webauthn] self-delete audit-row write failed: {e}")
     if not ok:
         raise HTTPException(status_code=404, detail="Passkey not found.")
@@ -457,6 +460,8 @@ async def api_me_webauthn_delete(
 # Admin: user / session / API-token management (step 5).
 # ============================================================================
 class UserCreate(BaseModel):
+    """Request body for creating a user — username + role, plus the password for
+    a local account (Authentik users auto-provision via SSO instead)."""
     username: str
     role: str  # "admin" | "readonly"
     auth_source: str = "local"  # "local" | "authentik"
@@ -465,15 +470,21 @@ class UserCreate(BaseModel):
 
 
 class UserPatch(BaseModel):
+    """Request body for editing a user — role and/or disabled flag; omitted
+    fields are left unchanged."""
     role: Optional[str] = None
     disabled: Optional[bool] = None
 
 
 class PasswordResetIn(BaseModel):
+    """Request body for an admin password reset — the new password to set for
+    the target user."""
     new_password: str
 
 
 class TokenCreate(BaseModel):
+    """Request body for minting an API token — a display name + the role the
+    bearer token carries."""
     name: str
     role: str  # "admin" | "readonly"
 
@@ -675,7 +686,7 @@ async def api_admin_disable_totp(
                 actor=admin.username,
                 message=f"2FA disabled for {target.username} by {admin.username}",
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             # Defensive log + continue is correct (don't roll back the
             # credential change just because the audit row failed), but
             # a silent `print` to stderr meant the operator looking at
@@ -706,6 +717,8 @@ async def api_admin_disable_totp(
 
 
 class TotpForceIn(BaseModel):
+    """Request body for the admin force-2FA toggle on a user — ``force`` sets
+    whether that user must enrol a second factor."""
     force: bool
 
 
@@ -751,7 +764,7 @@ async def api_admin_totp_force(
                 message=(f"2FA force-required {'enabled' if body.force else 'cleared'} "
                          f"for {target.username} by {admin.username}"),
             )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             # Same escalation as totp_admin_disabled — surface the
             # audit-row failure to the operator via in-app notification
             # so they know the History trail is missing for this
@@ -940,7 +953,7 @@ async def api_restore_backup_named(
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Backup not found")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
     with db_conn() as c:
         _ops_mod.write_admin_audit(
@@ -982,7 +995,7 @@ async def api_restore_backup_upload(
         result = backups.restore_from_file(tmp_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid backup: {e}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
     finally:
         try:
@@ -1153,6 +1166,8 @@ async def api_config_backup_delete_saved(
 # tick loop + kind registry. Admin-only CRUD; POST .../run fires manually.
 # ============================================================================
 class ScheduleIn(BaseModel):
+    """Request body for creating a schedule — name, kind, params + the cadence
+    bundle (interval or a daily/weekly/monthly anchor) that the tick loop fires on."""
     name: str
     kind: str
     params: Optional[dict] = None
@@ -1167,6 +1182,8 @@ class ScheduleIn(BaseModel):
 
 
 class SchedulePatch(BaseModel):
+    """Request body for editing a schedule — every field optional; ``None`` means
+    "leave unchanged", explicit empty (``""`` / ``[]``) means "clear"."""
     name: Optional[str] = None
     kind: Optional[str] = None
     params: Optional[dict] = None
@@ -1326,7 +1343,9 @@ async def api_run_schedule(
         op_id = await schedules.fire_schedule(s)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Fire failed: {e}")
     sched_name = s.get("name") or str(schedule_id)
     with db_conn() as c:

@@ -325,6 +325,7 @@ def _generic_probe() -> bytes:
 # Probe routing — port → builder. Some builders take args (community);
 # the caller supplies kwargs in `_probe_for(port, **kwargs)`.
 def _probe_for(port: int, *, snmp_community: str = "public") -> Optional[bytes]:
+    """Return the UDP probe payload for a well-known port (DNS / DHCP / TFTP / SNMP / …); ``None`` when no specific probe exists."""
     if port == 53:    return _dns_probe()
     if port == 67:    return _dhcp_probe()
     if port == 69:    return _tftp_probe()

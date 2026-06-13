@@ -627,7 +627,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "weekday": now_utc.strftime("%A"),
         }
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context time build failed: {e}")
         ctx["time"] = {}
     # ---- Weather: per-user saved location via api_weather ----------
@@ -660,7 +660,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
                         "forecast": forecast[:7] if isinstance(forecast, list) else [],
                     }
         # noinspection PyBroadException
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[telegram_listener] context weather build failed: {e}")
     # ---- Prayer Times + Hijri date — per-user saved weather location.
     # Operator-opt-in (prayer_times_enabled); method + Asr school
@@ -782,7 +784,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "removable_total": len(removables),
         }
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context items build failed: {e}")
         ctx["items"] = []
         ctx["updatable_items"] = []
@@ -931,7 +933,9 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
             "problem_count": len(problem_hosts),
         }
     # noinspection PyBroadException
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context hosts build failed: {e}")
         ctx["hosts"] = []
         ctx["problem_hosts"] = []
@@ -956,7 +960,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         from logic.tuning import TUNABLES, tuning_int
         ctx["tunables"] = {key: tuning_int(key) for key in TUNABLES}
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context tunables build failed: {e}")
         ctx["tunables"] = {}
     # ---- App skills the AI may invoke (run_app_skill) -------------
@@ -973,7 +977,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         _fmt = get_user_datetime_format(username or "")
         ctx["app_skills"] = available_app_skills_context(datetime_format=_fmt)
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context app_skills build failed: {e}")
         ctx["app_skills"] = []
     # ---- Other open web tabs (cross-device handoff) ---------------
@@ -1024,7 +1028,7 @@ async def _build_telegram_ai_context(username: Optional[str] = None) -> dict:
         if other_tabs:
             ctx["other_tabs"] = other_tabs[:8]
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] context other_tabs build failed: {e}")
     return ctx
 
@@ -1114,7 +1118,7 @@ async def _ai_reply(
         from logic import ai
         from logic.ops import notify_one_medium
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] _ai_reply import failed: {e}")
         return
     if not get_setting_bool(Settings.AI_ENABLED):
@@ -1434,7 +1438,7 @@ async def _ai_reply(
                 },
             )
         # noinspection PyBroadException
-        except Exception as _rec_err:
+        except Exception as _rec_err: # noqa: BLE001
             # Never let a recording failure swallow the operator's reply.
             print(f"[telegram_listener] record_ai_call failed: {_rec_err}")
 
@@ -1449,7 +1453,9 @@ async def _ai_reply(
             max_tokens=max_toks,
         )
     # noinspection PyBroadException
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         _record_call(False, {"detail": str(e)}, "")
         await _deliver(f"❌ AI call failed: <code>{_listener()._escape(str(e))}</code>")
         return
@@ -1522,7 +1528,7 @@ async def _ai_reply(
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
         # noinspection PyBroadException
-        except Exception as _e2:
+        except Exception as _e2: # noqa: BLE001
             # The first-round reply already succeeded; a second-round failure
             # must never sink it — log + fall back to the first-round text.
             print(f"[telegram_ai] second-round tool dispatch failed: {type(_e2).__name__}: {_e2}")

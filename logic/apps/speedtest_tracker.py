@@ -478,6 +478,7 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
 
 
 def _fmt_mbps(v) -> str:
+    """Format a value as a ``'<n> Mbps'`` string (1-decimal, grouped); placeholder on a non-numeric value."""
     try:
         return f"{float(v):,.1f} Mbps"
     except (TypeError, ValueError):
@@ -485,6 +486,7 @@ def _fmt_mbps(v) -> str:
 
 
 def _fmt_ms(v) -> str:
+    """Format a value as a ``'<n> ms'`` string (1-decimal, grouped); placeholder on a non-numeric value."""
     try:
         return f"{float(v):,.1f} ms"
     except (TypeError, ValueError):

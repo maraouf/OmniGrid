@@ -47,6 +47,7 @@ _PRUNE_EVERY_SECONDS = 3600.0
 
 
 def _lead_minutes() -> int:
+    """How many minutes before a prayer to fire its reminder (tunable, default 10)."""
     try:
         return int(tuning_int(Tunable.PRAYER_TIMES_REMINDER_LEAD_MINUTES))
     except (KeyError, ValueError, TypeError):
@@ -54,6 +55,7 @@ def _lead_minutes() -> int:
 
 
 def _check_interval_seconds() -> int:
+    """Reminder-loop tick cadence in seconds (tunable, default 30)."""
     try:
         return int(tuning_int(Tunable.PRAYER_TIMES_REMINDER_CHECK_INTERVAL_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -165,6 +167,8 @@ def _located_users() -> list[dict]:
 
 
 def _already_sent(username: str, greg_date: str, prayer_key: str) -> bool:
+    """True when this (user, date, prayer) reminder was already sent — fails
+    CLOSED (returns True on a DB error) so a blip can't cause a reminder spam loop."""
     try:
         with db_conn() as c:
             row = c.execute(
@@ -182,6 +186,7 @@ def _already_sent(username: str, greg_date: str, prayer_key: str) -> bool:
 
 
 def _mark_sent(username: str, greg_date: str, prayer_key: str) -> None:
+    """Record that this (user, date, prayer) reminder has been sent (dedup key)."""
     try:
         with db_conn() as c:
             c.execute(
@@ -195,6 +200,7 @@ def _mark_sent(username: str, greg_date: str, prayer_key: str) -> None:
 
 
 def _prune_dedup() -> int:
+    """Delete dedup rows older than the retention window; returns the row count."""
     cutoff = int(time.time()) - _DEDUP_RETENTION_DAYS * 86400
     try:
         # Chunked delete (writer lock released per chunk) — seeks

@@ -7,6 +7,7 @@ latency / error counters to ``logic.metrics``.
 No internal OmniGrid state beyond the token cache — safe to extract
 as a leaf module.
 """
+import asyncio
 import time
 from typing import Optional
 
@@ -182,7 +183,9 @@ async def _get_bearer(client: httpx.AsyncClient, www_auth: str, repo: str) -> Op
         if tok:
             _token_cache[key] = (tok, time.time() + int(j.get("expires_in", 300)) - 30)
         return tok
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         # Some httpx/SSL/auth exceptions stringify to empty — fall
         # back to the class name so the log line carries SOMETHING
         # actionable. Same pattern as the telegram_listener fix for
@@ -297,7 +300,9 @@ async def _fetch_image_config_labels(
         if not isinstance(labels, dict):
             return {}
         return {str(k): str(v) for k, v in labels.items() if v is not None}
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         print(f"[release-notes] config-labels {image}: {e}")
         return {}
 
@@ -432,7 +437,9 @@ async def _fetch_github_latest_release(
                 "published_at": body.get("published_at") or "",
                 "tag": tag,
             }
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         print(f"[release-notes] github {owner}/{repo} latest: {e}")
     return None
 
@@ -475,7 +482,9 @@ async def _fetch_github_release_notes(
                     "html_url": body.get("html_url") or f"{ExternalURL.GITHUB}/{owner}/{repo}/releases/tag/{cand}",
                     "published_at": body.get("published_at") or "",
                 }
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[release-notes] github {owner}/{repo}@{cand}: {e}")
             continue
     return None
@@ -511,7 +520,7 @@ async def get_release_notes(image: str) -> dict:
             return _data
     try:
         reg, repo, ref_tag = parse_image_ref(image)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Log the full parse error server-side, but return a GENERIC error
         # to the caller — this dict is returned verbatim to the client by
         # the /api/registry/release-notes route, and the raw exception text
@@ -644,7 +653,7 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
     # registry latency.
     try:
         reg, repo, tag = parse_image_ref(image)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[digest] parse {image}: {e}")
         return None
     # serve a recently-resolved digest from the result cache (see
@@ -687,7 +696,9 @@ async def get_remote_digest(client: httpx.AsyncClient, image: str) -> Optional[s
             # Cache SUCCESS only — never store a None (transient failure).
             _digest_cache[_ck] = (digest, time.monotonic())
         return digest
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         metrics.REGISTRY_ERRORS.labels(registry=_classify_registry(reg)).inc()
         print(f"[digest] {image}: {e}")
         return None

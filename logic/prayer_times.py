@@ -179,6 +179,7 @@ def default_location() -> Optional[dict]:
 
 
 def _cache_ttl() -> float:
+    """Prayer-times response cache TTL in seconds (tunable)."""
     try:
         return float(tuning_int(Tunable.PRAYER_TIMES_CACHE_TTL_SECONDS))
     except (KeyError, ValueError, TypeError):
@@ -186,6 +187,7 @@ def _cache_ttl() -> float:
 
 
 def _fetch_timeout() -> float:
+    """Per-request prayer-times HTTP timeout in seconds (tunable)."""
     try:
         return float(tuning_int(Tunable.PRAYER_TIMES_FETCH_TIMEOUT_SECONDS))
     except (KeyError, ValueError, TypeError):
