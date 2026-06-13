@@ -41,8 +41,8 @@
            the whole AI tab (master toggle + active provider
            + every provider card), not just the dropdown. -->
       <div>
-        <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.active_provider_label')"></label>
-        <select x-model="settings.ai_active_provider"
+        <label for="ai-active-provider" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.active_provider_label')"></label>
+        <select id="ai-active-provider" x-model="settings.ai_active_provider"
                 @change="markAiFormDirty()"
                 :disabled="isReadonly() || !settings.ai_enabled"
                 class="w-full md:max-w-[260px] fs-sm">
@@ -154,12 +154,12 @@
                through TUNABLES so DB > env > default + bounds-clamp
                applies. -->
           <div class="mb-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_max_tokens" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_max_tokens.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_max_tokens.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_max_tokens" type="number"
                      x-model="tuningForm['tuning_ai_max_tokens']"
                      :placeholder="tuningPlaceholder('tuning_ai_max_tokens')"
                      :min="(tuningEffective['tuning_ai_max_tokens'] || {}).min"
@@ -190,12 +190,12 @@
           </div>
           <!-- Backoff in milliseconds. -->
           <div class="mb-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_retry_backoff_ms" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_retry_backoff_ms.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_retry_backoff_ms" type="number"
                      x-model="tuningForm['tuning_ai_retry_backoff_ms']"
                      :placeholder="tuningPlaceholder('tuning_ai_retry_backoff_ms')"
                      :min="(tuningEffective['tuning_ai_retry_backoff_ms'] || {}).min"
@@ -226,12 +226,12 @@
           </div>
           <!-- First-attempt-max-duration gate (ms). -->
           <div>
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_retry_first_attempt_max_ms" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_retry_first_attempt_max_ms.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_retry_first_attempt_max_ms" type="number"
                      x-model="tuningForm['tuning_ai_retry_first_attempt_max_ms']"
                      :placeholder="tuningPlaceholder('tuning_ai_retry_first_attempt_max_ms')"
                      :min="(tuningEffective['tuning_ai_retry_first_attempt_max_ms'] || {}).min"
@@ -267,12 +267,12 @@
                shape as the retry first-attempt-max field above so
                the visual rhythm matches. -->
           <div class="mt-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_sidebar_width_px" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_sidebar_width_px.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_sidebar_width_px" type="number"
                      x-model="tuningForm['tuning_ai_sidebar_width_px']"
                      :placeholder="tuningPlaceholder('tuning_ai_sidebar_width_px')"
                      :min="(tuningEffective['tuning_ai_sidebar_width_px'] || {}).min"
@@ -305,12 +305,12 @@
                the sidebar-width input row above. Read by the SPA's
                `_aiPersistInterval` once on init. -->
           <div class="mt-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_conversation_persist_interval_ms" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_conversation_persist_interval_ms.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_conversation_persist_interval_ms" type="number"
                      x-model="tuningForm['tuning_ai_conversation_persist_interval_ms']"
                      :placeholder="tuningPlaceholder('tuning_ai_conversation_persist_interval_ms')"
                      :min="(tuningEffective['tuning_ai_conversation_persist_interval_ms'] || {}).min"
@@ -346,12 +346,12 @@
                fleet). Bounded by `tuning_ai_log_context_lines`
                below for a hard token-budget cap. -->
           <div class="mt-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_log_context_hours" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_log_context_hours.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_log_context_hours.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_log_context_hours" type="number"
                      x-model="tuningForm['tuning_ai_log_context_hours']"
                      :placeholder="tuningPlaceholder('tuning_ai_log_context_hours')"
                      :min="(tuningEffective['tuning_ai_log_context_hours'] || {}).min"
@@ -384,12 +384,12 @@
                error+warn lines injected per call. Newest-last so
                the most recent issues survive trimming. -->
           <div class="mt-3">
-            <label class="block fs-xs font-medium mb-1"
+            <label for="ai-cfg-tuning_ai_log_context_lines" class="block fs-xs font-medium mb-1"
                    x-text="t('admin.config.fields.tuning_ai_log_context_lines.label')"></label>
             <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                x-text="t('admin.config.fields.tuning_ai_log_context_lines.help')"></p>
             <div class="flex flex-wrap items-center gap-2">
-              <input type="number"
+              <input id="ai-cfg-tuning_ai_log_context_lines" type="number"
                      x-model="tuningForm['tuning_ai_log_context_lines']"
                      :placeholder="tuningPlaceholder('tuning_ai_log_context_lines')"
                      :min="(tuningEffective['tuning_ai_log_context_lines'] || {}).min"
@@ -427,12 +427,12 @@
                                         'tuning_ai_extended_http_timeout_seconds']"
                     :key="key">
             <div class="mt-3">
-              <label class="block fs-xs font-medium mb-1"
+              <label :for="'ai-cfg-' + key" class="block fs-xs font-medium mb-1"
                      x-text="t('admin.config.fields.' + key + '.label')"></label>
               <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                  x-text="t('admin.config.fields.' + key + '.help')"></p>
               <div class="flex flex-wrap items-center gap-2">
-                <input type="number"
+                <input :id="'ai-cfg-' + key" type="number"
                        x-model="tuningForm[key]"
                        :placeholder="tuningPlaceholder(key)"
                        :min="(tuningEffective[key] || {}).min"
@@ -507,7 +507,7 @@
            x-text="t('admin.ai.fallback.no_eligible_warning')"></p>
         <!-- Max-depth selector — 1 or 2 hops. -->
         <div class="mb-3" x-show="settings.ai_fallback_enabled">
-          <label class="block fs-xs text-[var(--text-dim)] mb-1"
+          <label for="ai-cfg-tuning_ai_fallback_max_depth" class="block fs-xs text-[var(--text-dim)] mb-1"
                  x-text="t('admin.ai.fallback.max_depth_label')"></label>
           <div class="flex flex-wrap items-center gap-2">
             <!-- Bound to the TUNABLES form, NOT
@@ -516,7 +516,7 @@
                  the legacy key but every consumer reads
                  `tuning_int("tuning_ai_fallback_max_depth")`,
                  so the choice silently no-op'd. -->
-            <select x-model.number="tuningForm['tuning_ai_fallback_max_depth']"
+            <select id="ai-cfg-tuning_ai_fallback_max_depth" x-model.number="tuningForm['tuning_ai_fallback_max_depth']"
                     @change="markAiFormDirty()"
                     :disabled="isReadonly() || !settings.ai_enabled"
                     class="fs-sm w-20">
@@ -883,8 +883,8 @@
           </div>
           <div class="space-y-2">
             <div>
-              <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
-              <input type="text" x-model="aiForm.providers[name].model"
+              <label :for="'ai-prov-model-' + name" class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
+              <input :id="'ai-prov-model-' + name" type="text" x-model="aiForm.providers[name].model"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiProviderModelPlaceholder(name)"
@@ -893,13 +893,13 @@
                  x-text="aiProviderModelHint(name)"></p>
             </div>
             <div>
-              <label class="block fs-2xs text-[var(--text-dim)] mb-1">
+              <label :for="'ai-prov-key-' + name" class="block fs-2xs text-[var(--text-dim)] mb-1">
                 <span x-text="t('admin.ai.api_key_label')"></span>
               </label>
               <span x-show="aiForm.providers[name].api_key_set"
                     class="block fs-2xs text-[var(--success)] mb-1"
                     x-text="t('settings.secret_input.saved_hint')"></span>
-              <input type="password" x-model="aiForm.providers[name].api_key"
+              <input :id="'ai-prov-key-' + name" type="password" x-model="aiForm.providers[name].api_key"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiForm.providers[name].api_key_set ? t('settings.secret_input.placeholder_keep') : t('admin.ai.api_key_placeholder')"
@@ -907,8 +907,8 @@
                      class="w-full mono fs-sm">
             </div>
             <div>
-              <label class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
-              <input type="url" x-model="aiForm.providers[name].base_url"
+              <label :for="'ai-prov-url-' + name" class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
+              <input :id="'ai-prov-url-' + name" type="url" x-model="aiForm.providers[name].base_url"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiProviderBaseUrlPlaceholder(name)"
@@ -997,7 +997,7 @@
     <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
        x-text="t('ai_memory.subtitle')"></p>
     <div class="flex items-stretch gap-2">
-      <input type="text"
+      <input :aria-label="t('ai_memory.add_placeholder')" type="text"
              x-model="aiMemoryAddText"
              :placeholder="t('ai_memory.add_placeholder')"
              :disabled="isReadonly() || aiMemoryBusy"
@@ -1069,7 +1069,7 @@
           <!-- Jobs modal — paginated job log. -->
           <div x-show="aiModalKey === 'jobs'">
             <div class="flex items-center gap-2 flex-wrap mb-3">
-              <select x-model="aiJobsFilterProvider"
+              <select :aria-label="t('admin.ai.modal.filter_all_providers')" x-model="aiJobsFilterProvider"
                       @change="aiModalPage = 1; loadAiJobs()"
                       class="fs-xs py-1">
                 <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
@@ -1077,7 +1077,7 @@
                   <option :value="name" x-text="aiProviderDisplayName(name)"></option>
                 </template>
               </select>
-              <select x-model="aiJobsFilterStatus"
+              <select :aria-label="t('admin.ai.modal.filter_all_statuses')" x-model="aiJobsFilterStatus"
                       @change="aiModalPage = 1; loadAiJobs()"
                       class="fs-xs py-1">
                 <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>

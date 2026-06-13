@@ -75,7 +75,6 @@ Endpoints:
 # = Depends(auth.require_admin)` parameter (PyCharm cannot narrow through
 # FastAPI's Depends() injection). Real bugs OUTSIDE these noise classes are
 # fixed inline.
-import asyncio
 from main import *  # noqa: E402,F401,F403
 # IDE contract: PyCharm/Pyright can't trace `from X import *`, so
 # every name resolved through the wildcard above would be flagged as
@@ -83,6 +82,8 @@ from main import *  # noqa: E402,F401,F403
 # runtime too (Python's import system caches; second-import is a dict
 # lookup), so they're safe + they silence the IDE in every scope.
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    asyncio,
+    sqlite3,
     AdminUser,
     BaseModel,
     CurrentUser,
@@ -132,7 +133,6 @@ if TYPE_CHECKING:
 import json  # noqa: F401,F811
 import os  # noqa: F401,F811
 import re  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
-import sqlite3  # noqa: F401,F811
 import tempfile  # noqa: F401,F811
 import time  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
 from typing import Optional, Set
@@ -360,7 +360,7 @@ async def api_me_webauthn_register_finish(
             expected_origin=state["origin"],
             expected_rp_id=state["rp_id"],
         )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[webauthn] {user.username} register verify FAILED: {e}")
         # Generic detail to the client (mirrors the login path) — the raw
         # verifier exception (which step failed: challenge / origin / rp_id /
@@ -415,7 +415,7 @@ async def api_me_webauthn_register_finish(
                 message=(f"passkey {friendly!r} registered by user {user.username} "
                          f"(rp_id={state.get('rp_id') or '?'})"),
             )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[webauthn] self-register audit-row write failed: {e}")
     print(f"[webauthn] {user.username} enrolled passkey "
           f"id={row_id} name={friendly!r}")
@@ -448,7 +448,7 @@ async def api_me_webauthn_delete(
                     actor=user.username,
                     message=f"passkey id={credential_row_id} revoked by user {user.username}",
                 )
-            except Exception as e: # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
                 print(f"[webauthn] self-delete audit-row write failed: {e}")
     if not ok:
         raise HTTPException(status_code=404, detail="Passkey not found.")
@@ -686,7 +686,7 @@ async def api_admin_disable_totp(
                 actor=admin.username,
                 message=f"2FA disabled for {target.username} by {admin.username}",
             )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # Defensive log + continue is correct (don't roll back the
             # credential change just because the audit row failed), but
             # a silent `print` to stderr meant the operator looking at
@@ -764,7 +764,7 @@ async def api_admin_totp_force(
                 message=(f"2FA force-required {'enabled' if body.force else 'cleared'} "
                          f"for {target.username} by {admin.username}"),
             )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # Same escalation as totp_admin_disabled — surface the
             # audit-row failure to the operator via in-app notification
             # so they know the History trail is missing for this
@@ -953,7 +953,7 @@ async def api_restore_backup_named(
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Backup not found")
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
     with db_conn() as c:
         _ops_mod.write_admin_audit(
@@ -995,7 +995,7 @@ async def api_restore_backup_upload(
         result = backups.restore_from_file(tmp_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid backup: {e}")
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Restore failed: {e}")
     finally:
         try:
@@ -1345,7 +1345,7 @@ async def api_run_schedule(
         raise HTTPException(status_code=400, detail=str(e))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Fire failed: {e}")
     sched_name = s.get("name") or str(schedule_id)
     with db_conn() as c:

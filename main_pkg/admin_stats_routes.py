@@ -57,7 +57,7 @@ from logic.settings_keys import (  # noqa: E402,F401 — explicit for IDE; runti
 )
 import asyncio
 import json
-import sqlite3
+from main import sqlite3  # noqa: E402,F401 — explicit-from-facade for IDE; used only in `except sqlite3.Error`
 from logic.coerce import as_dict
 
 # IDE contract: PyCharm/Pyright don't trace `from X import *`, so

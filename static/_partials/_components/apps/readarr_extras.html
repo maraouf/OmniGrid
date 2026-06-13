@@ -41,6 +41,11 @@
                  :class="(Number(readarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="readarrCount(readarrData(inst).queue)"></div>
           </div>
+          <!-- Releasing today (calendar) — only when something is due today. -->
+          <div class="apps-card-ups-stat" x-show="(Number(readarrData(inst).calendar_today) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.readarr.releasing_today') || 'Today'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="readarrCount(readarrData(inst).calendar_today)"></div>
+          </div>
           <!-- Monitored authors -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.readarr.monitored') || 'Monitored'"></div>
@@ -65,6 +70,11 @@
             <div class="apps-card-stat-value" x-text="readarrGb(readarrData(inst).library_size_gb)"></div>
           </div>
         </div>
+        <!-- Disk-fill projection chip — "disk full in ~N days at current growth"
+             from the retention series. Card-level (always visible). -->
+        <div x-show="readarrTrend(inst) && (Number(readarrTrend(inst).disk_runway_days) || 0) > 0"
+             class="fs-3xs text-[var(--warning)] mt-1"
+             x-text="t('apps.readarr.disk_runway', { days: readarrTrend(inst) ? readarrTrend(inst).disk_runway_days : 0 }) || ('Disk full in ~' + (readarrTrend(inst) ? readarrTrend(inst).disk_runway_days : 0) + ' days at this fill rate')"></div>
         <!-- Storage — every mount the app reports, each as a clean card
              with free / total + a colour-coded usage bar. Shared across
              the *arr family. -->
@@ -99,6 +109,16 @@
               <div x-show="(Number(readarrTrend(inst).disk_runway_days) || 0) > 0"
                    class="fs-3xs text-[var(--warning)]"
                    x-text="t('apps.readarr.disk_runway', { days: readarrTrend(inst).disk_runway_days }) || ('Disk full in ~' + readarrTrend(inst).disk_runway_days + ' days at this fill rate')"></div>
+            </div>
+            <!-- Download-queue depth over time (only when there's ever been a queue). -->
+            <div class="space-y-1" x-show="(Number(readarrTrend(inst).peak_queue) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.readarr.queue_trend', { days: readarrTrend(inst).days }) || ('Download queue (' + readarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="readarrTrendPath(readarrTrend(inst).series_queue)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="(t('apps.readarr.peak_queue') || 'Peak queue') + ': ' + readarrCount(readarrTrend(inst).peak_queue)"></div>
             </div>
           </div>
         </template>

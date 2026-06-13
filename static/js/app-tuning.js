@@ -74,6 +74,10 @@ export default {
     // still consumes ms in its setTimeout. Resolved per-tick so a
     // Save here takes effect on the next cycle after /api/me re-flows.
     'tuning_ops_poll_interval_seconds',
+    // New-version watcher /api/version poll cadence (seconds). Drives the
+    // "New version — reload" banner detection lag; delivered via
+    // client_config.version_poll_ms (×1000).
+    'tuning_version_poll_interval_seconds',
     // persistent-log retention in days. Rendered in
     // Admin → Logs (Files sub-tab) instead of the generic Process
     // tunables form so operators looking at the daily log files

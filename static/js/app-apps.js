@@ -2171,6 +2171,12 @@ export default {
     // info panels, not search targets) so a query turns the board into a
     // focused results view.
     const q = (this.appsSearchQuery || '').trim().toLowerCase();
+    // Active status filter (down / degraded / …). App tiles are already
+    // status-filtered via filteredApps() above. Widget + bookmark tiles carry
+    // NO health status, so when the operator filters to "down" / "degraded"
+    // they must drop out too — otherwise a "what's broken" view is polluted by
+    // info panels + links that can't be broken.
+    const sf = (this.appsStatusFilter || '').trim();
     const assignedRefs = new Set();
     const sections = (this.appsCustomLayout.sections || []).map(s => {
       const items = [];
@@ -2199,11 +2205,14 @@ export default {
           }
           items.push({uid: it.uid, kind: 'app', ref: it.ref, app, opts, is_shadow: isShadow});
         } else if (it.kind === 'widget') {
-          if (q) {
-            continue;  // hide info widgets while searching
+          if (q || sf) {
+            continue;  // hide info widgets while searching OR status-filtering
           }
           items.push({uid: it.uid, kind: 'widget', widget: it.widget, opts});
         } else if (it.kind === 'bookmark') {
+          if (sf) {
+            continue;  // bookmarks have no health status — hide under any status filter
+          }
           if (q && !((it.name || '').toLowerCase().includes(q) || (it.url || '').toLowerCase().includes(q))) {
             continue;  // bookmark doesn't match the search
           }

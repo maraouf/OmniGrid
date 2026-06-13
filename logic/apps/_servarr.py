@@ -707,3 +707,101 @@ async def queue_delete_skill(host_row: dict, chip: dict, *, arg: Optional[str],
     if 200 <= r.status_code < 300:
         return {"ok": True, "status": 200, "detail": "🗑️ Removed from the download queue."}
     return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+
+
+async def fetch_today_calendar_count(host_row: dict, chip: dict, *,
+                                     api_version: str, app_label: str,
+                                     extra_params: Optional[dict] = None) -> int:
+    """How many calendar entries (movies releasing / episodes airing / albums /
+    books) land TODAY in the instance's UTC-day window. Delegates to
+    ``fetch_calendar`` over a ``[today 00:00Z, tomorrow 00:00Z)`` window and
+    returns the entry count — surfaced as the card's "Today" chip. Returns 0 on
+    ANY failure (the shared fetch tolerates an unset key / unreachable / non-200
+    / non-JSON). Never raises."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    items = await fetch_calendar(
+        host_row, chip, api_version=api_version,
+        start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end=(start + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        app_label=app_label, extra_params=extra_params)
+    return len(items)
+
+
+async def queue_blocklist_search_skill(host_row: dict, chip: dict, *,
+                                       arg: Optional[str], app_label: str,
+                                       api_version: str, parent_id_field: str,
+                                       search_command: str, search_ids_field: str,
+                                       host_id: Optional[str] = None) -> dict:
+    """Destructive "blocklist & search" for a STUCK queue item — the action
+    operators reach for on a stalled grab. Removes the record from the queue
+    AND blocklists the release (``DELETE /api/<v>/queue/<id>?removeFromClient=
+    true&blocklist=true``) so the same bad release isn't re-grabbed, then kicks
+    a fresh search for the parent (``POST /api/<v>/command {name:<search_command>
+    , <search_ids_field>:[parent_id]}``).
+
+    ``arg`` is ``"<queue_id>:<parent_id>"`` from the drawer's per-row button
+    (the queue rich-list has both ids in scope). A bare ``"<queue_id>"`` (e.g.
+    from an AI/Telegram dispatch) triggers a queue lookup to resolve the parent
+    via ``parent_id_field``. Never raises."""
+    tag = app_label.lower()
+    raw = (arg or "").strip()
+    qid, _, pid = raw.partition(":")
+    qid = qid.strip()
+    pid = pid.strip()
+    if not qid.isdigit():
+        return {"ok": False, "status": 0,
+                "detail": "no valid queue id given (the blocklist button supplies it)"}
+    api_key, base, err = resolve_skill_target(host_row, chip, app_label)
+    if err:
+        return err
+    print(f"[{tag}] INFO queue_blocklist_search host={host_id} qid={qid} pid={pid or '?'}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=25.0,
+                                     follow_redirects=True) as cli:
+            # Resolve the parent id from the live queue when the button didn't
+            # carry it (AI/Telegram path).
+            if not pid.isdigit():
+                try:
+                    qr = await cli.get(base + f"/api/{api_version}/queue",
+                                       headers=headers(api_key),
+                                       params={"pageSize": "200"})
+                    if qr.status_code == 200:
+                        body = qr.json()
+                        recs = body.get("records") if isinstance(body, dict) else None
+                        for rec in (recs if isinstance(recs, list) else []):
+                            if isinstance(rec, dict) and str(rec.get("id") or "") == qid:
+                                pid = str(safe_int(rec.get(parent_id_field)) or "")
+                                break
+                except (httpx.HTTPError, OSError, ValueError, TypeError):
+                    pid = ""
+            # Remove + blocklist the stuck release.
+            dr = await cli.delete(base + f"/api/{api_version}/queue/{qid}",
+                                  headers=headers(api_key),
+                                  params={"removeFromClient": "true", "blocklist": "true"})
+            if dr.status_code in (401, 403):
+                return {"ok": False, "status": dr.status_code,
+                        "detail": f"auth failed (check {app_label} api_key)"}
+            if not (200 <= dr.status_code < 300):
+                return {"ok": False, "status": dr.status_code,
+                        "detail": f"HTTP {dr.status_code} removing the queue item"}
+            # Kick a fresh search for the parent so the indexer re-grabs.
+            searched = False
+            if pid.isdigit():
+                try:
+                    pr = await cli.post(base + f"/api/{api_version}/command",
+                                        headers=headers(api_key),
+                                        json={"name": search_command,
+                                              search_ids_field: [int(pid)]})
+                    searched = pr.status_code in (200, 201)
+                except (httpx.HTTPError, OSError):
+                    searched = False
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"blocklist & search failed: {type(e).__name__}: {e}"}
+    if searched:
+        return {"ok": True, "status": 200,
+                "detail": "🚫🔍 Blocklisted the release and started a fresh search."}
+    return {"ok": True, "status": 200,
+            "detail": "🚫 Blocklisted & removed the stuck release "
+                      "(couldn't auto-search — trigger a search manually)."}

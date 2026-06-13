@@ -1642,7 +1642,11 @@ export default {
     if (this._versionTimer) {
       return;
     }
-    this._versionTimer = setInterval(() => this.loadVersion(), 60000);
+    // Cadence is operator-tunable via tuning_version_poll_interval_seconds,
+    // delivered as ms on client_config.version_poll_ms. Defensive 60000ms
+    // fallback for the brief window before /api/me hydrates.
+    const ms = (this.me && this.me.client_config && this.me.client_config.version_poll_ms) || 60000;
+    this._versionTimer = setInterval(() => this.loadVersion(), ms);
   },
   // Force a cache-busting reload when the operator clicks the
   // "New version — reload" banner. `location.reload()` alone
