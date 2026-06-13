@@ -150,6 +150,38 @@ function prowlarrTrendPath(arr) {
   return d;
 }
 
+// Top FAILING indexers as horizontal-bar rows for the drawer distribution
+// chart -- a richer view than the single "most failing" footnote. Reads the
+// per-indexer stats the backend already returns on the card data
+// (`indexer_stats`, sorted worst-failure-first). Only indexers that ran
+// queries AND have a non-zero failure rate are shown (a healthy fleet hides
+// the block); capped at the 8 worst. `level` (ok/warn/crit) drives the bar
+// colour at the same 10 / 25 % thresholds the failure-rate stat uses.
+// [] when there's no data / nothing failing.
+function prowlarrFailBars(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.prowlarrData ? this.prowlarrData(inst) : null);
+  if (!d || !Array.isArray(d.indexer_stats)) {
+    return [];
+  }
+  // Only indexers that ran queries AND are actually failing (pct > 0); the
+  // backend already sorts worst-failure-first, so slice the top 8.
+  return d.indexer_stats
+    .filter((r) => r && (Number(r.queries) || 0) > 0 && (Number(r.fail_rate_pct) || 0) > 0)
+    .slice(0, 8)
+    .map((r) => {
+      const pct = Math.max(0, Math.min(100, Number(r.fail_rate_pct) || 0));
+      return {
+        name: String(r.name || '?'),
+        pct: pct,
+        queries: Number(r.queries) || 0,
+        failed: Number(r.failed) || 0,
+        level: pct >= 25 ? 'crit' : (pct >= 10 ? 'warn' : 'ok'),
+      };
+    });
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Prowlarr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the *arr
@@ -175,4 +207,5 @@ export const helpers = {
   prowlarrIndexersLabel: prowlarrIndexersLabel,
   prowlarrTrend: prowlarrTrend,
   prowlarrTrendPath: prowlarrTrendPath,
+  prowlarrFailBars: prowlarrFailBars,
 };

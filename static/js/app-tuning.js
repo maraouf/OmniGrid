@@ -359,6 +359,10 @@ export default {
     // (snapshot cadence + retention).
     'tuning_qbittorrent_sample_interval_seconds',
     'tuning_qbittorrent_history_days',
+    // UniFi client-occupancy sampler — "clients over time" sparkline
+    // (snapshot cadence + retention).
+    'tuning_unifi_sample_interval_seconds',
+    'tuning_unifi_history_days',
     // Tdarr retention sampler (snapshot cadence + retention).
     'tuning_tdarr_sample_interval_seconds',
     'tuning_tdarr_history_days',

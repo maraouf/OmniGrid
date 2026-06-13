@@ -71,6 +71,13 @@
       <span x-show="unifiData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Network', v: (unifiData(inst).version || '') })"></span>
     </div>
+    <!-- Busiest AP — the per-AP client-load headline (spots an overloaded
+         radio). Shown when per-AP attribution found at least one AP. -->
+    <template x-if="unifiData(inst).busiest_ap && unifiData(inst).busiest_ap.name">
+      <div class="fs-3xs text-[var(--text-faint)] mt-0.5 truncate"
+           :title="unifiData(inst).busiest_ap.name"
+           x-text="'🛜 ' + (t('apps.unifi.busiest_ap') || 'Busiest AP') + ': ' + unifiData(inst).busiest_ap.name + ' — ' + (t('apps.unifi.ap_clients_n', { n: unifiData(inst).busiest_ap.clients }) || (unifiData(inst).busiest_ap.clients + ' clients'))"></div>
+    </template>
     <!-- Wi-Fi network names (SSIDs) footnote — chips, only when present. -->
     <div x-show="(unifiData(inst).wlan_names || []).length" class="mt-1">
       <div class="fs-3xs text-[var(--text-faint)] mb-0.5"
@@ -85,6 +92,37 @@
     <div x-show="(Number(unifiData(inst).devices_update_available) || 0) > 0"
          class="fs-3xs mt-1 mono text-[var(--warning)]"
          x-text="t('apps.unifi.updates_summary', { n: (Number(unifiData(inst).devices_update_available) || 0) })"></div>
+    <!-- Per-AP client distribution (drawer-only) — horizontal bars relative to
+         the busiest AP. Hidden when there's no per-AP data. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && unifiApLoad && unifiApLoad(inst).length">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block" x-text="t('apps.unifi.ap_load') || 'Clients per AP'"></span>
+        <template x-for="row in unifiApLoad(inst)" :key="row.name">
+          <div class="apps-unifi-apbar">
+            <span class="apps-unifi-apbar-name mono fs-3xs" x-text="row.name" :title="row.name"></span>
+            <span class="apps-unifi-apbar-track">
+              <span class="apps-unifi-apbar-fill" :style="'--w:' + row.pct + '%'"></span>
+            </span>
+            <span class="apps-unifi-apbar-count fs-3xs mono" x-text="row.clients"></span>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- Client-occupancy trend (from OmniGrid's unifi_samples): per-day average
+         client count (blue) + wireless split (green). Drawer-only; ≥ 2 daily
+         points. UniFi's Integration API keeps no client history of its own. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && unifiTrend(inst) && unifiTrend(inst).series_clients && unifiTrend(inst).series_clients.length >= 2">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.unifi.clients_trend', { days: unifiTrend(inst).days }) || ('Clients (' + unifiTrend(inst).days + ' days)')"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="unifiTrendPath(unifiTrend(inst).series_clients)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+          <path :d="unifiTrendPath(unifiTrend(inst).series_wireless)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)]"
+             x-text="t('apps.unifi.clients_peak', { peak: unifiTrend(inst).peak_clients, latest: unifiTrend(inst).latest_clients })"></div>
+      </div>
+    </template>
   </div>
 </template>
 <!-- No API key yet — idle and unconfigured. -->

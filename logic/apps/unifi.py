@@ -213,6 +213,43 @@ def _client_is_wired(client: dict) -> bool:
     return False
 
 
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort client-occupancy trend from the UniFi sampler. Returns the
+    ``trend_summary`` dict, or ``{}`` on any failure (a missing sampler / empty
+    table must never fail the card)."""
+    try:
+        from logic.apps import unifi_sampler  # noqa: PLC0415
+        return unifi_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[unifi] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
+def _per_ap_client_load(devices: list, clients: list) -> "list[dict]":
+    """Attribute each WIRELESS client to the device it uplinks through (its AP)
+    via ``uplinkDeviceId`` and return ``[{name, clients}]`` busiest-first — the
+    per-AP client load. Wired clients (uplink = a switch) are excluded; a client
+    whose uplink device isn't in the fetched device list is skipped. ``[]`` when
+    the API doesn't expose ``uplinkDeviceId`` (older Network versions) — the card
+    hides the block rather than showing a misleading empty distribution."""
+    dev_by_id = {str(d.get("id") or ""): d for d in devices
+                 if isinstance(d, dict) and d.get("id")}
+    counts: dict[str, int] = {}
+    for c in clients:
+        if not isinstance(c, dict) or _client_is_wired(c):
+            continue
+        up = str(c.get("uplinkDeviceId") or "").strip()
+        if up and up in dev_by_id:
+            counts[up] = counts.get(up, 0) + 1
+    load: list[dict] = []
+    for dev_id, cnt in counts.items():
+        d = dev_by_id.get(dev_id) or {}
+        name = str(d.get("name") or d.get("model") or "?").strip() or "?"
+        load.append({"name": name, "clients": cnt})
+    load.sort(key=lambda a: a["clients"], reverse=True)
+    return load
+
+
 async def _get_json(cli: "httpx.AsyncClient", url: str, key: str) -> Any:
     """GET a UniFi Integration endpoint and return parsed JSON, or None on any
     non-2xx / parse failure (caller decides how to degrade)."""
@@ -659,6 +696,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         buckets[_classify_device(d)] += 1
     wired = sum(1 for c in clients if _client_is_wired(c))
     updates = sum(1 for d in devices if _device_update_pending(d))
+    # Per-AP client LOAD — attribute each WIRELESS client to the device it
+    # uplinks through (its AP) via ``uplinkDeviceId``, then map to that device's
+    # display name. The busiest AP + the per-AP distribution spot an overloaded
+    # radio. Degrades cleanly to empty when the API omits ``uplinkDeviceId`` (the
+    # card just hides the block).
+    ap_load = _per_ap_client_load(devices, clients)
+    busiest_ap = ap_load[0] if ap_load else None
     # Configured Wi-Fi networks, most-authoritative-first:
     #   1) the Integration ``/wlans`` endpoint (if a future Network version adds
     #      it — NAMES only);
@@ -699,9 +743,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "clients": len(clients),
         "clients_wired": wired,
         "clients_wireless": max(0, len(clients) - wired),
+        # Per-AP client load (P1): busiest-first list + the single busiest AP.
+        "ap_load": ap_load[:_MAX_ROWS],
+        "busiest_ap": busiest_ap,
         "wlans": len(wlan_names),
         "wlan_names": wlan_names[:_MAX_ROWS],
         "wlan_details": wlan_details[:_MAX_ROWS],
+        # Client-occupancy trend (P2) from unifi_samples — drawer-only chart.
+        # Tolerated on failure; the card renders without it.
+        "trend": _safe_trend(host_id, service_idx),
         "fetched_at": int(now),
     }
     print(f"[unifi] INFO fetched host={host_id} sites={out['sites']} "
@@ -709,6 +759,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"aps={out['aps']} sw={out['switches']} gw={out['gateways']} "
           f"clients={out['clients']} (w={out['clients_wired']}/"
           f"wl={out['clients_wireless']}) wlans={out['wlans']}({wlan_src}) "
+          f"busiest_ap={(busiest_ap['name'] + ':' + str(busiest_ap['clients'])) if busiest_ap else '-'} "
           f"updates={out['devices_update_available']} ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -732,6 +783,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "clients": safe_int(data.get("clients")),
         "clients_wired": safe_int(data.get("clients_wired")),
         "clients_wireless": safe_int(data.get("clients_wireless")),
+        "busiest_ap": as_dict(data.get("busiest_ap")) or None,
         "wlans": safe_int(data.get("wlans")),
         "wlan_names": [str(n) for n in as_list(data.get("wlan_names")) if n],
         "version": data.get("version") or "",
@@ -834,6 +886,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"({safe_int(data.get('clients_wired'))} wired · "
         f"{safe_int(data.get('clients_wireless'))} wireless)",
     ]
+    busiest = data.get("busiest_ap")
+    if isinstance(busiest, dict) and busiest.get("name"):
+        lines.append(f"🛜 Busiest AP: {busiest['name']} — "
+                     f"{safe_int(busiest.get('clients'))} clients")
     wlans = safe_int(data.get("wlans"))
     if wlans:
         lines.append(f"📶 {wlans} Wi-Fi network(s)")
@@ -849,7 +905,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if tail:
         lines.append("· " + " · ".join(tail))
     return {"ok": True, "detail": "\n".join(lines), "status": 200,
-            "devices": dev, "online": online, "offline": offline}
+            "devices": dev, "online": online, "offline": offline,
+            "busiest_ap": busiest if isinstance(busiest, dict) else None}
 
 
 def _device_row(d: dict) -> Optional[dict]:

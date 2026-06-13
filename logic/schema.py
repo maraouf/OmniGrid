@@ -795,6 +795,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_qbittorrent_samples_ts
             ON qbittorrent_samples(ts);
 
+        -- UniFi client-occupancy retention. One row per (unifi chip, tick). The
+        -- Integration API is current-state-only (no client-count history), so
+        -- this sampler is the trend source for the "clients over time" card
+        -- chart + "peak N clients". All columns are point-in-time GAUGES.
+        CREATE TABLE IF NOT EXISTS unifi_samples (
+            ts               INTEGER NOT NULL,
+            host_id          TEXT    NOT NULL,
+            service_idx      INTEGER NOT NULL,
+            clients          INTEGER NOT NULL DEFAULT 0,
+            clients_wireless INTEGER NOT NULL DEFAULT 0,
+            devices_online   INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_unifi_samples_chip_ts
+            ON unifi_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_unifi_samples_ts
+            ON unifi_samples(ts);
+
         -- Tdarr transcode-pipeline retention. One row per (tdarr chip, tick).
         -- ``space_saved_gb`` + ``transcodes`` are CUMULATIVE running totals
         -- (Tdarr's StatisticsJSONDB.sizeDiff / totalTranscodeCount), so the

@@ -2071,6 +2071,14 @@
           "label": "qBittorrent history retention (days)",
           "help": "Retention window for the qBittorrent samples that drive the transfer-speed sparkline and the disk-free-runway projection. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend (a longer window gives a more confident disk-runway fit). Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_unifi_sample_interval_seconds": {
+          "label": "UniFi sampler interval (seconds)",
+          "help": "How often the lifespan UniFi sampler snapshots each configured controller's connected-client count (plus the wireless split and devices-online) into the history table that drives the card's \"clients over time\" sparkline and the \"peak N clients\" stat (UniFi's Integration API keeps no client-count history of its own). Default 900 (15 min) — client counts drift slowly, so a coarse cadence resolves the occupancy trend without bloating the table; lower it (e.g. 300) for a finer curve. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_unifi_history_days": {
+          "label": "UniFi history retention (days)",
+          "help": "Retention window for the UniFi samples that drive the client-occupancy sparkline and peak-clients stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_tdarr_sample_interval_seconds": {
           "label": "Tdarr sampler interval (seconds)",
           "help": "How often the lifespan Tdarr sampler snapshots each configured instance's cumulative space-saved + transcode count + queue depth into the history table that drives the card's space-reclaimed line, transcode-queue burn-down, and per-day throughput. Default 900 (15 min) — the cumulative totals move slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6290,6 +6298,8 @@
       "avg_failrate": "Avg {pct}% failure",
       "most_failing": "Most failing",
       "slowest": "Slowest",
+      "fail_distribution": "Indexer failure rates",
+      "fail_bar_detail": "{failed} failed of {queries} queries",
       "health_issues_n": "{n} health issue(s)",
       "no_api_key": "No API key set — add one in Admin → Apps to enable.",
       "loading": "Loading Prowlarr data…",
@@ -6436,6 +6446,9 @@
       "free_disk": "Free disk",
       "alltime": "All-time",
       "connection": "Connection",
+      "stalled_n": "{n} stalled",
+      "stalled_title": "Stalled downloads (stuck — no peers)",
+      "longest": "Longest",
       "speed_trend": "Transfer speed ({days} days)",
       "disk_trend": "Free disk ({days} days)",
       "peak_dl": "peak ↓",
@@ -6554,6 +6567,9 @@
       "org": "Org",
       "dashboards_count": "{count} dashboards",
       "datasources_count": "{count} datasources",
+      "ds_unhealthy": "{n} of {total} datasources unhealthy",
+      "alerts_firing_n": "{n} firing",
+      "alerts_pending_n": "{n} pending",
       "loading": "Loading Grafana data…",
       "fetch_failed": "Grafana fetch failed",
       "no_api_key": "No API token set — add one in Admin → Apps to enable."
@@ -6602,6 +6618,11 @@
       "offline_summary": "{n} device(s) offline",
       "updates_summary": "{n} firmware update(s) available",
       "clients_summary": "Wired {wired} · Wireless {wireless}",
+      "busiest_ap": "Busiest AP",
+      "ap_clients_n": "{n} clients",
+      "ap_load": "Clients per AP",
+      "clients_trend": "Clients ({days} days)",
+      "clients_peak": "peak {peak} · now {latest}",
       "devices_count": "{count} devices",
       "group_gateways": "Gateways",
       "group_switches": "Switches",

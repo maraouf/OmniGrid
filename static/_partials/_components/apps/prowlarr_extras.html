@@ -62,6 +62,30 @@
           <div class="fs-3xs text-[var(--text-faint)] mt-0.5"
                x-text="'🐢 ' + (t('apps.prowlarr.slowest') || 'Slowest') + ': ' + prowlarrData(inst).slowest_indexer.name + ' (' + prowlarrCount(prowlarrData(inst).slowest_indexer.avg_response_ms) + 'ms avg)'"></div>
         </template>
+        <!-- Per-indexer failure-rate distribution (drawer-only) — the top
+             failing indexers rendered as horizontal bars, a richer view than
+             the single "most failing" footnote above. Hidden when nothing is
+             failing. Bar width uses the sanctioned --w inline var; the fill
+             colour comes from the ok/warn/crit class (same 10/25% thresholds
+             as the failure-rate stat). -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && prowlarrFailBars && prowlarrFailBars(inst).length">
+          <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.prowlarr.fail_distribution') || 'Indexer failure rates'"></span>
+            <template x-for="row in prowlarrFailBars(inst)" :key="row.name">
+              <div class="apps-prowlarr-failbar">
+                <span class="apps-prowlarr-failbar-name mono fs-3xs" x-text="row.name" :title="row.name"></span>
+                <span class="apps-prowlarr-failbar-track">
+                  <span class="apps-prowlarr-failbar-fill" :class="row.level" :style="'--w:' + row.pct + '%'"></span>
+                </span>
+                <span class="apps-prowlarr-failbar-pct fs-3xs mono"
+                      :class="row.level === 'crit' ? 'text-[var(--danger)]' : (row.level === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--success)]')"
+                      x-text="row.pct.toFixed(1) + '%'"
+                      :title="t('apps.prowlarr.fail_bar_detail', { failed: prowlarrCount(row.failed), queries: prowlarrCount(row.queries) })"></span>
+              </div>
+            </template>
+          </div>
+        </template>
         <!-- Connected-app names: the REAL synced *arr apps (Sonarr / Radarr /
              Whisparr / …), rendered as brand-icon chips rather than a raw
              comma-joined string. Lives outside the stat-grid so the 1x1..4x2
