@@ -89,13 +89,22 @@ def _latest_ups_sample(host_id: str) -> dict:
         "battery_runtime_s": None,
         "ups_status": "",
         "battery_status": "",
+        # Power-quality scalars (PowerNet-MIB; NULL for non-UPS hosts).
+        "input_voltage": None,
+        "output_voltage": None,
+        "input_freq_hz": None,
+        "last_transfer": "",
+        "battery_replace": None,
+        "self_test": "",
         "ts": 0,
     }
     try:
         with db_conn() as c:
             row = c.execute(
                 "SELECT battery_percent, load_percent, battery_temp_c, "
-                "battery_runtime_s, ups_status, battery_status, ts "
+                "battery_runtime_s, ups_status, battery_status, "
+                "ups_input_voltage, ups_output_voltage, ups_input_freq_hz, "
+                "ups_last_transfer, ups_battery_replace, ups_self_test, ts "
                 "FROM host_snmp_samples WHERE host_id = ? "
                 "ORDER BY ts DESC LIMIT 1",
                 (host_id,),
@@ -110,14 +119,22 @@ def _latest_ups_sample(host_id: str) -> dict:
     out["battery_runtime_s"] = row[3]
     out["ups_status"] = row[4] or ""
     out["battery_status"] = row[5] or ""
-    out["ts"] = int(row[6] or 0)
+    out["input_voltage"] = row[6]
+    out["output_voltage"] = row[7]
+    out["input_freq_hz"] = row[8]
+    out["last_transfer"] = row[9] or ""
+    out["battery_replace"] = row[10]
+    out["self_test"] = row[11] or ""
+    out["ts"] = int(row[12] or 0)
     # "available" = at least one UPS field came back non-null. A plain
     # SNMP host (no PowerNet OIDs) writes a row with every UPS column
     # NULL, so the card must distinguish that from a real UPS reading.
     out["available"] = any(
         out[k] is not None
-        for k in ("battery_percent", "load_percent", "battery_temp_c", "battery_runtime_s")
-    ) or bool(out["ups_status"] or out["battery_status"])
+        for k in ("battery_percent", "load_percent", "battery_temp_c", "battery_runtime_s",
+                  "input_voltage", "output_voltage", "input_freq_hz", "battery_replace")
+    ) or bool(out["ups_status"] or out["battery_status"]
+              or out["last_transfer"] or out["self_test"])
     return out
 
 

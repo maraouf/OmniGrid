@@ -2355,7 +2355,10 @@ def _compute_host_provider_cache_key() -> tuple[set[str], tuple]:
         get_setting(Settings.SNMP_V3_PRIV_KEY) or "",
         get_setting(Settings.SNMP_ALIASES) or "",
     ))
-    cred_hash = hashlib.sha256(cred_blob.encode()).hexdigest()[:16]
+    # NOT credential storage — this digest is only a cache-BUST key (a
+    # credential change flips the hash so the memo auto-invalidates), so
+    # usedforsecurity=False is accurate AND clears the weak-hash alert.
+    cred_hash = hashlib.sha256(cred_blob.encode(), usedforsecurity=False).hexdigest()[:16]
     return active_set, (tuple(sorted(active_set)), cred_hash)
 
 

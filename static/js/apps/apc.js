@@ -122,7 +122,72 @@ function hostUpsData(inst) {
     runtime_s: (rt == null) ? null : Number(rt),
     battery_temp_c: (temp == null) ? null : Number(temp),
     status: status,
+    // Power-quality scalars (PowerNet-MIB; null/'' when not a UPS or the
+    // OID didn't answer). battery_replace is a 0/1 flag (1 = replace).
+    input_voltage: (d.input_voltage == null) ? null : Number(d.input_voltage),
+    output_voltage: (d.output_voltage == null) ? null : Number(d.output_voltage),
+    input_freq_hz: (d.input_freq_hz == null) ? null : Number(d.input_freq_hz),
+    last_transfer: String(d.last_transfer || '').trim(),
+    battery_replace: (d.battery_replace == null) ? null : Number(d.battery_replace),
+    self_test: String(d.self_test || '').trim(),
   };
+}
+
+// True when the UPS sample carries ANY power-quality scalar — gates the
+// power-quality row so it hides cleanly on UPSes / firmwares that don't
+// expose the upsAdvInput*/Output* OIDs.
+function apcHasPowerQuality(u) {
+  if (!u) {
+    return false;
+  }
+  if (u.input_voltage != null) {
+    return true;
+  }
+  if (u.output_voltage != null) {
+    return true;
+  }
+  if (u.input_freq_hz != null) {
+    return true;
+  }
+  if (u.battery_replace != null) {
+    return true;
+  }
+  return Boolean(u.last_transfer) || Boolean(u.self_test);
+}
+
+// Humanise a kebab-case enum token ("high-line-voltage" -> "High line
+// voltage"). Shared fallback for the i18n-first label helpers below.
+function _apcHumanise(s) {
+  const t = String(s || '').replace(/-/g, ' ').trim();
+  if (!t) {
+    return '';
+  }
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Last-transfer-to-battery cause label — i18n key first, humanised
+// fallback (per the label-helper i18n rule). '' for empty.
+function apcTransferLabel(s) {
+  /* jshint validthis: true */
+  const raw = String(s || '').trim();
+  if (!raw) {
+    return '';
+  }
+  const key = 'apps.apc.transfer_' + raw.replace(/-/g, '_');
+  const tr = this.t ? this.t(key) : key;
+  return (tr && tr !== key) ? tr : _apcHumanise(raw);
+}
+
+// Self-test result label — i18n key first, humanised fallback. '' for empty.
+function apcSelfTestLabel(s) {
+  /* jshint validthis: true */
+  const raw = String(s || '').trim();
+  if (!raw) {
+    return '';
+  }
+  const key = 'apps.apc.selftest_' + raw.replace(/-/g, '_');
+  const tr = this.t ? this.t(key) : key;
+  return (tr && tr !== key) ? tr : _apcHumanise(raw);
 }
 
 // Format a runtime in seconds as "Nh Mm" / "Mm Ss" / "Ss" --
@@ -235,4 +300,7 @@ export const helpers = {
   apcUpsRuntimeLabel: upsRuntimeLabel,
   apcHistory: apcHistory,
   apcSparkPoints: apcSparkPoints,
+  apcHasPowerQuality: apcHasPowerQuality,
+  apcTransferLabel: apcTransferLabel,
+  apcSelfTestLabel: apcSelfTestLabel,
 };

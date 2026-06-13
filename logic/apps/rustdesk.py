@@ -171,8 +171,16 @@ def _device_ident(base: str, username: str) -> "tuple[str, str]":
     """Stable pseudo device ``(id, uuid)`` for the login body. RustDesk's
     ``/api/login`` expects a device id + uuid; we derive deterministic ones from
     the chip identity so the same "device" is presented each poll (which matters
-    for the 2FA challenge correlation)."""
-    h = hashlib.sha256(f"omnigrid|{base}|{username}".encode()).hexdigest()
+    for the 2FA challenge correlation).
+
+    This is NOT password / credential hashing — the hash input is only the
+    upstream base URL + username (never the password), and the digest is used
+    purely to derive a stable, NON-SECRET device identifier. ``usedforsecurity=
+    False`` states that explicitly (and clears the false-positive weak-hash
+    alert): a slow KDF would be wrong here — the device id MUST be deterministic
+    across polls, so a salted/expensive hash can't be used."""
+    h = hashlib.sha256(f"omnigrid|{base}|{username}".encode(),
+                       usedforsecurity=False).hexdigest()
     dev_id = str(int(h[:12], 16) % 1_000_000_000).zfill(9)
     return dev_id, h[:32]
 

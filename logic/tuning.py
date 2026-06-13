@@ -128,6 +128,8 @@ class Tunable(str, Enum):
     TRACEARR_SAMPLE_INTERVAL_SECONDS = "tuning_tracearr_sample_interval_seconds"
     TDARR_HISTORY_DAYS = "tuning_tdarr_history_days"
     TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
+    EMBY_HISTORY_DAYS = "tuning_emby_history_days"
+    EMBY_SAMPLE_INTERVAL_SECONDS = "tuning_emby_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
@@ -1539,6 +1541,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Default 365 (the space-saved story is most satisfying over a long window);
     # lower to save disk.
     "tuning_tdarr_history_days": ("TDARR_HISTORY_DAYS", 365, 1, 1095),
+    # How often the Emby / Jellyfin sampler snapshots each media-server chip's
+    # active-stream / transcode / bandwidth gauges into emby_samples (shared by
+    # both brands). 0 = inherit the global stats sample interval. Default 300
+    # (5 min) — streams come and go faster than library totals, so a tighter
+    # cadence captures the 'peak streams today' shape.
+    "tuning_emby_sample_interval_seconds": ("EMBY_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # Retention window (days) for emby_samples — drives the daily peak-streams
+    # sparkline + the 'peak N streams today' stat. Default 30; lower to save disk.
+    "tuning_emby_history_days": ("EMBY_HISTORY_DAYS", 30, 1, 1095),
     # How often the Kavita sampler snapshots each chip's library totals (series /
     # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
     # global stats interval. Default 900 (15 min) — a library grows slowly.

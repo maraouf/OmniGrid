@@ -376,6 +376,9 @@ export default {
     // Tdarr retention sampler (snapshot cadence + retention).
     'tuning_tdarr_sample_interval_seconds',
     'tuning_tdarr_history_days',
+    // Emby / Jellyfin streaming retention sampler (shared by both brands).
+    'tuning_emby_sample_interval_seconds',
+    'tuning_emby_history_days',
     // Kavita library-growth retention sampler.
     'tuning_kavita_sample_interval_seconds',
     'tuning_kavita_history_days',

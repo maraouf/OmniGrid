@@ -98,6 +98,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "opnsense_interfaces",
+        "name": "OPNsense interface throughput",
+        "ai_phrases": ("opnsense interfaces, interface throughput, uplink and "
+                       "downlink per interface, how much bandwidth per nic, "
+                       "wan lan throughput, interface upload download speed, "
+                       "which interface is busiest, opnsense bandwidth per port"),
+        "destructive": False,
+    },
+    {
         "id": "opnsense_restart_service",
         "name": "Restart an OPNsense service",
         "ai_phrases": ("restart the <name> service, restart unbound, restart "
@@ -158,18 +167,54 @@ async def _post_json(cli: httpx.AsyncClient, base: str, path: str,
         return None
 
 
+def _extract_grid_rows(raw: Any) -> list:
+    """Pull the bootgrid ``rows`` out of an OPNsense ``*/search`` response,
+    tolerant of every shape builds have used: a top-level ``{rows: [...]}``, a
+    bare list, or a nested ``{service: {rows}}`` / ``{leases: [...]}`` block.
+    Returns a list of dict rows ([] when none)."""
+    if isinstance(raw, list):
+        return [r for r in raw if isinstance(r, dict)]
+    d = as_dict(raw)
+    for key in ("rows", "leases", "items"):
+        rows = [r for r in as_list(d.get(key)) if isinstance(r, dict)]
+        if rows:
+            return rows
+    for nest_key in ("service", "services", "data"):
+        nested = as_dict(d.get(nest_key))
+        rows = [r for r in as_list(nested.get("rows")) if isinstance(r, dict)]
+        if rows:
+            return rows
+    return []
+
+
 async def _fetch_services(cli: httpx.AsyncClient, base: str) -> Any:
-    """Running-services grid. OPNsense's ``/api/core/service/search`` is a POST
-    grid endpoint (``{current, rowCount, searchPhrase}``); fall back to GET for
-    builds that accept it. Returns the first response that carries ``rows``."""
+    """Running-services grid. OPNsense's ``/api/core/service/search`` shape has
+    drifted across versions: some builds want a POST bootgrid body, some answer
+    a bare GET, some need the explicit ``current``/``rowCount`` query. Try all
+    three and return the first that carries rows. When NONE return rows, log the
+    status of each attempt (privilege / endpoint diagnosis) and return {}."""
     body = {"current": 1, "rowCount": -1, "sort": {}, "searchPhrase": ""}
-    for getter in (
-        _post_json(cli, base, "/api/core/service/search", body),
-        _get_json(cli, base, "/api/core/service/search?current=1&rowCount=1000"),
-    ):
-        data = as_dict(await getter)
-        if as_list(data.get("rows")):
-            return data
+    attempts: tuple[tuple[str, str, Optional[dict]], ...] = (
+        ("POST", "/api/core/service/search", body),
+        ("GET", "/api/core/service/search", None),
+        ("GET", "/api/core/service/search?current=1&rowCount=1000", None),
+    )
+    diag: list[str] = []
+    for method, path, b in attempts:
+        if method == "POST":
+            raw = await _post_json(cli, base, path, b)
+        else:
+            raw = await _get_json(cli, base, path)
+        rows = _extract_grid_rows(raw)
+        if rows:
+            return {"rows": rows}
+        if raw is None:
+            diag.append(f"{method} {path}=no-json")
+        else:
+            keys = ",".join(sorted(as_dict(raw).keys())[:6]) or "no-keys"
+            diag.append(f"{method} {path}=0rows({keys})")
+    print("[opnsense] warning: service search returned no rows — "
+          + "; ".join(diag) + " (check the API user's 'Status: Services' privilege)")
     return {}
 
 
@@ -284,7 +329,7 @@ def _gateways_shape(gw: dict) -> "tuple[list, int, int, dict]":
 def _services_shape(svc: dict) -> "tuple[list, int, int]":
     """Parse ``/api/core/service/search`` ``rows`` into a compact list +
     ``(total, running)``."""
-    rows = as_list(svc.get("rows"))
+    rows = _extract_grid_rows(svc)
     out: list = []
     running = 0
     for s in rows:
@@ -292,7 +337,10 @@ def _services_shape(svc: dict) -> "tuple[list, int, int]":
             continue
         name = str(s.get("name") or s.get("id") or "?").strip()
         desc = str(s.get("description") or "").strip()
-        is_run = bool(safe_int(s.get("running")))
+        # ``running`` is normally 0/1, but some builds report a string status
+        # ("running" / "stopped") instead — treat both as the run flag.
+        is_run = bool(safe_int(s.get("running"))) or (
+            str(s.get("status") or "").strip().lower() in ("running", "up", "1", "true"))
         if is_run:
             running += 1
         out.append({"name": name, "description": desc, "running": is_run,
@@ -488,21 +536,39 @@ async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
     below. Falls back to the row count / upstream ``total`` when no per-row state
     is present. 0 on any failure."""
     active_words = ("active", "online", "bound", "0", "")
-    for path in ("/api/kea/leases4/search",
-                 "/api/dhcpv4/leases/search_lease",
-                 "/api/dhcpv4/leases/searchLease"):
-        data = as_dict(await _get_json(cli, base, path))
-        rows = as_list(data.get("rows"))
+    body = {"current": 1, "rowCount": -1, "searchPhrase": ""}
+    # Kea grid is GET on most builds but POST on some; ISC's real method name is
+    # camelCase ``searchLease`` (snake_case kept as a last-ditch alias).
+    attempts: tuple[tuple[str, str], ...] = (
+        ("GET", "/api/kea/leases4/search"),
+        ("POST", "/api/kea/leases4/search"),
+        ("GET", "/api/dhcpv4/leases/searchLease"),
+        ("GET", "/api/dhcpv4/leases/search_lease"),
+    )
+    diag: list[str] = []
+    for method, path in attempts:
+        if method == "POST":
+            raw = await _post_json(cli, base, path, body)
+        else:
+            raw = await _get_json(cli, base, path)
+        rows = _extract_grid_rows(raw)
         if rows:
             active = sum(
-                1 for r in rows if isinstance(r, dict)
-                and str(r.get("state") or r.get("status") or "active").strip().lower()
+                1 for r in rows
+                if str(r.get("state") or r.get("status") or "active").strip().lower()
                 in active_words
             )
             return active or len(rows)
-        total = safe_int(data.get("total"))
+        total = safe_int(as_dict(raw).get("total"))
         if total:
             return total
+        if raw is None:
+            diag.append(f"{method} {path}=no-json")
+        else:
+            keys = ",".join(sorted(as_dict(raw).keys())[:6]) or "no-keys"
+            diag.append(f"{method} {path}=0rows({keys})")
+    print("[opnsense] warning: DHCP lease search returned no rows — "
+          + "; ".join(diag) + " (check the Kea/ISC backend + API user privilege)")
     return 0
 
 
@@ -671,6 +737,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _gateways_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "opnsense_services":
         return await _services_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if skill_id == "opnsense_interfaces":
+        return await _interfaces_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "opnsense_restart_service":
         return await _restart_service_skill(host_row, chip, arg=_kw.get("arg"), host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -830,6 +898,56 @@ async def _services_skill(host_row: dict, chip: dict, *,
         out["items"] = items
         out["count"] = len(items)
         out["count_i18n"] = "apps.opnsense.services_count"
+    return out
+
+
+# noinspection DuplicatedCode
+async def _interfaces_skill(host_row: dict, chip: dict, *,
+                            host_id: Optional[str] = None,
+                            service_idx: Optional[int] = None) -> dict:
+    """Read-only: per-interface uplink (↑ tx) / downlink (↓ rx) throughput.
+
+    Throughput is a RATE diffed from two cumulative ``traffic/interface``
+    samples, so a cold invocation (no prior baseline) yields an empty list on
+    the first fetch — we then take a second sample ~2s later to produce real
+    rates. Renders rich items (busiest-first) + a text block for AI / Telegram.
+    Never raises."""
+    print(f"[opnsense] INFO opnsense_interfaces host={host_id} (live fetch)")
+    hid = str(host_id or "")
+    sidx = int(service_idx or 0)
+    try:
+        data = await fetch_data(host_row, chip, host_id=hid, service_idx=sidx, force=True)
+        ifaces = as_list(data.get("interfaces"))
+        if not ifaces:
+            # No baseline yet — sample again so the diff produces real rates.
+            await asyncio.sleep(2)
+            data = await fetch_data(host_row, chip, host_id=hid, service_idx=sidx, force=True)
+            ifaces = as_list(data.get("interfaces"))
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    if not ifaces:
+        return {"ok": True, "status": 200,
+                "detail": "No interface throughput reported by OPNsense "
+                          "(the traffic diagnostics endpoint may be unsupported "
+                          "or warming up — try again in a few seconds)."}
+    total_rx = safe_int(data.get("net_rx_bps"))
+    total_tx = safe_int(data.get("net_tx_bps"))
+    lines = [f"🌐 Total: ↓ {_fmt_bps(total_rx)} · ↑ {_fmt_bps(total_tx)}"]
+    items: list[dict] = []
+    for nic in ifaces:
+        if not isinstance(nic, dict):
+            continue
+        name = str(nic.get("name") or "?").strip() or "?"
+        rx = safe_int(nic.get("rx_bps"))
+        tx = safe_int(nic.get("tx_bps"))
+        lines.append(f"🔌 {name}: ↓ {_fmt_bps(rx)} · ↑ {_fmt_bps(tx)}")
+        items.append({"title": name,
+                      "subtitle": f"↓ {_fmt_bps(rx)}  ·  ↑ {_fmt_bps(tx)}"})
+    out: dict = {"ok": True, "status": 200, "detail": "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.opnsense.interfaces_count"
     return out
 
 

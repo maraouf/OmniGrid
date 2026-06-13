@@ -1396,7 +1396,15 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                 load_pct_present = stats.get("host_load_percent") is not None
                 batt_pct_present = stats.get("host_battery_percent") is not None
                 batt_temp_present = stats.get("host_battery_temp_c") is not None
-                ups_present = load_pct_present or batt_pct_present or batt_temp_present
+                # Power-quality scalars also count as UPS presence, so a UPS
+                # firmware that exposes voltage / frequency but not battery %
+                # still persists a row (the Apps APC card reads from the DB).
+                ups_pq_present = any(
+                    stats.get(k) is not None for k in (
+                        "host_ups_input_voltage", "host_ups_output_voltage",
+                        "host_ups_input_freq_hz", "host_ups_battery_replace"))
+                ups_present = (load_pct_present or batt_pct_present
+                               or batt_temp_present or ups_pq_present)
                 if (mem_total > 0 or rx_raw_present or tx_raw_present
                     or page_count_present or ups_present):
                     cores = stats.get("host_cpu_per_core") or []
@@ -1425,6 +1433,15 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     ups_status_lbl = stats.get("host_ups_status") or None
                     ups_batt_status_lbl = stats.get("host_battery_status") or None
                     ups_runtime_s = _int_or_none(stats.get("host_battery_runtime_s"))
+                    # APC power-quality scalars (input/output voltage,
+                    # mains frequency, last-transfer cause, battery-replace
+                    # flag, self-test result). NULL for non-UPS hosts.
+                    ups_in_v = _float_or_none(stats.get("host_ups_input_voltage"))
+                    ups_out_v = _float_or_none(stats.get("host_ups_output_voltage"))
+                    ups_in_hz = _float_or_none(stats.get("host_ups_input_freq_hz"))
+                    ups_last_xfer = stats.get("host_ups_last_transfer") or None
+                    ups_batt_replace = _int_or_none(stats.get("host_ups_battery_replace"))
+                    ups_self_test = stats.get("host_ups_self_test") or None
                     # Aggregate disk totals — capture so SNMP-only
                     # hosts can render the inline disk sparkline. The
                     # extractor's `host_disk_total` / `host_disk_used`
@@ -1444,8 +1461,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                             "uptime_s, net_rx_total_bytes, net_tx_total_bytes, "
                             "printer_page_count, load_percent, battery_percent, "
                             "battery_temp_c, disk_total, disk_used, "
-                            "ups_status, battery_status, battery_runtime_s) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            "ups_status, battery_status, battery_runtime_s, "
+                            "ups_input_voltage, ups_output_voltage, "
+                            "ups_input_freq_hz, ups_last_transfer, "
+                            "ups_battery_replace, ups_self_test) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                            "?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -1470,6 +1491,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 ups_status_lbl,
                                 ups_batt_status_lbl,
                                 ups_runtime_s,
+                                ups_in_v,
+                                ups_out_v,
+                                ups_in_hz,
+                                ups_last_xfer,
+                                ups_batt_replace,
+                                ups_self_test,
                             ),
                         )
                         # per-interface counter snapshot for the

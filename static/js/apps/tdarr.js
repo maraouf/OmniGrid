@@ -105,6 +105,18 @@ function tdarrFps(v) {
   return n.toLocaleString(undefined, {maximumFractionDigits: 0}) + ' fps';
 }
 
+// Per-node rollup [{name, workers_active, capacity, fps, paused, idle}] from
+// the get-nodes payload — every registered node, busiest-first. [] when none.
+function tdarrNodeSummary(d) {
+  return (d && Array.isArray(d.node_summary)) ? d.node_summary : [];
+}
+
+// Count of IDLE nodes (registered + has capacity + not paused but processing
+// nothing) — the "a node joined but isn't working" warning. 0 when none.
+function tdarrIdleNodes(d) {
+  return d ? (Number(d.idle_nodes) || 0) : 0;
+}
+
 // Retention trend block from the lifespan tdarr_sampler (cumulative space-saved
 // + queue burn-down + per-day throughput), or null while idle / no samples yet.
 function tdarrTrend(inst) {
@@ -175,6 +187,8 @@ export const helpers = {
   tdarrWorkers: tdarrWorkers,
   tdarrBreakdown: tdarrBreakdown,
   tdarrFps: tdarrFps,
+  tdarrNodeSummary: tdarrNodeSummary,
+  tdarrIdleNodes: tdarrIdleNodes,
   tdarrTrend: tdarrTrend,
   tdarrTrendPath: tdarrTrendPath,
 };

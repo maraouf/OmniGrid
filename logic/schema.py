@@ -896,6 +896,29 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tdarr_samples_ts
             ON tdarr_samples(ts);
 
+        -- Emby / Jellyfin streaming retention. One row per (media-server chip,
+        -- tick) — the SHARED table for BOTH brands (the sampler probes emby +
+        -- jellyfin instances alike; a chip's host_id+service_idx is unique
+        -- across brands). All columns are point-in-time gauges (active streams,
+        -- transcoding streams, total stream bandwidth in bps), so the trend
+        -- reads each day's MAX (peak streams) + a daily-max series. Neither card
+        -- keeps stream history natively, so this fills the 'peak N streams
+        -- today' stat + the streams sparkline.
+        CREATE TABLE IF NOT EXISTS emby_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            sessions_active INTEGER NOT NULL DEFAULT 0,
+            transcodes      INTEGER NOT NULL DEFAULT 0,
+            bandwidth_bps   INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_emby_samples_chip_ts
+            ON emby_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_emby_samples_ts
+            ON emby_samples(ts);
+
         -- Kavita library-growth retention. One row per (kavita chip, tick). All
         -- columns are CUMULATIVE running totals (a library only grows), so the
         -- trend reads them as each day's LAST value (a growth line). ``ts`` is
@@ -1489,6 +1512,21 @@ def init_db():
                 # phantom rows (dd-wrt's `/opt`) don't pollute history.
                 "ALTER TABLE host_snmp_samples ADD COLUMN disk_total INTEGER",
                 "ALTER TABLE host_snmp_samples ADD COLUMN disk_used INTEGER",
+                # APC UPS power-quality scalars — input / output voltage
+                # (VAC), input mains frequency (Hz), the reason for the
+                # last transfer to battery, a 0/1 battery-replace flag,
+                # and the last self-test result. Persisted alongside the
+                # existing battery / load columns so the Apps APC card
+                # renders the full power panel straight from the DB
+                # sample (never a live host probe). All NULL for non-UPS
+                # hosts / when the PowerNet OIDs didn't answer. Read-only
+                # — no SNMP SET is ever issued.
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_input_voltage REAL",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_output_voltage REAL",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_input_freq_hz REAL",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_last_transfer TEXT",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_battery_replace INTEGER",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_self_test TEXT",
                 # HTTP probe — TLS certificate metadata + DNS / TLS
                 # error strings persisted alongside the numeric outcome
                 # so the drawer card can surface cert subject / issuer

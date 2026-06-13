@@ -78,11 +78,36 @@
             <span class="mono" x-text="(t('apps.tdarr.avg_saved', { gb: (Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0).toFixed(2) }) || ((Number(tdarrData(inst).avg_saved_per_transcode_gb) || 0).toFixed(2) + ' GB/file'))"></span>
           </span>
         </div>
+        <!-- Idle-node warning — a node that JOINED but isn't processing
+             (registered with worker capacity, not paused, but 0 active workers).
+             Card-visible (not drawer-only) since it's an actionable health flag. -->
+        <div x-show="tdarrIdleNodes(tdarrData(inst)) > 0"
+             class="fs-3xs mt-1 mono text-[var(--warning)]"
+             x-text="t('apps.tdarr.idle_nodes', { n: tdarrIdleNodes(tdarrData(inst)) })"></div>
         <!-- "Now processing" lives on the "Tdarr status" ACTION (skill button),
              NOT here — the always-on extras card shows CACHED fetch_data, so its
              worker list went stale; the skill re-fetches get-nodes live on click
              and renders each active worker with a proper 2-colour progress bar
              (apps-skill-item-bar). -->
+        <!-- Per-node throughput (drawer-only): every registered node with its
+             live fps + active-worker count, so an idle / underused node stands
+             out next to the busy ones. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tdarrNodeSummary(tdarrData(inst)).length">
+          <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.nodes_title') || 'Nodes'"></div>
+            <template x-for="nd in tdarrNodeSummary(tdarrData(inst))" :key="nd.name">
+              <div class="flex items-center gap-2 fs-2xs min-w-0">
+                <span class="inline-block w-2 h-2 rounded-full shrink-0"
+                      :style="'background: ' + (nd.idle ? 'var(--warning)' : (nd.paused ? 'var(--text-faint)' : (Number(nd.fps) > 0 ? 'var(--success)' : 'var(--text-faint)')))"></span>
+                <span class="truncate text-[var(--text-dim)]" x-text="nd.name" :title="nd.name"></span>
+                <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
+                      x-text="nd.idle ? (t('apps.tdarr.node_idle') || 'idle')
+                        : (nd.paused ? (t('apps.tdarr.node_paused') || 'paused')
+                        : t('apps.tdarr.node_throughput', { active: nd.workers_active, cap: nd.capacity, fps: tdarrFps(nd.fps) }))"></span>
+              </div>
+            </template>
+          </div>
+        </template>
         <!-- Library breakdowns: resolutions / video codecs / containers. -->
         <template x-for="bd in [
               { key: 'resolutions', label: (t('apps.tdarr.resolutions') || 'Resolutions') },

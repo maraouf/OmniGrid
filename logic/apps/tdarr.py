@@ -381,6 +381,35 @@ def _worker_list(nodes: Any) -> list:
     return out
 
 
+def _node_summary(nodes: Any) -> list:
+    """Per-NODE rollup ``[{name, workers_active, capacity, fps, paused, idle}]``
+    from a ``get-nodes`` payload — every REGISTERED node, not just the busy ones,
+    so a node that JOINED but isn't processing is visible. ``capacity`` is the
+    node's configured worker limit (sum of ``workerLimits``); ``fps`` is the
+    summed live throughput of its active workers; ``idle`` flags a node that has
+    capacity AND isn't paused but is running 0 workers — the "a node joined but
+    isn't doing anything" signal. Busiest-first (then idle, then by name)."""
+    out = []
+    for node in as_dict(nodes).values():
+        if not isinstance(node, dict):
+            continue
+        name = str(node.get("nodeName") or "node").strip()
+        workers = as_dict(node.get("workers"))
+        active = sum(1 for w in workers.values()
+                     if isinstance(w, dict) and w.get("job"))
+        fps = round(sum(_worker_fps(w) for w in workers.values()
+                        if isinstance(w, dict) and w.get("job")), 1)
+        capacity = sum(safe_int(v) for v in as_dict(node.get("workerLimits")).values())
+        paused = bool(node.get("nodePaused"))
+        out.append({
+            "name": name, "workers_active": active, "capacity": capacity,
+            "fps": fps, "paused": paused,
+            "idle": active == 0 and capacity > 0 and not paused,
+        })
+    out.sort(key=lambda n: (-n["fps"], n["idle"], n["name"].lower()))
+    return out
+
+
 # noinspection DuplicatedCode
 async def _post(cli: httpx.AsyncClient, base: str, api_key: str,
                 path: str, body: dict) -> Any:
@@ -488,14 +517,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _version = str(as_dict(await _get(cli, base, api_key, "/status")).get("version") or "").strip()
             except RuntimeError:
                 _version = ""
-            _wa, _nodes, _wl, _fps = 0, 0, [], 0.0
+            _wa, _nodes, _wl, _fps, _ns = 0, 0, [], 0.0, []
             try:
                 nd = await _get(cli, base, api_key, "/get-nodes")
                 _wa, _nodes = _count_workers(nd)
                 _wl = _worker_list(nd)
                 _fps = _total_fps(nd)
+                _ns = _node_summary(nd)
             except RuntimeError:
-                _wa, _nodes, _wl, _fps = 0, 0, [], 0.0
+                _wa, _nodes, _wl, _fps, _ns = 0, 0, [], 0.0, []
             # Library breakdowns (resolutions / codecs / containers) — best-effort
             # per-library get-pies aggregation, BOUNDED so a slow library can't
             # time out the whole card; empty on timeout (the card hides them).
@@ -504,10 +534,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     _fetch_pies(cli, base, api_key), timeout=_PIES_BUDGET_S)
             except (asyncio.TimeoutError, RuntimeError):
                 _pies = {"resolutions": [], "codecs": [], "containers": []}
-            return _stats, _version, _wa, _nodes, _wl, _pies, _fps
+            return _stats, _version, _wa, _nodes, _wl, _pies, _fps, _ns
 
     try:
-        stats, version, workers_active, nodes, worker_list, pies, fps = \
+        stats, version, workers_active, nodes, worker_list, pies, fps, node_summary = \
             await asyncio.wait_for(_collect(), timeout=_CARD_TOTAL_BUDGET_S)
     except (RuntimeError, asyncio.TimeoutError) as e:
         # Transient upstream slowness (e.g. Tdarr busy while a bloated scan
@@ -549,6 +579,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "workers_active": workers_active,
         "nodes": nodes,
         "workers": worker_list,
+        # Per-node rollup + idle-node count (a node registered with capacity but
+        # processing nothing — "joined but not working").
+        "node_summary": node_summary,
+        "idle_nodes": sum(1 for n in node_summary if n.get("idle")),
         "resolutions": pies.get("resolutions", []),
         "codecs": pies.get("codecs", []),
         "containers": pies.get("containers", []),
@@ -600,6 +634,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "fps": safe_float(data.get("fps")),
         "workers_active": safe_int(data.get("workers_active")),
         "nodes": safe_int(data.get("nodes")),
+        "idle_nodes": safe_int(data.get("idle_nodes")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -670,6 +705,18 @@ SKILLS: tuple[dict, ...] = (
         "destructive": True,
     },
     {
+        "id": "tdarr_requeue_file",
+        "name": "Requeue one file",
+        "ai_phrases": ("requeue this file, re-transcode <file>, queue <file> again, "
+                       "re-process this bloated file, requeue one file"),
+        # arg-carrying → AI / Telegram + the per-row Requeue button on the bloated
+        # list (arg = the file's _id). DESTRUCTIVE — resets the file's DB status
+        # to Queued so Tdarr re-transcodes it (the SPA confirms first).
+        "arg": True,
+        "arg_hint": "the file id (or name) of the bloated file to requeue",
+        "destructive": True,
+    },
+    {
         "id": "tdarr_cancel_worker",
         "name": "Cancel one running job",
         "ai_phrases": ("cancel the job on <node>, kill the worker transcoding "
@@ -713,6 +760,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _cancel_workers_skill(host_row, chip, host_id=host_id)
     if skill_id == "tdarr_cancel_worker":
         return await _cancel_worker_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "tdarr_requeue_file":
+        return await _requeue_file_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -897,13 +946,23 @@ def _fmt_bloated_result(files: list, note: str = "", pending: bool = False) -> d
     items = []
     for f in files[:25]:
         ratio = safe_float(f.get("newVsOldRatio"))
-        items.append({
+        item: dict = {
             "title": os.path.basename(str(f.get("file") or "?")),
             "subtitle": f"{_bloat_severity_emoji(ratio)} {ratio:.0f}% of original size",
             # Bar = how far OVER the original size (clamped) — 0 at 100% (same
             # size), full at ≥200% (double). Gives an at-a-glance bloat gauge.
             "progress": min(100, max(0, round(ratio - 100))),
-        })
+        }
+        # Per-row ♻ Requeue button — re-transcode THIS file (DESTRUCTIVE; the SPA
+        # confirms first), instead of only the bulk "Requeue all bloated".
+        fid = str(f.get("_id") or "").strip()
+        if fid:
+            item["row_action"] = {
+                "skill_id": "tdarr_requeue_file", "arg": fid,
+                "icon": "refresh-cw", "destructive": True,
+                "confirm_i18n": "apps.tdarr.requeue_file_confirm",
+                "title_i18n": "apps.tdarr.requeue_file_row"}
+        items.append(item)
     out = {"ok": True, "status": 200, "detail": detail, "items": items,
            "count": len(files), "count_i18n": "apps.tdarr.bloated_count",
            # One-click follow-up: requeue every bloated file straight from the
@@ -1286,6 +1345,57 @@ def _fmt_gb(gb: Any) -> str:
     if g >= 1024:
         return f"{g / 1024:,.1f} TB"
     return f"{g:,.1f} GB"
+
+
+async def _requeue_file_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """Destructive: requeue ONE file (reset its DB status to ``Queued`` so Tdarr
+    re-transcodes it). ``arg`` is the file's exact ``_id`` (the per-row Requeue
+    button on the bloated list) OR a filename matched against the cached bloated
+    scan (the AI / Telegram free-text path). A single cruddb update, so it runs
+    synchronously (unlike the bulk requeue). Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    target = (arg or "").strip()
+    if not target:
+        return {"ok": False, "status": 0, "detail": "no file given to requeue"}
+    hid = str(host_id or "")
+    cached = as_list((_bloated_state.get(hid) or {}).get("files"))
+    file_id = target
+    label = target
+    exact = next((f for f in cached if isinstance(f, dict)
+                  and str(f.get("_id") or "") == target), None)
+    if exact is not None:
+        label = os.path.basename(str(exact.get("file") or "")) or file_id
+    else:
+        # Not an exact cached id → try a filename substring match (free-text).
+        tl = target.lower()
+        match = next((f for f in cached if isinstance(f, dict)
+                      and tl in os.path.basename(str(f.get("file") or "")).lower()), None)
+        if match is not None:
+            file_id = str(match.get("_id") or "")
+            label = os.path.basename(str(match.get("file") or "")) or file_id
+    if not file_id:
+        return {"ok": False, "status": 404, "detail": f"no file matched \"{target}\""}
+    print(f"[tdarr] INFO tdarr_requeue_file host={hid} file_id={file_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            await _cruddb(cli, base, api_key, {
+                "collection": "FileJSONDB", "mode": "update", "docID": file_id,
+                "obj": {"TranscodeDecisionMaker": "Queued", "HealthCheck": "Queued"}},
+                parse_json=False)
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": f"requeue failed: {e}"}
+    # This file's bloat state is now stale — drop the cached scan so the next
+    # check re-scans without it.
+    st = _bloated_state.get(hid)
+    if st:
+        st["files"] = None
+        st["ts"] = None
+    return {"ok": True, "status": 200, "detail": f"♻️ Requeued {label} for re-transcode."}
 
 
 # ---------------------------------------------------------------------------
