@@ -23,7 +23,7 @@
                : (t('apps.fing.api_key_placeholder_unset') || 'Local API key')"
              autocomplete="off" spellcheck="false">
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
-         x-text="t('apps.fing.api_key_hint') || 'Enable the Fing Agent / Fing Desktop Local API and copy its API key. It is sent as the ?auth=<key> query parameter on every call (not a header). The secret is stored encrypted-at-rest and never shown again; leave blank to keep the saved one. Set the chip URL to the Fing agent (default :49090).'"></p>
+         x-text="t('apps.fing.api_key_hint') || 'Enable the Local API on your Fing unit, then copy the key. On the Fing Agent (Docker / Linux / NAS) it is OFF by default — turn it on at app.fing.com → Manage → Settings → Local API (or the mobile app → your agent → Settings → Local API) and set a port + key there; in Fing Desktop it is in the desktop app settings. The key is sent as the ?auth=<key> query parameter (not a header). Point the chip URL at the Local API port (default :49090) — note the Fing Agent published port 44444 is UPnP status only, not the API. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one.'"></p>
     </div>
     <!-- Per-instance data-cache TTL (contained in the app, NOT a global Config
          tunable). Blank = the app default (60s); backend clamps 5..3600. -->

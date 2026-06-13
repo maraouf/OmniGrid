@@ -358,14 +358,29 @@ async def fetch_data(host_row: dict, chip: dict, *,
     mem = as_dict(res_d.get("memory"))
     mem_used = safe_int(mem.get("used"))
     mem_total = safe_int(mem.get("total"))
+    # systemResources returns the login page (zeroed memory) on some boxes /
+    # privilege sets — fall back to the FreeBSD `top` Mem: line from getActivity,
+    # the same header source CPU% reads from (proven readable on this host).
+    if mem_total <= 0:
+        mem_used, mem_total = _mem_from_activity(activity)
     mem_percent = round(mem_used / mem_total * 100, 1) if mem_total else 0.0
     stime_d = as_dict(stime)
     load_1m, load_5m, load_15m = _loadavg(stime_d)
+    # Same fallback for load — systemTime can return the login page (zeroed
+    # load); getActivity's header carries the load averages too.
+    if load_1m <= 0 and load_5m <= 0 and load_15m <= 0:
+        load_1m, load_5m, load_15m = _loadavg_from_activity(activity)
     uptime_s = _uptime_seconds(stime_d)
     gw_list, gw_total, gw_online, worst_gw = _gateways_shape(as_dict(gw))
     svc_list, svc_total, svc_running = _services_shape(as_dict(svc))
     pf_d = as_dict(pf)
-    pf_current = safe_int(pf_d.get("current"))
+    # pf_states shape varies by version: a {current, limit} summary, a
+    # {total, rows:[...]} paginated list, or a bare list of states. Take the
+    # count from whichever is present so the card never reads a false 0.
+    pf_current = (safe_int(pf_d.get("current"))
+                  or safe_int(pf_d.get("total"))
+                  or len(as_list(pf_d.get("rows")))
+                  or (len(pf) if isinstance(pf, list) else 0))
     pf_limit = safe_int(pf_d.get("limit"))
     leases_total = safe_int(leases)
     temp_max_c = _temp_max(temp)
@@ -464,6 +479,63 @@ def _activity_cores(activity: Any) -> int:
         if m:
             return safe_int(m.group("n"))
     return 0
+
+
+def _loadavg_from_activity(activity: Any) -> "tuple[float, float, float]":
+    """Load averages from the ``getActivity`` ``top``-style header rows — the
+    same proven-readable source CPU% comes from. The first header line reads
+    ``... load averages: 0.45, 0.52, 0.48 up 5+12:34:56 ...``. Used as the
+    fallback when ``systemTime`` returns the login page (zeroed load). Zeros
+    when no load line is present."""
+    headers = as_list(as_dict(activity).get("headers"))
+    import re as _re  # noqa: PLC0415
+    for h in headers:
+        m = _re.search(r"load averages?:\s*(?P<l1>[0-9.]+)[,\s]+(?P<l5>[0-9.]+)"
+                       r"[,\s]+(?P<l15>[0-9.]+)", str(h or ""), _re.IGNORECASE)
+        if m:
+            return (safe_float(m.group("l1")), safe_float(m.group("l5")),
+                    safe_float(m.group("l15")))
+    return 0.0, 0.0, 0.0
+
+
+def _top_size_bytes(num: str, unit: str) -> int:
+    """A FreeBSD ``top`` size token (``412M`` / ``5G`` / ``128K``) → bytes."""
+    mult = {"": 1, "B": 1, "K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+    try:
+        return int(float(num) * mult.get(unit.upper(), 1))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _mem_from_activity(activity: Any) -> "tuple[int, int]":
+    """Memory ``(used_bytes, total_bytes)`` parsed from the ``getActivity``
+    ``Mem:`` header row — the FreeBSD ``top`` fallback for when
+    ``systemResources`` returns the login page (zeroed memory). The line reads
+    e.g. ``Mem: 412M Active, 1024M Inact, 64M Laundry, 890M Wired, 128M Buf,
+    5400M Free``. Total is the sum of the physical categories (Buf excluded —
+    it overlaps the others); ``available`` follows the FreeBSD convention
+    (Free + Inact + Laundry + Cache are reclaimable), so ``used = total -
+    available``. ``(0, 0)`` when no ``Mem:`` line is present."""
+    headers = as_list(as_dict(activity).get("headers"))
+    import re as _re  # noqa: PLC0415
+    for h in headers:
+        s = str(h or "")
+        if not _re.match(r"\s*Mem:", s, _re.IGNORECASE):
+            continue
+        total = 0
+        avail = 0
+        for num, unit, cat in _re.findall(
+            r"(?P<num>[0-9.]+)\s*(?P<unit>[KMGTB]?)\s+(?P<cat>[A-Za-z]+)", s):
+            cl = cat.lower()
+            if cl == "buf":  # buffer overlaps the other categories — don't sum
+                continue
+            b = _top_size_bytes(num, unit)
+            total += b
+            if cl in ("free", "inact", "laundry", "cache"):
+                avail += b
+        if total:
+            return max(0, total - avail), total
+    return 0, 0
 
 
 def _throughput(host_id: str, service_idx: int, traffic: dict,

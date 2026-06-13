@@ -273,8 +273,13 @@
       <!-- Header -->
       <div class="p-4 border-b border-[var(--border)] flex justify-between items-center gap-3">
         <div class="min-w-0">
-          <h3 class="font-semibold fs-md truncate"
-              x-text="t('stats.samples.drill_down.title', { label: statsSamplesDrillDown.label })"></h3>
+          <div class="flex items-center gap-2 min-w-0">
+            <svg width="16" height="16" class="text-[var(--text-dim)] shrink-0" aria-hidden="true">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+            </svg>
+            <h3 class="font-semibold fs-md truncate"
+                x-text="t('stats.samples.drill_down.title', { label: statsSamplesDrillDown.label })"></h3>
+          </div>
           <p class="fs-2xs text-[var(--text-faint)] mt-1"
              x-text="t('stats.samples.drill_down.hint')"></p>
         </div>

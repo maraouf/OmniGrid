@@ -354,6 +354,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
     shaped = _shape_status(body)
     out: dict[str, Any] = {"available": True, "fetched_at": int(now),
                            "version": version, **shaped}
+    # Embed the sync-reliability trend from the lifespan sampler (best-effort —
+    # a sampler / DB hiccup must not fail the card; zeroed until rows accrue).
+    try:
+        from logic.apps import adguardhome_sync_sampler as _ags_sampler  # noqa: PLC0415
+        out["history"] = _ags_sampler.history_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[adguardsync] warning: history_summary({host_id}#{service_idx}) "
+              f"failed: {e}")
     print(f"[adguardsync] INFO fetched host={host_id} running={out['sync_running']} "
           f"origin_ok={out['origin_ok']} replicas_ok={out['replicas_ok']}/"
           f"{out['replicas_total']}")

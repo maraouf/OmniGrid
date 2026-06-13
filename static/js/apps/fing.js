@@ -33,7 +33,7 @@ function isFingApp(app) {
   }
   const cat = app.catalog || {};
   const slug = String(cat.slug || '').trim().toLowerCase();
-  if (slug === 'fing') {
+  if (slug === 'fing' || slug === 'fing-agent') {
     return true;
   }
   return (String(app.name || '').toLowerCase().indexOf('fing') !== -1);

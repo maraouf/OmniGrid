@@ -409,6 +409,8 @@ _BUILTIN: list[dict[str, Any]] = [
         "default_ports": [
             {"port": 49090, "protocol": "http", "label": "Local API",
              "probe_path": "/1/devices", "probe_status": 0},
+            {"port": 44444, "protocol": "tcp", "label": "Agent (UPnP)",
+             "probe_path": "", "probe_status": 0},
         ],
     },
     {
@@ -436,11 +438,13 @@ _BUILTIN: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "Fing Agent", "slug": "fing-agent", "icon": "fing-agent",
-        "description": "Network device discovery agent",
+        "name": "Fing Agent", "slug": "fing-agent", "icon": "fing",
+        "description": "Fing Agent — network device discovery (UPnP :44444 + Local API)",
         "default_ports": [
-            {"port": 44444, "protocol": "tcp", "label": "Agent",
+            {"port": 44444, "protocol": "tcp", "label": "Agent (UPnP)",
              "probe_path": "", "probe_status": 0},
+            {"port": 49090, "protocol": "http", "label": "Local API",
+             "probe_path": "/1/devices", "probe_status": 0},
         ],
     },
     {

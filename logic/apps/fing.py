@@ -46,8 +46,11 @@ from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl)
 from logic.coerce import as_dict, as_list, safe_int
 
-# Catalog template slug.
-SLUGS: tuple[str, ...] = ("fing",)
+# Catalog template slugs — the per-app Fing card handles both the "fing" Local
+# API template (port 49090) and the legacy "fing-agent" template (the Fing Agent
+# whose published port 44444 is UPnP-only); both expose the same ?auth Local API
+# once enabled, so one module serves either chip.
+SLUGS: tuple[str, ...] = ("fing", "fing-agent")
 
 DEFAULT_CACHE_TTL_S = 60
 _data_cache: dict[str, tuple[float, dict]] = {}

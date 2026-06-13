@@ -622,6 +622,27 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_fing_samples_ts
             ON fing_samples(ts);
 
+        -- AdGuard Home Sync sync-outcome history. The sync API is current-state
+        -- only, so this sampler records each configured AGS chip's replica
+        -- in-sync count per tick so the card can draw a sync-RELIABILITY trend
+        -- (how often every replica was in sync) that survives the tool keeping
+        -- no history of its own. ``origin_ok`` flags whether the origin was
+        -- reachable on that tick. One row per (host_id, service_idx, tick).
+        CREATE TABLE IF NOT EXISTS adguardhome_sync_samples (
+            ts             INTEGER NOT NULL,
+            host_id        TEXT    NOT NULL,
+            service_idx    INTEGER NOT NULL,
+            replicas_total INTEGER NOT NULL DEFAULT 0,
+            replicas_ok    INTEGER NOT NULL DEFAULT 0,
+            origin_ok      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_adguardhome_sync_samples_chip_ts
+            ON adguardhome_sync_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_adguardhome_sync_samples_ts
+            ON adguardhome_sync_samples(ts);
+
         -- Speedtest Tracker long-horizon history. Speedtest Tracker KEEPS its
         -- own results history, but prunes it on the operator's configured
         -- retention schedule — so the lifespan ``speedtest_tracker_sampler``

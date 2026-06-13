@@ -157,6 +157,7 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     # Samples page's per-table breakdown + grand total cover the Apps feature's
     # samplers, not just the host-stats providers.
     ("adguard_samples", "adguardhome", "adguard per-tick", "ts", "host_id"),
+    ("adguardhome_sync_samples", "adguardhome-sync", "AdGuard sync reliability", "ts", "host_id"),
     ("pihole_samples", "pihole", "pi-hole per-tick", "ts", "host_id"),
     ("ddns_samples", "ddns_updater", "ddns-updater per-tick", "ts", "host_id"),
     ("fing_samples", "fing", "fing occupancy", "ts", "host_id"),
@@ -734,7 +735,8 @@ def _compute_admin_stats_summary() -> dict:
                     hid, bx, bt = _unpack_net_row(r)
                     key = canonical_map.get(hid) or hid
                     prev = ded.get(key)
-                    if prev is None or (bx + bt) > (prev[0] + prev[1]):
+                    prev_sum = (prev[0] + prev[1]) if prev is not None else -1
+                    if (bx + bt) > prev_sum:
                         ded[key] = (bx, bt)
                 out["network_30d_bytes"] = int(sum(v[0] + v[1] for v in ded.values()))
             except (sqlite3.Error, TypeError, ValueError):
@@ -1242,7 +1244,8 @@ async def api_admin_stats_network(
                     h_id, bx, bt = _unpack_net_row(r)
                     key = _canonical(h_id)
                     cur = ded_total.get(key)
-                    if cur is None or (bx + bt) > (cur["bytes_rx"] + cur["bytes_tx"]):
+                    cur_sum = (cur["bytes_rx"] + cur["bytes_tx"]) if cur is not None else -1
+                    if (bx + bt) > cur_sum:
                         ded_total[key] = {"bytes_rx": bx, "bytes_tx": bt}
                 out["total"] = {
                     "bytes_rx": sum(v["bytes_rx"] for v in ded_total.values()),
@@ -1897,28 +1900,17 @@ def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
     return out
 
 
-# Canonical roster of sample-bearing tables — mirrored from the spec
-# inside `api_admin_stats_samples`. Pulled out to module scope so the
-# drill-down endpoint can validate the operator-passed `?table=` param
-# WITHOUT executing the bigger summary query. Each entry maps the
-# table name to the host-id column (most tables use `host_id`; the
-# Portainer `stats_samples` table uses `item_id` instead).
+# Per-table host-id column for the drill-down endpoint, DERIVED from the
+# canonical _SAMPLE_TABLES_SPEC (every host-keyed entry — host_col not None) so
+# it can never drift from the Samples page's per-table breakdown. Pulled out to
+# module scope so the drill-down endpoint can validate the operator-passed
+# `?table=` param WITHOUT executing the bigger summary query (the table name is
+# interpolated into SQL, so the validation IS the injection guard — only names
+# present in the explicit spec are accepted). Most tables key on `host_id`; the
+# Portainer `stats_samples` table uses `item_id`. Host-less tables (db_size /
+# weather / prayer_times / public_ip — host_col None) are NOT drillable.
 _SAMPLES_TABLE_HOST_COL: dict[str, str] = {
-    "ping_samples": "host_id",
-    "host_snmp_samples": "host_id",
-    "host_snmp_iface_samples": "host_id",
-    "host_snmp_temp_samples": "host_id",
-    "host_beszel_samples": "host_id",
-    "host_beszel_services": "host_id",
-    "host_pulse_samples": "host_id",
-    "host_webmin_samples": "host_id",
-    "host_metrics_samples": "host_id",
-    "host_net_samples": "host_id",
-    "host_http_samples": "host_id",
-    "service_samples": "host_id",
-    "stats_samples": "item_id",
-    "host_port_scans": "host_id",
-    "host_failure_events": "host_id",
+    _t[0]: _t[4] for _t in _SAMPLE_TABLES_SPEC if _t[4]
 }
 
 

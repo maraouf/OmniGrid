@@ -88,6 +88,26 @@
             </template>
           </div>
         </template>
+        <!-- Sync-reliability trend — daily-MIN in-sync %, recorded by the
+             lifespan sampler (the sync tool keeps no history of its own).
+             Shown once at least two samples exist in the window. -->
+        <template x-if="adguardsyncHistory(inst) && adguardsyncHistory(inst).samples > 1">
+          <div class="mt-2">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="apps-card-stat-label" x-text="t('apps.adguardsync.reliability') || 'Sync reliability'"></span>
+              <span class="fs-3xs mono"
+                    :class="adguardsyncHistory(inst).reliability_pct >= 99 ? 'text-[var(--success)]' : (adguardsyncHistory(inst).reliability_pct >= 90 ? 'text-[var(--warning)]' : 'text-[var(--danger)]')"
+                    x-text="(adguardsyncHistory(inst).reliability_pct != null ? adguardsyncHistory(inst).reliability_pct : 0) + '%'"></span>
+            </div>
+            <template x-if="(adguardsyncHistory(inst).sync_pct_series || []).length > 1">
+              <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                <polyline class="apps-spark-line" :points="adguardsyncSyncSpark(inst)"></polyline>
+              </svg>
+            </template>
+            <div class="fs-3xs text-[var(--text-faint)] mono"
+                 x-text="t('apps.adguardsync.reliability_caption', { days: adguardsyncHistory(inst).days, n: adguardsyncHistory(inst).out_of_sync_days }) || ('Last ' + adguardsyncHistory(inst).days + ' days · ' + adguardsyncHistory(inst).out_of_sync_days + ' out-of-sync day(s)')"></div>
+          </div>
+        </template>
         <!-- Sync interval / total syncs footnote (best-effort — only when the
              API exposes them). -->
         <div x-show="adguardsyncData(inst).sync_interval || adguardsyncData(inst).total_syncs"
