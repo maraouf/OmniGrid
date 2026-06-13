@@ -465,6 +465,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "grabs": safe_int(grabs),
         "failed_queries": safe_int(stats.get("failed")),
         "fail_rate_pct": float(stats.get("fail_rate_pct") or 0.0),
+        "avg_response_ms": safe_int(stats.get("avg_response_ms")),
         "worst_failing": stats.get("worst_failing"),
         "slowest_indexer": stats.get("slowest"),
         # Capped per-indexer breakdown (worst-failure-rate first) for the

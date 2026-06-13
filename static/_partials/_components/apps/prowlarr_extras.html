@@ -133,6 +133,19 @@
               <div x-show="(Number(prowlarrTrend(inst).avg_fail_rate) || 0) > 0" class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.prowlarr.avg_failrate', { pct: (Number(prowlarrTrend(inst).avg_fail_rate) || 0).toFixed(1) })"></div>
             </div>
+            <!-- Avg query response-time per day — the "indexers getting slower"
+                 signal (query-weighted fleet average). Shown once positive
+                 response data exists. -->
+            <div class="space-y-1"
+                 x-show="prowlarrTrend(inst).series_response_ms && prowlarrTrend(inst).series_response_ms.length >= 2 && (Number(prowlarrTrend(inst).peak_response_ms) || 0) > 0">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.prowlarr.response_trend', { days: prowlarrTrend(inst).days }) || ('Avg response time (' + prowlarrTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="prowlarrTrendPath(prowlarrTrend(inst).series_response_ms)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.prowlarr.response_latest', { latest: prowlarrCount(prowlarrTrend(inst).latest_response_ms), peak: prowlarrCount(prowlarrTrend(inst).peak_response_ms) })"></div>
+            </div>
           </div>
         </template>
         <!-- Footnote: version + health issues. -->

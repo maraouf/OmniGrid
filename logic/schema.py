@@ -867,6 +867,10 @@ def init_db():
             total_queries INTEGER NOT NULL DEFAULT 0,
             total_grabs   INTEGER NOT NULL DEFAULT 0,
             total_failed  INTEGER NOT NULL DEFAULT 0,
+            -- Fleet query-weighted avg response time (ms) — a GAUGE, not a
+            -- counter (P3 "indexers getting slower" trend). Added via idempotent
+            -- ALTER for existing deploys; here for fresh ones.
+            response_ms   INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_prowlarr_samples_chip_ts
@@ -1344,6 +1348,8 @@ def init_db():
                 # pending / processing / available gauges.
                 "ALTER TABLE seerr_samples ADD COLUMN approved INTEGER DEFAULT 0",
                 "ALTER TABLE seerr_samples ADD COLUMN declined INTEGER DEFAULT 0",
+                # Prowlarr fleet avg response time (ms) gauge — P3 slowness trend.
+                "ALTER TABLE prowlarr_samples ADD COLUMN response_ms INTEGER NOT NULL DEFAULT 0",
                 # wall-clock of the MOST RECENT probe failure.
                 # ``first_failure_ts`` already records the start of the
                 # streak; this is the timestamp of the latest failed

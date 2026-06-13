@@ -88,10 +88,12 @@
         </template>
       </div>
     </div>
-    <!-- Firmware-update footnote — only when the console reports pending updates. -->
+    <!-- Firmware-update footnote — only when the console reports pending updates.
+         Shows the NAMED devices (P3): the count alone isn't actionable. -->
     <div x-show="(Number(unifiData(inst).devices_update_available) || 0) > 0"
-         class="fs-3xs mt-1 mono text-[var(--warning)]"
-         x-text="t('apps.unifi.updates_summary', { n: (Number(unifiData(inst).devices_update_available) || 0) })"></div>
+         class="fs-3xs mt-1 mono text-[var(--warning)] truncate"
+         :title="(unifiData(inst).update_devices || []).join(', ')"
+         x-text="t('apps.unifi.updates_summary', { n: (Number(unifiData(inst).devices_update_available) || 0) }) + ((unifiData(inst).update_devices || []).length ? ': ' + (unifiData(inst).update_devices || []).join(', ') : '')"></div>
     <!-- Per-AP client distribution (drawer-only) — horizontal bars relative to
          the busiest AP. Hidden when there's no per-AP data. -->
     <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && unifiApLoad && unifiApLoad(inst).length">

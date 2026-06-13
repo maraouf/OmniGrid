@@ -79,7 +79,7 @@ export default {
   statsSections: [
     {id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard'},
     {id: 'database', label: 'Database', icon: 'database'},
-    {id: 'samples', label: 'Samples', icon: 'grid'},
+    {id: 'samples', label: 'Samples', icon: 'layers'},
     {id: 'samplers', label: 'Samplers', icon: 'loader'},
     {id: 'incidents', label: 'Incidents', icon: 'alert-triangle'},
     {id: 'network', label: 'Network', icon: 'activity'},
