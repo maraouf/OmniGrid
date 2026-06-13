@@ -289,6 +289,8 @@ def _resolve_endpoint(provider: str, base_url: str | None) -> str:
 
 
 async def _probe_claude(api_key: str, model: str, base_url: str, timeout: float) -> dict:
+    """Credential-test probe for Claude — a 1-token /v1/messages ping; returns the
+    interpreted ``{ok, detail, status}``."""
     base = _resolve_endpoint("claude", base_url)
     url = f"{base}/v1/messages"
     headers = {
@@ -307,6 +309,8 @@ async def _probe_claude(api_key: str, model: str, base_url: str, timeout: float)
 
 
 async def _probe_gemini(api_key: str, model: str, base_url: str, timeout: float) -> dict:
+    """Credential-test probe for Gemini — a minimal generateContent ping; returns
+    the interpreted ``{ok, detail, status}``."""
     base = _resolve_endpoint("gemini", base_url)
     mdl = model or _DEFAULT_MODELS["gemini"]
     url = f"{base}/v1beta/models/{mdl}:generateContent"
@@ -466,6 +470,8 @@ async def test_provider(
 async def _chat_claude(api_key: str, model: str, base_url: str,
                        prompt: str, system_prompt: str, max_tokens: int,
                        timeout: float) -> dict:
+    """Run one chat completion against Claude's /v1/messages; returns the parsed
+    ``{text, prompt_tokens, completion_tokens, ...}`` result."""
     base = _resolve_endpoint("claude", base_url)
     url = f"{base}/v1/messages"
     headers = {
@@ -506,6 +512,8 @@ async def _chat_claude(api_key: str, model: str, base_url: str,
 async def _chat_gemini(api_key: str, model: str, base_url: str,
                        prompt: str, system_prompt: str, max_tokens: int,
                        timeout: float) -> dict:
+    """Run one chat completion against Gemini's generateContent; returns the
+    parsed ``{text, prompt_tokens, completion_tokens, ...}`` result."""
     base = _resolve_endpoint("gemini", base_url)
     mdl = model or _DEFAULT_MODELS["gemini"]
     url = f"{base}/v1beta/models/{mdl}:generateContent"
@@ -585,6 +593,8 @@ async def _chat_gemini(api_key: str, model: str, base_url: str,
 async def _chat_openai_compatible(provider: str, api_key: str, model: str,
                                   base_url: str, prompt: str, system_prompt: str,
                                   max_tokens: int, timeout: float) -> dict:
+    """Run one chat completion against an OpenAI-compatible /chat/completions
+    endpoint (ChatGPT / DeepSeek); returns the parsed result."""
     base = _resolve_endpoint(provider, base_url)
     url = f"{base}/v1/chat/completions"
     headers = {

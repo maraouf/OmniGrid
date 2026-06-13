@@ -127,6 +127,7 @@ def _in_cooldown(base_url: str, user: str) -> Optional[float]:
 
 
 def _arm_cooldown(base_url: str, user: str) -> None:
+    """Arm the per-(base_url, user) Webmin auth-failure cool-down."""
     _auth_cooldown_timer.arm(base_url.rstrip("/"), user or "")
 
 
@@ -170,7 +171,9 @@ async def _session_login(
         )
         print(f"[webmin] session_login GET {login_url} -> {r1.status_code}, "
               f"cookies after GET: {dict(client.cookies)}")
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         print(f"[webmin] session_login GET {login_url} failed: {e}")
         return False
 
@@ -189,7 +192,9 @@ async def _session_login(
         )
         print(f"[webmin] session_login POST {login_url} -> {r2.status_code}, "
               f"cookies after POST: {dict(client.cookies)}")
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         print(f"[webmin] session_login POST {login_url} failed: {e}")
         return False
 
@@ -218,6 +223,7 @@ async def _session_login(
 
 
 def _num(v) -> float:
+    """Coerce a value to float; ``0.0`` on failure."""
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -241,6 +247,7 @@ def _strip_html(body: str) -> str:
     return text[:200]
 
 
+# noinspection DuplicatedCode
 async def _fetch_response_body(
     client: httpx.AsyncClient,
     base_url: str,
@@ -262,7 +269,9 @@ async def _fetch_response_body(
     url = base_url.rstrip("/") + path
     try:
         r = await client.get(url)  # lgtm[py/full-ssrf]
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return None, "", url, f"{path}: {e}"
     if r.status_code == 401:
         _arm_cooldown(base_url, user)
@@ -642,6 +651,7 @@ def _scrape_system_status(soup) -> Optional[ET.Element]:
     return root
 
 
+# noinspection DuplicatedCode
 async def _fetch_html_scrape(
     client: httpx.AsyncClient,
     base_url: str,
@@ -661,7 +671,9 @@ async def _fetch_html_scrape(
     url = base_url.rstrip("/") + path
     try:
         r = await client.get(url)  # lgtm[py/full-ssrf]
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return None, f"{path}: {e}"
     if r.status_code == 401:
         _arm_cooldown(base_url, user)
@@ -676,7 +688,7 @@ async def _fetch_html_scrape(
         return None, f"{path}: HTML scrape got a login page"
     try:
         soup = BeautifulSoup(body, "html.parser")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return None, f"{path}: bs4 parse error — {e}"
     scrapers = {
         "system_status": _scrape_system_status,
@@ -1340,7 +1352,9 @@ async def probe_webmin(
                 _fetch_first_working(client, base, alts, user, module=mod)
                 for mod, alts in path_alternatives.items()
             ))
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         return {"hosts": {}, "error": f"webmin: {e}"}
 
     # Name-align results with their module keys.

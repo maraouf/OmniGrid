@@ -148,7 +148,7 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
     try:
         from logic import events as _events
         _events.publish("cache:invalidated", {"reason": reason or ""})
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[events] invalidate_cache publish failed: {e}")
 
 
@@ -297,7 +297,7 @@ def save_host_snapshots(nodes_info: dict) -> int:
                 "VALUES (?, ?, ?)",
                 rows,
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[gather] save_host_snapshots failed: {e}")
         return 0
     # Bust the read-side cache so the next caller sees the freshest
@@ -352,7 +352,7 @@ def load_host_snapshots() -> dict[str, dict]:
             rows = c.execute(
                 "SELECT host, ts, data FROM host_snapshots"
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[gather] load_host_snapshots failed: {e}")
         return out
     for r in rows:
@@ -1037,7 +1037,7 @@ def _seed_default_schedules_after_first_gather() -> None:
         with db_conn() as c:
             _sched.seed_default_schedules(c, node_names)
         _default_schedules_seeded = True
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[scheduler] deferred seed_default_schedules failed: {e}")
 
 
@@ -1056,6 +1056,7 @@ async def gather() -> None:
 
 
 async def _gather_impl() -> None:
+    """Core gather: fan out the Portainer reads, build items + stack rollups, enrich each with its remote-digest status, and repopulate the cache."""
     # Short-circuit on empty Portainer config — brand-new deploys where the
     # admin hasn't set URL + API key yet. Produces an empty snapshot
     # instead of a pile of connection errors; the UI renders its "go to
@@ -1091,7 +1092,7 @@ async def _gather_impl() -> None:
                 return await coro
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as gather_err:
+            except Exception as gather_err: # noqa: BLE001
                 print(f"[gather] {gather_err}")
                 return fb
 
@@ -1243,7 +1244,7 @@ async def _gather_impl() -> None:
                 return target_host, df_total
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as df_err:
+            except Exception as df_err: # noqa: BLE001
                 print(f"[gather] /system/df for {target_host}: {df_err}")
                 return target_host, 0
 
@@ -2309,7 +2310,7 @@ async def _gather_impl() -> None:
         # precedence (only MISSING fields are filled).
         try:
             apply_host_snapshot_fallback(nodes_info)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[gather] snapshot fallback failed: {e}")
         # Persist the just-built nodes_info so the NEXT gather (or a
         # restart) has a fresh fallback target. We snapshot the full
@@ -2324,7 +2325,9 @@ async def _gather_impl() -> None:
             n_snap = await asyncio.to_thread(save_host_snapshots, nodes_info)
             if n_snap:
                 print(f"[gather] snapshot wrote {n_snap} host rows")
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[gather] save_host_snapshots failed: {e}")
         _cache["items"] = items
         _cache["nodes"] = node_map

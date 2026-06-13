@@ -878,6 +878,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 
 
 def _select_columns() -> str:
+    """The SELECT column list for ``service_catalog`` rows (``show_extras`` MUST stay at index 9 — ``_row_to_dict`` reads positionally)."""
     # `show_extras` MUST stay at column index 9 — the `_row_to_dict`
     # positional read relies on it. Adding a new column requires
     # both the SELECT here AND the row[N] index there to update in

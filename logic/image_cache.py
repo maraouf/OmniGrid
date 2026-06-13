@@ -55,10 +55,12 @@ _PRUNE_PROBABILITY = 0.03
 
 
 def _ttl() -> int:
+    """Image-proxy cache freshness window in seconds (tunable)."""
     return tuning_int(Tunable.IMAGE_PROXY_CACHE_TTL_SECONDS)
 
 
 def _max_entries() -> int:
+    """Max image-proxy cache entries before a prune sweep (tunable)."""
     return tuning_int(Tunable.IMAGE_PROXY_CACHE_MAX_ENTRIES)
 
 
@@ -136,6 +138,7 @@ def put(url: str, data: bytes, content_type: str,
 
 
 def _remove(data_path: str) -> None:
+    """Best-effort delete a cache entry's data + content-type files."""
     for x in (data_path, data_path + ".ct"):
         try:
             os.remove(x)

@@ -265,7 +265,7 @@ def publish(
         payload = enriched
     try:
         bus.publish(type_, payload, ts)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # include a payload identity hint in the
         # error log so operators can correlate a regressed publish to
         # which op / host / schedule it referenced. `id` is the most

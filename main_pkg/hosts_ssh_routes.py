@@ -603,7 +603,9 @@ async def api_hosts_debug(
                         latest_stats = await _beszel.fetch_latest_stats(
                             client, hub_url, token,
                         )
-                    except Exception as e:
+                    except (asyncio.CancelledError, KeyboardInterrupt):
+                        raise
+                    except Exception as e: # noqa: BLE001
                         latest_stats = {"_fetch_error": str(e)}
                 target = (record["beszel_name"] or "").strip()
                 match = None
@@ -637,7 +639,9 @@ async def api_hosts_debug(
                         "_error": f"no record matched beszel_name={target!r}",
                         "known_host_keys": known[:25],
                     }
-            except Exception as e:
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e: # noqa: BLE001
                 providers_raw["beszel"] = {"_error": str(e)}
         else:
             providers_raw["beszel"] = {"_error": "Beszel creds not configured"}
@@ -698,7 +702,9 @@ async def api_hosts_debug(
                     "matched_raw": raw_match,
                 }
                 providers_normalized["pulse"] = normalized_match
-            except Exception as e:
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e: # noqa: BLE001
                 providers_raw["pulse"] = {"_error": str(e)}
         else:
             providers_raw["pulse"] = {"_error": "Pulse creds not configured"}
@@ -742,7 +748,9 @@ async def api_hosts_debug(
                 "recent_metrics_samples": _host_metrics_sampler.last_samples(record["id"]),
             }
             providers_normalized["node_exporter"] = stats
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             providers_raw["node_exporter"] = {"_error": str(e)}
 
     # ---- Webmin --------------------------------------------------
@@ -781,7 +789,9 @@ async def api_hosts_debug(
                 }
                 if r.get("hosts"):
                     providers_normalized["webmin"] = next(iter(r["hosts"].values()))
-            except Exception as e:
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e: # noqa: BLE001
                 providers_raw["webmin"] = {"_error": str(e)}
 
     # ---- Ping — most recent samples + the resolved sampler
@@ -821,7 +831,7 @@ async def api_hosts_debug(
                 })
                 if stats:
                     providers_normalized["ping"] = stats
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             providers_raw["ping"] = {"_error": str(e)}
 
     # ---- SNMP (await the early-launched probe) -------------------
@@ -888,7 +898,7 @@ async def api_hosts_debug(
             any_provider_enabled=bool(active),
             active=active,
         )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         rendered = {"_error": str(e)}
 
     # Per-host active providers — global `active` list intersected
@@ -931,11 +941,11 @@ async def api_hosts_debug(
     counters: dict = {}
     try:
         counters["failure_state"] = _failure_state_for_host(id)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         counters["failure_state"] = {"_error": str(e)}
     try:
         counters["provider_pause_state"] = _provider_pause_state_for_host(id)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         counters["provider_pause_state"] = {"_error": str(e)}
     try:
         with db_conn() as c:
@@ -1016,7 +1026,7 @@ async def api_hosts_debug(
                     }
                 else:
                     counters["snapshot"] = None
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         counters["_db_error"] = str(e)
 
     # ---- Samples in window — per-time-range diagnostic. -----------
@@ -1056,7 +1066,7 @@ async def api_hosts_debug(
                         f"FROM {table} WHERE host_id = ? AND ts >= ?",
                         (id, since_ts),
                     ).fetchone()
-                except Exception as e:
+                except Exception as e: # noqa: BLE001
                     samples_in_window[table] = {"_error": str(e)}
                     continue
                 count = int(row[0] or 0)
@@ -1102,7 +1112,7 @@ async def api_hosts_debug(
                         else None
                     ),
                 }
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         samples_in_window["_db_error"] = str(e)
 
     counters["samples_in_window"] = samples_in_window
@@ -1231,7 +1241,7 @@ def _ssh_write_audit_row(
                     error, actor,
                 ),
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Never let audit-log failure break the response — an operator
         # needs to see the result even if the history write blew up.
         print(f"[ssh] audit-log insert failed: {e}")
@@ -1397,7 +1407,7 @@ def _ssh_terminal_audit_open(
                 ),
             )
             return cur.lastrowid
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ssh] terminal audit-open insert failed: {e}")
         return None
 
@@ -1433,7 +1443,7 @@ def _ssh_terminal_audit_close(
                 "WHERE id=?",
                 (status, duration, json.dumps(events), error, row_id),
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[ssh] terminal audit-close update failed: {e}")
 
 
@@ -1477,7 +1487,7 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
                         u = auth.get_user(c, sess["user_id"])
                         if u and not u.disabled:
                             user = u
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 print(f"[ssh] terminal auth lookup failed: {e}")
     if user is None:
         # 4401 — RFC-6455 application close-code (4xxx is private use).
@@ -1574,7 +1584,9 @@ async def ws_ssh_terminal(websocket: WebSocket, host_id: str):
             })
             await websocket.close(code=4500, reason="timeout")
             return
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             await websocket.send_json({
                 "type": "error",
                 "code": "connect_failed",
@@ -2041,7 +2053,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
         try:
             series = _hms.history_series(hid, h)
             collectors = _hms.series_collectors_present(hid, h)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             series = []
             collectors = {}
             ne_err: Optional[str] = f"host_metrics_sampler: {e}"
@@ -2064,7 +2076,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
                 from logic import host_pulse_sampler as _hps
                 try:
                     pseries = _hps.history_series(hid, h)
-                except Exception as e:
+                except Exception as e: # noqa: BLE001
                     return {"series": [], "error": f"host_pulse_sampler: {e}"}
                 if pseries:
                     return {
@@ -2089,7 +2101,7 @@ async def api_hosts_history(system_id: str = "", hours: int = 1, host_id: str = 
                 from logic import host_webmin_sampler as _hws
                 try:
                     wseries = _hws.history_series(hid, h)
-                except Exception as e:
+                except Exception as e: # noqa: BLE001
                     return {"series": [], "error": f"host_webmin_sampler: {e}"}
                 if wseries:
                     return {
@@ -2197,7 +2209,7 @@ async def api_hosts_ping_history(
     raw_limit = max(120, h * 90)
     try:
         rows = _ping_sampler.recent_samples(hid, since, limit=raw_limit)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"points": [], "error": f"ping_sampler: {e}"}
     # Small windows (≤2h) — return raw. 1h = ~60 points, 2h = ~120.
     # Below the target density anyway; bucketing would round-trip-distort

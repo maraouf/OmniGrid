@@ -159,6 +159,15 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the title of the PENDING request to approve",
     },
     {
+        "id": "seerr_approve_all_pending",
+        "name": "Approve all pending",
+        "ai_phrases": ("approve all pending requests, approve everything pending, "
+                       "bulk approve, approve all the pending requests, clear the "
+                       "pending queue, approve all waiting requests"),
+        # DESTRUCTIVE: approves EVERY pending request in one shot (confirm-gated).
+        "destructive": True,
+    },
+    {
         "id": "seerr_decline_request",
         "name": "Decline a request",
         "ai_phrases": ("decline <title>, reject <title>, decline the request "
@@ -685,6 +694,7 @@ def _apply_filter_directive(filters: dict, directive: str) -> "tuple[dict, str]"
 
 
 def _unknown_genre_msg(name: str) -> str:
+    """Build the 'unknown genre' reply that lists the valid genre names."""
     return (f"“{name.strip()}” isn't a genre I know. Valid genres: "
             + ", ".join(sorted(_TMDB_GENRES.values())) + ".")
 
@@ -696,6 +706,7 @@ def requires_api_key() -> bool:
 
 
 def _headers(key: str) -> dict:
+    """Seerr API auth headers (``X-Api-Key``)."""
     return {"X-Api-Key": key, "Accept": "application/json"}
 
 
@@ -926,6 +937,58 @@ async def _fetch_top_users(cli: httpx.AsyncClient, base: str, key: str) -> list:
     return out
 
 
+def _iso_epoch(s: Any) -> float:
+    """ISO 8601 timestamp string → epoch seconds; 0.0 when blank / unparseable."""
+    t = str(s or "").strip()
+    if not t:
+        return 0.0
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    try:
+        from datetime import datetime  # noqa: PLC0415
+        return datetime.fromisoformat(t).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+async def _fetch_availability_latency(cli: httpx.AsyncClient, base: str, key: str,
+                                      *, take: int = 50) -> "tuple[float, int]":
+    """Median DAYS from "requested" to "available" over the recent AVAILABLE
+    requests — Seerr's request objects carry both ``createdAt`` and
+    ``media.mediaAddedAt``, so a "fulfilled in ~2.1 days median" stat answers
+    "how fast does my stack actually deliver requests". Returns
+    ``(median_days, sample_count)``; ``(0.0, 0)`` on any failure / no data
+    (never load-bearing)."""
+    try:
+        r = await cli.get(base + "/api/v1/request", headers=_headers(key),
+                          params={"take": take, "skip": 0,
+                                  "filter": "available", "sort": "added"})
+    except (httpx.HTTPError, OSError):
+        return 0.0, 0
+    if getattr(r, "status_code", 0) != 200:
+        return 0.0, 0
+    try:
+        results = as_list((r.json() or {}).get("results"))
+    except (ValueError, TypeError):
+        return 0.0, 0
+    spans: list[float] = []
+    for req in results:
+        if not isinstance(req, dict):
+            continue
+        created = _iso_epoch(req.get("createdAt"))
+        media = as_dict(req.get("media"))
+        avail = _iso_epoch(media.get("mediaAddedAt"))
+        if 0 < created < avail:
+            spans.append((avail - created) / 86400.0)
+    if not spans:
+        return 0.0, 0
+    spans.sort()
+    n = len(spans)
+    mid = n // 2
+    median = spans[mid] if n % 2 else (spans[mid - 1] + spans[mid]) / 2.0
+    return round(median, 1), n
+
+
 # noinspection DuplicatedCode
 # The httpx-client + GET + upstream-error-guard shape below is structurally
 # shared with this module's fetch_data AND every sibling per-app module's
@@ -1001,6 +1064,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
             top_users = await _fetch_top_users(cli, base, api_key)
             # Failed / stuck request count — tolerated (build may not support it).
             failed_count = await _fetch_failed_count(cli, base, api_key)
+            # Median requested→available latency — tolerated (nice-to-have).
+            avail_median_days, avail_samples = await _fetch_availability_latency(
+                cli, base, api_key)
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] error: fetch host={host_id} url={count_url} "
@@ -1033,6 +1099,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "top_users": top_users,
         "issues_open": safe_int(issues_open),
         "failed_count": safe_int(failed_count),
+        "availability_median_days": avail_median_days,
+        "availability_sample_count": avail_samples,
         "version": ver,
         "fetched_at": int(now),
     }
@@ -1102,6 +1170,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "seerr_approve_request":
         return await _approve_decline_skill(host_row, chip, arg=arg,
                                             host_id=host_id)
+    if skill_id == "seerr_approve_all_pending":
+        return await _approve_all_pending_skill(host_row, chip, host_id=host_id)
     if skill_id == "seerr_decline_request":
         return await _approve_decline_skill(host_row, chip, arg=arg,
                                             host_id=host_id, approve=False)
@@ -1732,6 +1802,64 @@ async def _approve_decline_skill(host_row: dict, chip: dict, *,
                 "detail": "auth failed (check Seerr api_key)"}
     return {"ok": False, "status": r.status_code,
             "detail": f"Seerr returned HTTP {r.status_code} {verb}ing {label}"}
+
+
+# noinspection DuplicatedCode
+async def _approve_all_pending_skill(host_row: dict, chip: dict, *,
+                                     host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE bulk action: approve EVERY pending request in one shot
+    (confirm-gated). Lists the pending queue (GET /api/v1/request?filter=pending)
+    and POSTs /api/v1/request/{id}/approve for each, then reports approved /
+    failed counts. Never raises."""
+    api_key = (chip.get("api_key") or "").strip()
+    if not api_key:
+        return {"ok": False, "status": 0, "detail": "Seerr api_key not set"}
+    from logic.apps._common import resolve_base_url  # noqa: PLC0415
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[seerr] INFO seerr_approve_all_pending host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            lr = await cli.get(base + "/api/v1/request", headers=_headers(api_key),
+                               params={"take": 100, "skip": 0, "filter": "pending"})
+            if lr.status_code in (401, 403):
+                return {"ok": False, "status": lr.status_code,
+                        "detail": "auth failed (check Seerr api_key)"}
+            if lr.status_code != 200:
+                return {"ok": False, "status": lr.status_code,
+                        "detail": f"Seerr returned HTTP {lr.status_code} listing "
+                                  f"pending requests"}
+            try:
+                results = as_list((lr.json() or {}).get("results"))
+            except (ValueError, TypeError):
+                results = []
+            ids = [safe_int(req.get("id")) for req in results
+                   if isinstance(req, dict) and safe_int(req.get("id")) > 0]
+            if not ids:
+                return {"ok": True, "status": 200,
+                        "detail": "No pending requests to approve."}
+            approved = 0
+            failed = 0
+            for rid in ids:
+                try:
+                    ar = await cli.post(f"{base}/api/v1/request/{rid}/approve",
+                                        headers=_headers(api_key))
+                    if ar.status_code in (200, 201):
+                        approved += 1
+                    else:
+                        failed += 1
+                except (httpx.HTTPError, OSError):
+                    failed += 1
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"approve-all failed: {type(e).__name__}: {e}"}
+    detail = f"✅ Approved {approved} pending request(s)."
+    if failed:
+        detail += f" {failed} failed."
+    return {"ok": True, "status": 200, "detail": detail,
+            "approved": approved, "failed": failed}
 
 
 # noinspection DuplicatedCode

@@ -101,6 +101,7 @@ HOST_PROVIDER_LOCK_WAIT = Histogram(
 # regression where slow consumers OOM'd would have surfaced here as a
 # steadily-rising dropped count.
 class _EventsCountersCollector:
+    """Prometheus collector exposing the SSE event-bus subscriber + dropped-message counters."""
     def __init__(self, getters: dict[str, Callable[[], int]]):
         self._subs = getters["subscriber_count"]
         self._dropped = getters["dropped_count"]

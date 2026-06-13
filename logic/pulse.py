@@ -22,6 +22,7 @@ why ``host_stats_source`` stays multi-select rather than replacing
 Beszel.
 """
 from __future__ import annotations
+import asyncio
 
 import time
 from typing import Optional
@@ -32,12 +33,14 @@ from logic.merge import normalize_arch as _normalize_arch
 
 
 def _headers(token: str) -> dict:
+    """Pulse API auth headers (``X-API-Token``); empty dict when no token."""
     if not token:
         return {}
     return {"X-API-Token": token, "Accept": "application/json"}
 
 
 def _num(v) -> float:
+    """Coerce a value to float; ``0.0`` on failure."""
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -282,7 +285,9 @@ async def _fetch_state(
         url = base_url.rstrip("/") + p
         try:
             r = await client.get(url, headers=_headers(token))  # lgtm[py/full-ssrf]
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             last_err = f"{p}: {e}"
             continue
         if r.status_code == 401 or r.status_code == 403:
@@ -293,7 +298,7 @@ async def _fetch_state(
             continue
         try:
             j = r.json() or {}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             last_err = f"{p}: {e}"
             continue
         # /api/nodes returns a bare list; wrap it so the caller has a
@@ -605,10 +610,12 @@ _last_probe_unreachable: list[bool] = [False]
 
 
 def _mark_unreachable() -> None:
+    """Flag the most recent Pulse hub probe as unreachable."""
     _last_probe_unreachable[0] = True
 
 
 def _mark_reachable() -> None:
+    """Clear the Pulse hub unreachable flag."""
     _last_probe_unreachable[0] = False
 
 
@@ -660,7 +667,9 @@ async def probe_pulse(
         async with httpx.AsyncClient(verify=verify_tls, timeout=timeout) as client:
             await _fetch_version(client, base_url, token)
             state = await _fetch_state(client, base_url, token)
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         # Surface the failure in stdout so it lands in Admin → Logs.
         # Pre-fix the error string was returned silently in the API
         # response and users saw "Pulse: down" on the Hosts page

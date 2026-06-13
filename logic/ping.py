@@ -256,7 +256,9 @@ async def probe_ping(
     if transport == "icmp" and _HAS_ICMP:
         try:
             return await _probe_icmp(host_clean, count, timeout_s)
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             print(f"[ping] {host_clean!r} ICMP failed ({e}); falling back to TCP")
 
     # TCP path — primary.

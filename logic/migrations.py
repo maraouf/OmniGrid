@@ -132,7 +132,7 @@ def apply_pending(conn: sqlite3.Connection) -> List[Tuple[int, str]]:
                 (version, name, time.time()),
             )
             conn.commit()
-        except Exception:
+        except Exception: # noqa: BLE001
             conn.rollback()
             raise
         applied.append((version, name))

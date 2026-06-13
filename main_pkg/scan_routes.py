@@ -1141,7 +1141,7 @@ async def api_notify_test(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"test notification fired by {_admin.username or 'operator'}",
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[notify] notify_test audit-row write failed: {e}")
     return {"status": "sent"}
 
@@ -1176,7 +1176,7 @@ async def api_apprise_test(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"apprise channel test fired by {_admin.username or 'operator'}",
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[notify] apprise_test audit-row write failed: {e}")
     return _stamp_test_success("apprise", {
         "ok": bool(result.get("ok")),
@@ -1398,7 +1398,7 @@ async def api_notifications_mark_read(
             {"id": nid, "read_at": read_at, "unread_count": unread_count},
             client_id=_request_client_id(request),
         )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] read SSE publish dropped: {_e}")
     return {"id": nid, "read_at": read_at, "unread_count": unread_count}
 
@@ -1424,7 +1424,7 @@ async def api_notifications_mark_all_read(
             {"id": None, "read_at": now, "unread_count": 0, "bulk": True},
             client_id=_request_client_id(request),
         )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] read-all SSE publish dropped: {_e}")
     return {"count": count, "unread_count": 0}
 
@@ -1459,7 +1459,7 @@ async def api_notifications_delete(
             {"id": nid, "unread_count": unread_count},
             client_id=_request_client_id(request),
         )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[notify] delete SSE publish dropped: {_e}")
     return {"id": nid, "deleted": True, "unread_count": unread_count}
 
@@ -1664,7 +1664,7 @@ async def api_tabs_activity_heartbeat(
             {"client_id": cid, **entry},
             client_id=cid,  # self-filter: originating tab won't echo
         )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[tabs] activity SSE publish dropped: {_e}")
     return {"ok": True}
 
@@ -1684,7 +1684,7 @@ async def api_tabs_activity_close(request: Request):
             {"client_id": cid},
             client_id=cid,
         )
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[tabs] close SSE publish dropped: {_e}")
     return {"ok": True}
 
@@ -2560,7 +2560,7 @@ async def api_logs_clear(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"in-memory log buffer cleared by {_admin.username or 'operator'}",
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[logs] audit-row write failed before clear: {e}")
     _logs.clear()
     return {"ok": True}
@@ -2647,6 +2647,7 @@ _totp_challenges: dict[str, dict] = {}
 
 
 def _prune_totp_challenges() -> None:
+    """Drop expired entries from the in-memory TOTP-challenge store."""
     now = time.time()
     stale: list[str] = []
     for k, v in _totp_challenges.items():
@@ -2662,6 +2663,7 @@ def _prune_totp_challenges() -> None:
 
 
 def _create_totp_challenge(payload: dict) -> tuple[str, int]:
+    """Store a pending TOTP login challenge; return ``(challenge_id, expires_at)``."""
     _prune_totp_challenges()
     cid = secrets.token_urlsafe(24)
     expires_at = int(time.time()) + _TOTP_CHALLENGE_TTL_SECONDS
@@ -2670,11 +2672,15 @@ def _create_totp_challenge(payload: dict) -> tuple[str, int]:
 
 
 def _consume_totp_challenge(cid: str) -> Optional[dict]:
+    """Pop + return a pending TOTP challenge by id (one-shot); ``None`` when
+    absent / expired."""
     _prune_totp_challenges()
     return _totp_challenges.pop(cid, None)
 
 
 def _peek_totp_challenge(cid: str) -> Optional[dict]:
+    """Return a pending TOTP challenge by id WITHOUT consuming it; ``None`` when
+    absent / expired."""
     _prune_totp_challenges()
     return _totp_challenges.get(cid)
 
@@ -2706,6 +2712,7 @@ _webauthn_register_challenges: dict[int, dict] = {}
 
 # noinspection PyTypeChecker,PyUnresolvedReferences
 def _prune_webauthn_challenges() -> None:
+    """Drop expired entries from both WebAuthn challenge stores (login + register)."""
     now = time.time()
     for k in [k for k, v in _webauthn_login_challenges.items()
               if float(v.get("expires_at", 0)) <= now]:
@@ -2716,6 +2723,8 @@ def _prune_webauthn_challenges() -> None:
 
 
 def _create_webauthn_login_challenge(payload: dict) -> tuple[str, int]:
+    """Store a pending WebAuthn login (assertion) challenge; return
+    ``(challenge_id, expires_at)``."""
     _prune_webauthn_challenges()
     cid = secrets.token_urlsafe(24)
     expires_at = int(time.time()) + _WEBAUTHN_CHALLENGE_TTL_SECONDS
@@ -2724,16 +2733,20 @@ def _create_webauthn_login_challenge(payload: dict) -> tuple[str, int]:
 
 
 def _consume_webauthn_login_challenge(cid: str) -> Optional[dict]:
+    """Pop + return a pending WebAuthn login challenge by id (one-shot)."""
     _prune_webauthn_challenges()
     return _webauthn_login_challenges.pop(cid, None)
 
 
 def _peek_webauthn_login_challenge(cid: str) -> Optional[dict]:
+    """Return a pending WebAuthn login challenge by id WITHOUT consuming it."""
     _prune_webauthn_challenges()
     return _webauthn_login_challenges.get(cid)
 
 
 def _set_webauthn_register_challenge(user_id: int, payload: dict) -> int:
+    """Store the in-flight WebAuthn enrolment challenge for a user (one per
+    user); return ``expires_at``."""
     _prune_webauthn_challenges()
     expires_at = int(time.time()) + _WEBAUTHN_CHALLENGE_TTL_SECONDS
     _webauthn_register_challenges[user_id] = {
@@ -2743,6 +2756,7 @@ def _set_webauthn_register_challenge(user_id: int, payload: dict) -> int:
 
 
 def _consume_webauthn_register_challenge(user_id: int) -> Optional[dict]:
+    """Pop + return a user's pending WebAuthn enrolment challenge (one-shot)."""
     _prune_webauthn_challenges()
     return _webauthn_register_challenges.pop(user_id, None)
 

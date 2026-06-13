@@ -3119,7 +3119,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # that table. Mirrors the Webmin sister block.
                         try:
                             await _record_provider_outcome(h["id"], "snmp", True)
-                        except Exception as ex:
+                        except (asyncio.CancelledError, KeyboardInterrupt):
+                            raise
+                        except Exception as ex: # noqa: BLE001
                             print(f"[hosts] snmp success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
                     else:
@@ -3175,7 +3177,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                     error=err_str,
                                     round_threshold=_snmp_threshold,
                                 )
-                            except Exception as ex:
+                            except (asyncio.CancelledError, KeyboardInterrupt):
+                                raise
+                            except Exception as ex: # noqa: BLE001
                                 print(f"[hosts] snmp failure-record "
                                       f"failed for {h.get('id')!r}: {ex}")
             hosts_map = result.get("hosts") or {}
@@ -3337,7 +3341,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                         # invisible forever for Webmin chips.
                         try:
                             await _record_provider_outcome(h["id"], "webmin", True)
-                        except Exception as ex:
+                        except (asyncio.CancelledError, KeyboardInterrupt):
+                            raise
+                        except Exception as ex: # noqa: BLE001
                             print(f"[hosts] webmin success-record "
                                   f"failed for {h.get('id')!r}: {ex}")
                     else:
@@ -3387,7 +3393,9 @@ async def _merge_one_host(h: dict, state: dict, *, force: bool = False,
                                     error=err_str,
                                     round_threshold=_wm_threshold,
                                 )
-                            except Exception as ex:
+                            except (asyncio.CancelledError, KeyboardInterrupt):
+                                raise
+                            except Exception as ex: # noqa: BLE001
                                 print(f"[hosts] webmin failure-record "
                                       f"failed for {h.get('id')!r}: {ex}")
             hosts_map: dict = result.get("hosts") or {} if isinstance(result, dict) else {}
@@ -3828,6 +3836,7 @@ def _provider_sample_newest_ts(host_id: str) -> dict:
 # (VMs / appliances / routers / 5G modems) get an empty value so the
 # drawer's misleading "Docker node: <id>" row hides for them.
 def _is_swarm_node(host_id) -> bool:
+    """True when the host id belongs to a Swarm node (vs a curated non-Swarm host)."""
     if not host_id:
         return False
     hid = str(host_id).strip().lower()
@@ -4788,6 +4797,7 @@ def _shape_app_view(row, user) -> dict:
 
 
 def _clean_app_view_name(raw, fallback: str = "View") -> str:
+    """Sanitise an app-view name to a trimmed non-empty string (falls back to ``fallback``)."""
     nm = (raw or "").strip() if isinstance(raw, str) else ""
     if not nm:
         nm = fallback
@@ -4811,11 +4821,13 @@ def _clean_app_view_layout(raw) -> str:
 
 
 def _validate_app_view_visibility(v) -> None:
+    """Validate an app-view visibility value (``private`` / ``public``); raises 400 otherwise."""
     if v not in _APP_VIEW_VISIBILITY:
         raise HTTPException(status_code=400, detail="visibility must be 'private' or 'public'")
 
 
 def _validate_app_view_edit_perm(p) -> None:
+    """Validate an app-view edit-permission value (``owner`` / ``all``); raises 400 otherwise."""
     if p not in _APP_VIEW_EDIT_PERM:
         raise HTTPException(status_code=400, detail="edit_permission must be 'owner' or 'all'")
 

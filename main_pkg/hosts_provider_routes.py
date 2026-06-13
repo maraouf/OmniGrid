@@ -446,7 +446,7 @@ async def api_hosts_snmp_history(
                     "ORDER BY ts ASC LIMIT ?",
                     (hid, since, h * 60),
                 ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"points": [], "error": f"snmp_history: {e}"}
     points = []
     for r in rows:
@@ -559,7 +559,7 @@ async def api_hosts_disk_projection(
                 fetched = cur.fetchall()
                 if len(fetched) >= 5:
                     candidates.append((label, fetched))
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"error": f"db read failed: {e}", "samples": [], "projection": []}
     rows: list = []
     source_used = None
@@ -798,7 +798,7 @@ async def api_hosts_snmp_iface_history(
                     "ORDER BY ifname ASC, ts ASC LIMIT ?",
                     (hid, since, h * 60 * 64),
                 ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"ifaces": {}, "error": f"snmp_iface_history: {e}"}
     ifaces: dict = {}
     for r in rows:
@@ -875,7 +875,7 @@ async def api_hosts_snmp_temp_history(
                     "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
                     (hid, since, h * 60 * 16),
                 ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"probes": {}, "error": f"snmp_temp_history: {e}"}
     probes: dict = {}
     for r in rows:
@@ -1246,20 +1246,27 @@ async def api_hosts_timeline(
 
 
 class HostsBulkPauseIn(BaseModel):
+    """Request body for the bulk pause-sampling action — the host ids to pause."""
     host_ids: list[str]
 
 
 class HostsBulkResumeIn(BaseModel):
+    """Request body for the bulk resume-sampling action — the host ids to resume."""
     host_ids: list[str]
 
 
 class HostsBulkSnmpVendorsIn(BaseModel):
+    """Request body for bulk-editing the SNMP vendor MIB set across hosts —
+    ``mode`` chooses replace / union / difference; ``vendors=[]`` clears (auto-detect)."""
     host_ids: list[str]
     vendors: list[str]  # subset of _VALID_VENDOR_KEYS, [] = clear (auto-detect)
     mode: str = "set"  # "set" (replace) | "add" (union) | "remove" (difference)
 
 
 class HostsBulkSnmpTunablesIn(BaseModel):
+    """Request body for bulk-setting per-host SNMP tunable overrides (walk
+    concurrency / wall-clock budget) across hosts; ``clear=true`` removes the
+    override so they fall back to the global tunable."""
     host_ids: list[str]
     walk_concurrency: Optional[int] = None
     wall_clock_budget: Optional[int] = None
@@ -1340,7 +1347,7 @@ def _apply_snmp_block_update(
             new_h["snmp"] = new_block
             new_curated.append(new_h)
             applied.append(hid)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             errors[hid] = str(e)
             new_curated.append(h)
     return new_curated, applied, errors
@@ -1462,6 +1469,8 @@ def _reauth_prune() -> None:
 
 
 class ReauthIn(BaseModel):
+    """Request body for a password re-auth (step-up) gate before a sensitive
+    bulk action."""
     password: str
 
 
@@ -1514,7 +1523,7 @@ async def api_admin_reauth(
                     actor=u.username, status="error", error="reauth failed",
                     message=f"admin reauth failed for {u.username}",
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[auth] admin_reauth_failed audit-row write failed: {e}")
         # Don't differentiate "wrong password" from "no user" — same
         # generic message reduces password-probing signal. The local-
@@ -1990,6 +1999,8 @@ async def api_hosts_bulk_snmp_tunables(
 
 
 class PingTestIn(BaseModel):
+    """Request body for the one-shot ping test — the host id plus optional
+    ad-hoc port / transport overrides (blank = use the host's saved ping config)."""
     host_id: str
     # Optional ad-hoc overrides — when blank, the test honours the
     # host's persisted ping config (or the global defaults). Used by

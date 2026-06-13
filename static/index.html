@@ -10486,8 +10486,9 @@
                                              x-text="it.group ? (it.group_raw ? it.group : t(it.group)) : ''"></div>
                                         <div class="apps-skill-item flex items-center gap-2 min-w-0">
                                           <img x-show="it.poster" :src="appSkillItemPoster(inst, it)" alt="" loading="lazy"
-                                               class="apps-skill-item-poster shrink-0"
+                                               class="apps-skill-item-poster img-shimmer shrink-0"
                                                :class="it.poster_contain ? 'apps-skill-item-poster--contain' : ''"
+                                               @load="$event.target.classList.add('img-loaded')"
                                                @error="$event.target.style.display='none'; $event.target.nextElementSibling && ($event.target.nextElementSibling.style.display='inline-flex')">
                                           <span class="apps-skill-item-poster apps-skill-item-poster--ph shrink-0 inline-flex items-center justify-center"
                                                 :style="it.poster ? 'display:none' : ''" aria-hidden="true">
@@ -10501,7 +10502,8 @@
                                             <!-- Requested-by byline + tiny user avatar (Seerr). -->
                                             <span x-show="it.byline" class="flex items-center gap-1 mt-0.5 min-w-0">
                                               <img x-show="it.avatar" :src="appSkillItemAvatar(inst, it)" alt="" loading="lazy"
-                                                   class="apps-skill-item-avatar shrink-0"
+                                                   class="apps-skill-item-avatar img-shimmer shrink-0"
+                                                   @load="$event.target.classList.add('img-loaded')"
                                                    @error="$event.target.style.display='none'">
                                               <span class="fs-2xs text-[var(--text-faint)] truncate"
                                                     x-text="it.byline_i18n ? t(it.byline_i18n, {name: it.byline}) : it.byline"></span>
@@ -12076,7 +12078,9 @@
             <div class="ai-skill-panel">
               <img x-show="turn.skill_panel.image_url"
                    :src="proxiedImageUrl(turn.skill_panel.image_url)" alt=""
-                   class="ai-skill-poster" loading="lazy">
+                   class="ai-skill-poster img-shimmer" loading="lazy"
+                   @load="$event.target.classList.add('img-loaded')"
+                   @error="$event.target.style.display='none'">
               <div x-show="turn.skill_panel.detail"
                    class="ai-skill-detail"
                    x-text="turn.skill_panel.detail"></div>

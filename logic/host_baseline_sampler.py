@@ -27,10 +27,12 @@ from logic.tuning import Tunable, tuning_int as _tuning_int
 # module-import-time) so Admin → Config edits take effect on the
 # next tick without a restart.
 def _interval_seconds() -> int:
+    """Baseline recompute cadence in seconds (tunable)."""
     return _tuning_int(Tunable.HOST_BASELINE_RECOMPUTE_INTERVAL_SECONDS)
 
 
 def _first_tick_delay() -> int:
+    """Startup delay before the first baseline tick, in seconds (tunable)."""
     return _tuning_int(Tunable.HOST_BASELINE_FIRST_TICK_DELAY_SECONDS)
 
 

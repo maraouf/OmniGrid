@@ -53,18 +53,23 @@ def ensure_dir() -> None:
 
 
 def _ttl_seconds() -> int:
+    """Favicon cache freshness window in seconds (tunable, days -> seconds)."""
     return max(1, _tuning_int(_Tunable.FAVICON_CACHE_DAYS)) * 86400
 
 
 def _timeout_seconds() -> float:
+    """Per-fetch favicon HTTP timeout in seconds (tunable, floored at 2s)."""
     return float(max(2, _tuning_int(_Tunable.FAVICON_FETCH_TIMEOUT_SECONDS)))
 
 
 def _key(url: str) -> str:
+    """Stable cache key for a favicon URL (sha256 hex of the trimmed URL)."""
     return hashlib.sha256((url or "").strip().encode(errors="replace")).hexdigest()
 
 
 def _paths(url: str) -> "tuple[str, str, str]":
+    """The three on-disk paths for a URL's cache entry: ``(data, content-type,
+    negative-marker)``."""
     base = os.path.join(CACHE_DIR, _key(url))
     return base, base + ".ct", base + ".miss"
 
@@ -133,6 +138,7 @@ def put_miss(url: str) -> None:
 
 
 def _atomic_write(path: str, data: bytes) -> None:
+    """Write bytes to ``path`` atomically via a ``.tmp`` file + ``os.replace``."""
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
@@ -140,6 +146,7 @@ def _atomic_write(path: str, data: bytes) -> None:
 
 
 def _remove(path: str) -> None:
+    """Best-effort delete a cache file (no error if it's already gone)."""
     try:
         os.remove(path)
     except OSError:

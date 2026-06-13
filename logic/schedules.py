@@ -1251,7 +1251,9 @@ async def _run_asset_inventory_refresh(
                 status = "error"
                 err = result.get("error") or "asset refresh failed"
             count = int(result.get("count") or 0)
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] asset_inventory_refresh failed: {e}")
@@ -1273,7 +1275,7 @@ async def _run_asset_inventory_refresh(
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[scheduler] asset_inventory_refresh history write failed: {e}")
         return duration, status
 
@@ -1323,7 +1325,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                 days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
             days = max(int(_lo), min(int(_hi), days))
             removed = _logs_mod.prune_old_logs(days)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] prune_logs failed: {e}")
@@ -1353,7 +1355,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[scheduler] prune_logs history write failed: {e}")
         return duration, status
 
@@ -1406,7 +1408,9 @@ async def _run_prune_notifications(
             # it off the loop — mirrors the sibling backup / config_backup runners.
             removed = await asyncio.to_thread(
                 prune_rows_older_than, "notifications", cutoff)
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] prune_notifications failed: {e}")
@@ -1430,7 +1434,7 @@ async def _run_prune_notifications(
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[scheduler] prune_notifications history write dropped: {e}")
         return duration, status
 
@@ -1726,7 +1730,9 @@ async def _run_swarm_agent_health(
                                     metadata={"unhealthy": newly_unhealthy,
                                               "threshold": threshold},
                                 )
-                            except Exception as ne:
+                            except (asyncio.CancelledError, KeyboardInterrupt):
+                                raise
+                            except Exception as ne: # noqa: BLE001
                                 print(
                                     f"[scheduler] swarm_agent_health "
                                     f"unhealthy notify failed: {ne}",
@@ -1750,7 +1756,9 @@ async def _run_swarm_agent_health(
                                     target_id="swarm_agent_health",
                                     metadata={"recovered": newly_recovered},
                                 )
-                            except Exception as ne:
+                            except (asyncio.CancelledError, KeyboardInterrupt):
+                                raise
+                            except Exception as ne: # noqa: BLE001
                                 print(
                                     f"[scheduler] swarm_agent_health "
                                     f"recovered notify failed: {ne}",
@@ -1767,7 +1775,9 @@ async def _run_swarm_agent_health(
                         f"newly_unhealthy={newly_unhealthy} "
                         f"newly_recovered={newly_recovered}",
                     )
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] swarm_agent_health failed: {e}")
@@ -1820,7 +1830,7 @@ async def _run_swarm_agent_health(
                     ),
                 )
             _swarm_autoheal_last_persisted_action = action_taken
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[scheduler] swarm_agent_health history write failed: {e}")
         return duration, status
 
@@ -2347,7 +2357,7 @@ async def _run_port_scan_refresh(
                     )
                 else:
                     selected.append(h["id"])
-
+ # noqa: BLE001
         except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
@@ -2544,7 +2554,7 @@ async def _run_prune_config_backups(_params: dict) -> tuple[str, Awaitable[tuple
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[scheduler] prune_config_backups history write failed: {e}")
         return duration, status
 
@@ -3031,7 +3041,7 @@ async def scheduler_loop() -> None:
                         f"'{row['name']}' (op {last_op_id} not live "
                         f"post-restart)"
                     )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[scheduler] ghost-clear sweep failed: {e}")
 
     # Initial sleep BEFORE first check. Mirrors stats_sampler_loop.
@@ -3067,7 +3077,9 @@ async def scheduler_loop() -> None:
                 try:
                     op_id = await fire_schedule(s)
                     print(f"[scheduler] fired '{s['name']}' → op {op_id}")
-                except Exception as e:
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    raise
+                except Exception as e: # noqa: BLE001
                     print(f"[scheduler] '{s['name']}' fire failed: {e}")
                     # Still stamp last_run_at so a persistently-broken
                     # schedule doesn't re-fire every tick forever.
@@ -3078,9 +3090,11 @@ async def scheduler_loop() -> None:
                                 f"err-{secrets.token_hex(4)}",
                                 duration=0, status="error",
                             )
-                    except Exception as ee:
+                    except Exception as ee: # noqa: BLE001
                         print(f"[scheduler] record_run(error) failed: {ee}")
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             # Top-level guard so an unexpected error (DB locked, etc.)
             # doesn't kill the lifespan task.
             print(f"[scheduler] tick error: {e}")

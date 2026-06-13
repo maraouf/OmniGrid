@@ -122,10 +122,12 @@ auth_cooldown_timer = _auth_cooldown_timer
 
 
 def _in_cooldown(host_id: str, user: str) -> Optional[float]:
+    """Remaining auth cool-down seconds for a ``(host_id, user)``, or ``None`` when not cooling down."""
     return _auth_cooldown_timer.remaining(host_id or "", user or "")
 
 
 def _arm_cooldown(host_id: str, user: str) -> None:
+    """Arm the per-(host_id, user) SSH auth-failure cool-down."""
     _auth_cooldown_timer.arm(host_id or "", user or "")
 
 
@@ -202,6 +204,7 @@ def command_is_destructive(command: str) -> list[str]:
 # Host resolution + per-host settings
 # ---------------------------------------------------------------------------
 def _find_host_record(host_id: str, hosts_config: list[dict]) -> Optional[dict]:
+    """Find a curated host record by id in the ``hosts_config`` list; ``None`` when absent."""
     if not host_id:
         return None
     hid = host_id.strip()
@@ -689,7 +692,7 @@ def _key_fingerprint(private_key_pem: str, passphrase: str) -> str:
         if ":" in fp:
             fp = fp.split(":", 1)[1]
         return fp[:16]
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return f"parse-error: {type(e).__name__}"
 
 
@@ -793,7 +796,7 @@ async def run_command(
             client_keys_arg = [asyncssh.import_private_key(
                 g["private_key"], passphrase=g["passphrase"] or None,
             )]
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             # If the key is bad but we also have a password (any
             # layer of the priority ladder), fall through silently
             # to password auth. Otherwise fail.
@@ -830,7 +833,7 @@ async def run_command(
     if g["known_hosts"]:
         try:
             known_hosts_arg = asyncssh.import_known_hosts(g["known_hosts"])
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             base_result["error"] = (
                 f"bad known_hosts blob: {type(e).__name__}: {e}"
             )
@@ -951,7 +954,9 @@ async def run_command(
         base_result["error_params"] = og.params
         print(f"[ssh] run ERROR {type(e).__name__} ({og.code}) "
               f"host={resolved.get('host')!r}: {e}")
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         base_result["error"] = f"unexpected: {type(e).__name__}: {e}"
         print(f"[ssh] run ERROR unexpected {type(e).__name__} host={resolved.get('host')!r}: {e}")
 
@@ -1200,7 +1205,7 @@ async def open_shell(
             client_keys_arg = [asyncssh.import_private_key(
                 g["private_key"], passphrase=g["passphrase"] or None,
             )]
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             if not resolved.get("password_set"):
                 raise TerminalConfigError(
                     f"bad SSH key: {type(e).__name__}: {e}",
@@ -1221,7 +1226,7 @@ async def open_shell(
     if g["known_hosts"]:
         try:
             known_hosts_arg = asyncssh.import_known_hosts(g["known_hosts"])
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             raise TerminalConfigError(
                 f"bad known_hosts blob: {type(e).__name__}: {e}",
                 code="bad_known_hosts",

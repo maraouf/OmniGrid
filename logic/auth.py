@@ -1463,10 +1463,12 @@ def auto_provision_authentik(
 # Session cookies (HMAC-signed, server-side record for revocation)
 # ----------------------------------------------------------------------------
 def _b64e(data: bytes) -> str:
+    """URL-safe base64 encode bytes with the padding stripped."""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def _b64d(data: str) -> bytes:
+    """URL-safe base64 decode a padding-stripped string back to bytes."""
     pad = "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode(data + pad)
 
@@ -1595,7 +1597,7 @@ def slide_session_if_needed(
             "expires_at": new_expires_at,
             "ts": now,
         })
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[auth] session:renewed publish failed: {e}")
     return issue_session_cookie(token_id, new_expires_at), new_expires_at
 
@@ -1835,7 +1837,7 @@ def _resolve_user(request: Request, db_conn_factory) -> tuple[Optional[User], Op
         try:
             with db_conn_factory() as c:
                 tok = verify_api_token(c, raw)
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[auth] bearer-token DB read failed: {e} — treating as auth-failed")
             tok = None
         if tok:

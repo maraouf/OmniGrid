@@ -119,6 +119,7 @@ _engine_lock = _asyncio_for_engine_lock.Lock()
 
 
 async def _get_snmp_engine():
+    """Return the process-wide pysnmp ``SnmpEngine`` singleton (lazily created)."""
     global _engine_singleton
     if _engine_singleton is not None:
         return _engine_singleton
@@ -479,6 +480,7 @@ _SNMP_IMPORT_ERROR = ""
 # deploys; the v3 code path checks for None and short-circuits with
 # a clear error.
 def _none_stub(*_args: Any, **_kwargs: Any) -> Any:
+    """Placeholder for an unresolved pysnmp symbol — raises at call time so a missing wheel fails loudly instead of silently."""
     raise RuntimeError("pysnmp symbol not resolved at import time")
 
 
@@ -614,7 +616,7 @@ try:
               f"(pysnmp ns={_ns_used})")
     except (AttributeError, NameError):
         pass
-except Exception as _e:
+except Exception as _e: # noqa: BLE001
     _HAS_SNMP = False
     _SNMP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
     print(f"[snmp] pysnmp import failed — SNMP probes disabled: {_SNMP_IMPORT_ERROR}")
@@ -645,10 +647,12 @@ def _in_cooldown(host: str, port: int) -> Optional[float]:
 
 
 def _arm_cooldown(host: str, port: int) -> None:
+    """Arm the per-(host, port) SNMP unreachable cool-down."""
     _unreachable_cooldown.arm(host, port)
 
 
 def _clear_cooldown(host: str, port: int) -> None:
+    """Clear the per-(host, port) SNMP unreachable cool-down."""
     _unreachable_cooldown.clear(host, port)
 
 
@@ -725,7 +729,7 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
         # propagating up the await chain so the loop task cancels
         # cleanly.
         raise
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Log the exception type so debugging "host returned no data"
         # doesn't have to start with "is this a real network issue or
         # a code bug?". One line per error site is fine — each call
@@ -833,7 +837,7 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Same cancellation contract as _snmp_get — never swallow.
         raise
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         # Log the exception type so a misformatted OID or pysnmp
         # internal bug shows up as a code-bug signal instead of a
         # network-failure signal.
@@ -2083,7 +2087,7 @@ async def probe_snmp(
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"hosts": {}, "error": f"snmp: transport setup failed: {e}"}
 
     # ----------------------------------------------------------------
@@ -2460,7 +2464,7 @@ async def probe_snmp(
                 # benefit at walk_concurrency=1.
                 try:
                     return await coro
-                except BaseException:
+                except BaseException: # noqa: BLE001
                     try:
                         coro.close()
                     except (RuntimeError, GeneratorExit):
@@ -2471,7 +2475,7 @@ async def probe_snmp(
                 await walk_sem.acquire()
                 acquired = True
                 return await coro
-            except BaseException:
+            except BaseException: # noqa: BLE001
                 try:
                     coro.close()
                 except (RuntimeError, GeneratorExit):
@@ -2623,7 +2627,7 @@ async def probe_snmp(
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         raise
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {"hosts": {}, "error": f"snmp: probe failed: {e}"}
 
     (sys_get, cpu_walk,

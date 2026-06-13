@@ -247,11 +247,13 @@ def _reply_destination() -> str:
 
 
 def _listener_enabled() -> bool:
+    """True when the Telegram listener is enabled (DB setting)."""
     from logic.db import get_setting_bool
     return get_setting_bool(Settings.TELEGRAM_LISTENER_ENABLED)
 
 
 def _allow_destructive() -> bool:
+    """True when destructive Telegram commands may run without a typed confirm (DB setting)."""
     from logic.db import get_setting_bool
     return get_setting_bool(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
 
@@ -1012,7 +1014,7 @@ def _consume_link_code(code: str) -> Optional[str]:
                 "SELECT username, ui_prefs FROM users WHERE ui_prefs IS NOT NULL"
             ).fetchall()
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[telegram_listener] _consume_link_code lookup failed: {e}")
         return None
     now_ms = int(_time.time() * 1000)
@@ -1042,7 +1044,7 @@ def _consume_link_code(code: str) -> Optional[str]:
                         (json.dumps(prefs), username),
                     )
             # noinspection PyBroadException
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 print(f"[telegram_listener] _consume_link_code wipe failed: {e}")
             return username
     return None
@@ -1597,6 +1599,7 @@ def _pop_pending_action(token: str) -> Optional[dict]:
 
 
 def _prune_pending_actions() -> None:
+    """Drop expired entries from the pending-confirm action store."""
     import time as _time  # noqa: PLC0415
     now = _time.time()
     for k in [k for k, (ts, _) in _PENDING_ACTIONS.items()
@@ -2001,7 +2004,7 @@ async def _process_update(client: httpx.AsyncClient, update: dict) -> None:
                 },
             )
     # noinspection PyBroadException
-    except Exception as _audit_err:
+    except Exception as _audit_err: # noqa: BLE001
         print(f"[telegram_listener] audit row write failed (telegram_command): {_audit_err}")
 
 
@@ -2016,6 +2019,7 @@ def _load_offset() -> int:
 
 
 def _save_offset(update_id: int) -> None:
+    """Persist the Telegram getUpdates offset so polling resumes after a restart."""
     from logic.db import set_setting
     try:
         set_setting(Settings.TELEGRAM_LAST_UPDATE_ID, str(int(update_id)))

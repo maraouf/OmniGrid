@@ -245,7 +245,7 @@ def triage_host(host_id: str, hours: int = 720) -> dict:
                                 bucket["durations_s"].append(duration)
                             except (TypeError, ValueError):
                                 pass
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         return {
             "groups": [], "scope": {"hours": h, "host_id": hid},
             "error": f"triage query error: {type(e).__name__}: {e}",

@@ -1293,7 +1293,7 @@ async def _cmd_host(client: httpx.AsyncClient, args: list[str], _msg) -> None:
             from logic.gather import load_host_snapshots
             snap_map = load_host_snapshots()
         # noinspection PyBroadException
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             err = f"❌ Snapshot read failed: <code>{_listener()._escape(str(e))}</code>"
             await _stop_cycle()
             await _listener()._replace_placeholder(client, placeholder_id, err)
@@ -1658,7 +1658,7 @@ async def _cmd_version(client: httpx.AsyncClient, _args, msg: dict) -> None:
         from logic.version import read_version
         version = read_version()
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(client, f"❌ Version lookup failed: <code>{_listener()._escape(str(e))}</code>")
         return
     # Build-time hint from VERSION.txt mtime. The Dockerfile writes
@@ -1979,7 +1979,9 @@ async def _cmd_time(client: httpx.AsyncClient, _args, msg: dict) -> None:
             label=label,
         )
     # noinspection PyBroadException
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(client, f"❌ Time lookup failed: <code>{_listener()._escape(str(e))}</code>")
         return
     if not isinstance(data, dict) or data.get("error"):
@@ -2032,7 +2034,7 @@ async def _cmd_time(client: httpx.AsyncClient, _args, msg: dict) -> None:
             now_local = datetime.now(timezone.utc) + timedelta(seconds=offset)
             offset_note = " (UTC offset — IANA tz unavailable)"
         # noinspection PyBroadException
-        except Exception as e2:
+        except Exception as e2: # noqa: BLE001
             await _listener()._send_reply(client, f"❌ Time format failed: <code>{_listener()._escape(str(e2))}</code>")
             return
     formatted = _apply_fmt(now_local, user_fmt)
@@ -2105,7 +2107,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     try:
         from logic import gather as _gather
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(client, f"❌ gather import failed: <code>{_listener()._escape(str(e))}</code>")
         return
     # noinspection PyProtectedMember
@@ -2161,7 +2163,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
     try:
         from logic import ops as _ops_mod
     # noinspection PyBroadException
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(client, f"❌ ops import failed: <code>{_listener()._escape(str(e))}</code>")
         return
 
@@ -2198,7 +2200,7 @@ async def _cmd_cleanup(client: httpx.AsyncClient, args: list[str], msg: dict) ->
             )
             spawned += 1
         # noinspection PyBroadException
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[telegram_listener] spawn remove for {raw_id[:12]} failed: {e}")
 
     # Per-container `remove_container` ops already write their own
@@ -2613,7 +2615,7 @@ async def _cmd_link(client: httpx.AsyncClient, args: list[str], msg: dict) -> No
             "linked_at_ms": linked_at_ms,
         })
     # noinspection PyBroadException
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[telegram_listener] publish telegram:linked failed: {_e}")
     await _listener()._send_reply(
         client,
@@ -2654,7 +2656,7 @@ async def _cmd_unlink(client: httpx.AsyncClient, _args, msg: dict) -> None:
             "telegram_user_id": sender_id_int,
         })
     # noinspection PyBroadException
-    except Exception as _e:
+    except Exception as _e: # noqa: BLE001
         print(f"[telegram_listener] publish telegram:unlinked failed: {_e}")
     await _listener()._send_reply(
         client,
@@ -2692,7 +2694,9 @@ async def _cmd_weather(client: httpx.AsyncClient, _args, msg: dict) -> None:
             label=label,
         )
     # noinspection PyBroadException
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(client, f"❌ Weather lookup failed: <code>{_listener()._escape(str(e))}</code>")
         return
     if not isinstance(data, dict):
@@ -3220,7 +3224,9 @@ async def _cmd_moon(client: httpx.AsyncClient, _args, msg: dict) -> None:
         data = await _api_weather(
             lat=loc["lat"], lon=loc["lon"], label=label,
         )
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         await _listener()._send_reply(
             client, f"❌ Moon lookup failed: <code>{_listener()._escape(str(e))}</code>"
         )

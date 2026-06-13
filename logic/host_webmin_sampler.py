@@ -187,6 +187,7 @@ async def _probe_one_host(client_url: str, user: str, password: str,
 
 
 async def _persist_tick(rows: list[tuple]) -> None:
+    """Bulk-insert this tick's Webmin sample rows (no-op on an empty batch)."""
     if not rows:
         return
     try:

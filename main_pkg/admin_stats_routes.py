@@ -273,6 +273,7 @@ def _settings_version_for_payload() -> int:
 # and is used everywhere main.py needs the list — settings validators,
 # the dashboard endpoint, /api/me's `client_config.ai.provider_names`.
 def _ai_supported_providers() -> tuple[str, ...]:
+    """The tuple of AI provider names OmniGrid supports (from logic.ai)."""
     from logic import ai as _ai
     return tuple(_ai.SUPPORTED_PROVIDERS)
 
@@ -400,7 +401,7 @@ async def api_admin_stats_overview(
                 "admins": len(admin_users),
             }
             out["sessions"] = {"total": len(sessions)}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["users_error"] = str(e)
         # Per-provider enabled/disabled split. Truth source for the four
         # CSV-controlled providers is ``active_host_stats_providers()``;
@@ -458,7 +459,7 @@ async def api_admin_stats_overview(
                 "total": len(curated),
                 "enabled": sum(1 for h in curated if h.get("enabled", True)),
             }
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["providers_error"] = str(e)
         # Host groups — JSON setting array, count meaningful entries only.
         try:
@@ -469,13 +470,13 @@ async def api_admin_stats_overview(
             out["host_groups"] = {
                 "total": sum(1 for g in groups if isinstance(g, dict)),
             }
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["host_groups_error"] = str(e)
         try:
             from logic import asset_inventory as _ai
             cache = _ai.load_cache() if _is_asset_inventory_enabled() else {}
             out["assets"] = {"total": int(cache.get("count") or 0)}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["assets_error"] = str(e)
         # Fleet counts — read from the existing in-memory cache so we don't
         # trigger a Portainer round-trip on every dashboard open. The SPA's
@@ -509,19 +510,19 @@ async def api_admin_stats_overview(
                 "replicas": repl_total,
                 "standalone": ctn_count,
             }
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["fleet_error"] = str(e)
         # Backups + config backups — file-system snapshots produced by the
         # backup / config_backup schedule kinds and admin Save-now buttons.
         try:
             from logic import backups as _b
             out["backups"] = {"total": len(_b.list_backups())}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["backups_error"] = str(e)
         try:
             from logic import config_export as _ce
             out["config_backups"] = {"total": len(_ce.list_snapshots())}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["config_backups_error"] = str(e)
         # Schedules — DB-stored cron-style jobs. Report total + enabled split.
         try:
@@ -532,7 +533,7 @@ async def api_admin_stats_overview(
                 "total": len(sched_rows),
                 "enabled": sum(1 for r in sched_rows if r.get("enabled")),
             }
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["schedules_error"] = str(e)
         # Apps feature — catalog template count + cross-host instance roll-up
         # via `list_apps()` (same source the top-level Apps view consumes).
@@ -589,7 +590,7 @@ async def api_admin_stats_overview(
                 "extras": extras,
                 "extras_active": extras_active,
             }
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["apps_error"] = str(e)
         # Tunables — process-level knobs declared in logic/tuning.py:TUNABLES.
         # `total` is the canonical count (every knob the app exposes via the
@@ -606,7 +607,7 @@ async def api_admin_stats_overview(
                 except (ValueError, TypeError, KeyError):
                     pass
             out["tunables"] = {"total": total, "overridden": overridden}
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["tunables_error"] = str(e)
         return out
 
@@ -656,6 +657,7 @@ async def api_admin_stats_summary(
 
 
 def _compute_admin_stats_summary() -> dict:
+    """Compute the Stats dashboard summary cards (samplers / total samples / incidents / network / AI cost + jobs / DB size)."""
     import os as _os
     import time as _time
     now_ts = int(_time.time())
@@ -678,7 +680,7 @@ def _compute_admin_stats_summary() -> dict:
             except OSError:
                 pass
         out["db_size_bytes"] = total_bytes
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["db_size_error"] = str(e)
     # Sampler cadence for integrating net rates → bytes (matches the Network page).
     try:
@@ -751,7 +753,7 @@ def _compute_admin_stats_summary() -> dict:
                 out["ai_cost_30d"] = float(_row_get(r, "cost", 1) or 0.0)
             except (sqlite3.Error, TypeError, ValueError):
                 pass
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["error"] = str(e)
     return out
 
@@ -793,6 +795,7 @@ async def api_admin_stats_database(
 
 # noinspection DuplicatedCode
 def _compute_admin_stats_database() -> dict:
+    """Compute the Stats database page (DB size + per-table row counts + size history)."""
     import os as _os
     out: dict = {
         "size": {"bytes": 0, "history": []},
@@ -812,7 +815,7 @@ def _compute_admin_stats_database() -> dict:
             except OSError:
                 pass
         out["size"]["bytes"] = bytes_total
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["size_error"] = str(e)
     # Per-table size estimates — SQLite doesn't expose per-table byte
     # counts directly, so use the dbstat virtual table when available
@@ -934,9 +937,9 @@ def _compute_admin_stats_database() -> dict:
                     qstats.append({"table": tname, "rows": int(cnt or 0)})
                 qstats.sort(key=lambda x: x["rows"], reverse=True)
                 out["queries"] = qstats[:5]
-            except Exception as e:
+            except Exception as e: # noqa: BLE001
                 out["queries_error"] = str(e)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["tables_error"] = str(e)
     # 90-day growth projection, GROUNDED in real measured history.
     # `db_size_samples` (written ~daily by the lifespan stats sampler)
@@ -1038,7 +1041,7 @@ def _compute_admin_stats_database() -> dict:
             out["projection"] = projection
             out["projection_basis"] = "synthetic"
             out["projection_samples"] = len(fit_pts)
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["projection_error"] = str(e)
     return out
 
@@ -1296,7 +1299,7 @@ async def api_admin_stats_network(
                     }
                     for r in rows
                 ]
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["error"] = str(e)
 
     # Offload the 5 GROUP-BY scans over host_net_samples to a worker
@@ -1372,7 +1375,9 @@ async def api_admin_stats_incidents(
                 ).fetchall()
 
         rows = await asyncio.to_thread(_q_incidents)
-    except Exception as e:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
         out["error"] = str(e)
         return out
     if not rows:
@@ -1662,7 +1667,7 @@ async def api_admin_stats_ai_cost(
                     for r in rows
                 ]
                 out["range"] = range_key
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             out["error"] = str(e)
         return out
 
@@ -1733,6 +1738,7 @@ async def api_admin_stats_samples(
 
 
 def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
+    """Compute the Stats samples page — per-(sample table) row counts + per-host breakdown over the requested window."""
     # The canonical roster of sample-bearing tables (the explicit
     # _SAMPLE_TABLES_SPEC + any auto-discovered *_samples table) is resolved
     # INSIDE the db_conn block below via _effective_sample_tables(c) — the

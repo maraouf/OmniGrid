@@ -39,6 +39,7 @@ Endpoints:
 # = Depends(auth.require_admin)` parameter (PyCharm cannot narrow through
 # FastAPI's Depends() injection). Real bugs OUTSIDE these noise classes are
 # fixed inline.
+import asyncio
 from main import *  # noqa: E402,F401,F403
 # IDE contract: PyCharm/Pyright can't trace `from X import *`, so
 # every name resolved through the wildcard above would be flagged as
@@ -1752,7 +1753,7 @@ async def api_hosts_config_set(
     # save; just log and move on.
     try:
         _sweep_orphan_provider_state_rows({h.get("id") for h in saved if h.get("id")})
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] orphan sweep failed: {e}")
     _invalidate_provider_state_cache()  # next /api/hosts/list rebuilds from clean state
     # Drop the host_metrics_sampler's host_provider_config cache so the
@@ -1763,7 +1764,7 @@ async def api_hosts_config_set(
     try:
         from logic.host_metrics_sampler import invalidate_host_provider_config_cache
         invalidate_host_provider_config_cache()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] host_provider_config cache invalidate failed: {e}")
     # Audit row — full-replace of the curated host list is the single
     # largest operator-visible mutation in the app (provider mappings,
@@ -1784,7 +1785,7 @@ async def api_hosts_config_set(
                 message=f"hosts_config full-replace by {_u.username or 'operator'}: "
                         f"{len(saved)} row(s) persisted",
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] config-update audit-row write failed: {e}")
     return {"hosts": saved, "count": len(saved)}
 
@@ -1913,7 +1914,7 @@ def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
                     )
                     total += len(doomed)
                     print(f"[hosts] orphan sweep: removed {len(doomed)} row(s) from {table}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] orphan sweep DB error: {e}")
     return total
 
@@ -1967,9 +1968,9 @@ async def api_hosts_resume_sampling(
                         "VALUES (?, ?, '', 'recovered', NULL, ?)",
                         (time.time(), host_id, _u.username or schedules.UNKNOWN_ACTOR),
                     )
-                except Exception as ev_err:
+                except Exception as ev_err: # noqa: BLE001
                     print(f"[hosts] resume-sampling: failure-event log write failed: {ev_err}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"resume-sampling failed: {e}")
     # also clear the SSH + Webmin auth cooldowns for
     # this host so a single resume click recovers from the
@@ -1996,7 +1997,7 @@ async def api_hosts_resume_sampling(
             for k in doomed:
                 _ssh.auth_cooldown_timer.clear(*k)
                 cooldown_cleared.append(f"ssh:{k}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] resume-sampling: ssh cooldown clear failed: {e}")
     try:
         from logic import webmin as _webmin
@@ -2027,7 +2028,7 @@ async def api_hosts_resume_sampling(
             for k in doomed:
                 _webmin.auth_cooldown_timer.clear(*k)
                 cooldown_cleared.append(f"webmin:{k}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] resume-sampling: webmin cooldown clear failed: {e}")
     if cooldown_cleared:
         print(f"[hosts] {host_id!r} resume-sampling cleared cooldowns: {cooldown_cleared}")
@@ -2043,7 +2044,7 @@ async def api_hosts_resume_sampling(
                 message=(f"host sampling resumed by {_u.username or 'operator'}; "
                          f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] resume-sampling: audit-row write failed: {e}")
     return {
         "host_id": host_id,
@@ -2101,9 +2102,9 @@ async def api_hosts_provider_resume(
                         "VALUES (?, ?, ?, 'recovered', NULL, ?)",
                         (time.time(), host_id, provider, _u.username or schedules.UNKNOWN_ACTOR),
                     )
-                except Exception as ev_err:
+                except Exception as ev_err: # noqa: BLE001
                     print(f"[hosts] provider/{provider}/resume: failure-event log write failed: {ev_err}")
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"resume failed: {e}")
     # Provider-specific cool-down clears so the next probe doesn't hit
     # an unrelated short throttle. SNMP cool-down is keyed on the
@@ -2133,7 +2134,7 @@ async def api_hosts_provider_resume(
                 for k in doomed:
                     _snmp.unreachable_cooldown.clear(*k)
                     cooldown_cleared.append(f"snmp:{k}")
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[hosts] provider/snmp/resume cooldown clear failed: {e}")
         # also drop the per-host SNMP success + fail caches so the next
         # probe in `_merge_one_host` actually hits the wire. Cache keys
@@ -2168,7 +2169,7 @@ async def api_hosts_provider_resume(
                 for k in doomed:
                     _webmin.auth_cooldown_timer.clear(*k)
                     cooldown_cleared.append(f"webmin:{k}")
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[hosts] provider/webmin/resume cooldown clear failed: {e}")
         _webmin_host_cache.pop(host_id, None)
         _webmin_host_fail_cache.pop(host_id, None)
@@ -2204,7 +2205,7 @@ async def api_hosts_provider_resume(
                 for k in doomed:
                     _ping.unreachable_cooldown.clear(*k)
                     cooldown_cleared.append(f"ping:{k}")
-        except Exception as e:
+        except Exception as e: # noqa: BLE001
             print(f"[hosts] provider/ping/resume cooldown clear failed: {e}")
     # beszel / pulse / node_exporter: no per-host in-memory cool-down
     # to clear. The DB row delete above is the entire reset — next
@@ -2227,7 +2228,7 @@ async def api_hosts_provider_resume(
             },
             client_id=_request_client_id(request),
         )
-    except Exception as ee:
+    except Exception as ee: # noqa: BLE001
         print(f"[events] host:failure_state_changed publish failed: {ee}")
     # Admin audit row — per-(provider, host) resume is an operator-
     # initiated event. The matching auto-pause was a sampler write so it
@@ -2242,7 +2243,7 @@ async def api_hosts_provider_resume(
                 message=(f"{provider} resume on host {host_id} by {_u.username or 'operator'}; "
                          f"cleared={bool(cleared)} cooldowns_cleared={len(cooldown_cleared)}"),
             )
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"[hosts] provider/{provider}/resume: audit-row write failed: {e}")
     return {
         "host_id": host_id,
@@ -2459,7 +2460,9 @@ async def api_hosts_test(
         try:
             async with httpx.AsyncClient(verify=False, timeout=8.0) as client:
                 stats = await _ne.probe_node(client, ne_url)
-        except Exception as e:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e: # noqa: BLE001
             stats = {"exporter_error": str(e)}
         if stats.get("exporter_error"):
             out["node_exporter"] = {"ok": False, "skipped": False,
@@ -2898,7 +2901,7 @@ def _item_samples_in_window(item_id: str, since_hours: int) -> dict:
                 "WHERE item_id = ? AND ts >= ? ORDER BY ts ASC",
                 (item_id, cutoff),
             ).fetchall()
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         out["error"] = str(e)
         return out
     timestamps = [int(r[0]) for r in rows]

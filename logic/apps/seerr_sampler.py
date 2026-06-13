@@ -69,13 +69,14 @@ async def _probe_one(host_id: str, service_idx: int,
         return
     row = (int(time.time()), host_id, int(service_idx),
            int(data.get("pending") or 0), int(data.get("processing") or 0),
-           int(data.get("available_count") or 0), int(data.get("issues_open") or 0))
+           int(data.get("available_count") or 0), int(data.get("issues_open") or 0),
+           int(data.get("approved") or 0), int(data.get("declined") or 0))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO seerr_samples "
                 "(ts, host_id, service_idx, pending, processing, available, "
-                "issues_open) VALUES (?,?,?,?,?,?,?)", row)
+                "issues_open, approved, declined) VALUES (?,?,?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[seerr_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -107,21 +108,26 @@ async def seerr_sampler_loop() -> None:
 # noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
-    """Request-backlog trend for one Seerr chip. Returns ``{days, samples,
-    peak_pending, latest_pending, series}`` where ``series`` is up to
-    ``max_points`` daily-AVERAGE pending-depth points (oldest-first, days WITH
-    data only — pending is a gauge, so a 0-fill day would be a false "drained"
-    reading). Zeroed shape when no samples yet — never raises."""
+    """Request-backlog + state-composition trend for one Seerr chip. Returns
+    ``{days, samples, peak_pending, latest_pending, series, composition,
+    composition_max}`` where ``series`` is up to ``max_points`` daily-AVERAGE
+    pending-depth points (oldest-first, days WITH data only — pending is a gauge,
+    so a 0-fill day would be a false "drained" reading), and ``composition`` is
+    the matching per-day ``{approved, declined, available}`` daily-AVERAGE for a
+    stacked-bar request-state chart. ``composition_max`` is the largest stacked
+    total across the window (chart Y-scale). Zeroed shape when no samples yet —
+    never raises."""
     win = int(days) if days else _tuning.tuning_int(_Tunable.SEERR_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "peak_pending": 0,
-                 "latest_pending": 0, "series": []}
+                 "latest_pending": 0, "series": [], "composition": [],
+                 "composition_max": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, pending FROM seerr_samples "
+                "SELECT ts, pending, approved, declined, available FROM seerr_samples "
                 "WHERE host_id=? AND service_idx=? AND ts >= ? ORDER BY ts ASC",
                 (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -134,16 +140,32 @@ def trend_summary(host_id: str, service_idx: int,
     out["samples"] = len(rows)
     out["peak_pending"] = max(pend)
     out["latest_pending"] = pend[-1]
-    # Daily-AVERAGE pending depth (gauge → mean per day), days with data only.
-    day_sum: dict = defaultdict(int)
+    # Daily-AVERAGE per state (gauges → mean per day), days with data only.
     day_cnt: dict = defaultdict(int)
+    day_pend: dict = defaultdict(int)
+    day_appr: dict = defaultdict(int)
+    day_decl: dict = defaultdict(int)
+    day_avail: dict = defaultdict(int)
     for r in rows:
         d = int(r["ts"]) // 86400
-        day_sum[d] += int(r["pending"] or 0)
         day_cnt[d] += 1
-    series = [round(day_sum[d] / max(1, day_cnt[d]), 1) for d in sorted(day_sum)]
+        day_pend[d] += int(r["pending"] or 0)
+        day_appr[d] += int(r["approved"] or 0)
+        day_decl[d] += int(r["declined"] or 0)
+        day_avail[d] += int(r["available"] or 0)
+    ordered = sorted(day_cnt)
+    series = [round(day_pend[d] / max(1, day_cnt[d]), 1) for d in ordered]
+    comp = [{"approved": round(day_appr[d] / max(1, day_cnt[d]), 1),
+             "declined": round(day_decl[d] / max(1, day_cnt[d]), 1),
+             "available": round(day_avail[d] / max(1, day_cnt[d]), 1)}
+            for d in ordered]
     if len(series) > max_points:
         stride = len(series) / float(max_points)
-        series = [series[int(i * stride)] for i in range(max_points)]
+        idx = [int(i * stride) for i in range(max_points)]
+        series = [series[i] for i in idx]
+        comp = [comp[i] for i in idx]
     out["series"] = series
+    out["composition"] = comp
+    out["composition_max"] = max(
+        (c["approved"] + c["declined"] + c["available"] for c in comp), default=0)
     return out

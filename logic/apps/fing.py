@@ -70,6 +70,14 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "fing_scan",
+        "name": "Scan now",
+        "ai_phrases": ("fing scan now, rescan my network, refresh the network scan, "
+                       "scan for new devices now, run a fing scan, refresh fing, "
+                       "check for new devices now, update the device list"),
+        "destructive": False,
+    },
+    {
         "id": "fing_devices",
         "name": "List Fing devices",
         "ai_phrases": ("list fing devices, show devices on my network, what's "
@@ -318,6 +326,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id."""
     if skill_id == "fing_status":
         return await _status_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if skill_id == "fing_scan":
+        return await _scan_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "fing_devices":
         return await _devices_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "fing_device":
@@ -348,6 +358,32 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if types:
         lines.append("   " + " · ".join(f"{as_dict(t).get('name')} {as_dict(t).get('count')}"
                                         for t in types))
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "devices_total": total, "devices_online": online, "new_devices": new_count}
+
+
+# noinspection DuplicatedCode
+async def _scan_skill(host_row: dict, chip: dict, *,
+                      host_id: Optional[str] = None,
+                      service_idx: Optional[int] = None) -> dict:
+    """"Scan now" — force a LIVE re-fetch of the agent's device list. The Fing
+    Local API is read-only (it can't trigger an active re-scan), but the Fing
+    agent scans the network continuously, so this pulls its freshest state on
+    demand and reports online / total + any new devices. Never raises."""
+    print(f"[fing] INFO fing_scan host={host_id} svc_idx={service_idx} (force refresh)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        print(f"[fing] warning: fing_scan host={host_id} could not fetch — {e}")
+        return {"ok": False, "detail": str(e), "status": 0}
+    total = safe_int(data.get("devices_total"))
+    online = safe_int(data.get("devices_online"))
+    new_count = safe_int(data.get("new_devices"))
+    lines = [f"🔄 Refreshed — {online}/{total} devices online"]
+    if new_count:
+        lines.append(f"🆕 {new_count} new device(s) recently joined")
+    lines.append("Fing scans your network continuously; this pulled its latest state.")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "devices_total": total, "devices_online": online, "new_devices": new_count}
 

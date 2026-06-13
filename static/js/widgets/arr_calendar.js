@@ -332,10 +332,18 @@ export const helpers = {
   // mid-spin), so this is the ONE place the flag is managed for mount +
   // month-nav. The manual-refresh path is owned by `refreshWidget` instead.
   _arrCalSpin(p) {
-    if (!this.appsWidgetRefreshing) {
-      this.appsWidgetRefreshing = {};
-    }
-    this.appsWidgetRefreshing.arr_calendar = true;
+    // Reassign the WHOLE object (preserving other widgets' flags) rather than
+    // mutating the nested `arr_calendar` key — a root-key reassignment is
+    // unconditionally tracked by Alpine's reactivity, whereas a freshly-added
+    // nested key on the initially-empty object proved unreliable for the
+    // pill's `:class` binding on month-nav (the spin never registered). The
+    // pill reads `appsWidgetRefreshing[item.widget]`, so this drives it
+    // reliably for both the cache-hit and fetch paths.
+    const setFlag = (v) => {
+      const base = this.appsWidgetRefreshing || {};
+      this.appsWidgetRefreshing = Object.assign({}, base, {arr_calendar: v});
+    };
+    setFlag(true);
     if (this._arrCalSpinTimer) {
       clearTimeout(this._arrCalSpinTimer);
       this._arrCalSpinTimer = null;
@@ -345,7 +353,7 @@ export const helpers = {
     const stop = () => {
       const remaining = Math.max(0, MIN_SPIN_MS - (Date.now() - startedAt));
       this._arrCalSpinTimer = setTimeout(() => {
-        this.appsWidgetRefreshing.arr_calendar = false;
+        setFlag(false);
         this._arrCalSpinTimer = null;
       }, remaining);
     };

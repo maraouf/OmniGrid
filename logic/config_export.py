@@ -136,6 +136,7 @@ _REDACTION_SENTINEL = "__OMITTED__"
 
 
 def _is_secret_key(key: str) -> bool:
+    """True when a setting key holds a secret (by the ``_token`` / ``_password`` / ``_secret`` / ``_api_key`` suffix convention)."""
     if not isinstance(key, str):
         return False
     s = key.lower()
