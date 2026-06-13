@@ -73,6 +73,53 @@ function bazarrCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Subtitle-backlog retention trend from the lifespan bazarr_sampler (per-day
+// average wanted-subtitle backlog + a week-over-week change), or null while
+// idle / no samples.
+function bazarrTrend(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.bazarrData ? this.bazarrData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on every
+// Alpine flush).
+const _bazarrTrendMemo = new WeakMap();
+
+// SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function bazarrTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_bazarrTrendMemo.has(arr)) {
+    return _bazarrTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _bazarrTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Bazarr gets a
 // 2-column span so the 4-stat panel doesn't squeeze the per-instance host
@@ -94,4 +141,6 @@ export const helpers = {
   bazarrIsApp: isBazarrApp,
   bazarrData: bazarrData,
   bazarrCount: bazarrCount,
+  bazarrTrend: bazarrTrend,
+  bazarrTrendPath: bazarrTrendPath,
 };

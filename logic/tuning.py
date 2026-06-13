@@ -120,6 +120,8 @@ class Tunable(str, Enum):
     QBITTORRENT_SAMPLE_INTERVAL_SECONDS = "tuning_qbittorrent_sample_interval_seconds"
     UNIFI_HISTORY_DAYS = "tuning_unifi_history_days"
     UNIFI_SAMPLE_INTERVAL_SECONDS = "tuning_unifi_sample_interval_seconds"
+    BAZARR_HISTORY_DAYS = "tuning_bazarr_history_days"
+    BAZARR_SAMPLE_INTERVAL_SECONDS = "tuning_bazarr_sample_interval_seconds"
     TDARR_HISTORY_DAYS = "tuning_tdarr_history_days"
     TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
@@ -1497,6 +1499,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for unifi_samples — drives the client-occupancy
     # trend. Default 30. Lower to save disk; raise for a longer trend.
     "tuning_unifi_history_days": ("UNIFI_HISTORY_DAYS", 30, 1, 1095),
+    # How often the Bazarr sampler snapshots each chip's missing-subtitle backlog
+    # (episodes + movies) into bazarr_samples — the trend source for the card's
+    # "backlog over time" sparkline + "backlog down N this week" stat (Bazarr
+    # keeps no wanted-count history of its own). 0 = inherit the global stats
+    # interval. Default 900 (15 min) — the backlog moves slowly.
+    "tuning_bazarr_sample_interval_seconds": ("BAZARR_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for bazarr_samples — drives the subtitle-backlog
+    # trend. Default 30. Lower to save disk; raise for a longer trend.
+    "tuning_bazarr_history_days": ("BAZARR_HISTORY_DAYS", 30, 1, 1095),
     # How often the Tdarr sampler snapshots each chip's cumulative space-saved +
     # transcode count + queue into tdarr_samples. 0 = inherit the global stats
     # interval. Default 900 (15 min) — the cumulative totals move slowly, so a

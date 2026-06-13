@@ -28,6 +28,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 
 ### Added
 
+- **Bazarr** — the card gains a **subtitle-backlog trend** (a new local sampler drives a backlog-over-time sparkline in the drawer + a "backlog down N this week" stat, since Bazarr keeps no wanted-count history), the **names of throttled providers** ("Throttled: OpenSubtitles, …" beyond the bare count), and a **"N subtitles today"** chip — all reported by the **status** action too. Two new Admin → Config knobs tune the sampler cadence + retention. (Throttled-provider names + today's count are best-effort across Bazarr versions.)
 - **UniFi** — new **Block / Unblock a client** AI / Telegram actions (by name or MAC — "block the kid's iPad at bedtime"); blocking is gated behind a typed confirm.
 - **UniFi** — the firmware-update footnote now **names the devices** that need an update (e.g. "2 update(s): USW-Garage, U6-Attic") instead of just a count, on the card + the status action.
 - **UniFi** — the card now shows **per-AP client load** (the busiest access point — "AP-LivingRoom — 23 clients" — to spot an overloaded radio, plus a per-AP distribution in the drawer) and a **client-occupancy trend** ("clients over time" sparkline + "peak N clients"), backed by a new local sampler since UniFi's Integration API keeps no client-count history of its own. The busiest AP is reported by the **status** action (AI / Telegram) too. Two new Admin → Config knobs tune the sampler cadence + retention.

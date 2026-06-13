@@ -814,6 +814,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_unifi_samples_ts
             ON unifi_samples(ts);
 
+        -- Bazarr subtitle-backlog retention. One row per (bazarr chip, tick).
+        -- episodes_missing / movies_missing are point-in-time GAUGES (the
+        -- current wanted-subtitle counts); Bazarr keeps no history of its own,
+        -- so this sampler is the trend source for the backlog-over-time chart +
+        -- the "backlog down N this week" stat.
+        CREATE TABLE IF NOT EXISTS bazarr_samples (
+            ts               INTEGER NOT NULL,
+            host_id          TEXT    NOT NULL,
+            service_idx      INTEGER NOT NULL,
+            episodes_missing INTEGER NOT NULL DEFAULT 0,
+            movies_missing   INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_bazarr_samples_chip_ts
+            ON bazarr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_bazarr_samples_ts
+            ON bazarr_samples(ts);
+
         -- Tdarr transcode-pipeline retention. One row per (tdarr chip, tick).
         -- ``space_saved_gb`` + ``transcodes`` are CUMULATIVE running totals
         -- (Tdarr's StatisticsJSONDB.sizeDiff / totalTranscodeCount), so the

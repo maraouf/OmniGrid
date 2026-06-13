@@ -43,7 +43,7 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
     resolve_credential_target)
-from logic.coerce import safe_int
+from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("bazarr",)
@@ -127,6 +127,80 @@ def _version_from(resp) -> str:
         return ""
 
 
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort subtitle-backlog trend from the Bazarr sampler. Returns the
+    ``trend_summary`` dict, or ``{}`` on any failure (a missing sampler / empty
+    table must never fail the card)."""
+    try:
+        from logic.apps import bazarr_sampler  # noqa: PLC0415
+        return bazarr_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[bazarr] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
+# noinspection DuplicatedCode
+async def _fetch_throttled_providers(cli: "httpx.AsyncClient", base: str,
+                                     key: str) -> list:
+    """Best-effort ``GET /api/providers`` → the THROTTLED providers as
+    ``[{name, status}]`` (a throttled provider carries a non-empty status /
+    retry message; healthy ones are omitted). ``[]`` on any non-200 / parse
+    failure / unexpected shape — the card simply hides the detail. Never raises.
+
+    The Bazarr provider shape varies by version, so probe several plausible
+    spellings for the name + the throttle indicator defensively."""
+    try:
+        r = await cli.get(base + "/api/providers", headers=_headers(key))
+        if r.status_code != 200:
+            return []
+        body = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
+    rows = as_list(body.get("data") if isinstance(body, dict) else body)
+    out: list = []
+    for p in rows:
+        pd = as_dict(p)
+        name = str(pd.get("name") or pd.get("provider") or "").strip()
+        if not name:
+            continue
+        # A throttled provider has a non-empty status / retry message; the
+        # several spellings cover the Bazarr versions. Empty / "good" = healthy.
+        status = str(pd.get("status") or pd.get("retry") or "").strip()
+        if status and status.lower() not in ("good", "ok", "none", "0"):
+            out.append({"name": name, "status": status})
+    return out
+
+
+async def _fetch_downloaded_today(cli: "httpx.AsyncClient", base: str,
+                                  key: str) -> "Optional[int]":
+    """Best-effort count of subtitles downloaded TODAY from Bazarr's aggregated
+    history stats (``GET /api/history/stats``). Returns the latest day's
+    movies + series download count, or ``None`` on any non-200 / parse failure /
+    unexpected shape (the card hides the chip rather than show a misleading 0).
+    Never raises. The stats shape varies by version — the latest entry of each
+    series is taken as "today"."""
+    try:
+        r = await cli.get(base + "/api/history/stats",
+                          headers=_headers(key), params={"timeFrame": "week"})
+        if r.status_code != 200:
+            return None
+        body = r.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return None
+    data = as_dict(body.get("data") if isinstance(body, dict) and "data" in body else body)
+    total = 0
+    found = False
+    for kind in ("movies", "series", "episodes"):
+        points = as_list(data.get(kind))
+        if not points:
+            continue
+        last = as_dict(points[-1])  # the most recent day
+        if "count" in last or "value" in last:
+            total += safe_int(last.get("count") if "count" in last else last.get("value"))
+            found = True
+    return total if found else None
+
+
 # noinspection DuplicatedCode
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Bazarr's auth-required ``/api/system/status`` with the supplied
@@ -182,6 +256,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
                                                   headers=_headers(api_key)))
             except (httpx.HTTPError, OSError):
                 ver = ""
+            # Per-provider throttle list + subtitles-downloaded-today — both
+            # best-effort (never fail the card; degrade to []/None on a shape
+            # the upstream version doesn't match).
+            throttled_providers = await _fetch_throttled_providers(cli, base, api_key)
+            downloaded_today = await _fetch_downloaded_today(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[bazarr] error: fetch host={host_id} url={badges_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -200,18 +279,30 @@ async def fetch_data(host_row: dict, chip: dict, *,
         raise RuntimeError("upstream returned non-JSON")
     if not isinstance(body, dict):
         body = {}
+    episodes_missing = safe_int(body.get("episodes"))
+    movies_missing = safe_int(body.get("movies"))
     out: dict[str, Any] = {
         "available": True,
-        "episodes_missing": safe_int(body.get("episodes")),
-        "movies_missing": safe_int(body.get("movies")),
+        "episodes_missing": episodes_missing,
+        "movies_missing": movies_missing,
+        # Total wanted-subtitle backlog — the metric the sampler trends.
+        "total_missing": episodes_missing + movies_missing,
         "providers_throttled": safe_int(body.get("providers")),
+        # Named throttled-provider list + subtitles-downloaded-today (best-effort).
+        "throttled_providers": throttled_providers,
+        "downloaded_today": downloaded_today,
         "health_issues": safe_int(body.get("status")),
         "version": ver,
+        # Subtitle-backlog trend from bazarr_samples (drawer chart). Tolerated on
+        # failure — the card renders without it.
+        "trend": _safe_trend(host_id, service_idx),
         "fetched_at": int(now),
     }
     print(f"[bazarr] INFO fetched host={host_id} episodes_missing="
           f"{out['episodes_missing']} movies_missing={out['movies_missing']} "
-          f"throttled={out['providers_throttled']} health={out['health_issues']}")
+          f"total_missing={out['total_missing']} throttled={out['providers_throttled']} "
+          f"throttled_named={len(throttled_providers)} "
+          f"downloaded_today={downloaded_today} health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -226,7 +317,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     return {
         "episodes_missing": safe_int(data.get("episodes_missing")),
         "movies_missing": safe_int(data.get("movies_missing")),
+        "total_missing": safe_int(data.get("total_missing")),
         "providers_throttled": safe_int(data.get("providers_throttled")),
+        "throttled_providers": [str(as_dict(p).get("name") or "") for p in as_list(data.get("throttled_providers")) if as_dict(p).get("name")],
+        "downloaded_today": data.get("downloaded_today"),
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -680,11 +774,24 @@ async def _status_skill(host_row: dict, chip: dict, *,
     mm = safe_int(data.get("movies_missing"))
     thr = safe_int(data.get("providers_throttled"))
     hi = safe_int(data.get("health_issues"))
+    dl_today = data.get("downloaded_today")
+    thr_names = [str(as_dict(p).get("name") or "") for p in as_list(data.get("throttled_providers"))
+                 if as_dict(p).get("name")]
+    trend = as_dict(data.get("trend"))
     lines = [
         f"📺 Episodes missing subtitles: {em:,}",
         f"🎬 Movies missing subtitles: {mm:,}",
     ]
-    if thr:
+    # Week-over-week backlog change (from the sampler), when available.
+    wk = safe_int(trend.get("week_change"))
+    if trend.get("samples") and wk != 0:
+        lines.append(f"{'📉' if wk < 0 else '📈'} Backlog {'down' if wk < 0 else 'up'} "
+                     f"{abs(wk):,} this week")
+    if isinstance(dl_today, int):
+        lines.append(f"✅ Subtitles downloaded today: {dl_today:,}")
+    if thr_names:
+        lines.append("⏳ Throttled: " + ", ".join(thr_names[:8]))
+    elif thr:
         lines.append(f"⏳ Throttled providers: {thr:,}")
     lines.append(f"{'⚠️' if hi else '✅'} Health issues: {hi:,}")
     return {
@@ -693,6 +800,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "status": 200,
         "episodes_missing": em,
         "movies_missing": mm,
+        "total_missing": em + mm,
         "providers_throttled": thr,
+        "downloaded_today": dl_today,
         "health_issues": hi,
     }

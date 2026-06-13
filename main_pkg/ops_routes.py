@@ -1839,6 +1839,10 @@ class SettingsIn(BaseModel):
     # interval) + retention for the "clients over time" sparkline.
     tuning_unifi_sample_interval_seconds: Optional[str] = None
     tuning_unifi_history_days: Optional[str] = None
+    # Bazarr subtitle-backlog sampler — snapshot cadence (0 = inherit global
+    # stats interval) + retention for the backlog-over-time sparkline.
+    tuning_bazarr_sample_interval_seconds: Optional[str] = None
+    tuning_bazarr_history_days: Optional[str] = None
     # Tdarr retention sampler — cumulative space-saved + queue burn-down + per-day
     # throughput.
     tuning_tdarr_sample_interval_seconds: Optional[str] = None

@@ -33,6 +33,9 @@
          symbol's children, which carry no stroke-* attrs of their own. -->
     <!-- Lucide: copy -->
     <symbol id="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <!-- Lucide: chart-scatter — the Stats "Samples" glyph (scattered data
+         points = sampled metrics; distinct from Stacks' layers + Apps' grid). -->
+    <symbol id="icon-chart-scatter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><circle cx="18.5" cy="5.5" r=".5" fill="currentColor"/><circle cx="11.5" cy="11.5" r=".5" fill="currentColor"/><circle cx="7.5" cy="16.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="14.5" r=".5" fill="currentColor"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
     <!-- Lucide: check -->
     <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
     <!-- Lucide: pause (two vertical bars). Used by the host-drawer Timeline for `provider_paused` events to disambiguate from the alert-triangle previously used. -->
