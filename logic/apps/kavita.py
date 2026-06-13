@@ -137,6 +137,18 @@ SKILLS: tuple[dict, ...] = (
                        "scan all libraries"),
         "destructive": False,
     },
+    {
+        "id": "kavita_scan_library",
+        "name": "Scan one library",
+        "ai_phrases": ("scan the <name> library, rescan <name> on kavita, scan "
+                       "just the <name> library, refresh the <name> library, "
+                       "scan my manga library, scan the comics library"),
+        # arg-carrying → AI / Telegram + the per-row Scan button on the libraries
+        # list (arg = the library id). Non-destructive (a scan is additive).
+        "arg": True,
+        "arg_hint": "the library name (or id) to rescan",
+        "destructive": False,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. 60s default —
@@ -527,6 +539,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "kavita_scan":
         return await _scan_skill(host_row, chip, host_id=host_id)
+    if skill_id == "kavita_scan_library":
+        return await _scan_library_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -624,16 +638,30 @@ async def _libraries_skill(host_row: dict, chip: dict, *,
         if not isinstance(items, list):
             items = []
     lines = []
+    rich: list[dict] = []
     for lib in items[:25]:
         if not isinstance(lib, dict):
             continue
         name = str(lib.get("name") or "?").strip()
         ltype = _LIBRARY_TYPES.get(safe_int(lib.get("type")), "")
         lines.append(f"• {name}" + (f" ({ltype})" if ltype else ""))
+        row: dict = {"title": name, "subtitle": ltype}
+        lid = safe_int(lib.get("id"))
+        if lid:
+            # Per-row 🔄 Scan button → rescan THIS library only (non-destructive —
+            # a scan is additive). `lib:<id>` is the exact-id arg the scan skill
+            # resolves; AI / Telegram call it by name.
+            row["row_action"] = {
+                "skill_id": "kavita_scan_library", "arg": f"lib:{lid}",
+                "icon": "refresh-cw", "destructive": False,
+                "title_i18n": "apps.kavita.scan_row"}
+        rich.append(row)
     if not lines:
         return {"ok": True, "status": 200, "detail": "📚 No libraries configured."}
     return {"ok": True, "status": 200,
-            "detail": f"📚 Libraries ({len(lines):,}):\n" + "\n".join(lines)}
+            "detail": f"📚 Libraries ({len(lines):,}):\n" + "\n".join(lines),
+            "count": len(rich), "count_i18n": "apps.kavita.libraries_count",
+            "items": rich}
 
 
 #   The auth + httpx-client + error-branch scaffolding below is shape-similar to
@@ -900,3 +928,70 @@ async def _scan_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200,
             "detail": f"🔄 Started a scan of {queued:,} "
                       f"librar{'y' if queued == 1 else 'ies'} on Kavita."}
+
+
+async def _resolve_library(cli: httpx.AsyncClient, base: str, token: str,
+                           needle: str) -> "tuple[int, str] | dict":
+    """Resolve a scan arg to ``(library_id, name)``. ``needle`` is either the
+    per-row button's exact ``lib:<id>`` form OR a free-text library name (the AI /
+    Telegram path) matched against the configured library list. Returns the tuple,
+    or a ready ``{ok, status, detail}`` error dict for the caller to return."""
+    n = needle.strip()
+    libs: list = []
+    try:
+        lr = await cli.get(base + "/api/Library", headers=_bearer(token))
+        if lr.status_code == 200:
+            _body = lr.json()
+            libs = _body if isinstance(_body, list) else []
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        libs = []
+    if n.lower().startswith("lib:"):
+        wanted = safe_int(n.split(":", 1)[1])
+        for lib in libs:
+            if isinstance(lib, dict) and safe_int(lib.get("id")) == wanted:
+                return wanted, str(lib.get("name") or f"library #{wanted}").strip()
+        return {"ok": False, "status": 404,
+                "detail": "that library isn't configured on Kavita anymore"}
+    nl = n.lower()
+    for lib in libs:
+        if isinstance(lib, dict) and nl in str(lib.get("name") or "").strip().lower():
+            return safe_int(lib.get("id")), str(lib.get("name") or "").strip()
+    return {"ok": False, "status": 404,
+            "detail": f"no Kavita library matched “{n}”"}
+
+
+async def _scan_library_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """Action (arg): rescan ONE library by id (the per-row button) or name (the
+    AI / Telegram path), via ``POST /api/Library/scan?libraryId=<id>``.
+    Non-destructive — a scan is additive. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no library given — say e.g. 'scan the manga library'"}
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[kavita] INFO kavita_scan_library host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, _ = await _authenticate(cli, base, api_key)
+            target = await _resolve_library(cli, base, token, needle)
+            if isinstance(target, dict):  # not-found error dict
+                return target
+            lib_id, name = target
+            sr = await cli.post(base + "/api/Library/scan", headers=_bearer(token),
+                                params={"libraryId": lib_id, "force": "false"})
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"scan failed: {type(e).__name__}: {e}"}
+    if 200 <= sr.status_code < 300:
+        return {"ok": True, "status": 200,
+                "detail": f"🔄 Started a scan of the “{name}” library on Kavita."}
+    if sr.status_code in (401, 403):
+        return {"ok": False, "status": sr.status_code, "detail": "auth failed (check api_key has access)"}
+    return {"ok": False, "status": sr.status_code,
+            "detail": f"scan of “{name}” returned HTTP {sr.status_code}"}

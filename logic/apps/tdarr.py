@@ -669,6 +669,19 @@ SKILLS: tuple[dict, ...] = (
                        "abort tdarr workers"),
         "destructive": True,
     },
+    {
+        "id": "tdarr_cancel_worker",
+        "name": "Cancel one running job",
+        "ai_phrases": ("cancel the job on <node>, kill the worker transcoding "
+                       "<file>, stop this transcode, cancel one tdarr job, abort "
+                       "the <file> transcode"),
+        # arg-carrying → AI / Telegram + the per-row Cancel button on the live
+        # worker list (arg = "<nodeID>:<workerID>"). DESTRUCTIVE — aborts a live
+        # transcode (the SPA confirms first).
+        "arg": True,
+        "arg_hint": "the file name (or <nodeID>:<workerID>) of the running job to cancel",
+        "destructive": True,
+    },
 )
 
 
@@ -677,8 +690,10 @@ SKILLS: tuple[dict, ...] = (
 # ---------------------------------------------------------------------------
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str] = None,
-                    service_idx: Optional[int] = None, **_kw) -> dict:
-    """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id."""
+                    service_idx: Optional[int] = None,
+                    arg: Optional[str] = None, **_kw) -> dict:
+    """Dispatch one of this app's SKILLS. Raises ValueError on an unknown id.
+    ``arg`` carries the per-row / free-text target for tdarr_cancel_worker."""
     if skill_id == "tdarr_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
@@ -696,6 +711,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _scan_skill(host_row, chip, host_id=host_id)
     if skill_id == "tdarr_cancel_workers":
         return await _cancel_workers_skill(host_row, chip, host_id=host_id)
+    if skill_id == "tdarr_cancel_worker":
+        return await _cancel_worker_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -729,11 +746,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
     # row with a 2-colour progress bar (apps-skill-item-bar). The text `lines`
     # / `detail` stay for the AI / Telegram surfaces (no visual progress bar).
     items: list[dict] = []
-    for node in as_dict(nodes).values():
+    for node_id, node in as_dict(nodes).items():
         if not isinstance(node, dict):
             continue
         node_name = str(node.get("nodeName") or "node").strip()
-        for w in as_dict(node.get("workers")).values():
+        nid = str(node.get("_id") or node_id or "").strip()
+        for worker_id, w in as_dict(node.get("workers")).items():
             if not isinstance(w, dict) or not w.get("job"):
                 continue
             fname = os.path.basename(str(w.get("file") or "").strip()) or "?"
@@ -741,12 +759,23 @@ async def _status_skill(host_row: dict, chip: dict, *,
             pct_txt = f" ({safe_float(pct):.1f}%)" if pct is not None else ""
             lines.append(f"⚙️ {node_name}: {fname}{pct_txt}")
             wtype = str(w.get("workerType") or w.get("type") or "").strip()
-            items.append({
+            row: dict = {
                 "title": fname,
                 "subtitle": (f"{node_name} · {wtype}" if wtype else node_name),
                 "poster": "",
                 "progress": round(safe_float(pct), 1),
-            })
+            }
+            wid = str(w.get("_id") or worker_id or "").strip()
+            if nid and wid:
+                # Per-row 🛑 Cancel button → kill THIS running transcode
+                # (DESTRUCTIVE — the SPA confirms first). The arg is the exact
+                # "<nodeID>:<workerID>" the cancel skill kills directly.
+                row["row_action"] = {
+                    "skill_id": "tdarr_cancel_worker", "arg": f"{nid}:{wid}",
+                    "icon": "x", "destructive": True,
+                    "confirm_i18n": "apps.tdarr.cancel_worker_confirm",
+                    "title_i18n": "apps.tdarr.cancel_worker_row"}
+            items.append(row)
     # Queue summary from the card data (cheap second source).
     try:
         data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
@@ -1410,3 +1439,63 @@ async def _cancel_workers_skill(host_row: dict, chip: dict, *,
                 "detail": "▶️ No Tdarr workers were running."}
     return {"ok": True, "status": 200,
             "detail": f"🛑 Cancelled {killed:,} running job(s)."}
+
+
+# noinspection DuplicatedCode
+def _resolve_worker(nodes: dict, needle: str) -> "tuple[str, str, str] | None":
+    """Resolve a cancel arg to ``(nodeID, workerID, file_name)`` across the live
+    worker map. ``needle`` is either the per-row button's exact
+    ``<nodeID>:<workerID>`` form OR a file-name substring (the AI / Telegram
+    path). ``None`` when nothing matches a running worker."""
+    want_node = want_worker = ""
+    if ":" in needle:
+        want_node, want_worker = (p.strip() for p in needle.split(":", 1))
+    nl = needle.strip().lower()
+    for node_id, node in as_dict(nodes).items():
+        if not isinstance(node, dict):
+            continue
+        nid = str(node.get("_id") or node_id or "").strip()
+        for worker_id, w in as_dict(node.get("workers")).items():
+            if not isinstance(w, dict) or not w.get("job"):
+                continue
+            wid = str(w.get("_id") or worker_id or "").strip()
+            fname = os.path.basename(str(w.get("file") or "").strip()) or "?"
+            if want_worker:
+                if nid == want_node and wid == want_worker:
+                    return nid, wid, fname
+            elif nl and nl in fname.lower():
+                return nid, wid, fname
+    return None
+
+
+async def _cancel_worker_skill(host_row: dict, chip: dict, *,
+                               arg: Optional[str] = None,
+                               host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE (arg): cancel ONE running transcode. Resolves the arg
+    (``<nodeID>:<workerID>`` from the per-row button, or a file-name from the AI /
+    Telegram path) against the live worker map, then ``POST /kill-worker``. Never
+    raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no job given — say e.g. 'cancel the <file> transcode'"}
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tdarr] INFO tdarr_cancel_worker host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            nodes = as_dict(await _get(cli, base, api_key, "/get-nodes"))
+            match = _resolve_worker(nodes, needle)
+            if not match:
+                return {"ok": False, "status": 404,
+                        "detail": "that transcode isn't running anymore"}
+            nid, wid, fname = match
+            await _action_post(cli, base, api_key, "/kill-worker",
+                               {"data": {"nodeID": nid, "workerID": wid}})
+    except (httpx.HTTPError, OSError, RuntimeError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"cancel failed: {type(e).__name__}: {e}"}
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Cancelled the transcode of {fname}."}
