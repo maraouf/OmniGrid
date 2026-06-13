@@ -5,7 +5,7 @@
      template is Tracearr. Tracearr authenticates via a PUBLIC-API bearer token
      (Settings -> API, prefixed `trr_pub_`). Mirrors tautulli_editor.html. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="tracearrIsApp && tracearrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="tracearrIsApp && tracearrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-tracearr-api-key"

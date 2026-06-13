@@ -9,7 +9,7 @@
      uses) -- the backend lifts the <key> out of the path; without one it
      defaults to the 'apprise' key. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="appriseIsApp && appriseIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="appriseIsApp && appriseIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <p class="fs-2xs text-[var(--text-faint)]"
        x-text="t('apps.apprise.url_hint') || 'Apprise has no API key. Set the instance URL (above) to the apprise-api root, e.g. http://apprise.example.com:8005 — or paste the full .../notify/<key> URL for a non-default config key.'"></p>

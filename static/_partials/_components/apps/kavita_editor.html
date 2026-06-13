@@ -5,7 +5,7 @@
      template is Kavita. Kavita authenticates via an API key exchanged for a
      JWT (Settings -> Account -> API Key). Mirrors lidarr_editor.html. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="kavitaIsApp && kavitaIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="kavitaIsApp && kavitaIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-kavita-api-key"

@@ -1,7 +1,7 @@
 // noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
-// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
+// noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS,JSUnresolvedVariable,JSUnresolvedReference
 // noinspection JSVariableNamingConventionJS,LocalVariableNamingConventionJS,FunctionNamingConventionJS,BadName,BadVariableName,FunctionWithMoreThanThreeNegationsJS
 /* jshint esversion: 11, module: true, eqeqeq: false, -W116 */
 
@@ -148,6 +148,55 @@ function upsRuntimeLabel(s) {
   return `${total}s`;
 }
 
+// The battery/load/runtime history block `{days, samples, battery_series,
+// load_series, runtime_series, battery_current, load_current,
+// runtime_current_min, runtime_low_min}` from the windowed host_snmp_samples
+// read, or null. Drives the card's trend sparklines.
+function apcHistory(inst) {
+  /* jshint validthis: true */
+  if (!inst || !this.appsAppData) {
+    return null;
+  }
+  const d = this.appsAppData(inst);
+  return (d && d.history && typeof d.history === 'object') ? d.history : null;
+}
+
+// Memo: stable `:points` string per series array reference (the canonical
+// SVG-builder memo — avoids re-render flicker on every Alpine flush).
+const _apcSparkMemo = new WeakMap();
+
+// SVG polyline points for one APC trend series (`'battery'` | `'load'` |
+// `'runtime'`) over a 0..100 × 0..24 viewBox. '' when < 2 points. Each series
+// is scaled to its OWN max so the shape reads regardless of unit (% vs minutes).
+function apcSparkPoints(inst, key) {
+  /* jshint validthis: true */
+  const h = apcHistory.call(this, inst);
+  const series = (h && Array.isArray(h[key + '_series'])) ? h[key + '_series'] : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  if (_apcSparkMemo.has(series)) {
+    return _apcSparkMemo.get(series);
+  }
+  const W = 100, H = 24, n = series.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(series[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(series[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _apcSparkMemo.set(series, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. APC
 // gets a 2-column span so the 5-stat panel doesn't squeeze the
@@ -184,4 +233,6 @@ export const helpers = {
   apcIsApp: isApcApp,
   apcHostUpsData: hostUpsData,
   apcUpsRuntimeLabel: upsRuntimeLabel,
+  apcHistory: apcHistory,
+  apcSparkPoints: apcSparkPoints,
 };

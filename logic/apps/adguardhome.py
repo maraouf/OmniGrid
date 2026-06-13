@@ -242,6 +242,67 @@ def _top_entry(items: Any) -> Optional[dict]:
     return None
 
 
+def _top_list(items: Any, cap: int = 10) -> list:
+    """Full top-N list from an AdGuard ``top_*`` array (single-key dicts
+    ``{"<name>": <count>}`` or ``{"name","count"}``) → ``[{name, count}]``
+    sorted highest-first, capped at ``cap``. [] for a non-list / empty."""
+    out: list = []
+    if not isinstance(items, list):
+        return out
+    for it in items:
+        if not isinstance(it, dict) or not it:
+            continue
+        if "name" in it or "count" in it:
+            out.append({"name": str(it.get("name") or ""), "count": safe_int(it.get("count"))})
+        else:
+            for k, v in it.items():
+                out.append({"name": str(k), "count": safe_int(v)})
+                break
+    out.sort(key=lambda r: r["count"], reverse=True)
+    return out[:cap]
+
+
+def _slowest_upstream(stats: dict) -> Optional[dict]:
+    """Slowest upstream DNS resolver from ``/control/stats`` →
+    ``top_upstreams_avg_time`` (a list of single-key ``{<upstream>:
+    <avg_seconds>}`` dicts). Returns ``{name, ms}`` for the highest avg
+    response time, or ``None`` when no upstream timing is reported. This is the
+    "why is DNS slow" signal — a slow upstream drags every query."""
+    arr = stats.get("top_upstreams_avg_time")
+    if not isinstance(arr, list):
+        return None
+    worst_name = ""
+    worst_s = -1.0
+    for it in arr:
+        if not isinstance(it, dict):
+            continue
+        for k, v in it.items():
+            sv = safe_float(v)
+            if sv > worst_s:
+                worst_s = sv
+                worst_name = str(k)
+            break
+    if worst_name and worst_s >= 0:
+        return {"name": worst_name, "ms": round(worst_s * 1000.0, 1)}
+    return None
+
+
+def _custom_rule_count(filt: dict) -> int:
+    """Count the operator's CUSTOM filtering rules (``/control/filtering/status``
+    ``user_rules`` — the hand-written allow/block rules + rewrites, distinct
+    from the subscribed blocklist rule totals). Skips blank lines + ``!``/``#``
+    comments. 0 when none."""
+    rules = filt.get("user_rules")
+    if not isinstance(rules, list):
+        return 0
+    n = 0
+    for r in rules:
+        s = str(r or "").strip()
+        if s and not s.startswith("!") and not s.startswith("#"):
+            n += 1
+    return n
+
+
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -325,6 +386,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "top_blocked_domain": top_blocked,
         "top_queried_domain": top_queried,
         "top_client": top_client,
+        # P1 — slowest upstream resolver (the "why is DNS slow" stat) +
+        # operator custom-rule count (hand-written allow/block/rewrite rules).
+        "slowest_upstream": _slowest_upstream(stats),
+        "custom_rules": _custom_rule_count(filt),
+        # P3 — full top-blocked-domain distribution (top 10) for the card's
+        # horizontal-bar chart (data already in this /control/stats response).
+        "top_blocked_list": _top_list(stats.get("top_blocked_domains")),
         # Time-bucketed arrays straight from the SAME /control/stats response
         # (no extra call) — drive the aggregated queries-vs-blocked sparkline.
         # Capped to the last 48 buckets so a wide window stays a tidy chart.
@@ -491,6 +559,18 @@ def _avg_processing_lines(ok_rows: list, totals: dict) -> list:
     par = sum(safe_int(r.get("parental_today")) for r in ok_rows)
     if sb or par:
         lines.append(f"🦠 Safe-browsing: {fmt_int_grouped(sb)} · 👶 Parental: {fmt_int_grouped(par)}")
+    # Slowest upstream resolver across the fleet (the "why is DNS slow" stat).
+    worst = None
+    for r in ok_rows:
+        su = r.get("slowest_upstream")
+        if isinstance(su, dict) and (worst is None
+                                     or safe_float(su.get("ms")) > safe_float(worst.get("ms"))):
+            worst = su
+    if worst and worst.get("name"):
+        lines.append(f"🐌 Slowest upstream: {worst.get('name')} ({safe_float(worst.get('ms'))} ms)")
+    cr = sum(safe_int(r.get("custom_rules")) for r in ok_rows)
+    if cr:
+        lines.append(f"📝 Custom rules: {fmt_int_grouped(cr)}")
     return lines
 
 

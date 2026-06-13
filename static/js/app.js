@@ -2157,6 +2157,15 @@ function app() {
         }
         this.loadHosts();
       }
+      // Prime the apps list once on boot (fire-and-forget) regardless of the
+      // restored view, so the Apps nav down-badge (appsDownCount) surfaces app
+      // failures immediately — the app-level twin of the always-on loadHosts
+      // above. Idempotent: loadAppsList no-ops when a load is already in flight
+      // (the apps-view boot path already fired it), so this only does work on a
+      // non-Apps boot view.
+      if (typeof this.loadAppsList === 'function') {
+        this.loadAppsList();
+      }
       // If the SPA restored to the Apps view (saved in localStorage or a
       // deep-link), trigger the same load+poll the view-watcher does on a
       // manual switch. The `$watch('view')` only fires on CHANGE, so a

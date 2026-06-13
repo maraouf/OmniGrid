@@ -75,6 +75,47 @@
             <div class="apps-card-stat-value" x-text="apcHostUpsData(inst).status || '--'"></div>
           </div>
         </div>
+        <!-- Battery / load / runtime trend sparklines — windowed read of the
+             already-persisted host_snmp_samples (no APC sampler). Shown once at
+             least two samples exist in the window. -->
+        <template x-if="apcHistory(inst) && apcHistory(inst).samples > 1">
+          <div class="mt-2 space-y-1.5">
+            <!-- Runtime remaining (minutes) — the headline UPS trend. -->
+            <template x-if="(apcHistory(inst).runtime_series || []).length > 1">
+              <div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="apps-card-stat-label" x-text="t('apps.ups.runtime_trend') || 'Runtime trend'"></span>
+                  <span class="fs-3xs text-[var(--text-faint)] mono"
+                        x-text="(apcHistory(inst).runtime_low_min != null ? ((t('apps.ups.low') || 'low') + ' ' + apcHistory(inst).runtime_low_min + 'm') : '')"></span>
+                </div>
+                <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'runtime')"></polyline>
+                </svg>
+              </div>
+            </template>
+            <!-- Battery % + Output load % mini sparklines side by side. -->
+            <div class="apps-card-ups-grid">
+              <template x-if="(apcHistory(inst).battery_series || []).length > 1">
+                <div>
+                  <div class="apps-card-stat-label" x-text="t('apps.ups.battery') || 'Battery'"></div>
+                  <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'battery')"></polyline>
+                  </svg>
+                </div>
+              </template>
+              <template x-if="(apcHistory(inst).load_series || []).length > 1">
+                <div>
+                  <div class="apps-card-stat-label" x-text="t('apps.ups.output_load') || 'Output load'"></div>
+                  <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                    <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'load')"></polyline>
+                  </svg>
+                </div>
+              </template>
+            </div>
+            <div class="fs-3xs text-[var(--text-faint)] mono"
+                 x-text="t('apps.ups.trend_caption', { days: apcHistory(inst).days }) || ('Last ' + apcHistory(inst).days + ' days')"></div>
+          </div>
+        </template>
       </div>
     </template>
     <!-- Loading — first fetch in flight. -->

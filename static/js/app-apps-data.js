@@ -45,6 +45,17 @@ export default {
       if (v && typeof v === 'object' && v.__error) {
         return null;
       }
+      // __nokey sentinel — the app needs credentials that weren't set, so the
+      // fetch was skipped. Self-heal: once the operator saves a key
+      // (api_key_set flips true) drop the sentinel + re-fetch; otherwise keep
+      // showing the card's "no key" state (return null = data gate false).
+      if (v && typeof v === 'object' && v.__nokey) {
+        if (!this._appRequiresKeyButUnset(inst)) {
+          delete this._appsDataCache[key];
+          this.loadAppData(inst, false);
+        }
+        return null;
+      }
       // Stale-while-revalidate (perf finding 4): if the cached value has aged
       // past the operator TTL (me.client_config.apps_extras_ttl_seconds;
       // 0 = off → fetch-once), kick a background force-refetch but RETURN the
@@ -125,6 +136,11 @@ export default {
     if (v && typeof v === 'object' && v.__error) {
       return 'error';
     }
+    // __nokey → treat as idle so the card's "no key set" branch (gated on
+    // idle + !api_key_set) renders instead of a misleading error/loading.
+    if (v && typeof v === 'object' && v.__nokey) {
+      return 'idle';
+    }
     if (v && typeof v === 'object') {
       return 'ok';
     }
@@ -147,9 +163,35 @@ export default {
     return '';
   },
 
+  // True when the chip's app REQUIRES an api_key / credentials but none is set
+  // yet. Used to skip a doomed /app-data fetch (the backend would 400 with a
+  // config error) and instead let the card show its own "no key set" state —
+  // which it already gates on `appsAppDataStatus === 'idle' && !api_key_set`.
+  // Without this guard a wide-span card (cardSpan >= 2, e.g. RustDesk) shows
+  // extras by DEFAULT (appsShowExtras → true) and fires the fetch even when the
+  // operator never entered credentials, producing a console 400 on every load.
+  _appRequiresKeyButUnset(inst) {
+    if (!inst || inst.api_key_set) {
+      return false;
+    }
+    const slug = inst.catalog_slug || inst.catalog_name || inst.name || '';
+    return !!this.appsTemplateRequiresApiKey(slug);
+  },
+
   async loadAppData(inst, force) {
     const key = this.appsAppDataKey(inst);
     if (!key) {
+      return;
+    }
+    // Credentials-required-but-unset → don't fetch (it would 400). Stamp a
+    // __nokey sentinel so the card renders its "no key" state and we don't
+    // re-trigger the fetch on every render. Self-heals once a key is saved
+    // (appsAppData drops the sentinel + re-fetches when api_key_set flips).
+    if (this._appRequiresKeyButUnset(inst)) {
+      if (!this._appsDataCache) {
+        this._appsDataCache = {};
+      }
+      this._appsDataCache[key] = {__nokey: true};
       return;
     }
     if (!this._appsDataPending) {

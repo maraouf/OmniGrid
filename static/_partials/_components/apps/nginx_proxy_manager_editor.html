@@ -10,7 +10,7 @@
          `api_key_set` flag, keep-current-if-blank on save).
      Set the chip URL to the NPM admin UI (default port 81). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="npmIsApp && npmIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="npmIsApp && npmIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-npm-email"

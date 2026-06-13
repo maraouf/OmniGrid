@@ -121,7 +121,13 @@ function adguardAggregate(app) {
     trend: null,
     protOn: 0, protTotal: 0, protOffHosts: [],
     failedHosts: [], version: '',
+    // P1 — slowest upstream across the fleet + summed custom-rule count.
+    slowestUpstream: null, customRules: 0,
+    // P3 — merged top-blocked-domain distribution (top 10, counts summed
+    // across hosts) for the card's horizontal-bar chart.
+    topBlockedList: [],
   };
+  const blockedAcc = {};  // domain -> summed count across hosts (P3)
   const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
   out.n = insts.length;
   let wSum = 0;  // query-weighted avg-ms numerator
@@ -160,6 +166,20 @@ function adguardAggregate(app) {
     out.topBlocked = pickTop(out.topBlocked, d.top_blocked_domain);
     out.topQueried = pickTop(out.topQueried, d.top_queried_domain);
     out.topClient = pickTop(out.topClient, d.top_client);
+    out.customRules += _num(d.custom_rules);
+    // Slowest upstream across the fleet (highest avg response time).
+    const su = d.slowest_upstream;
+    if (su && su.name && (!out.slowestUpstream || _num(su.ms) > _num(out.slowestUpstream.ms))) {
+      out.slowestUpstream = {name: String(su.name), ms: _num(su.ms)};
+    }
+    // Merge per-host top-blocked lists by domain (sum counts) for the fleet bar.
+    if (Array.isArray(d.top_blocked_list)) {
+      for (const row of d.top_blocked_list) {
+        if (row && row.name) {
+          blockedAcc[row.name] = (blockedAcc[row.name] || 0) + _num(row.count);
+        }
+      }
+    }
     if (Array.isArray(d.queries_series) && d.queries_series.length) {
       qSeriesList.push(d.queries_series);
     }
@@ -175,6 +195,11 @@ function adguardAggregate(app) {
   out.blockedSeries = _sumAlign(bSeriesList);
   out.pct = out.queries > 0 ? (out.blocked / out.queries) * 100 : 0;
   out.avgMs = out.queries > 0 ? (wSum / out.queries) : 0;
+  // Finalise the merged top-blocked distribution (top 10, highest-first).
+  out.topBlockedList = Object.keys(blockedAcc)
+    .map((name) => ({name: name, count: blockedAcc[name]}))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
   out.ready = out.okN > 0;
   return out;
 }

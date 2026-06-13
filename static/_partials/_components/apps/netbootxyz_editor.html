@@ -7,7 +7,7 @@
      above (it must point at the netboot.xyz webapp root, e.g.
      http://host:3000). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="netbootxyzIsApp && netbootxyzIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="netbootxyzIsApp && netbootxyzIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <p class="fs-2xs text-[var(--text-faint)]"
        x-text="t('apps.netbootxyz.no_auth_hint') || 'netboot.xyz has no authentication — set the instance URL (its webapp root, e.g. http://host:3000) above; no API key is needed.'"></p>

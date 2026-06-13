@@ -6,7 +6,7 @@
      shared Test-connection. The instance URL is set in the generic chip
      URL field above (it must point at the ddns-updater web UI root). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="ddnsIsApp && ddnsIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="ddnsIsApp && ddnsIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <p class="fs-2xs text-[var(--text-faint)]"
        x-text="t('apps.ddns.no_auth_hint') || 'ddns-updater has no authentication — set the instance URL (its web UI root) above; no API key is needed.'"></p>

@@ -296,6 +296,14 @@
                   class="nav-offline-badge"
                   :title="t('nav.hosts_down_title', { count: hostsDownCount() }) || (hostsDownCount() + ' host(s) down')"
                   x-text="hostsDownCount()"></span>
+            <!-- Down-app counter — the Apps-nav twin of the Hosts down badge.
+                 Counts pinned app GROUPS in a down / degraded status via
+                 appsDownCount() (app-level, matching the Apps page), same red
+                 footprint so actionable app failures land at a glance. -->
+            <span x-show="nav[0]==='apps' && appsDownCount() > 0"
+                  class="nav-offline-badge"
+                  :title="t('nav.apps_down_title', { count: appsDownCount() }) || (appsDownCount() + ' app(s) down')"
+                  x-text="appsDownCount()"></span>
           </button>
         </template>
       </nav>

@@ -5,7 +5,7 @@
      template is Sonarr. Sonarr authenticates via the X-Api-Key header
      (Settings -> General -> API Key). Mirrors radarr_editor.html. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="sonarrIsApp && sonarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="sonarrIsApp && sonarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-sonarr-api-key"

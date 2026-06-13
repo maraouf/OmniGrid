@@ -102,6 +102,27 @@ export default {
     }
     return n;
   },
+  // Down-app counter for the Apps nav badge — the app-level twin of
+  // hostsDownCount(). Counts pinned APP GROUPS (not per-port chips) whose
+  // rolled-up status is `down` (all instances down) or `degraded` (some
+  // instances down) — i.e. the actionable failures the Apps page surfaces.
+  // `unknown` (unprobed / no data) is grey, NOT counted, matching the Apps
+  // page's degraded/down chips. `this.appsList` is primed on boot + kept live
+  // by the Apps poll / SSE. One O(apps) status read per flush — cheap.
+  appsDownCount() {
+    const list = this.appsList;
+    if (!Array.isArray(list)) {
+      return 0;
+    }
+    let n = 0;
+    for (const a of list) {
+      const s = a && a.status;
+      if (s === 'down' || s === 'degraded') {
+        n++;
+      }
+    }
+    return n;
+  },
   // Inner-SVG markup for each top-nav icon. Returned as an HTML
   // string rendered via `x-html` on a shared <svg> wrapper so the
   // stroke / viewBox / size stay consistent. Lucide-derived shapes —

@@ -9,7 +9,7 @@
      API token (Settings -> Applications -> Generate Token); the chip's
      api_key field stores it. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="forgejoIsApp && forgejoIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="forgejoIsApp && forgejoIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-forgejo-api-key"

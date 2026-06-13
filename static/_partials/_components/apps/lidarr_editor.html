@@ -5,7 +5,7 @@
      template is Lidarr. Lidarr authenticates via the X-Api-Key header
      (Settings -> General -> API Key). Mirrors sonarr_editor.html. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="lidarrIsApp && lidarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="lidarrIsApp && lidarrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-lidarr-api-key"

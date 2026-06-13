@@ -9,7 +9,7 @@
      Set the chip URL to the RustDesk Server Pro web console (default port
      21114). The OSS server has no API — this card needs Pro. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="rustdeskIsApp && rustdeskIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="rustdeskIsApp && rustdeskIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-rustdesk-username"
