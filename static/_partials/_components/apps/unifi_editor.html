@@ -11,7 +11,7 @@
      The chip URL should point at the UniFi OS console (e.g.
      https://192.X.X.X) -- the module appends /proxy/network/integration/v1. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="unifiIsApp && unifiIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="unifiIsApp && unifiIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-unifi-api-key"

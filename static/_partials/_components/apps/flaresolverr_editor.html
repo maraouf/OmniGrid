@@ -5,7 +5,7 @@
      input -- just a URL note + the per-instance cache TTL + a Test button.
      Set the chip URL to the FlareSolverr API root (default port 8191). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="flaresolverrIsApp && flaresolverrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="flaresolverrIsApp && flaresolverrIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <p class="fs-2xs text-[var(--text-faint)]"
        x-text="t('apps.flaresolverr.no_auth_hint') || 'FlareSolverr has no authentication — set the instance URL (its API root, e.g. http://host:8191) above; no API key is needed.'"></p>

@@ -8,7 +8,7 @@
      of truth for "is this a Plex chip?". Plex authenticates via the
      X-Plex-Token header; the chip's api_key field stores that token. -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="plexIsApp && plexIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="plexIsApp && plexIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <!-- Seamless "Sign in to Plex" — runs the OAuth PIN device flow so the
          operator doesn't paste a token by hand (the same flow Tautulli /

@@ -7,7 +7,7 @@
      field (never returned; only an `api_key_set` flag, keep-current-if-blank on
      save). Set the chip URL to the Proxmox host (default port 8006). -->
 <!--suppress HtmlUnknownAttribute -->
-<template x-if="proxmoxIsApp && proxmoxIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}})">
+<template x-if="proxmoxIsApp && proxmoxIsApp({catalog: {slug: appsInstanceEditForm.catalog_slug || (appsInstanceEditForm.catalog_name || '').toLowerCase()}, name: appsInstanceEditForm.name || appsInstanceEditForm.catalog_name || ''})">
   <div class="space-y-2 pt-3 mt-3 border-t border-[var(--border)]">
     <div>
       <label for="apps-instance-proxmox-token"

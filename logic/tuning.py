@@ -76,6 +76,7 @@ class Tunable(str, Enum):
     AI_RETRY_ENABLED = "tuning_ai_retry_enabled"
     AI_RETRY_FIRST_ATTEMPT_MAX_MS = "tuning_ai_retry_first_attempt_max_ms"
     AI_SIDEBAR_WIDTH_PX = "tuning_ai_sidebar_width_px"
+    APC_HISTORY_DAYS = "tuning_apc_history_days"
     APPS_EXTRAS_TTL_SECONDS = "tuning_apps_extras_ttl_seconds"
     APPS_ROUTE_BUDGET_SECONDS = "tuning_apps_route_budget_seconds"
     APPS_TILE_RENDER_BATCH = "tuning_apps_tile_render_batch"
@@ -497,6 +498,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Refresh. 0 disables auto-refresh (fetch-once-until-forced). Surfaced to
     # the SPA via /api/me client_config.apps_extras_ttl_seconds.
     "tuning_apps_extras_ttl_seconds": ("APPS_EXTRAS_TTL_SECONDS", 90, 0, 3600),
+    # Window (days) for the APC UPS card's battery / output-load / runtime
+    # trend sparkline. APC has NO dedicated sampler — it reads the already-
+    # persisted host_snmp_samples table (whose own retention is
+    # tuning_stats_history_days), so this is purely the sparkline's DISPLAY
+    # window. Default 7. Raise for a longer trend (capped by the SNMP sample
+    # retention); lower for a tighter recent view. Range 1..90.
+    "tuning_apc_history_days": ("APC_HISTORY_DAYS", 7, 1, 90),
     # Per-app route wall-clock budget. The expanded-card data fetch
     # (GET /api/services/{host}/{idx}/app-data) and the per-app skill
     # dispatch (POST .../skill/{id}) each wrap their work in

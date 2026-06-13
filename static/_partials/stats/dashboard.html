@@ -451,8 +451,8 @@
               @click="view='apps'"
               class="stats-card"
               :aria-label="t('stats.cards.apps.aria_label', {
-                              up: (statsOverview.apps && statsOverview.apps.up) || 0,
-                              total: (statsOverview.apps && statsOverview.apps.instances) || 0,
+                              up: (statsOverview.apps && statsOverview.apps.apps_up) || 0,
+                              total: (statsOverview.apps && statsOverview.apps.apps) || 0,
                               apps: (statsOverview.apps && statsOverview.apps.apps) || 0,
                               templates: (statsOverview.apps && statsOverview.apps.templates) || 0
                             })">
@@ -467,15 +467,18 @@
             <div class="skeleton-cell tall"></div>
             <div class="skeleton-cell short"></div>
           </div>
+          <!-- App-GROUP-level health (matches the Apps page + the top-bar
+               badge): apps_up / total apps. The instance count + the
+               degraded / down app counts move to the sub. -->
           <div class="stats-card-value" x-show="statsOverviewLoaded"
-               x-text="((statsOverview.apps && statsOverview.apps.up) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.instances) || 0)"></div>
+               x-text="((statsOverview.apps && statsOverview.apps.apps_up) || 0) + ' / ' + ((statsOverview.apps && statsOverview.apps.apps) || 0)"></div>
           <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsOverviewLoaded"
                x-text="t('stats.cards.apps.sub', {
-                         apps: (statsOverview.apps && statsOverview.apps.apps) || 0,
+                         instances: (statsOverview.apps && statsOverview.apps.instances) || 0,
                          templates: (statsOverview.apps && statsOverview.apps.templates) || 0,
-                         degraded: (statsOverview.apps && statsOverview.apps.degraded) || 0,
-                         down: (statsOverview.apps && statsOverview.apps.down) || 0
-                       }) || ('apps: ' + ((statsOverview.apps && statsOverview.apps.apps) || 0) + ' · templates: ' + ((statsOverview.apps && statsOverview.apps.templates) || 0))"></div>
+                         degraded: (statsOverview.apps && statsOverview.apps.apps_degraded) || 0,
+                         down: (statsOverview.apps && statsOverview.apps.apps_down) || 0
+                       }) || (((statsOverview.apps && statsOverview.apps.instances) || 0) + ' instances · ' + ((statsOverview.apps && statsOverview.apps.apps_degraded) || 0) + ' degraded · ' + ((statsOverview.apps && statsOverview.apps.apps_down) || 0) + ' down')"></div>
         </div>
       </button>
 
@@ -574,6 +577,35 @@
           </div>
           <div class="stats-card-value" x-show="statsSummaryLoaded" x-text="fmtBytes(statsSummary.db_size_bytes)"></div>
           <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded" x-text="t('stats.cards.db_size.sub')"></div>
+        </div>
+      </button>
+
+      <!-- Samplers — how many sample-bearing tables are actively persisting
+           rows (active) out of the full roster (total). Sits before Total
+           samples; click opens the per-table breakdown. -->
+      <button type="button"
+              @click="openStatsTab('samples')"
+              class="stats-card"
+              :aria-label="t('stats.cards.aria_label_value_sub', {
+                              label: t('stats.cards.samplers.label') || 'Samplers',
+                              value: (((statsSummary.samplers || 0)) + ' / ' + ((statsSummary.samplers_total || 0))),
+                              sub: t('stats.cards.samplers.sub') || 'active sampler tables'
+                            })">
+        <div class="stats-card-icon">
+          <svg width="20" height="20" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-activity"/>
+          </svg>
+        </div>
+        <div class="stats-card-body">
+          <div class="stats-card-label" x-text="t('stats.cards.samplers.label') || 'Samplers'"></div>
+          <div class="stats-card-skel" x-show="!statsSummaryLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsSummaryLoaded"
+               x-text="((statsSummary.samplers || 0)) + ' / ' + ((statsSummary.samplers_total || 0))"></div>
+          <div class="stats-card-sub fs-3xs text-[var(--text-faint)]" x-show="statsSummaryLoaded"
+               x-text="t('stats.cards.samplers.sub') || 'active sampler tables'"></div>
         </div>
       </button>
 

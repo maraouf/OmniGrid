@@ -295,6 +295,9 @@ export default {
     // reads via me.client_config.apps_extras_ttl_seconds (stale-while-
     // revalidate background refresh of the per-instance /app-data cache).
     'tuning_apps_extras_ttl_seconds',
+    // APC UPS card battery/load/runtime sparkline display window (days). Reads
+    // the already-persisted host_snmp_samples (no APC sampler of its own).
+    'tuning_apc_history_days',
     // Apps first-paint tile-render batch size — also rendered in Admin → Apps
     // (relocated out of the generic Config form), saved via the same
     // appsSettingsSectionDirty() / saveAppsSettingsSection() path. SPA consumer

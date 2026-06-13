@@ -1865,6 +1865,8 @@ class SettingsIn(BaseModel):
     # Per-app extras (Speedtest / APC) freshness TTL — SPA stale-while-
     # revalidate window for the expanded-card /app-data cache (0 = fetch-once).
     tuning_apps_extras_ttl_seconds: Optional[str] = None
+    # APC UPS card battery/load/runtime sparkline display window (days).
+    tuning_apc_history_days: Optional[str] = None
     # Per-app route wall-clock budget — app-data fetch + skill dispatch each
     # fail with OmniGrid's own logged 504 under the reverse-proxy timeout.
     tuning_apps_route_budget_seconds: Optional[str] = None

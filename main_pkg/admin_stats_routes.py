@@ -151,13 +151,57 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     ("stats_samples", "portainer", "container stats", "ts", "item_id"),
     ("host_port_scans", "port_scan", "open ports", "ts", "host_id"),
     ("host_failure_events", "events", "failure log", "ts", "host_id"),
+    ("host_baselines", "baseline", "per-host baselines", "computed_ts", "host_id"),
+    # Per-app sampler tables — each pinned-app sampler persists its own local
+    # time-series keyed on (host_id, service_idx, ts). Listed here so the
+    # Samples page's per-table breakdown + grand total cover the Apps feature's
+    # samplers, not just the host-stats providers.
+    ("adguard_samples", "adguardhome", "adguard per-tick", "ts", "host_id"),
+    ("pihole_samples", "pihole", "pi-hole per-tick", "ts", "host_id"),
+    ("ddns_samples", "ddns_updater", "ddns-updater per-tick", "ts", "host_id"),
+    ("fing_samples", "fing", "fing occupancy", "ts", "host_id"),
+    ("flaresolverr_session_samples", "flaresolverr", "flaresolverr sessions", "ts", "host_id"),
+    ("speedtest_samples", "speedtest_tracker", "speedtest results", "ts", "host_id"),
+    ("prowlarr_samples", "prowlarr", "prowlarr per-tick", "ts", "host_id"),
+    ("qbittorrent_samples", "qbittorrent", "qbittorrent per-tick", "ts", "host_id"),
+    ("tdarr_samples", "tdarr", "tdarr per-tick", "ts", "host_id"),
+    ("kavita_samples", "kavita", "kavita per-tick", "ts", "host_id"),
+    ("seerr_samples", "seerr", "seerr per-tick", "ts", "host_id"),
+    ("servarr_samples", "servarr", "*arr per-tick", "ts", "host_id"),
     # Host-less time-series — host_col None so the per-host DISTINCT count +
     # drill-down are skipped (the Samples page renders these as non-clickable
     # summary rows).
     ("db_size_samples", "db_size", "db size per-tick", "ts", None),
     ("weather_samples", "weather", "weather per-tick", "ts", None),
+    ("prayer_times_samples", "prayer_times", "prayer times per-tick", "ts", None),
     ("public_ip_history", "public_ip", "public-ip change log", "ts", None),
 ]
+
+
+def _effective_sample_tables(c) -> "list[tuple]":
+    """The explicit ``_SAMPLE_TABLES_SPEC`` PLUS any ``*_samples`` table present
+    in the DB but not yet in the spec — so a NEW per-app / provider sampler
+    auto-appears in the Samples page + the grand total without a spec edit
+    (drift-proofing). Discovered tables assume the per-app sampler convention
+    (``ts`` + ``host_id``); the per-table COUNT / ts queries are individually
+    try/except-guarded, so an odd-shaped discovery can't break the page. Never
+    raises (returns the explicit spec on any sqlite error)."""
+    known = {s[0] for s in _SAMPLE_TABLES_SPEC}
+    out = list(_SAMPLE_TABLES_SPEC)
+    try:
+        rows = c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name LIKE '%\\_samples' ESCAPE '\\' ORDER BY name"
+        ).fetchall()
+    except sqlite3.Error:
+        return out
+    for r in rows:
+        name = str(r[0] or "")
+        if name and name not in known:
+            prov = name[:-len("_samples")]
+            out.append((name, prov, prov + " per-tick", "ts", "host_id"))
+    return out
+
 
 # In-process cache for the dashboard summary card endpoint. The total-samples
 # count is a COUNT(*) full scan across every table in _SAMPLE_TABLES_SPEC
@@ -518,6 +562,16 @@ async def api_admin_stats_overview(
                     extras += 1
                     if int(a.get("up_count") or 0) > 0:
                         extras_active += 1
+            # App-GROUP-level health (matches the Apps page + the top-bar
+            # badge): count each app by its rolled-up `status` (list_apps sets
+            # up / down / degraded / unknown per group). This is distinct from
+            # the instance-level up/down above — a single degraded app (some
+            # chips up, some down) reads as 1 degraded here but contributes its
+            # down chips to the instance `down`, which is why the two differ.
+            apps_up = sum(1 for a in apps_list if a.get("status") == "up")
+            apps_down = sum(1 for a in apps_list if a.get("status") == "down")
+            apps_degraded = sum(1 for a in apps_list if a.get("status") == "degraded")
+            apps_unknown = sum(1 for a in apps_list if a.get("status") == "unknown")
             out["apps"] = {
                 "templates": len(catalog_rows),
                 "instances": instance_total,
@@ -526,6 +580,11 @@ async def api_admin_stats_overview(
                 "down": down,
                 "degraded": degraded,
                 "unknown": unknown_total,
+                # App-group-level counts (one per app, by rolled-up status).
+                "apps_up": apps_up,
+                "apps_down": apps_down,
+                "apps_degraded": apps_degraded,
+                "apps_unknown": apps_unknown,
                 "extras": extras,
                 "extras_active": extras_active,
             }
@@ -630,17 +689,29 @@ def _compute_admin_stats_summary() -> dict:
     canonical_map = _build_ne_canonical_map()
     try:
         with db_conn() as c:
-            # 2) Total samples — COUNT(*) across every sample-bearing table.
+            # 2) Total samples — COUNT(*) across every sample-bearing table
+            # (explicit spec + any auto-discovered *_samples table). Also
+            # tracks the SAMPLER count: how many of those tables are ACTIVELY
+            # persisting rows (active) out of the full roster (total) — drives
+            # the dashboard "Samplers" card.
             grand = 0
-            for spec in _SAMPLE_TABLES_SPEC:
+            samplers_total = 0
+            samplers_active = 0
+            for spec in _effective_sample_tables(c):
                 table = spec[0]
+                samplers_total += 1
                 try:
-                    grand += int(c.execute(
+                    n = int(c.execute(
                         f"SELECT COUNT(*) FROM \"{table}\""
                     ).fetchone()[0] or 0)
+                    grand += n
+                    if n > 0:
+                        samplers_active += 1
                 except (sqlite3.Error, TypeError, ValueError):
                     pass
             out["total_samples"] = grand
+            out["samplers"] = samplers_active
+            out["samplers_total"] = samplers_total
             # 3) Incidents (paused failure events) in the last 30 days.
             try:
                 out["incidents_30d"] = int(c.execute(
@@ -1659,12 +1730,10 @@ async def api_admin_stats_samples(
 
 
 def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
-    # Canonical roster of sample-bearing tables (single source of truth at
-    # module level — shared with the dashboard "Total samples" summary card so
-    # the two can't drift). Each entry knows which `ts` column to query for
-    # oldest/newest (most use `ts` but some legacy tables differ) and whether
-    # `host_id` exists.
-    spec = _SAMPLE_TABLES_SPEC
+    # The canonical roster of sample-bearing tables (the explicit
+    # _SAMPLE_TABLES_SPEC + any auto-discovered *_samples table) is resolved
+    # INSIDE the db_conn block below via _effective_sample_tables(c) — the
+    # dynamic discovery needs a connection, so `spec` is bound there.
     # Bucket-totals — sample-INSERT counts summed across every
     # sample-bearing table, bucketed per the operator-selected range.
     # Operator-flagged 2026-05-11: chart needs proper axes + range
@@ -1699,6 +1768,9 @@ def _compute_admin_stats_samples(range_str: str = "90d") -> dict:
     }
     try:
         with db_conn() as c:
+            # Resolve the effective table roster (explicit spec + any
+            # auto-discovered *_samples table) now that we have a connection.
+            spec = _effective_sample_tables(c)
             # Compute the cutoff once per request — cheaper than
             # threading it through the per-table loop AND ensures every
             # table queries against the same wall-clock anchor.

@@ -90,6 +90,7 @@
     "stacks_updates_title": "{count} pending update(s)",
     "offline_title": "{count} offline service(s)",
     "hosts_down_title": "{count} host(s) down",
+    "apps_down_title": "{count} app(s) down or degraded",
     "apps": "Apps"
   },
   "avatar": {
@@ -649,8 +650,8 @@
       },
       "apps": {
         "label": "Apps",
-        "sub": "apps: {apps} · templates: {templates} · degraded: {degraded} · down: {down}",
-        "aria_label": "Apps — {up} of {total} instances up across {apps} apps, {templates} templates"
+        "sub": "{instances} instances · {templates} templates · {degraded} degraded · {down} down",
+        "aria_label": "Apps — {up} of {total} apps healthy, {templates} templates"
       },
       "apps_extras": {
         "label": "Apps with extras",
@@ -660,6 +661,10 @@
       "db_size": {
         "label": "Database size",
         "sub": "SQLite file on disk (incl. WAL)"
+      },
+      "samplers": {
+        "label": "Samplers",
+        "sub": "active sampler tables"
       },
       "total_samples": {
         "label": "Total samples",
@@ -5610,6 +5615,9 @@
       "confirm_disable_text": "This turns off DNS ad/tracker blocking across every AdGuard host.",
       "top_queried": "Top queried",
       "top_client": "Top client",
+      "slowest_upstream": "Slowest upstream",
+      "custom_rules": "Custom rules",
+      "top_blocked_dist": "Top blocked domains",
       "safebrowsing": "Safe-browsing",
       "parental": "Parental",
       "activity": "Queries vs blocked",
