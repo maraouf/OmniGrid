@@ -118,6 +118,18 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "plex_scan_section",
+        "name": "Scan one Plex library",
+        "ai_phrases": ("scan the <name> library, refresh the movies library, "
+                       "rescan my tv shows on plex, update the <name> section, "
+                       "scan plex movies, refresh the plex music library"),
+        # arg-carrying → AI / Telegram only (the dispatch supplies the section
+        # name). Non-destructive — re-indexes ONE matched section.
+        "arg": True,
+        "arg_hint": "the library section name to scan (e.g. Movies, TV Shows, Music)",
+        "destructive": False,
+    },
+    {
         "id": "plex_terminate_session",
         "name": "Stop a Plex stream",
         "ai_phrases": ("stop the plex stream, kill <name>'s stream, terminate plex "
@@ -333,6 +345,44 @@ async def _fetch_version(cli: httpx.AsyncClient, base: str, token: str) -> str:
         return ""
 
 
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort concurrent-stream trend from the Plex sampler. Returns the
+    ``trend_summary`` dict, or ``{}`` on any failure (a missing sampler / empty
+    table must never fail the card)."""
+    try:
+        from logic.apps import plex_sampler  # noqa: PLC0415
+        return plex_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[plex] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
+async def _fetch_added_week(cli: httpx.AsyncClient, base: str,
+                            token: str, now: float) -> "Optional[int]":
+    """Best-effort count of library items added in the last 7 days from
+    ``GET /library/recentlyAdded`` (newest-first; we page the first 100 and count
+    those whose ``addedAt`` falls inside the window). Returns the count, or
+    ``None`` on any non-200 / parse failure (the card hides the chip rather than
+    show a misleading 0). Capped at the page size, so a huge week reads "100+".
+    Never raises."""
+    try:
+        r = await cli.get(base + "/library/recentlyAdded", headers=_headers(token),
+                          params={"X-Plex-Container-Start": "0",
+                                  "X-Plex-Container-Size": "100"})
+        if r.status_code != 200:
+            return None
+        meta = as_list(_mc(r.json()).get("Metadata"))
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return None
+    cutoff = int(now) - 7 * 86400
+    count = 0
+    for item in meta:
+        added = safe_int(as_dict(item).get("addedAt"))
+        if added >= cutoff:
+            count += 1
+    return count
+
+
 # noinspection DuplicatedCode
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
     """Probe Plex's auth-required ``/library/sections`` with the supplied
@@ -448,6 +498,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 platform = str(_mc(ver_r.json()).get("platform") or "").strip()
             except (ValueError, TypeError, AttributeError):
                 platform = ""
+            # Items added in the last 7 days — nice-to-have; None hides the chip.
+            added_week = await _fetch_added_week(cli, base, token, now)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[plex] error: fetch host={host_id} url={sections_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -466,6 +518,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # Jellyfin / Emby cards). Clamped at 0 defensively.
         "direct_streams": max(0, sessions_active - sessions_transcoding),
         "bandwidth_kbps": bandwidth_kbps,
+        # Items added in the last 7 days (None when the probe failed — the SPA
+        # hides the chip rather than render a misleading 0).
+        "added_week": added_week,
+        # Concurrent-stream trend from the local sampler (empty when the table
+        # has no rows yet — a fresh deploy / just-enabled sampler).
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
         "version": ver,
         "platform": platform,
         "fetched_at": int(now),
@@ -473,7 +531,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     print(f"[plex] INFO fetched host={host_id} libraries={out['libraries']} "
           f"movies={movies} shows={shows} music={music} "
           f"sessions={sessions_active} transcoding={sessions_transcoding} "
-          f"bw_kbps={bandwidth_kbps}")
+          f"bw_kbps={bandwidth_kbps} added_week={added_week}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -493,6 +551,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "sessions_transcoding": safe_int(data.get("sessions_transcoding")),
         "direct_streams": safe_int(data.get("direct_streams")),
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
+        "added_week": data.get("added_week"),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -519,6 +578,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "plex_scan":
         return await _scan_skill(host_row, chip, host_id=host_id)
+    if skill_id == "plex_scan_section":
+        return await _scan_section_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "plex_terminate_session":
         return await _terminate_session_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -575,6 +636,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
         np_extra.append(mbps)
     np_tail = f" ({' · '.join(np_extra)})" if np_extra else ""
     lines.append(f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}{np_tail}")
+    added_week = data.get("added_week")
+    if isinstance(added_week, int) and added_week > 0:
+        lines.append(f"🆕 Added this week: {added_week:,}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -584,6 +648,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "sessions_transcoding": transcoding,
         "direct_streams": direct,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
+        "added_week": added_week,
     }
 
 
@@ -911,6 +976,23 @@ async def _search_skill(host_row: dict, chip: dict, *,
             "detail": f"🔍 Plex results for “{term}”:\n" + "\n".join(results)}
 
 
+async def _fetch_sections(cli: httpx.AsyncClient, base: str,
+                          token: str) -> "tuple[list, Optional[dict]]":
+    """Shared by the scan skills: ``GET /library/sections`` → ``(Directory list,
+    None)`` on success, or ``([], error_dict)`` on auth / non-200 / non-JSON so
+    the caller can early-return the ready-made error."""
+    sr = await cli.get(base + "/library/sections", headers=_headers(token))
+    if sr.status_code in (401, 403):
+        return [], {"ok": False, "status": sr.status_code, "detail": "auth failed (check the Plex token)"}
+    if sr.status_code != 200:
+        return [], {"ok": False, "status": sr.status_code, "detail": f"HTTP {sr.status_code}"}
+    try:
+        return as_list(_mc(sr.json()).get("Directory")), None
+    except (ValueError, TypeError):
+        return [], {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+
+
+# noinspection DuplicatedCode
 async def _scan_skill(host_row: dict, chip: dict, *,
                       host_id: Optional[str] = None) -> dict:
     """Action skill: trigger a scan (re-index) of EVERY library section via
@@ -922,15 +1004,9 @@ async def _scan_skill(host_row: dict, chip: dict, *,
     try:
         async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:
-            sr = await cli.get(base + "/library/sections", headers=_headers(token))
-            if sr.status_code in (401, 403):
-                return {"ok": False, "status": sr.status_code, "detail": "auth failed (check the Plex token)"}
-            if sr.status_code != 200:
-                return {"ok": False, "status": sr.status_code, "detail": f"HTTP {sr.status_code}"}
-            try:
-                dirs = as_list(_mc(sr.json()).get("Directory"))
-            except (ValueError, TypeError):
-                return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+            dirs, serr = await _fetch_sections(cli, base, token)
+            if serr:
+                return serr
             scanned = 0
             for d in dirs[:_MAX_SECTIONS]:
                 if not isinstance(d, dict) or not d.get("key"):
@@ -945,6 +1021,54 @@ async def _scan_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 502, "detail": "Plex didn't accept the scan request"}
     return {"ok": True, "status": 200,
             "detail": f"🔄 Started a Plex library scan across {scanned:,} section(s)."}
+
+
+# noinspection DuplicatedCode
+async def _scan_section_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None) -> dict:
+    """Action (arg): trigger a scan (re-index) of ONE library section, resolved
+    by a case-insensitive substring match on the section title from
+    ``GET /library/sections``. Non-destructive. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no library given — say e.g. 'scan the Movies library'"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[plex] INFO plex_scan_section host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            dirs, serr = await _fetch_sections(cli, base, token)
+            if serr:
+                return serr
+            target_key = ""
+            target_title = ""
+            for d in dirs[:_MAX_SECTIONS]:
+                if not isinstance(d, dict) or not d.get("key"):
+                    continue
+                title = str(d.get("title") or "").strip()
+                if nl in title.lower():
+                    target_key, target_title = str(d.get("key") or ""), title
+                    break
+            if not target_key:
+                names = ", ".join(str(d.get("title") or "").strip()
+                                  for d in dirs if isinstance(d, dict) and d.get("title"))
+                return {"ok": False, "status": 404,
+                        "detail": f"no Plex library matched \"{needle}\""
+                                  + (f" (have: {names})" if names else "")}
+            rr = await cli.get(base + f"/library/sections/{target_key}/refresh",
+                               headers=_headers(token))
+            if rr.status_code not in (200, 201, 204):
+                return {"ok": False, "status": rr.status_code,
+                        "detail": f"Plex didn't accept the scan (HTTP {rr.status_code})"}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"scan failed: {type(e).__name__}: {e}"}
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Started a Plex scan of the {target_title} library."}
 
 
 # noinspection DuplicatedCode

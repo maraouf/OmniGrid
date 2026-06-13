@@ -783,6 +783,16 @@ UNIFI_HISTORY_DAYS = 30
 # interval); *_HISTORY_DAYS = retention window.
 BAZARR_SAMPLE_INTERVAL_SECONDS = 900
 BAZARR_HISTORY_DAYS = 30
+
+# Plex concurrent-stream sampler. Plex's PMS exposes only the current playback
+# sessions (no easy long history), so the lifespan sampler records each
+# configured Plex chip's active-stream count (+ transcodes + bandwidth) to drive
+# the card's streams-over-time sparkline + "peak N concurrent streams today".
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval; default 300 — finer than the slow samplers to catch bursty peaks);
+# *_HISTORY_DAYS = retention window.
+PLEX_SAMPLE_INTERVAL_SECONDS = 300
+PLEX_HISTORY_DAYS = 30
 # AdGuard Home Sync reliability sampler — records each AGS chip's replica
 # in-sync count for the card's sync-reliability trend.
 ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS = 900
@@ -1247,6 +1257,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `UNIFI_HISTORY_DAYS`                           | Runtime    | `30`                    | Retention window (days) for the UniFi client-occupancy samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                           |
 | `BAZARR_SAMPLE_INTERVAL_SECONDS`               | Runtime    | `900`                   | Bazarr subtitle-backlog sampler cadence — records each Bazarr chip's missing-subtitle counts (episodes + movies) for the card's backlog-over-time sparkline + "backlog down N this week" stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                          |
 | `BAZARR_HISTORY_DAYS`                          | Runtime    | `30`                    | Retention window (days) for the Bazarr subtitle-backlog samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                          |
+| `PLEX_SAMPLE_INTERVAL_SECONDS`                 | Runtime    | `300`                   | Plex concurrent-stream sampler cadence — records each Plex chip's active-stream count (+ transcodes + bandwidth) for the card's streams-over-time sparkline + "peak N concurrent streams today" stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                   |
+| `PLEX_HISTORY_DAYS`                            | Runtime    | `30`                    | Retention window (days) for the Plex concurrent-stream samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                           |
 | `ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS`          | Runtime    | `900`                   | AdGuard Home Sync reliability sampler cadence — records each AGS chip's replica in-sync count for the card's sync-reliability trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                   |
 | `ADGUARDSYNC_HISTORY_DAYS`                     | Runtime    | `90`                    | Retention window (days) for the AdGuard Home Sync reliability samples driving the sync-reliability sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                    |
 | `FING_NEW_DEVICE_HOURS`                        | Runtime    | `24`                    | A Fing device first-seen within this many hours counts as NEW on the card + status skill. Range 1..8760.                                                                                                                                                                                                                                                                                      |

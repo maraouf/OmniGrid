@@ -833,6 +833,26 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_bazarr_samples_ts
             ON bazarr_samples(ts);
 
+        -- Plex concurrent-stream retention. One row per (plex chip, tick).
+        -- sessions_active / sessions_transcoding / bandwidth_kbps are point-in-
+        -- time GAUGES (current playback). Plex's PMS keeps no easy long history,
+        -- so this sampler is the trend source for the streams-over-time chart +
+        -- the "peak N concurrent streams today" stat.
+        CREATE TABLE IF NOT EXISTS plex_samples (
+            ts                   INTEGER NOT NULL,
+            host_id              TEXT    NOT NULL,
+            service_idx          INTEGER NOT NULL,
+            sessions_active      INTEGER NOT NULL DEFAULT 0,
+            sessions_transcoding INTEGER NOT NULL DEFAULT 0,
+            bandwidth_kbps       INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_plex_samples_chip_ts
+            ON plex_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_plex_samples_ts
+            ON plex_samples(ts);
+
         -- Tdarr transcode-pipeline retention. One row per (tdarr chip, tick).
         -- ``space_saved_gb`` + ``transcodes`` are CUMULATIVE running totals
         -- (Tdarr's StatisticsJSONDB.sizeDiff / totalTranscodeCount), so the

@@ -1843,6 +1843,10 @@ class SettingsIn(BaseModel):
     # stats interval) + retention for the backlog-over-time sparkline.
     tuning_bazarr_sample_interval_seconds: Optional[str] = None
     tuning_bazarr_history_days: Optional[str] = None
+    # Plex concurrent-stream sampler — snapshot cadence (0 = inherit global stats
+    # interval) + retention for the streams-over-time sparkline.
+    tuning_plex_sample_interval_seconds: Optional[str] = None
+    tuning_plex_history_days: Optional[str] = None
     # Tdarr retention sampler — cumulative space-saved + queue burn-down + per-day
     # throughput.
     tuning_tdarr_sample_interval_seconds: Optional[str] = None

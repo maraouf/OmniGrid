@@ -2087,6 +2087,14 @@
           "label": "Bazarr history retention (days)",
           "help": "Retention window for the Bazarr samples that drive the subtitle-backlog sparkline and the week-over-week change stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_plex_sample_interval_seconds": {
+          "label": "Plex sampler interval (seconds)",
+          "help": "How often the lifespan Plex sampler snapshots each configured server's concurrent-stream count (plus transcodes and bandwidth) into the history table that drives the card's streams-over-time sparkline and the \"peak N concurrent streams today\" stat (Plex's PMS keeps no easy long history). Default 300 (5 min) — streams are bursty, so sample finer than the slow-moving samplers to catch concurrency peaks; lower it (e.g. 60) for sharper peaks at the cost of more rows. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_plex_history_days": {
+          "label": "Plex history retention (days)",
+          "help": "Retention window for the Plex samples that drive the concurrent-stream sparkline and peak-streams stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_tdarr_sample_interval_seconds": {
           "label": "Tdarr sampler interval (seconds)",
           "help": "How often the lifespan Tdarr sampler snapshots each configured instance's cumulative space-saved + transcode count + queue depth into the history table that drives the card's space-reclaimed line, transcode-queue burn-down, and per-day throughput. Default 900 (15 min) — the cumulative totals move slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6490,6 +6498,9 @@
       "stop_stream": "Stop stream",
       "stop_stream_confirm": "Stop this Plex stream?",
       "libraries_footnote": "{n} libraries",
+      "added_week_footnote": "+{n} this week",
+      "streams_trend": "Streams ({days} days)",
+      "streams_peak": "peak {peak} · now {latest}",
       "loading": "Loading Plex data…",
       "signin_button": "Sign in to Plex",
       "signin_waiting": "Waiting for Plex sign-in…",

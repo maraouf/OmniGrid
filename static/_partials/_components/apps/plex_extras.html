@@ -62,12 +62,29 @@
       <span x-show="plexBandwidth(inst)"
             x-text="t('apps.plex.bandwidth_footnote', { bw: plexBandwidth(inst) })"></span>
     </div>
-    <!-- Libraries + version footnote. -->
+    <!-- Libraries + added-this-week + version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-text="t('apps.plex.libraries_footnote', { n: (Number(plexData(inst).libraries) || 0) })"></span>
+      <span x-show="plexAddedWeek(inst) !== null"
+            class="text-[var(--info)]"
+            x-text="t('apps.plex.added_week_footnote', { n: (plexAddedWeek(inst) || 0) })"></span>
       <span x-show="plexData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Plex', v: (plexData(inst).version || '') })"></span>
     </div>
+    <!-- Concurrent-streams retention trend (drawer-only): per-day peak streams.
+         Plex keeps no concurrent-stream history of its own, so the lifespan
+         plex_sampler fills it; ≥ 2 daily points. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && plexTrend(inst) && plexTrend(inst).series_streams && plexTrend(inst).series_streams.length >= 2">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.plex.streams_trend', { days: plexTrend(inst).days })"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="plexTrendPath(plexTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)]"
+             x-text="t('apps.plex.streams_peak', { peak: plexTrend(inst).peak_streams, latest: plexTrend(inst).latest_streams })"></div>
+      </div>
+    </template>
   </div>
 </template>
 <!-- Loading — first fetch in flight (panel above gates on plexData). -->

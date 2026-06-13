@@ -6,7 +6,7 @@
        standardised admin-tab pattern. -->
   <div class="flex items-center gap-2 mb-2">
     <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-monitor"/>
+      <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-hard-drive"/>
     </svg>
     <h3 class="font-semibold fs-md" x-text="t('admin_hosts.heading')"></h3>
   </div>
@@ -348,771 +348,771 @@
              select-mount race doesn't apply (the :value binding resolves
              against options that exist immediately). (ADMIN-PERF-16.) -->
         <template x-if="isHostConfigExpanded(row)">
-        <div class="space-y-3">
-          <!-- Row 1 — identity (custom # / id / label / enabled).
-               Row-level actions (↑ ↓ duplicate / Remove) used to
-               live here on the right of this same row, but per
-               operator request they're now pushed to the END of
-               the card alongside Test providers — see Row 3 below.
-               Keeps row 1 visually focused on identity. -->
-          <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto] gap-3 items-end min-w-0">
-            <div>
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                     :title="t('hosts_extra.custom_number_title')"
-                     x-text="t('hosts_extra.custom_number_label')"></label>
-              <!-- DON'T rebuild the sort on cn blur. Tabbing
-                   out of cn used to instantly re-sort the row into
-                   its numeric position, which on a paged editor
-                    could move the row to a DIFFERENT page
-                   mid-edit. Instead, mark the row dirty here and
-                   let the parent card's @focusout fire the sort
-                   only when focus actually leaves the entire row. -->
-              <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
-                     @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn'); row._cnDirty = true"
-                     class="w-full mono fs-md py-1.5"
-                     :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
-                     min="1" step="1" placeholder="—">
-              <div x-show="hasFieldError('host_' + idx + '_cn')"
-                   class="field-error-msg"
-                   x-text="fieldError('host_' + idx + '_cn')"></div>
-            </div>
-            <div>
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
-              <input type="text" x-model="row.id" :disabled="isReadonly()"
-                     @input="onHostRowEdit(idx, 'id', $event.target.value); clearFieldError('host_' + idx + '_id')"
-                     class="w-full mono fs-md py-1.5"
-                     :class="hasFieldError('host_' + idx + '_id') ? 'field-invalid' : ''"
-                     :placeholder="t('admin_hosts.row.id_placeholder')">
-              <div x-show="hasFieldError('host_' + idx + '_id')"
-                   class="field-error-msg"
-                   x-text="fieldError('host_' + idx + '_id')"></div>
-            </div>
-            <div>
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                     x-text="t('admin_hosts.row.display_label')"></label>
-              <input type="text" x-model="row.label" :disabled="isReadonly()"
-                     @input="markHostRowDirty(idx)"
-                     class="w-full fs-md py-1.5"
-                     :placeholder="t('admin_hosts.row.label_placeholder')">
-            </div>
-            <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5">
-              <input type="checkbox" x-model="row.enabled"
-                     @change="markHostRowDirty(idx)"
-                     :disabled="isReadonly()">
-              <span x-text="t('admin_hosts.row.enabled')"></span>
-            </label>
-          </div>
-          <!-- Row 1a — optional external URL + icon override. -->
-          <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
-            <div>
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                <span x-text="t('admin_hosts.row.external_url')"></span>
-                <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                      x-text="t('admin_hosts.row.external_url_hint')"></span>
+          <div class="space-y-3">
+            <!-- Row 1 — identity (custom # / id / label / enabled).
+                 Row-level actions (↑ ↓ duplicate / Remove) used to
+                 live here on the right of this same row, but per
+                 operator request they're now pushed to the END of
+                 the card alongside Test providers — see Row 3 below.
+                 Keeps row 1 visually focused on identity. -->
+            <div class="grid grid-cols-1 md:grid-cols-[80px_1fr_3fr_auto] gap-3 items-end min-w-0">
+              <div>
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                       :title="t('hosts_extra.custom_number_title')"
+                       x-text="t('hosts_extra.custom_number_label')"></label>
+                <!-- DON'T rebuild the sort on cn blur. Tabbing
+                     out of cn used to instantly re-sort the row into
+                     its numeric position, which on a paged editor
+                      could move the row to a DIFFERENT page
+                     mid-edit. Instead, mark the row dirty here and
+                     let the parent card's @focusout fire the sort
+                     only when focus actually leaves the entire row. -->
+                <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
+                       @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn'); row._cnDirty = true"
+                       class="w-full mono fs-md py-1.5"
+                       :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
+                       min="1" step="1" placeholder="—">
+                <div x-show="hasFieldError('host_' + idx + '_cn')"
+                     class="field-error-msg"
+                     x-text="fieldError('host_' + idx + '_cn')"></div>
+              </div>
+              <div>
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
+                <input type="text" x-model="row.id" :disabled="isReadonly()"
+                       @input="onHostRowEdit(idx, 'id', $event.target.value); clearFieldError('host_' + idx + '_id')"
+                       class="w-full mono fs-md py-1.5"
+                       :class="hasFieldError('host_' + idx + '_id') ? 'field-invalid' : ''"
+                       :placeholder="t('admin_hosts.row.id_placeholder')">
+                <div x-show="hasFieldError('host_' + idx + '_id')"
+                     class="field-error-msg"
+                     x-text="fieldError('host_' + idx + '_id')"></div>
+              </div>
+              <div>
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                       x-text="t('admin_hosts.row.display_label')"></label>
+                <input type="text" x-model="row.label" :disabled="isReadonly()"
+                       @input="markHostRowDirty(idx)"
+                       class="w-full fs-md py-1.5"
+                       :placeholder="t('admin_hosts.row.label_placeholder')">
+              </div>
+              <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] pb-1.5">
+                <input type="checkbox" x-model="row.enabled"
+                       @change="markHostRowDirty(idx)"
+                       :disabled="isReadonly()">
+                <span x-text="t('admin_hosts.row.enabled')"></span>
               </label>
-              <input type="url" x-model="row.url" :disabled="isReadonly()"
+            </div>
+            <!-- Row 1a — optional external URL + icon override. -->
+            <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3">
+              <div>
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <span x-text="t('admin_hosts.row.external_url')"></span>
+                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                        x-text="t('admin_hosts.row.external_url_hint')"></span>
+                </label>
+                <input type="url" x-model="row.url" :disabled="isReadonly()"
+                       @input="markHostRowDirty(idx)"
+                       class="w-full mono fs-sm py-1.5"
+                       :placeholder="t('admin_hosts.row.url_placeholder')">
+              </div>
+              <div>
+                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                  <span x-text="t('admin_hosts.row.icon')"></span>
+                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                        x-text="t('admin_hosts.row.icon_hint')"></span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <!-- Preview — runs through the same hostIconUrl()
+                       the Hosts view uses, so the admin sees
+                       exactly what the operator will see (including
+                       auto-matched brand icons from labels like
+                       "(Apache)" or "(NGINX)"). -->
+                  <img :src="hostIconUrl(row)"
+                       x-show="hostIconUrl(row)"
+                       width="22" height="22" class="flex-shrink-0 rounded-sm"
+                       alt="" loading="lazy"
+                       @error="$event.target.style.display='none'">
+                  <input type="text" x-model="row.icon" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="flex-1 mono fs-sm py-1.5"
+                         :placeholder="t('admin_hosts.row.icon_placeholder')">
+                </div>
+              </div>
+            </div>
+            <!-- Hostname or IP — the dedicated probe target. Used as
+                 the default by port-scan / ping / SNMP / SSH when no
+                 provider-specific override is set. Independent of any
+                 provider so disabling SNMP / ping / SSH never leaves
+                 the other probes without a target. Free-text up to
+                 64 chars; accepts an IP literal (`192.X.X.X`) OR
+                 a hostname (`opnsense.example.com`) the OmniGrid
+                 container's resolver can reach. -->
+            <div class="mt-3">
+              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                <span x-text="t('admin_hosts.row.address_label')"></span>
+                <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                      x-text="t('admin_hosts.row.address_hint')"></span>
+              </label>
+              <input type="text" x-model="row.address" :disabled="isReadonly()"
                      @input="markHostRowDirty(idx)"
                      class="w-full mono fs-sm py-1.5"
-                     :placeholder="t('admin_hosts.row.url_placeholder')">
+                     maxlength="64"
+                     :placeholder="t('admin_hosts.row.address_placeholder')">
             </div>
-            <div>
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                <span x-text="t('admin_hosts.row.icon')"></span>
-                <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                      x-text="t('admin_hosts.row.icon_hint')"></span>
-              </label>
-              <div class="flex items-center gap-2">
-                <!-- Preview — runs through the same hostIconUrl()
-                     the Hosts view uses, so the admin sees
-                     exactly what the operator will see (including
-                     auto-matched brand icons from labels like
-                     "(Apache)" or "(NGINX)"). -->
-                <img :src="hostIconUrl(row)"
-                     x-show="hostIconUrl(row)"
-                     width="22" height="22" class="flex-shrink-0 rounded-sm"
-                     alt="" loading="lazy"
-                     @error="$event.target.style.display='none'">
-                <input type="text" x-model="row.icon" :disabled="isReadonly()"
-                       @input="markHostRowDirty(idx)"
-                       class="flex-1 mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.row.icon_placeholder')">
-              </div>
-            </div>
-          </div>
-          <!-- Hostname or IP — the dedicated probe target. Used as
-               the default by port-scan / ping / SNMP / SSH when no
-               provider-specific override is set. Independent of any
-               provider so disabling SNMP / ping / SSH never leaves
-               the other probes without a target. Free-text up to
-               64 chars; accepts an IP literal (`192.X.X.X`) OR
-               a hostname (`opnsense.example.com`) the OmniGrid
-               container's resolver can reach. -->
-          <div class="mt-3">
-            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-              <span x-text="t('admin_hosts.row.address_label')"></span>
-              <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                    x-text="t('admin_hosts.row.address_hint')"></span>
-            </label>
-            <input type="text" x-model="row.address" :disabled="isReadonly()"
-                   @input="markHostRowDirty(idx)"
-                   class="w-full mono fs-sm py-1.5"
-                   maxlength="64"
-                   :placeholder="t('admin_hosts.row.address_placeholder')">
-          </div>
-          <!-- ========== Providers block ==========
-               Per-host provider name mappings. Each field hides
-               when its global provider is disabled in Settings →
-               Providers (no point configuring a name OmniGrid will
-               never probe). Visible mapping shrinks the editor
-               for operators who run a single-provider setup. -->
-          <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-            <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_providers')"></div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div x-show="hostStatsSourceEnabled('node_exporter')">
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.provider.ne_url_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-text="t('admin_hosts.provider.blank_skip')"></span>
-                </label>
-                <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
-                       @input="markHostRowDirty(idx)"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.row.ne_url_placeholder')">
-              </div>
-              <div x-show="hostStatsSourceEnabled('beszel')">
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.provider.beszel_host_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-show="hostsDiscovery.beszel.length"
-                        x-text="t('admin_hosts.provider.autocomplete')"></span>
-                </label>
-                <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
-                       list="beszel-names"
-                       @input="markHostRowDirty(idx)"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.row.beszel_name_placeholder')">
-              </div>
-              <div x-show="hostStatsSourceEnabled('pulse')">
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.provider.pulse_name_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-show="hostsDiscovery.pulse.length"
-                        x-text="t('admin_hosts.provider.autocomplete')"></span>
-                </label>
-                <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
-                       list="pulse-names"
-                       @input="markHostRowDirty(idx)"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.row.pulse_name_placeholder')">
-              </div>
-            </div>
-            <!-- Row 2a — Webmin mapping. URL is per-host (every box
-                 has its own Miniserv), so it's stored in the
-                 webmin_aliases map using this row's ID as the key.
-                 Hidden entirely when Webmin is globally disabled. -->
-            <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3" x-show="hostStatsSourceEnabled('webmin')">
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.provider.webmin_url_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-text="t('admin_hosts.provider.webmin_blank_skip')"></span>
-                </label>
-                <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
-                       @input="markHostRowDirty(idx)"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.provider.webmin_hostname_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length"
-                        x-text="t('admin_hosts.provider.autocomplete')"></span>
-                </label>
-                <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
-                       list="webmin-names"
-                       @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
-                       class="w-full mono fs-sm py-1.5"
-                       :class="hasFieldError('host_' + idx + '_webmin_name') ? 'field-invalid' : ''"
-                       :placeholder="t('admin_hosts.provider.webmin_name_placeholder')">
-                <div x-show="hasFieldError('host_' + idx + '_webmin_name')"
-                     class="field-error-msg"
-                     x-text="fieldError('host_' + idx + '_webmin_name')"></div>
-              </div>
-            </div>
-          </div><!-- /Providers block wrapper -->
-          <!-- ========== SSH block ==========
-               Per-host overrides on top of the global SSH config
-               from Admin → SSH. All four fields plus the disable
-               checkbox kept TOGETHER so the operator doesn't have
-               to scan past unrelated rows when configuring SSH for
-               a specific host. -->
-          <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-            <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
-                 x-text="t('admin_hosts.ssh_section_label')"></div>
-            <!-- "Enable SSH" checkbox FIRST (left), matching the
-                 Ping section's pattern below — every host-level
-                 opt-in toggle leads its block, then the dependent
-                 fields follow. Grid is `auto_2fr_1fr` so the
-                 checkbox cell stays compact and the user/port
-                 fields take the remaining width. -->
-            <!-- Checkbox sits alone on its own row at the top —
-                 the SSH fields render BELOW (not beside) it. Same
-                 layout pattern as Ping + SNMP for consistency. -->
-            <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] mb-3"
-                   :class="!row.enabled ? 'opacity-50' : ''">
-              <!-- host-level enable gates every per-provider
-                   enable checkbox. A disabled host cannot have any
-                   provider enabled; checkbox is forced unchecked
-                   visually + the input is disabled. saveHostsConfig
-                   strips per-provider `enabled` when the row is
-                   disabled, so reload comes back consistent. -->
-              <input type="checkbox"
-                     :checked="!!(row.enabled && row.ssh && row.ssh.enabled)"
-                     @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
-                     :disabled="isReadonly() || !row.enabled">
-              <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
-            </label>
-            <div x-show="!!(row.enabled && row.ssh && row.ssh.enabled)">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('hosts_extra_ssh.per_host_user')"></label>
-                  <input type="text"
-                         :value="row.ssh && row.ssh.user || ''"
-                         @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
-                         :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                         class="w-full mono fs-sm py-1.5"
-                         :placeholder="t('common.hint_global_default')">
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('hosts_extra_ssh.per_host_port')"></label>
-                  <input type="number" min="1" max="65535"
-                         :value="row.ssh && row.ssh.port || ''"
-                         @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                         :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                         class="w-full mono fs-sm py-1.5"
-                         placeholder="22">
-                </div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                <div>
+            <!-- ========== Providers block ==========
+                 Per-host provider name mappings. Each field hides
+                 when its global provider is disabled in Settings →
+                 Providers (no point configuring a name OmniGrid will
+                 never probe). Visible mapping shrinks the editor
+                 for operators who run a single-provider setup. -->
+            <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+              <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold" x-text="t('admin_hosts.section_providers')"></div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div x-show="hostStatsSourceEnabled('node_exporter')">
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    <span x-text="t('admin_hosts.row.ssh_fqdn_label') || 'SSH FQDN / host'"></span>
+                    <span x-text="t('admin_hosts.provider.ne_url_label')"></span>
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                          x-text="t('admin_hosts.row.ssh_fqdn_hint') || '(blank = falls back to Hostname or IP)'"></span>
+                          x-text="t('admin_hosts.provider.blank_skip')"></span>
                   </label>
-                  <input type="text"
-                         :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
-                         @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
-                         :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                  <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
-                         :placeholder="t('admin_hosts.row.webmin_name_placeholder')">
+                         :placeholder="t('admin_hosts.row.ne_url_placeholder')">
+                </div>
+                <div x-show="hostStatsSourceEnabled('beszel')">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <span x-text="t('admin_hosts.provider.beszel_host_label')"></span>
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.beszel.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
+                  </label>
+                  <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
+                         list="beszel-names"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="t('admin_hosts.row.beszel_name_placeholder')">
+                </div>
+                <div x-show="hostStatsSourceEnabled('pulse')">
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <span x-text="t('admin_hosts.provider.pulse_name_label')"></span>
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.pulse.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
+                  </label>
+                  <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
+                         list="pulse-names"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="t('admin_hosts.row.pulse_name_placeholder')">
+                </div>
+              </div>
+              <!-- Row 2a — Webmin mapping. URL is per-host (every box
+                   has its own Miniserv), so it's stored in the
+                   webmin_aliases map using this row's ID as the key.
+                   Hidden entirely when Webmin is globally disabled. -->
+              <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-3" x-show="hostStatsSourceEnabled('webmin')">
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <span x-text="t('admin_hosts.provider.webmin_url_label')"></span>
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.provider.webmin_blank_skip')"></span>
+                  </label>
+                  <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
                 </div>
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                    <span x-text="t('admin_hosts.row.ssh_password_label')"></span>
+                    <span x-text="t('admin_hosts.provider.webmin_hostname_label')"></span>
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                          x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length"
+                          x-text="t('admin_hosts.provider.autocomplete')"></span>
+                  </label>
+                  <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
+                         list="webmin-names"
+                         @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
+                         class="w-full mono fs-sm py-1.5"
+                         :class="hasFieldError('host_' + idx + '_webmin_name') ? 'field-invalid' : ''"
+                         :placeholder="t('admin_hosts.provider.webmin_name_placeholder')">
+                  <div x-show="hasFieldError('host_' + idx + '_webmin_name')"
+                       class="field-error-msg"
+                       x-text="fieldError('host_' + idx + '_webmin_name')"></div>
+                </div>
+              </div>
+            </div><!-- /Providers block wrapper -->
+            <!-- ========== SSH block ==========
+                 Per-host overrides on top of the global SSH config
+                 from Admin → SSH. All four fields plus the disable
+                 checkbox kept TOGETHER so the operator doesn't have
+                 to scan past unrelated rows when configuring SSH for
+                 a specific host. -->
+            <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+              <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+                   x-text="t('admin_hosts.ssh_section_label')"></div>
+              <!-- "Enable SSH" checkbox FIRST (left), matching the
+                   Ping section's pattern below — every host-level
+                   opt-in toggle leads its block, then the dependent
+                   fields follow. Grid is `auto_2fr_1fr` so the
+                   checkbox cell stays compact and the user/port
+                   fields take the remaining width. -->
+              <!-- Checkbox sits alone on its own row at the top —
+                   the SSH fields render BELOW (not beside) it. Same
+                   layout pattern as Ping + SNMP for consistency. -->
+              <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] mb-3"
+                     :class="!row.enabled ? 'opacity-50' : ''">
+                <!-- host-level enable gates every per-provider
+                     enable checkbox. A disabled host cannot have any
+                     provider enabled; checkbox is forced unchecked
+                     visually + the input is disabled. saveHostsConfig
+                     strips per-provider `enabled` when the row is
+                     disabled, so reload comes back consistent. -->
+                <input type="checkbox"
+                       :checked="!!(row.enabled && row.ssh && row.ssh.enabled)"
+                       @change="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                       :disabled="isReadonly() || !row.enabled">
+                <span x-text="t('hosts_extra_ssh.per_host_enabled')"></span>
+              </label>
+              <div x-show="!!(row.enabled && row.ssh && row.ssh.enabled)">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('hosts_extra_ssh.per_host_user')"></label>
+                    <input type="text"
+                           :value="row.ssh && row.ssh.user || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('common.hint_global_default')">
+                  </div>
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('hosts_extra_ssh.per_host_port')"></label>
+                    <input type="number" min="1" max="65535"
+                           :value="row.ssh && row.ssh.port || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full mono fs-sm py-1.5"
+                           placeholder="22">
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      <span x-text="t('admin_hosts.row.ssh_fqdn_label') || 'SSH FQDN / host'"></span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('admin_hosts.row.ssh_fqdn_hint') || '(blank = falls back to Hostname or IP)'"></span>
+                    </label>
+                    <input type="text"
+                           :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('admin_hosts.row.webmin_name_placeholder')">
+                  </div>
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                      <span x-text="t('admin_hosts.row.ssh_password_label')"></span>
+                      <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                            x-text="t('common.hint_global_default')"></span>
+                    </label>
+                    <input type="password"
+                           autocomplete="new-password"
+                           :value="row.ssh && row.ssh.password || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full fs-sm py-1.5"
+                           :placeholder="t('admin_hosts.ssh_password_override_placeholder')">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- ========== Ping block ==========
+                 Per-host ping opt-in. Default OFF. When
+                 checked, optional port + transport overrides reveal;
+                 they cascade over the globals from Settings →
+                 Providers → Ping. Pulled out of the SSH section so
+                 each provider config block reads as one coherent unit. -->
+            <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+              <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1" x-text="t('admin_hosts.section_ping')"></div>
+              <p class="fs-2xs text-[var(--text-faint)] mb-3"
+                 x-text="t('admin_hosts.provider.ping_address_hint')"></p>
+              <!-- Checkbox alone on its own row; fields render
+                   BELOW it when enabled. Mirrors the SSH + SNMP
+                   section layouts. -->
+              <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] mb-3"
+                     :class="!row.enabled ? 'opacity-50' : ''">
+                <!-- Indexed access via `hostsConfig[idx]` so the
+                     mutation goes through the live reactive array;
+                     destructured `row` doesn't propagate writes
+                     back into `this.hostsConfig[idx]`. -->
+                <input type="checkbox"
+                       :checked="!!(row.enabled && row.ping && row.ping.enabled)"
+                       @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                       :disabled="isReadonly() || !row.enabled">
+                <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
+              </label>
+              <div x-show="!!(row.enabled && row.ping && row.ping.enabled)"
+                   class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.provider.ping_port_label')"></label>
+                  <input type="number" min="1" max="65535"
+                         :value="row.ping && row.ping.port || ''"
+                         @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
+                </div>
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.provider.ping_transport_label')"></label>
+                  <select :value="row.ping && row.ping.transport || ''"
+                          @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
+                          :disabled="isReadonly() || !row.enabled"
+                          class="w-full mono fs-sm py-1.5">
+                    <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
+                    <option value="tcp" x-text="t('admin_hosts.provider.ping_transport_tcp')"></option>
+                    <option value="icmp" x-text="t('admin_hosts.provider.ping_transport_icmp')"></option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <!-- ========== SNMP block ==========
+                 Per-host SNMP target alias + optional v2c/v3 override
+                 block. Bare `snmp_name` covers the common case (one
+                 curated row → one SNMP-reachable IP/host); the
+                 override block under it lets operators pin a specific
+                 community / version / port / v3 keys when this row's
+                 device differs from the global defaults. Empty fields
+                 = "inherit the global default". -->
+            <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+              <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+                   x-text="t('admin_hosts.snmp_section_label')"></div>
+              <!-- Per-host enable checkbox — parallels
+                   ping.enabled. OPT-IN: defaults to OFF unless
+                   `row.snmp.enabled === true`. The previous
+                   default-true semantics auto-enabled SNMP
+                   on every row that had snmp_name set, which
+                   surprised operators creating fresh rows — the
+                   checkbox showed checked even before they typed
+                   a target. Backend `_clean_host_snmp` mirrors
+                   ping's "persist only when explicitly true; drop
+                   otherwise" pattern, and `_merge_one_host` now
+                   gates on `enabled is True` (no default-true
+                   fallback). -->
+              <label class="inline-flex items-center gap-2 fs-sm mb-3"
+                     :class="!row.enabled ? 'opacity-50' : ''">
+                <input type="checkbox"
+                       :checked="!!(row.enabled && row.snmp && row.snmp.enabled === true)"
+                       @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
+                       :disabled="isReadonly() || !row.enabled">
+                <span x-text="t('admin_hosts.provider.snmp_enabled_label')"></span>
+              </label>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
+                   x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true)">
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <span x-text="t('admin_hosts.row.snmp_target_label') || 'SNMP target'"></span>
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
+                          x-text="t('admin_hosts.row.snmp_target_hint') || '(blank = falls back to Hostname or IP)'"></span>
+                  </label>
+                  <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
+                         list="snmp-names"
+                         @input="markHostRowDirty(idx)"
+                         class="w-full mono fs-sm py-1.5"
+                         placeholder="192.X.X.10 or switch01.example.com">
+                </div>
+              </div>
+              <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!((row.snmp_name && row.snmp_name.trim()) || (row.address && row.address.trim()))"
+                   class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    <span x-text="t('admin_hosts.snmp_community_label')"></span>
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('common.hint_global_default')"></span>
                   </label>
-                  <input type="password"
-                         autocomplete="new-password"
-                         :value="row.ssh && row.ssh.password || ''"
-                         @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
-                         :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
-                         class="w-full fs-sm py-1.5"
-                         :placeholder="t('admin_hosts.ssh_password_override_placeholder')">
+                  <input type="text"
+                         :value="row.snmp && row.snmp.community || ''"
+                         @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled"
+                         class="w-full mono fs-sm py-1.5"
+                         placeholder="public">
+                </div>
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1" x-text="t('admin_hosts.snmp_version_label')"></label>
+                  <select :value="row.snmp && row.snmp.version || ''"
+                          @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
+                          :disabled="isReadonly() || !row.enabled"
+                          class="w-full mono fs-sm py-1.5">
+                    <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
+                    <option value="v2c">v2c</option>
+                    <option value="v3">v3</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
+                    UDP port
+                    <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
+                  </label>
+                  <input type="number" min="1" max="65535"
+                         :value="row.snmp && row.snmp.port || ''"
+                         @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled"
+                         class="w-full mono fs-sm py-1.5"
+                         placeholder="161">
+                </div>
+                <!-- Per-host SNMP walk concurrency override. The
+                     global default is 1 (safety floor for low-power
+                     embedded snmpd's that drop UDP packets at higher
+                     concurrency). Server-class BMCs (Dell iDRAC9 /
+                     iDRAC10, Cisco IMC, Supermicro IPMI) handle
+                     parallel queries fine and benefit dramatically
+                     from > 1 because pysnmp v7's per-walk overhead
+                     serialises ~67 OID branches into 30-50s
+                     wall-clock at concurrency=1. Recommended: 4 for
+                     Dell iDRAC, 8 for fast Cisco / Synology /
+                     linux net-snmp, 1 (default) for printers + low-
+                     power NAS + OpenWrt-class gear. -->
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         :title="t('admin_hosts.snmp_walk_concurrency_hint')"
+                         x-text="t('admin_hosts.snmp_walk_concurrency_label')"></label>
+                  <input type="number" min="1" max="16"
+                         :value="row.snmp && row.snmp.walk_concurrency || ''"
+                         @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="snmpWalkConcurrencyPlaceholder()"
+                         :title="t('admin_hosts.snmp_walk_concurrency_hint')">
+                </div>
+                <!-- Per-host SNMP wall-clock budget override. Same
+                     shape as walk_concurrency — overrides
+                     tuning_snmp_wall_clock_budget_seconds when the
+                     global default (60s) is too tight for THIS host.
+                     Useful for slow iDRAC9 chassis where a 90s budget
+                     gives the BIOS / virtual-disk / power-supply
+                     walks headroom without raising the global. -->
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         :title="t('admin_hosts.snmp_wall_clock_budget_hint')"
+                         x-text="t('admin_hosts.snmp_wall_clock_budget_label')"></label>
+                  <input type="number" min="5" max="600"
+                         :value="row.snmp && row.snmp.wall_clock_budget || ''"
+                         @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { wall_clock_budget: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
+                         :disabled="isReadonly() || !row.enabled"
+                         class="w-full mono fs-sm py-1.5"
+                         :placeholder="snmpWallClockBudgetPlaceholder()"
+                         :title="t('admin_hosts.snmp_wall_clock_budget_hint')">
                 </div>
               </div>
-            </div>
-          </div>
-          <!-- ========== Ping block ==========
-               Per-host ping opt-in. Default OFF. When
-               checked, optional port + transport overrides reveal;
-               they cascade over the globals from Settings →
-               Providers → Ping. Pulled out of the SSH section so
-               each provider config block reads as one coherent unit. -->
-          <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-            <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] font-semibold mb-1" x-text="t('admin_hosts.section_ping')"></div>
-            <p class="fs-2xs text-[var(--text-faint)] mb-3"
-               x-text="t('admin_hosts.provider.ping_address_hint')"></p>
-            <!-- Checkbox alone on its own row; fields render
-                 BELOW it when enabled. Mirrors the SSH + SNMP
-                 section layouts. -->
-            <label class="inline-flex items-center gap-2 fs-sm text-[var(--text-dim)] mb-3"
-                   :class="!row.enabled ? 'opacity-50' : ''">
-              <!-- Indexed access via `hostsConfig[idx]` so the
-                   mutation goes through the live reactive array;
-                   destructured `row` doesn't propagate writes
-                   back into `this.hostsConfig[idx]`. -->
-              <input type="checkbox"
-                     :checked="!!(row.enabled && row.ping && row.ping.enabled)"
-                     @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
-                     :disabled="isReadonly() || !row.enabled">
-              <span x-text="t('admin_hosts.provider.ping_enabled_label')"></span>
-            </label>
-            <div x-show="!!(row.enabled && row.ping && row.ping.enabled)"
-                 class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
+              <!-- Vendor MIB selector — operator-declared subset of
+                   dell / cisco / apc / ucd / synology / printer. Empty
+                   = auto-detect from sysDescr (the common case;
+                   covers 95% of agents). Set explicitly when
+                   auto-detect picks wrong (sysDescr stripped, novel
+                   hardware) or when you want to force a vendor's
+                   walks even when auto-detect would skip them.
+                   Pruning irrelevant vendor walks drops a Dell
+                   iDRAC's 67-walk probe to ~50 walks (~13s saved at
+                   concurrency=1). -->
+              <div class="mt-3">
+                <!-- Pre-fix the `:title` lived on the bare <label>
+                     and got dropped by some browsers when the label
+                     had x-text content (the title surfaces as a
+                     tooltip on most engines but not all). Wrapping
+                     the label text in an inner <span> with an
+                     explicit `:title` attaches the tooltip to a
+                     text node that EVERY browser surfaces on hover.
+                     The outer label keeps its own :title for
+                     redundancy / future a11y tooling. -->
                 <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_hosts.provider.ping_port_label')"></label>
-                <input type="number" min="1" max="65535"
-                       :value="row.ping && row.ping.port || ''"
-                       @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                       :disabled="isReadonly() || !row.enabled"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="t('admin_hosts.provider.ping_port_placeholder')">
-              </div>
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_hosts.provider.ping_transport_label')"></label>
-                <select :value="row.ping && row.ping.transport || ''"
-                        @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
-                        :disabled="isReadonly() || !row.enabled"
-                        class="w-full mono fs-sm py-1.5">
-                  <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
-                  <option value="tcp" x-text="t('admin_hosts.provider.ping_transport_tcp')"></option>
-                  <option value="icmp" x-text="t('admin_hosts.provider.ping_transport_icmp')"></option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <!-- ========== SNMP block ==========
-               Per-host SNMP target alias + optional v2c/v3 override
-               block. Bare `snmp_name` covers the common case (one
-               curated row → one SNMP-reachable IP/host); the
-               override block under it lets operators pin a specific
-               community / version / port / v3 keys when this row's
-               device differs from the global defaults. Empty fields
-               = "inherit the global default". -->
-          <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-            <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
-                 x-text="t('admin_hosts.snmp_section_label')"></div>
-            <!-- Per-host enable checkbox — parallels
-                 ping.enabled. OPT-IN: defaults to OFF unless
-                 `row.snmp.enabled === true`. The previous
-                 default-true semantics auto-enabled SNMP
-                 on every row that had snmp_name set, which
-                 surprised operators creating fresh rows — the
-                 checkbox showed checked even before they typed
-                 a target. Backend `_clean_host_snmp` mirrors
-                 ping's "persist only when explicitly true; drop
-                 otherwise" pattern, and `_merge_one_host` now
-                 gates on `enabled is True` (no default-true
-                 fallback). -->
-            <label class="inline-flex items-center gap-2 fs-sm mb-3"
-                   :class="!row.enabled ? 'opacity-50' : ''">
-              <input type="checkbox"
-                     :checked="!!(row.enabled && row.snmp && row.snmp.enabled === true)"
-                     @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { enabled: $event.target.checked }); markHostRowDirty(idx)"
-                     :disabled="isReadonly() || !row.enabled">
-              <span x-text="t('admin_hosts.provider.snmp_enabled_label')"></span>
-            </label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end"
-                 x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true)">
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.row.snmp_target_label') || 'SNMP target'"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-text="t('admin_hosts.row.snmp_target_hint') || '(blank = falls back to Hostname or IP)'"></span>
-                </label>
-                <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
-                       list="snmp-names"
-                       @input="markHostRowDirty(idx)"
-                       class="w-full mono fs-sm py-1.5"
-                       placeholder="192.X.X.10 or switch01.example.com">
-              </div>
-            </div>
-            <div x-show="!!(row.enabled && row.snmp && row.snmp.enabled === true) && !!((row.snmp_name && row.snmp_name.trim()) || (row.address && row.address.trim()))"
-                 class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  <span x-text="t('admin_hosts.snmp_community_label')"></span>
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
-                        x-text="t('common.hint_global_default')"></span>
-                </label>
-                <input type="text"
-                       :value="row.snmp && row.snmp.community || ''"
-                       @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
-                       :disabled="isReadonly() || !row.enabled"
-                       class="w-full mono fs-sm py-1.5"
-                       placeholder="public">
-              </div>
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1" x-text="t('admin_hosts.snmp_version_label')"></label>
-                <select :value="row.snmp && row.snmp.version || ''"
-                        @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
-                        :disabled="isReadonly() || !row.enabled"
-                        class="w-full mono fs-sm py-1.5">
-                  <option value="" x-text="t('admin_hosts.provider.ping_transport_default')"></option>
-                  <option value="v2c">v2c</option>
-                  <option value="v3">v3</option>
-                </select>
-              </div>
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">
-                  UDP port
-                  <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
-                </label>
-                <input type="number" min="1" max="65535"
-                       :value="row.snmp && row.snmp.port || ''"
-                       @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                       :disabled="isReadonly() || !row.enabled"
-                       class="w-full mono fs-sm py-1.5"
-                       placeholder="161">
-              </div>
-              <!-- Per-host SNMP walk concurrency override. The
-                   global default is 1 (safety floor for low-power
-                   embedded snmpd's that drop UDP packets at higher
-                   concurrency). Server-class BMCs (Dell iDRAC9 /
-                   iDRAC10, Cisco IMC, Supermicro IPMI) handle
-                   parallel queries fine and benefit dramatically
-                   from > 1 because pysnmp v7's per-walk overhead
-                   serialises ~67 OID branches into 30-50s
-                   wall-clock at concurrency=1. Recommended: 4 for
-                   Dell iDRAC, 8 for fast Cisco / Synology /
-                   linux net-snmp, 1 (default) for printers + low-
-                   power NAS + OpenWrt-class gear. -->
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       :title="t('admin_hosts.snmp_walk_concurrency_hint')"
-                       x-text="t('admin_hosts.snmp_walk_concurrency_label')"></label>
-                <input type="number" min="1" max="16"
-                       :value="row.snmp && row.snmp.walk_concurrency || ''"
-                       @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                       :disabled="isReadonly() || !row.enabled"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="snmpWalkConcurrencyPlaceholder()"
-                       :title="t('admin_hosts.snmp_walk_concurrency_hint')">
-              </div>
-              <!-- Per-host SNMP wall-clock budget override. Same
-                   shape as walk_concurrency — overrides
-                   tuning_snmp_wall_clock_budget_seconds when the
-                   global default (60s) is too tight for THIS host.
-                   Useful for slow iDRAC9 chassis where a 90s budget
-                   gives the BIOS / virtual-disk / power-supply
-                   walks headroom without raising the global. -->
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       :title="t('admin_hosts.snmp_wall_clock_budget_hint')"
-                       x-text="t('admin_hosts.snmp_wall_clock_budget_label')"></label>
-                <input type="number" min="5" max="600"
-                       :value="row.snmp && row.snmp.wall_clock_budget || ''"
-                       @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { wall_clock_budget: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
-                       :disabled="isReadonly() || !row.enabled"
-                       class="w-full mono fs-sm py-1.5"
-                       :placeholder="snmpWallClockBudgetPlaceholder()"
-                       :title="t('admin_hosts.snmp_wall_clock_budget_hint')">
-              </div>
-            </div>
-            <!-- Vendor MIB selector — operator-declared subset of
-                 dell / cisco / apc / ucd / synology / printer. Empty
-                 = auto-detect from sysDescr (the common case;
-                 covers 95% of agents). Set explicitly when
-                 auto-detect picks wrong (sysDescr stripped, novel
-                 hardware) or when you want to force a vendor's
-                 walks even when auto-detect would skip them.
-                 Pruning irrelevant vendor walks drops a Dell
-                 iDRAC's 67-walk probe to ~50 walks (~13s saved at
-                 concurrency=1). -->
-            <div class="mt-3">
-              <!-- Pre-fix the `:title` lived on the bare <label>
-                   and got dropped by some browsers when the label
-                   had x-text content (the title surfaces as a
-                   tooltip on most engines but not all). Wrapping
-                   the label text in an inner <span> with an
-                   explicit `:title` attaches the tooltip to a
-                   text node that EVERY browser surfaces on hover.
-                   The outer label keeps its own :title for
-                   redundancy / future a11y tooling. -->
-              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                     :title="t('admin_hosts.snmp_vendors_hint')">
+                       :title="t('admin_hosts.snmp_vendors_hint')">
                     <span :title="t('admin_hosts.snmp_vendors_hint')"
                           x-text="t('admin_hosts.snmp_vendors_label')"></span>
-              </label>
-              <!-- Disabled-row hint banner. Pre-fix the LABEL
-                   got `opacity-50 cursor-not-allowed` but the
-                   INPUT itself stayed un-dimmed-looking — operators
-                   saw clickable boxes that didn't respond. Now the
-                   INPUT also dims (same opacity rule applied via
-                   :class), AND a small explainer banner above the
-                   group tells operators exactly which gate is
-                   blocking them. -->
-              <p class="fs-2xs text-[var(--warning)] mt-0 mb-1.5"
-                 x-show="!row.enabled || !(row.snmp && row.snmp.enabled)"
-                 x-text="!row.enabled ? t('admin_hosts.snmp_vendors_host_disabled') : t('admin_hosts.snmp_vendors_snmp_disabled')"></p>
-              <div class="flex flex-wrap gap-3 fs-xs">
-                <template x-for="vendor in snmpVendorKeys()" :key="vendor">
-                  <label class="flex items-center gap-1.5 select-none cursor-pointer"
-                         :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''">
-                    <input type="checkbox"
-                           :checked="snmpVendorChecked(row, vendor)"
-                           @change="toggleSnmpVendor(idx, vendor, $event.target.checked)"
-                           :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
-                           :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)">
-                    <span class="text-[var(--text-dim)]" x-text="snmpVendorLabel(vendor)"></span>
-                  </label>
-                </template>
+                </label>
+                <!-- Disabled-row hint banner. Pre-fix the LABEL
+                     got `opacity-50 cursor-not-allowed` but the
+                     INPUT itself stayed un-dimmed-looking — operators
+                     saw clickable boxes that didn't respond. Now the
+                     INPUT also dims (same opacity rule applied via
+                     :class), AND a small explainer banner above the
+                     group tells operators exactly which gate is
+                     blocking them. -->
+                <p class="fs-2xs text-[var(--warning)] mt-0 mb-1.5"
+                   x-show="!row.enabled || !(row.snmp && row.snmp.enabled)"
+                   x-text="!row.enabled ? t('admin_hosts.snmp_vendors_host_disabled') : t('admin_hosts.snmp_vendors_snmp_disabled')"></p>
+                <div class="flex flex-wrap gap-3 fs-xs">
+                  <template x-for="vendor in snmpVendorKeys()" :key="vendor">
+                    <label class="flex items-center gap-1.5 select-none cursor-pointer"
+                           :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''">
+                      <input type="checkbox"
+                             :checked="snmpVendorChecked(row, vendor)"
+                             @change="toggleSnmpVendor(idx, vendor, $event.target.checked)"
+                             :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
+                             :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)">
+                      <span class="text-[var(--text-dim)]" x-text="snmpVendorLabel(vendor)"></span>
+                    </label>
+                  </template>
+                </div>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
+                   x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length)"
+                   x-text="t('admin_hosts.snmp_vendors_auto')"></p>
+                <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
+                   x-show="row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length"
+                   x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).map(v => snmpVendorLabel(v)).join(', ') })"></p>
+                <!-- Last observed auto-detected vendor — surfaces what
+                     the most recent successful probe's vendor
+                     auto-detect picked, so operators new to SNMP can
+                     see "auto-detect found dell" before deciding
+                     whether to override. Hidden when no per-host
+                     override is set AND no auto-detect data is
+                     available. The list is sourced from the host's
+                     last successful probe diagnostic via
+                     `snmpAutoDetectedVendors(h)`. -->
+                <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
+                   x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length) && snmpAutoDetectedVendors(row).length"
+                   x-text="t('admin_hosts.snmp_vendors_last_detected', { vendors: snmpAutoDetectedVendors(row).map(v => snmpVendorLabel(v)).join(', ') })"></p>
               </div>
-              <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
-                 x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length)"
-                 x-text="t('admin_hosts.snmp_vendors_auto')"></p>
-              <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
-                 x-show="row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length"
-                 x-text="t('admin_hosts.snmp_vendors_explicit', { vendors: (row.snmp && row.snmp.vendors || []).map(v => snmpVendorLabel(v)).join(', ') })"></p>
-              <!-- Last observed auto-detected vendor — surfaces what
-                   the most recent successful probe's vendor
-                   auto-detect picked, so operators new to SNMP can
-                   see "auto-detect found dell" before deciding
-                   whether to override. Hidden when no per-host
-                   override is set AND no auto-detect data is
-                   available. The list is sourced from the host's
-                   last successful probe diagnostic via
-                   `snmpAutoDetectedVendors(h)`. -->
-              <p class="fs-2xs text-[var(--text-faint)] mt-1.5"
-                 x-show="!(row.snmp && Array.isArray(row.snmp.vendors) && row.snmp.vendors.length) && snmpAutoDetectedVendors(row).length"
-                 x-text="t('admin_hosts.snmp_vendors_last_detected', { vendors: snmpAutoDetectedVendors(row).map(v => snmpVendorLabel(v)).join(', ') })"></p>
             </div>
-          </div>
-          <!-- Per-host mount-exclusion list. SNMP agents
-               occasionally mis-classify pseudo-filesystems as
-               fixed disks (dd-wrt's `/opt` 232 GB phantom on a
-               16 MB router is the canonical case); this textarea
-               accepts one mount path per line and the backend
-               filters those rows out of the storage extractor's
-               output before they pollute host_disk_total /
-               host_disk_used / mounts[]. The universal pseudo-fs
-               prefixes (/dev, /proc, /sys, /run, /var/run,
-               /var/lock, /dev/shm) are filtered automatically
-               in `logic/snmp.py:_DEFAULT_EXCLUDE_MOUNT_PREFIXES`
-               so this list is for device-specific phantoms only.
-               Match is exact OR prefix-with-slash (e.g. `/opt`
-               matches both `/opt` and `/opt/foo`). Disabled-host
-               gating mirrors the vendor checkboxes. -->
-          <div class="md:col-span-2 mt-3">
-            <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                   :title="t('admin_hosts.snmp_exclude_mounts_hint')">
+            <!-- Per-host mount-exclusion list. SNMP agents
+                 occasionally mis-classify pseudo-filesystems as
+                 fixed disks (dd-wrt's `/opt` 232 GB phantom on a
+                 16 MB router is the canonical case); this textarea
+                 accepts one mount path per line and the backend
+                 filters those rows out of the storage extractor's
+                 output before they pollute host_disk_total /
+                 host_disk_used / mounts[]. The universal pseudo-fs
+                 prefixes (/dev, /proc, /sys, /run, /var/run,
+                 /var/lock, /dev/shm) are filtered automatically
+                 in `logic/snmp.py:_DEFAULT_EXCLUDE_MOUNT_PREFIXES`
+                 so this list is for device-specific phantoms only.
+                 Match is exact OR prefix-with-slash (e.g. `/opt`
+                 matches both `/opt` and `/opt/foo`). Disabled-host
+                 gating mirrors the vendor checkboxes. -->
+            <div class="md:col-span-2 mt-3">
+              <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                     :title="t('admin_hosts.snmp_exclude_mounts_hint')">
                   <span :title="t('admin_hosts.snmp_exclude_mounts_hint')"
                         x-text="t('admin_hosts.snmp_exclude_mounts_label')"></span>
-            </label>
-            <textarea x-model="row.snmp.exclude_mounts_text"
-                      rows="2"
-                      class="w-full mono fs-xs"
-                      :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
-                      :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)"
-                      :placeholder="t('admin_hosts.snmp_exclude_mounts_placeholder')"></textarea>
-            <p class="fs-2xs text-[var(--text-faint)] mt-1"
-               x-text="t('admin_hosts.snmp_exclude_mounts_help')"></p>
-          </div>
-
-          <!-- HTTP / TLS / DNS PROBE BLOCK — seventh host-stats
-               provider. Per-host enable checkbox follows the same
-               opt-in contract as ping.enabled / snmp.enabled: the
-               row only probes when this box is on. URL list /
-               content-match / status-codes / verify_tls are
-               optional overrides — leaving them blank falls
-               through to the auto-derived chain (top-level url +
-               services[].url). -->
-          <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
-            <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
-                 x-text="t('admin_hosts.http_probe_section_label')"></div>
-            <!-- Scope note — surfaces the planned split between
-                 host-level HTTP probes (THIS section, for non-app
-                 targets like a router's web UI / admin console /
-                 generic health endpoint) and per-app probes (the
-                 forthcoming Apps section, which will own probes for
-                 every chip in the curated `services[]` list). The
-                 operator landed this scope decision so the editor
-                 stops looking like the canonical place to add
-                 per-Plex / per-Sonarr / per-qBittorrent health
-                 checks — those should be configured per-app under
-                 Admin → Apps once the per-app probe surface lands. -->
-            <p class="fs-2xs text-[var(--text-dim)] mb-3 leading-snug rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"
-               x-text="t('admin_hosts.http_probe_scope_note')"></p>
-            <label class="inline-flex items-center gap-2 fs-sm mb-3"
-                   :class="!row.enabled ? 'opacity-50' : ''">
-              <input type="checkbox"
-                     :checked="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)"
-                     @change="setHttpProbeField(idx, 'enabled', $event.target.checked)"
-                     :disabled="isReadonly() || !row.enabled">
-              <span x-text="t('admin_hosts.provider.http_probe_enabled_label')"></span>
-            </label>
-            <p class="fs-2xs text-[var(--text-faint)] mb-3"
-               x-show="row.enabled"
-               x-text="t('admin_hosts.provider.http_probe_enabled_hint')"></p>
-            <div class="space-y-3"
-                 x-show="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)">
-              <!-- URLs textarea — operator-supplied override list.
-                   Multi-line, one URL per line. Empty falls through
-                   to the auto-derived chain (top-level url +
-                   services[].url). -->
-              <div>
-                <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                       x-text="t('admin_hosts.http_probe_urls_label')"></label>
-                <textarea rows="3"
-                          x-model="row.http_probe.urls_text"
-                          @input.debounce.250ms="markHostRowDirty(idx)"
-                          :disabled="isReadonly() || !row.enabled"
-                          class="w-full mono fs-xs py-1.5"
-                          :placeholder="t('admin_hosts.http_probe_urls_placeholder')"></textarea>
-                <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                   x-text="t('admin_hosts.http_probe_urls_hint')"></p>
-              </div>
-              <!-- Content-match + accepted status codes — paired
-                   in a 2-col grid on desktop so the operator can
-                   eyeball both probe-shape knobs side-by-side. -->
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.http_probe_content_match_label')"></label>
-                  <input type="text"
-                         :value="(row.http_probe && row.http_probe.content_match) || ''"
-                         @input="setHttpProbeField(idx, 'content_match', $event.target.value || null)"
-                         :disabled="isReadonly() || !row.enabled"
-                         maxlength="256"
-                         class="w-full mono fs-sm py-1.5"
-                         :placeholder="t('admin_hosts.http_probe_content_match_placeholder')">
-                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                     x-text="t('admin_hosts.http_probe_content_match_hint')"></p>
-                </div>
-                <div>
-                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
-                         x-text="t('admin_hosts.http_probe_status_codes_label')"></label>
-                  <!-- x-model on a raw `_text` string (NOT :value/@input over
-                       the array) so typing doesn't round-trip through the
-                       array and clear the field on every keystroke. Parsed to
-                       an int array on save; hydrated from the array on load. -->
-                  <input type="text"
-                         x-model="row.http_probe.accepted_status_codes_text"
-                         @input="markHostRowDirty(idx)"
-                         :disabled="isReadonly() || !row.enabled"
-                         class="w-full mono fs-sm py-1.5"
-                         :placeholder="t('admin_hosts.http_probe_status_codes_placeholder')">
-                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
-                     x-text="t('admin_hosts.http_probe_status_codes_hint')"></p>
-                </div>
-              </div>
-              <!-- verify_tls toggle. Default ON (cert chain is
-                   verified); flip OFF for self-signed homelab
-                   targets. Either way the cert IS parsed so the
-                   expiry warning still surfaces. -->
-              <label class="inline-flex items-center gap-2 fs-sm">
-                <input type="checkbox"
-                       :checked="!(row.http_probe && row.http_probe.verify_tls === false)"
-                       @change="setHttpProbeField(idx, 'verify_tls', !!$event.target.checked)"
-                       :disabled="isReadonly() || !row.enabled">
-                <span x-text="t('admin_hosts.http_probe_verify_tls_label')"></span>
               </label>
-              <p class="fs-2xs text-[var(--text-faint)] -mt-1"
-                 x-text="t('admin_hosts.http_probe_verify_tls_hint')"></p>
+              <textarea x-model="row.snmp.exclude_mounts_text"
+                        rows="2"
+                        class="w-full mono fs-xs"
+                        :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
+                        :disabled="isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)"
+                        :placeholder="t('admin_hosts.snmp_exclude_mounts_placeholder')"></textarea>
+              <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                 x-text="t('admin_hosts.snmp_exclude_mounts_help')"></p>
             </div>
-          </div>
 
-          <!-- Row 3 — test button + per-provider result line. The
-               result lists each probed provider with a tick or
-               cross and a short reason so the operator knows
-               what to fix before saving. -->
-          <div class="flex items-start gap-3 flex-wrap">
-            <!-- Test providers — Portainer-style button with a lightning
-                 icon. Click fires `testHostRow(idx)`; results render as
-                 a card BELOW this button row, not inline next to it,
-                 so wide outputs don't push the row's controls offscreen. -->
-            <button type="button" x-show="isAdmin()" @click="testHostRow(idx)"
-                    class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
-                    :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
-                    :title="!rowHasProviderMapping(row) ? t('admin_hosts.test_providers_disabled_title') : ''">
-              <svg width="13" height="13" aria-hidden="true"
-                   :class="(hostsTestResults[idx] && hostsTestResults[idx].pending) ? 'spin-md' : ''">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
-              </svg>
-              <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('admin_hosts.test_providers')"></span>
-              <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('actions.testing')"></span>
-            </button>
-            <!-- Row-level actions — moved here from row 1 per
-                 operator request. `ms-auto`
-                 pushes them to the trailing edge so they sit
-                 opposite Test-providers; on narrow viewports the
-                 parent's `flex-wrap` lets them drop to a new line. -->
-            <div class="flex items-center gap-1 ms-auto">
-              <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, -1)"
-                      :disabled="idx === 0"
-                      class="btn btn-ghost fs-sm px-2"
-                      :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
-                      :title="t('admin_hosts.groups.move_up_title')">
-                <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/>
-                </svg>
-              </button>
-              <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, +1)"
-                      :disabled="idx === hostsConfig.length - 1"
-                      class="btn btn-ghost fs-sm px-2"
-                      :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
-                      :title="t('admin_hosts.groups.move_down_title')">
-                <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
-                </svg>
-              </button>
-              <button type="button" x-show="isAdmin()" @click="duplicateHostRow(idx)"
-                      class="btn btn-ghost fs-sm px-2"
-                      :title="t('admin_hosts.row.duplicate_title')">
-                <svg width="11" height="11" aria-hidden="true">
-                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
-                </svg>
-              </button>
-              <button type="button" x-show="isAdmin()" @click="removeHostRow(idx)"
-                      class="btn btn-ghost fs-sm text-danger px-2"
-                      :title="t('admin_hosts.row.remove_title')"
-                      x-text="t('admin_hosts.row.remove')"></button>
-            </div>
-          </div>
-          <!-- Test-result card — renders BELOW the button row as a
-               box so the per-provider chips don't push the row's
-               controls offscreen on wide outputs. Three branches:
-               (1) pending — hidden because the button itself shows
-               the spinner state; the card stays empty until a real
-               result lands. (2) error — backend HTTP error shape.
-               (3) results — per-provider grid + all-skipped hint. -->
-          <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending)"
-               role="status" aria-live="polite" aria-atomic="true"
-               class="mt-3 rounded border border-[var(--border)] bg-[var(--surface)] p-3 space-y-2 host-test-result">
-            <!-- Error branch — backend returned a non-2xx or a JS
-                 exception bubbled up via the catch in testHostRow. -->
-            <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].error)"
-                 class="fs-xs text-[var(--danger)] flex items-center gap-2">
-              <svg width="13" height="13" aria-hidden="true">
-                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
-              </svg>
-              <span x-text="t('admin_hosts.test.test_failed', { error: (hostsTestResults[idx] && hostsTestResults[idx].error) || '' })"></span>
-            </div>
-            <!-- Success branch — per-provider grid. Each provider chip
-                 spans a column on the auto-fit grid so longer detail
-                 strings get their own row without crowding the OK/✗
-                 icons of neighbours. -->
-            <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].error)"
-                 class="grid gap-2 fs-xs"
-                 style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
-              <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe']" :key="name">
-                <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
-                     class="flex items-start gap-1.5 rounded-sm bg-[var(--surface-2)] px-2 py-1.5"
-                     :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'host-test-row--ok' : 'host-test-row--fail'">
-                  <span class="host-test-icon flex-none"
-                        x-text="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? '✓' : '✗'"></span>
-                  <div class="flex-1 min-w-0">
-                    <span class="font-semibold mono fs-2xs uppercase tracking-wider" x-text="name === 'node_exporter' ? 'exporter' : name"></span>
-                    <div class="text-[var(--text-faint)] font-normal break-words"
-                         x-text="hostsTestResults[idx] && hostsTestResults[idx][name] ? hostsTestResults[idx][name].detail : ''"></div>
+            <!-- HTTP / TLS / DNS PROBE BLOCK — seventh host-stats
+                 provider. Per-host enable checkbox follows the same
+                 opt-in contract as ping.enabled / snmp.enabled: the
+                 row only probes when this box is on. URL list /
+                 content-match / status-codes / verify_tls are
+                 optional overrides — leaving them blank falls
+                 through to the auto-derived chain (top-level url +
+                 services[].url). -->
+            <div class="pt-2 mt-1 border-t border-dashed border-[var(--border)]">
+              <div class="fs-3xs uppercase tracking-wider text-[var(--text-faint)] mb-2 font-semibold"
+                   x-text="t('admin_hosts.http_probe_section_label')"></div>
+              <!-- Scope note — surfaces the planned split between
+                   host-level HTTP probes (THIS section, for non-app
+                   targets like a router's web UI / admin console /
+                   generic health endpoint) and per-app probes (the
+                   forthcoming Apps section, which will own probes for
+                   every chip in the curated `services[]` list). The
+                   operator landed this scope decision so the editor
+                   stops looking like the canonical place to add
+                   per-Plex / per-Sonarr / per-qBittorrent health
+                   checks — those should be configured per-app under
+                   Admin → Apps once the per-app probe surface lands. -->
+              <p class="fs-2xs text-[var(--text-dim)] mb-3 leading-snug rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"
+                 x-text="t('admin_hosts.http_probe_scope_note')"></p>
+              <label class="inline-flex items-center gap-2 fs-sm mb-3"
+                     :class="!row.enabled ? 'opacity-50' : ''">
+                <input type="checkbox"
+                       :checked="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)"
+                       @change="setHttpProbeField(idx, 'enabled', $event.target.checked)"
+                       :disabled="isReadonly() || !row.enabled">
+                <span x-text="t('admin_hosts.provider.http_probe_enabled_label')"></span>
+              </label>
+              <p class="fs-2xs text-[var(--text-faint)] mb-3"
+                 x-show="row.enabled"
+                 x-text="t('admin_hosts.provider.http_probe_enabled_hint')"></p>
+              <div class="space-y-3"
+                   x-show="!!(row.enabled && row.http_probe && row.http_probe.enabled === true)">
+                <!-- URLs textarea — operator-supplied override list.
+                     Multi-line, one URL per line. Empty falls through
+                     to the auto-derived chain (top-level url +
+                     services[].url). -->
+                <div>
+                  <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                         x-text="t('admin_hosts.http_probe_urls_label')"></label>
+                  <textarea rows="3"
+                            x-model="row.http_probe.urls_text"
+                            @input.debounce.250ms="markHostRowDirty(idx)"
+                            :disabled="isReadonly() || !row.enabled"
+                            class="w-full mono fs-xs py-1.5"
+                            :placeholder="t('admin_hosts.http_probe_urls_placeholder')"></textarea>
+                  <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                     x-text="t('admin_hosts.http_probe_urls_hint')"></p>
+                </div>
+                <!-- Content-match + accepted status codes — paired
+                     in a 2-col grid on desktop so the operator can
+                     eyeball both probe-shape knobs side-by-side. -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('admin_hosts.http_probe_content_match_label')"></label>
+                    <input type="text"
+                           :value="(row.http_probe && row.http_probe.content_match) || ''"
+                           @input="setHttpProbeField(idx, 'content_match', $event.target.value || null)"
+                           :disabled="isReadonly() || !row.enabled"
+                           maxlength="256"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('admin_hosts.http_probe_content_match_placeholder')">
+                    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                       x-text="t('admin_hosts.http_probe_content_match_hint')"></p>
+                  </div>
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('admin_hosts.http_probe_status_codes_label')"></label>
+                    <!-- x-model on a raw `_text` string (NOT :value/@input over
+                         the array) so typing doesn't round-trip through the
+                         array and clear the field on every keystroke. Parsed to
+                         an int array on save; hydrated from the array on load. -->
+                    <input type="text"
+                           x-model="row.http_probe.accepted_status_codes_text"
+                           @input="markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('admin_hosts.http_probe_status_codes_placeholder')">
+                    <p class="fs-2xs text-[var(--text-faint)] mt-1"
+                       x-text="t('admin_hosts.http_probe_status_codes_hint')"></p>
                   </div>
                 </div>
-              </template>
-              <!-- All-skipped hint spans the full grid width. -->
-              <span x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].error && ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe'].every(n => !hostsTestResults[idx][n] || hostsTestResults[idx][n].skipped))"
-                    class="fs-xs text-[var(--text-faint)] italic"
-                    style="grid-column: 1 / -1;"
-                    x-text="t('admin_hosts.test.all_skipped') || 'No provider mapped on this row — nothing to test.'"></span>
+                <!-- verify_tls toggle. Default ON (cert chain is
+                     verified); flip OFF for self-signed homelab
+                     targets. Either way the cert IS parsed so the
+                     expiry warning still surfaces. -->
+                <label class="inline-flex items-center gap-2 fs-sm">
+                  <input type="checkbox"
+                         :checked="!(row.http_probe && row.http_probe.verify_tls === false)"
+                         @change="setHttpProbeField(idx, 'verify_tls', !!$event.target.checked)"
+                         :disabled="isReadonly() || !row.enabled">
+                  <span x-text="t('admin_hosts.http_probe_verify_tls_label')"></span>
+                </label>
+                <p class="fs-2xs text-[var(--text-faint)] -mt-1"
+                   x-text="t('admin_hosts.http_probe_verify_tls_hint')"></p>
+              </div>
             </div>
-          </div>
-        </div><!-- /expanded field grid -->
+
+            <!-- Row 3 — test button + per-provider result line. The
+                 result lists each probed provider with a tick or
+                 cross and a short reason so the operator knows
+                 what to fix before saving. -->
+            <div class="flex items-start gap-3 flex-wrap">
+              <!-- Test providers — Portainer-style button with a lightning
+                   icon. Click fires `testHostRow(idx)`; results render as
+                   a card BELOW this button row, not inline next to it,
+                   so wide outputs don't push the row's controls offscreen. -->
+              <button type="button" x-show="isAdmin()" @click="testHostRow(idx)"
+                      class="btn btn-soft fs-xs inline-flex items-center gap-1.5"
+                      :disabled="!!(hostsTestResults[idx] && hostsTestResults[idx].pending) || !rowHasProviderMapping(row)"
+                      :title="!rowHasProviderMapping(row) ? t('admin_hosts.test_providers_disabled_title') : ''">
+                <svg width="13" height="13" aria-hidden="true"
+                     :class="(hostsTestResults[idx] && hostsTestResults[idx].pending) ? 'spin-md' : ''">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-zap"/>
+                </svg>
+                <span x-show="!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('admin_hosts.test_providers')"></span>
+                <span x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].pending)" x-text="t('actions.testing')"></span>
+              </button>
+              <!-- Row-level actions — moved here from row 1 per
+                   operator request. `ms-auto`
+                   pushes them to the trailing edge so they sit
+                   opposite Test-providers; on narrow viewports the
+                   parent's `flex-wrap` lets them drop to a new line. -->
+              <div class="flex items-center gap-1 ms-auto">
+                <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, -1)"
+                        :disabled="idx === 0"
+                        class="btn btn-ghost fs-sm px-2"
+                        :class="idx === 0 ? 'opacity-40 cursor-not-allowed' : ''"
+                        :title="t('admin_hosts.groups.move_up_title')">
+                  <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-up"/>
+                  </svg>
+                </button>
+                <button type="button" x-show="isAdmin()" @click="moveHostRow(idx, +1)"
+                        :disabled="idx === hostsConfig.length - 1"
+                        class="btn btn-ghost fs-sm px-2"
+                        :class="idx === hostsConfig.length - 1 ? 'opacity-40 cursor-not-allowed' : ''"
+                        :title="t('admin_hosts.groups.move_down_title')">
+                  <svg width="11" height="11" stroke-width="2.4" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-down"/>
+                  </svg>
+                </button>
+                <button type="button" x-show="isAdmin()" @click="duplicateHostRow(idx)"
+                        class="btn btn-ghost fs-sm px-2"
+                        :title="t('admin_hosts.row.duplicate_title')">
+                  <svg width="11" height="11" aria-hidden="true">
+                    <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
+                  </svg>
+                </button>
+                <button type="button" x-show="isAdmin()" @click="removeHostRow(idx)"
+                        class="btn btn-ghost fs-sm text-danger px-2"
+                        :title="t('admin_hosts.row.remove_title')"
+                        x-text="t('admin_hosts.row.remove')"></button>
+              </div>
+            </div>
+            <!-- Test-result card — renders BELOW the button row as a
+                 box so the per-provider chips don't push the row's
+                 controls offscreen on wide outputs. Three branches:
+                 (1) pending — hidden because the button itself shows
+                 the spinner state; the card stays empty until a real
+                 result lands. (2) error — backend HTTP error shape.
+                 (3) results — per-provider grid + all-skipped hint. -->
+            <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].pending)"
+                 role="status" aria-live="polite" aria-atomic="true"
+                 class="mt-3 rounded border border-[var(--border)] bg-[var(--surface)] p-3 space-y-2 host-test-result">
+              <!-- Error branch — backend returned a non-2xx or a JS
+                   exception bubbled up via the catch in testHostRow. -->
+              <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx].error)"
+                   class="fs-xs text-[var(--danger)] flex items-center gap-2">
+                <svg width="13" height="13" aria-hidden="true">
+                  <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+                </svg>
+                <span x-text="t('admin_hosts.test.test_failed', { error: (hostsTestResults[idx] && hostsTestResults[idx].error) || '' })"></span>
+              </div>
+              <!-- Success branch — per-provider grid. Each provider chip
+                   spans a column on the auto-fit grid so longer detail
+                   strings get their own row without crowding the OK/✗
+                   icons of neighbours. -->
+              <div x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].error)"
+                   class="grid gap-2 fs-xs"
+                   style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                <template x-for="name in ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe']" :key="name">
+                  <div x-show="!!(hostsTestResults[idx] && hostsTestResults[idx][name] && !hostsTestResults[idx][name].skipped)"
+                       class="flex items-start gap-1.5 rounded-sm bg-[var(--surface-2)] px-2 py-1.5"
+                       :class="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? 'host-test-row--ok' : 'host-test-row--fail'">
+                  <span class="host-test-icon flex-none"
+                        x-text="(hostsTestResults[idx] && hostsTestResults[idx][name] && hostsTestResults[idx][name].ok) ? '✓' : '✗'"></span>
+                    <div class="flex-1 min-w-0">
+                      <span class="font-semibold mono fs-2xs uppercase tracking-wider" x-text="name === 'node_exporter' ? 'exporter' : name"></span>
+                      <div class="text-[var(--text-faint)] font-normal break-words"
+                           x-text="hostsTestResults[idx] && hostsTestResults[idx][name] ? hostsTestResults[idx][name].detail : ''"></div>
+                    </div>
+                  </div>
+                </template>
+                <!-- All-skipped hint spans the full grid width. -->
+                <span x-show="!!(hostsTestResults[idx] && !hostsTestResults[idx].error && ['beszel','pulse','node_exporter','webmin','snmp','ping','http_probe'].every(n => !hostsTestResults[idx][n] || hostsTestResults[idx][n].skipped))"
+                      class="fs-xs text-[var(--text-faint)] italic"
+                      style="grid-column: 1 / -1;"
+                      x-text="t('admin_hosts.test.all_skipped') || 'No provider mapped on this row — nothing to test.'"></span>
+              </div>
+            </div>
+          </div><!-- /expanded field grid -->
         </template>
       </div>
     </template>
