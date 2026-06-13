@@ -51,7 +51,46 @@
             <div class="apps-card-stat-label" x-text="t('apps.tracearr.violations') || 'Violations'"></div>
             <div class="apps-card-stat-value" x-text="tracearrCount(tracearrData(inst).recent_violations)"></div>
           </div>
+          <!-- Violation rate — violations per 100 plays (the abuse-intensity
+               signal). Only when there's a rate to show. -->
+          <div class="apps-card-ups-stat" x-show="tracearrViolationRate(tracearrData(inst)) !== null">
+            <div class="apps-card-stat-label" x-text="t('apps.tracearr.violation_rate') || 'Viol. rate'"></div>
+            <div class="apps-card-stat-value"
+                 x-text="t('apps.tracearr.per_100', { n: tracearrViolationRate(tracearrData(inst)) })"></div>
+          </div>
         </div>
+        <!-- Account-sharing VIOLATION trend (drawer-only): the rolling 7-day
+             violation count over time — answers "is abuse trending up", which
+             the point-in-time count can't. Backed by the lifespan sampler. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrHasTrend(tracearrData(inst), 'series_violations')">
+          <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+            <div class="apps-card-stat-label"
+                 x-text="t('apps.tracearr.violation_trend', { days: tracearrTrend(tracearrData(inst)).days })"></div>
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                 :aria-label="t('apps.tracearr.violation_trend', { days: tracearrTrend(tracearrData(inst)).days })">
+              <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_violations)" fill="none" stroke="var(--danger)" stroke-width="1.5"/>
+            </svg>
+            <div class="fs-3xs text-[var(--text-faint)]"
+                 x-show="(Number(tracearrTrend(tracearrData(inst)).week_change_violations) || 0) !== 0"
+                 x-text="(Number(tracearrTrend(tracearrData(inst)).week_change_violations) || 0) > 0
+                   ? t('apps.tracearr.viol_up', { n: tracearrTrend(tracearrData(inst)).week_change_violations })
+                   : t('apps.tracearr.viol_down', { n: Math.abs(Number(tracearrTrend(tracearrData(inst)).week_change_violations) || 0) })"></div>
+          </div>
+        </template>
+        <!-- Fleet CONCURRENCY trend (drawer-only): the per-day peak active-stream
+             count over time, independent of Tracearr's own retention. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrHasTrend(tracearrData(inst), 'series_streams')">
+          <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+            <div class="apps-card-stat-label"
+                 x-text="t('apps.tracearr.streams_trend', { days: tracearrTrend(tracearrData(inst)).days })"></div>
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                 :aria-label="t('apps.tracearr.streams_trend', { days: tracearrTrend(tracearrData(inst)).days })">
+              <path :d="tracearrTrendPath(tracearrTrend(tracearrData(inst)).series_streams)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+            </svg>
+            <div class="fs-3xs text-[var(--text-faint)]"
+                 x-text="t('apps.tracearr.streams_peak', { peak: tracearrTrend(tracearrData(inst)).peak_streams, latest: tracearrTrend(tracearrData(inst)).latest_streams })"></div>
+          </div>
+        </template>
         <!-- Footnote: version + plays (last 30 days). -->
         <div x-show="tracearrData(inst).version || (Number(tracearrData(inst).total_sessions) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1 mono">

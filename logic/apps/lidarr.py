@@ -115,6 +115,10 @@ _resolve_skill_target = _partial(_servarr.resolve_skill_target, app_label="Lidar
 _command_skill = _partial(_servarr.command_skill, app_label="Lidarr", api_version="v1")
 # Per-app image-proxy hook (local MediaCover via X-Api-Key, server-side).
 image_proxy_url = _servarr.image_proxy_url
+# Cross-host redirect guard for the per-app image proxy (coverartarchive
+# -> ia*.archive.org is the load-bearing case; everything off-allowlist is
+# rejected). Re-exported from the shared base alongside the image hook.
+image_redirect_allowed = _servarr.image_redirect_allowed
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("lidarr",)

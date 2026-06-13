@@ -238,14 +238,20 @@ def _version_str(health: Any) -> str:
 
 
 def _cert_days_left(expires_on: Any) -> "Optional[int]":
-    """Whole days until an NPM cert's ``expires_on`` (``YYYY-MM-DD …``). None
-    when unparseable. Negative ⇒ already expired."""
+    """Whole CALENDAR days until an NPM cert's ``expires_on`` (``YYYY-MM-DD …``).
+    None when unparseable. 0 ⇒ expires today; negative ⇒ already expired.
+
+    Compares dates, NOT datetimes: ``expires_on`` is a date (no time), so a cert
+    valid until end-of-day today must read 0, not -1. Subtracting a midnight-UTC
+    datetime from ``now`` floored the partial day to -1 ("expired 1 day ago")
+    while the cert was still valid for the rest of the day — and shifted every
+    near-boundary count down by one."""
     s = str(expires_on or "")[:10]
     try:
-        exp = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        exp = datetime.strptime(s, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
-    return (exp - datetime.now(timezone.utc)).days
+    return (exp - datetime.now(timezone.utc).date()).days
 
 
 def _cert_label(cert: dict) -> str:

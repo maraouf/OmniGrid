@@ -349,6 +349,20 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     return url, {"X-Api-Key": api_key, "Accept": "*/*"}
 
 
+def image_redirect_allowed(_host_row: dict, _chip: dict, url: str) -> bool:
+    """Per-app image-proxy redirect guard — the route's manual redirect loop
+    asks this before following a CROSS-HOST 30x ``Location``. A redirect is only
+    followed when its target host is on the SAME public-CDN allowlist the
+    ``image_proxy_url`` hook validates the initial URL against. This is what
+    makes the Lidarr cover-art path work — ``coverartarchive.org`` 301-redirects
+    to ``ia*.archive.org``, and both are on the allowlist — while a redirect to a
+    LAN host / cloud-metadata IP is rejected (no SSRF escalation off an
+    allowlisted host). The host-row / chip args are unused (the allowlist is
+    static) but kept for parity with the ``image_proxy_url`` hook signature."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    return _is_remote_poster_host(urlsplit(url or "").hostname or "")
+
+
 def fmt_release_date(when: Any, actor_username: Optional[str] = None) -> str:
     """Reformat an upstream release / air date to the invoking user's date
     format (Settings -> Profile -> Formats).

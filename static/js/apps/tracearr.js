@@ -131,6 +131,75 @@ function tracearrPlatforms(d) {
   return (d && Array.isArray(d.platforms)) ? d.platforms : [];
 }
 
+// The violation + concurrency trend {days, series_streams, series_violations,
+// peak_streams, today_peak, latest_streams, latest_violations, violation_rate,
+// week_change_violations} from the local sampler, or {}.
+function tracearrTrend(d) {
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : {};
+}
+
+// Live violations-per-100-plays rate (number), or null when there's nothing to
+// rate (no plays / no violations).
+function tracearrViolationRate(d) {
+  if (!d) {
+    return null;
+  }
+  const r = Number(d.violation_rate);
+  return isFinite(r) && r > 0 ? r : null;
+}
+
+// True when a trend series ('series_violations' | 'series_streams') is worth
+// charting: >= 2 daily points AND at least one non-zero value.
+function tracearrHasTrend(d, key) {
+  const arr = tracearrTrend(d)[key];
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return false;
+  }
+  for (let i = 0; i < arr.length; i++) {
+    if ((Number(arr[i]) || 0) > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on every
+// Alpine flush).
+const _tracearrTrendMemo = new WeakMap();
+
+// SVG polyline path for a trend series over a 0..200 x 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function tracearrTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_tracearrTrendMemo.has(arr)) {
+    return _tracearrTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _tracearrTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tracearr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -157,4 +226,8 @@ export const helpers = {
   tracearrQualityPct: tracearrQualityPct,
   tracearrHasQuality: tracearrHasQuality,
   tracearrPlatforms: tracearrPlatforms,
+  tracearrTrend: tracearrTrend,
+  tracearrViolationRate: tracearrViolationRate,
+  tracearrHasTrend: tracearrHasTrend,
+  tracearrTrendPath: tracearrTrendPath,
 };

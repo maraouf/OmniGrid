@@ -853,6 +853,27 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_plex_samples_ts
             ON plex_samples(ts);
 
+        -- Tracearr fleet retention. One row per (tracearr chip, tick): the
+        -- concurrent active streams (peak-per-day for a concurrency trend) +
+        -- the rolling 7-day account-sharing violation count (so a daily trend
+        -- answers "is abuse trending up", which the point-in-time recent_
+        -- violations stat can't) + total_sessions (the 30d play count, the
+        -- denominator for the violations-per-100-plays rate).
+        CREATE TABLE IF NOT EXISTS tracearr_samples (
+            ts                INTEGER NOT NULL,
+            host_id           TEXT    NOT NULL,
+            service_idx       INTEGER NOT NULL,
+            active_streams    INTEGER NOT NULL DEFAULT 0,
+            recent_violations INTEGER NOT NULL DEFAULT 0,
+            total_sessions    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tracearr_samples_chip_ts
+            ON tracearr_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_tracearr_samples_ts
+            ON tracearr_samples(ts);
+
         -- Tdarr transcode-pipeline retention. One row per (tdarr chip, tick).
         -- ``space_saved_gb`` + ``transcodes`` are CUMULATIVE running totals
         -- (Tdarr's StatisticsJSONDB.sizeDiff / totalTranscodeCount), so the

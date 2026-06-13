@@ -95,6 +95,10 @@ _find_in_library = _partial(_servarr.find_in_library_titled, id_field="tvdbId")
 _command_skill = _partial(_servarr.command_skill, app_label="Sonarr", api_version="v3")
 # Per-app image-proxy hook (local MediaCover via X-Api-Key, server-side).
 image_proxy_url = _servarr.image_proxy_url
+# Cross-host redirect guard for the per-app image proxy (coverartarchive
+# -> ia*.archive.org is the load-bearing case; everything off-allowlist is
+# rejected). Re-exported from the shared base alongside the image hook.
+image_redirect_allowed = _servarr.image_redirect_allowed
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("sonarr",)

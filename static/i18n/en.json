@@ -2101,6 +2101,14 @@
           "label": "Plex history retention (days)",
           "help": "Retention window for the Plex samples that drive the concurrent-stream sparkline and peak-streams stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_tracearr_sample_interval_seconds": {
+          "label": "Tracearr sampler interval (seconds)",
+          "help": "How often the lifespan Tracearr sampler snapshots each configured fleet's active-stream count and rolling 7-day account-sharing violation count into the history table that drives the card's violation-rate trend and the fleet concurrency sparkline (Tracearr's API only reports point-in-time counts). Default 900 (15 min) — violation and concurrency counts move slowly, so a coarser cadence than Plex is plenty; lower it for sharper peaks at the cost of more rows. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_tracearr_history_days": {
+          "label": "Tracearr history retention (days)",
+          "help": "Retention window for the Tracearr samples that drive the violation-rate and concurrency trends. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_tdarr_sample_interval_seconds": {
           "label": "Tdarr sampler interval (seconds)",
           "help": "How often the lifespan Tdarr sampler snapshots each configured instance's cumulative space-saved + transcode count + queue depth into the history table that drives the card's space-reclaimed line, transcode-queue burn-down, and per-day throughput. Default 900 (15 min) — the cumulative totals move slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6437,6 +6445,13 @@
       "servers": "Servers",
       "users": "Users",
       "violations": "Violations",
+      "violation_rate": "Viol. rate",
+      "per_100": "{n} / 100 plays",
+      "violation_trend": "Violations ({days} days)",
+      "viol_up": "▲ up {n} this week",
+      "viol_down": "▼ down {n} this week",
+      "streams_trend": "Streams ({days} days)",
+      "streams_peak": "peak {peak} · now {latest}",
       "plays_n": "{n} plays (30d)",
       "streams_count": "{count} streaming",
       "plays_chart": "Plays (last 30 days)",

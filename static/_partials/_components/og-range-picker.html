@@ -33,6 +33,14 @@
   The wrapper picks up any extra Tailwind classes via an optional
   `rpExtraClass` string on the parent scope (e.g. responsive width
   utilities for the topbar picker).
+
+  Optional parent-scope keys (all read via `$data['<name>']` so a parent
+  that doesn't declare them resolves cleanly to undefined):
+    - rpBusy : truthy while a range fetch is in flight — sets
+               `aria-busy="true"` on the wrapper + `:disabled` on every
+               radio so the operator can't rapid-switch ranges mid-fetch
+               (which raced out-of-order chart updates on slow networks).
+    - rpExtraClass / rpLeadingLabel / rpTitle (see above / below).
 -->
 <!--suppress HtmlUnknownAttribute -->
 <!--
@@ -50,6 +58,7 @@
      :class="$data['rpExtraClass'] ? $data['rpExtraClass'] : ''"
      role="radiogroup"
      :aria-label="rpAriaLabel"
+     :aria-busy="$data['rpBusy'] ? 'true' : 'false'"
      :title="$data['rpTitle'] ? $data['rpTitle'] : ''"
      @keydown="_buttonGroupArrowKey($event)">
   <!-- Optional leading decorative label (topbar refresh picker uses
@@ -66,13 +75,14 @@
             :aria-checked="rpCurrent === opt.value ? 'true' : 'false'"
             :aria-label="t('common.range_option_aria', { label: opt.label, group: rpAriaLabel })"
             :tabindex="rpCurrent === opt.value ? 0 : -1"
+            :disabled="$data['rpBusy']"
             :title="opt.title || ''"
             :class="rpCurrent === opt.value
               ? (opt.activeBg
                   ? (opt.activeBg + ' ' + (opt.activeText || 'text-[var(--text-on-primary)]'))
                   : 'bg-[var(--primary)] text-[var(--text-on-primary)]')
               : 'text-[var(--text-dim)] hover:text-[var(--text)]'"
-            class="px-2 py-0.5 rounded fs-xs font-medium transition flex items-center gap-1"
+            class="px-2 py-0.5 rounded fs-xs font-medium transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
             @click="rpOnChange(opt.value)">
       <span x-show="opt.dotColor"
             class="inline-block w-1.5 h-1.5 rounded-full"

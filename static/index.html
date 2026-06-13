@@ -7283,48 +7283,26 @@
             <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
               <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/>
             </svg>
-            <!-- Buttons disabled while the picker's underlying
-                     loaders are in flight. Prevents the operator
-                     from rapid-clicking 1h → 6h → 24h while the first
-                     fetch is still resolving — pre-fix the SPA lagged
-                     the chart updates on slow networks and presented
-                     inconsistent data because each pending fetch
-                     finished out of order. The CSS disabled-state
-                     styling is inherited from the `.range-seg button`
-                     base rule. -->
-            <div class="range-seg"
-                 role="radiogroup"
-                 :aria-label="t('host_drawer.charts.range_picker_label')"
-                 :aria-busy="hostHistoryRangeBusy ? 'true' : 'false'"
-                 @keydown="_radiogroupArrowKey($event)">
-              <button type="button" role="radio" :class="hostHistoryRange === 1 ? 'active' : ''"
-                      :aria-checked="hostHistoryRange === 1"
-                      :aria-label="t('host_drawer.charts.range_1h_aria')"
-                      :tabindex="hostHistoryRange === 1 ? 0 : -1"
-                      :disabled="hostHistoryRangeBusy"
-                      @click="setHostHistoryRange(1)"
-                      x-text="t('host_drawer.charts.range_1h')"></button>
-              <button type="button" role="radio" :class="hostHistoryRange === 6 ? 'active' : ''"
-                      :aria-checked="hostHistoryRange === 6"
-                      :aria-label="t('host_drawer.charts.range_6h_aria')"
-                      :tabindex="hostHistoryRange === 6 ? 0 : -1"
-                      :disabled="hostHistoryRangeBusy"
-                      @click="setHostHistoryRange(6)"
-                      x-text="t('host_drawer.charts.range_6h')"></button>
-              <button type="button" role="radio" :class="hostHistoryRange === 24 ? 'active' : ''"
-                      :aria-checked="hostHistoryRange === 24"
-                      :aria-label="t('host_drawer.charts.range_24h_aria')"
-                      :tabindex="hostHistoryRange === 24 ? 0 : -1"
-                      :disabled="hostHistoryRangeBusy"
-                      @click="setHostHistoryRange(24)"
-                      x-text="t('host_drawer.charts.range_24h')"></button>
-              <button type="button" role="radio" :class="hostHistoryRange === 168 ? 'active' : ''"
-                      :aria-checked="hostHistoryRange === 168"
-                      :aria-label="t('host_drawer.charts.range_7d_aria')"
-                      :tabindex="hostHistoryRange === 168 ? 0 : -1"
-                      :disabled="hostHistoryRangeBusy"
-                      @click="setHostHistoryRange(168)"
-                      x-text="t('host_drawer.charts.range_7d')"></button>
+            <!-- Shared og-range-picker (radiogroup ARIA + roving tabindex +
+                     arrow-key nav + the rpBusy aria-busy/:disabled gate that
+                     keeps the operator from rapid-switching ranges while a fetch
+                     is in flight — pre-fix the SPA lagged chart updates on slow
+                     networks and showed inconsistent data when pending fetches
+                     finished out of order). Single source of truth for every
+                     SPA chip strip; replaces the hand-rolled range-seg. -->
+            <div x-data="{
+                   rpOptions: [
+                     { value: 1,   label: t('host_drawer.charts.range_1h') },
+                     { value: 6,   label: t('host_drawer.charts.range_6h') },
+                     { value: 24,  label: t('host_drawer.charts.range_24h') },
+                     { value: 168, label: t('host_drawer.charts.range_7d') }
+                   ],
+                   get rpCurrent() { return hostHistoryRange; },
+                   rpOnChange: (v) => setHostHistoryRange(v),
+                   rpAriaLabel: t('host_drawer.charts.range_picker_label'),
+                   get rpBusy() { return hostHistoryRangeBusy; }
+                 }">
+              <!-- INCLUDE: _components/og-range-picker.html -->
             </div>
             <!-- Unified chart-data freshness label. Replaces the
                      pair of (a) `hostHistoryFreshness` ("Updated Xs
