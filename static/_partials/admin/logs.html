@@ -24,7 +24,7 @@
         <input type="checkbox" x-model="logAuto">
         <span x-text="t('admin.logs.auto_refresh')"></span>
       </label>
-      <input type="search" x-model.debounce.200ms="logFilter"
+      <input type="search" :aria-label="t('admin.logs.filter_placeholder')" x-model.debounce.200ms="logFilter"
              :placeholder="t('admin.logs.filter_placeholder')"
              class="fs-sm min-w-[180px]">
       <!-- Reload via the shared og-reload-button component — single source
@@ -177,7 +177,7 @@
     <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
        x-text="t('admin.config.fields.tuning_log_retention_days.help')"></p>
     <div class="flex flex-wrap items-center gap-2">
-      <input type="number"
+      <input :aria-label="t('admin.config.fields.tuning_log_retention_days.label')" type="number"
              x-model="tuningForm['tuning_log_retention_days']"
              :placeholder="tuningPlaceholder('tuning_log_retention_days')"
              :min="(tuningEffective['tuning_log_retention_days'] || {}).min"
@@ -339,7 +339,7 @@
            substring-match against the line body + [tag] prefix
            in `filteredLogFileLines`. -->
       <div class="flex flex-wrap items-center gap-2">
-        <input type="search" x-model.debounce.200ms="logFilter"
+        <input type="search" :aria-label="t('admin.logs.filter_placeholder')" x-model.debounce.200ms="logFilter"
                :placeholder="t('admin.logs.filter_placeholder')"
                class="fs-sm min-w-[180px] flex-1">
         <button type="button" x-show="logFilter" @click="logFilter=''"

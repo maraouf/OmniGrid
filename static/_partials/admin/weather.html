@@ -93,9 +93,9 @@
   <!-- WeatherAPI-only — API key with write-only `_set` flag pattern.
        Hidden when Open-Meteo is selected (no key needed). -->
   <div class="mb-3" x-show="settings.weather_provider === 'weatherapi'">
-    <label class="block fs-sm font-medium mb-1" x-text="t('admin.weather.api_key_label')"></label>
+    <label for="weather-api-key" class="block fs-sm font-medium mb-1" x-text="t('admin.weather.api_key_label')"></label>
     <div class="flex items-center gap-2">
-      <input x-model="weatherForm.api_key" type="password"
+      <input id="weather-api-key" x-model="weatherForm.api_key" type="password"
              @input="markWeatherDirty()"
              :disabled="isReadonly() || !settings.weather_enabled"
              :placeholder="(settings.weather && settings.weather.api_key_set) ? t('admin.weather.api_key_set_placeholder') : t('admin.weather.api_key_placeholder')"
@@ -116,8 +116,8 @@
        the full forecast endpoint (default public). WeatherAPI.com:
        base path that gets /forecast.json appended. -->
   <div class="mb-3">
-    <label class="block fs-sm font-medium mb-1" x-text="t('admin.weather.api_base_url_label')"></label>
-    <input x-model="settings.weather_api_base_url" type="url"
+    <label for="weather-api-base-url" class="block fs-sm font-medium mb-1" x-text="t('admin.weather.api_base_url_label')"></label>
+    <input id="weather-api-base-url" x-model="settings.weather_api_base_url" type="url"
            @input="markWeatherDirty()"
            :disabled="isReadonly() || !settings.weather_enabled"
            :placeholder="t('admin.weather.api_base_url_placeholder')"
@@ -214,12 +214,12 @@
       </div>
       <template x-for="key in (tuningLoaded ? weatherTuningKeys() : [])" :key="key">
         <div>
-          <label class="block fs-xs font-medium mb-1"
+          <label :for="'wcfg-' + key" class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.fields.' + key + '.label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
              x-text="t('admin.config.fields.' + key + '.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
+            <input :id="'wcfg-' + key" type="number"
                    x-model="tuningForm[key]"
                    @input="markWeatherDirty()"
                    :placeholder="tuningPlaceholder(key)"

@@ -18,16 +18,16 @@
         <p class="fs-xs text-[var(--text-faint)]" x-text="t('settings.profile.password_hint')"></p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
-            <input x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full fs-sm">
+            <label for="sec-pw-current" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.current_password')"></label>
+            <input id="sec-pw-current" x-model="passwordForm.current" type="password" required autocomplete="current-password" class="w-full fs-sm">
           </div>
           <div>
-            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
-            <input x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
+            <label for="sec-pw-new" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.new_password')"></label>
+            <input id="sec-pw-new" x-model="passwordForm.next" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
           </div>
           <div>
-            <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
-            <input x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
+            <label for="sec-pw-confirm" class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.confirm_new_password')"></label>
+            <input id="sec-pw-confirm" x-model="passwordForm.confirm" type="password" required minlength="8" autocomplete="new-password" class="w-full fs-sm">
           </div>
         </div>
         <div x-show="passwordForm.next" class="pw-strength">
@@ -123,9 +123,9 @@
           <span x-text="t('settings.profile.totp.secret_label')"></span>
           <code class="mono" x-text="totpEnrol.secret"></code>
         </div>
-        <label class="block fs-xs text-[var(--text-dim)] mb-1"
+        <label for="sec-totp-code" class="block fs-xs text-[var(--text-dim)] mb-1"
                x-text="t('settings.profile.totp.verify_label')"></label>
-        <input x-model="totpEnrol.code" type="text" inputmode="numeric"
+        <input id="sec-totp-code" x-model="totpEnrol.code" type="text" inputmode="numeric"
                autocomplete="one-time-code" maxlength="6"
                class="w-40 mono fs-md"
                :placeholder="t('settings.profile.totp.verify_placeholder')">
