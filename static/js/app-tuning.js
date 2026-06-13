@@ -363,6 +363,10 @@ export default {
     // (snapshot cadence + retention).
     'tuning_unifi_sample_interval_seconds',
     'tuning_unifi_history_days',
+    // Bazarr subtitle-backlog sampler — backlog-over-time sparkline
+    // (snapshot cadence + retention).
+    'tuning_bazarr_sample_interval_seconds',
+    'tuning_bazarr_history_days',
     // Tdarr retention sampler (snapshot cadence + retention).
     'tuning_tdarr_sample_interval_seconds',
     'tuning_tdarr_history_days',

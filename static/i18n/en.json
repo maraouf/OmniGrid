@@ -2079,6 +2079,14 @@
           "label": "UniFi history retention (days)",
           "help": "Retention window for the UniFi samples that drive the client-occupancy sparkline and peak-clients stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_bazarr_sample_interval_seconds": {
+          "label": "Bazarr sampler interval (seconds)",
+          "help": "How often the lifespan Bazarr sampler snapshots each configured instance's missing-subtitle backlog (episodes + movies) into the history table that drives the card's backlog-over-time sparkline and the \"backlog down N this week\" stat (Bazarr keeps no wanted-count history of its own). Default 900 (15 min) — the backlog moves slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_bazarr_history_days": {
+          "label": "Bazarr history retention (days)",
+          "help": "Retention window for the Bazarr samples that drive the subtitle-backlog sparkline and the week-over-week change stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_tdarr_sample_interval_seconds": {
           "label": "Tdarr sampler interval (seconds)",
           "help": "How often the lifespan Tdarr sampler snapshots each configured instance's cumulative space-saved + transcode count + queue depth into the history table that drives the card's space-reclaimed line, transcode-queue burn-down, and per-day throughput. Default 900 (15 min) — the cumulative totals move slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -5562,6 +5570,13 @@
       "movies_missing": "Movies missing",
       "providers_throttled": "Throttled providers",
       "health_issues": "Health issues",
+      "downloaded_today_n": "{n} subtitles today",
+      "downloaded_today_title": "Subtitles downloaded today",
+      "week_down_n": "backlog down {n} this week",
+      "week_up_n": "backlog up {n} this week",
+      "throttled_label": "Throttled",
+      "backlog_trend": "Subtitle backlog ({days} days)",
+      "backlog_peak": "now {latest} · peak {peak}",
       "loading": "Loading Bazarr data…",
       "missing_count": "{count} missing subtitles",
       "search_item": "Search subtitles",

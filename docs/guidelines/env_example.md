@@ -774,6 +774,15 @@ FING_NEW_DEVICE_HOURS = 24
 # interval); *_HISTORY_DAYS = retention window.
 UNIFI_SAMPLE_INTERVAL_SECONDS = 900
 UNIFI_HISTORY_DAYS = 30
+
+# Bazarr subtitle-backlog sampler. Bazarr's /api/badges is current-state-only
+# (no wanted-count history), so the lifespan sampler records each configured
+# Bazarr chip's missing-subtitle counts (episodes + movies) to drive the card's
+# backlog-over-time sparkline + "backlog down N this week" stat.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window.
+BAZARR_SAMPLE_INTERVAL_SECONDS = 900
+BAZARR_HISTORY_DAYS = 30
 # AdGuard Home Sync reliability sampler — records each AGS chip's replica
 # in-sync count for the card's sync-reliability trend.
 ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS = 900
@@ -1236,6 +1245,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `FING_HISTORY_DAYS`                            | Runtime    | `90`                    | Retention window (days) for the Fing online-device samples driving the occupancy sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                                      |
 | `UNIFI_SAMPLE_INTERVAL_SECONDS`                | Runtime    | `900`                   | UniFi client-occupancy sampler cadence — records each UniFi chip's connected-client count (+ wireless split + devices-online) for the card's "clients over time" sparkline + peak-clients stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                         |
 | `UNIFI_HISTORY_DAYS`                           | Runtime    | `30`                    | Retention window (days) for the UniFi client-occupancy samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                           |
+| `BAZARR_SAMPLE_INTERVAL_SECONDS`               | Runtime    | `900`                   | Bazarr subtitle-backlog sampler cadence — records each Bazarr chip's missing-subtitle counts (episodes + movies) for the card's backlog-over-time sparkline + "backlog down N this week" stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                          |
+| `BAZARR_HISTORY_DAYS`                          | Runtime    | `30`                    | Retention window (days) for the Bazarr subtitle-backlog samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                          |
 | `ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS`          | Runtime    | `900`                   | AdGuard Home Sync reliability sampler cadence — records each AGS chip's replica in-sync count for the card's sync-reliability trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                   |
 | `ADGUARDSYNC_HISTORY_DAYS`                     | Runtime    | `90`                    | Retention window (days) for the AdGuard Home Sync reliability samples driving the sync-reliability sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                    |
 | `FING_NEW_DEVICE_HOURS`                        | Runtime    | `24`                    | A Fing device first-seen within this many hours counts as NEW on the card + status skill. Range 1..8760.                                                                                                                                                                                                                                                                                      |
