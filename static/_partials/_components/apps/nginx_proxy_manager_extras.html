@@ -28,6 +28,19 @@
         <div class="apps-card-stat-label" x-text="t('apps.npm.certs') || 'Certificates'"></div>
         <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).certs)"></div>
       </div>
+      <!-- Next cert to expire (soonest-expiry days, coloured by urgency) — the
+           actionable "next cert expires in N days" signal. -->
+      <div class="apps-card-ups-stat" x-show="npmCertMinDays(inst) !== null">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.next_cert') || 'Next cert'"></div>
+        <div class="apps-card-stat-value" :style="'color: ' + npmCertColor(npmCertMinDays(inst))"
+             x-text="npmCertMinLabel(inst)"></div>
+      </div>
+      <!-- Plain-HTTP proxy hosts (no SSL) — a security warning; only when > 0. -->
+      <div class="apps-card-ups-stat" x-show="npmPlainHttp(inst) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.plain_http') || 'Plain HTTP'"></div>
+        <div class="apps-card-stat-value" style="color: var(--warning)"
+             x-text="npmCount(npmPlainHttp(inst))"></div>
+      </div>
       <!-- Redirections -->
       <div class="apps-card-ups-stat" x-show="(Number(npmData(inst).redirections) || 0) > 0">
         <div class="apps-card-stat-label" x-text="t('apps.npm.redirections') || 'Redirections'"></div>
@@ -52,6 +65,34 @@
     <div x-show="(Number(npmData(inst).certs_expiring) || 0) > 0"
          class="fs-3xs mt-1 mono text-[var(--warning)]"
          x-text="t('apps.npm.expiring_summary', { n: (Number(npmData(inst).certs_expiring) || 0) })"></div>
+    <!-- Soonest-expiry certificate list (drawer-only): status dot + days-left +
+         a one-click ↻ Renew on Let's Encrypt certs (custom certs have no renew
+         endpoint, so no button). Cert expiry is NPM's #1 failure mode and the
+         console keeps no history, so this is the actionable safety net. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && npmCertList(inst).length">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.certs_list') || 'Certificates (soonest expiry)'"></div>
+        <template x-for="c in npmCertList(inst)" :key="c.id">
+          <div class="flex items-center gap-2 fs-2xs min-w-0">
+            <span class="inline-block w-2 h-2 rounded-full shrink-0" :style="'background: ' + npmCertColor(c.days)"></span>
+            <span class="truncate text-[var(--text-dim)]" x-text="c.label" :title="c.label"></span>
+            <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
+                  x-text="(Number(c.days) < 0) ? t('apps.npm.cert_expired_ago', { n: Math.abs(Number(c.days)) }) : t('apps.npm.cert_expires_in', { n: Number(c.days) })"></span>
+            <button x-show="c.renewable" type="button"
+                    class="user-action-btn shrink-0"
+                    @click.stop="appSkillRowAction(inst, null, { title: c.label }, { skill_id: 'npm_renew_cert', arg: String(c.id), title_i18n: 'apps.npm.renew_cert', icon: 'refresh-cw' })"
+                    :disabled="appSkillRowBusy(inst, { skill_id: 'npm_renew_cert', arg: String(c.id) })"
+                    :title="t('apps.npm.renew_cert') || 'Renew'"
+                    :aria-label="t('apps.npm.renew_cert') || 'Renew'">
+              <span x-show="appSkillRowBusy(inst, { skill_id: 'npm_renew_cert', arg: String(c.id) })" class="spin" aria-hidden="true"></span>
+              <svg x-show="!appSkillRowBusy(inst, { skill_id: 'npm_renew_cert', arg: String(c.id) })" width="14" height="14" aria-hidden="true">
+                <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
+              </svg>
+            </button>
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- NPM version footnote. -->
     <div x-show="npmData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"

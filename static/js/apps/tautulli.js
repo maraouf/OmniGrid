@@ -177,6 +177,109 @@ function tautulliPeak(dist) {
   return {label: String(labels[maxI] || ''), value: maxV};
 }
 
+// The transcode-vs-direct stream-type series {labels, direct, transcode} from
+// the payload, or empty arrays.
+function tautulliStreamType(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  const st = (d && d.stream_type) || {};
+  return {
+    labels: Array.isArray(st.labels) ? st.labels : [],
+    direct: Array.isArray(st.direct) ? st.direct : [],
+    transcode: Array.isArray(st.transcode) ? st.transcode : [],
+  };
+}
+
+// True when there's a transcode-vs-direct series worth charting (>= 2 days AND
+// at least one non-zero point across either line).
+function tautulliHasStreamType(inst) {
+  /* jshint validthis: true */
+  const st = tautulliStreamType.call(this, inst);
+  if (st.labels.length < 2) {
+    return false;
+  }
+  for (let i = 0; i < st.direct.length; i++) {
+    if ((Number(st.direct[i]) || 0) > 0) {
+      return true;
+    }
+  }
+  for (let i = 0; i < st.transcode.length; i++) {
+    if ((Number(st.transcode[i]) || 0) > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Shared-scale max across BOTH the direct + transcode series, so the two lines
+// are comparable on one chart. 1 (not 0) so the path builder never divides by 0.
+function tautulliStreamTypeMax(inst) {
+  /* jshint validthis: true */
+  const st = tautulliStreamType.call(this, inst);
+  let max = 0;
+  for (let i = 0; i < st.direct.length; i++) {
+    const v = Number(st.direct[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  for (let i = 0; i < st.transcode.length; i++) {
+    const v = Number(st.transcode[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  return max || 1;
+}
+
+// Memo: stable `:d` per (series array, shared max) so the dual line doesn't
+// re-render-flicker on every Alpine flush.
+const _tautulliStreamPathMemo = new WeakMap();
+
+// SVG line path for one stream-type series over a 200x32 viewBox, scaled to the
+// SHARED `max` (passed in so direct + transcode sit on one scale). '' when < 2
+// points. Memoised on (array ref + max).
+function tautulliStreamTypePath(values, max) {
+  if (!Array.isArray(values) || values.length < 2) {
+    return '';
+  }
+  const m = Number(max) || 1;
+  const cached = _tautulliStreamPathMemo.get(values);
+  if (cached && cached.max === m) {
+    return cached.d;
+  }
+  const W = 200, H = 32, n = values.length;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(values[i]) || 0) / m) * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _tautulliStreamPathMemo.set(values, {max: m, d: d});
+  return d;
+}
+
+// Share of plays that were TRANSCODED over the charted window (0-100 int), or
+// null when there's no data — drives the "N% transcoded" caption.
+function tautulliTranscodeShare(inst) {
+  /* jshint validthis: true */
+  const st = tautulliStreamType.call(this, inst);
+  let dir = 0, tr = 0;
+  for (let i = 0; i < st.direct.length; i++) {
+    dir += Number(st.direct[i]) || 0;
+  }
+  for (let i = 0; i < st.transcode.length; i++) {
+    tr += Number(st.transcode[i]) || 0;
+  }
+  const total = dir + tr;
+  if (total <= 0) {
+    return null;
+  }
+  return Math.round((100 * tr) / total);
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tautulli gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -202,4 +305,9 @@ export const helpers = {
   tautulliTopUser: tautulliTopUser,
   tautulliBars: tautulliBars,
   tautulliPeak: tautulliPeak,
+  tautulliStreamType: tautulliStreamType,
+  tautulliHasStreamType: tautulliHasStreamType,
+  tautulliStreamTypeMax: tautulliStreamTypeMax,
+  tautulliStreamTypePath: tautulliStreamTypePath,
+  tautulliTranscodeShare: tautulliTranscodeShare,
 };

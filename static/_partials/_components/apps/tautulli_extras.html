@@ -52,6 +52,11 @@
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.top_watcher') || 'Top watcher'"></div>
             <div class="apps-card-stat-value fs-sm truncate" x-text="(tautulliTopUser(inst) || {}).name || '—'"></div>
           </div>
+          <!-- Avg watched — mean % completion across recent plays (engagement). -->
+          <div class="apps-card-ups-stat" x-show="(Number(tautulliData(inst).history_sampled) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.avg_watched') || 'Avg watched'"></div>
+            <div class="apps-card-stat-value" x-text="(Number(tautulliData(inst).avg_completion) || 0) + '%'"></div>
+          </div>
         </div>
         <!-- Plays-over-time sparkline (last 30 days) — like the Tracearr graph. -->
         <div x-show="tautulliHasPlays(inst)" class="mt-2">
@@ -64,7 +69,7 @@
         <!-- Analytics: top watchers / most-played + play-distribution charts
              (the signature Tautulli insight). Drawer-only (`appsExtrasInDrawer`)
              — no room on the apps-grid card. -->
-        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (((tautulliData(inst).top_users || []).length) || ((tautulliData(inst).top_media || []).length) || tautulliPeak(tautulliData(inst).dayofweek) || tautulliPeak(tautulliData(inst).hourofday))">
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (((tautulliData(inst).top_users || []).length) || ((tautulliData(inst).top_media || []).length) || tautulliPeak(tautulliData(inst).dayofweek) || tautulliPeak(tautulliData(inst).hourofday) || tautulliHasStreamType(inst))">
           <div class="space-y-2 mt-2 pt-2 border-t border-[var(--border)]">
             <!-- Top watchers (avatar via the pms_image_proxy hook). -->
             <div x-show="(tautulliData(inst).top_users || []).length" class="space-y-1">
@@ -116,6 +121,27 @@
               </svg>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tautulli.busiest_hour', { label: (tautulliPeak(tautulliData(inst).hourofday) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).hourofday) || {}).value) })"></div>
+            </div>
+            <!-- Direct-vs-transcode plays over time (shared scale): direct play
+                 (green) vs transcode (amber) — the hardware-load signal that
+                 justifies a faster CPU / GPU. -->
+            <div x-show="tautulliHasStreamType(inst)" class="space-y-1">
+              <div class="apps-card-stat-label" x-text="t('apps.tautulli.stream_type_chart') || 'Direct vs transcode (30d)'"></div>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
+                   :aria-label="t('apps.tautulli.stream_type_chart') || 'Direct vs transcode (30d)'">
+                <path :d="tautulliStreamTypePath(tautulliStreamType(inst).direct, tautulliStreamTypeMax(inst))"
+                      fill="none" stroke="var(--success)" stroke-width="1.5"/>
+                <path :d="tautulliStreamTypePath(tautulliStreamType(inst).transcode, tautulliStreamTypeMax(inst))"
+                      fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+              </svg>
+              <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+                <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--success);"></span><span
+                  x-text="t('apps.tautulli.direct_legend') || 'direct'"></span></span>
+                <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--warning);"></span><span
+                  x-text="t('apps.tautulli.transcode_legend') || 'transcode'"></span></span>
+                <span x-show="tautulliTranscodeShare(inst) !== null"
+                      x-text="t('apps.tautulli.transcode_share', { n: (tautulliTranscodeShare(inst) || 0) })"></span>
+              </div>
             </div>
           </div>
         </template>

@@ -15,8 +15,10 @@ following the per-app contract (``adguardhome.py`` multi-field-credential shape
     fetch_data(host_row, chip, *, host_id, service_idx, force) -> dict
     peek_latest(host_id, service_idx) -> dict | None    (AI context)
     SKILLS / run_skill  — status (read) + proxy-hosts (read, rich list) +
-                          expiring-certs (read, rich list) + disable / enable a
-                          proxy host (write; disable is DESTRUCTIVE, arg).
+                          expiring-certs (read, rich list, per-row Renew button) +
+                          disable / enable a proxy host (write; disable is
+                          DESTRUCTIVE, arg) + renew one cert (write, arg) +
+                          renew all expiring certs (write, no-arg).
 
 Auth model: ``POST /api/tokens {identity: <email>, secret: <password>}`` returns
 ``{token, expires}``; the token (default ~1 day TTL) is sent as
@@ -108,6 +110,29 @@ SKILLS: tuple[dict, ...] = (
                        "online, turn on the proxy for <domain>, enable proxy <domain>"),
         "arg": True,
         "arg_hint": "the proxy-host domain to enable",
+        "destructive": False,
+    },
+    {
+        "id": "npm_renew_cert",
+        "name": "Renew a certificate",
+        "ai_phrases": ("renew the cert for <domain>, renew the ssl certificate, "
+                       "force a let's encrypt renewal, renew <domain>'s cert, "
+                       "refresh the certificate for <domain>"),
+        # arg = a cert id (the per-row Renew button) OR a domain / name to match.
+        # Non-destructive — renewing re-issues a Let's Encrypt cert; nothing is
+        # lost if it's already valid.
+        "arg": True,
+        "arg_hint": "the certificate's domain / name to renew (or its id)",
+        "destructive": False,
+    },
+    {
+        "id": "npm_renew_expiring",
+        "name": "Renew all expiring certs",
+        "ai_phrases": ("renew all expiring certs, renew every certificate about "
+                       "to expire, refresh all expiring ssl certs, renew the soon "
+                       "to expire certificates, bulk renew certs"),
+        # No arg — renews every renewable (Let's Encrypt) cert in the expiry-soon
+        # window (or already expired). Non-destructive.
         "destructive": False,
     },
 )
@@ -230,6 +255,30 @@ def _cert_label(cert: dict) -> str:
         return nice
     doms = [str(d) for d in as_list(cert.get("domain_names")) if d]
     return doms[0] if doms else f"cert #{safe_int(cert.get('id'))}"
+
+
+def _cert_rows(certs_l: list) -> list:
+    """Sorted (soonest-expiry first) cert rows for the card / drawer / skills:
+    ``[{id, label, days, provider, renewable}]``. Skips certs with an
+    unparseable expiry. ``renewable`` is True only for Let's Encrypt certs —
+    custom-uploaded certs (``provider == "other"``) have no renew endpoint."""
+    rows: list = []
+    for c in certs_l:
+        if not isinstance(c, dict):
+            continue
+        days = _cert_days_left(c.get("expires_on"))
+        if days is None:
+            continue
+        provider = str(c.get("provider") or "").strip().lower()
+        rows.append({
+            "id": safe_int(c.get("id")),
+            "label": _cert_label(c),
+            "days": days,
+            "provider": provider,
+            "renewable": provider == "letsencrypt",
+        })
+    rows.sort(key=lambda r: r["days"])
+    return rows
 
 
 # noinspection DuplicatedCode
@@ -363,11 +412,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
     hosts_l = [h for h in as_list(hosts) if isinstance(h, dict)]
     certs_l = [c for c in as_list(certs) if isinstance(c, dict)]
     enabled = sum(1 for h in hosts_l if h.get("enabled"))
-    expiring = 0
-    for c in certs_l:
-        days = _cert_days_left(c.get("expires_on"))
-        if days is not None and days <= _EXPIRY_SOON_DAYS:
-            expiring += 1
+    cert_rows = _cert_rows(certs_l)
+    expiring = sum(1 for r in cert_rows if r["days"] <= _EXPIRY_SOON_DAYS)
+    certs_expired = sum(1 for r in cert_rows if r["days"] < 0)
+    cert_min_days = cert_rows[0]["days"] if cert_rows else None
+    # Proxy hosts served over plain HTTP — no SSL cert assigned
+    # (``certificate_id == 0``). A "N sites over plain HTTP" security signal;
+    # only ENABLED hosts count (a disabled host serves nothing).
+    proxy_plain_http = sum(1 for h in hosts_l
+                           if h.get("enabled") and not safe_int(h.get("certificate_id")))
 
     out: dict[str, Any] = {
         "available": True,
@@ -375,8 +428,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "proxy_hosts": len(hosts_l),
         "proxy_enabled": enabled,
         "proxy_disabled": max(0, len(hosts_l) - enabled),
+        "proxy_plain_http": proxy_plain_http,
         "certs": len(certs_l),
         "certs_expiring": expiring,
+        "certs_expired": certs_expired,
+        # Soonest-expiry first (drives the card "next cert" stat + the drawer
+        # sorted list + per-cert renew buttons).
+        "cert_min_days": cert_min_days,
+        "certs_soonest": cert_rows[:_MAX_ROWS],
         "redirections": len([r for r in as_list(redirs) if isinstance(r, dict)]),
         "streams": len([s for s in as_list(streams) if isinstance(s, dict)]),
         "dead_hosts": len([d for d in as_list(dead) if isinstance(d, dict)]),
@@ -384,7 +443,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     print(f"[npm] INFO fetched host={host_id} hosts={out['proxy_hosts']} "
           f"(on={out['proxy_enabled']}/off={out['proxy_disabled']}) "
+          f"plain_http={out['proxy_plain_http']} "
           f"certs={out['certs']} expiring={out['certs_expiring']} "
+          f"expired={out['certs_expired']} min_days={out['cert_min_days']} "
           f"redirs={out['redirections']} streams={out['streams']} "
           f"dead={out['dead_hosts']} ver={out['version'] or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
@@ -402,8 +463,11 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "proxy_hosts": safe_int(data.get("proxy_hosts")),
         "proxy_enabled": safe_int(data.get("proxy_enabled")),
         "proxy_disabled": safe_int(data.get("proxy_disabled")),
+        "proxy_plain_http": safe_int(data.get("proxy_plain_http")),
         "certs": safe_int(data.get("certs")),
         "certs_expiring": safe_int(data.get("certs_expiring")),
+        "certs_expired": safe_int(data.get("certs_expired")),
+        "cert_min_days": data.get("cert_min_days"),
         "redirections": safe_int(data.get("redirections")),
         "streams": safe_int(data.get("streams")),
         "dead_hosts": safe_int(data.get("dead_hosts")),
@@ -457,6 +521,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "npm_enable_host":
         return await _toggle_host_skill(host_row, chip, arg=arg,
                                         enable=True, host_id=host_id)
+    if skill_id == "npm_renew_cert":
+        return await _renew_cert_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "npm_renew_expiring":
+        return await _renew_expiring_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -475,20 +543,38 @@ async def _status_skill(host_row: dict, chip: dict, *,
     hosts = safe_int(data.get("proxy_hosts"))
     on = safe_int(data.get("proxy_enabled"))
     off = safe_int(data.get("proxy_disabled"))
+    plain = safe_int(data.get("proxy_plain_http"))
     expiring = safe_int(data.get("certs_expiring"))
+    expired = safe_int(data.get("certs_expired"))
+    min_days = data.get("cert_min_days")
     lines = [
         f"🌐 Proxy hosts: {hosts}" + (f" ({on} on · {off} off)" if off else ""),
         f"🔒 Certificates: {safe_int(data.get('certs'))}"
         + (f" · ⚠️ {expiring} expiring ≤{_EXPIRY_SOON_DAYS}d" if expiring else ""),
+    ]
+    # Soonest-expiry callout — the single most actionable line.
+    if isinstance(min_days, int):
+        if min_days < 0:
+            lines.append(f"🔴 Soonest cert: expired {abs(min_days)}d ago")
+        elif min_days <= _EXPIRY_SOON_DAYS:
+            lines.append(f"🟠 Soonest cert expires in {min_days}d")
+        else:
+            lines.append(f"🟢 Soonest cert expires in {min_days}d")
+    if expired:
+        lines.append(f"⛔ {expired} cert(s) already EXPIRED")
+    if plain:
+        lines.append(f"🔓 {plain} proxy host(s) served over plain HTTP (no SSL)")
+    lines.append(
         f"↪️ {safe_int(data.get('redirections'))} redirections · "
         f"🔀 {safe_int(data.get('streams'))} streams · "
-        f"💀 {safe_int(data.get('dead_hosts'))} 404 hosts",
-    ]
+        f"💀 {safe_int(data.get('dead_hosts'))} 404 hosts")
     ver = str(data.get("version") or "").strip()
     if ver:
         lines.append(f"· NPM {ver}")
     return {"ok": True, "detail": "\n".join(lines), "status": 200,
-            "proxy_hosts": hosts, "certs_expiring": expiring}
+            "proxy_hosts": hosts, "certs_expiring": expiring,
+            "certs_expired": expired, "cert_min_days": min_days,
+            "proxy_plain_http": plain}
 
 
 # noinspection DuplicatedCode
@@ -578,7 +664,17 @@ async def _expiring_certs_skill(host_row: dict, chip: dict, *,
             when = f"expires in {days}d"
             dot = "🟢"
         sub = f"{dot} {when}"
-        items.append({"title": label, "subtitle": sub})
+        row: dict = {"title": label, "subtitle": sub}
+        # One-click ↻ Renew on Let's Encrypt certs (custom certs have no renew
+        # endpoint, so no button). Non-destructive — no confirm gate.
+        if str(c.get("provider") or "").strip().lower() == "letsencrypt":
+            row["row_action"] = {
+                "skill_id": "npm_renew_cert",
+                "arg": str(safe_int(c.get("id"))),
+                "icon": "refresh-cw",
+                "title_i18n": "apps.npm.renew_cert",
+            }
+        items.append(row)
         lines.append(f"• {label}  ({sub})")
     soon = sum(1 for days, _ in rows if days <= _EXPIRY_SOON_DAYS)
     head = (f"🔒 {soon} cert(s) expiring within {_EXPIRY_SOON_DAYS}d:"
@@ -644,3 +740,133 @@ async def _toggle_host_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200,
             "detail": f"🔴 Disabled the proxy host for \"{match_dom}\" — it's now "
                       f"offline until re-enabled."}
+
+
+async def _renew_one(cli: "httpx.AsyncClient", base: str, token: str,
+                     cert_id: int) -> "tuple[bool, int]":
+    """POST a single cert renew (``/api/nginx/certificates/{id}/renew``).
+    Returns ``(ok, status_code)`` — ``(False, 0)`` on a transport error."""
+    try:
+        r = await cli.post(base + f"/api/nginx/certificates/{cert_id}/renew",
+                           headers=_hdr(token))
+    except (httpx.HTTPError, OSError):
+        return False, 0
+    return (200 <= r.status_code < 300), r.status_code
+
+
+# noinspection DuplicatedCode
+async def _renew_cert_skill(host_row: dict, chip: dict, *,
+                            arg: Optional[str] = None,
+                            host_id: Optional[str] = None) -> dict:
+    """Renew ONE Let's Encrypt certificate. Resolves the target from the
+    console's certs — an exact cert id (the per-row Renew button) first, else a
+    label / domain substring (the AI / Telegram path) — then POSTs the renew.
+    Non-destructive. Custom-uploaded certs have no renew endpoint and report a
+    clear error. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no certificate given (say e.g. \"renew the cert for app.example.com\")"}
+    email, password, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    want_id = safe_int(needle) if needle.isdigit() else 0
+    print(f"[npm] INFO npm_renew_cert host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=30.0,
+                                     follow_redirects=True) as cli:
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
+            if not token:
+                return {"ok": False, "status": 401,
+                        "detail": "auth failed (check the NPM email + password)"}
+            certs = await _get(cli, base + "/api/nginx/certificates", token)
+            target = None
+            for c in as_list(certs):
+                if not isinstance(c, dict):
+                    continue
+                if want_id and safe_int(c.get("id")) == want_id:
+                    target = c
+                    break
+                if not want_id:
+                    label = _cert_label(c).lower()
+                    doms = [str(d).strip().lower() for d in as_list(c.get("domain_names")) if d]
+                    if nl in label or any(nl in d for d in doms):
+                        target = c
+                        break
+            if target is None:
+                return {"ok": False, "status": 404,
+                        "detail": f"no certificate matched \"{needle}\""}
+            label = _cert_label(target)
+            if str(target.get("provider") or "").strip().lower() != "letsencrypt":
+                return {"ok": False, "status": 400,
+                        "detail": f"\"{label}\" is a custom-uploaded certificate — it "
+                                  f"can't be auto-renewed (only Let's Encrypt certs can)."}
+            ok, status = await _renew_one(cli, base, token, safe_int(target.get("id")))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"renew failed: {type(e).__name__}: {e}"}
+    if not ok:
+        return {"ok": False, "status": status,
+                "detail": f"NPM didn't accept the renewal for \"{label}\" (HTTP {status})"}
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Started a Let's Encrypt renewal for \"{label}\"."}
+
+
+# noinspection DuplicatedCode
+async def _renew_expiring_skill(host_row: dict, chip: dict, *,
+                                host_id: Optional[str] = None) -> dict:
+    """Renew EVERY renewable (Let's Encrypt) certificate that is expiring within
+    the soon-window (or already expired). Non-destructive. Reports the count
+    renewed + any custom certs skipped. Never raises."""
+    email, password, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[npm] INFO npm_renew_expiring host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=60.0,
+                                     follow_redirects=True) as cli:
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
+            if not token:
+                return {"ok": False, "status": 401,
+                        "detail": "auth failed (check the NPM email + password)"}
+            certs = await _get(cli, base + "/api/nginx/certificates", token)
+            targets: list = []
+            skipped_custom = 0
+            for c in as_list(certs):
+                if not isinstance(c, dict):
+                    continue
+                days = _cert_days_left(c.get("expires_on"))
+                if days is None or days > _EXPIRY_SOON_DAYS:
+                    continue
+                if str(c.get("provider") or "").strip().lower() != "letsencrypt":
+                    skipped_custom += 1
+                    continue
+                targets.append(c)
+            if not targets:
+                msg = "✅ No Let's Encrypt certificates are expiring soon."
+                if skipped_custom:
+                    msg += f" ({skipped_custom} custom cert(s) can't be auto-renewed.)"
+                return {"ok": True, "status": 200, "detail": msg}
+            renewed = 0
+            failed = 0
+            renewed_labels: list = []
+            for c in targets:
+                ok, _status = await _renew_one(cli, base, token, safe_int(c.get("id")))
+                if ok:
+                    renewed += 1
+                    renewed_labels.append(_cert_label(c))
+                else:
+                    failed += 1
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"renew failed: {type(e).__name__}: {e}"}
+    if not renewed:
+        return {"ok": False, "status": 502,
+                "detail": f"NPM didn't accept any of the {len(targets):,} renewal(s)."}
+    tail = (": " + ", ".join(renewed_labels)) if renewed_labels else ""
+    extra = ""
+    if failed:
+        extra += f" {failed} failed."
+    if skipped_custom:
+        extra += f" {skipped_custom} custom cert(s) skipped."
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Started renewal for {renewed:,} cert(s){tail}.{extra}"}

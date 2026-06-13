@@ -802,7 +802,7 @@ function app() {
       {id: 'host_groups', label: 'Host Groups', icon: 'folder'},
       {id: 'hosts', label: 'Hosts', icon: 'hard-drive'},
       {id: 'apps', label: 'Apps', icon: 'grid'},
-      {id: 'assets', label: 'Asset inventory', icon: 'package'},
+      {id: 'assets', label: 'Asset inventory', icon: 'clipboard-list'},
       {id: 'ai', label: 'AI integration', icon: 'zap'},
       {id: '_sep_2', separator: true},
       {id: 'schedules', label: 'Schedules', icon: 'calendar'},
