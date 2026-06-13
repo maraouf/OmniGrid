@@ -77,16 +77,59 @@ function embyBandwidth(bps) {
   if (bps == null || !isFinite(n) || n <= 0) {
     return '—';
   }
-  if (n >= 1e9) {
-    return (n / 1e9).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Gbps';
+  if (n >= 1000000000) {
+    return (n / 1000000000).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Gbps';
   }
-  if (n >= 1e6) {
-    return (n / 1e6).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Mbps';
+  if (n >= 1000000) {
+    return (n / 1000000).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' Mbps';
   }
-  if (n >= 1e3) {
-    return (n / 1e3).toLocaleString(undefined, {maximumFractionDigits: 0}) + ' kbps';
+  if (n >= 1000) {
+    return (n / 1000).toLocaleString(undefined, {maximumFractionDigits: 0}) + ' kbps';
   }
   return n.toLocaleString() + ' bps';
+}
+
+// Streaming trend block `{days, samples, latest_streams, peak_streams,
+// peak_streams_today, peak_transcodes, series_streams, series_transcodes}` from
+// the shared lifespan emby_sampler, or null while idle / no samples yet. Drives
+// the card's 'peak streams today' stat + the daily peak-streams sparkline.
+function embyTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.embyData ? this.embyData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` per numeric series array (avoids re-render flicker on
+// every Alpine flush — the canonical SVG-builder memo).
+const _embyTrendMemo = new WeakMap();
+
+// SVG polyline points for a peak-streams sparkline over a 0..100 × 0..24 viewBox,
+// auto-scaled to the series' own max (min pinned at 0 so '2 of a 5-peak day'
+// reads proportionally). '' when < 2 points. Memoised on the array ref.
+function embyTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_embyTrendMemo.has(arr)) {
+    return _embyTrendMemo.get(arr);
+  }
+  const W = 100, H = 24, n = arr.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(arr[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _embyTrendMemo.set(arr, pts);
+  return pts;
 }
 
 // Extender record -- consumed by the generic helpers in
@@ -111,4 +154,6 @@ export const helpers = {
   embyData: embyData,
   embyCount: embyCount,
   embyBandwidth: embyBandwidth,
+  embyTrend: embyTrend,
+  embyTrendPath: embyTrendPath,
 };

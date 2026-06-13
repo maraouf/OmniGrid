@@ -71,6 +71,7 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     app,
     db_conn,
     httpx,
+    new_op,
     portainer,
     tuning,
 )
@@ -1853,6 +1854,9 @@ class SettingsIn(BaseModel):
     # throughput.
     tuning_tdarr_sample_interval_seconds: Optional[str] = None
     tuning_tdarr_history_days: Optional[str] = None
+    # Emby / Jellyfin streaming retention sampler (shared by both brands).
+    tuning_emby_sample_interval_seconds: Optional[str] = None
+    tuning_emby_history_days: Optional[str] = None
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None

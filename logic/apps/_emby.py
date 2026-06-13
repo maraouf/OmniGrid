@@ -192,6 +192,78 @@ async def _library_list(cli: "httpx.AsyncClient", base: str, key: str,
     return out
 
 
+# Bounded recently-added pull for the "items added this week" stat. 256 items
+# is plenty for a home server's weekly additions; when every one of the 256 is
+# within the 7-day window the SPA renders the count as "256+".
+_RECENT_CREATED_CAP = 256
+_WEEK_SECONDS = 7 * 86400
+
+
+async def _recent_created(cli: "httpx.AsyncClient", base: str, key: str,
+                          scheme: str) -> list:
+    """The ``DateCreated`` ISO strings of the most-recently-added real items
+    (movies / episodes / albums / etc.), newest-first, bounded to
+    ``_RECENT_CREATED_CAP``. Best-effort: ``[]`` on a non-200 / parse failure."""
+    try:
+        r = await cli.get(base + "/Items", headers=headers(key, scheme), params={
+            "Recursive": "true", "SortBy": "DateCreated", "SortOrder": "Descending",
+            "IncludeItemTypes": "Movie,Episode,MusicAlbum,Audio,MusicVideo,Video",
+            "Fields": "DateCreated", "Limit": str(_RECENT_CREATED_CAP),
+            "ImageTypeLimit": "0", "EnableImages": "false"})
+        if r.status_code != 200:
+            return []
+        items = as_list(as_dict(r.json()).get("Items"))
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
+    return [str(as_dict(it).get("DateCreated") or "") for it in items
+            if isinstance(it, dict)]
+
+
+def _parse_iso_epoch(s: str) -> int:
+    """Parse an Emby / Jellyfin ``DateCreated`` ISO string to epoch seconds
+    (0 on any parse failure). Handles the trailing ``Z`` + fractional seconds."""
+    import datetime as _dt  # noqa: PLC0415
+    raw = (s or "").strip()
+    if not raw:
+        return 0
+    raw = raw.replace("Z", "+00:00")
+    # Trim over-precise fractional seconds (Emby emits 7 digits; fromisoformat
+    # accepts at most 6 before Python 3.11 — clamp to be safe).
+    if "." in raw:
+        head, _, tail = raw.partition(".")
+        frac = ""
+        tz = ""
+        for ch in tail:
+            if ch.isdigit() and len(frac) < 6:
+                frac += ch
+            elif ch in "+-":
+                tz = tail[tail.index(ch):]
+                break
+        raw = head + ("." + frac if frac else "") + tz
+    try:
+        dt = _dt.datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return int(dt.timestamp())
+
+
+def _items_added_this_week(created: list, now: float) -> int:
+    """Count of items whose ``DateCreated`` is within the last 7 days. ``created``
+    is the newest-first ISO list from ``_recent_created`` — since it's sorted, we
+    stop at the first out-of-window item. Returns up to ``_RECENT_CREATED_CAP``
+    (the SPA renders the cap value as "N+")."""
+    cutoff = int(now) - _WEEK_SECONDS
+    n = 0
+    for s in created:
+        if _parse_iso_epoch(s) >= cutoff:
+            n += 1
+        else:
+            break  # newest-first → the rest are older
+    return n
+
+
 def version_from(resp) -> str:
     """Server version from a ``GET /System/Info`` body ('' on any non-200 /
     parse failure — version is never load-bearing)."""
@@ -268,6 +340,8 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
             sessions_active = 0
             transcodes = 0
             bandwidth_bps = 0
+            active_users: set = set()
+            active_devices: set = set()
             try:
                 sr = await cli.get(base + "/Sessions", headers=headers(key, cfg.scheme))
                 if sr.status_code == 200:
@@ -283,8 +357,25 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
                         # transcoding, else the source item's own bitrate.
                         bandwidth_bps += (safe_int(ti.get("Bitrate"))
                                           or safe_int(as_dict(s.get("NowPlayingItem")).get("Bitrate")))
+                        # Distinct watchers + distinct devices among the active
+                        # sessions (a user on 2 devices = 1 user / 2 devices).
+                        uid = str(s.get("UserId") or s.get("UserName") or "").strip()
+                        if uid:
+                            active_users.add(uid)
+                        did = str(s.get("DeviceId") or s.get("DeviceName") or "").strip()
+                        if did:
+                            active_devices.add(did)
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 sessions_active = transcodes = bandwidth_bps = 0
+                active_users = set()
+                active_devices = set()
+            # Items added in the last 7 days — a bounded recently-added pull
+            # (DateCreated desc) counted against a 7-day cutoff. Best-effort: a
+            # failure leaves the count at 0 (the card hides the chip then). Capped
+            # so a huge library can't bloat the payload; the count shows "N+" in
+            # the SPA when the cap is hit.
+            items_this_week = _items_added_this_week(
+                await _recent_created(cli, base, key, cfg.scheme), now)
             # Version (nice-to-have).
             try:
                 version = version_from(
@@ -319,15 +410,36 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "transcodes": transcodes,
         "direct_streams": max(0, sessions_active - transcodes),
         "bandwidth_bps": bandwidth_bps,
+        "active_users": len(active_users),
+        "active_devices": len(active_devices),
+        "items_this_week": items_this_week,
+        "items_this_week_capped": items_this_week >= _RECENT_CREATED_CAP,
         "version": version,
         "fetched_at": int(now),
     }
+    # Best-effort streaming trend from the shared lifespan emby_sampler (peak-
+    # streams-today + the daily peak-streams sparkline). A missing sampler / no
+    # samples yet leaves the card's instantaneous stats untouched.
+    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[{cfg.log_tag}] INFO fetched host={host_id} movies={out['movies']} "
           f"series={out['series']} episodes={out['episodes']} songs={out['songs']} "
           f"libraries={libraries} sessions={sessions_active} "
-          f"transcodes={transcodes} bw={bandwidth_bps}bps")
+          f"transcodes={transcodes} bw={bandwidth_bps}bps "
+          f"users={out['active_users']} week={items_this_week}")
     cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort streaming trend for the card — the shared emby_sampler's
+    per-chip ``trend_summary``. Returns ``None`` (never raises) when the sampler
+    isn't importable / errors, so a trend hiccup can't fail the card."""
+    try:
+        from logic.apps import emby_sampler as _sampler  # noqa: PLC0415
+        return _sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[emby] trend_summary({host_id}#{service_idx}) skipped: {e}")
+        return None
 
 
 def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict]:
@@ -347,6 +459,9 @@ def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict
         "transcodes": safe_int(data.get("transcodes")),
         "direct_streams": safe_int(data.get("direct_streams")),
         "bandwidth_bps": safe_int(data.get("bandwidth_bps")),
+        "active_users": safe_int(data.get("active_users")),
+        "active_devices": safe_int(data.get("active_devices")),
+        "items_this_week": safe_int(data.get("items_this_week")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -915,6 +1030,55 @@ async def scan_skill(host_row: dict, chip: dict, *,
             "detail": f"🔄 Started a {cfg.brand} library scan."}
 
 
+async def scan_library_skill(host_row: dict, chip: dict, *,
+                             arg: Optional[str], host_id: Optional[str],
+                             cfg: Config) -> dict:
+    """Action skill (arg): re-scan ONE library by name. Resolves the term
+    against the live library list (exact name first, else substring) then
+    ``POST /Items/{libraryId}/Refresh`` (the per-library re-index, supported by
+    both Emby and Jellyfin). Non-destructive. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": f"no library given — say e.g. 'scan the Movies library on {cfg.slug}'"}
+    key, base, err = _resolve_skill_target(host_row, chip, cfg=cfg)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[{cfg.log_tag}] INFO {cfg.slug}_scan_library host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            folders = await _virtual_folders(cli, base, key, cfg.scheme)
+            target_id = ""
+            target_name = ""
+            # Exact name match first, then substring.
+            for vf in folders:
+                if str(vf.get("name") or "").strip().lower() == nl:
+                    target_id, target_name = vf.get("id") or "", vf.get("name") or ""
+                    break
+            if not target_id:
+                for vf in folders:
+                    if nl in str(vf.get("name") or "").strip().lower():
+                        target_id, target_name = vf.get("id") or "", vf.get("name") or ""
+                        break
+            if not target_id:
+                return {"ok": False, "status": 404,
+                        "detail": f"no {cfg.brand} library matched \"{needle}\""}
+            rr = await cli.post(base + f"/Items/{target_id}/Refresh",
+                                headers=headers(key, cfg.scheme))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"scan failed: {type(e).__name__}: {e}"}
+    ae = _auth_error(rr, cfg)
+    if ae:
+        return ae
+    if rr.status_code not in (200, 202, 204):
+        return {"ok": False, "status": rr.status_code, "detail": f"HTTP {rr.status_code}"}
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Started a scan of the “{target_name or needle}” library on {cfg.brand}."}
+
+
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str], service_idx: Optional[int],
                     arg: Optional[str], cfg: Config, cache: dict) -> dict:
@@ -934,6 +1098,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await search_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
     if skill_id == f"{cfg.slug}_scan":
         return await scan_skill(host_row, chip, host_id=host_id, cfg=cfg)
+    if skill_id == f"{cfg.slug}_scan_library":
+        return await scan_library_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -996,6 +1162,16 @@ def build_skills(slug: str, brand: str) -> "tuple[dict, ...]":
             "ai_phrases": (f"scan {slug} libraries, refresh {slug}, update {slug} "
                            f"library, rescan {slug}, scan for new media on {slug}, "
                            f"{slug} library scan"),
+            "destructive": False,
+        },
+        {
+            "id": f"{slug}_scan_library",
+            "name": f"Scan one {b} library",
+            "ai_phrases": (f"scan the <name> library on {slug}, rescan my movies "
+                           f"library, refresh the <name> library, re-index the "
+                           f"<name> {slug} library, scan just the <name> library"),
+            "arg": True,
+            "arg_hint": "the name of the library to scan (e.g. Movies, TV Shows)",
             "destructive": False,
         },
     )

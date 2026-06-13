@@ -319,6 +319,27 @@ _OID_APC_UPS_BATT_TEMP_C = "1.3.6.1.4.1.318.1.1.1.2.2.2.0"
 _OID_APC_UPS_BATT_RUNTIME = "1.3.6.1.4.1.318.1.1.1.2.2.3.0"  # TimeTicks
 _OID_APC_UPS_OUTPUT_STATUS = "1.3.6.1.4.1.318.1.1.1.4.1.1.0"
 _OID_APC_UPS_OUTPUT_LOAD = "1.3.6.1.4.1.318.1.1.1.4.2.3.0"
+# Power-quality scalars (read-only): line / output voltage + frequency,
+# the reason for the last transfer to battery, the battery-replace flag,
+# and the last self-test result. All single GETs alongside the battery /
+# output reads above — no SNMP SET is ever issued (read-only contract).
+_OID_APC_UPS_INPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.3.2.1.0"   # upsAdvInputLineVoltage (VAC)
+_OID_APC_UPS_INPUT_FREQ = "1.3.6.1.4.1.318.1.1.1.3.2.4.0"      # upsAdvInputFrequency (Hz)
+_OID_APC_UPS_LAST_TRANSFER = "1.3.6.1.4.1.318.1.1.1.3.2.5.0"   # upsAdvInputLineFailCause (enum)
+_OID_APC_UPS_OUTPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.4.2.1.0"  # upsAdvOutputVoltage (VAC)
+_OID_APC_UPS_BATT_REPLACE = "1.3.6.1.4.1.318.1.1.1.2.2.4.0"    # upsAdvBatteryReplaceIndicator
+_OID_APC_UPS_SELF_TEST = "1.3.6.1.4.1.318.1.1.1.7.2.3.0"       # upsAdvTestDiagnosticsResults (enum)
+
+# APC last-transfer-to-battery cause enum (upsAdvInputLineFailCause).
+_APC_LAST_TRANSFER_LABELS = {
+    1: "no-transfer", 2: "high-line-voltage", 3: "brownout", 4: "blackout",
+    5: "small-momentary-sag", 6: "deep-momentary-sag", 7: "small-momentary-spike",
+    8: "large-momentary-spike", 9: "self-test", 10: "rate-of-voltage-change",
+}
+# APC self-test result enum (upsAdvTestDiagnosticsResults).
+_APC_SELF_TEST_LABELS = {
+    1: "ok", 2: "failed", 3: "invalid-test", 4: "test-in-progress",
+}
 
 # APC battery-status enum (from PowerNet-MIB upsBasicBatteryStatus).
 _APC_BATT_STATUS_LABELS = {
@@ -1095,6 +1116,31 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     if 0 <= apc_load <= 200:  # APC reports up to ~150% before overload
         if apc_load > 0 or apc_output_status > 0:
             out["host_load_percent"] = float(apc_load)
+    # Power-quality scalars (read-only). Input / output voltage are VAC
+    # integers; bound out the 0 / sentinel readings (a UPS in a real
+    # install reports ~100-260 VAC). Frequency is 45-65 Hz mains.
+    apc_in_v = _coerce_int(apc.get(_OID_APC_UPS_INPUT_VOLTAGE))
+    if 0 < apc_in_v < 400:
+        out["host_ups_input_voltage"] = float(apc_in_v)
+    apc_out_v = _coerce_int(apc.get(_OID_APC_UPS_OUTPUT_VOLTAGE))
+    if 0 < apc_out_v < 400:
+        out["host_ups_output_voltage"] = float(apc_out_v)
+    apc_in_hz = _coerce_int(apc.get(_OID_APC_UPS_INPUT_FREQ))
+    if 40 < apc_in_hz < 70:
+        out["host_ups_input_freq_hz"] = float(apc_in_hz)
+    apc_last_xfer = _coerce_int(apc.get(_OID_APC_UPS_LAST_TRANSFER))
+    if apc_last_xfer > 0:
+        out["host_ups_last_transfer"] = _APC_LAST_TRANSFER_LABELS.get(
+            apc_last_xfer, f"cause={apc_last_xfer}")
+    # Battery-replace indicator: 1 = ok, 2 = needs replacing. Emit a 0/1
+    # int so the card can flag it (only when the OID actually answered).
+    apc_batt_replace = _coerce_int(apc.get(_OID_APC_UPS_BATT_REPLACE))
+    if apc_batt_replace in (1, 2):
+        out["host_ups_battery_replace"] = 1 if apc_batt_replace == 2 else 0
+    apc_self_test = _coerce_int(apc.get(_OID_APC_UPS_SELF_TEST))
+    if apc_self_test > 0:
+        out["host_ups_self_test"] = _APC_SELF_TEST_LABELS.get(
+            apc_self_test, f"result={apc_self_test}")
     # ---- UCD-SNMP-MIB (Linux net-snmp) ------------------------------
     # DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
     # up CPU% (100 - ssCpuIdle), memory (KB → bytes), 1/5/15-min load
@@ -2305,6 +2351,9 @@ async def probe_snmp(
                 _OID_APC_UPS_BATT_STATUS, _OID_APC_UPS_BATT_CAPACITY,
                 _OID_APC_UPS_BATT_TEMP_C, _OID_APC_UPS_BATT_RUNTIME,
                 _OID_APC_UPS_OUTPUT_STATUS, _OID_APC_UPS_OUTPUT_LOAD,
+                _OID_APC_UPS_INPUT_VOLTAGE, _OID_APC_UPS_INPUT_FREQ,
+                _OID_APC_UPS_LAST_TRANSFER, _OID_APC_UPS_OUTPUT_VOLTAGE,
+                _OID_APC_UPS_BATT_REPLACE, _OID_APC_UPS_SELF_TEST,
             ])
         else:
             apc_vendor_task = _resolved_dict()

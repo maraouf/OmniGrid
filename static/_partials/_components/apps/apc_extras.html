@@ -75,6 +75,59 @@
             <div class="apps-card-stat-value" x-text="apcHostUpsData(inst).status || '--'"></div>
           </div>
         </div>
+        <!-- Power-quality scalars (input/output voltage, mains frequency, last
+             transfer cause, self-test, battery-replace flag). Read-only SNMP
+             (PowerNet-MIB). Hidden when the UPS / firmware doesn't expose them. -->
+        <template x-if="apcHasPowerQuality(apcHostUpsData(inst))">
+          <div class="mt-2">
+            <div class="apps-card-ups-grid">
+              <!-- Input voltage (utility line VAC) -->
+              <template x-if="apcHostUpsData(inst).input_voltage != null">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.input_voltage') || 'Input voltage'"></div>
+                  <div class="apps-card-stat-value"
+                       x-text="apcHostUpsData(inst).input_voltage.toFixed(0) + ' V'"></div>
+                </div>
+              </template>
+              <!-- Output voltage (VAC) -->
+              <template x-if="apcHostUpsData(inst).output_voltage != null">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.output_voltage') || 'Output voltage'"></div>
+                  <div class="apps-card-stat-value"
+                       x-text="apcHostUpsData(inst).output_voltage.toFixed(0) + ' V'"></div>
+                </div>
+              </template>
+              <!-- Input mains frequency (Hz) -->
+              <template x-if="apcHostUpsData(inst).input_freq_hz != null">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.input_freq') || 'Line frequency'"></div>
+                  <div class="apps-card-stat-value"
+                       x-text="apcHostUpsData(inst).input_freq_hz.toFixed(0) + ' Hz'"></div>
+                </div>
+              </template>
+              <!-- Last transfer-to-battery cause -->
+              <template x-if="apcHostUpsData(inst).last_transfer">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.last_transfer') || 'Last transfer'"></div>
+                  <div class="apps-card-stat-value" x-text="apcTransferLabel(apcHostUpsData(inst).last_transfer)"></div>
+                </div>
+              </template>
+              <!-- Last self-test result -->
+              <template x-if="apcHostUpsData(inst).self_test">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.self_test') || 'Self-test'"></div>
+                  <div class="apps-card-stat-value" x-text="apcSelfTestLabel(apcHostUpsData(inst).self_test)"></div>
+                </div>
+              </template>
+            </div>
+            <!-- Battery-replace warning (only when the UPS reports it needs a
+                 new battery pack). -->
+            <template x-if="apcHostUpsData(inst).battery_replace === 1">
+              <p class="fs-3xs text-[var(--danger)] mt-1.5 inline-flex items-center gap-1"
+                 x-text="'⚠️ ' + (t('apps.apc.battery_replace') || 'Battery needs replacing')"></p>
+            </template>
+          </div>
+        </template>
         <!-- Battery / load / runtime trend sparklines — windowed read of the
              already-persisted host_snmp_samples (no APC sampler). Shown once at
              least two samples exist in the window. -->

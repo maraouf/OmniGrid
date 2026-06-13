@@ -66,6 +66,12 @@
         <span class="text-[var(--success)]" aria-hidden="true">▶️</span>
         <span class="mono" x-text="t('apps.emby.direct_n', { n: embyCount(embyData(inst).direct_streams) })"></span>
       </span>
+      <!-- Distinct watchers + devices among the active sessions. -->
+      <span x-show="(Number(embyData(inst).active_users) || 0) > 0" class="inline-flex items-center gap-1"
+            :title="t('apps.emby.active_users_title') || 'Distinct viewers · devices'">
+        <span class="text-[var(--text-dim)]" aria-hidden="true">👥</span>
+        <span class="mono" x-text="t('apps.emby.users_devices', { u: embyCount(embyData(inst).active_users), d: embyCount(embyData(inst).active_devices) })"></span>
+      </span>
     </div>
     <!-- All libraries (name + item count) + grand total — a multi-library
          server shows EVERY library here, not just the Movies/Series/Songs grid. -->
@@ -84,15 +90,33 @@
         </template>
       </div>
     </div>
-    <!-- Episodes + version footnote (+ library count when the list is empty). -->
+    <!-- Episodes + version footnote (+ library count when the list is empty)
+         + "N added this week" (from the bounded recently-added pull). -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-show="!(embyData(inst).library_list || []).length"
             x-text="t('apps.emby.libraries_footnote', { n: (Number(embyData(inst).libraries) || 0) })"></span>
       <span x-show="(Number(embyData(inst).episodes) || 0) > 0"
             x-text="t('apps.emby.episodes_footnote', { n: (Number(embyData(inst).episodes) || 0) })"></span>
+      <span x-show="(Number(embyData(inst).items_this_week) || 0) > 0" class="text-[var(--success)]"
+            x-text="t('apps.emby.added_this_week', { n: embyCount(embyData(inst).items_this_week) }) + (embyData(inst).items_this_week_capped ? '+' : '')"></span>
       <span x-show="embyData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Emby', v: (embyData(inst).version || '') })"></span>
     </div>
+    <!-- Streaming trend — daily peak-streams sparkline + 'peak N today / window'
+         from the shared lifespan emby_sampler. DRAWER-ONLY (the card stays
+         compact; the trend needs room). Shown once >= 2 samples exist. -->
+    <template x-if="appsExtrasInDrawer && embyTrend(inst) && embyTrend(inst).samples > 1 && (embyTrend(inst).series_streams || []).length > 1">
+      <div class="mt-2">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="apps-card-stat-label" x-text="t('apps.emby.streams_trend') || 'Peak streams'"></span>
+          <span class="fs-3xs text-[var(--text-faint)] mono"
+                x-text="t('apps.emby.streams_peak', { today: (Number(embyTrend(inst).peak_streams_today) || 0), peak: (Number(embyTrend(inst).peak_streams) || 0), days: (Number(embyTrend(inst).days) || 0) })"></span>
+        </div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="embyTrendPath(embyTrend(inst).series_streams)"></polyline>
+        </svg>
+      </div>
+    </template>
   </div>
 </template>
 <!-- No API key yet — idle and unconfigured. -->
