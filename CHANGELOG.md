@@ -93,6 +93,7 @@ this whole block to `[X.Y.0]` and adds a fresh empty `[Unreleased]` above.
 - Settings & Stats labels — added the missing host-stats provider labels (qBittorrent, *arr, FlareSolverr, AdGuard Home, ddns-updater, Seerr, Kavita, Tdarr, Prowlarr, baseline, Speedtest Tracker, prayer times, Pi-hole, Fing, Gemini) and the per-table sample labels for the newer sampler tables, so the Settings → Host stats list and the Stats per-table breakdown show real names instead of the raw key.
 - APC UPS card — the battery / output-load / runtime-remaining trend sparklines were rendering too small to read (clobbered down to a dense in-card size); they now draw at a comfortable readable height in the expanded card / drawer.
 - Stats per-host breakdown — the drill-down popup header now leads with an icon, matching the rest of the dashboard.
+- Stats dashboard — the loading skeleton now shows the same number of cards as the loaded view. The "Problem hosts" triage card previously had no skeleton and only appeared once loaded (when there were problem hosts), so the grid visibly grew by one card on load; it's now always present with its own skeleton, turning red and click-to-filter only when there's something to act on.
 
 ### Internal
 

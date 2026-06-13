@@ -1177,6 +1177,7 @@
       "source_servarr": "Servarr (*arr)",
       "source_flaresolverr": "FlareSolverr",
       "source_adguardhome": "AdGuard Home",
+      "source_adguardhome_sync": "AdGuard Home Sync",
       "source_ddns_updater": "ddns-updater",
       "source_seerr": "Overseerr / Jellyseerr",
       "source_kavita": "Kavita",
