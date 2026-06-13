@@ -162,6 +162,28 @@ SKILLS: tuple[dict, ...] = (
                      "button supplies it"),
     },
     {
+        "id": "qbittorrent_recheck_torrent",
+        "name": "Recheck a torrent",
+        "ai_phrases": ("recheck a torrent, force recheck, re-verify this torrent, "
+                       "recheck torrent <hash>, verify the files, recheck this "
+                       "download, check the torrent integrity"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("the torrent HASH to force-recheck; the drawer's per-row "
+                     "recheck button supplies it"),
+    },
+    {
+        "id": "qbittorrent_force_resume_torrent",
+        "name": "Force-resume a torrent",
+        "ai_phrases": ("force resume a torrent, force start this download, "
+                       "force-resume torrent <hash>, ignore the queue and start, "
+                       "force start that one, bypass the queue for this torrent"),
+        "destructive": False,
+        "arg": True,
+        "arg_hint": ("the torrent HASH to force-resume (bypass the queue); the "
+                     "drawer's per-row force-resume button supplies it"),
+    },
+    {
         "id": "qbittorrent_resume_all",
         "name": "Resume all torrents",
         "ai_phrases": ("resume all torrents, start all torrents, unpause "
@@ -175,6 +197,16 @@ SKILLS: tuple[dict, ...] = (
         "ai_phrases": ("pause all torrents, stop all torrents, pause everything, "
                        "stop downloading, halt all torrents, pause downloads"),
         "destructive": True,
+    },
+    {
+        "id": "qbittorrent_toggle_alt_speed",
+        "name": "Toggle alternate speed limits",
+        "ai_phrases": ("toggle alternate speed limits, turn on alt speed, slow it "
+                       "down, enable the speed limit, throttle qbittorrent, turn "
+                       "off speed limits, toggle alt-speed mode, switch the "
+                       "alternate rate limits, limit the download speed, "
+                       "unthrottle qbittorrent, full speed"),
+        "destructive": False,
     },
     {
         "id": "qbittorrent_vuetorrent_check",
@@ -553,6 +585,18 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _set_one_skill(host_row, chip, arg=arg, resume=False, host_id=host_id)
     if skill_id == "qbittorrent_resume_torrent":
         return await _set_one_skill(host_row, chip, arg=arg, resume=True, host_id=host_id)
+    if skill_id == "qbittorrent_toggle_alt_speed":
+        return await _toggle_alt_speed_skill(host_row, chip, host_id=host_id)
+    if skill_id == "qbittorrent_recheck_torrent":
+        return await _torrent_post_skill(
+            host_row, chip, arg=arg, host_id=host_id,
+            path="/api/v2/torrents/recheck", extra={}, verb="recheck",
+            ok_msg="🔁 Re-checking the torrent (verifying files).")
+    if skill_id == "qbittorrent_force_resume_torrent":
+        return await _torrent_post_skill(
+            host_row, chip, arg=arg, host_id=host_id,
+            path="/api/v2/torrents/setForceStart", extra={"value": "true"},
+            verb="force-resume", ok_msg="⏩ Force-resumed the torrent (queue bypassed).")
     if skill_id == "qbittorrent_resume_all":
         return await _set_all_skill(host_row, chip, resume=True, host_id=host_id)
     if skill_id == "qbittorrent_pause_all":
@@ -1040,12 +1084,19 @@ async def _downloading_skill(host_row: dict, chip: dict, *,
         thash = str(t.get("hash") or "").strip()
         row: "dict[str, Any]" = {"title": name, "subtitle": sub, "progress": pct}
         if thash:
-            # Two per-row buttons (the drawer renders `row_actions[]`): pause
-            # (non-destructive) + delete (destructive — the SPA confirms first).
+            # Per-row buttons (the drawer renders `row_actions[]`): pause +
+            # recheck + force-resume (all non-destructive) + delete (destructive
+            # — the SPA confirms first).
             row["row_actions"] = [
                 {"skill_id": "qbittorrent_pause_torrent", "arg": thash,
                  "icon": "pause", "destructive": False,
                  "title_i18n": "apps.qbittorrent.pause_title"},
+                {"skill_id": "qbittorrent_recheck_torrent", "arg": thash,
+                 "icon": "rotate-cw", "destructive": False,
+                 "title_i18n": "apps.qbittorrent.recheck_title"},
+                {"skill_id": "qbittorrent_force_resume_torrent", "arg": thash,
+                 "icon": "zap", "destructive": False,
+                 "title_i18n": "apps.qbittorrent.force_resume_title"},
                 {"skill_id": "qbittorrent_delete", "arg": thash,
                  "icon": "trash-2", "destructive": True,
                  "confirm_i18n": "apps.qbittorrent.delete_confirm",
@@ -1229,29 +1280,47 @@ async def _set_all_skill(host_row: dict, chip: dict, *, resume: bool,
 async def _set_one_skill(host_row: dict, chip: dict, *, resume: bool,
                          arg: Optional[str] = None,
                          host_id: Optional[str] = None) -> dict:
-    """Action: pause (stop) OR resume (start) ONE torrent by hash
-    (``hashes=<hash>``). Tries the 4.x endpoint name first, falls back to the
-    5.x rename on 404. The drawer's per-row pause / resume button supplies the
-    hash. Never raises."""
+    """Action: pause (stop) OR resume (start) ONE torrent by hash. Thin wrapper
+    over the shared ``_torrent_post_skill`` with the 4.x→5.x endpoint fallback
+    (pause↔stop / resume↔start). The drawer's per-row pause / resume button
+    supplies the hash. Never raises."""
+    endpoints = ("resume", "start") if resume else ("pause", "stop")
+    return await _torrent_post_skill(
+        host_row, chip, arg=arg, host_id=host_id,
+        path=f"/api/v2/torrents/{endpoints[0]}", extra={},
+        fallback_path=f"/api/v2/torrents/{endpoints[1]}",
+        verb=("resume" if resume else "pause"),
+        ok_msg=("▶️ Resumed the torrent." if resume else "⏸️ Paused the torrent."))
+
+
+# noinspection DuplicatedCode
+async def _torrent_post_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str] = None,
+                              host_id: Optional[str] = None,
+                              path: str, extra: dict, verb: str,
+                              ok_msg: str, fallback_path: Optional[str] = None) -> dict:
+    """Action: POST a single-torrent qBit endpoint (``hashes=<hash>`` + any
+    ``extra`` form fields) for ONE torrent by hash — the shared engine behind the
+    pause / resume / recheck / force-resume skills + their per-row buttons.
+    ``fallback_path`` (when given) is retried on a 404 / 405 — the 4.x→5.x
+    endpoint rename (pause↔stop, resume↔start). ``verb`` / ``ok_msg`` brand the
+    result. Never raises."""
     h = (arg or "").strip()
-    verb = "resume" if resume else "pause"
     if not _HASH_RE.match(h):
         return {"ok": False, "status": 0,
                 "detail": f"no valid torrent hash given to {verb} (the per-row button supplies it)"}
     username, password, base, err = _resolve_target(host_row, chip)
     if err:
         return err
-    endpoints = (("resume", "start") if resume else ("pause", "stop"))
     print(f"[qbittorrent] INFO qbittorrent_{verb}_torrent host={host_id} hash={h[:12]}…")
+    data = {"hashes": h.lower(), **extra}
     try:
         async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:
             await _login(cli, base, username, password)
-            r = await cli.post(base + f"/api/v2/torrents/{endpoints[0]}",
-                               data={"hashes": h.lower()})
-            if r.status_code in (404, 405):
-                r = await cli.post(base + f"/api/v2/torrents/{endpoints[1]}",
-                                   data={"hashes": h.lower()})
+            r = await cli.post(base + path, data=data)
+            if fallback_path and r.status_code in (404, 405):
+                r = await cli.post(base + fallback_path, data=data)
     except RuntimeError as e:
         return {"ok": False, "status": 0, "detail": str(e)}
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -1260,6 +1329,44 @@ async def _set_one_skill(host_row: dict, chip: dict, *, resume: bool,
         return {"ok": False, "status": r.status_code,
                 "detail": "auth failed (check username / password)"}
     if 200 <= r.status_code < 300:
-        return {"ok": True, "status": 200,
-                "detail": ("▶️ Resumed the torrent." if resume else "⏸️ Paused the torrent.")}
+        return {"ok": True, "status": 200, "detail": ok_msg}
     return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+
+
+async def _toggle_alt_speed_skill(host_row: dict, chip: dict, *,
+                                  host_id: Optional[str] = None) -> dict:
+    """Action (no arg): toggle qBittorrent's ALTERNATE speed-limits mode
+    (``POST /api/v2/transfer/toggleSpeedLimitsMode``) — the one-click "slow it
+    down / speed it up". Reads back the resulting mode
+    (``GET /api/v2/transfer/speedLimitsMode`` → "1" on / "0" off) so the result
+    states which way it flipped. Never raises."""
+    username, password, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[qbittorrent] INFO qbittorrent_toggle_alt_speed host={host_id}")
+    mode = ""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            await _login(cli, base, username, password)
+            r = await cli.post(base + "/api/v2/transfer/toggleSpeedLimitsMode")
+            if 200 <= r.status_code < 300:
+                mr = await cli.get(base + "/api/v2/transfer/speedLimitsMode")
+                if 200 <= mr.status_code < 300:
+                    mode = (mr.text or "").strip()
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"toggle failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": False, "status": r.status_code,
+                "detail": "auth failed (check username / password)"}
+    if not (200 <= r.status_code < 300):
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    if mode == "1":
+        detail, on = "🐢 Alternate speed limits are now ON (throttled).", True
+    elif mode == "0":
+        detail, on = "🚀 Alternate speed limits are now OFF (full speed).", False
+    else:
+        detail, on = "🔀 Toggled alternate speed limits.", None
+    return {"ok": True, "status": 200, "detail": detail, "alt_speed_on": on}

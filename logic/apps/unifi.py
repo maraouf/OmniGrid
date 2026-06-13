@@ -131,6 +131,27 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the UniFi device name (or MAC) to restart",
         "destructive": True,
     },
+    {
+        "id": "unifi_block_client",
+        "name": "Block a client",
+        "ai_phrases": ("block a client, block the <name> device, block the kid's "
+                       "ipad, cut off internet for <name>, blacklist a device, "
+                       "block this client by name or MAC, deny network access to "
+                       "<name>, kick <name> off the wifi"),
+        "arg": True,
+        "arg_hint": "the client name or MAC to block from the network",
+        "destructive": True,
+    },
+    {
+        "id": "unifi_unblock_client",
+        "name": "Unblock a client",
+        "ai_phrases": ("unblock a client, allow the <name> device again, restore "
+                       "internet for <name>, un-blacklist a device, unblock this "
+                       "client, re-allow network access for <name>"),
+        "arg": True,
+        "arg_hint": "the client name or MAC to unblock (re-allow on the network)",
+        "destructive": False,
+    },
 )
 
 
@@ -695,6 +716,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
     for d in devices:
         buckets[_classify_device(d)] += 1
     wired = sum(1 for c in clients if _client_is_wired(c))
+    # Devices needing a firmware update — the COUNT plus the NAMED list (the
+    # count alone isn't actionable; "USW-Garage + U6-Attic need updates" is).
+    update_devices = [str(d.get("name") or d.get("model") or "?").strip()
+                      for d in devices if _device_update_pending(d)][:_MAX_ROWS]
     updates = sum(1 for d in devices if _device_update_pending(d))
     # Per-AP client LOAD — attribute each WIRELESS client to the device it
     # uplinks through (its AP) via ``uplinkDeviceId``, then map to that device's
@@ -746,6 +771,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # Per-AP client load (P1): busiest-first list + the single busiest AP.
         "ap_load": ap_load[:_MAX_ROWS],
         "busiest_ap": busiest_ap,
+        # Named list of devices with a pending firmware update (P3).
+        "update_devices": update_devices,
         "wlans": len(wlan_names),
         "wlan_names": wlan_names[:_MAX_ROWS],
         "wlan_details": wlan_details[:_MAX_ROWS],
@@ -784,6 +811,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "clients_wired": safe_int(data.get("clients_wired")),
         "clients_wireless": safe_int(data.get("clients_wireless")),
         "busiest_ap": as_dict(data.get("busiest_ap")) or None,
+        "update_devices": [str(n) for n in as_list(data.get("update_devices")) if n],
         "wlans": safe_int(data.get("wlans")),
         "wlan_names": [str(n) for n in as_list(data.get("wlan_names")) if n],
         "version": data.get("version") or "",
@@ -834,6 +862,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "unifi_wlans":
         return await _wlans_skill(host_row, chip, host_id=host_id,
                                   service_idx=service_idx)
+    if skill_id == "unifi_block_client":
+        return await _block_client_skill(host_row, chip, arg=arg, block=True, host_id=host_id)
+    if skill_id == "unifi_unblock_client":
+        return await _block_client_skill(host_row, chip, arg=arg, block=False, host_id=host_id)
     if skill_id == "unifi_restart_device":
         return await _restart_device_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
@@ -894,7 +926,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if wlans:
         lines.append(f"📶 {wlans} Wi-Fi network(s)")
     if updates:
-        lines.append(f"⬆️ {updates} device firmware update(s) available")
+        upd_names = [str(n) for n in as_list(data.get("update_devices")) if n]
+        line = f"⬆️ {updates} device firmware update(s) available"
+        if upd_names:
+            line += ": " + ", ".join(upd_names[:8])
+        lines.append(line)
     ver = str(data.get("version") or "").strip()
     sites = safe_int(data.get("sites"))
     tail = []
@@ -1138,3 +1174,63 @@ async def _restart_device_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200,
             "detail": f"🔁 Restart triggered on \"{match_name}\". It will drop off "
                       f"the network for a minute while it reboots."}
+
+
+# noinspection DuplicatedCode
+async def _block_client_skill(host_row: dict, chip: dict, *,
+                              arg: Optional[str], block: bool,
+                              host_id: Optional[str] = None) -> dict:
+    """Block (DESTRUCTIVE) or unblock ONE client by name or MAC. Resolves the
+    client across the console's sites, then POSTs the ``BLOCK`` / ``UNBLOCK``
+    action to ``/sites/{id}/clients/{id}/actions`` — the same action-endpoint
+    shape as the device RESTART. The Integration API's client-action verbs vary
+    across Network versions, so the upstream status is surfaced verbatim: a
+    rejected verb shows a clear HTTP error rather than a silent no-op. Never
+    raises."""
+    verb = "block" if block else "unblock"
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": f"no client name given (say e.g. \"{verb} the kid's iPad\")"}
+    key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    needle_l = needle.lower()
+    needle_mac = needle_l.replace("-", ":")
+    print(f"[unifi] INFO unifi_{verb}_client host={host_id} target={needle!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            sites = await _list_sites(cli, base, key)
+            match_site = ""
+            match_cli = ""
+            match_name = ""
+            for s in sites[:_MAX_SITES]:
+                sid = str(s.get("id") or "")
+                if not sid:
+                    continue
+                for c in await _get_all(cli, base + _API + f"/sites/{sid}/clients", key):
+                    cname = str(c.get("name") or "").strip()
+                    cmac = str(c.get("macAddress") or "").strip().lower().replace("-", ":")
+                    if cname.lower() == needle_l or (cmac and cmac == needle_mac):
+                        match_site, match_cli, match_name = sid, str(c.get("id") or ""), (cname or cmac)
+                        break
+                    if not match_cli and cname and needle_l in cname.lower():
+                        match_site, match_cli, match_name = sid, str(c.get("id") or ""), cname
+                if match_cli and (match_name.lower() == needle_l):
+                    break
+            if not match_cli:
+                return {"ok": False, "status": 404,
+                        "detail": f"no UniFi client matched \"{needle}\""}
+            ar = await cli.post(
+                base + _API + f"/sites/{match_site}/clients/{match_cli}/actions",
+                headers=_headers(key), json={"action": "BLOCK" if block else "UNBLOCK"})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    guard = _guard(ar)
+    if guard:
+        return guard
+    return {"ok": True, "status": 200,
+            "detail": (f"🚫 Blocked \"{match_name}\" — it can no longer use the network."
+                       if block else
+                       f"✅ Unblocked \"{match_name}\" — it can use the network again.")}

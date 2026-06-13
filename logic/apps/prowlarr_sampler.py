@@ -70,13 +70,13 @@ async def _probe_one(host_id: str, service_idx: int,
         return
     row = (int(time.time()), host_id, int(service_idx),
            safe_int(data.get("queries")), safe_int(data.get("grabs")),
-           safe_int(data.get("failed_queries")))
+           safe_int(data.get("failed_queries")), safe_int(data.get("avg_response_ms")))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO prowlarr_samples "
                 "(ts, host_id, service_idx, total_queries, total_grabs, "
-                "total_failed) VALUES (?,?,?,?,?,?)", row)
+                "total_failed, response_ms) VALUES (?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[prowlarr_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -122,14 +122,16 @@ def trend_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.PROWLARR_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "window_queries": 0,
                  "window_grabs": 0, "latest_fail_rate": 0.0, "avg_fail_rate": 0.0,
-                 "series_queries": [], "series_grabs": [], "series_fail_rate": []}
+                 "series_queries": [], "series_grabs": [], "series_fail_rate": [],
+                 "series_response_ms": [], "latest_response_ms": 0,
+                 "peak_response_ms": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, total_queries, total_grabs, total_failed "
+                "SELECT ts, total_queries, total_grabs, total_failed, response_ms "
                 "FROM prowlarr_samples WHERE host_id=? AND service_idx=? AND ts >= ? "
                 "ORDER BY ts ASC", (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -140,14 +142,21 @@ def trend_summary(host_id: str, service_idx: int,
         return out
     out["samples"] = len(rows)
     # Per-day LAST cumulative counter (monotonic → latest sample of the day).
+    # response_ms is a GAUGE → accumulate the day's POSITIVE samples for a mean.
     q_last: dict = {}
     g_last: dict = {}
     f_last: dict = {}
+    rm_sum: dict = {}
+    rm_cnt: dict = {}
     for r in rows:
         day = int(r["ts"]) // 86400
         q_last[day] = safe_int(r["total_queries"])  # rows are ts ASC
         g_last[day] = safe_int(r["total_grabs"])
         f_last[day] = safe_int(r["total_failed"])
+        rm = safe_int(r["response_ms"])
+        if rm > 0:
+            rm_sum[day] = rm_sum.get(day, 0) + rm
+            rm_cnt[day] = rm_cnt.get(day, 0) + 1
     ordered = sorted(q_last)
     last_day = ordered[-1]
     out["latest_fail_rate"] = (round(f_last[last_day] / q_last[last_day] * 100, 1)
@@ -175,13 +184,20 @@ def trend_summary(host_id: str, service_idx: int,
     out["window_grabs"] = sum(series_g)
     vol = [fr for fr, q in zip(series_fr, series_q) if q > 0]
     out["avg_fail_rate"] = round(sum(vol) / len(vol), 1) if vol else 0.0
+    # Daily-MEAN response time (gauge), 0 on days with no positive sample.
+    series_rm = [round(rm_sum[d] / rm_cnt[d]) if rm_cnt.get(d) else 0 for d in ordered]
+    positive_rm = [v for v in series_rm if v > 0]
+    out["latest_response_ms"] = next((v for v in reversed(series_rm) if v > 0), 0)
+    out["peak_response_ms"] = max(positive_rm) if positive_rm else 0
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]
         series_q = [series_q[i] for i in idx]
         series_g = [series_g[i] for i in idx]
         series_fr = [series_fr[i] for i in idx]
+        series_rm = [series_rm[i] for i in idx]
     out["series_queries"] = series_q
     out["series_grabs"] = series_g
     out["series_fail_rate"] = series_fr
+    out["series_response_ms"] = series_rm
     return out
