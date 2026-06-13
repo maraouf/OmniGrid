@@ -9,8 +9,8 @@
     </div>
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.tokens.create_hint')"></p>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-      <input x-model="newToken.name" type="text" :placeholder="t('admin.tokens.name_placeholder')" class="w-full md:col-span-2">
-      <select x-model="newToken.role" class="w-full">
+      <input :aria-label="t('admin.tokens.name_placeholder')" x-model="newToken.name" type="text" :placeholder="t('admin.tokens.name_placeholder')" class="w-full md:col-span-2">
+      <select :aria-label="t('admin.tokens.role_label')" x-model="newToken.role" class="w-full">
         <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
         <option value="admin" x-text="t('admin.users.role_admin')"></option>
       </select>

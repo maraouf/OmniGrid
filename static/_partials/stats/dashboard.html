@@ -589,9 +589,9 @@
 
       <!-- Samplers — how many sample-bearing tables are actively persisting
            rows (active) out of the full roster (total). Sits before Total
-           samples; click opens the per-table breakdown. -->
+           samples; click opens the Samplers tab. -->
       <button type="button"
-              @click="openStatsTab('samples')"
+              @click="openStatsTab('samplers')"
               class="stats-card"
               :aria-label="t('stats.cards.aria_label_value_sub', {
                               label: t('stats.cards.samplers.label') || 'Samplers',
@@ -600,7 +600,7 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-layers"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-loader"/>
           </svg>
         </div>
         <div class="stats-card-body">
@@ -627,7 +627,7 @@
                             })">
         <div class="stats-card-icon">
           <svg width="20" height="20" aria-hidden="true">
-            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-history"/>
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-grid"/>
           </svg>
         </div>
         <div class="stats-card-body">

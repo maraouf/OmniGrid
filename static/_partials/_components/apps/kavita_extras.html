@@ -42,7 +42,24 @@
             <div class="apps-card-stat-label" x-text="t('apps.kavita.size') || 'Size'"></div>
             <div class="apps-card-stat-value" x-text="kavitaSize(kavitaData(inst).total_size)"></div>
           </div>
+          <!-- Active readers (reading-activity — admin server stats; hidden for a
+               non-admin key that returns 0). -->
+          <div class="apps-card-ups-stat" x-show="(Number(kavitaData(inst).active_readers) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.kavita.active_readers') || 'Active readers'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="kavitaCount(kavitaData(inst).active_readers)"></div>
+          </div>
+          <!-- Reading time (reading-activity). -->
+          <div class="apps-card-ups-stat" x-show="(Number(kavitaData(inst).reading_minutes) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.kavita.reading_time') || 'Reading time'"></div>
+            <div class="apps-card-stat-value" x-text="kavitaReadingTime(kavitaData(inst).reading_minutes)"></div>
+          </div>
         </div>
+        <!-- Most-read series (reading-activity) — the top entry from the admin
+             server stats; the kavita_most_read skill shows the full poster list. -->
+        <div x-show="kavitaData(inst).top_read_series"
+             class="fs-3xs text-[var(--text-faint)] mt-1 truncate"
+             :title="kavitaData(inst).top_read_series"
+             x-text="(t('apps.kavita.most_read') || 'Most read') + ': ' + (kavitaData(inst).top_read_series || '')"></div>
         <!-- Library-growth trend (from OmniGrid's kavita_samples): series count
              + total size over time. Drawer-only (`appsExtrasInDrawer`) — no room
              on the apps-grid card; shown once ≥ 2 daily points exist. -->

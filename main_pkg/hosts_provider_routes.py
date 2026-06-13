@@ -66,6 +66,8 @@ from main import *  # noqa: E402,F401,F403
 # so they're safe + they silence the IDE in every scope (TYPE_CHECKING
 # blocks DON'T propagate into nested function/closure scopes).
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    asyncio,
+    sqlite3,
     AdminUser,
     BaseModel,
     Depends,
@@ -446,7 +448,7 @@ async def api_hosts_snmp_history(
                     "ORDER BY ts ASC LIMIT ?",
                     (hid, since, h * 60),
                 ).fetchall()
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"points": [], "error": f"snmp_history: {e}"}
     points = []
     for r in rows:
@@ -559,7 +561,7 @@ async def api_hosts_disk_projection(
                 fetched = cur.fetchall()
                 if len(fetched) >= 5:
                     candidates.append((label, fetched))
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"error": f"db read failed: {e}", "samples": [], "projection": []}
     rows: list = []
     source_used = None
@@ -798,7 +800,7 @@ async def api_hosts_snmp_iface_history(
                     "ORDER BY ifname ASC, ts ASC LIMIT ?",
                     (hid, since, h * 60 * 64),
                 ).fetchall()
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"ifaces": {}, "error": f"snmp_iface_history: {e}"}
     ifaces: dict = {}
     for r in rows:
@@ -875,7 +877,7 @@ async def api_hosts_snmp_temp_history(
                     "ORDER BY probe_idx ASC, ts ASC LIMIT ?",
                     (hid, since, h * 60 * 16),
                 ).fetchall()
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"probes": {}, "error": f"snmp_temp_history: {e}"}
     probes: dict = {}
     for r in rows:
@@ -1347,7 +1349,7 @@ def _apply_snmp_block_update(
             new_h["snmp"] = new_block
             new_curated.append(new_h)
             applied.append(hid)
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             errors[hid] = str(e)
             new_curated.append(h)
     return new_curated, applied, errors
@@ -1523,7 +1525,7 @@ async def api_admin_reauth(
                     actor=u.username, status="error", error="reauth failed",
                     message=f"admin reauth failed for {u.username}",
                 )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[auth] admin_reauth_failed audit-row write failed: {e}")
         # Don't differentiate "wrong password" from "no user" — same
         # generic message reduces password-probing signal. The local-
