@@ -435,13 +435,27 @@ async def fetch_data(host_row: dict, chip: dict, *,
         torrents = as_list(tor.json()) if tor.status_code == 200 else []
     except (ValueError, TypeError):  # noqa: BLE001
         torrents = []
-    downloading = seeding = paused = completed = 0
+    downloading = seeding = paused = completed = stalled = 0
+    # The single active download with the largest FINITE ETA — the "when will my
+    # queue clear" signal. ``longest_eta`` is tracked in its own local so the
+    # max-check never dereferences the Optional ``longest`` tuple. Stalled
+    # downloads (∞ eta) are excluded here and surfaced via the `stalled` count.
+    longest: "Optional[tuple]" = None
+    longest_eta = -1
     for t in torrents:
         if not isinstance(t, dict):
             continue
-        bucket = _classify(t.get("state"))
+        state = str(t.get("state") or "").strip().lower()
+        bucket = _classify(state)
         if bucket == "downloading":
             downloading += 1
+            if state == "stalleddl":
+                stalled += 1  # a download stuck with no peers — the actionable alert
+            else:
+                eta = safe_int(t.get("eta"))
+                if 0 < eta < _ETA_INFINITE and eta > longest_eta:
+                    longest_eta = eta
+                    longest = (eta, str(t.get("name") or "?"), safe_float(t.get("progress")))
         elif bucket == "seeding":
             seeding += 1
         elif bucket == "paused":
@@ -460,6 +474,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "seeding": seeding,
         "paused": paused,
         "completed": completed,
+        # P2: stuck-download count + the longest-ETA active download.
+        "stalled": stalled,
+        "longest_active": ({"name": longest[1], "eta": longest[0],
+                            "progress": round(longest[2], 4)}
+                           if longest else None),
         # server_state extras (from sync/maindata) — tolerated on failure.
         "free_space_gb": free_space_gb,
         "global_ratio": round(safe_float(srv.get("global_ratio")), 2),
@@ -474,6 +493,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     print(f"[qbittorrent] INFO fetched host={host_id} torrents={out['torrents_total']} "
           f"dl={out['downloading']} seed={out['seeding']} paused={out['paused']} "
+          f"stalled={out['stalled']} "
           f"dl_speed={out['dl_speed']} up_speed={out['up_speed']} "
           f"ratio={out['global_ratio']} free_gb={free_space_gb} "
           f"conn={out['connection_status'] or '?'}")
@@ -495,6 +515,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "seeding": safe_int(data.get("seeding")),
         "paused": safe_int(data.get("paused")),
         "completed": safe_int(data.get("completed")),
+        "stalled": safe_int(data.get("stalled")),
         "free_space_gb": safe_float(data.get("free_space_gb")),
         "global_ratio": safe_float(data.get("global_ratio")),
         "alltime_dl": safe_int(data.get("alltime_dl")),
@@ -861,6 +882,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
     seed = safe_int(data.get("seeding"))
     paused = safe_int(data.get("paused"))
     done = safe_int(data.get("completed"))
+    stalled = safe_int(data.get("stalled"))
+    longest = data.get("longest_active")
     ratio = safe_float(data.get("global_ratio"))
     free_gb = safe_float(data.get("free_space_gb"))
     alltime_dl = safe_int(data.get("alltime_dl"))
@@ -875,6 +898,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"✅ Completed: {done:,}",
         f"📦 Total torrents: {total:,}",
     ]
+    if stalled > 0:
+        lines.append(f"🛑 Stalled downloads: {stalled:,}")
+    if isinstance(longest, dict) and longest.get("name"):
+        _pct = round(safe_float(longest.get("progress")) * 100)
+        lines.append(f"⏳ Longest download: {longest['name']} — "
+                     f"{_fmt_eta(longest.get('eta'))} left ({_pct}%)")
     if ratio > 0:
         lines.append(f"⚖️ Global ratio: {ratio:.2f}")
     if alltime_dl > 0 or alltime_ul > 0:
@@ -888,7 +917,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "torrents_total": total, "downloading": dl, "seeding": seed,
-        "paused": paused, "completed": done,
+        "paused": paused, "completed": done, "stalled": stalled,
+        "longest_active": longest if isinstance(longest, dict) else None,
         "global_ratio": ratio, "free_space_gb": free_gb,
         "alltime_dl": alltime_dl, "alltime_ul": alltime_ul,
         "connection_status": conn,

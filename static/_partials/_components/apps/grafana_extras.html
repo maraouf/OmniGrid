@@ -51,6 +51,30 @@
         <div class="apps-card-stat-value" x-text="grafanaCount(grafanaData(inst).orgs)"></div>
       </div>
     </div>
+    <!-- Datasource health — the headline Grafana-admin signal. Shown only when
+         an Admin token found at least one unhealthy datasource. -->
+    <template x-if="(Number(grafanaData(inst).datasources_unhealthy) || 0) > 0">
+      <div class="fs-3xs text-[var(--danger)] mt-1"
+           :title="grafanaNames(grafanaData(inst).datasources_unhealthy_names)"
+           x-text="'⚠️ ' + (t('apps.grafana.ds_unhealthy', { n: grafanaData(inst).datasources_unhealthy, total: grafanaData(inst).datasources }) || (grafanaData(inst).datasources_unhealthy + ' of ' + grafanaData(inst).datasources + ' datasources unhealthy')) + (grafanaNames(grafanaData(inst).datasources_unhealthy_names) ? ': ' + grafanaNames(grafanaData(inst).datasources_unhealthy_names) : '')"></div>
+    </template>
+    <!-- Unified-alerting summary — a 🚨 firing chip + ⏳ pending chip. Shown only
+         when alerting is reachable AND something is firing / pending. -->
+    <template x-if="(Number(grafanaData(inst).alerts_firing) || 0) > 0 || (Number(grafanaData(inst).alerts_pending) || 0) > 0">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 fs-3xs mt-1">
+        <span x-show="(Number(grafanaData(inst).alerts_firing) || 0) > 0"
+              class="inline-flex items-center gap-1 text-[var(--danger)]"
+              :title="grafanaNames(grafanaData(inst).alerts_firing_names)">
+          <span aria-hidden="true">🚨</span>
+          <span x-text="t('apps.grafana.alerts_firing_n', { n: grafanaData(inst).alerts_firing }) || (grafanaData(inst).alerts_firing + ' firing')"></span>
+        </span>
+        <span x-show="(Number(grafanaData(inst).alerts_pending) || 0) > 0"
+              class="inline-flex items-center gap-1 text-[var(--warning)]">
+          <span aria-hidden="true">⏳</span>
+          <span x-text="t('apps.grafana.alerts_pending_n', { n: grafanaData(inst).alerts_pending }) || (grafanaData(inst).alerts_pending + ' pending')"></span>
+        </span>
+      </div>
+    </template>
     <!-- Org + version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-show="grafanaData(inst).org"

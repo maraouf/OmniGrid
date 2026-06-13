@@ -10649,6 +10649,90 @@ select.field-invalid {
   object-fit: contain;
 }
 
+/* Per-indexer failure-rate distribution bars (drawer-only). Name | bar | pct.
+   Bar width is the sanctioned runtime --w var; fill colour comes from the
+   ok/warn/crit class so it stays inside the token system. */
+.apps-prowlarr-failbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4fr auto;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.apps-prowlarr-failbar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.apps-prowlarr-failbar-track {
+  height: 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.apps-prowlarr-failbar-fill {
+  display: block;
+  height: 100%;
+  width: var(--w);
+  border-radius: var(--r-sm);
+  background: var(--success);
+}
+
+.apps-prowlarr-failbar-fill.warn {
+  background: var(--warning);
+}
+
+.apps-prowlarr-failbar-fill.crit {
+  background: var(--danger);
+}
+
+.apps-prowlarr-failbar-pct {
+  text-align: end;
+  min-width: 3.2em;
+}
+
+/* Per-AP client-load distribution bars (drawer-only). Name | bar | count.
+   Bar width is the sanctioned runtime --w var (relative to the busiest AP);
+   single accent (no severity tiers — it's a load distribution, not a health
+   signal). */
+.apps-unifi-apbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4fr auto;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.apps-unifi-apbar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.apps-unifi-apbar-track {
+  height: 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.apps-unifi-apbar-fill {
+  display: block;
+  height: 100%;
+  width: var(--w);
+  border-radius: var(--r-sm);
+  background: var(--info);
+}
+
+.apps-unifi-apbar-count {
+  text-align: end;
+  min-width: 2.2em;
+  color: var(--text-dim);
+}
+
 /* Apprise extras — service + routing-tag chip strips (configured notification
    services like Telegram / Discord / Email, and the tags the AI can target). */
 .apps-apprise-row {

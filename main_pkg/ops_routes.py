@@ -1835,6 +1835,10 @@ class SettingsIn(BaseModel):
     # disk-free-runway projection.
     tuning_qbittorrent_sample_interval_seconds: Optional[str] = None
     tuning_qbittorrent_history_days: Optional[str] = None
+    # UniFi client-occupancy sampler — snapshot cadence (0 = inherit global stats
+    # interval) + retention for the "clients over time" sparkline.
+    tuning_unifi_sample_interval_seconds: Optional[str] = None
+    tuning_unifi_history_days: Optional[str] = None
     # Tdarr retention sampler — cumulative space-saved + queue burn-down + per-day
     # throughput.
     tuning_tdarr_sample_interval_seconds: Optional[str] = None

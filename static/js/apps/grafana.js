@@ -70,6 +70,20 @@ function grafanaCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Comma-joined names from a string array (the unhealthy-datasource / firing-
+// alert name lists), truncated to the first 6 with a '…' overflow marker.
+// '' when empty / not an array — drives the chip :title tooltips.
+function grafanaNames(arr) {
+  if (!Array.isArray(arr) || !arr.length) {
+    return '';
+  }
+  const names = arr.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim());
+  if (!names.length) {
+    return '';
+  }
+  return names.slice(0, 6).join(', ') + (names.length > 6 ? ', …' : '');
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Grafana gets a
 // 2-column span so the stat panel doesn't squeeze the per-instance host list,
@@ -91,4 +105,5 @@ export const helpers = {
   grafanaIsApp: isGrafanaApp,
   grafanaData: grafanaData,
   grafanaCount: grafanaCount,
+  grafanaNames: grafanaNames,
 };

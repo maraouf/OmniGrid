@@ -765,6 +765,15 @@ FLARESOLVERR_HISTORY_DAYS = 30
 FING_SAMPLE_INTERVAL_SECONDS = 600
 FING_HISTORY_DAYS = 90
 FING_NEW_DEVICE_HOURS = 24
+
+# UniFi client-occupancy sampler. The UniFi Integration API is current-state-only
+# (no client-count history), so the lifespan sampler records each configured
+# UniFi chip's connected-client count (+ wireless split + devices-online) to
+# drive the card's "clients over time" sparkline + "peak N clients" stat.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window.
+UNIFI_SAMPLE_INTERVAL_SECONDS = 900
+UNIFI_HISTORY_DAYS = 30
 # AdGuard Home Sync reliability sampler — records each AGS chip's replica
 # in-sync count for the card's sync-reliability trend.
 ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS = 900
@@ -1225,6 +1234,8 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `FLARESOLVERR_HISTORY_DAYS`                    | Runtime    | `30`                    | Retention window (days) for the FlareSolverr open-session-count samples driving the card usage trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                            |
 | `FING_SAMPLE_INTERVAL_SECONDS`                 | Runtime    | `600`                   | Fing occupancy sampler cadence — records each Fing chip's online / total device counts for the card's online-device trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                             |
 | `FING_HISTORY_DAYS`                            | Runtime    | `90`                    | Retention window (days) for the Fing online-device samples driving the occupancy sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                                      |
+| `UNIFI_SAMPLE_INTERVAL_SECONDS`                | Runtime    | `900`                   | UniFi client-occupancy sampler cadence — records each UniFi chip's connected-client count (+ wireless split + devices-online) for the card's "clients over time" sparkline + peak-clients stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                         |
+| `UNIFI_HISTORY_DAYS`                           | Runtime    | `30`                    | Retention window (days) for the UniFi client-occupancy samples driving the sparkline. Pruned hourly. Range 1..1095.                                                                                                                                                                                                                                                                           |
 | `ADGUARDSYNC_SAMPLE_INTERVAL_SECONDS`          | Runtime    | `900`                   | AdGuard Home Sync reliability sampler cadence — records each AGS chip's replica in-sync count for the card's sync-reliability trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                   |
 | `ADGUARDSYNC_HISTORY_DAYS`                     | Runtime    | `90`                    | Retention window (days) for the AdGuard Home Sync reliability samples driving the sync-reliability sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                    |
 | `FING_NEW_DEVICE_HOURS`                        | Runtime    | `24`                    | A Fing device first-seen within this many hours counts as NEW on the card + status skill. Range 1..8760.                                                                                                                                                                                                                                                                                      |

@@ -37,6 +37,7 @@ Grafana dashboards have no thumbnail surface.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Optional
 
@@ -65,6 +66,18 @@ _MAX_ROWS = 12
 # Grafana's /api/search default limit is 1000, max 5000 — used to count
 # dashboards when the (server-admin only) /api/admin/stats isn't available.
 _DASH_COUNT_LIMIT = 5000
+
+# Datasource-health probing (P1). Each datasource's /health endpoint proxies to
+# the real backend, so it can be slow when a backend is down — bound the fan-out
+# with a concurrency cap + a per-probe timeout + an overall wall-clock budget
+# UNDER the fetch_data client timeout so a few dead datasources can't stall the
+# card. (Per-app probe constants, mirroring the Prowlarr sweep — not TUNABLES.)
+_DS_HEALTH_CONCURRENCY = 5
+_DS_HEALTH_TIMEOUT_S = 6.0
+_DS_HEALTH_BUDGET_S = 9.0
+
+# Firing-alerts fetch (P2) — one call to the unified-alerting rules API.
+_ALERTS_TIMEOUT_S = 8.0
 
 # Grafana skills — all read-only. `grafana_search` is arg-carrying (AI /
 # Telegram only — a drawer button can't supply the query).
@@ -168,7 +181,17 @@ async def _count_array(cli: httpx.AsyncClient, base: str, token: str, path: str,
                        params: Optional[dict] = None) -> Optional[int]:
     """GET a list endpoint and return ``len(array)``, or ``None`` when the call
     failed / wasn't 200 / wasn't a list. Best-effort — a non-200 (e.g. a Viewer
-    token 403 on /api/datasources) yields None so the caller seeds 0."""
+    token 403 on /api/datasources) yields None so the caller seeds 0. Thin
+    ``len`` wrapper over ``_fetch_array``."""
+    rows = await _fetch_array(cli, base, token, path, params)
+    return None if rows is None else len(rows)
+
+
+async def _fetch_array(cli: httpx.AsyncClient, base: str, token: str, path: str,
+                       params: Optional[dict] = None) -> Optional[list]:
+    """GET a list endpoint and return the ARRAY (sibling of ``_count_array`` that
+    yields the rows, not just ``len``), or ``None`` when the call failed / wasn't
+    200 / wasn't a list. Best-effort — a Viewer-token 403 yields ``None``."""
     try:
         r = await cli.get(base + _API + path, headers=_headers(token), params=params or {})
         if r.status_code != 200:
@@ -176,7 +199,86 @@ async def _count_array(cli: httpx.AsyncClient, base: str, token: str, path: str,
         body = r.json()
     except (httpx.HTTPError, OSError, ValueError, TypeError):
         return None
-    return len(as_list(body))
+    return as_list(body)
+
+
+async def _probe_datasource_health(cli: httpx.AsyncClient, base: str, token: str,
+                                   datasources: list) -> "tuple[int, list[str]]":
+    """Probe each datasource's ``GET /api/datasources/uid/{uid}/health``
+    concurrently (bounded concurrency + per-probe timeout + an overall budget).
+    Returns ``(checked, unhealthy_names)`` where ``checked`` counts the
+    datasources that gave a DEFINITIVE answer (status OK or ERROR) and
+    ``unhealthy_names`` are those that returned ``status == "ERROR"``. Datasource
+    types without a health check (404 / not-implemented / unknown) are counted as
+    NEITHER — never flagged unhealthy. Never raises."""
+    sem = asyncio.Semaphore(_DS_HEALTH_CONCURRENCY)
+    deadline = time.time() + _DS_HEALTH_BUDGET_S
+    checked = 0
+    unhealthy: list[str] = []
+
+    async def _one(ds: Any) -> None:
+        nonlocal checked
+        if not isinstance(ds, dict):
+            return
+        uid = str(ds.get("uid") or "").strip()
+        if not uid:
+            return
+        name = str(ds.get("name") or uid).strip()
+        async with sem:
+            if time.time() >= deadline:
+                return  # budget spent — leave the rest 'unknown'
+            try:
+                hr = await cli.get(base + _API + f"/datasources/uid/{uid}/health",
+                                   headers=_headers(token), timeout=_DS_HEALTH_TIMEOUT_S)
+            except (httpx.HTTPError, OSError):
+                return  # unreachable probe — treat as unknown, not unhealthy
+            try:
+                status = str(as_dict(hr.json()).get("status") or "").strip().upper()
+            except (ValueError, TypeError):
+                status = ""
+            if status == "OK":
+                checked += 1
+            elif status == "ERROR":
+                checked += 1
+                unhealthy.append(name)
+            # any other shape (404 / "not implemented" / blank) → unknown, skip
+
+    await asyncio.gather(*[_one(ds) for ds in datasources])
+    return checked, unhealthy
+
+
+async def _fetch_firing_alerts(cli: httpx.AsyncClient, base: str,
+                               token: str) -> "tuple[Optional[int], Optional[int], list[str]]":
+    """Count Grafana-managed alert rules currently FIRING (+ pending) via
+    ``GET /api/prometheus/grafana/api/v1/rules`` (unified alerting). Returns
+    ``(firing, pending, firing_names)``; ``(None, None, [])`` when alerting is
+    unavailable / the token lacks access / the call fails — so the card hides the
+    stat rather than showing a misleading 0. Best-effort; never raises."""
+    try:
+        r = await cli.get(base + "/api/prometheus/grafana/api/v1/rules",
+                          headers=_headers(token), timeout=_ALERTS_TIMEOUT_S)
+    except (httpx.HTTPError, OSError):
+        return None, None, []
+    if r.status_code != 200:
+        return None, None, []
+    try:
+        groups = as_list(as_dict(as_dict(r.json()).get("data")).get("groups"))
+    except (ValueError, TypeError):
+        return None, None, []
+    firing = pending = 0
+    firing_names: list[str] = []
+    for g in groups:
+        for rule in as_list(as_dict(g).get("rules")):
+            rd = as_dict(rule)
+            state = str(rd.get("state") or "").strip().lower()
+            if state == "firing":
+                firing += 1
+                nm = str(rd.get("name") or "").strip()
+                if nm:
+                    firing_names.append(nm)
+            elif state == "pending":
+                pending += 1
+    return firing, pending, firing_names
 
 
 # noinspection DuplicatedCode
@@ -242,12 +344,33 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 dashboards = await _count_array(
                     cli, base, token, "/search",
                     {"type": "dash-db", "limit": str(_DASH_COUNT_LIMIT)})
-            # Folders + datasources (best-effort; datasources 403s for Viewer).
+            # Folders (best-effort).
             folders = await _count_array(cli, base, token, "/folders",
                                          {"limit": str(_DASH_COUNT_LIMIT)})
+            # Datasources — fetch the FULL list (Admin token) so we can both count
+            # them AND probe per-source health (403s for a Viewer token → None).
+            ds_list = await _fetch_array(cli, base, token, "/datasources")
             datasources = stats_ds
             if datasources is None:
-                datasources = await _count_array(cli, base, token, "/datasources")
+                datasources = len(ds_list) if ds_list is not None else None
+            # P1 datasource-health + P2 firing-alerts enrichment, in parallel.
+            # Both best-effort + wrapped so an enrich bug can never turn the whole
+            # card into an error (the cancellation contract is preserved first).
+            ds_unhealthy_names: list[str] = []
+            alerts_firing: Optional[int] = None
+            alerts_pending: Optional[int] = None
+            alerts_firing_names: list[str] = []
+            try:
+                ds_health, alerts = await asyncio.gather(
+                    _probe_datasource_health(cli, base, token, ds_list or []),
+                    _fetch_firing_alerts(cli, base, token))
+                _ds_checked, ds_unhealthy_names = ds_health
+                alerts_firing, alerts_pending, alerts_firing_names = alerts
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[grafana] warning: health/alerts enrich host={host_id} "
+                      f"skipped — {type(e).__name__}: {e}")
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[grafana] error: fetch host={host_id} url={org_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -258,6 +381,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "dashboards": safe_int(dashboards),
         "folders": safe_int(folders),
         "datasources": safe_int(datasources),
+        # P1: per-datasource health (Admin token only).
+        "datasources_unhealthy": len(ds_unhealthy_names),
+        "datasources_unhealthy_names": ds_unhealthy_names,
+        # P2: unified-alerting firing / pending rule counts (None when alerting
+        # is unavailable → the card hides the stat).
+        "alerts_firing": alerts_firing,
+        "alerts_pending": alerts_pending,
+        "alerts_firing_names": alerts_firing_names,
         "users": users,
         "orgs": orgs,
         "version": version,
@@ -265,7 +396,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     print(f"[grafana] INFO fetched host={host_id} org={org!r} "
           f"dashboards={out['dashboards']} folders={out['folders']} "
-          f"datasources={out['datasources']} users={users} orgs={orgs}")
+          f"datasources={out['datasources']} ds_unhealthy={out['datasources_unhealthy']} "
+          f"alerts_firing={alerts_firing} alerts_pending={alerts_pending} "
+          f"users={users} orgs={orgs}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -281,6 +414,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "dashboards": safe_int(data.get("dashboards")),
         "folders": safe_int(data.get("folders")),
         "datasources": safe_int(data.get("datasources")),
+        "datasources_unhealthy": safe_int(data.get("datasources_unhealthy")),
+        "alerts_firing": data.get("alerts_firing"),
+        "alerts_pending": data.get("alerts_pending"),
         "users": safe_int(data.get("users")),
         "orgs": safe_int(data.get("orgs")),
         "version": data.get("version") or "",
@@ -333,6 +469,7 @@ def _status_guard(r: "httpx.Response") -> Optional[dict]:
     return None
 
 
+# noinspection DuplicatedCode
 async def _skill_get(base: str, path: str, *, token: str, params: dict,
                      timeout: float, verb: str) -> "httpx.Response | dict":
     """Shared GET + status guard for a Grafana read skill. Returns the 200 OK
@@ -394,10 +531,27 @@ async def _status_skill(host_row: dict, chip: dict, *,
     users = safe_int(data.get("users"))
     orgs = safe_int(data.get("orgs"))
     org = str(data.get("org") or "").strip()
+    unhealthy = safe_int(data.get("datasources_unhealthy"))
+    unhealthy_names = as_list(data.get("datasources_unhealthy_names"))
+    firing = data.get("alerts_firing")
+    pending = data.get("alerts_pending")
+    firing_names = as_list(data.get("alerts_firing_names"))
     lines = [f"📊 Dashboards: {dashboards:,}"]
     if folders:
         lines.append(f"📁 Folders: {folders:,}")
-    lines.append(f"🔌 Datasources: {datasources:,}")
+    ds_line = f"🔌 Datasources: {datasources:,}"
+    if unhealthy > 0:
+        ds_line += f" ({unhealthy:,} unhealthy)"
+    lines.append(ds_line)
+    if unhealthy_names:
+        lines.append("⚠️ Unhealthy: " + ", ".join(str(n) for n in unhealthy_names[:8]))
+    if isinstance(firing, int) and firing > 0:
+        line = f"🚨 Alerts firing: {firing:,}"
+        if firing_names:
+            line += " — " + ", ".join(str(n) for n in firing_names[:8])
+        lines.append(line)
+    if isinstance(pending, int) and pending > 0:
+        lines.append(f"⏳ Alerts pending: {pending:,}")
     if org:
         lines.append(f"🏢 Org: {org}")
     if users or orgs:
@@ -407,7 +561,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "dashboards": dashboards, "folders": folders,
-        "datasources": datasources,
+        "datasources": datasources, "datasources_unhealthy": unhealthy,
+        "alerts_firing": firing if isinstance(firing, int) else None,
+        "alerts_pending": pending if isinstance(pending, int) else None,
     }
 
 

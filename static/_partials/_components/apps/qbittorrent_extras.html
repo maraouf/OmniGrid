@@ -69,7 +69,22 @@
             <span class="text-[var(--text-faint)]" aria-hidden="true">💽</span>
             <span class="mono" x-text="qbittorrentBytes((Number(qbittorrentData(inst).free_space_gb) || 0) * 1073741824)"></span>
           </span>
+          <!-- Stalled downloads — the actionable seedbox alert (downloads stuck
+               with no peers). Shown only when > 0. -->
+          <span x-show="(Number(qbittorrentData(inst).stalled) || 0) > 0"
+                class="inline-flex items-center gap-1 text-[var(--warning)]"
+                :title="t('apps.qbittorrent.stalled_title') || 'Stalled downloads (stuck — no peers)'">
+            <span aria-hidden="true">🛑</span>
+            <span class="mono" x-text="t('apps.qbittorrent.stalled_n', { n: qbittorrentData(inst).stalled }) || (qbittorrentData(inst).stalled + ' stalled')"></span>
+          </span>
         </div>
+        <!-- Longest active download — name + ETA (+ % done): the "when will my
+             queue clear" signal. Shown when a finite-ETA download exists. -->
+        <template x-if="qbittorrentData(inst).longest_active && qbittorrentData(inst).longest_active.name">
+          <div class="fs-3xs text-[var(--text-faint)] mt-0.5 truncate"
+               :title="qbittorrentData(inst).longest_active.name"
+               x-text="'⏳ ' + (t('apps.qbittorrent.longest') || 'Longest') + ': ' + qbittorrentData(inst).longest_active.name + ' — ' + qbittorrentEta(qbittorrentData(inst).longest_active.eta) + ' (' + Math.round((Number(qbittorrentData(inst).longest_active.progress) || 0) * 100) + '%)'"></div>
+        </template>
         <!-- All-time totals + a non-connected warning. -->
         <div x-show="(Number(qbittorrentData(inst).alltime_dl) || 0) > 0 || (Number(qbittorrentData(inst).alltime_ul) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1"

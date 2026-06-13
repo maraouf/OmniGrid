@@ -141,6 +141,26 @@ function qbittorrentTrendPath(arr) {
   return d;
 }
 
+// Human ETA from a qBittorrent `eta` (seconds; 8640000 = the qBit ∞ sentinel,
+// also used for a stalled / unknown estimate). '∞' for the sentinel /
+// non-positive; otherwise 'Xd Yh' / 'Xh Ym' / 'Ym'.
+function qbittorrentEta(seconds) {
+  const s = Number(seconds) || 0;
+  if (s <= 0 || s >= 8640000) {
+    return '∞';
+  }
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) {
+    return d + 'd ' + h + 'h';
+  }
+  if (h) {
+    return h + 'h ' + m + 'm';
+  }
+  return m + 'm';
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. qBittorrent gets a
 // 2-column span + a vertical telemetry-card layout like the *arr family.
@@ -164,4 +184,5 @@ export const helpers = {
   qbittorrentBytes: qbittorrentBytes,
   qbittorrentTrend: qbittorrentTrend,
   qbittorrentTrendPath: qbittorrentTrendPath,
+  qbittorrentEta: qbittorrentEta,
 };

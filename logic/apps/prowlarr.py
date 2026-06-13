@@ -145,6 +145,22 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "prowlarr_test_all_indexers",
+        "name": "Test all indexers",
+        "ai_phrases": ("test all indexers, test every indexer, health check my "
+                       "indexers, which indexers are down, are my indexers "
+                       "working, run an indexer health sweep, check all indexers, "
+                       "test the whole indexer list, indexer connectivity check, "
+                       "test my trackers, which trackers are broken"),
+        # No arg → surfaces as a one-click drawer button (health sweep). Tests
+        # each ENABLED indexer INDIVIDUALLY (bounded concurrency + an overall
+        # budget under the reverse-proxy window) — NOT Prowlarr's fleet-wide
+        # POST /api/v1/indexer/testall, which on a large indexer set exceeds the
+        # proxy read window and 504s the SPA. Read-only (it generates tracker
+        # traffic but writes nothing), so non-destructive.
+        "destructive": False,
+    },
+    {
         "id": "prowlarr_app_sync",
         "name": "Sync indexers to apps",
         "ai_phrases": ("sync indexers to my apps, prowlarr app sync, push "
@@ -339,6 +355,13 @@ def _indexer_stats_detail(raw: Any) -> dict:
     out["worst_failing"] = failing[0] if failing else None
     busy = [p for p in per if p["queries"] >= _STATS_MIN_QUERIES and p["avg_response_ms"] > 0]
     out["slowest"] = max(busy, key=lambda p: p["avg_response_ms"]) if busy else None
+    # Fleet average response time (ms), query-weighted across indexers that have
+    # both a response time + queries — the "are my indexers getting slower"
+    # signal the P3 retention trend samples.
+    weighted = [(p["avg_response_ms"], p["queries"]) for p in per
+                if p["avg_response_ms"] > 0 and p["queries"] > 0]
+    tot_q = sum(q for _, q in weighted)
+    out["avg_response_ms"] = round(sum(a * q for a, q in weighted) / tot_q) if tot_q else 0
     return out
 
 
@@ -529,6 +552,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                            host_id=host_id)
     if skill_id == "prowlarr_test_indexer":
         return await _test_indexer_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "prowlarr_test_all_indexers":
+        return await _test_all_indexers_skill(host_row, chip, host_id=host_id)
     if skill_id == "prowlarr_app_sync":
         return await _command_skill(host_row, chip, command="ApplicationIndexerSync",
                                     started_msg="🔄 Started syncing indexers to every "
@@ -833,6 +858,122 @@ async def _test_indexer_skill(host_row: dict, chip: dict, *,
              if _FLARE_ERROR_RE.search(body_text) else "")
     return {"ok": False, "status": tr.status_code,
             "detail": f"⚠️ “{label}” test failed" + (f": {reason}" if reason else "") + flare}
+
+
+async def _sweep_test_indexers(cli: httpx.AsyncClient, base: str, key: str,
+                               indexers: list) -> dict:
+    """Test each given indexer's connectivity INDIVIDUALLY (``POST
+    /api/v1/indexer/test`` with the indexer body) under a concurrency cap + an
+    overall wall-clock budget. Returns ``{checked, passed, failures, timed_out,
+    remaining}`` where ``failures`` is a list of ``(name, reason, flare)`` and
+    ``checked`` = ``passed + len(failures)`` (the ones actually attempted before
+    the budget expired). Never raises — a transport error becomes a failure
+    entry; candidates not reached before the deadline are counted in
+    ``remaining``. Shares the FlareSolverr-sweep concurrency + budget constants
+    (same per-indexer test under the same proxy window)."""
+    sem = asyncio.Semaphore(_FLARE_TEST_CONCURRENCY)
+    deadline = time.time() + _FLARE_TEST_BUDGET_S
+    failures: list[tuple] = []
+    _checked = 0
+    _passed = 0
+    _remaining = 0
+
+    async def _test_one(_it: dict) -> None:
+        nonlocal _checked, _passed, _remaining
+        async with sem:
+            if time.time() >= deadline:
+                _remaining += 1
+                return
+            _checked += 1
+            nm = str(_it.get("name") or _it.get("id") or "?")
+            try:
+                tr = await cli.post(base + "/api/v1/indexer/test",
+                                    headers=_headers(key), json=_it)
+            except (httpx.HTTPError, OSError):
+                failures.append((nm, "no response", False))
+                return
+            if tr.status_code in (200, 201):
+                _passed += 1
+                return
+            text = _resp_text(tr)
+            reason = ("auth failed (check api_key)" if tr.status_code in (401, 403)
+                      else _short_reason(text))
+            flare = bool(_FLARE_ERROR_RE.search(text))
+            failures.append((nm, reason, flare))
+
+    await asyncio.gather(*[_test_one(it) for it in indexers])
+    return {"checked": _checked, "passed": _passed, "failures": failures,
+            "timed_out": _remaining > 0, "remaining": _remaining}
+
+
+async def _test_all_indexers_skill(host_row: dict, chip: dict, *,
+                                   host_id: Optional[str] = None) -> dict:
+    """Live one-click health sweep: test EVERY enabled configured indexer's
+    connectivity and report which are reachable vs failing (with the upstream
+    reason + a Cloudflare hint). Each indexer is tested INDIVIDUALLY via
+    ``POST /api/v1/indexer/test`` under a concurrency cap + an overall budget
+    UNDER the reverse-proxy window — deliberately NOT Prowlarr's fleet-wide
+    ``POST /api/v1/indexer/testall``, which on a large indexer set exceeds the
+    proxy read window and 504s the SPA. Indexers not reached before the budget
+    expires are reported so the user can re-run for the rest. Never raises."""
+    api_key, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[prowlarr] INFO prowlarr_test_all_indexers host={host_id} (per-indexer sweep)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            items, gerr = await _get_configured_indexers(cli, base, api_key)
+            if gerr is not None:
+                return gerr
+            # Only ENABLED indexers — disabled ones aren't in use, so testing
+            # them just wastes the budget + a tracker round-trip.
+            enabled = [it for it in as_list(items)
+                       if isinstance(it, dict) and it.get("enable", True)
+                       and safe_int(it.get("id"))]
+            if not enabled:
+                return {"ok": True, "status": 200,
+                        "detail": "✅ No enabled indexers to test.",
+                        "checked": 0, "passed": 0, "failing": 0}
+            sweep = await _sweep_test_indexers(cli, base, api_key, enabled)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[prowlarr] warning: test_all_indexers host={host_id} — {type(e).__name__}: {e}")
+        return {"ok": False, "status": 0,
+                "detail": f"Indexer health sweep could not run: {type(e).__name__}: {e}"}
+    checked = safe_int(sweep.get("checked"))
+    passed = safe_int(sweep.get("passed"))
+    failures = sweep.get("failures") or []  # [(name, reason, flare), …]
+    remaining = safe_int(sweep.get("remaining"))
+    timed_out = bool(sweep.get("timed_out"))
+    total = checked + remaining
+    # 'failing' / 'down' / 'not reachable' word choice avoids the persistent-log
+    # ERROR-severity classifier (matches \bfail(ed|ure)?\b / \berror\b).
+    print(f"[prowlarr] INFO test_all_indexers host={host_id} checked={checked} "
+          f"ok={passed} down={len(failures)} remaining={remaining}")
+    if not failures and not timed_out:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ All {checked:,} enabled indexer(s) tested OK — "
+                          f"reachable and authenticated.",
+                "checked": checked, "passed": passed, "failing": 0}
+    lines = [f"🩺 Indexer health sweep (tested {checked:,} of {total:,}):",
+             f"✅ OK: {passed:,}"]
+    if failures:
+        need_flare = any(f[2] for f in failures)
+        lines.append(f"⚠️ Not reachable: {len(failures):,}")
+        for nm, reason, flare in failures[:15]:
+            tail = (f" — {reason}" if reason else "") + (" 🛡️" if flare else "")
+            lines.append(f"  • {nm}{tail}")
+        if len(failures) > 15:
+            lines.append(f"  …and {len(failures) - 15:,} more")
+        if need_flare:
+            lines.append("🛡️ Some look like Cloudflare/challenge blocks — "
+                         "try “fix flaresolverr”.")
+    if timed_out and remaining:
+        lines.append(f"⏳ {remaining:,} indexer(s) not tested this run (time budget) "
+                     f"— run “test all indexers” again to continue.")
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "checked": checked, "passed": passed, "failing": len(failures),
+            "remaining": remaining}
 
 
 def _fmt_bytes(n: Any) -> str:
