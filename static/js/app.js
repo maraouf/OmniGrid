@@ -800,7 +800,7 @@ function app() {
       {id: 'weather', label: 'Weather', icon: 'cloud'},
       {id: 'prayer_times', label: 'Prayer Times', icon: 'mosque'},
       {id: 'host_groups', label: 'Host Groups', icon: 'folder'},
-      {id: 'hosts', label: 'Hosts', icon: 'monitor'},
+      {id: 'hosts', label: 'Hosts', icon: 'hard-drive'},
       {id: 'apps', label: 'Apps', icon: 'grid'},
       {id: 'assets', label: 'Asset inventory', icon: 'package'},
       {id: 'ai', label: 'AI integration', icon: 'zap'},

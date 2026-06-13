@@ -10554,9 +10554,13 @@
                                                       class="user-action-btn shrink-0"
                                                       :class="action.destructive ? 'user-action-btn--danger' : ''"
                                                       @click.stop="appSkillRowAction(inst, sk, it, action)"
+                                                      :disabled="appSkillRowBusy(inst, action)"
                                                       :title="t(action.title_i18n || 'actions.delete') || 'Action'"
                                                       :aria-label="t(action.title_i18n || 'actions.delete') || 'Action'">
-                                                <svg width="14" height="14" aria-hidden="true">
+                                                <!-- Busy → spinner; idle → the action icon. The per-row
+                                                     spinner gives immediate feedback while the skill runs. -->
+                                                <span x-show="appSkillRowBusy(inst, action)" class="spin" aria-hidden="true"></span>
+                                                <svg x-show="!appSkillRowBusy(inst, action)" width="14" height="14" aria-hidden="true">
                                                   <use :href="'/img/ui-sprite.svg?v=__APP_VERSION__#icon-' + (action.icon || 'trash-2')"/>
                                                 </svg>
                                               </button>

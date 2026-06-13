@@ -122,6 +122,8 @@ class Tunable(str, Enum):
     UNIFI_SAMPLE_INTERVAL_SECONDS = "tuning_unifi_sample_interval_seconds"
     BAZARR_HISTORY_DAYS = "tuning_bazarr_history_days"
     BAZARR_SAMPLE_INTERVAL_SECONDS = "tuning_bazarr_sample_interval_seconds"
+    PLEX_HISTORY_DAYS = "tuning_plex_history_days"
+    PLEX_SAMPLE_INTERVAL_SECONDS = "tuning_plex_sample_interval_seconds"
     TDARR_HISTORY_DAYS = "tuning_tdarr_history_days"
     TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
@@ -1508,6 +1510,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for bazarr_samples — drives the subtitle-backlog
     # trend. Default 30. Lower to save disk; raise for a longer trend.
     "tuning_bazarr_history_days": ("BAZARR_HISTORY_DAYS", 30, 1, 1095),
+    # How often the Plex sampler snapshots each chip's concurrent-stream count
+    # (+ transcodes + bandwidth) into plex_samples — the trend source for the
+    # card's streams-over-time sparkline + "peak N concurrent streams today"
+    # (Plex's PMS keeps no easy long history). 0 = inherit the global stats
+    # interval. Default 300 (5 min) — streams are bursty, so sample finer than
+    # the slow-moving samplers to catch concurrency peaks.
+    "tuning_plex_sample_interval_seconds": ("PLEX_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # Retention window (days) for plex_samples — drives the concurrent-stream
+    # trend. Default 30. Lower to save disk; raise for a longer trend.
+    "tuning_plex_history_days": ("PLEX_HISTORY_DAYS", 30, 1, 1095),
     # How often the Tdarr sampler snapshots each chip's cumulative space-saved +
     # transcode count + queue into tdarr_samples. 0 = inherit the global stats
     # interval. Default 900 (15 min) — the cumulative totals move slowly, so a

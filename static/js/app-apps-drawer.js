@@ -479,6 +479,26 @@ export default {
     return (it && it.row_action) ? [it.row_action] : [];
   },
 
+  // Stable per-row-action busy key (instance + skill + arg) — distinct from
+  // runAppSkill's `skill:` key so the per-row spinner state is independent.
+  _appSkillRowKey(inst, action) {
+    if (!inst || !action || !action.skill_id) {
+      return '';
+    }
+    return 'rowact:' + this.appInstanceKey(inst) + ':' + action.skill_id
+      + ':' + (action.arg == null ? '' : String(action.arg));
+  },
+
+  // True while THIS per-row action is in flight — drives the button's spinner
+  // swap + :disabled so the click gives immediate visual feedback (the lens /
+  // trash / sync icon was previously inert until the toast landed seconds
+  // later). Reads the DEEPLY-reactive `_appSkillBusy` map (declared as a data
+  // field, so nested-key mutations re-render the binding).
+  appSkillRowBusy(inst, action) {
+    const k = this._appSkillRowKey(inst, action);
+    return !!(k && this._appSkillBusy && this._appSkillBusy[k]);
+  },
+
   // Run a per-row action. `action` is an explicit descriptor (from a
   // `row_actions[]` entry); when omitted, falls back to the item's single
   // `row_action`. A destructive action confirms first, then dispatches its skill
@@ -486,6 +506,13 @@ export default {
   async appSkillRowAction(inst, sk, it, action) {
     const ra = action || (it && it.row_action);
     if (!ra || !ra.skill_id || !inst) {
+      return;
+    }
+    const rowKey = this._appSkillRowKey(inst, ra);
+    // Re-entry guard — a second click on a still-running row is a no-op (its
+    // spinner is already showing).
+    this._appSkillBusy = this._appSkillBusy || {};
+    if (rowKey && this._appSkillBusy[rowKey]) {
       return;
     }
     if (ra.destructive) {
@@ -501,7 +528,20 @@ export default {
         return;
       }
     }
-    const res = await this.runAppSkill(inst, ra.skill_id, ra.arg, {confirm: true, silent: true});
+    // Mark the row busy → the button swaps its icon for a spinner + disables,
+    // giving immediate feedback for the duration of the dispatch. Cleared in
+    // `finally` so a failure / throw can't leave it spinning forever.
+    if (rowKey) {
+      this._appSkillBusy[rowKey] = true;
+    }
+    let res;
+    try {
+      res = await this.runAppSkill(inst, ra.skill_id, ra.arg, {confirm: true, silent: true});
+    } finally {
+      if (rowKey) {
+        delete this._appSkillBusy[rowKey];
+      }
+    }
     if (res && res.ok) {
       this.showToast(this.t('apps.skills.ran_ok') || 'Done', 'success');
       // Refresh the parent list so the actioned row drops out (fire-and-forget;
@@ -557,7 +597,12 @@ export default {
       return null;
     }
     this._appSkillBusy = this._appSkillBusy || {};
-    const busyKey = 'skill:' + this.appInstanceKey(inst) + ':' + skillId;
+    // Key includes the arg so dispatching the SAME skill against a DIFFERENT row
+    // (e.g. searching subtitles for two different missing titles in quick
+    // succession) doesn't silently no-op on the second click. Button skills
+    // (arg null) keep a stable per-skill key.
+    const busyKey = 'skill:' + this.appInstanceKey(inst) + ':' + skillId
+      + ':' + (arg == null ? '' : String(arg));
     if (this._appSkillBusy[busyKey]) {
       return null;
     }

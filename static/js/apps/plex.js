@@ -84,6 +84,68 @@ function plexBandwidth(inst) {
   return (kbps / 1000).toFixed(1) + ' Mbps';
 }
 
+// Items added to the library in the last 7 days (from the payload's
+// `added_week`). Returns null when the probe failed (so the chip hides rather
+// than show a misleading 0); 0+ otherwise.
+function plexAddedWeek(inst) {
+  /* jshint validthis: true */
+  const d = plexData.call(this, inst);
+  if (!d) {
+    return null;
+  }
+  const v = d.added_week;
+  if (v == null) {
+    return null;
+  }
+  const n = Number(v);
+  return isFinite(n) ? Math.max(0, Math.round(n)) : null;
+}
+
+// Concurrent-stream retention trend from the lifespan plex_sampler (per-day
+// peak streams + per-day mean bandwidth), or null while idle / no samples.
+function plexTrend(inst) {
+  /* jshint validthis: true */
+  const d = plexData.call(this, inst);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on every
+// Alpine flush).
+const _plexTrendMemo = new WeakMap();
+
+// SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function plexTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_plexTrendMemo.has(arr)) {
+    return _plexTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _plexTrendMemo.set(arr, d);
+  return d;
+}
+
 // "Sign in to Plex" — runs the Plex OAuth PIN device flow so the operator
 // never pastes an X-Plex-Token by hand (the same seamless flow Tautulli /
 // Overseerr use). POSTs /api/apps/plex/auth/start (the backend asks plex.tv
@@ -219,5 +281,8 @@ export const helpers = {
   plexData: plexData,
   plexCount: plexCount,
   plexBandwidth: plexBandwidth,
+  plexAddedWeek: plexAddedWeek,
+  plexTrend: plexTrend,
+  plexTrendPath: plexTrendPath,
   plexSignIn: plexSignIn,
 };
