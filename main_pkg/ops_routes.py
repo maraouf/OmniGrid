@@ -1847,6 +1847,8 @@ class SettingsIn(BaseModel):
     # interval) + retention for the streams-over-time sparkline.
     tuning_plex_sample_interval_seconds: Optional[str] = None
     tuning_plex_history_days: Optional[str] = None
+    tuning_tracearr_sample_interval_seconds: Optional[str] = None
+    tuning_tracearr_history_days: Optional[str] = None
     # Tdarr retention sampler — cumulative space-saved + queue burn-down + per-day
     # throughput.
     tuning_tdarr_sample_interval_seconds: Optional[str] = None

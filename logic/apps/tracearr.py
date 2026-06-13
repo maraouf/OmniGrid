@@ -232,6 +232,24 @@ def _shape_activity(activity: dict) -> "tuple[list, dict, list]":
     return plays[-30:], quality, plats[:5]
 
 
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort violation + concurrency trend from the Tracearr sampler.
+    Returns the ``trend_summary`` dict, or ``{}`` on any failure (a missing
+    sampler / empty table must never fail the card)."""
+    try:
+        from logic.apps import tracearr_sampler  # noqa: PLC0415
+        return tracearr_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[tracearr] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
+def _violation_rate(recent_violations: int, total_sessions: int) -> float:
+    """Violations per 100 plays (the normalised "how abusive is the traffic"
+    figure). 0.0 when there's no play history to divide by."""
+    return round(recent_violations * 100.0 / total_sessions, 1) if total_sessions else 0.0
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -309,6 +327,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "total_users": safe_int(st.get("totalUsers")),
         "total_sessions": safe_int(st.get("totalSessions")),
         "recent_violations": safe_int(st.get("recentViolations")),
+        # Violations per 100 plays (live) — the P1 abuse-intensity stat.
+        "violation_rate": _violation_rate(safe_int(st.get("recentViolations")),
+                                          safe_int(st.get("totalSessions"))),
+        # Violation + concurrency trend from the local sampler (empty when the
+        # table has no rows yet — a fresh deploy / just-enabled sampler).
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
         "servers_total": len(servers),
         "servers_online": servers_online,
         "servers": servers,
@@ -340,6 +364,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "total_users": safe_int(data.get("total_users")),
         "total_sessions": safe_int(data.get("total_sessions")),
         "recent_violations": safe_int(data.get("recent_violations")),
+        "violation_rate": data.get("violation_rate") or 0.0,
         "servers_online": safe_int(data.get("servers_online")),
         "servers_total": safe_int(data.get("servers_total")),
         "version": data.get("version") or "",
@@ -459,11 +484,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if bw:
         lines.append(f"📶 Bandwidth: {bw}")
+    rate = data.get("violation_rate") or 0.0
     lines += [
         f"🖥️ Servers online: {s_on:,}/{s_tot:,}",
         f"👥 Users: {users:,}",
         f"📊 Plays (30d): {plays:,}",
-        f"🚨 Violations (7d): {viol:,}",
+        f"🚨 Violations (7d): {viol:,}"
+        + (f" ({rate:g} per 100 plays)" if rate else ""),
     ]
     return {
         "ok": True,
@@ -471,6 +498,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "status": 200,
         "active_streams": streams, "transcodes": transcodes, "bandwidth": bw,
         "total_users": users, "total_sessions": plays, "recent_violations": viol,
+        "violation_rate": rate,
         "servers_online": s_on, "servers_total": s_tot,
     }
 

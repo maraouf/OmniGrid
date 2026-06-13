@@ -371,6 +371,8 @@ export default {
     // (snapshot cadence + retention).
     'tuning_plex_sample_interval_seconds',
     'tuning_plex_history_days',
+    'tuning_tracearr_sample_interval_seconds',
+    'tuning_tracearr_history_days',
     // Tdarr retention sampler (snapshot cadence + retention).
     'tuning_tdarr_sample_interval_seconds',
     'tuning_tdarr_history_days',

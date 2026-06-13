@@ -985,7 +985,7 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         url, headers = mod.image_proxy_url(host_row, chip, path or "")
     except (ValueError, TypeError) as e:
         raise HTTPException(400, f"bad image path: {e}")
-    from urllib.parse import urlsplit  # noqa: PLC0415
+    from urllib.parse import urljoin, urlsplit  # noqa: PLC0415
     try:
         parts = urlsplit((url or "").strip())
     except (ValueError, TypeError):
@@ -1006,12 +1006,46 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
         return Response(content=_hit[0], media_type=_hit[1],
                         headers={"Cache-Control": "public, max-age=604800, immutable",
                                  "X-OmniGrid-Cache": "hit"})
+    # Manual redirect loop (follow_redirects=False) so EACH hop's host is
+    # re-validated before following — the module hook only validated hop 1, so a
+    # 30x off an allowlisted host is otherwise an SSRF escape (a redirect to a LAN
+    # host / 169.254.169.254 cloud-metadata would be followed + cached). A
+    # SAME-host redirect (http->https / trailing-slash normalisation on the
+    # operator's own configured app) is always followed; a CROSS-host redirect is
+    # followed ONLY when the module's optional image_redirect_allowed() hook
+    # permits the target (e.g. _servarr's coverartarchive -> ia*.archive.org
+    # cover-art hop) — and the auth headers are dropped on a cross-host hop so the
+    # chip credential never leaks to a redirect target. Capped at 3 redirects.
+    _redirect_ok = getattr(mod, "image_redirect_allowed", None)
+    cur_url = url
+    cur_headers = dict(headers or {})
+    r = None
     try:
         async with httpx.AsyncClient(verify=False, timeout=15.0,
-                                     follow_redirects=True) as cli:
-            r = await cli.get(url, headers=headers or {})
+                                     follow_redirects=False) as cli:
+            for _hop in range(4):  # initial GET + up to 3 redirects
+                r = await cli.get(cur_url, headers=cur_headers)
+                if r.status_code not in (301, 302, 303, 307, 308):
+                    break
+                loc = (r.headers.get("location") or "").strip()
+                if not loc:
+                    break
+                nxt = urljoin(cur_url, loc)
+                np = urlsplit(nxt)
+                if np.scheme not in ("http", "https") or not np.netloc:
+                    raise HTTPException(502, "upstream redirect to a non-http url")
+                same_host = (np.hostname or "").lower() == (urlsplit(cur_url).hostname or "").lower()
+                if not same_host:
+                    if not (_redirect_ok and _redirect_ok(host_row, chip, nxt)):
+                        raise HTTPException(502, "upstream redirect to a disallowed host")
+                    cur_headers = {"Accept": "*/*"}  # don't leak the chip credential cross-host
+                cur_url = nxt
+            else:
+                raise HTTPException(502, "too many upstream redirects")
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         raise HTTPException(502, f"upstream image fetch failed: {type(e).__name__}")
+    if r is None:
+        raise HTTPException(502, "upstream image fetch failed")
     if r.status_code == 404:
         raise HTTPException(404, "image not found upstream")
     if r.status_code != 200:

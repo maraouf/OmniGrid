@@ -3345,53 +3345,6 @@ details summary::-webkit-details-marker {
   overflow: hidden;
 }
 
-/* Segmented time-range picker for the Hosts view ("Last 1h / 6h / 24h /
-   7d"). Mirrors img_8's Beszel look — compact, no pill chrome, each
-   button is a flat chip that tints when active. */
-.range-seg {
-  display: inline-flex;
-  gap: var(--s-1);
-  padding: var(--s-1);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-}
-
-.range-seg button {
-  padding: var(--s-1) 10px;
-  font-size: var(--fs-xs);
-  line-height: 1.4;
-  color: var(--text-dim);
-  border-radius: var(--r-sm);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: color 120ms, background 120ms;
-}
-
-.range-seg button:hover {
-  color: var(--text);
-}
-
-.range-seg button.active {
-  color: var(--text);
-  background: var(--surface);
-}
-
-/* Disabled state while the picker's underlying loaders are in
-   flight. The cursor flips to wait so the affordance signals
-   "in progress, please wait" rather than "broken / locked out".
-   Hover styling is suppressed so the button doesn't appear
-   interactive during the busy window. */
-.range-seg button:disabled {
-  opacity: 0.5;
-  cursor: wait;
-}
-
-.range-seg button:disabled:hover {
-  color: var(--text-dim);
-}
-
 /* Per-chart refreshing feedback. Dims every
    metric-card inside the grid + adds a subtle pulse so operators
    see at a glance which charts are reloading. The pulse is
@@ -6420,7 +6373,6 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 /* Keep the expand/collapse toolbar chips tappable on phone — the
    `px-2.5 py-1` Tailwind utilities shrink below the touch target. */
 @media (max-width: 768px) {
-  .hosts-mobile-cards .range-seg button,
   .hosts-mobile-cards .btn {
     min-height: var(--touch-target-min);
   }
