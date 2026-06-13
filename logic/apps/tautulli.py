@@ -30,14 +30,18 @@ version are tolerated (0 / "" when unavailable).
 
 AI / Telegram skills
 --------------------
-* ``tautulli_status``         — activity + library summary (live fetch).
-* ``tautulli_activity``       — who's watching what right now (per-stream detail).
-* ``tautulli_libraries``      — list Plex libraries + their item counts.
-* ``tautulli_recently_added`` — the most recently added items.
-* ``tautulli_history``        — the most recent watch history.
+* ``tautulli_status``               — activity + library + engagement summary.
+* ``tautulli_activity``             — who's watching what right now (per-stream).
+* ``tautulli_libraries``            — list Plex libraries + their item counts.
+* ``tautulli_recently_added``       — the most recently added items.
+* ``tautulli_history``              — the most recent watch history.
+* ``tautulli_most_watched``         — top watchers + most-played media (30d).
+* ``tautulli_terminate_session``    — DESTRUCTIVE: stop ONE stream (arg).
+* ``tautulli_terminate_transcodes`` — DESTRUCTIVE: stop EVERY transcoding stream.
 
-All read-only / non-destructive (Tautulli is a monitor — there's nothing to add
-or delete). Single-instance app (NOT fleet) — one card per pinned chip.
+Mostly read-only (Tautulli is a monitor); the two terminate skills are the
+exception — they end live playback via ``cmd=terminate_session`` and gate behind
+a confirm. Single-instance app (NOT fleet) — one card per pinned chip.
 
 Upstream API reference: <tautulli-host>/api/v2?apikey=<key>&cmd=<command>
     cmd=get_activity        — active sessions + stream_count + total_bandwidth
@@ -56,7 +60,7 @@ from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
-from logic.coerce import as_dict, as_list, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("tautulli",)
@@ -309,6 +313,62 @@ def _shape_home_stats(data: Any) -> dict:
     return {"top_users": top_users, "top_media": top_media[:5]}
 
 
+def _shape_completion(data: Any) -> dict:
+    """From a ``cmd=get_history`` payload, compute engagement stats:
+    ``avg_completion`` (mean ``percent_complete`` across the sampled plays,
+    0-100), ``completion_rate`` (share of plays watched to completion —
+    ``watched_status >= 1`` — as 0-100), and ``history_sampled`` (rows counted).
+    Tautulli reports ``percent_complete`` per stream + ``watched_status``
+    (0 / 0.5 / 1), so this answers "how much of what they start do people
+    actually finish". ``{avg_completion: 0, completion_rate: 0,
+    history_sampled: 0}`` on an empty / unexpected shape."""
+    out = {"avg_completion": 0, "completion_rate": 0, "history_sampled": 0}
+    d = as_dict(data)
+    rows = as_list(d.get("data")) if d.get("data") is not None else (
+        data if isinstance(data, list) else [])
+    total = 0.0
+    watched = 0
+    n = 0
+    for r in rows:
+        rd = as_dict(r)
+        pct = max(0, min(100, safe_int(rd.get("percent_complete"))))
+        total += pct
+        if safe_float(rd.get("watched_status")) >= 1:
+            watched += 1
+        n += 1
+    if not n:
+        return out
+    out["avg_completion"] = round(total / n)
+    out["completion_rate"] = round(100 * watched / n)
+    out["history_sampled"] = n
+    return out
+
+
+def _shape_stream_type(data: Any) -> dict:
+    """A ``cmd=get_plays_by_stream_type`` payload as ``{labels, direct,
+    transcode}`` — per-day play counts split into direct (Direct Play + Direct
+    Stream) vs Transcode, so the card can chart transcode load over time (the
+    "do I need a faster CPU / GPU" signal). Any series whose name contains
+    "transcode" buckets to ``transcode``; everything else to ``direct``.
+    ``{labels: [], direct: [], transcode: []}`` on an unexpected shape."""
+    empty = {"labels": [], "direct": [], "transcode": []}
+    d = as_dict(data)
+    cats = [str(c).strip() for c in as_list(d.get("categories"))]
+    series = as_list(d.get("series"))
+    if not cats or not series:
+        return empty
+    direct = [0] * len(cats)
+    transcode = [0] * len(cats)
+    for s in series:
+        sd = as_dict(s)
+        name = str(sd.get("name") or "").strip().lower()
+        pts = as_list(sd.get("data"))
+        bucket = transcode if "transcode" in name else direct
+        for i in range(min(len(pts), len(cats))):
+            bucket[i] += safe_int(pts[i])
+    return {"labels": cats, "direct": direct, "transcode": transcode}
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -383,6 +443,20 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     cli, base, api_key, "get_plays_by_hourofday", time_range=30))
             except RuntimeError:
                 hourofday = {"labels": [], "values": []}
+            # Engagement: avg % watched + completion rate from the recent watch
+            # history (the "do people finish what they start" signal). Best-effort.
+            try:
+                completion = _shape_completion(await _call(
+                    cli, base, api_key, "get_history", length=100))
+            except RuntimeError:
+                completion = {"avg_completion": 0, "completion_rate": 0, "history_sampled": 0}
+            # Transcode-vs-direct plays over time (last 30d) — the hardware-load
+            # signal that justifies a CPU / GPU upgrade. Best-effort.
+            try:
+                stream_type = _shape_stream_type(await _call(
+                    cli, base, api_key, "get_plays_by_stream_type", time_range=30))
+            except RuntimeError:
+                stream_type = {"labels": [], "direct": [], "transcode": []}
     except RuntimeError as e:
         print(f"[tautulli] error: fetch host={host_id} — {e}")
         raise RuntimeError(str(e))
@@ -401,6 +475,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "top_media": home["top_media"],
         "dayofweek": dayofweek,
         "hourofday": hourofday,
+        # Engagement (avg % watched + completion rate) over the recent history.
+        "avg_completion": completion["avg_completion"],
+        "completion_rate": completion["completion_rate"],
+        "history_sampled": completion["history_sampled"],
+        # Transcode-vs-direct plays over time (drawer chart).
+        "stream_type": stream_type,
         "version": version,
         "fetched_at": int(now),
     }
@@ -408,7 +488,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"transcodes={out['transcodes']} bw={out['bandwidth_kbps']}kbps "
           f"libraries={out['libraries']} items={out['total_items']} "
           f"plays30d={out['plays_30d']} top_users={len(out['top_users'])} "
-          f"dow={len(dayofweek['values'])} hod={len(hourofday['values'])}")
+          f"dow={len(dayofweek['values'])} hod={len(hourofday['values'])} "
+          f"avg_watched={out['avg_completion']}% "
+          f"completion={out['completion_rate']}% (n={out['history_sampled']}) "
+          f"streamtype_days={len(stream_type['labels'])}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -426,6 +509,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "libraries": safe_int(data.get("libraries")),
         "total_items": safe_int(data.get("total_items")),
         "plays_30d": safe_int(data.get("plays_30d")),
+        "avg_completion": safe_int(data.get("avg_completion")),
+        "completion_rate": safe_int(data.get("completion_rate")),
         "top_user": (as_dict(as_list(data.get("top_users"))[0]).get("name")
                      if as_list(data.get("top_users")) else ""),
         "version": data.get("version") or "",
@@ -495,6 +580,16 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the watcher's name or the title to stop (or the session key)",
         "destructive": True,
     },
+    {
+        "id": "tautulli_terminate_transcodes",
+        "name": "Stop all transcoding streams",
+        "ai_phrases": ("stop all transcoding streams, kill the transcodes, free "
+                       "the cpu, terminate every transcode, stop transcoding on "
+                       "plex, end all transcoding sessions, my server is maxed out"),
+        # DESTRUCTIVE: ends EVERY active session that is transcoding (one-click
+        # "free the CPU"). No arg — it acts on all transcoding streams at once.
+        "destructive": True,
+    },
 )
 
 
@@ -524,6 +619,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                          service_idx=service_idx)
     if skill_id == "tautulli_terminate_session":
         return await _terminate_session_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "tautulli_terminate_transcodes":
+        return await _terminate_transcodes_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -627,6 +724,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
     plays_30d = safe_int(data.get("plays_30d"))
     if plays_30d:
         lines.append(f"📈 Plays (30d): {plays_30d:,}")
+    avg_completion = safe_int(data.get("avg_completion"))
+    completion_rate = safe_int(data.get("completion_rate"))
+    history_sampled = safe_int(data.get("history_sampled"))
+    if history_sampled:
+        lines.append(f"✅ Avg watched: {avg_completion}% "
+                     f"({completion_rate}% finished, last {history_sampled:,} plays)")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -635,6 +738,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "libraries": libraries, "total_items": items,
         "plays_30d": plays_30d,
+        "avg_completion": avg_completion, "completion_rate": completion_rate,
+        "history_sampled": history_sampled,
     }
 
 
@@ -775,6 +880,56 @@ async def _terminate_session_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": f"stop failed: {e}"}
     return {"ok": True, "status": 200,
             "detail": f"🛑 Stopped {target_label or 'the stream'}."}
+
+
+async def _terminate_transcodes_skill(host_row: dict, chip: dict, *,
+                                      host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE (no arg): stop EVERY active session that is transcoding — the
+    one-click "free the CPU". Reads ``cmd=get_activity``, then
+    ``cmd=terminate_session`` for each stream whose ``transcode_decision`` is
+    ``transcode``. Never raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[tautulli] INFO tautulli_terminate_transcodes host={host_id}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            data = await _call(cli, base, api_key, "get_activity")
+            sessions = as_list(as_dict(data).get("sessions"))
+            targets: list = []
+            for s in sessions:
+                sd = as_dict(s)
+                decision = str(sd.get("transcode_decision") or "").strip().lower()
+                skey = str(sd.get("session_key") or "").strip()
+                if decision == "transcode" and skey:
+                    user = str(sd.get("friendly_name") or sd.get("user") or "").strip()
+                    title = str(sd.get("full_title") or sd.get("title") or "").strip()
+                    targets.append((skey, f"{user} — {title}".strip(" —")))
+            if not targets:
+                return {"ok": True, "status": 200,
+                        "detail": "✅ No transcoding streams to stop — nothing is transcoding."}
+            stopped = 0
+            stopped_labels: list = []
+            for skey, label in targets:
+                try:
+                    await _call(cli, base, api_key, "terminate_session",
+                                session_key=skey,
+                                message="Transcoding stopped from OmniGrid")
+                    stopped += 1
+                    if label:
+                        stopped_labels.append(label)
+                except RuntimeError as se:
+                    print(f"[tautulli] warning: terminate_transcodes host={host_id} "
+                          f"session={skey} skipped — {se}")
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": f"stop failed: {e}"}
+    if not stopped:
+        return {"ok": False, "status": 502,
+                "detail": f"Plex didn't stop any of the {len(targets):,} transcoding stream(s)."}
+    tail = (": " + "; ".join(stopped_labels)) if stopped_labels else ""
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Stopped {stopped:,} transcoding stream(s){tail}."}
 
 
 async def _libraries_skill(host_row: dict, chip: dict, *,
