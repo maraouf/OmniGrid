@@ -793,7 +793,7 @@ function app() {
       {id: 'notifications', label: 'Notifications', icon: 'bell'},
       {id: '_sep_1', separator: true},
       {id: 'portainer', label: 'Portainer', icon: 'portainer'},
-      {id: 'providers', label: 'Providers', icon: 'activity'},
+      {id: 'providers', label: 'Providers', icon: 'cpu'},
       {id: 'ssh', label: 'SSH', icon: 'terminal'},
       {id: 'port_scan', label: 'Port Scan', icon: 'search'},
       {id: 'public_ip', label: 'Public IP', icon: 'globe'},
