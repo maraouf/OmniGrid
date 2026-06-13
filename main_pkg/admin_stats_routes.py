@@ -157,7 +157,7 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     # Samples page's per-table breakdown + grand total cover the Apps feature's
     # samplers, not just the host-stats providers.
     ("adguard_samples", "adguardhome", "adguard per-tick", "ts", "host_id"),
-    ("adguardhome_sync_samples", "adguardhome-sync", "AdGuard sync reliability", "ts", "host_id"),
+    ("adguardhome_sync_samples", "adguardhome_sync", "AdGuard sync reliability", "ts", "host_id"),
     ("pihole_samples", "pihole", "pi-hole per-tick", "ts", "host_id"),
     ("ddns_samples", "ddns_updater", "ddns-updater per-tick", "ts", "host_id"),
     ("fing_samples", "fing", "fing occupancy", "ts", "host_id"),

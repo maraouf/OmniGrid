@@ -169,28 +169,34 @@
       <!-- Problem hosts — surfaces ONLY when problemHostCount() > 0
            (operators on a healthy fleet don't see the tile). Click jumps to
            the Hosts view AND arms the problem-hosts filter chip so the list
-           narrows to the actionable rows in one click. Only appears once the
-           overview has loaded (problemHostCount reads statsOverview), so it
-           needs no skeleton — it's a post-load triage affordance. -->
+           narrows to the actionable rows in one click. ALWAYS present (with an
+           in-card skeleton during load) so the grid card count is identical in
+           the loading and loaded states; it turns red + becomes a one-click
+           triage filter only when there's something to act on (count > 0),
+           otherwise a muted "0". -->
       <button type="button"
-              x-show="statsOverviewLoaded && problemHostCount() > 0"
-              @click="view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {}"
+              @click="if (problemHostCount() > 0) { view='hosts'; hostsProblemFilter = true; try { sessionStorage.setItem('hostsProblemFilter', '1'); } catch (_) {} }"
               class="stats-card"
-              style="border-color: var(--pill-error-br); background: var(--pill-error-bg);"
+              :style="statsOverviewLoaded && problemHostCount() > 0 ? 'border-color: var(--pill-error-br); background: var(--pill-error-bg);' : ''"
               :aria-label="t('stats.cards.aria_label_value_sub', {
                               label: t('stats.cards.problem_hosts.label'),
                               value: problemHostCount(),
                               sub: t('stats.cards.problem_hosts.sub')
                             })">
-        <div class="stats-card-icon" style="color: var(--pill-error-fg);">
+        <div class="stats-card-icon"
+             :style="statsOverviewLoaded && problemHostCount() > 0 ? 'color: var(--pill-error-fg);' : ''">
           <svg width="20" height="20" aria-hidden="true">
             <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
           </svg>
         </div>
         <div class="stats-card-body">
           <div class="stats-card-label" x-text="t('stats.cards.problem_hosts.label')"></div>
-          <div class="stats-card-value" x-text="problemHostCount()"></div>
-          <div class="stats-card-sub fs-3xs" x-text="t('stats.cards.problem_hosts.sub')"></div>
+          <div class="stats-card-skel" x-show="!statsOverviewLoaded" aria-hidden="true">
+            <div class="skeleton-cell tall"></div>
+            <div class="skeleton-cell short"></div>
+          </div>
+          <div class="stats-card-value" x-show="statsOverviewLoaded" x-text="problemHostCount()"></div>
+          <div class="stats-card-sub fs-3xs" x-show="statsOverviewLoaded" x-text="t('stats.cards.problem_hosts.sub')"></div>
         </div>
       </button>
 
