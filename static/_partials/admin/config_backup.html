@@ -112,12 +112,13 @@
          class="mb-4 pb-4 border-b border-[var(--border)]">
       <!-- Canonical layout: label → help → textbox+bounds.
            Matches the AI / Asset Inventory / Portainer pattern. -->
-      <label class="block fs-xs font-medium mb-1"
+      <label for="cbk-cfg-tuning_config_backup_retention_count" class="block fs-xs font-medium mb-1"
              x-text="t('admin.config.fields.tuning_config_backup_retention_count.label')"></label>
       <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
          x-text="t('admin.config.fields.tuning_config_backup_retention_count.help')"></p>
       <div class="flex flex-wrap items-center gap-2 mb-3">
-        <input type="number"
+        <input id="cbk-cfg-tuning_config_backup_retention_count"
+               type="number"
                x-model="tuningForm['tuning_config_backup_retention_count']"
                :placeholder="tuningPlaceholder('tuning_config_backup_retention_count')"
                :min="(tuningEffective['tuning_config_backup_retention_count'] || {}).min"

@@ -61,7 +61,7 @@ import httpx
 
 from logic.apps._common import (
     cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
-from logic.coerce import safe_int
+from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("kavita",)
@@ -106,6 +106,14 @@ SKILLS: tuple[dict, ...] = (
         "ai_phrases": ("what am i reading on kavita, continue reading, on deck, "
                        "my in-progress series, what should i read next, "
                        "kavita continue reading, resume reading"),
+        "destructive": False,
+    },
+    {
+        "id": "kavita_most_read",
+        "name": "Most read",
+        "ai_phrases": ("most read on kavita, most popular series, top read series, "
+                       "what gets read the most, popular comics, popular manga, "
+                       "kavita most read, top series by reads, reading activity"),
         "destructive": False,
     },
     {
@@ -205,6 +213,58 @@ def _ondeck_item(s: Any) -> Optional[dict]:
         out["poster"] = f"series-cover?seriesId={sid}"
         out["poster_proxy"] = True
     return out
+
+
+def _most_read_item(row: Any) -> Optional[dict]:
+    """One most-read series (Kavita ``StatCount<SeriesDto>`` → ``{value, count}``)
+    as a rich skill-result item (poster via the image proxy + 'N reads'
+    subtitle). ``None`` for a malformed row."""
+    rd = as_dict(row)
+    val = as_dict(rd.get("value")) or rd  # some builds inline the series fields
+    name = str(val.get("name") or val.get("seriesName") or "?").strip()
+    sid = safe_int(val.get("id") or val.get("seriesId"))
+    count = safe_int(rd.get("count"))
+    if name == "?" and not sid:
+        return None
+    out: dict = {"title": name}
+    if count:
+        out["subtitle"] = f"{count:,} read" + ("s" if count != 1 else "")
+    if sid:
+        out["poster"] = f"series-cover?seriesId={sid}"
+        out["poster_proxy"] = True
+    return out
+
+
+def _reading_activity(stats: Any) -> dict:
+    """Reading-activity summary from a Kavita ServerStatistics payload (the SAME
+    ``/api/Stats/server/stats`` response the card already fetches — NO extra
+    call): the top-read series + its read count, recently-read count, active-
+    reader count, total reading minutes. All best-effort — fields a non-admin
+    key / older Kavita omits come back empty / 0 so the card hides those chips."""
+    sd = as_dict(stats)
+    most_read = as_list(sd.get("mostReadSeries"))
+    top = _most_read_item(most_read[0]) if most_read else None
+    return {
+        "top_read_series": (top or {}).get("title", ""),
+        "top_read_count": safe_int(as_dict(most_read[0]).get("count")) if most_read else 0,
+        "recently_read_count": len(as_list(sd.get("recentlyRead"))),
+        "active_readers": len(as_list(sd.get("mostActiveUsers"))),
+        "reading_minutes": safe_int(sd.get("totalReadingTime")),
+    }
+
+
+def _fmt_reading_time(minutes: Any) -> str:
+    """Render a reading-time minute count as a compact 'Xh' / 'Xh Ym' / 'Nm'
+    label. ``""`` for missing / non-positive."""
+    m = safe_int(minutes)
+    if m <= 0:
+        return ""
+    h, mm = divmod(m, 60)
+    if h and mm:
+        return f"{h:,}h {mm}m"
+    if h:
+        return f"{h:,}h"
+    return f"{mm}m"
 
 
 def _bearer(token: str) -> dict:
@@ -330,7 +390,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
             token, version = await _authenticate(cli, base, api_key)
             r = await cli.get(lib_url, headers=_bearer(token))
             # Admin-only server stats — best-effort (0 fields for a non-admin key).
+            # The same response ALSO carries reading-activity (most-read series /
+            # recently-read / active readers / total reading time), parsed in ONE
+            # pass via _reading_activity — no extra call.
             series = volumes = chapters = total_size = 0
+            reading: dict = {}
             try:
                 sr = await cli.get(base + "/api/Stats/server/stats",
                                    headers=_bearer(token))
@@ -341,8 +405,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                         volumes = safe_int(_sj.get("volumeCount"))
                         chapters = safe_int(_sj.get("chapterCount"))
                         total_size = safe_int(_sj.get("totalSize"))
+                        reading = _reading_activity(_sj)
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 series = volumes = chapters = total_size = 0
+                reading = {}
             if not version:
                 version = await _fetch_version(cli, base, token)
     except RuntimeError as e:
@@ -382,6 +448,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "volume_count": safe_int(volumes),
         "chapter_count": safe_int(chapters),
         "total_size": safe_int(total_size),
+        # Reading-activity (P1) — from the same server-stats response; 0 / "" for
+        # a non-admin key or older Kavita (the card just hides those chips).
+        "top_read_series": str(reading.get("top_read_series") or ""),
+        "top_read_count": safe_int(reading.get("top_read_count")),
+        "recently_read_count": safe_int(reading.get("recently_read_count")),
+        "active_readers": safe_int(reading.get("active_readers")),
+        "reading_minutes": safe_int(reading.get("reading_minutes")),
         "version": version,
         "fetched_at": int(now),
         # Library-growth retention trend — best-effort; the sampler may have no
@@ -419,6 +492,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "volume_count": safe_int(data.get("volume_count")),
         "chapter_count": safe_int(data.get("chapter_count")),
         "total_size": safe_int(data.get("total_size")),
+        "top_read_series": str(data.get("top_read_series") or ""),
+        "recently_read_count": safe_int(data.get("recently_read_count")),
+        "active_readers": safe_int(data.get("active_readers")),
+        "reading_minutes": safe_int(data.get("reading_minutes")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -444,6 +521,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _recently_added_skill(host_row, chip, host_id=host_id)
     if skill_id == "kavita_on_deck":
         return await _on_deck_skill(host_row, chip, host_id=host_id)
+    if skill_id == "kavita_most_read":
+        return await _most_read_skill(host_row, chip, host_id=host_id)
     if skill_id == "kavita_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "kavita_scan":
@@ -492,12 +571,26 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if size:
         lines.append(f"💾 Size: {size}")
+    # Reading activity (P1) — only when the admin-stats response carried it.
+    top_read = str(data.get("top_read_series") or "").strip()
+    top_count = safe_int(data.get("top_read_count"))
+    active = safe_int(data.get("active_readers"))
+    read_time = _fmt_reading_time(data.get("reading_minutes"))
+    if top_read:
+        lines.append(f"🏆 Most read: {top_read}"
+                     + (f" ({top_count:,} reads)" if top_count else ""))
+    if active:
+        lines.append(f"👥 Active readers: {active:,}")
+    if read_time:
+        lines.append(f"⏱️ Reading time: {read_time}")
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "libraries": libraries, "series_count": series, "volume_count": volumes,
         "chapter_count": chapters, "total_size": safe_int(data.get("total_size")),
+        "top_read_series": top_read, "active_readers": active,
+        "reading_minutes": safe_int(data.get("reading_minutes")),
     }
 
 
@@ -654,6 +747,58 @@ async def _on_deck_skill(host_row: dict, chip: dict, *,
         out["items"] = items
         out["count"] = len(items)
         out["count_i18n"] = "apps.kavita.on_deck_count"
+    return out
+
+
+# noinspection DuplicatedCode
+async def _most_read_skill(host_row: dict, chip: dict, *,
+                           host_id: Optional[str] = None) -> dict:
+    """Read-only: the most-read series (from the admin ``/api/Stats/server/stats``
+    response), rendered as a rich poster list (covers via the image proxy). Needs
+    an admin api_key; a non-admin key returns the friendly 'no data' reply. Never
+    raises."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[kavita] INFO kavita_most_read host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, _ = await _authenticate(cli, base, api_key)
+            r = await cli.get(base + "/api/Stats/server/stats", headers=_bearer(token))
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    if r.status_code in (401, 403):
+        return {"ok": True, "status": 200,
+                "detail": ("📊 The most-read stats need an admin Kavita api_key "
+                           "(this key isn't an admin's).")}
+    if r.status_code != 200:
+        return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    most_read = as_list(as_dict(body).get("mostReadSeries"))
+    if not most_read:
+        return {"ok": True, "status": 200,
+                "detail": "📊 No most-read data yet on Kavita."}
+    lines: list = []
+    items: list = []
+    for row in most_read[:15]:
+        it = _most_read_item(row)
+        if not it:
+            continue
+        sub = it.get("subtitle")
+        lines.append(f"• {it['title']}" + (f" — {sub}" if sub else ""))
+        items.append(it)
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🏆 Most read on Kavita:\n" + "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.kavita.most_read_count"
     return out
 
 

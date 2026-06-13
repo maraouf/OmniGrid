@@ -75,7 +75,24 @@ function kavitaSize(bytes) {
     val /= 1024;
     idx += 1;
   }
-  return val.toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ' + units[idx];
+  return val.toLocaleString(undefined, {maximumFractionDigits: 1}) + ' ' + units[idx];
+}
+
+// Reading-time minutes -> compact "Xh Ym" / "Xh" / "Nm" label; '—' for none.
+function kavitaReadingTime(minutes) {
+  const m = Number(minutes);
+  if (minutes == null || !isFinite(m) || m <= 0) {
+    return '—';
+  }
+  const h = Math.floor(m / 60);
+  const mm = Math.round(m % 60);
+  if (h && mm) {
+    return h.toLocaleString() + 'h ' + mm + 'm';
+  }
+  if (h) {
+    return h.toLocaleString() + 'h';
+  }
+  return mm + 'm';
 }
 
 // Library-growth trend block from the lifespan kavita_sampler (cumulative
@@ -143,6 +160,7 @@ export const helpers = {
   kavitaData: kavitaData,
   kavitaCount: kavitaCount,
   kavitaSize: kavitaSize,
+  kavitaReadingTime: kavitaReadingTime,
   kavitaTrend: kavitaTrend,
   kavitaTrendPath: kavitaTrendPath,
 };

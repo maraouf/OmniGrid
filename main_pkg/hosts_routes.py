@@ -48,6 +48,7 @@ import asyncio  # noqa: E402,F401,F811  (used at runtime; star-import shadows)
 # so they're safe + they silence the IDE in every scope (TYPE_CHECKING
 # blocks DON'T propagate into nested function/closure scopes).
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    json,
     sqlite3,
     AdminUser,
     HTTPException,

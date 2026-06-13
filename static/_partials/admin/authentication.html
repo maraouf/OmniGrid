@@ -130,12 +130,12 @@
            no side-by-side grid. -->
       <div class="space-y-4 pt-2">
         <div>
-          <label class="block fs-xs font-medium mb-1"
+          <label for="auth-totp-max-failures" class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.totp.max_failures_label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
              x-text="t('admin.config.totp.max_failures_hint')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input type="number" min="3" max="20" step="1"
+            <input id="auth-totp-max-failures" type="number" min="3" max="20" step="1"
                    x-model.number="settings.totp_lockout_max_failures"
                    :disabled="!isAdmin() || !settings.totp_allowed"
                    class="w-44 mono fs-sm py-1">
@@ -160,12 +160,12 @@
           </div>
         </div>
         <div>
-          <label class="block fs-xs font-medium mb-1"
+          <label for="auth-totp-lockout-minutes" class="block fs-xs font-medium mb-1"
                  x-text="t('admin.config.totp.lockout_minutes_label')"></label>
           <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
              x-text="t('admin.config.totp.lockout_minutes_hint')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input type="number" min="1" max="1440" step="1"
+            <input id="auth-totp-lockout-minutes" type="number" min="1" max="1440" step="1"
                    x-model.number="settings.totp_lockout_minutes"
                    :disabled="!isAdmin() || !settings.totp_allowed"
                    class="w-44 mono fs-sm py-1">

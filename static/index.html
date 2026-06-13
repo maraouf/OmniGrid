@@ -10229,8 +10229,11 @@
                       </div>
                       <!-- Uptime / port-health sparkline + latency — the same
                            appsInstanceSpark the apps-page card renders, surfaced
-                           in the drawer too (gated on >1 history point). -->
-                      <div class="apps-card-spark-row mt-1"
+                           in the drawer too (gated on >1 history point). The
+                           `--drawer` modifier forces it visible — the base
+                           .apps-card-spark-row is display:none and only the card
+                           SIZE classes (absent in the drawer) opt it in. -->
+                      <div class="apps-card-spark-row apps-card-spark-row--drawer mt-1"
                            x-show="(inst.last_probe && inst.last_probe.rtt_ms) || (inst.status_history || []).length > 1">
                         <template x-if="(inst.status_history || []).length > 1">
                           <template x-for="sp in [appsInstanceSpark(inst)]" :key="'drawerspark'">

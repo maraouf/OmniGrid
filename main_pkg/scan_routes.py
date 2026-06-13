@@ -69,6 +69,7 @@ from main import *  # noqa: E402,F401,F403
 # runtime too (Python's import system caches; second-import is a dict
 # lookup), so they're safe + they silence the IDE in every scope.
 from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * above
+    sqlite3,
     AdminUser,
     BaseModel,
     FileResponse,
@@ -1141,7 +1142,7 @@ async def api_notify_test(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"test notification fired by {_admin.username or 'operator'}",
             )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[notify] notify_test audit-row write failed: {e}")
     return {"status": "sent"}
 
@@ -1176,7 +1177,7 @@ async def api_apprise_test(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"apprise channel test fired by {_admin.username or 'operator'}",
             )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[notify] apprise_test audit-row write failed: {e}")
     return _stamp_test_success("apprise", {
         "ok": bool(result.get("ok")),
@@ -1398,7 +1399,7 @@ async def api_notifications_mark_read(
             {"id": nid, "read_at": read_at, "unread_count": unread_count},
             client_id=_request_client_id(request),
         )
-    except Exception as _e: # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         print(f"[notify] read SSE publish dropped: {_e}")
     return {"id": nid, "read_at": read_at, "unread_count": unread_count}
 
@@ -1424,7 +1425,7 @@ async def api_notifications_mark_all_read(
             {"id": None, "read_at": now, "unread_count": 0, "bulk": True},
             client_id=_request_client_id(request),
         )
-    except Exception as _e: # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         print(f"[notify] read-all SSE publish dropped: {_e}")
     return {"count": count, "unread_count": 0}
 
@@ -1459,7 +1460,7 @@ async def api_notifications_delete(
             {"id": nid, "unread_count": unread_count},
             client_id=_request_client_id(request),
         )
-    except Exception as _e: # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         print(f"[notify] delete SSE publish dropped: {_e}")
     return {"id": nid, "deleted": True, "unread_count": unread_count}
 
@@ -1664,7 +1665,7 @@ async def api_tabs_activity_heartbeat(
             {"client_id": cid, **entry},
             client_id=cid,  # self-filter: originating tab won't echo
         )
-    except Exception as _e: # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         print(f"[tabs] activity SSE publish dropped: {_e}")
     return {"ok": True}
 
@@ -1684,7 +1685,7 @@ async def api_tabs_activity_close(request: Request):
             {"client_id": cid},
             client_id=cid,
         )
-    except Exception as _e: # noqa: BLE001
+    except Exception as _e:  # noqa: BLE001
         print(f"[tabs] close SSE publish dropped: {_e}")
     return {"ok": True}
 
@@ -2560,7 +2561,7 @@ async def api_logs_clear(_admin: AdminUser):
                 actor=_admin.username or schedules.UNKNOWN_ACTOR,
                 message=f"in-memory log buffer cleared by {_admin.username or 'operator'}",
             )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[logs] audit-row write failed before clear: {e}")
     _logs.clear()
     return {"ok": True}

@@ -14763,6 +14763,12 @@ a.apps-drawer-tile-name {
   margin-top: 3px;
 }
 
+/* In the app detail DRAWER the instance row isn't inside a card-size cell, so
+   the size-class opt-ins above never fire — force the spark row visible there. */
+.apps-card-spark-row--drawer {
+  display: flex;
+}
+
 .apps-spark-wrap--wide {
   display: block;
   flex: 1 1 auto;

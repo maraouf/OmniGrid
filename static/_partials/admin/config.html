@@ -38,7 +38,7 @@
       <template x-for="key in sortedTuningKeys()" :key="key">
         <div x-show="tunableMatchesSearch(key)"
              class="border border-[var(--border)] rounded-md bg-[var(--surface-2)] p-3">
-          <label class="flex items-center gap-2 fs-sm font-medium mb-1 flex-wrap">
+          <label :for="'cfg-' + key" class="flex items-center gap-2 fs-sm font-medium mb-1 flex-wrap">
             <span x-text="t('admin.config.fields.' + key + '.label')"></span>
             <!-- Dead-tunable badge — surfaces when the audit shows the
                  knob has no live consumer. The input still saves to the
@@ -55,7 +55,7 @@
           <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.' + key + '.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
+            <input :id="'cfg-' + key" type="number"
                    x-model="tuningForm[key]"
                    :placeholder="tuningPlaceholder(key)"
                    :min="(tuningEffective[key] || {}).min"
