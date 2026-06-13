@@ -2840,6 +2840,8 @@
     "users": {
       "create_title": "Create user",
       "username_placeholder": "Username",
+      "role_label": "Role",
+      "auth_source_label": "Auth source",
       "email_placeholder": "Email (optional)",
       "auth_local": "Local (password)",
       "auth_authentik": "Authentik (SSO)",
