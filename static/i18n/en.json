@@ -6218,7 +6218,7 @@
       "api_key_label": "Fing Local API key",
       "api_key_placeholder_saved": "Saved — leave blank to keep",
       "api_key_placeholder_unset": "Local API key",
-      "api_key_hint": "Enable the Local API on your Fing unit, then copy the key. On the Fing Agent (Docker / Linux / NAS) it is OFF by default — turn it on at app.fing.com → Manage → Settings → Local API (or the mobile app → your agent → Settings → Local API) and set a port + key there; in Fing Desktop it is in the desktop app's settings. The key is sent as the ?auth=<key> query parameter (not a header). Point the chip URL at the Local API port (default :49090) — note the Fing Agent's published port 44444 is UPnP status only, not the API. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one.",
+      "api_key_hint": "Enable the Local API on your Fing unit, then copy the key. It is a PER-AGENT setting and needs an ACTIVATED agent on a PAID Fing plan (Starter / Premium / Professional) — on the free plan the Fing Agent (and this Local API option) never appears, which is the usual reason you can't find it. Mobile app: ☰ menu → pick your agent → gear → Agent Settings → Local API tab → enable + set a port + key. Web (app.fing.com): select the agent → Manage → Settings → Local API. The key is sent as the ?auth=<key> query parameter (not a header). Point the chip URL at the Local API port (default :49090) — the agent's published port 44444 is UPnP discovery only, not the API. Stored encrypted-at-rest and never shown again; leave blank to keep the saved one.",
       "online": "Online",
       "offline": "Offline",
       "new": "New",
