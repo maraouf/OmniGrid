@@ -644,7 +644,8 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
             nm = str(c.get("name") or "").strip()
             hn = str(c.get("hostname") or "").strip()
             vendor = str(c.get("oui") or "").strip()
-            name = nm or hn or str(c.get("mac") or "").strip()
+            mac = str(c.get("mac") or "").strip()
+            name = nm or hn or mac
             if not name:
                 continue
             # Categorisation text — name + hostname + vendor OUI for the best
@@ -653,7 +654,7 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
             # The associated Wi-Fi network (SSID) for a wireless client —
             # `essid` on the stat/sta record; '' for wired clients.
             ssid = str(c.get("essid") or "").strip()
-            out.append({"name": name, "ip": str(c.get("ip") or "").strip(),
+            out.append({"name": name, "mac": mac, "ip": str(c.get("ip") or "").strip(),
                         "wired": bool(c.get("is_wired")), "ssid": ssid,
                         "rx": rx, "tx": tx, "total": rx + tx, "text": cat_text})
     return out
@@ -948,7 +949,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
 def _device_row(d: dict) -> Optional[dict]:
     """One device as a rich skill-result item: name + a state / model / IP
     subtitle, grouped by device type. Carries an internal ``_bucket`` for
-    grouping (stripped before the item ships)."""
+    grouping (stripped before the item ships) AND a per-row 🔁 Restart button
+    (DESTRUCTIVE — the SPA confirms first). The restart arg is the device MAC
+    (exact match across sites) when present, else the device name."""
     name = str(d.get("name") or "").strip() or str(d.get("model") or "").strip()
     if not name:
         return None
@@ -961,7 +964,16 @@ def _device_row(d: dict) -> Optional[dict]:
     ip = str(d.get("ipAddress") or "").strip()
     if ip:
         bits.append(ip)
-    return {"title": name, "subtitle": " · ".join(bits), "_bucket": _classify_device(d)}
+    row: dict = {"title": name, "subtitle": " · ".join(bits),
+                 "_bucket": _classify_device(d)}
+    restart_arg = str(d.get("macAddress") or "").strip() or name
+    if restart_arg:
+        row["row_action"] = {
+            "skill_id": "unifi_restart_device", "arg": restart_arg,
+            "icon": "rotate-cw", "destructive": True,
+            "confirm_i18n": "apps.unifi.restart_confirm",
+            "title_i18n": "apps.unifi.restart_row"}
+    return row
 
 
 # Device-type group order + i18n header key for the rich device list.
@@ -1005,6 +1017,8 @@ async def _devices_skill(host_row: dict, chip: dict, *,
         it: dict = {"title": r["title"], "subtitle": r["subtitle"]}
         if mixed:
             it["group"] = _BUCKET_I18N.get(r["_bucket"], "apps.unifi.group_other")
+        if r.get("row_action"):
+            it["row_action"] = r["row_action"]
         items.append(it)
         lines.append(f"• {r['title']}  ({r['subtitle']})")
     out: dict = {"ok": True, "status": 200,
@@ -1063,11 +1077,22 @@ async def _clients_skill(host_row: dict, chip: dict, *,
         if c["ip"]:
             sub_bits.append(c["ip"])
         sub_bits.append(f"▼ {_fmt_bytes(c['rx'])} · ▲ {_fmt_bytes(c['tx'])}")
-        items.append({
+        item: dict = {
             "title": f"{emoji} {clean_name}",
             "subtitle": " · ".join(sub_bits),
             "progress": round(c["total"] / maxt * 100),
-        })
+        }
+        # Per-row 🚫 Block button (DESTRUCTIVE — the SPA confirms first). The arg
+        # is the client MAC (exact match against the Integration API client list)
+        # when known, else the display name.
+        block_arg = str(c.get("mac") or "").strip() or clean_name
+        if block_arg:
+            item["row_action"] = {
+                "skill_id": "unifi_block_client", "arg": block_arg,
+                "icon": "circle-off", "destructive": True,
+                "confirm_i18n": "apps.unifi.block_confirm",
+                "title_i18n": "apps.unifi.block_row"}
+        items.append(item)
         loc_bits = [b for b in (c["ip"], (f"📶 {ssid}" if (not c["wired"] and ssid) else "")) if b]
         loc = (" [" + " · ".join(loc_bits) + "]") if loc_bits else ""
         lines.append(f"{i}. {emoji} {clean_name}{loc} — {_fmt_bytes(c['total'])} "

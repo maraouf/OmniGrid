@@ -128,9 +128,18 @@ Two layers of defence:
   Correct for supergroups with multiple members; unnecessary for
   personal DMs.
 
-Account-link commands (`/link`, `/unlink`, `/whoami`, `/myid`,
-`/weather`, `/time`) are EXEMPT from layer 1 so unlinked users can
-mint a link code before being recognised.
+Beyond the two chat-level layers there is a separate **mapping gate**:
+commands NOT in the "open" set require the sender to be linked to an
+OmniGrid user first (`_lookup_omnigrid_user(sender_id)` non-None). The
+"open" commands — derived from `_COMMANDS[*].access == "open"`, so the
+set never drifts from the per-command metadata — are `/help`, `/start`,
+`/link`, `/whoami`, `/myid`, `/version` (alias `/ver`), and `/ip`.
+These stay usable before linking so an unlinked user can discover the
+bot and mint a link code (`/ip` is gated separately by the
+`public_ip_enabled` setting). Every other command (`/hosts`, `/host`,
+`/weather`, `/time`, `/upcoming`, …) returns a "Link your account
+first" prompt until the sender is linked; `/restart` additionally
+requires admin role.
 
 ### Command roster
 
@@ -169,6 +178,10 @@ with bold section headers + emoji prefixes:
   - `/unlink` — Remove the Telegram → OmniGrid user link
   - `/whoami` (aliases: `/myid`) — Show your access level & ID
 - **ℹ️ Info & weather**
+  - `/upcoming [days] [movies|series|music|books]` — Upcoming releases
+    across your *arr apps (movies / episodes / albums / books) with
+    dates + synopsis. Requires a linked account + at least one pinned
+    *arr app.
   - `/weather` — Show the weather for your saved location (set it in
     Profile → Weather)
   - `/moon` — Show today's moon phase + illumination (requires the

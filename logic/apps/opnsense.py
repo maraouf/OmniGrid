@@ -802,15 +802,35 @@ async def _services_skill(host_row: dict, chip: dict, *,
     if not svcs:
         return {"ok": True, "status": 200, "detail": "No services reported by OPNsense."}
     lines = []
+    items: list[dict] = []
     for s in svcs[:40]:
         if not isinstance(s, dict):
             continue
-        emoji = "🟢" if s.get("running") else "⏹️"
-        label = str(s.get("description") or s.get("name") or "?").strip()
+        running_now = bool(s.get("running"))
+        emoji = "🟢" if running_now else "⏹️"
+        name = str(s.get("name") or "").strip()
+        label = str(s.get("description") or name or "?").strip()
         lines.append(f"{emoji} {label}")
+        row: dict = {"title": label,
+                     "subtitle": "running" if running_now else "stopped"}
+        if name:
+            # Per-row 🔄 Restart button → bounce THIS service (DESTRUCTIVE — a
+            # brief interruption; the SPA confirms first). The arg is the service
+            # name (exact match in the restart skill's resolver).
+            row["row_action"] = {
+                "skill_id": "opnsense_restart_service", "arg": name,
+                "icon": "rotate-cw", "destructive": True,
+                "confirm_i18n": "apps.opnsense.restart_confirm",
+                "title_i18n": "apps.opnsense.restart_row"}
+        items.append(row)
     running = sum(1 for s in svcs if isinstance(s, dict) and s.get("running"))
     head = f"⚙️ {running}/{len(svcs)} services running"
-    return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
+    out: dict = {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.opnsense.services_count"
+    return out
 
 
 async def _restart_service_skill(host_row: dict, chip: dict, *,

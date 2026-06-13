@@ -1412,10 +1412,12 @@ async def _requests_skill(host_row: dict, chip: dict, *,
             for filt in filters:
                 results = await _seerr_list_requests(cli, base, api_key, filt,
                                                      _REQUEST_LIST_TAKE)
-                # (media_type, tmdb_id, created_at, requester_name, avatar) per
-                # request, de-duped, in order. The requester comes from the
-                # first occurrence (same media requested twice keeps the first).
-                items: list[tuple[str, int, str, str, str]] = []
+                # (media_type, tmdb_id, created_at, requester_name, avatar,
+                # request_id) per request, de-duped, in order. The requester
+                # comes from the first occurrence (same media requested twice
+                # keeps the first); the request_id powers the per-row approve /
+                # decline buttons on the PENDING section.
+                items: list[tuple[str, int, str, str, str, int]] = []
                 seen: set[tuple[str, int]] = set()
                 for req in results:
                     if not isinstance(req, dict):
@@ -1429,16 +1431,16 @@ async def _requests_skill(host_row: dict, chip: dict, *,
                     seen.add((mtype, tmdb_id))
                     req_name, req_avatar = _requested_by(req)
                     items.append((mtype, tmdb_id, str(req.get("createdAt") or ""),
-                                  req_name, req_avatar))
+                                  req_name, req_avatar, safe_int(req.get("id"))))
                 if not items:
                     continue
-                details = await asyncio.gather(*[_detail(mt, tid) for mt, tid, _, _, _ in items])
+                details = await asyncio.gather(*[_detail(mt, tid) for mt, tid, _, _, _, _ in items])
                 header = _REQUEST_FILTER_LABELS.get(filt, filt.title())
                 # The status word for the rich-item subtitle (strip the leading
                 # emoji off the section header, e.g. "⬇️ Processing" → "Processing").
                 status_word = header.split(" ", 1)[-1] if " " in header else header
                 lines = [f"{header} ({len(items)}):"]
-                for (mt, tid, created, rname, ravatar), (lbl, poster_path) in zip(items, details):
+                for (mt, tid, created, rname, ravatar, req_id), (lbl, poster_path) in zip(items, details):
                     if not lbl:
                         lbl = f"TMDB {tid}"
                     icon = "📺" if mt == "tv" else "🎬"
@@ -1463,6 +1465,21 @@ async def _requests_skill(host_row: dict, chip: dict, *,
                         # `/avatarproxy/` path is relative to the app host.
                         item["avatar"] = ravatar
                         item["avatar_proxy"] = True
+                    if filt == "pending" and req_id:
+                        # Per-row buttons on the PENDING queue: ✓ approve (the
+                        # request starts downloading) + ✗ decline (destructive —
+                        # the SPA confirms first). `req:<id>` is the exact-id arg
+                        # the approve / decline skill resolves without a title
+                        # search. AI / Telegram still call the skills by title.
+                        item["row_actions"] = [
+                            {"skill_id": "seerr_approve_request", "arg": f"req:{req_id}",
+                             "icon": "check", "destructive": False,
+                             "title_i18n": "apps.seerr.approve_row"},
+                            {"skill_id": "seerr_decline_request", "arg": f"req:{req_id}",
+                             "icon": "x", "destructive": True,
+                             "confirm_i18n": "apps.seerr.decline_confirm",
+                             "title_i18n": "apps.seerr.decline_row"},
+                        ]
                     rich.append(item)
                 sections.append("\n".join(lines))
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -1754,6 +1771,67 @@ async def _find_request(cli: httpx.AsyncClient, base: str, api_key: str,
     return partial
 
 
+# Seerr `request.status` enum: 1 pending-approval · 2 approved · 3 declined.
+_SEERR_REQUEST_STATUS_PENDING = 1
+
+
+async def _request_by_id(cli: httpx.AsyncClient, base: str, api_key: str,
+                         req_id: int) -> "Optional[tuple[int, str, str, int]]":
+    """Fetch ONE request by id via ``GET /api/v1/request/{id}`` and resolve its
+    ``(request_id, label, media_type, status)``. ``None`` on any non-200 / parse
+    failure. The label is resolved through the media detail endpoint (same as the
+    title path), falling back to ``TMDB <id>``."""
+    if req_id <= 0:
+        return None
+    try:
+        r = await cli.get(f"{base}/api/v1/request/{req_id}", headers=_headers(api_key))
+    except (httpx.HTTPError, OSError):
+        return None
+    if getattr(r, "status_code", 0) != 200:
+        return None
+    try:
+        body = r.json() or {}
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    media = as_dict(body.get("media"))
+    tid = safe_int(media.get("tmdbId"))
+    mtype = str(media.get("mediaType") or "movie").strip().lower()
+    status = safe_int(body.get("status"))
+    label, _poster = await _seerr_media_detail(cli, base, api_key, mtype, tid)
+    return req_id, (label or f"TMDB {tid}").strip(), mtype, status
+
+
+async def _resolve_request_target(cli: httpx.AsyncClient, base: str, api_key: str,
+                                  query: str, filt: str, *,
+                                  verb: str) -> "tuple[int, str, str] | dict":
+    """Resolve an approve / decline target to ``(request_id, label, media_type)``.
+    ``query`` is either the per-row button's exact ``req:<id>`` form OR a
+    free-text title (AI / Telegram). Returns the tuple, or a ready
+    ``{ok, status, detail}`` error dict (not-found / wrong-status) for the caller
+    to return verbatim."""
+    q = (query or "").strip()
+    if q.lower().startswith("req:"):
+        rid = safe_int(q.split(":", 1)[1])
+        found = await _request_by_id(cli, base, api_key, rid)
+        if not found:
+            return {"ok": False, "status": 404,
+                    "detail": "that request no longer exists on Seerr"}
+        req_id, label, mtype, status = found
+        if status != _SEERR_REQUEST_STATUS_PENDING:
+            return {"ok": False, "status": 409,
+                    "detail": f"“{label}” is no longer pending — only pending "
+                              f"requests can be {verb}d"}
+        return req_id, label, mtype
+    match = await _find_request(cli, base, api_key, q, filt)
+    if not match:
+        return {"ok": False, "status": 404,
+                "detail": f"no PENDING request matched “{q}” — only "
+                          f"pending requests can be {verb}d"}
+    return match
+
+
 # noinspection DuplicatedCode
 async def _approve_decline_skill(host_row: dict, chip: dict, *,
                                  arg: Optional[str] = None,
@@ -1778,11 +1856,12 @@ async def _approve_decline_skill(host_row: dict, chip: dict, *,
     try:
         async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:
-            match = await _find_request(cli, base, api_key, query, "pending")
-            if not match:
-                return {"ok": False, "status": 404,
-                        "detail": f"no PENDING request matched “{query}” — only "
-                                  f"pending requests can be {verb}d"}
+            # The per-row button supplies an exact `req:<id>` arg — resolve it
+            # directly (the AI / Telegram free-text path matches a title).
+            match = await _resolve_request_target(cli, base, api_key, query,
+                                                  "pending", verb=verb)
+            if isinstance(match, dict):  # not-found / wrong-status error dict
+                return match
             rid, label, mtype = match
             r = await cli.post(f"{base}/api/v1/request/{rid}/{verb}",
                                headers=_headers(api_key))

@@ -600,9 +600,12 @@ export default {
     // Key includes the arg so dispatching the SAME skill against a DIFFERENT row
     // (e.g. searching subtitles for two different missing titles in quick
     // succession) doesn't silently no-op on the second click. Button skills
-    // (arg null) keep a stable per-skill key.
+    // (arg null) keep the bare per-skill key `skill:<ikey>:<id>` — it MUST match
+    // what appSkillBusy(inst, id) reads, or the button's spinner + :disabled
+    // never fire. So the ':<arg>' suffix is appended ONLY when an arg is present
+    // (a per-row action); never as a trailing empty ':' for the no-arg button.
     const busyKey = 'skill:' + this.appInstanceKey(inst) + ':' + skillId
-      + ':' + (arg == null ? '' : String(arg));
+      + (arg == null ? '' : ':' + String(arg));
     if (this._appSkillBusy[busyKey]) {
       return null;
     }
