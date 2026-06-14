@@ -1652,6 +1652,9 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # below it. None when unset (OFF). Round-trips to the editor +
                 # card settings.
                 "speed_floor_mbps": svc.get("speed_floor_mbps"),
+                # Per-instance OPNsense standby/failover gateway hint
+                # (CSV of passive gateway names). None when unset.
+                "standby_gateways": svc.get("standby_gateways"),
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
@@ -1820,6 +1823,9 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 # below it. None when unset (OFF). Round-trips to the editor +
                 # card settings.
                 "speed_floor_mbps": svc.get("speed_floor_mbps"),
+                # Per-instance OPNsense standby/failover gateway hint
+                # (CSV of passive gateway names). None when unset.
+                "standby_gateways": svc.get("standby_gateways"),
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),

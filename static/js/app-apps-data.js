@@ -121,6 +121,52 @@ export default {
       || this.appsDebugNotes(inst).length > 0;
   },
 
+  // Copy the ENTIRE app-drawer debug pane in one go. The pane renders from TWO
+  // independent sources — the app-data endpoint diagnostics (out._debug:
+  // per-request status / body snippet / self-diagnosed hint / notes) AND the
+  // /debug probe-target data (resolved targets + chip + raw JSON) — and the
+  // old copy button only grabbed the second. This assembles a readable
+  // ENDPOINT DIAGNOSTICS + RESOLVED PROBE TARGETS section followed by the full
+  // JSON of both, so the operator pastes the complete picture.
+  copyAppInstanceDebug(inst) {
+    const out = [];
+    const endpoints = this.appsDebug(inst);
+    const hint = this.appsDebugHint(inst);
+    const notes = this.appsDebugNotes(inst);
+    if (endpoints.length || hint || notes.length) {
+      out.push('ENDPOINT DIAGNOSTICS');
+      if (hint) { out.push(hint); }
+      for (const e of endpoints) {
+        out.push(`${e.label}: ${e.method} ${e.path}`);
+        out.push(`→ HTTP ${e.status}`);
+        if (e.snippet) { out.push(e.snippet); }
+      }
+      for (const n of notes) { out.push(n); }
+      out.push('');
+    }
+    const key = this.appInstanceKey(inst);
+    const pd = (this.appDebug && this.appDebug[key]) ? this.appDebug[key].data : null;
+    if (pd) {
+      const targets = Array.isArray(pd.resolved_targets) ? pd.resolved_targets : [];
+      if (targets.length) {
+        out.push('RESOLVED PROBE TARGETS');
+        for (const rt of targets) {
+          out.push(`${rt.target} [${rt.probe_type}${rt.expected_status ? ' → ' + rt.expected_status : ''}]`);
+        }
+        out.push('');
+      }
+      out.push('PROBE DEBUG JSON');
+      out.push(JSON.stringify(pd, null, 2));
+    }
+    const ad = this.appsAppData(inst);
+    if (ad) {
+      out.push('');
+      out.push('APP DATA JSON');
+      out.push(JSON.stringify(ad, null, 2));
+    }
+    this.copyToClipboard(out.join('\n'));
+  },
+
   // ---- Generic *arr storage helpers (shared by the radarr / sonarr / lidarr
   // / readarr extras partials via _components/apps/_arr_storage.html). They
   // read the standard {path, free_gb, total_gb} disk shape every *arr

@@ -6187,7 +6187,8 @@
       "skills_title": "App skills",
       "probe_failed": "Probe failed: ",
       "refresh": "Refresh",
-      "refresh_title": "Re-probe and refresh this app’s data"
+      "refresh_title": "Re-probe and refresh this app’s data",
+      "copy_debug_all": "Copy all"
     },
     "host_drawer": {
       "title": "Host apps",
@@ -6232,7 +6233,7 @@
       "disk_free_short": "free",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
       "queue_delete_title": "Remove from queue",
-      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won\u2019t be grabbed again.",
+      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won’t be grabbed again.",
       "blocklist_search_title": "Blocklist & search",
       "releasing_today": "Today",
       "queue_trend": "Download queue ({days} days)",
@@ -6265,7 +6266,7 @@
       "fetch_failed": "Sonarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
       "queue_delete_title": "Remove from queue",
-      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won\u2019t be grabbed again.",
+      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won’t be grabbed again.",
       "blocklist_search_title": "Blocklist & search",
       "releasing_today": "Today",
       "queue_trend": "Download queue ({days} days)",
@@ -6336,7 +6337,7 @@
       "fetch_failed": "Lidarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
       "queue_delete_title": "Remove from queue",
-      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won\u2019t be grabbed again.",
+      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won’t be grabbed again.",
       "blocklist_search_title": "Blocklist & search",
       "releasing_today": "Today",
       "queue_trend": "Download queue ({days} days)",
@@ -6368,7 +6369,7 @@
       "fetch_failed": "Readarr fetch failed",
       "queue_delete_confirm": "Remove this download from the queue (and the download client)?",
       "queue_delete_title": "Remove from queue",
-      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won\u2019t be grabbed again.",
+      "blocklist_search_confirm": "Blocklist this release and search for a new one? The current download is removed and the release is blocklisted so it won’t be grabbed again.",
       "blocklist_search_title": "Blocklist & search",
       "releasing_today": "Today",
       "queue_trend": "Download queue ({days} days)",
@@ -6444,7 +6445,10 @@
       "uptime": "up",
       "no_key": "No API key / secret set — add them in Admin → Apps to enable.",
       "loading": "Loading OPNsense data…",
-      "fetch_failed": "OPNsense fetch failed"
+      "fetch_failed": "OPNsense fetch failed",
+      "standby_gateways_label": "Standby (failover) gateways",
+      "standby_gateways_placeholder": "e.g. WAN_CELL_DHCP",
+      "standby_gateways_hint": "Comma-separated gateway names (or substrings) you run as passive failover. They are not counted as down when offline."
     },
     "fing": {
       "api_key_label": "Fing Local API key",

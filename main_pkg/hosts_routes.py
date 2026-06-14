@@ -1363,6 +1363,15 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["speed_floor_mbps"] = max(0.0, min(100000.0, float(sf)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance OPNsense active/passive failover hint — comma-separated
+        # gateway names (or substrings) the operator runs as STANDBY (e.g. a
+        # passive cellular WAN). A standby gateway at 100% loss is EXPECTED, so
+        # the card excludes it from the active "N/M online" health + the
+        # worst-gateway pick. Plain string (NOT a secret), round-trips to the
+        # editor; capped at 256 chars. Blank omits the field.
+        sg = entry.get("standby_gateways")
+        if isinstance(sg, str) and sg.strip():
+            cleaned["standby_gateways"] = sg.strip()[:256]
         # Per-instance data-cache TTL (seconds) — operator override of the
         # app module's default (resolve_cache_ttl). Clamp to 5..3600;
         # blank / unparseable omits the field so the app default applies.
