@@ -62,13 +62,29 @@
           </span>
         </div>
         <!-- Routing-tag chips — the tags the AI / operator can target with a
-             notification ("send a notification to [admins] …"). -->
-        <div x-show="appriseTags(inst).length" class="apps-apprise-row">
+             notification ("send a notification to [admins] …"). When the
+             apprise-api payload carries per-URL tags, each chip also shows how
+             many ENDPOINTS that tag routes to ("#admins ×3"); otherwise the
+             plain tag list is shown as a fallback. -->
+        <div x-show="appriseTagRoutes(inst).length || appriseTags(inst).length" class="apps-apprise-row">
           <span class="apps-apprise-row-label"
-                x-text="(t('apps.apprise.tags') || 'Tags') + ':'"></span>
+                x-text="(t('apps.apprise.tag_routing') || 'Tag routing') + ':'"></span>
           <span class="apps-apprise-chips">
-            <template x-for="tg in appriseTags(inst)" :key="tg">
-              <span class="apps-apprise-chip apps-apprise-chip--tag" x-text="'#' + tg"></span>
+            <template x-if="appriseTagRoutes(inst).length">
+              <span class="contents">
+                <template x-for="tr in appriseTagRoutes(inst)" :key="tr.tag">
+                  <span class="apps-apprise-chip apps-apprise-chip--tag"
+                        :title="t('apps.apprise.tag_route_title', { tag: tr.tag, n: (Number(tr.count) || 0) })"
+                        x-text="'#' + tr.tag + ' ×' + (Number(tr.count) || 0)"></span>
+                </template>
+              </span>
+            </template>
+            <template x-if="!appriseTagRoutes(inst).length">
+              <span class="contents">
+                <template x-for="tg in appriseTags(inst)" :key="tg">
+                  <span class="apps-apprise-chip apps-apprise-chip--tag" x-text="'#' + tg"></span>
+                </template>
+              </span>
             </template>
           </span>
         </div>

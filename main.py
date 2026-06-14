@@ -1079,6 +1079,22 @@ async def _lifespan(_app: FastAPI):
         _gitsync_sampler.gitsync_sampler_loop(),
         name="gitsync-sampler",
     )
+    # Grafana meta-monitor retention sampler — snapshots firing-alert / dashboard
+    # / unhealthy-datasource counts so the card can draw a 'monitor of the
+    # monitor' firing-alert trend. Dormant-cheap when no Grafana chip is pinned.
+    from logic.apps import grafana_sampler as _grafana_sampler
+    grafana_sampler = asyncio.create_task(
+        _grafana_sampler.grafana_sampler_loop(),
+        name="grafana-sampler",
+    )
+    # Nginx Proxy Manager config-drift retention sampler — snapshots proxy-host /
+    # certs-expiring / plain-HTTP / dead-host counts so the card can draw a
+    # config-drift trend. Dormant-cheap when no NPM chip is pinned.
+    from logic.apps import npm_sampler as _npm_sampler
+    npm_sampler = asyncio.create_task(
+        _npm_sampler.npm_sampler_loop(),
+        name="npm-sampler",
+    )
     # Kavita library-growth retention sampler — drives the series-count + total-
     # size growth line. Dormant-cheap when no Kavita chip is pinned.
     from logic.apps import kavita_sampler as _kavita_sampler
@@ -1102,7 +1118,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

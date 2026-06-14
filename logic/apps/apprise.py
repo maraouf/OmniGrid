@@ -157,9 +157,15 @@ def _shape_urls(body: Any) -> dict:
     body = body if isinstance(body, dict) else {}
     urls = as_list(body.get("urls"))
     counts: dict[str, int] = {}
+    tag_counts: dict[str, int] = {}
     for entry in urls:
         if isinstance(entry, dict):
             url_str = str(entry.get("url") or "")
+            # Per-URL tag list → which routing tag hits how many endpoints.
+            for tg in as_list(entry.get("tag")):
+                tgs = str(tg).strip()
+                if tgs:
+                    tag_counts[tgs] = tag_counts.get(tgs, 0) + 1
         elif isinstance(entry, str):
             url_str = entry
         else:
@@ -178,7 +184,12 @@ def _shape_urls(body: Any) -> dict:
         if t.lower() not in seen:
             seen.add(t.lower())
             tags_unique.append(t)
-    return {"endpoints": len(urls), "services": services, "tags": tags_unique[:16]}
+    # Per-tag endpoint counts (which tag routes to how many endpoints), most-
+    # used first, capped. Empty when the payload's URL entries carry no tags.
+    tag_routes = [{"tag": t, "count": tag_counts[t]}
+                  for t in sorted(tag_counts, key=lambda k: (-tag_counts[k], k.lower()))][:16]
+    return {"endpoints": len(urls), "services": services,
+            "tags": tags_unique[:16], "tag_routes": tag_routes}
 
 
 # noinspection PyUnusedLocal
@@ -284,6 +295,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "services": [str(s.get("name") or s.get("scheme") or "")
                      for s in services if isinstance(s, dict)],
         "tags": as_list(data.get("tags")),
+        "tag_routes": [{"tag": str(tr.get("tag") or ""), "count": safe_int(tr.get("count"))}
+                       for tr in as_list(data.get("tag_routes")) if isinstance(tr, dict)],
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -309,22 +322,37 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "apprise_test_all",
+        "name": "Test all endpoints",
+        "ai_phrases": ("test all apprise endpoints, is my whole alert chain "
+                       "alive, notify every endpoint, test the entire "
+                       "notification chain, check all notification channels, "
+                       "fan out a test to everything"),
+        "destructive": False,
+    },
+    {
         "id": "apprise_notify",
         "name": "Send a notification",
         "ai_phrases": ("send a notification, notify me, send an apprise "
                        "notification, push a message, send a notification to a "
-                       "tag, notify the <tag> tag, alert <tag>, message <tag>"),
+                       "tag, notify the <tag> tag, alert <tag>, message <tag>, "
+                       "send a success notification, send a failure alert, "
+                       "send a warning notification"),
         "destructive": False,
         "arg": True,
-        "arg_hint": ("the message to send; to route it to a specific Apprise "
-                     "tag, start the message with the tag in square brackets, "
-                     "e.g. '[telegram] the backup finished' or '[admins] disk "
-                     "is full' — without a tag it goes to every endpoint"),
+        "arg_hint": ("the message to send; route it to a tag by starting with "
+                     "the tag in square brackets ('[admins] disk is full'); style "
+                     "it by leading with a type ('failure: disk full' / 'success: "
+                     "backup done' / 'warning: low space') — without a tag it goes "
+                     "to every endpoint and defaults to an info style"),
     },
 )
 
 # Notification body the test skill sends.
 _TEST_BODY = "Test notification from OmniGrid."
+# The test-all skill fans out to EVERY configured endpoint (no tag), so it says
+# so — a deliberate "is my whole alert chain alive" probe.
+_TEST_ALL_BODY = "Test notification from OmniGrid (fan-out to all configured endpoints)."
 # The test fires to OmniGrid's OWN Apprise tag (matches the APPRISE_TAG default
 # used by OmniGrid's deploy/op notifications) rather than every configured
 # endpoint — so a "test" doesn't spam every channel (and doesn't 424 just
@@ -333,6 +361,22 @@ _TEST_TAG = "omnigrid"
 # Parse a leading "[tag]" or "tag=<tag>" / "tag:<tag>" selector off a notify arg.
 _TAG_BRACKET_RE = re.compile(r"^\s*\[(?P<tag>.+?)]\s*(?P<body>.*)$", re.S)
 _TAG_PREFIX_RE = re.compile(r"^\s*tag[=:](?P<tag>\S+)\s+(?P<body>.*)$", re.S | re.I)
+# Apprise notification types the apprise-api /notify endpoint accepts. The AI /
+# Telegram can fire a STYLED alert (coloured ✅ / ⚠️ / ❌) by leading the message
+# with a type word ("failure: disk full") or the matching emoji ("❌ disk full").
+_VALID_TYPES = ("info", "success", "warning", "failure")
+_TYPE_WORD = {
+    "success": "success", "ok": "success", "done": "success", "good": "success",
+    "warning": "warning", "warn": "warning", "caution": "warning",
+    "failure": "failure", "fail": "failure", "error": "failure", "critical": "failure",
+    "info": "info", "notice": "info",
+}
+_TYPE_EMOJI = {"✅": "success", "✔️": "success", "✔": "success",
+               "⚠️": "warning", "⚠": "warning",
+               "❌": "failure", "🔴": "failure", "🚨": "failure",
+               "ℹ️": "info", "ℹ": "info"}
+# A leading "<word>:" type selector (the word must be a known type).
+_TYPE_PREFIX_RE = re.compile(r"^\s*(?P<word>[A-Za-z]+)\s*:\s+(?P<body>.+)$", re.S)
 
 
 def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dict]]":
@@ -344,20 +388,47 @@ def _resolve_target(host_row: dict, chip: dict) -> "tuple[str, str, Optional[dic
     return base, key, None
 
 
-def _parse_notify_arg(arg: Optional[str]) -> "tuple[str, str]":
-    """Split a notify arg into ``(tag, body)``. A leading ``[tag]`` or
-    ``tag=<tag>`` / ``tag:<tag>`` selector picks the Apprise routing tag; the
-    rest is the message body. No selector → ``("", arg)`` (all endpoints)."""
+def _parse_type(body: str) -> "tuple[str, str]":
+    """Detect a leading notification TYPE on a message body. Returns ``(type,
+    body)`` where ``type`` is one of ``_VALID_TYPES`` (default ``"info"``). A
+    leading type WORD ("failure: disk full") is stripped from the body; a leading
+    type EMOJI ("❌ disk full") sets the type but is KEPT in the body (it reads
+    as part of the message). No selector → ``("info", body)``."""
+    s = (body or "").strip()
+    if not s:
+        return "info", ""
+    # Emoji selector — keep the emoji in the body (it's part of the message).
+    for emo, typ in _TYPE_EMOJI.items():
+        if s.startswith(emo):
+            return typ, s
+    # Word selector — strip "word:" off the front when the word is a known type.
+    m = _TYPE_PREFIX_RE.match(s)
+    if m:
+        typ = _TYPE_WORD.get(m.group("word").strip().lower())
+        if typ:
+            return typ, m.group("body").strip()
+    return "info", s
+
+
+def _parse_notify_arg(arg: Optional[str]) -> "tuple[str, str, str]":
+    """Split a notify arg into ``(tag, type, body)``. A leading ``[tag]`` or
+    ``tag=<tag>`` / ``tag:<tag>`` selector picks the Apprise routing tag; a
+    leading type word / emoji on the remaining body picks the notification style
+    (info / success / warning / failure). No tag selector → ``("", …)`` (all
+    endpoints)."""
     s = (arg or "").strip()
     if not s:
-        return "", ""
+        return "", "info", ""
+    tag = ""
     m = _TAG_BRACKET_RE.match(s)
     if m:
-        return m.group("tag").strip(), m.group("body").strip()
-    m = _TAG_PREFIX_RE.match(s)
-    if m:
-        return m.group("tag").strip(), m.group("body").strip()
-    return "", s
+        tag, s = m.group("tag").strip(), m.group("body").strip()
+    else:
+        m = _TAG_PREFIX_RE.match(s)
+        if m:
+            tag, s = m.group("tag").strip(), m.group("body").strip()
+    ntype, body = _parse_type(s)
+    return tag, ntype, body
 
 
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
@@ -372,14 +443,20 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "apprise_test":
         return await _notify_skill(host_row, chip, body=_TEST_BODY, tag=_TEST_TAG,
                                    title="OmniGrid test", host_id=host_id)
+    if skill_id == "apprise_test_all":
+        # Fire a test to EVERY configured endpoint (no tag) — a one-click "is my
+        # whole alert chain alive" check.
+        return await _notify_skill(host_row, chip, body=_TEST_ALL_BODY, tag="",
+                                   title="OmniGrid test", host_id=host_id)
     if skill_id == "apprise_notify":
-        tag, body = _parse_notify_arg(arg)
+        tag, ntype, body = _parse_notify_arg(arg)
         if not body:
             return {"ok": False, "status": 0,
                     "detail": "no message given — say what to send (optionally "
-                              "prefix with [tag] to route to a tag)"}
+                              "prefix with [tag] to route to a tag, and lead with "
+                              "success: / warning: / failure: for a styled alert)"}
         return await _notify_skill(host_row, chip, body=body, tag=tag,
-                                   title="OmniGrid", host_id=host_id)
+                                   title="OmniGrid", ntype=ntype, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -399,11 +476,19 @@ async def _status_skill(host_row: dict, chip: dict, *,
     endpoints = safe_int(data.get("endpoints"))
     services = as_list(data.get("services"))
     tags = as_list(data.get("tags"))
+    tag_routes = [tr for tr in as_list(data.get("tag_routes")) if isinstance(tr, dict)]
     svc_names = [str(s.get("name") or s.get("scheme") or "") for s in services if isinstance(s, dict)]
+    # Per-service breakdown ("3 Discord · 2 Email") — the distribution at a glance.
+    svc_breakdown = [f"{safe_int(s.get('count'))} {s.get('name') or s.get('scheme')}"
+                     for s in services if isinstance(s, dict)]
     lines = [f"📣 Endpoints: {endpoints}"]
-    if svc_names:
-        lines.append("🔌 Services: " + ", ".join(svc_names))
-    if tags:
+    if svc_breakdown:
+        lines.append("🔌 Services: " + " · ".join(svc_breakdown))
+    if tag_routes:
+        lines.append("🏷️ Tag routing: "
+                     + " · ".join(f"{tr.get('tag')} → {safe_int(tr.get('count'))}"
+                                  for tr in tag_routes))
+    elif tags:
         lines.append("🏷️ Tags: " + ", ".join(str(t) for t in tags))
     if not svc_names and endpoints == 0:
         lines.append("ℹ️ No notification URLs configured under key "
@@ -415,18 +500,21 @@ async def _status_skill(host_row: dict, chip: dict, *,
 
 
 async def _notify_skill(host_row: dict, chip: dict, *, body: str, tag: str,
-                        title: str, host_id: Optional[str] = None) -> dict:
+                        title: str, ntype: str = "info",
+                        host_id: Optional[str] = None) -> dict:
     """Action: POST /notify/<key> to fire a notification (optionally routed to
-    a tag) to the configured Apprise endpoints. Never raises."""
+    a tag, optionally styled via ``ntype``) to the configured Apprise endpoints.
+    Never raises."""
     base, key, err = _resolve_target(host_row, chip)
     if err:
         return err
     url = base + "/notify/" + quote(key, safe="")
-    payload: dict[str, Any] = {"body": body, "title": title, "type": "info"}
+    ntype = ntype if ntype in _VALID_TYPES else "info"
+    payload: dict[str, Any] = {"body": body, "title": title, "type": ntype}
     if tag:
         payload["tag"] = tag
     print(f"[apprise] INFO notify host={host_id} url={url} tag={tag or '(all)'} "
-          f"len={len(body)}")
+          f"type={ntype} len={len(body)}")
     try:
         async with httpx.AsyncClient(verify=False, timeout=20.0,
                                      follow_redirects=True) as cli:

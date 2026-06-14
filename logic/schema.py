@@ -960,6 +960,49 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_gitsync_samples_ts
             ON gitsync_samples(ts);
 
+        -- Grafana meta-monitor retention. One row per (grafana chip, tick). All
+        -- columns are point-in-time gauges; the trend reads firing_alerts as each
+        -- day's MAX (the "alerts have been firing more this week" meta-monitor —
+        -- a monitor of the monitor) + dashboards as each day's LAST (a growth
+        -- line). firing_alerts is NULL-coalesced to 0 at write time (the chip
+        -- stores None when alerting is unavailable).
+        CREATE TABLE IF NOT EXISTS grafana_samples (
+            ts                   INTEGER NOT NULL,
+            host_id              TEXT    NOT NULL,
+            service_idx          INTEGER NOT NULL,
+            firing_alerts        INTEGER NOT NULL DEFAULT 0,
+            dashboards           INTEGER NOT NULL DEFAULT 0,
+            datasources_unhealthy INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_grafana_samples_chip_ts
+            ON grafana_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_grafana_samples_ts
+            ON grafana_samples(ts);
+
+        -- Nginx Proxy Manager config-drift retention. One row per (NPM chip,
+        -- tick). All columns are point-in-time gauges; the trend reads
+        -- proxy_hosts as each day's LAST (a config-growth line — "added N proxy
+        -- hosts this month") + plain_http / certs_expiring as each day's MAX
+        -- (the security-drift signals). NPM exposes no request-volume metric, so
+        -- this config-drift trend is the only chartable signal.
+        CREATE TABLE IF NOT EXISTS npm_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            proxy_hosts     INTEGER NOT NULL DEFAULT 0,
+            certs_expiring  INTEGER NOT NULL DEFAULT 0,
+            plain_http      INTEGER NOT NULL DEFAULT 0,
+            dead_hosts      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_npm_samples_chip_ts
+            ON npm_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_npm_samples_ts
+            ON npm_samples(ts);
+
         -- Kavita library-growth retention. One row per (kavita chip, tick). All
         -- columns are CUMULATIVE running totals (a library only grows), so the
         -- trend reads them as each day's LAST value (a growth line). ``ts`` is

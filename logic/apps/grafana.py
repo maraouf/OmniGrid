@@ -117,6 +117,35 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the dashboard title (or part of it) to search for",
         "destructive": False,
     },
+    {
+        "id": "grafana_alerts",
+        "name": "Firing alerts",
+        "ai_phrases": ("grafana alerts, what alerts are firing, firing alerts, "
+                       "which grafana alerts are active, list firing alerts, "
+                       "is anything alerting, grafana alert status, pending alerts"),
+        "destructive": False,
+    },
+    {
+        "id": "grafana_pause_alert",
+        "name": "Pause an alert rule",
+        "ai_phrases": ("pause the <name> alert, pause alert rule <name>, mute "
+                       "<name> alert, silence the <name> grafana alert, stop the "
+                       "<name> alert firing, pause grafana alert"),
+        "arg": True,
+        "arg_hint": "the alert rule title (or part of it) to pause",
+        # DESTRUCTIVE: pausing an alert rule stops it evaluating (it won't fire).
+        "destructive": True,
+    },
+    {
+        "id": "grafana_unpause_alert",
+        "name": "Resume an alert rule",
+        "ai_phrases": ("unpause the <name> alert, resume alert rule <name>, "
+                       "un-mute <name> alert, re-enable the <name> grafana alert, "
+                       "resume grafana alert, unpause grafana alert"),
+        "arg": True,
+        "arg_hint": "the alert rule title (or part of it) to resume",
+        "destructive": False,
+    },
 )
 
 
@@ -394,6 +423,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "version": version,
         "fetched_at": int(now),
     }
+    # Best-effort firing-alert + dashboard meta-monitor trend from the shared
+    # lifespan grafana_sampler. Missing sampler / no samples yet leaves the
+    # card's instantaneous stats untouched.
+    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[grafana] INFO fetched host={host_id} org={org!r} "
           f"dashboards={out['dashboards']} folders={out['folders']} "
           f"datasources={out['datasources']} ds_unhealthy={out['datasources_unhealthy']} "
@@ -401,6 +434,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"users={users} orgs={orgs}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort firing-alert + dashboard trend for the card — the shared
+    grafana_sampler's per-chip ``trend_summary``. Returns ``None`` (never raises)
+    when the sampler isn't importable / errors, so a trend hiccup can't fail the
+    card."""
+    try:
+        from logic.apps import grafana_sampler as _sampler  # noqa: PLC0415
+        return _sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[grafana] trend_summary({host_id}#{service_idx}) skipped: {e}")
+        return None
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -443,6 +489,12 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _datasources_skill(host_row, chip, host_id=host_id)
     if skill_id == "grafana_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "grafana_alerts":
+        return await _alerts_skill(host_row, chip, host_id=host_id)
+    if skill_id == "grafana_pause_alert":
+        return await _pause_alert_skill(host_row, chip, arg=arg, pause=True, host_id=host_id)
+    if skill_id == "grafana_unpause_alert":
+        return await _pause_alert_skill(host_row, chip, arg=arg, pause=False, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -685,3 +737,157 @@ async def _search_skill(host_row: dict, chip: dict, *,
     out: dict = {"ok": True, "status": 200,
                  "detail": f"🔍 Grafana dashboards matching “{term}”:\n" + "\n".join(lines)}
     return _attach_items(out, items, "apps.grafana.dashboards_count")
+
+
+# State → emoji for the firing-alerts rich rows.
+_ALERT_STATE_EMOJI = {"firing": "🚨", "pending": "⏳", "inactive": "✅", "normal": "✅"}
+
+
+def _alert_rich_rows(groups: list) -> "tuple[list[dict], list[str]]":
+    """Build the firing-then-pending alert rich rows + text lines from the
+    unified-alerting ``/rules`` groups. Each firing row carries a ⏸ Pause
+    ``row_action`` (destructive, arg = the rule name). Inactive rules are
+    skipped — the list is "what needs attention"."""
+    collected: list[dict] = []  # (state_order, name, group, since) tuples shaped as dicts
+    for g in groups:
+        gd = as_dict(g)
+        gname = str(gd.get("name") or gd.get("file") or "").strip()
+        for rule in as_list(gd.get("rules")):
+            rd = as_dict(rule)
+            state = str(rd.get("state") or "").strip().lower()
+            if state not in ("firing", "pending"):
+                continue
+            name = str(rd.get("name") or "").strip()
+            if not name:
+                continue
+            collected.append({"state": state, "name": name, "group": gname,
+                              "active_at": str(rd.get("activeAt") or "").strip()})
+    # Firing first, then pending; stable within each by name.
+    collected.sort(key=lambda _c: (0 if _c["state"] == "firing" else 1, _c["name"].lower()))
+    items: list[dict] = []
+    lines: list[str] = []
+    for r in collected[:_MAX_ROWS]:
+        emoji = _ALERT_STATE_EMOJI.get(r["state"], "•")
+        bits = [r["state"]]
+        if r["group"]:
+            bits.append(f"📁 {r['group']}")
+        sub = " · ".join(bits)
+        row: dict = {"title": f"{emoji} {r['name']}", "subtitle": sub}
+        if r["state"] == "firing":
+            row["row_actions"] = [{
+                "skill_id": "grafana_pause_alert", "arg": r["name"], "icon": "pause",
+                "title_i18n": "apps.grafana.row_pause_alert", "destructive": True,
+                "confirm_i18n": "apps.grafana.row_pause_alert_confirm",
+                "confirm_text_i18n": "apps.grafana.row_pause_alert",
+            }]
+        items.append(row)
+        lines.append(f"{emoji} {r['name']}" + (f"  ({sub})" if sub else ""))
+    return items, lines
+
+
+async def _alerts_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None) -> dict:
+    """Read-only: list the currently FIRING (+ pending) Grafana alert rules as
+    rich rows via ``GET /api/prometheus/grafana/api/v1/rules``. Each firing row
+    gets a ⏸ Pause button. Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[grafana] INFO grafana_alerts host={host_id} (live fetch)")
+    r = await _skill_get(base, "/api/prometheus/grafana/api/v1/rules", token=token,
+                         params={}, timeout=_ALERTS_TIMEOUT_S, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        groups = as_list(as_dict(as_dict(r.json()).get("data")).get("groups"))
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    items, lines = _alert_rich_rows(groups)
+    if not items:
+        return {"ok": True, "status": 200, "detail": "✅ No Grafana alerts firing."}
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🚨 Firing / pending alerts:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.grafana.alerts_count")
+
+
+async def _resolve_alert_rule(cli: httpx.AsyncClient, base: str, token: str,
+                              name: str) -> "tuple[Optional[dict], Optional[dict]]":
+    """Resolve an alert rule by TITLE via ``GET /api/v1/provisioning/alert-rules``
+    (exact title, case-insensitive, then substring). Returns ``(rule, None)`` or
+    ``(None, error_dict)`` where the error lists the available rule titles."""
+    r = await cli.get(base + "/api/v1/provisioning/alert-rules", headers=_headers(token))
+    guard = _status_guard(r)
+    if guard:
+        # Provisioning API needs an Admin / alerting-writer token — clarify.
+        if r.status_code in (401, 403):
+            return None, {"ok": False, "status": r.status_code,
+                          "detail": "auth failed — pausing alerts needs a Grafana "
+                                    "token with alerting write access (Admin)"}
+        return None, guard
+    try:
+        rules = as_list(r.json())
+    except (ValueError, TypeError):
+        return None, {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    want = (name or "").strip().lower()
+    for rule in rules:
+        if isinstance(rule, dict) and str(rule.get("title") or "").strip().lower() == want:
+            return rule, None
+    for rule in rules:
+        if isinstance(rule, dict) and want and want in str(rule.get("title") or "").strip().lower():
+            return rule, None
+    titles = ", ".join(str(rd.get("title") or "").strip()
+                       for rd in rules if isinstance(rd, dict) and str(rd.get("title") or "").strip())
+    return None, {"ok": False, "status": 404,
+                  "detail": f"no alert rule titled “{name}” — available: {titles or '(none)'}"}
+
+
+async def _pause_alert_skill(host_row: dict, chip: dict, *, arg: Optional[str],
+                             pause: bool, host_id: Optional[str] = None) -> dict:
+    """Action (arg): pause / unpause one alert rule by title via the provisioning
+    API. Resolves the rule, flips ``isPaused``, and PUTs it back (with
+    ``X-Disable-Provenance`` so a file-provisioned rule can still be toggled).
+    Pausing is DESTRUCTIVE (the rule stops evaluating). Never raises."""
+    name = (arg or "").strip()
+    if not name:
+        verb = "pause" if pause else "unpause"
+        return {"ok": False, "status": 0,
+                "detail": f"no alert given — say e.g. '{verb} the High CPU alert'"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    verb = "pause" if pause else "unpause"
+    print(f"[grafana] INFO grafana_{verb}_alert host={host_id} rule={name!r}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            rule, rerr = await _resolve_alert_rule(cli, base, token, name)
+            if rerr:
+                return rerr
+            assert rule is not None
+            uid = str(rule.get("uid") or "").strip()
+            title = str(rule.get("title") or name).strip()
+            if not uid:
+                return {"ok": False, "status": 404,
+                        "detail": f"alert rule “{title}” has no uid (cannot toggle)"}
+            if bool(rule.get("isPaused")) == pause:
+                state = "paused" if pause else "active"
+                return {"ok": True, "status": 200,
+                        "detail": f"ℹ️ Alert “{title}” is already {state}."}
+            body = dict(rule)
+            body["isPaused"] = pause
+            pr = await cli.put(base + f"/api/v1/provisioning/alert-rules/{uid}",
+                               headers={**_headers(token),
+                                        "Content-Type": "application/json",
+                                        "X-Disable-Provenance": "true"},
+                               json=body)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"{verb} failed: {type(e).__name__}: {e}"}
+    if pr.status_code in (401, 403):
+        return {"ok": False, "status": pr.status_code,
+                "detail": "auth failed — pausing alerts needs an Admin token"}
+    if not (200 <= pr.status_code < 300):
+        return {"ok": False, "status": pr.status_code, "detail": f"HTTP {pr.status_code}"}
+    icon = "⏸️" if pause else "▶️"
+    state = "paused" if pause else "resumed"
+    return {"ok": True, "status": 200, "detail": f"{icon} Alert “{title}” {state}."}

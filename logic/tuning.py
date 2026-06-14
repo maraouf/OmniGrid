@@ -135,6 +135,10 @@ class Tunable(str, Enum):
     GITSYNC_HISTORY_DAYS = "tuning_gitsync_history_days"
     GITSYNC_SAMPLE_INTERVAL_SECONDS = "tuning_gitsync_sample_interval_seconds"
     GITSYNC_STALE_PAIR_HOURS = "tuning_gitsync_stale_pair_hours"
+    GRAFANA_HISTORY_DAYS = "tuning_grafana_history_days"
+    GRAFANA_SAMPLE_INTERVAL_SECONDS = "tuning_grafana_sample_interval_seconds"
+    NPM_HISTORY_DAYS = "tuning_npm_history_days"
+    NPM_SAMPLE_INTERVAL_SECONDS = "tuning_npm_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
@@ -1573,6 +1577,21 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # than this many hours (or it has never synced). Drives the card's stale-pair
     # stat. Default 24; raise for slow-cadence mirrors, lower to catch lag sooner.
     "tuning_gitsync_stale_pair_hours": ("GITSYNC_STALE_PAIR_HOURS", 24, 1, 720),
+    # How often the Grafana sampler snapshots each chip's firing-alert / dashboard
+    # / unhealthy-datasource counts into grafana_samples (the meta-monitor trend).
+    # 0 = inherit the global stats interval. Default 900 (15 min).
+    "tuning_grafana_sample_interval_seconds": ("GRAFANA_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for grafana_samples — drives the firing-alert trend
+    # ("alerts firing more this week") + dashboard-growth line. Default 90.
+    "tuning_grafana_history_days": ("GRAFANA_HISTORY_DAYS", 90, 1, 1095),
+    # How often the Nginx Proxy Manager sampler snapshots each chip's proxy-host /
+    # certs-expiring / plain-HTTP / dead-host counts into npm_samples (the
+    # config-drift trend). 0 = inherit the global stats interval. Default 1800
+    # (30 min) — NPM config changes slowly.
+    "tuning_npm_sample_interval_seconds": ("NPM_SAMPLE_INTERVAL_SECONDS", 1800, 0, 86400),
+    # Retention window (days) for npm_samples — drives the proxy-host-growth +
+    # plain-HTTP-drift trend. Default 180; lower to save disk.
+    "tuning_npm_history_days": ("NPM_HISTORY_DAYS", 180, 1, 1095),
     # How often the Kavita sampler snapshots each chip's library totals (series /
     # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
     # global stats interval. Default 900 (15 min) — a library grows slowly.

@@ -84,6 +84,49 @@ function grafanaNames(arr) {
   return names.slice(0, 6).join(', ') + (names.length > 6 ? ', …' : '');
 }
 
+// Meta-monitor trend block `{days, samples, latest_firing, peak_firing,
+// latest_dashboards, series_firing, series_dashboards}` from the shared lifespan
+// grafana_sampler, or null while idle / no samples yet. Drives the card's
+// firing-alert ('monitor of the monitor') sparkline.
+function grafanaTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.grafanaData ? this.grafanaData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` per numeric series array (avoids re-render flicker on
+// every Alpine flush — the canonical SVG-builder memo).
+const _grafanaTrendMemo = new WeakMap();
+
+// SVG polyline points for a trend series over a 0..100 x 0..24 viewBox,
+// auto-scaled to the series' own max (min pinned at 0). '' when < 2 points.
+// Memoised on the array ref.
+function grafanaTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_grafanaTrendMemo.has(arr)) {
+    return _grafanaTrendMemo.get(arr);
+  }
+  const W = 100, H = 24, n = arr.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(arr[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _grafanaTrendMemo.set(arr, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Grafana gets a
 // 2-column span so the stat panel doesn't squeeze the per-instance host list,
@@ -106,4 +149,6 @@ export const helpers = {
   grafanaData: grafanaData,
   grafanaCount: grafanaCount,
   grafanaNames: grafanaNames,
+  grafanaTrend: grafanaTrend,
+  grafanaTrendPath: grafanaTrendPath,
 };
