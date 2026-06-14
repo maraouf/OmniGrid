@@ -682,6 +682,7 @@
         <button type="button"
                 @click="open = !open"
                 class="tabs-pill-btn"
+                x-ref="tabsPillBtn"
                 :aria-expanded="open ? 'true' : 'false'"
                 :aria-label="t('topbar.tabs.aria', { count: tabActivityCount() + 1 })">
           <svg width="12" height="12" aria-hidden="true">
@@ -691,8 +692,12 @@
         </button>
         <!-- Popover — sibling tab list. Newest tab first. Click a row
              to focus that tab via BroadcastChannel. Closing the
-             popover doesn't close the tabs themselves. -->
-        <div class="tabs-pill-popover" x-show="open" x-cloak>
+             popover doesn't close the tabs themselves. On mobile the
+             right-anchored popover would overflow the left screen edge, so
+             tabsPopoverStyle() pins it as a fixed viewport-spanning sheet
+             below the button (desktop keeps the stylesheet's absolute pos). -->
+        <div class="tabs-pill-popover" x-show="open" x-cloak
+             :style="tabsPopoverStyle($refs.tabsPillBtn, open)">
           <div class="tabs-pill-header" x-text="t('topbar.tabs.popover_title')"></div>
           <template x-for="tab in tabActivityList()" :key="tab.client_id">
             <div class="tabs-pill-row-wrap">

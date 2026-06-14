@@ -447,6 +447,28 @@ export default {
   tabActivityCount() {
     return this.tabActivityList().length;
   },
+  // Mobile-safe positioning for the "N tabs" popover. The desktop CSS anchors
+  // it to the pill's right edge (inset-inline-end: 0), but on a narrow screen
+  // the pill sits far from the right edge, so a 280px+ popover overflows off
+  // the LEFT of the screen. On <=640px pin it as a fixed sheet spanning the
+  // viewport (with margins) just below the button; desktop returns '' so the
+  // stylesheet's absolute positioning applies. Recomputed each time `open`
+  // flips (the binding passes `open` so it re-evaluates on toggle).
+  tabsPopoverStyle(btn, open) {
+    try {
+      if (!open || !btn || window.innerWidth > 640) {
+        return '';
+      }
+      const r = btn.getBoundingClientRect();
+      const top = Math.round(r.bottom + 6);
+      return 'position: fixed; inset-inline-start: var(--s-3); '
+        + 'inset-inline-end: var(--s-3); top: ' + top + 'px; '
+        + 'min-width: 0; max-width: none; width: auto; '
+        + 'max-height: calc(100vh - ' + (top + 12) + 'px); overflow-y: auto;';
+    } catch (_e) {
+      return '';
+    }
+  },
   // Single-parse SSE event unwrap. Returns the parsed event object
   // ({type, ts, payload}) when the event should be processed,
   // OR null when self-filter wins (caller should early-return).

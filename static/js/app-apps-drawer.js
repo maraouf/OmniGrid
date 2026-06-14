@@ -185,6 +185,16 @@ export default {
     if (!key || !inst) {
       return;
     }
+    // ALSO force-load the app-data so the ENDPOINT DIAGNOSTICS section (which
+    // reads appsAppData(inst)._debug — the upstream's per-request 403/404 +
+    // self-diagnosed privilege hint) is populated when the debug pane opens.
+    // Without this it only renders if the card already lazy-loaded the data,
+    // which never happens for apps with show_extras=false (e.g. OPNsense) —
+    // so the helpful hints would silently vanish. Fire-and-forget; the panel
+    // re-renders reactively when the data lands.
+    if (typeof this.loadAppData === 'function') {
+      this.loadAppData(inst, true);
+    }
     this.appDebug = Object.assign({}, this.appDebug, {[key]: {loading: true, error: '', data: null}});
     try {
       const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
