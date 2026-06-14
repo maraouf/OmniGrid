@@ -1062,6 +1062,11 @@ async def api_service_image_proxy(host_id: str, service_idx: int,
     cur_headers = dict(headers or {})
     r = None
     try:
+        # follow_redirects=False is httpx's default, but kept EXPLICIT — this
+        # proxy walks redirects by hand (the per-hop SSRF re-validation below),
+        # so auto-following would defeat the guard. Pinned against a future
+        # httpx default change.
+        # noinspection PyArgumentEqualDefault
         async with httpx.AsyncClient(verify=False, timeout=15.0,
                                      follow_redirects=False) as cli:
             for _hop in range(4):  # initial GET + up to 3 redirects
@@ -3872,6 +3877,10 @@ def _provider_sample_counts(host_id: str) -> dict:
     return out
 
 
+#   Parallel to _provider_sample_counts but with distinct per-row semantics
+#   (MAX(ts) + omit-on-missing-table vs COUNT(*) + zero-on-missing-table) — a
+#   shared row-handler callback would obscure both query loops.
+# noinspection DuplicatedCode
 def _provider_sample_newest_ts(host_id: str) -> dict:
     """Return ``{<provider>: epoch_seconds}`` — newest sample ts per
     provider for THIS host. Companion to ``_provider_sample_counts`` +

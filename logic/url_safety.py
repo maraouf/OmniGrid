@@ -104,4 +104,4 @@ def host_resolves_public(host: str) -> bool:
     addrs = {ai[4][0] for ai in infos}
     if not addrs:
         return False
-    return all(_ip_is_public(a) for a in addrs)
+    return all(_ip_is_public(str(a)) for a in addrs)

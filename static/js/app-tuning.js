@@ -400,6 +400,9 @@ export default {
     // Nginx Proxy Manager config-drift retention sampler.
     'tuning_npm_sample_interval_seconds',
     'tuning_npm_history_days',
+    // OPNsense interface-throughput retention sampler.
+    'tuning_opnsense_sample_interval_seconds',
+    'tuning_opnsense_history_days',
     // Kavita library-growth retention sampler.
     'tuning_kavita_sample_interval_seconds',
     'tuning_kavita_history_days',

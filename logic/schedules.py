@@ -138,6 +138,15 @@ def scheduler_tz_state() -> dict:
     return {"configured": configured, "resolved": configured, "fallback": False}
 
 
+def _resolve_now_ts(now: Optional[float]) -> float:
+    """Concrete-float ``now`` — ``time.time()`` when None, else ``float(now)``.
+
+    Returns a concrete ``float`` so the type checker doesn't see
+    ``Optional[float]`` flow into ``datetime.fromtimestamp`` / ``time.localtime``
+    at the call sites."""
+    return time.time() if now is None else float(now)
+
+
 def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
     """Epoch seconds for today's HH:MM.
 
@@ -151,16 +160,7 @@ def _today_anchor_ts(hh: int, mm: int, now: Optional[float] = None) -> float:
     natively; the legacy mktime path uses isdst=-1 to let libc decide.
     """
     import datetime
-    # Concrete-float local so the type checker doesn't see `Optional[float]`
-    # flow into `datetime.fromtimestamp` + `time.localtime` below.
-    # Declare-then-assign so the annotation applies BEFORE the if/else;
-    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
-    # infers the merge as `float | float | None` from the `else` re-bind.
-    now_ts: float
-    if now is None:
-        now_ts = time.time()
-    else:
-        now_ts = float(now)
+    now_ts = _resolve_now_ts(now)
     tz = _scheduler_tz()
     if tz is not None:
         now_local = datetime.datetime.fromtimestamp(now_ts, tz=tz)
@@ -202,14 +202,7 @@ def _next_fixed_time_run(
     transitions in the host timezone don't drift the wall-clock anchor.
     """
     import datetime
-    # Declare-then-assign so the annotation applies BEFORE the if/else;
-    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
-    # infers the merge as `float | float | None` from the `else` re-bind.
-    now_ts: float
-    if now is None:
-        now_ts = time.time()
-    else:
-        now_ts = float(now)
+    now_ts = _resolve_now_ts(now)
     anchor = _today_anchor_ts(hh, mm, now_ts)
     last = int(last_run_at or 0)
     # Grace window: the tick interval is 60s, so the tick that lands
@@ -267,14 +260,7 @@ def _next_weekly_run(
     we jump ahead to the next qualifying day. Scans up to 8 days so a
     full week is always covered regardless of where ``last_run_at`` sits.
     """
-    # Declare-then-assign so the annotation applies BEFORE the if/else;
-    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
-    # infers the merge as `float | float | None` from the `else` re-bind.
-    now_ts: float
-    if now is None:
-        now_ts = time.time()
-    else:
-        now_ts = float(now)
+    now_ts = _resolve_now_ts(now)
     last = int(last_run_at or 0)
     if not days_of_week:
         # No days selected — fall back to daily so a misconfigured row
@@ -324,14 +310,7 @@ def _next_monthly_run(
     up to 13 months. Same no-catch-up contract as the daily/weekly
     helpers: a passed anchor today with no run skips to next month.
     """
-    # Declare-then-assign so the annotation applies BEFORE the if/else;
-    # otherwise Pyright sees `now_ts: float` only on the `if` branch and
-    # infers the merge as `float | float | None` from the `else` re-bind.
-    now_ts: float
-    if now is None:
-        now_ts = time.time()
-    else:
-        now_ts = float(now)
+    now_ts = _resolve_now_ts(now)
     last = int(last_run_at or 0)
     dom = max(1, min(int(day_of_month), 31))
     # `y, m` MUST come from the same timezone the anchor calc uses —
@@ -1253,7 +1232,7 @@ async def _run_asset_inventory_refresh(
             count = int(result.get("count") or 0)
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] asset_inventory_refresh failed: {e}")
@@ -1275,7 +1254,7 @@ async def _run_asset_inventory_refresh(
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[scheduler] asset_inventory_refresh history write failed: {e}")
         return duration, status
 
@@ -1325,7 +1304,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                 days = _tuning_mod.tuning_int(Tunable.LOG_RETENTION_DAYS)
             days = max(int(_lo), min(int(_hi), days))
             removed = _logs_mod.prune_old_logs(days)
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] prune_logs failed: {e}")
@@ -1355,7 +1334,7 @@ async def _run_prune_logs(params: dict) -> tuple[str, Awaitable[tuple[int, str]]
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[scheduler] prune_logs history write failed: {e}")
         return duration, status
 
@@ -1410,7 +1389,7 @@ async def _run_prune_notifications(
                 prune_rows_older_than, "notifications", cutoff)
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] prune_notifications failed: {e}")
@@ -1434,7 +1413,7 @@ async def _run_prune_notifications(
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[scheduler] prune_notifications history write dropped: {e}")
         return duration, status
 
@@ -1732,7 +1711,7 @@ async def _run_swarm_agent_health(
                                 )
                             except (asyncio.CancelledError, KeyboardInterrupt):
                                 raise
-                            except Exception as ne: # noqa: BLE001
+                            except Exception as ne:  # noqa: BLE001
                                 print(
                                     f"[scheduler] swarm_agent_health "
                                     f"unhealthy notify failed: {ne}",
@@ -1758,7 +1737,7 @@ async def _run_swarm_agent_health(
                                 )
                             except (asyncio.CancelledError, KeyboardInterrupt):
                                 raise
-                            except Exception as ne: # noqa: BLE001
+                            except Exception as ne:  # noqa: BLE001
                                 print(
                                     f"[scheduler] swarm_agent_health "
                                     f"recovered notify failed: {ne}",
@@ -1777,7 +1756,7 @@ async def _run_swarm_agent_health(
                     )
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
             print(f"[scheduler] swarm_agent_health failed: {e}")
@@ -1830,7 +1809,7 @@ async def _run_swarm_agent_health(
                     ),
                 )
             _swarm_autoheal_last_persisted_action = action_taken
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[scheduler] swarm_agent_health history write failed: {e}")
         return duration, status
 
@@ -2357,7 +2336,7 @@ async def _run_port_scan_refresh(
                     )
                 else:
                     selected.append(h["id"])
- # noqa: BLE001
+        # noqa: BLE001
         except Exception as e:  # noqa: BLE001
             status = "error"
             err = str(e)
@@ -2554,7 +2533,7 @@ async def _run_prune_config_backups(_params: dict) -> tuple[str, Awaitable[tuple
                         "[]", err, SCHEDULER_ACTOR,
                     ),
                 )
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[scheduler] prune_config_backups history write failed: {e}")
         return duration, status
 
@@ -3041,7 +3020,7 @@ async def scheduler_loop() -> None:
                         f"'{row['name']}' (op {last_op_id} not live "
                         f"post-restart)"
                     )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[scheduler] ghost-clear sweep failed: {e}")
 
     # Initial sleep BEFORE first check. Mirrors stats_sampler_loop.
@@ -3079,7 +3058,7 @@ async def scheduler_loop() -> None:
                     print(f"[scheduler] fired '{s['name']}' → op {op_id}")
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     raise
-                except Exception as e: # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
                     print(f"[scheduler] '{s['name']}' fire failed: {e}")
                     # Still stamp last_run_at so a persistently-broken
                     # schedule doesn't re-fire every tick forever.
@@ -3090,11 +3069,11 @@ async def scheduler_loop() -> None:
                                 f"err-{secrets.token_hex(4)}",
                                 duration=0, status="error",
                             )
-                    except Exception as ee: # noqa: BLE001
+                    except Exception as ee:  # noqa: BLE001
                         print(f"[scheduler] record_run(error) failed: {ee}")
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # Top-level guard so an unexpected error (DB locked, etc.)
             # doesn't kill the lifespan task.
             print(f"[scheduler] tick error: {e}")

@@ -202,6 +202,13 @@ def _untracked_paths(endpoints: Any, localfiles: Any) -> list:
     seen: set = set()
     out: list = []
     for f in files:
+        # Mirror the webapp's exact untracked rule (netbootxyz-web.ejs): a
+        # localfile is untracked iff it's not in the catalog AND does NOT end in
+        # ".part2". The .part2 squashfs split files are required-but-unreferenced
+        # downloads the webapp deliberately hides from the untracked bucket
+        # (their issue #6) — without this filter they read as false positives.
+        if f.endswith(".part2"):
+            continue
         if f not in tracked and f not in seen:
             seen.add(f)
             out.append(f)
@@ -573,6 +580,7 @@ def _asset_row(a: dict) -> Optional[dict]:
     return {"title": name, "subtitle": size}
 
 
+# noinspection DuplicatedCode
 async def _assets_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:

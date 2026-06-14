@@ -340,7 +340,7 @@ def _persist_line(record: dict[str, Any]) -> None:
             _LOG_FH = open(target, "a", encoding="utf-8", buffering=1)
             _LOG_FH_PATH = target
         _LOG_FH.write(line)
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         # Close the kept-open handle on ANY error so the next call
         # retries opening fresh (e.g. transient EBADF / EIO survives
         # one bad write instead of forever-failing). Same local-bind
@@ -637,6 +637,11 @@ def safe_log_path(name: str) -> Optional[str]:
     return candidate
 
 
+#   The realpath + commonpath confinement chain below is INTENTIONALLY inlined
+#   (not shared with safe_log_path) so CodeQL's py/path-injection rule sees the
+#   sanitiser on the same call-stack as the open() sink — it doesn't trace taint
+#   through a delegating helper's return value. See the docstring below.
+# noinspection DuplicatedCode
 def read_persistent_log(name: str, tail_lines: Optional[int] = None) -> Optional[str]:
     """Read the file's contents, optionally just the last ``tail_lines``
     lines. Returns None when the filename is invalid or the file is

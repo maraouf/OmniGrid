@@ -102,7 +102,7 @@ def seed_stats_cache_from_db() -> int:
                                    FROM stats_samples)
                              WHERE rn = 1
                              """).fetchall()
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[sampler] seed_stats_cache_from_db failed: {e}")
         return 0
     if not rows:
@@ -256,7 +256,7 @@ async def stats_sampler_loop() -> None:
             try:
                 if _snapshot_db_size_to_db():
                     print("[sampler] recorded db-size sample")
-            except Exception as db_e: # noqa: BLE001
+            except Exception as db_e:  # noqa: BLE001
                 print(f"[sampler] db-size sample skipped: {db_e}")
             interval = tuning.tuning_int(Tunable.STATS_SAMPLE_INTERVAL_SECONDS)
             days = tuning.tuning_int(Tunable.STATS_HISTORY_DAYS)
@@ -284,13 +284,13 @@ async def stats_sampler_loop() -> None:
                         print(f"[sampler] pruned {db_pruned} db-size sample(s)")
                 except (asyncio.CancelledError, KeyboardInterrupt):
                     raise
-                except Exception as dbp_e: # noqa: BLE001
+                except Exception as dbp_e:  # noqa: BLE001
                     print(f"[sampler] db-size prune skipped: {dbp_e}")
             if n:
                 print(f"[sampler] wrote {n} samples")
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             _tick_ok = False
             _tick_err = type(e).__name__
             print(f"[sampler] error: {e}")
@@ -432,7 +432,7 @@ async def _one_container_stats(
                     break
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as e: # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
                 targeted_err = f"{type(e).__name__}: {e}"
                 if attempt == 2:
                     break
@@ -449,7 +449,7 @@ async def _one_container_stats(
         untargeted_status = r.status_code
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         untargeted_err = f"{type(e).__name__}: {e}"
 
     # Brute-force fallback — try each OTHER known Swarm hostname as
@@ -542,7 +542,7 @@ async def gather_stats() -> None:
         _client_to = float(tuning.tuning_int(Tunable.STATS_TARGETED_TIMEOUT_SECONDS))
     except (KeyError, ValueError, TypeError):
         _client_to = 30.0
-    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_client_to) as client:
+    async with httpx.AsyncClient(verify=bool(portainer.VERIFY_TLS), timeout=_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
         # Container LIST — per-node sweep when the Swarm has 2+ nodes. The
@@ -661,7 +661,7 @@ async def gather_stats() -> None:
                 print(f"[stats] gather_stats: containers fetched={len(containers)}")
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[stats] gather_stats: containers fetch FAILED: {type(e).__name__}: {e}")
             containers = []
 
@@ -735,7 +735,7 @@ async def gather_stats() -> None:
             tasks = await portainer.pg(client, _tasks_path)
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # Defence-in-depth on empty exception body — ConnectTimeout
             # often stringifies blank, leaving the log line as
             # `tasks fetch FAILED: ConnectTimeout:` with nothing
@@ -962,5 +962,5 @@ async def gather_stats() -> None:
                 "with_size": with_size,
                 "ts": _stats_cache["ts"],
             })
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[events] gather_stats publish failed: {e}")

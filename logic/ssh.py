@@ -692,7 +692,7 @@ def _key_fingerprint(private_key_pem: str, passphrase: str) -> str:
         if ":" in fp:
             fp = fp.split(":", 1)[1]
         return fp[:16]
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return f"parse-error: {type(e).__name__}"
 
 
@@ -796,7 +796,7 @@ async def run_command(
             client_keys_arg = [asyncssh.import_private_key(
                 g["private_key"], passphrase=g["passphrase"] or None,
             )]
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             # If the key is bad but we also have a password (any
             # layer of the priority ladder), fall through silently
             # to password auth. Otherwise fail.
@@ -833,7 +833,7 @@ async def run_command(
     if g["known_hosts"]:
         try:
             known_hosts_arg = asyncssh.import_known_hosts(g["known_hosts"])
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             base_result["error"] = (
                 f"bad known_hosts blob: {type(e).__name__}: {e}"
             )
@@ -905,8 +905,12 @@ async def run_command(
                 # stderr previews up to 400 chars each so the usual
                 # "sudo: a password is required" / "command not found"
                 # / "permission denied" lines are visible inline.
-                stdout_preview = (proc.stdout or "")[:400].replace("\n", " | ")
-                stderr_preview = (proc.stderr or "")[:400].replace("\n", " | ")
+                # asyncssh's run() (default str encoding) returns str stdout/
+                # stderr; the stubs widen to ``bytes | str | None`` so coerce
+                # to str for the .replace() — a no-op at runtime since these
+                # are already str.
+                stdout_preview = str(proc.stdout or "")[:400].replace("\n", " | ")
+                stderr_preview = str(proc.stderr or "")[:400].replace("\n", " | ")
                 print(
                     f"[ssh] run DONE host={resolved.get('host')!r} "
                     f"user={resolved.get('user')!r} "
@@ -956,7 +960,7 @@ async def run_command(
               f"host={resolved.get('host')!r}: {e}")
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         base_result["error"] = f"unexpected: {type(e).__name__}: {e}"
         print(f"[ssh] run ERROR unexpected {type(e).__name__} host={resolved.get('host')!r}: {e}")
 
@@ -1205,7 +1209,7 @@ async def open_shell(
             client_keys_arg = [asyncssh.import_private_key(
                 g["private_key"], passphrase=g["passphrase"] or None,
             )]
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             if not resolved.get("password_set"):
                 raise TerminalConfigError(
                     f"bad SSH key: {type(e).__name__}: {e}",
@@ -1226,7 +1230,7 @@ async def open_shell(
     if g["known_hosts"]:
         try:
             known_hosts_arg = asyncssh.import_known_hosts(g["known_hosts"])
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             raise TerminalConfigError(
                 f"bad known_hosts blob: {type(e).__name__}: {e}",
                 code="bad_known_hosts",

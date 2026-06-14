@@ -90,6 +90,27 @@
         </template>
       </div>
     </template>
+    <!-- Interface-throughput trend — period data-volume + peak / average + a
+         daily-average download sparkline from the shared lifespan
+         opnsense_sampler. DRAWER-ONLY (the card stays compact). Shown once
+         >= 2 daily points exist. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && opnsenseUsage(inst) && opnsenseUsage(inst).active_days > 1 && (opnsenseUsage(inst).series_rx || []).length > 1">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label mb-1"
+             x-text="t('apps.opnsense.usage_title', { days: opnsenseUsage(inst).days })"></div>
+        <!-- Period totals + peak + average. -->
+        <div class="fs-3xs mono text-[var(--text-faint)]"
+             x-text="t('apps.opnsense.usage_total', { down: opnsenseBytes(opnsenseUsage(inst).total_rx_bytes), up: opnsenseBytes(opnsenseUsage(inst).total_tx_bytes) })"></div>
+        <div class="fs-3xs mono text-[var(--text-faint)]"
+             x-text="t('apps.opnsense.usage_peak', { down: opnsenseBps(opnsenseUsage(inst).peak_rx_bps), up: opnsenseBps(opnsenseUsage(inst).peak_tx_bps) })"></div>
+        <div class="fs-3xs mono text-[var(--text-faint)]"
+             x-text="t('apps.opnsense.usage_avg', { down: opnsenseBps(opnsenseUsage(inst).avg_rx_bps), up: opnsenseBps(opnsenseUsage(inst).avg_tx_bps) })"></div>
+        <!-- Daily-average download throughput sparkline. -->
+        <svg class="apps-spark apps-spark--trend mt-1" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_rx)"></polyline>
+        </svg>
+      </div>
+    </template>
     <!-- Gateway detail list (status dot + name + latency / loss). Shown when
          there's at least one gateway. -->
     <template x-if="opnsenseGateways(inst).length">

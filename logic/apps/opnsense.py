@@ -65,7 +65,7 @@ _data_cache: dict[str, tuple[float, dict]] = {}
 # Per-(host_id, service_idx) previous interface byte-counters for throughput
 # rate-diffing. ``traffic/interface`` returns CUMULATIVE per-NIC byte counters
 # (not rates), so we diff consecutive samples — {ck: (epoch, {iface: (rx, tx)})}.
-_iface_counters: dict[str, tuple[float, dict]] = {}
+_iface_counters: "dict[str, tuple[float, dict[str, tuple[int, int]]]]" = {}
 
 # Cap on the rich-item rows a list skill returns.
 _MAX_ROWS = 50
@@ -169,6 +169,7 @@ async def _post_json(cli: httpx.AsyncClient, base: str, path: str,
         return None
 
 
+# noinspection DuplicatedCode
 async def _probe_raw(cli: httpx.AsyncClient, base: str, method: str, path: str,
                      body: Optional[dict] = None) -> dict:
     """Debug-capturing single request → ``{status, ok, snippet, json}``.
@@ -207,13 +208,26 @@ def _dbg_entry(label: str, method: str, path: str, probe: dict, rows: int) -> di
             "snippet": str(probe.get("snippet") or "")}
 
 
+def _append_probe_diag(diag: "list[str]", method: str, path: str,
+                       probe: dict) -> None:
+    """Append a per-attempt no-rows diagnostic to ``diag`` — ``"METHOD PATH=
+    HTTP<status>"`` when the probe failed, else ``"METHOD PATH=0rows(<keys>)"``
+    (the top JSON keys, so a reachable-but-empty body is traceable). Shared by
+    the services + DHCP fetchers' all-attempts-empty logging."""
+    if not probe.get("ok"):
+        diag.append(f"{method} {path}=HTTP{probe.get('status')}")
+    else:
+        keys = ",".join(sorted(as_dict(probe.get("json")).keys())[:6]) or "no-keys"
+        diag.append(f"{method} {path}=0rows({keys})")
+
+
 # Actionable privilege hint per problem-endpoint category — what to grant the
 # OPNsense API user (System → Access → Users → edit → Effective Privileges) when
 # the endpoint 403s. Homarr only uses Dashboard/Diagnostics:System endpoints, so
 # a key scoped for Homarr can read CPU/mem but NOT these three.
 _PRIV_HINTS = {
     "services": "grant the API user the 'Status: Services' privilege",
-    "pf": "grant the API user the 'Diagnostics: pf info' / 'Firewall: states' privilege",
+    "pf": "grant the API user the 'Diagnostics: Firewall sessions' privilege",
     "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
     "interfaces": "grant the API user the 'Diagnostics: Traffic' and 'Interfaces: Overview' privileges",
 }
@@ -221,6 +235,7 @@ _CAT_NAMES = {"services": "Services", "pf": "Firewall states", "dhcp": "DHCP lea
               "interfaces": "Interfaces"}
 
 
+# noinspection DuplicatedCode
 def _diagnose_endpoints(dbg: list) -> str:
     """Derive an actionable hint from the per-endpoint diagnostics so the card
     can SAY why a count reads 0 (instead of the operator having to share logs).
@@ -294,11 +309,7 @@ async def _fetch_services(cli: httpx.AsyncClient, base: str,
             dbg.append(_dbg_entry("services", method, path, probe, len(rows)))
         if rows:
             return {"rows": rows}
-        if not probe.get("ok"):
-            diag.append(f"{method} {path}=HTTP{probe.get('status')}")
-        else:
-            keys = ",".join(sorted(as_dict(probe.get("json")).keys())[:6]) or "no-keys"
-            diag.append(f"{method} {path}=0rows({keys})")
+        _append_probe_diag(diag, method, path, probe)
     print("[opnsense] warning: service search returned no rows — "
           + "; ".join(diag) + " (check the API user's 'Status: Services' privilege)")
     return {}
@@ -658,6 +669,15 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "_debug": {"endpoints": dbg, "hint": _diagnose_endpoints(dbg)},
         "fetched_at": int(now),
     }
+    # Embed the long-horizon interface-throughput trend (period data-volume +
+    # peak / average) from the lifespan sampler's independent history table —
+    # best-effort, a sampler / DB hiccup must not fail the card.
+    try:
+        from logic.apps import opnsense_sampler as _opn_sampler  # noqa: PLC0415
+        out["usage"] = _opn_sampler.usage_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[opnsense] warning: usage_summary({host_id}#{service_idx}) "
+              f"failed: {e}")
     print(f"[opnsense] INFO fetched host={host_id} v={version} "
           f"upd={update_available} cpu={cpu_percent}% mem={mem_percent}% "
           f"load={out['load_1m']} gw={gw_online}/{gw_total} "
@@ -705,11 +725,7 @@ async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str,
             return active or len(rows)
         if total:
             return total
-        if not probe.get("ok"):
-            diag.append(f"{method} {path}=HTTP{probe.get('status')}")
-        else:
-            keys = ",".join(sorted(as_dict(probe.get("json")).keys())[:6]) or "no-keys"
-            diag.append(f"{method} {path}=0rows({keys})")
+        _append_probe_diag(diag, method, path, probe)
     print("[opnsense] warning: DHCP lease search returned no rows — "
           + "; ".join(diag) + " (check the Kea/ISC backend + API user privilege)")
     return 0
@@ -830,7 +846,7 @@ def _iface_counter_pair(info: dict) -> "tuple[int, int]":
     return 0, 0
 
 
-def _normalize_interfaces(traffic: Any, overview: Any, names: Any) -> "dict[str, dict]":
+def _normalize_interfaces(traffic: Any, overview: Any, names: Any) -> "dict[str, dict[str, Any]]":
     """Merge the interface sources into ``{key: {name, rx, tx, status}}``.
 
     ``traffic`` is ``/api/diagnostics/traffic/interface`` (``{"interfaces":
@@ -841,7 +857,7 @@ def _normalize_interfaces(traffic: Any, overview: Any, names: Any) -> "dict[str,
     when the counter endpoints are privilege-blocked). Any may be missing on a
     given version / privilege set — we union them, keyed by device, so a working
     source backfills a missing one and interfaces still LIST."""
-    out: "dict[str, dict]" = {}
+    out: "dict[str, dict[str, Any]]" = {}
     tif = as_dict(as_dict(traffic).get("interfaces"))
     for key, info in tif.items():
         info = as_dict(info)
@@ -858,7 +874,7 @@ def _normalize_interfaces(traffic: Any, overview: Any, names: Any) -> "dict[str,
         rx, tx = _iface_counter_pair(it)
         name = str(it.get("description") or it.get("name") or key).strip() or key
         status = str(it.get("status") or it.get("link") or "").strip()
-        cur = out.get(key)
+        cur: "Optional[dict[str, Any]]" = out.get(key)
         if cur is None:
             out[key] = {"name": name, "rx": rx, "tx": tx, "status": status}
         else:
@@ -902,6 +918,13 @@ async def _fetch_interfaces(cli: httpx.AsyncClient, base: str,
     return norm
 
 
+def _is_unassigned(name: str) -> bool:
+    """True for a NIC OPNsense reports as not bound to any logical interface —
+    its traffic-endpoint ``name`` is the literal "Unassigned Interface". Idle
+    ones (no current traffic) are noise on the card and get filtered."""
+    return "unassigned" in str(name or "").strip().lower()
+
+
 def _throughput(host_id: str, service_idx: int, ifaces: "dict[str, dict]",
                 now: float) -> "tuple[int, int, list]":
     """Rate-diff the per-NIC CUMULATIVE byte counters into bytes-per-second.
@@ -915,20 +938,26 @@ def _throughput(host_id: str, service_idx: int, ifaces: "dict[str, dict]",
     absurd gaps fall back to 0 for that NIC, never a synthesized spike
     (the host_net_sampler discipline)."""
     ck = cache_key(host_id, service_idx)
-    cur: dict = {k: (safe_int(v.get("rx")), safe_int(v.get("tx")))
-                 for k, v in ifaces.items()}
+    cur: "dict[str, tuple[int, int]]" = {
+        k: (safe_int(v.get("rx")), safe_int(v.get("tx")))
+        for k, v in ifaces.items()}
     prev = _iface_counters.get(ck)
     _iface_counters[ck] = (now, cur)
-    dt = (now - prev[0]) if prev else 0.0
-    have_baseline = bool(prev) and 1 <= dt <= 900
+    # Unpack the (epoch, counters) tuple into typed locals — indexing `prev[1]`
+    # directly leaves the type as `float | dict` (tuple-index imprecision) AND
+    # `prev` is Optional, so the subscripts read as possibly-None. The explicit
+    # `prev is not None` + unpack narrows both cleanly.
+    prev_ts, prev_counters = prev if prev is not None else (0.0, {})
+    dt = (now - prev_ts) if prev is not None else 0.0
+    have_baseline = prev is not None and 1 <= dt <= 900
     total_rx = 0
     total_tx = 0
     rows: list = []
     for key, meta in ifaces.items():
         rx_bps = 0
         tx_bps = 0
-        if have_baseline and key in prev[1]:
-            prx, ptx = prev[1][key]
+        if have_baseline and key in prev_counters:
+            prx, ptx = prev_counters[key]
             d_rx = cur[key][0] - prx
             d_tx = cur[key][1] - ptx
             if d_rx >= 0 and d_tx >= 0:
@@ -936,7 +965,15 @@ def _throughput(host_id: str, service_idx: int, ifaces: "dict[str, dict]",
                 tx_bps = int(d_tx / dt)
         total_rx += rx_bps
         total_tx += tx_bps
-        rows.append({"name": meta.get("name") or key, "rx_bps": rx_bps,
+        name = str(meta.get("name") or key)
+        # Drop unassigned NICs that are idle (0 in AND 0 out) — physical ports
+        # not bound to any logical interface and carrying no current traffic are
+        # noise. Gated on have_baseline so the cold first sample (every rate
+        # reads 0) doesn't hide a busy unassigned NIC for one cycle.
+        if (have_baseline and rx_bps == 0 and tx_bps == 0
+            and _is_unassigned(name)):
+            continue
+        rows.append({"name": name, "rx_bps": rx_bps,
                      "tx_bps": tx_bps, "status": meta.get("status") or ""})
     # Busiest interfaces first (rx+tx), capped for the card.
     rows.sort(key=lambda r: (r["rx_bps"] + r["tx_bps"]), reverse=True)

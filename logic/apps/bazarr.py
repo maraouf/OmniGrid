@@ -728,7 +728,7 @@ async def _search_subtitles_skill(host_row: dict, chip: dict, *,
                 lang_code = str(lang.get("code2") or "").strip()
             else:
                 lang_code = str(lang or "").strip()
-            dl = dict(params)
+            dl: dict[str, object] = dict(params)
             if kind == "episode":
                 dl["seriesid"] = ids["series_id"]
             dl.update({"hi": best.get("hearing_impaired"), "forced": best.get("forced"),

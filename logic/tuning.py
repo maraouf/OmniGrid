@@ -139,6 +139,8 @@ class Tunable(str, Enum):
     GRAFANA_SAMPLE_INTERVAL_SECONDS = "tuning_grafana_sample_interval_seconds"
     NPM_HISTORY_DAYS = "tuning_npm_history_days"
     NPM_SAMPLE_INTERVAL_SECONDS = "tuning_npm_sample_interval_seconds"
+    OPNSENSE_HISTORY_DAYS = "tuning_opnsense_history_days"
+    OPNSENSE_SAMPLE_INTERVAL_SECONDS = "tuning_opnsense_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
@@ -1624,6 +1626,15 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for npm_samples — drives the proxy-host-growth +
     # plain-HTTP-drift trend. Default 180; lower to save disk.
     "tuning_npm_history_days": ("NPM_HISTORY_DAYS", 180, 1, 1095),
+    # OPNsense interface-throughput sampler cadence (s) — snapshots the
+    # firewall's total download / upload rate for the period data-volume +
+    # peak / average trend. 0 = inherit the global stats interval. Default 300
+    # (5 min) — must stay ≤ the 900s throughput-baseline window so each tick has
+    # a usable rate.
+    "tuning_opnsense_sample_interval_seconds": ("OPNSENSE_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # Retention window (days) for opnsense_samples — drives the interface
+    # throughput / data-volume trend. Default 90; lower to save disk.
+    "tuning_opnsense_history_days": ("OPNSENSE_HISTORY_DAYS", 90, 1, 1095),
     # How often the Kavita sampler snapshots each chip's library totals (series /
     # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
     # global stats interval. Default 900 (15 min) — a library grows slowly.

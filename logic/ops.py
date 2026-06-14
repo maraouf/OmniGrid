@@ -1175,11 +1175,12 @@ def _human_bytes(n: int) -> str:
     n = int(n or 0)
     if n < 1024:
         return f"{n} B"
+    f = float(n)
     for unit in ("KB", "MB", "GB", "TB", "PB"):
-        n /= 1024.0
-        if n < 1024:
-            return f"{n:.1f} {unit}"
-    return f"{n:.1f} EB"
+        f /= 1024.0
+        if f < 1024:
+            return f"{f:.1f} {unit}"
+    return f"{f:.1f} EB"
 
 
 class Operation:

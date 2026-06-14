@@ -126,6 +126,65 @@ function opnsenseUptime(inst) {
   return min + 'm';
 }
 
+// Humanise a byte volume -> "1.5 GB" / "920 MB" (decimal/1000). '0 B' for
+// non-positive / non-finite. Used for the period data-volume totals.
+function opnsenseBytes(v) {
+  let b = Number(v);
+  if (!isFinite(b) || b <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let i = 0;
+  while (b >= 1000 && i < units.length - 1) {
+    b /= 1000;
+    i++;
+  }
+  return (i === 0 ? Math.round(b) : b.toFixed(1)) + ' ' + units[i];
+}
+
+// The interface-throughput usage trend `{days, samples, total_rx_bytes,
+// total_tx_bytes, peak_rx_bps, peak_tx_bps, avg_rx_bps, avg_tx_bps, active_days,
+// series_rx, series_tx}` from the shared lifespan opnsense_sampler, or null while
+// idle / no samples yet. Drives the card's throughput-trend sparkline.
+function opnsenseUsage(inst) {
+  /* jshint validthis: true */
+  const d = opnsenseData.call(this, inst);
+  return (d && d.usage && typeof d.usage === 'object') ? d.usage : null;
+}
+
+// Memo: stable `:points` per numeric series array (avoids re-render flicker on
+// every Alpine flush — the canonical SVG-builder memo).
+const _opnsenseTrendMemo = new WeakMap();
+
+// SVG polyline points for a trend series over a 0..100 x 0..24 viewBox,
+// auto-scaled to the series' own max (min pinned at 0). '' when < 2 points.
+// Memoised on the array ref.
+function opnsenseUsagePath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_opnsenseTrendMemo.has(arr)) {
+    return _opnsenseTrendMemo.get(arr);
+  }
+  const W = 100, H = 24, n = arr.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(arr[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _opnsenseTrendMemo.set(arr, pts);
+  return pts;
+}
+
 // Endpoint diagnostics (HTTP status + body snippet + self-diagnosed hint) are
 // stamped by this app's fetch_data into the standard out['_debug'] block and
 // rendered by the GENERIC drawer debug panel (_components/apps/_debug_panel.html
@@ -151,5 +210,8 @@ export const helpers = {
   opnsenseGateways: opnsenseGateways,
   opnsenseUptime: opnsenseUptime,
   opnsenseBps: opnsenseBps,
+  opnsenseBytes: opnsenseBytes,
   opnsenseInterfaces: opnsenseInterfaces,
+  opnsenseUsage: opnsenseUsage,
+  opnsenseUsagePath: opnsenseUsagePath,
 };

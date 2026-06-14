@@ -124,6 +124,7 @@ from main_pkg.hosts_routes import (  # noqa: E402,F401
 import asyncio  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
 import httpx  # noqa: F401,F811  (used at runtime; star-import shadow flags as duplicate)
 from logic.external_urls import ExternalURL  # noqa: E402
+from logic.coerce import safe_float  # noqa: E402
 from typing import Optional
 
 
@@ -1974,7 +1975,7 @@ async def api_weather(
         if not label:
             label = loc.get("label") or ""
     from logic import weather as _weather_mod
-    return await _weather_mod.fetch(float(lat), float(lon), label=label, force=force)
+    return await _weather_mod.fetch(safe_float(lat), safe_float(lon), label=label, force=force)
 
 
 # TMDB image hosts the proxy is allowed to fetch from. STRICT allowlist —
@@ -2191,8 +2192,10 @@ async def api_weather_test(
     # When all three are empty, return a clear "configure a user
     # location" error pointing operators at the right surface.
     try:
-        lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
-        lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
+        _raw_lat = body.get("lat")
+        _raw_lon = body.get("lon")
+        lat = float(_raw_lat) if _raw_lat not in (None, "") else None
+        lon = float(_raw_lon) if _raw_lon not in (None, "") else None
     except (TypeError, ValueError):
         return _stamp_test_success("weather", {
             "ok": False, "detail": "lat/lon must be numbers",
@@ -2419,7 +2422,7 @@ async def api_prayer_times(
         lon = loc["lon"]
         if not label:
             label = loc.get("label") or ""
-    return await _pt.fetch(float(lat), float(lon), label=label,
+    return await _pt.fetch(safe_float(lat), safe_float(lon), label=label,
                            method=method, school=school, force=force)
 
 
@@ -2437,8 +2440,10 @@ async def api_prayer_times_test(
     from logic import prayer_times as _pt
     _log_provider_test_start("prayer_times", target="api.aladhan.com")
     try:
-        lat = float(body.get("lat")) if body.get("lat") not in (None, "") else None
-        lon = float(body.get("lon")) if body.get("lon") not in (None, "") else None
+        _raw_lat = body.get("lat")
+        _raw_lon = body.get("lon")
+        lat = float(_raw_lat) if _raw_lat not in (None, "") else None
+        lon = float(_raw_lon) if _raw_lon not in (None, "") else None
     except (TypeError, ValueError):
         return _stamp_test_success("prayer_times", {
             "ok": False, "detail": "lat/lon must be numbers",

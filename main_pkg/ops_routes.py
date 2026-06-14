@@ -1879,6 +1879,9 @@ class SettingsIn(BaseModel):
     # Nginx Proxy Manager config-drift retention sampler.
     tuning_npm_sample_interval_seconds: Optional[str] = None
     tuning_npm_history_days: Optional[str] = None
+    # OPNsense interface-throughput retention sampler.
+    tuning_opnsense_sample_interval_seconds: Optional[str] = None
+    tuning_opnsense_history_days: Optional[str] = None
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None

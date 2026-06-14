@@ -240,6 +240,10 @@ async def start_auth() -> dict:
             "auth_url": f"{ExternalURL.APP_PLEX_TV}/auth#?{qs}", "client_id": cid}
 
 
+#   Parallel OAuth-PIN step to start_auth: distinct request shape (GET+params
+#   vs POST+data) and distinct status-code semantics (404 → expired, else
+#   HTTP-N) — a shared helper would obscure the two-step sign-in flow.
+# noinspection DuplicatedCode
 async def poll_auth(pin_id: Any, code: str) -> dict:
     """Poll a pending Plex OAuth PIN via ``GET plex.tv/api/v2/pins/<id>``.
     Returns ``{ok: True, token}`` once the user has authorised in the popup,

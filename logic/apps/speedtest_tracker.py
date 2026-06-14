@@ -446,21 +446,22 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "fetched_at": int(now),
     }
     # Below-floor reliability: the operator's own ISP download floor (Mbps); the
-    # card flags the % of SUCCESSFUL tests below it (a failed/errored test is a
-    # 0-download row — excluded so it doesn't double-count with the failed-test
-    # stat). 0 / unset = OFF (no below-floor block). This is OmniGrid-side — it
-    # does NOT read speedtest-tracker's own pass/fail threshold.
+    # card flags the % of tests below it across EVERY test in the window. A
+    # failed/errored test is a 0-download row (the sampler's canonical "failed"
+    # definition) and never reached the floor, so it counts as below-floor too —
+    # alongside successful tests whose download came in under the floor. 0 /
+    # unset = OFF (no below-floor block). This is OmniGrid-side — it does NOT
+    # read speedtest-tracker's own pass/fail threshold.
     floor = _speed_floor(chip)
     if floor > 0:
-        ok_dl = [float(p.get("download") or 0) for p in series
-                 if (float(p.get("download") or 0) > 0)]
-        total_ok = len(ok_dl)
-        below = sum(1 for d in ok_dl if d < floor)
+        downloads = [float(p.get("download") or 0) for p in series]
+        total = len(downloads)
+        below = sum(1 for d in downloads if d < floor)
         out["below_floor"] = {
             "floor_mbps": round(floor, 1),
             "below_count": below,
-            "total": total_ok,
-            "pct": round(below / total_ok * 100, 1) if total_ok else 0.0,
+            "total": total,
+            "pct": round(below / total * 100, 1) if total else 0.0,
         }
     # Embed the long-horizon trend (daily-median download + medians over the
     # retention window) from the lifespan sampler's independent history table —

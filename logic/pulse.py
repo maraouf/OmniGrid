@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 
@@ -287,7 +287,7 @@ async def _fetch_state(
             r = await client.get(url, headers=_headers(token))  # lgtm[py/full-ssrf]
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             last_err = f"{p}: {e}"
             continue
         if r.status_code == 401 or r.status_code == 403:
@@ -298,7 +298,7 @@ async def _fetch_state(
             continue
         try:
             j = r.json() or {}
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             last_err = f"{p}: {e}"
             continue
         # /api/nodes returns a bare list; wrap it so the caller has a
@@ -568,7 +568,7 @@ def extract_node_stats(node: dict) -> dict:
 def _register_pulse_host_keys(
     record: dict,
     stats: dict,
-    add: "callable",
+    add: Callable,
     *,
     name_keys: tuple[str, ...],
     id_keys: tuple[str, ...],
@@ -669,7 +669,7 @@ async def probe_pulse(
             state = await _fetch_state(client, base_url, token)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         # Surface the failure in stdout so it lands in Admin → Logs.
         # Pre-fix the error string was returned silently in the API
         # response and users saw "Pulse: down" on the Hosts page
