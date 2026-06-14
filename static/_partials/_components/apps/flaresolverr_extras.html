@@ -24,17 +24,29 @@
              :class="flaresolverrData(inst).ready ? 'text-[var(--success)]' : 'text-[var(--warning)]'"
              x-text="flaresolverrData(inst).ready ? (t('apps.flaresolverr.ready') || 'Ready') : (t('apps.flaresolverr.up') || 'Up')"></div>
       </div>
-      <!-- Active browser sessions. -->
+      <!-- Active browser sessions (persistent sessions.create sessions only —
+           the tooltip explains why one-off requests read 0). -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.sessions') || 'Sessions'"></div>
-        <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrData(inst).sessions)"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.sessions') || 'Sessions'"
+             :title="t('apps.flaresolverr.sessions_hint')"></div>
+        <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrData(inst).sessions)"
+             :title="t('apps.flaresolverr.sessions_hint')"></div>
       </div>
     </div>
+    <!-- No persistent sessions ever seen in the window — say WHY 0 is normal so
+         the card doesn't read as broken (FlareSolverr only counts
+         sessions.create sessions; one-off solve requests aren't tracked). Shown
+         once the sampler has data but the peak is still 0. -->
+    <template x-if="flaresolverrUsage(inst) && flaresolverrUsage(inst).samples > 0 && (Number(flaresolverrUsage(inst).peak) || 0) === 0">
+      <p class="fs-3xs text-[var(--text-faint)] italic mt-2"
+         x-text="t('apps.flaresolverr.no_sessions_note')"></p>
+    </template>
     <!-- 30-day usage trend — open-session count sampled by the lifespan
          flaresolverr_sampler (FlareSolverr has no historical / request-volume
          API, so this sampled session count is the only usage signal). Shown
-         once at least one sample exists. -->
-    <template x-if="flaresolverrUsage(inst) && flaresolverrUsage(inst).samples > 0">
+         once there's been real session activity (peak > 0) so a wall of zeros
+         never reads as broken. -->
+    <template x-if="flaresolverrUsage(inst) && (Number(flaresolverrUsage(inst).peak) || 0) > 0">
       <div class="mt-2">
         <div class="apps-card-ups-grid">
           <div class="apps-card-ups-stat">

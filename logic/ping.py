@@ -169,8 +169,13 @@ async def _probe_icmp(host: str, count: int, timeout_seconds: float) -> dict:
     # uses a typevar-tuple for the args parameter that the inspector
     # can't satisfy without an explicit positional).
     h = await asyncio.to_thread(
+        # icmplib's `interval` / `timeout` are seconds and accept fractional
+        # floats at runtime (sub-second spacing is the whole point); its type
+        # stubs declare `int`, so the float args are flagged. Coercing to int
+        # would round a 0.5s interval/timeout to 0 — a real behaviour change —
+        # so this is a genuine stub-inaccuracy false positive, not a bug.
         icmplib.ping, host,
-        count=count, interval=_interval_s, timeout=timeout_seconds,
+        count=count, interval=_interval_s, timeout=timeout_seconds,  # type: ignore[arg-type]
         privileged=False,  # unprivileged uses ICMP_FILTER socket type
     )
     rtts = [r for r in (h.rtts or []) if r is not None]  # ms already
@@ -258,7 +263,7 @@ async def probe_ping(
             return await _probe_icmp(host_clean, count, timeout_s)
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[ping] {host_clean!r} ICMP failed ({e}); falling back to TCP")
 
     # TCP path — primary.

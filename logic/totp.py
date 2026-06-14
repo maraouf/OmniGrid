@@ -189,6 +189,18 @@ def encrypt_backup_codes(plain_codes: list[str]) -> str:
     return json.dumps(out)
 
 
+def _decrypt_entry_code(entry: dict) -> Optional[str]:
+    """Decrypt a backup-code entry's ``code_encrypted`` field. Returns the
+    plaintext, or None when the field is missing / non-string / undecryptable."""
+    ct = entry.get("code_encrypted")
+    if not isinstance(ct, str) or not ct:
+        return None
+    try:
+        return decrypt_secret(ct)
+    except InvalidToken:
+        return None
+
+
 def decrypt_backup_codes(stored_json: Optional[str]) -> list[dict]:
     """Reverse ``encrypt_backup_codes``. Returns ``[{code, used_at}, ...]``.
 
@@ -207,12 +219,8 @@ def decrypt_backup_codes(stored_json: Optional[str]) -> list[dict]:
     for entry in raw:
         if not isinstance(entry, dict):
             continue
-        ct = entry.get("code_encrypted")
-        if not isinstance(ct, str) or not ct:
-            continue
-        try:
-            plain = decrypt_secret(ct)
-        except InvalidToken:
+        plain = _decrypt_entry_code(entry)
+        if plain is None:
             continue
         out.append({
             "code": format_backup_code_for_display(plain),
@@ -269,12 +277,8 @@ def consume_backup_code(stored_json: Optional[str], attempt: str) -> tuple[bool,
     # takes the fast path.
     matched = False
     for entry in legacy_entries:
-        ct = entry.get("code_encrypted")
-        if not isinstance(ct, str) or not ct:
-            continue
-        try:
-            plain = decrypt_secret(ct)
-        except InvalidToken:
+        plain = _decrypt_entry_code(entry)
+        if plain is None:
             continue
         canonical = _normalise_for_compare(plain)
         # Backfill the hash regardless of match so subsequent attempts

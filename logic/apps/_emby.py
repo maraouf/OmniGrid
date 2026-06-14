@@ -455,11 +455,12 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "resume_count": resume_count,
         "version": version,
         "fetched_at": int(now),
+        # Best-effort streaming trend from the shared lifespan emby_sampler
+        # (peak-streams-today + the daily peak-streams sparkline). _safe_trend
+        # never raises — a missing sampler / no samples yet yields a zeroed
+        # trend, leaving the card's instantaneous stats untouched.
+        "trend": _safe_trend(host_id, service_idx),
     }
-    # Best-effort streaming trend from the shared lifespan emby_sampler (peak-
-    # streams-today + the daily peak-streams sparkline). A missing sampler / no
-    # samples yet leaves the card's instantaneous stats untouched.
-    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[{cfg.log_tag}] INFO fetched host={host_id} movies={out['movies']} "
           f"series={out['series']} episodes={out['episodes']} songs={out['songs']} "
           f"libraries={libraries} sessions={sessions_active} "
@@ -736,6 +737,25 @@ def _session_item(s: dict, cfg: Config) -> Optional[dict]:
     return out
 
 
+async def _fetch_sessions(base: str, key: str, *, cfg: Config,
+                          only_playing: bool) -> "tuple[Optional[list], Optional[dict]]":
+    """Fetch ``GET /Sessions`` and parse the JSON body. Returns
+    ``(sessions, None)`` on success or ``(None, error_dict)`` on a request /
+    non-JSON failure. ``only_playing`` filters to sessions with a
+    ``NowPlayingItem``. Never raises."""
+    r = await _skill_request("GET", base, "/Sessions", key=key, cfg=cfg,
+                             timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return None, r
+    try:
+        rows = as_list(r.json())
+    except (ValueError, TypeError):
+        return None, {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if only_playing:
+        rows = [s for s in rows if isinstance(s, dict) and s.get("NowPlayingItem")]
+    return rows, None
+
+
 # noinspection DuplicatedCode
 #   The two-list build below (text lines + rich items per active session) is
 #   shape-similar to the other list skills but has no clean shared helper —
@@ -749,15 +769,10 @@ async def now_playing_skill(host_row: dict, chip: dict, *,
     if err:
         return err
     print(f"[{cfg.log_tag}] INFO {cfg.slug}_now_playing host={host_id} (live fetch)")
-    r = await _skill_request("GET", base, "/Sessions", key=key, cfg=cfg,
-                             timeout=15.0, verb="fetch")
-    if isinstance(r, dict):
-        return r
-    try:
-        sessions = [s for s in as_list(r.json())
-                    if isinstance(s, dict) and s.get("NowPlayingItem")]
-    except (ValueError, TypeError):
-        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    sessions, ferr = await _fetch_sessions(base, key, cfg=cfg, only_playing=True)
+    if ferr:
+        return ferr
+    assert sessions is not None
     if not sessions:
         return {"ok": True, "status": 200,
                 "detail": f"⏸️ Nothing is playing on {cfg.brand} right now."}
@@ -774,6 +789,7 @@ async def now_playing_skill(host_row: dict, chip: dict, *,
     return _attach_items(out, items, f"apps.{cfg.slug}.now_playing_count")
 
 
+# noinspection DuplicatedCode
 async def terminate_session_skill(host_row: dict, chip: dict, *,
                                   arg: Optional[str], host_id: Optional[str],
                                   cfg: Config) -> dict:
@@ -791,14 +807,10 @@ async def terminate_session_skill(host_row: dict, chip: dict, *,
         return err
     nl = needle.lower()
     print(f"[{cfg.log_tag}] INFO {cfg.slug}_terminate_session host={host_id} target={needle!r}")
-    r = await _skill_request("GET", base, "/Sessions", key=key, cfg=cfg,
-                             timeout=15.0, verb="fetch")
-    if isinstance(r, dict):
-        return r
-    try:
-        sessions = as_list(r.json())
-    except (ValueError, TypeError):
-        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    sessions, ferr = await _fetch_sessions(base, key, cfg=cfg, only_playing=False)
+    if ferr:
+        return ferr
+    assert sessions is not None
     target_id = ""
     target_label = ""
     for s in sessions:
@@ -1006,6 +1018,7 @@ def _search_title(item: dict) -> str:
     return name + (f" ({yr})" if yr and typ == "movie" else "")
 
 
+# noinspection DuplicatedCode
 async def search_skill(host_row: dict, chip: dict, *,
                        arg: Optional[str], host_id: Optional[str],
                        cfg: Config) -> dict:
@@ -1050,6 +1063,7 @@ async def search_skill(host_row: dict, chip: dict, *,
             "detail": f"🔍 {cfg.brand} results for “{term}”:\n" + "\n".join(results)}
 
 
+# noinspection DuplicatedCode
 async def scan_skill(host_row: dict, chip: dict, *,
                      host_id: Optional[str], cfg: Config) -> dict:
     """Action skill: trigger a scan (re-index) of every library via
@@ -1071,6 +1085,7 @@ async def scan_skill(host_row: dict, chip: dict, *,
             "detail": f"🔄 Started a {cfg.brand} library scan."}
 
 
+# noinspection DuplicatedCode
 async def scan_library_skill(host_row: dict, chip: dict, *,
                              arg: Optional[str], host_id: Optional[str],
                              cfg: Config) -> dict:

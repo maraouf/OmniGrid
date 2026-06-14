@@ -283,17 +283,30 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
+# noinspection DuplicatedCode
+async def _live_fetch(host_row: dict, chip: dict, *,
+                      host_id: Optional[str],
+                      service_idx: Optional[int]) -> "tuple[Optional[dict], Optional[dict]]":
+    """Force a live ``fetch_data`` for a skill. Returns ``(data, None)`` on
+    success or ``(None, error_dict)`` when the fetch raises. Never raises."""
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return None, {"ok": False, "detail": str(e), "status": 0}
+    return data, None
+
+
 async def _status_skill(host_row: dict, chip: dict, *,
                         host_id: Optional[str] = None,
                         service_idx: Optional[int] = None) -> dict:
     """Read-only: live-fetch the health + session summary. Never raises."""
     print(f"[flaresolverr] INFO flaresolverr_status host={host_id} "
           f"svc_idx={service_idx} (live fetch)")
-    try:
-        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
-                                service_idx=int(service_idx or 0), force=True)
-    except (ValueError, RuntimeError) as e:
-        return {"ok": False, "detail": str(e), "status": 0}
+    data, ferr = await _live_fetch(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if ferr:
+        return ferr
+    assert data is not None
     ver = str(data.get("version") or "").strip()
     sessions = safe_int(data.get("sessions"))
     ua = str(data.get("user_agent") or "").strip()
@@ -322,11 +335,10 @@ async def _sessions_skill(host_row: dict, chip: dict, *,
     """Read-only: list active browser sessions as rich rows, each with a
     per-row destroy action. Never raises."""
     print(f"[flaresolverr] INFO flaresolverr_sessions host={host_id} (live fetch)")
-    try:
-        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
-                                service_idx=int(service_idx or 0), force=True)
-    except (ValueError, RuntimeError) as e:
-        return {"ok": False, "detail": str(e), "status": 0}
+    data, ferr = await _live_fetch(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if ferr:
+        return ferr
+    assert data is not None
     ids = [str(s) for s in as_list(data.get("session_ids")) if s]
     if not ids:
         return {"ok": True, "status": 200, "detail": "🧩 No active FlareSolverr sessions."}

@@ -1046,6 +1046,27 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_npm_samples_ts
             ON npm_samples(ts);
 
+        -- OPNsense interface-throughput retention. One row per (OPNsense chip,
+        -- tick) holding the firewall's TOTAL download / upload rate (bytes/sec)
+        -- at sample time. The trend integrates these instantaneous rates into a
+        -- period data-volume (≈ GB this month) + peak / average throughput +
+        -- a daily-average sparkline, so the card can answer "how much did this
+        -- uplink move over 30 days" — a signal the firewall's own UI doesn't
+        -- retain.
+        CREATE TABLE IF NOT EXISTS opnsense_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            rx_bps          INTEGER NOT NULL DEFAULT 0,
+            tx_bps          INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_opnsense_samples_chip_ts
+            ON opnsense_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_opnsense_samples_ts
+            ON opnsense_samples(ts);
+
         -- Kavita library-growth retention. One row per (kavita chip, tick). All
         -- columns are CUMULATIVE running totals (a library only grows), so the
         -- trend reads them as each day's LAST value (a growth line). ``ts`` is

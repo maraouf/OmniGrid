@@ -1,0 +1,12 @@
+# Dev / lint dependencies — NOT shipped in the runtime image (requirements.txt
+# stays runtime-only). Install locally to enable the pre-commit linter's
+# type-checking rule:
+#
+#     pip install -r requirements-dev.txt
+#
+# pyright powers scripts/lint.py's `py-typecheck` rule (real type-inference the
+# AST rules can't do — argument-type / assignment-type / optional-subscript
+# mismatches, the class the IDE flags). The rule is a graceful no-op when
+# pyright isn't installed, so this file is optional for contributors who only
+# touch non-Python surfaces — but required to reproduce the full lint gate.
+pyright==1.1.410

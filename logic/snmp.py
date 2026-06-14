@@ -323,12 +323,12 @@ _OID_APC_UPS_OUTPUT_LOAD = "1.3.6.1.4.1.318.1.1.1.4.2.3.0"
 # the reason for the last transfer to battery, the battery-replace flag,
 # and the last self-test result. All single GETs alongside the battery /
 # output reads above — no SNMP SET is ever issued (read-only contract).
-_OID_APC_UPS_INPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.3.2.1.0"   # upsAdvInputLineVoltage (VAC)
-_OID_APC_UPS_INPUT_FREQ = "1.3.6.1.4.1.318.1.1.1.3.2.4.0"      # upsAdvInputFrequency (Hz)
-_OID_APC_UPS_LAST_TRANSFER = "1.3.6.1.4.1.318.1.1.1.3.2.5.0"   # upsAdvInputLineFailCause (enum)
+_OID_APC_UPS_INPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.3.2.1.0"  # upsAdvInputLineVoltage (VAC)
+_OID_APC_UPS_INPUT_FREQ = "1.3.6.1.4.1.318.1.1.1.3.2.4.0"  # upsAdvInputFrequency (Hz)
+_OID_APC_UPS_LAST_TRANSFER = "1.3.6.1.4.1.318.1.1.1.3.2.5.0"  # upsAdvInputLineFailCause (enum)
 _OID_APC_UPS_OUTPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.4.2.1.0"  # upsAdvOutputVoltage (VAC)
-_OID_APC_UPS_BATT_REPLACE = "1.3.6.1.4.1.318.1.1.1.2.2.4.0"    # upsAdvBatteryReplaceIndicator
-_OID_APC_UPS_SELF_TEST = "1.3.6.1.4.1.318.1.1.1.7.2.3.0"       # upsAdvTestDiagnosticsResults (enum)
+_OID_APC_UPS_BATT_REPLACE = "1.3.6.1.4.1.318.1.1.1.2.2.4.0"  # upsAdvBatteryReplaceIndicator
+_OID_APC_UPS_SELF_TEST = "1.3.6.1.4.1.318.1.1.1.7.2.3.0"  # upsAdvTestDiagnosticsResults (enum)
 
 # APC last-transfer-to-battery cause enum (upsAdvInputLineFailCause).
 _APC_LAST_TRANSFER_LABELS = {
@@ -637,7 +637,7 @@ try:
               f"(pysnmp ns={_ns_used})")
     except (AttributeError, NameError):
         pass
-except Exception as _e: # noqa: BLE001
+except Exception as _e:  # noqa: BLE001
     _HAS_SNMP = False
     _SNMP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
     print(f"[snmp] pysnmp import failed — SNMP probes disabled: {_SNMP_IMPORT_ERROR}")
@@ -750,7 +750,7 @@ async def _snmp_get(engine, auth, target, oids: list[str]) -> dict[str, object]:
         # propagating up the await chain so the loop task cancels
         # cleanly.
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         # Log the exception type so debugging "host returned no data"
         # doesn't have to start with "is this a real network issue or
         # a code bug?". One line per error site is fine — each call
@@ -858,7 +858,7 @@ async def _snmp_walk(engine, auth, target, base_oid: str,
     except (asyncio.CancelledError, KeyboardInterrupt):
         # Same cancellation contract as _snmp_get — never swallow.
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         # Log the exception type so a misformatted OID or pysnmp
         # internal bug shows up as a code-bug signal instead of a
         # network-failure signal.
@@ -2133,7 +2133,7 @@ async def probe_snmp(
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"hosts": {}, "error": f"snmp: transport setup failed: {e}"}
 
     # ----------------------------------------------------------------
@@ -2173,7 +2173,7 @@ async def probe_snmp(
         sys_descr_str = ""
         if isinstance(sys_resp_phase0, dict):
             _sd_val = sys_resp_phase0.get(_OID_SYS_DESCR)
-            if hasattr(_sd_val, "prettyPrint"):
+            if _sd_val is not None and hasattr(_sd_val, "prettyPrint"):
                 sys_descr_str = _sd_val.prettyPrint()
             elif isinstance(_sd_val, (str, bytes)):
                 sys_descr_str = _sd_val.decode() if isinstance(_sd_val, bytes) else _sd_val
@@ -2513,7 +2513,7 @@ async def probe_snmp(
                 # benefit at walk_concurrency=1.
                 try:
                     return await coro
-                except BaseException: # noqa: BLE001
+                except BaseException:  # noqa: BLE001
                     try:
                         coro.close()
                     except (RuntimeError, GeneratorExit):
@@ -2524,7 +2524,7 @@ async def probe_snmp(
                 await walk_sem.acquire()
                 acquired = True
                 return await coro
-            except BaseException: # noqa: BLE001
+            except BaseException:  # noqa: BLE001
                 try:
                     coro.close()
                 except (RuntimeError, GeneratorExit):
@@ -2676,7 +2676,7 @@ async def probe_snmp(
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return {"hosts": {}, "error": f"snmp: probe failed: {e}"}
 
     (sys_get, cpu_walk,

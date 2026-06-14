@@ -1236,6 +1236,16 @@
         </button>
         <button type="button" class="btn btn-soft fs-sm" :disabled="appsInstanceEditSaving"
                 @click="closeInstanceEdit()" x-text="t('actions.cancel') || 'Cancel'"></button>
+        <!-- Dirty / clean cue (matches the Apps settings section + the rest of
+             the admin surface): amber pulse + "Unsaved changes" while the form
+             differs from its open-time snapshot, a faint "No changes" otherwise
+             — so the editor always says whether there's anything to save. -->
+        <span x-show="!appsInstanceEditSaving && appsInstanceDirty()" class="fs-xs text-[var(--warning)] flex items-center gap-1.5 ms-2" :title="t('common.unsaved_title')">
+          <span class="w-1.5 h-1.5 rounded-full bg-[var(--warning)] animate-pulse"></span>
+          <span class="unsaved-flash" x-text="t('hosts_actions.unsaved_label')"></span>
+        </span>
+        <span x-show="!appsInstanceEditSaving && !appsInstanceDirty()" class="fs-xs text-[var(--text-faint)] ms-2"
+              x-text="t('apps.no_changes') || 'No changes to save'"></span>
         <span x-show="appsInstanceEditError" class="fs-xs text-[var(--danger)] ms-2" x-text="appsInstanceEditError"></span>
       </div>
     </div>

@@ -148,7 +148,7 @@ def invalidate_cache(reason: Optional[str] = None) -> None:
     try:
         from logic import events as _events
         _events.publish("cache:invalidated", {"reason": reason or ""})
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[events] invalidate_cache publish failed: {e}")
 
 
@@ -297,7 +297,7 @@ def save_host_snapshots(nodes_info: dict) -> int:
                 "VALUES (?, ?, ?)",
                 rows,
             )
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[gather] save_host_snapshots failed: {e}")
         return 0
     # Bust the read-side cache so the next caller sees the freshest
@@ -352,7 +352,7 @@ def load_host_snapshots() -> dict[str, dict]:
             rows = c.execute(
                 "SELECT host, ts, data FROM host_snapshots"
             ).fetchall()
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[gather] load_host_snapshots failed: {e}")
         return out
     for r in rows:
@@ -831,7 +831,6 @@ _IMAGE_VERSION_LABEL_KEYS: tuple[str, ...] = (
     "app.version",
 )
 
-
 # Non-version label values: branch / channel names that carry no version
 # signal (so we don't surface "main" as a version after ref-cleaning).
 _NON_VERSION_VALUES = frozenset({
@@ -1037,7 +1036,7 @@ def _seed_default_schedules_after_first_gather() -> None:
         with db_conn() as c:
             _sched.seed_default_schedules(c, node_names)
         _default_schedules_seeded = True
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         print(f"[scheduler] deferred seed_default_schedules failed: {e}")
 
 
@@ -1078,7 +1077,7 @@ async def _gather_impl() -> None:
         _gather_client_to = float(_tuning_int(Tunable.GATHER_CLIENT_TIMEOUT_SECONDS))
     except (ImportError, KeyError, ValueError, TypeError):
         _gather_client_to = 60.0
-    async with httpx.AsyncClient(verify=portainer.VERIFY_TLS, timeout=_gather_client_to) as client:
+    async with httpx.AsyncClient(verify=bool(portainer.VERIFY_TLS), timeout=_gather_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
         async def safe(coro, fb):
@@ -1092,7 +1091,7 @@ async def _gather_impl() -> None:
                 return await coro
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as gather_err: # noqa: BLE001
+            except Exception as gather_err:  # noqa: BLE001
                 print(f"[gather] {gather_err}")
                 return fb
 
@@ -1244,7 +1243,7 @@ async def _gather_impl() -> None:
                 return target_host, df_total
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as df_err: # noqa: BLE001
+            except Exception as df_err:  # noqa: BLE001
                 print(f"[gather] /system/df for {target_host}: {df_err}")
                 return target_host, 0
 
@@ -2310,7 +2309,7 @@ async def _gather_impl() -> None:
         # precedence (only MISSING fields are filled).
         try:
             apply_host_snapshot_fallback(nodes_info)
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[gather] snapshot fallback failed: {e}")
         # Persist the just-built nodes_info so the NEXT gather (or a
         # restart) has a fresh fallback target. We snapshot the full
@@ -2327,7 +2326,7 @@ async def _gather_impl() -> None:
                 print(f"[gather] snapshot wrote {n_snap} host rows")
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             print(f"[gather] save_host_snapshots failed: {e}")
         _cache["items"] = items
         _cache["nodes"] = node_map

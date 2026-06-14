@@ -298,7 +298,7 @@ async def _try_dispatch_skill_command(
     result: dict = {"ok": False, "detail": "skill did not run"}
     try:
         result = await run_app_skill(
-            rslug, cmd, host_row, chip, host_id=host_id, service_idx=svc_idx,
+            rslug, cmd, host_row or {}, chip, host_id=host_id, service_idx=svc_idx,
             arg=skill_arg, actor_username=mapped)
     except ValueError as ve:
         result = {"ok": False, "detail": str(ve)}
