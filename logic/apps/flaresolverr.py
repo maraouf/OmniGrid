@@ -12,7 +12,8 @@ per-app contract (no-auth ``netboot.xyz`` / ``ddns_updater`` shape):
     peek_latest(host_id, service_idx) -> dict | None    (AI context)
     SKILLS / run_skill  — status (read) + sessions (read, rich list with a
                           per-row destroy action) + destroy-session (write;
-                          DESTRUCTIVE, arg).
+                          DESTRUCTIVE, arg) + destroy-all (write; DESTRUCTIVE,
+                          no-arg — clears every open session).
 
 What this is
 -----------
@@ -37,6 +38,10 @@ AI / Telegram skills
 * ``flaresolverr_sessions``        — list active session IDs (rich rows, each
                                      with a destroy button).
 * ``flaresolverr_destroy_session`` — destroy ONE session by id (DESTRUCTIVE).
+* ``flaresolverr_destroy_all``      — clear EVERY open session (DESTRUCTIVE,
+                                     no-arg; loops sessions.destroy over the
+                                     live list — the "kill all leaked sessions"
+                                     button).
 
 Single-instance app (NOT fleet) — one card per pinned chip.
 """
@@ -86,6 +91,17 @@ SKILLS: tuple[dict, ...] = (
                        "shut down session <id>"),
         "arg": True,
         "arg_hint": "the FlareSolverr session id to destroy",
+        "destructive": True,
+    },
+    {
+        "id": "flaresolverr_destroy_all",
+        "name": "Clear all FlareSolverr sessions",
+        "ai_phrases": ("clear all flaresolverr sessions, destroy every session, "
+                       "kill all browser sessions, close all flaresolverr "
+                       "sessions, purge flaresolverr sessions, clear leaked "
+                       "sessions, reset flaresolverr sessions, wipe all sessions"),
+        # DESTRUCTIVE: kills EVERY open browser session (no-arg → one-click
+        # "clear them all" when sessions have leaked). Confirm-gated.
         "destructive": True,
     },
 )
@@ -262,6 +278,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                                      service_idx=service_idx)
     if skill_id == "flaresolverr_destroy_session":
         return await _destroy_session_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "flaresolverr_destroy_all":
+        return await _destroy_all_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -364,3 +382,55 @@ async def _destroy_session_skill(host_row: dict, chip: dict, *,
                 "detail": str(as_dict(body).get("message") or f"could not destroy \"{sid}\"")}
     return {"ok": True, "status": 200,
             "detail": f"🧩 Destroyed FlareSolverr session \"{sid}\"."}
+
+
+async def _destroy_all_skill(host_row: dict, chip: dict, *,
+                             host_id: Optional[str] = None) -> dict:
+    """DESTRUCTIVE: clear EVERY open browser session — read the live
+    ``sessions.list`` then loop ``sessions.destroy`` over each id. The one-click
+    "kill all leaked sessions" an operator reaches for when sessions have piled
+    up. Reports how many were destroyed + any that failed (honest partial
+    result). Destroys SEQUENTIALLY — each session is a real browser instance, so
+    a parallel teardown could race the solver. Never raises."""
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[flaresolverr] INFO flaresolverr_destroy_all host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            ids = await _list_sessions(cli, base)
+            if ids is None:
+                return {"ok": False, "status": 502,
+                        "detail": "couldn't read the FlareSolverr session list to clear"}
+            ids = [str(s) for s in ids if str(s).strip()]
+            if not ids:
+                return {"ok": True, "status": 200,
+                        "detail": "🧩 No active FlareSolverr sessions — nothing to clear."}
+            destroyed = 0
+            failed: list = []
+            for sid in ids:
+                try:
+                    body = await _post_v1(cli, base, {"cmd": "sessions.destroy",
+                                                      "session": sid})
+                except (httpx.HTTPError, OSError):
+                    failed.append(sid)
+                    continue
+                st = str(as_dict(body).get("status") or "").strip().lower()
+                if body is not None and (not st or st == "ok"):
+                    destroyed += 1
+                else:
+                    failed.append(sid)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"clear failed: {type(e).__name__}: {e}"}
+    if destroyed and not failed:
+        return {"ok": True, "status": 200, "removed": destroyed,
+                "detail": f"🧩 Cleared all {destroyed} FlareSolverr session(s)."}
+    if destroyed and failed:
+        shown = ", ".join(failed[:5]) + ("…" if len(failed) > 5 else "")
+        return {"ok": True, "status": 200, "removed": destroyed,
+                "detail": f"🧩 Cleared {destroyed} session(s); {len(failed)} could "
+                          f"not be destroyed ({shown})."}
+    return {"ok": False, "status": 502,
+            "detail": f"couldn't destroy any of the {len(ids)} session(s)"}

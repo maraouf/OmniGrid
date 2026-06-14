@@ -1,4 +1,4 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS,JSUnresolvedVariable,JSUnresolvedReference
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
 // noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
@@ -79,6 +79,19 @@ function netbootxyzAssets(inst) {
   return d.assets.filter((a) => a && String(a.name || '').trim());
 }
 
+// The UNTRACKED (orphaned / old) downloaded boot assets ([{name, size_bytes}],
+// [] when none) — downloads not referenced by the current boot-menu catalog.
+// Drives the drawer's untracked-assets review list + the Clear-untracked
+// action; the count also surfaces as a warning-tinted stat cell.
+function netbootxyzUntracked(inst) {
+  /* jshint validthis: true */
+  const d = (this.netbootxyzData ? this.netbootxyzData(inst) : null);
+  if (!d || !Array.isArray(d.untracked)) {
+    return [];
+  }
+  return d.untracked.filter((a) => a && String(a.name || '').trim());
+}
+
 // Render a byte count as a human size (KB / MB / GB, decimal/1000). '' for
 // non-positive / missing — the row then shows just the name.
 function netbootxyzSize(n) {
@@ -112,5 +125,6 @@ export const helpers = {
   netbootxyzData: netbootxyzData,
   netbootxyzMemPercent: netbootxyzMemPercent,
   netbootxyzAssets: netbootxyzAssets,
+  netbootxyzUntracked: netbootxyzUntracked,
   netbootxyzSize: netbootxyzSize,
 };

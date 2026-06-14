@@ -167,6 +167,86 @@ async def _post_json(cli: httpx.AsyncClient, base: str, path: str,
         return None
 
 
+async def _probe_raw(cli: httpx.AsyncClient, base: str, method: str, path: str,
+                     body: Optional[dict] = None) -> dict:
+    """Debug-capturing single request → ``{status, ok, snippet, json}``.
+
+    Unlike ``_get_json`` / ``_post_json`` (which discard the status + body on a
+    non-200 so the card can't say WHY an endpoint returned nothing), this keeps
+    the HTTP status code + a short raw-body snippet so the per-instance debug
+    panel can surface exactly what the firewall answered for each diagnostics /
+    search endpoint. ``json`` is the parsed body on a 200, else ``None``."""
+    try:
+        if method == "POST":
+            r = await cli.post(base + path, json=(body or {}),
+                               headers={"Accept": "application/json"})
+        else:
+            r = await cli.get(base + path, headers={"Accept": "application/json"})
+    except (httpx.HTTPError, OSError) as e:
+        return {"status": 0, "ok": False, "snippet": type(e).__name__, "json": None}
+    snippet = (r.text or "").strip().replace("\n", " ")[:160]
+    parsed = None
+    if r.status_code == 200:
+        try:
+            parsed = r.json()
+        except (ValueError, TypeError):
+            parsed = None
+    return {"status": r.status_code, "ok": r.status_code == 200,
+            "snippet": snippet, "json": parsed}
+
+
+def _dbg_entry(label: str, method: str, path: str, probe: dict, rows: int) -> dict:
+    """One structured row for the ``_debug.endpoints`` list the drawer renders.
+    ``probe`` is a ``_probe_raw`` result; ``rows`` is the parsed row count (or
+    -1 when not applicable)."""
+    return {"label": label, "method": method, "path": path,
+            "status": safe_int(probe.get("status")), "rows": int(rows),
+            "ok": bool(probe.get("ok")),
+            "snippet": str(probe.get("snippet") or "")}
+
+
+# Actionable privilege hint per problem-endpoint category — what to grant the
+# OPNsense API user (System → Access → Users → edit → Effective Privileges) when
+# the endpoint 403s. Homarr only uses Dashboard/Diagnostics:System endpoints, so
+# a key scoped for Homarr can read CPU/mem but NOT these three.
+_PRIV_HINTS = {
+    "services": "grant the API user the 'Status: Services' privilege",
+    "pf": "grant the API user the 'Diagnostics: pf info' / 'Firewall: states' privilege",
+    "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
+}
+_CAT_NAMES = {"services": "Services", "pf": "Firewall states", "dhcp": "DHCP leases"}
+
+
+def _diagnose_endpoints(dbg: list) -> str:
+    """Derive an actionable hint from the per-endpoint diagnostics so the card
+    can SAY why a count reads 0 (instead of the operator having to share logs).
+    Fires only on UNAMBIGUOUS failure signals — 401/403 (privilege), all-404
+    (endpoint not on this version), or all-unreachable — NOT on a reachable
+    200-with-0-rows (which the per-endpoint snippet list already exposes and
+    could be a legitimate zero). '' when nothing actionable."""
+    cats: dict[str, list] = {}
+    for e in dbg:
+        lbl = str(e.get("label") or "")
+        cat = "pf" if lbl.startswith("pf") else lbl
+        cats.setdefault(cat, []).append(e)
+    out: list[str] = []
+    for cat, entries in cats.items():
+        # Skip a category that got real data on any attempt.
+        if any(e.get("ok") and safe_int(e.get("rows")) > 0 for e in entries):
+            continue
+        statuses = [safe_int(e.get("status")) for e in entries]
+        if not statuses:
+            continue
+        nm = _CAT_NAMES.get(cat, cat)
+        if any(s in (401, 403) for s in statuses):
+            out.append(f"{nm}: HTTP 403 — {_PRIV_HINTS.get(cat, 'grant the API user the matching privilege')}")
+        elif all(s == 404 for s in statuses):
+            out.append(f"{nm}: HTTP 404 — this endpoint isn't on your OPNsense version")
+        elif all(s == 0 for s in statuses):
+            out.append(f"{nm}: unreachable (connection / TLS error)")
+    return " · ".join(out)
+
+
 def _extract_grid_rows(raw: Any) -> list:
     """Pull the bootgrid ``rows`` out of an OPNsense ``*/search`` response,
     tolerant of every shape builds have used: a top-level ``{rows: [...]}``, a
@@ -187,12 +267,15 @@ def _extract_grid_rows(raw: Any) -> list:
     return []
 
 
-async def _fetch_services(cli: httpx.AsyncClient, base: str) -> Any:
+async def _fetch_services(cli: httpx.AsyncClient, base: str,
+                          dbg: Optional[list] = None) -> Any:
     """Running-services grid. OPNsense's ``/api/core/service/search`` shape has
     drifted across versions: some builds want a POST bootgrid body, some answer
     a bare GET, some need the explicit ``current``/``rowCount`` query. Try all
     three and return the first that carries rows. When NONE return rows, log the
-    status of each attempt (privilege / endpoint diagnosis) and return {}."""
+    status of each attempt (privilege / endpoint diagnosis) and return {}.
+    ``dbg`` (when supplied) collects a structured per-attempt diagnostic row for
+    the drawer debug panel."""
     body = {"current": 1, "rowCount": -1, "sort": {}, "searchPhrase": ""}
     attempts: tuple[tuple[str, str, Optional[dict]], ...] = (
         ("POST", "/api/core/service/search", body),
@@ -201,42 +284,53 @@ async def _fetch_services(cli: httpx.AsyncClient, base: str) -> Any:
     )
     diag: list[str] = []
     for method, path, b in attempts:
-        if method == "POST":
-            raw = await _post_json(cli, base, path, b)
-        else:
-            raw = await _get_json(cli, base, path)
-        rows = _extract_grid_rows(raw)
+        probe = await _probe_raw(cli, base, method, path, b)
+        rows = _extract_grid_rows(probe.get("json"))
+        if dbg is not None:
+            dbg.append(_dbg_entry("services", method, path, probe, len(rows)))
         if rows:
             return {"rows": rows}
-        if raw is None:
-            diag.append(f"{method} {path}=no-json")
+        if not probe.get("ok"):
+            diag.append(f"{method} {path}=HTTP{probe.get('status')}")
         else:
-            keys = ",".join(sorted(as_dict(raw).keys())[:6]) or "no-keys"
+            keys = ",".join(sorted(as_dict(probe.get("json")).keys())[:6]) or "no-keys"
             diag.append(f"{method} {path}=0rows({keys})")
     print("[opnsense] warning: service search returned no rows — "
           + "; ".join(diag) + " (check the API user's 'Status: Services' privilege)")
     return {}
 
 
-async def _fetch_pf_states(cli: httpx.AsyncClient, base: str) -> "tuple[int, int]":
+async def _fetch_pf_states(cli: httpx.AsyncClient, base: str,
+                           dbg: Optional[list] = None) -> "tuple[int, int]":
     """pf state-table ``(current, limit)``. Tries ``firewall/pf_states`` (a
     ``{current, limit}`` summary OR a ``{total, rows}`` list) then the
     ``firewall/pf_statistics`` counters endpoint (``current_entries`` /
-    ``state_limit`` under various nestings). 0/0 when neither responds."""
-    pf = as_dict(await _get_json(cli, base, "/api/diagnostics/firewall/pf_states"))
+    ``state_limit`` under various nestings). 0/0 when neither responds. ``dbg``
+    collects a per-endpoint diagnostic row for the drawer debug panel."""
+    p1 = await _probe_raw(cli, base, "GET", "/api/diagnostics/firewall/pf_states")
+    pf = as_dict(p1.get("json"))
     cur = (safe_int(pf.get("current")) or safe_int(pf.get("total"))
            or len(as_list(pf.get("rows"))))
     lim = safe_int(pf.get("limit"))
+    if dbg is not None:
+        dbg.append(_dbg_entry("pf_states", "GET",
+                              "/api/diagnostics/firewall/pf_states", p1,
+                              cur if cur else -1))
     if cur or lim:
         return cur, lim
     # Fallback: the statistics endpoint (counter-style shape).
-    st = as_dict(await _get_json(cli, base, "/api/diagnostics/firewall/pf_statistics"))
+    p2 = await _probe_raw(cli, base, "GET", "/api/diagnostics/firewall/pf_statistics")
+    st = as_dict(p2.get("json"))
     # The count + limit live under a few possible keys / a nested 'state' block.
     nest = as_dict(st.get("state")) or as_dict(st.get("states")) or st
     cur = (safe_int(nest.get("current_entries")) or safe_int(nest.get("current"))
            or safe_int(nest.get("entries")) or safe_int(st.get("current_entries")))
     lim = (safe_int(nest.get("limit")) or safe_int(nest.get("state_limit"))
            or safe_int(st.get("state_limit")))
+    if dbg is not None:
+        dbg.append(_dbg_entry("pf_statistics", "GET",
+                              "/api/diagnostics/firewall/pf_statistics", p2,
+                              cur if cur else -1))
     return cur, lim
 
 
@@ -442,14 +536,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
             # body returned no rows). DHCP is Kea-first (the default backend on
             # 25.x/26.x) with an ISC fallback. traffic/interface gives
             # cumulative per-NIC byte counters we rate-diff for throughput.
+            # Per-endpoint diagnostics for the 3 problem fetches (services /
+            # pf-states / DHCP) — captured so the drawer debug panel can show
+            # exactly what the firewall answered (status + body snippet) when a
+            # count reads 0 despite the data being present.
+            dbg: list[dict] = []
             res, stime, temp, gw, svc, pf, leases, traffic, activity = await asyncio.gather(
                 _get_json(cli, base, "/api/diagnostics/system/systemResources"),
                 _get_json(cli, base, "/api/diagnostics/system/systemTime"),
                 _get_json(cli, base, "/api/diagnostics/system/systemTemperature"),
                 _get_json(cli, base, "/api/routes/gateway/status"),
-                _fetch_services(cli, base),
-                _fetch_pf_states(cli, base),
-                _fetch_dhcp_leases(cli, base),
+                _fetch_services(cli, base, dbg),
+                _fetch_pf_states(cli, base, dbg),
+                _fetch_dhcp_leases(cli, base, dbg),
                 _get_json(cli, base, "/api/diagnostics/traffic/interface"),
                 _get_json(cli, base, "/api/diagnostics/activity/getActivity"),
             )
@@ -516,6 +615,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "net_rx_bps": net_rx_bps,
         "net_tx_bps": net_tx_bps,
         "interfaces": iface_list,
+        # Per-endpoint diagnostics for the services / pf-states / DHCP fetches —
+        # surfaced in the drawer debug panel so a "0" count is traceable to the
+        # firewall's actual HTTP status + body (privilege / endpoint / backend).
+        # ``hint`` self-diagnoses the unambiguous failures (403 → which privilege
+        # to grant) so the card SAYS why a count is 0 without sharing logs.
+        "_debug": {"endpoints": dbg, "hint": _diagnose_endpoints(dbg)},
         "fetched_at": int(now),
     }
     print(f"[opnsense] INFO fetched host={host_id} v={version} "
@@ -527,14 +632,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     return out
 
 
-async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
+async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str,
+                             dbg: Optional[list] = None) -> int:
     """Active DHCP lease count. OPNsense 25.x/26.x defaults to **Kea** DHCP, so
     try ``/api/kea/leases4/search`` first and fall back to the legacy **ISC**
     ``/api/dhcpv4/leases/search_lease`` (and its camelCase alias). All are GET
     bootgrid endpoints. Active-state differs by backend: Kea uses a numeric
     ``state`` (``"0"`` = active), ISC a string (``"active"``); both are matched
     below. Falls back to the row count / upstream ``total`` when no per-row state
-    is present. 0 on any failure."""
+    is present. 0 on any failure. ``dbg`` collects a per-attempt diagnostic row
+    for the drawer debug panel."""
     active_words = ("active", "online", "bound", "0", "")
     body = {"current": 1, "rowCount": -1, "searchPhrase": ""}
     # Kea grid is GET on most builds but POST on some; ISC's real method name is
@@ -547,11 +654,13 @@ async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
     )
     diag: list[str] = []
     for method, path in attempts:
-        if method == "POST":
-            raw = await _post_json(cli, base, path, body)
-        else:
-            raw = await _get_json(cli, base, path)
-        rows = _extract_grid_rows(raw)
+        probe = await _probe_raw(cli, base, method, path,
+                                 body if method == "POST" else None)
+        rows = _extract_grid_rows(probe.get("json"))
+        total = safe_int(as_dict(probe.get("json")).get("total"))
+        if dbg is not None:
+            dbg.append(_dbg_entry("dhcp", method, path, probe,
+                                  len(rows) if rows else (total or -1)))
         if rows:
             active = sum(
                 1 for r in rows
@@ -559,13 +668,12 @@ async def _fetch_dhcp_leases(cli: httpx.AsyncClient, base: str) -> int:
                 in active_words
             )
             return active or len(rows)
-        total = safe_int(as_dict(raw).get("total"))
         if total:
             return total
-        if raw is None:
-            diag.append(f"{method} {path}=no-json")
+        if not probe.get("ok"):
+            diag.append(f"{method} {path}=HTTP{probe.get('status')}")
         else:
-            keys = ",".join(sorted(as_dict(raw).keys())[:6]) or "no-keys"
+            keys = ",".join(sorted(as_dict(probe.get("json")).keys())[:6]) or "no-keys"
             diag.append(f"{method} {path}=0rows({keys})")
     print("[opnsense] warning: DHCP lease search returned no rows — "
           + "; ".join(diag) + " (check the Kea/ISC backend + API user privilege)")

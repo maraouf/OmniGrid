@@ -68,6 +68,8 @@ from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
     resolve_userpass)
 from logic.coerce import as_dict, as_list, safe_int
+from logic.tuning import Tunable as _Tunable
+from logic.tuning import tuning_int as _tuning_int
 
 # Catalog template slugs handled by this module. The built-in template is
 # `rustdesk`; the aliases catch operator-renamed chips.
@@ -101,6 +103,15 @@ SKILLS: tuple[dict, ...] = (
         "name": "RustDesk users",
         "ai_phrases": ("how many rustdesk users, rustdesk user count, console "
                        "users, rustdesk accounts"),
+        "destructive": False,
+    },
+    {
+        "id": "rustdesk_stale",
+        "name": "Stale RustDesk devices",
+        "ai_phrases": ("stale rustdesk devices, rustdesk machines not checked in, "
+                       "rustdesk devices to clean up, which rustdesk peers are "
+                       "offline for a long time, old rustdesk machines, abandoned "
+                       "remote machines"),
         "destructive": False,
     },
 )
@@ -298,6 +309,51 @@ def _peer_online(peer: dict) -> bool:
     return False
 
 
+def _peer_last_online_s(peer: dict) -> float:
+    """Last-seen age in SECONDS for a peer (now - last_online), or -1 when the
+    peer carries no usable ``last_online`` (an unknown age is NOT counted as
+    stale). ``last_online`` is unix seconds (some builds milliseconds — both are
+    normalised)."""
+    lo = safe_int(peer.get("last_online"))
+    if not lo:
+        return -1.0
+    if lo > 1e12:  # milliseconds
+        lo /= 1000.0
+    return max(0.0, time.time() - lo)
+
+
+# Canonical OS-family buckets for the fleet-composition stat. Substring match on
+# the peer's ``info.os`` string (RustDesk reports e.g. "Windows 10 Pro",
+# "macOS 14.1", "Linux", "Android 13") — longer/more-specific phrases first.
+_OS_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("windows", "windows"),
+    ("macos", "macos"), ("mac os", "macos"), ("darwin", "macos"), ("osx", "macos"),
+    ("android", "android"),
+    ("ios", "ios"), ("ipados", "ios"),
+    ("linux", "linux"), ("ubuntu", "linux"), ("debian", "linux"),
+    ("fedora", "linux"), ("arch", "linux"), ("centos", "linux"),
+)
+
+# Display labels for the OS-family buckets (backend skill text — English per the
+# "don't translate backend strings" rule; the SPA has its own i18n labels).
+_OS_LABELS: dict[str, str] = {
+    "windows": "Windows", "macos": "macOS", "android": "Android",
+    "ios": "iOS", "linux": "Linux", "other": "Other",
+}
+
+
+def _os_family(os_str: str) -> str:
+    """Bucket a peer's ``info.os`` string into a canonical family key
+    (windows / macos / android / ios / linux / other)."""
+    s = (os_str or "").strip().lower()
+    if not s:
+        return "other"
+    for needle, fam in _OS_FAMILIES:
+        if needle in s:
+            return fam
+    return "other"
+
+
 # noinspection DuplicatedCode
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                           payload: Optional[dict] = None, **_kw) -> dict:
@@ -383,6 +439,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
         users_total = len([u for u in as_list(as_dict(users_body).get("data")) if u])
     version = str(as_dict(ver_body).get("server") or "").strip()
 
+    # Stale machines: registered peers that haven't checked in for >= the
+    # operator-tunable window (default 30 days) — an actionable "clean these up"
+    # signal. A peer with no usable last_online (age -1) is NOT counted stale.
+    stale_after_s = max(1, _tuning_int(_Tunable.RUSTDESK_STALE_DAYS)) * 86400
+    stale = 0
+    os_breakdown: dict[str, int] = {}
+    for p in peers:
+        age = _peer_last_online_s(p)
+        if 0 <= age and age >= stale_after_s:
+            stale += 1
+        fam = _os_family(str(as_dict(p.get("info")).get("os") or ""))
+        os_breakdown[fam] = os_breakdown.get(fam, 0) + 1
+
     out: dict[str, Any] = {
         "available": True,
         "version": version,
@@ -390,10 +459,23 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "devices_online": online,
         "devices_offline": max(0, peers_total - online),
         "users": users_total,
+        "stale_devices": stale,
+        "stale_days": _tuning_int(_Tunable.RUSTDESK_STALE_DAYS),
+        "os_breakdown": os_breakdown,
         "fetched_at": int(now),
     }
+    # Online-peers trend from the lifespan sampler (the Pro API exposes only
+    # current state, so this sampled history is the only "peak concurrent
+    # devices" signal). Best-effort — never let a trend read break the card.
+    try:
+        from logic.apps import rustdesk_sampler as _rd_sampler  # noqa: PLC0415
+        out["usage"] = _rd_sampler.usage_summary(
+            str(host_id or ""), int(service_idx or 0),
+            days=_tuning_int(_Tunable.RUSTDESK_HISTORY_DAYS))
+    except Exception as e:  # noqa: BLE001
+        print(f"[rustdesk] usage_summary skipped: {type(e).__name__}: {e}")
     print(f"[rustdesk] INFO fetched host={host_id} devices={out['devices']} "
-          f"online={out['devices_online']} users={out['users']} "
+          f"online={out['devices_online']} stale={stale} users={out['users']} "
           f"ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -410,6 +492,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "devices": safe_int(data.get("devices")),
         "devices_online": safe_int(data.get("devices_online")),
         "devices_offline": safe_int(data.get("devices_offline")),
+        "stale_devices": safe_int(data.get("stale_devices")),
         "users": safe_int(data.get("users")),
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -472,6 +555,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "rustdesk_users":
         return await _users_skill(host_row, chip, host_id=host_id,
                                   service_idx=service_idx)
+    if skill_id == "rustdesk_stale":
+        return await _stale_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -488,15 +573,25 @@ async def _status_skill(host_row: dict, chip: dict, *,
     dev = safe_int(data.get("devices"))
     online = safe_int(data.get("devices_online"))
     offline = safe_int(data.get("devices_offline"))
+    stale = safe_int(data.get("stale_devices"))
+    stale_days = safe_int(data.get("stale_days"))
     lines = [
         f"🖥️ Devices: {online}/{dev} online" + (f" · {offline} offline" if offline else ""),
         f"👤 Users: {safe_int(data.get('users'))}",
     ]
+    if stale:
+        lines.append(f"🧹 {stale} stale (no check-in {stale_days}+ days)")
+    os_bd = data.get("os_breakdown")
+    if isinstance(os_bd, dict) and os_bd:
+        parts = [f"{_OS_LABELS.get(k, k)} {v}"
+                 for k, v in sorted(os_bd.items(), key=lambda kv: -kv[1]) if v]
+        if parts:
+            lines.append("💻 " + " · ".join(parts))
     ver = str(data.get("version") or "").strip()
     if ver:
         lines.append(f"· RustDesk {ver}")
     return {"ok": True, "detail": "\n".join(lines), "status": 200,
-            "devices": dev, "online": online}
+            "devices": dev, "online": online, "stale": stale}
 
 
 # noinspection DuplicatedCode
@@ -561,3 +656,74 @@ async def _users_skill(host_row: dict, chip: dict, *,
     users = safe_int(data.get("users"))
     return {"ok": True, "status": 200,
             "detail": f"👤 {users} RustDesk console user(s).", "users": users}
+
+
+def _fmt_age(age_s: float) -> str:
+    """Human "Nd / Nh ago" for a last-seen age in seconds (backend skill text —
+    English per the 'don't translate backend strings' rule)."""
+    days = int(age_s // 86400)
+    if days >= 1:
+        return f"{days}d ago"
+    hours = int(age_s // 3600)
+    if hours >= 1:
+        return f"{hours}h ago"
+    return "recently"
+
+
+# noinspection DuplicatedCode
+async def _stale_skill(host_row: dict, chip: dict, *,
+                       host_id: Optional[str] = None) -> dict:
+    """Read-only: list registered peers that haven't checked in for >= the
+    stale window (default 30 days) — machines to clean up. Oldest-first.
+    Never raises."""
+    username, password, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[rustdesk] INFO rustdesk_stale host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, reason = await _login(cli, base, username, password,
+                                         str(chip.get("totp_secret") or ""))
+            if not token:
+                return {"ok": False, "status": 401,
+                        "detail": reason or ("RustDesk login failed (check username "
+                                             "+ password / that this is RustDesk "
+                                             "Server Pro)")}
+            peers_body = await _get(cli, base + "/api/peers", token)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    stale_days = max(1, _tuning_int(_Tunable.RUSTDESK_STALE_DAYS))
+    stale_after_s = stale_days * 86400
+    peers = [p for p in as_list(as_dict(peers_body).get("data")) if isinstance(p, dict)]
+    rows = []
+    for p in peers:
+        age = _peer_last_online_s(p)
+        if age < 0 or age < stale_after_s:
+            continue
+        info = as_dict(p.get("info"))
+        name = str(info.get("hostname") or "").strip() or str(p.get("id") or "").strip()
+        if not name:
+            continue
+        rows.append((age, name, info, str(p.get("id") or "").strip()))
+    if not rows:
+        return {"ok": True, "status": 200,
+                "detail": f"🧹 No stale devices — every RustDesk peer has checked "
+                          f"in within {stale_days} days."}
+    rows.sort(key=lambda r: -r[0])  # oldest (largest age) first
+    items: list = []
+    lines: list = []
+    for age, name, info, pid in rows[:_MAX_ROWS]:
+        bits = [f"last seen {_fmt_age(age)}"]
+        osname = str(info.get("os") or "").strip()
+        if osname:
+            bits.append(osname)
+        if pid:
+            bits.append(f"ID {pid}")
+        sub = " · ".join(bits)
+        items.append({"title": name, "subtitle": sub})
+        lines.append(f"• {name}  ({sub})")
+    head = (f"🧹 {len(rows)} stale RustDesk device(s) (no check-in {stale_days}+ "
+            f"days):")
+    out: dict = {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.rustdesk.stale_count")

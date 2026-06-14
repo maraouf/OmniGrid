@@ -26,7 +26,7 @@
            localised label, and localised help text. Empty = show
            all rows; non-empty = hide rows that don't match. -->
       <div class="flex items-center gap-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
+        <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
                :placeholder="t('admin.config.search_placeholder')"
                :aria-label="t('admin.config.search_aria')"
                class="flex-1 fs-sm">
@@ -55,7 +55,7 @@
           <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
              x-text="t('admin.config.fields.' + key + '.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input :id="'cfg-' + key" type="number"
+            <input aria-label="TuningForm[key]" :id="'cfg-' + key" type="number"
                    x-model="tuningForm[key]"
                    :placeholder="tuningPlaceholder(key)"
                    :min="(tuningEffective[key] || {}).min"

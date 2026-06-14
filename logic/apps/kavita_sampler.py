@@ -69,13 +69,17 @@ async def _probe_one(host_id: str, service_idx: int,
         return
     row = (int(time.time()), host_id, int(service_idx), series,
            safe_int(data.get("volume_count")), safe_int(data.get("chapter_count")),
-           safe_int(data.get("total_size")))
+           safe_int(data.get("total_size")),
+           # Cumulative server-wide reading minutes (totalReadingTime) — diffed
+           # per day in trend_summary for a reading-activity rate.
+           safe_int(data.get("reading_minutes")))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO kavita_samples "
                 "(ts, host_id, service_idx, series_count, volume_count, "
-                "chapter_count, total_size) VALUES (?,?,?,?,?,?,?)", row)
+                "chapter_count, total_size, total_reading_minutes) "
+                "VALUES (?,?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[kavita_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -107,22 +111,31 @@ async def kavita_sampler_loop() -> None:
 # noinspection DuplicatedCode
 def trend_summary(host_id: str, service_idx: int,
                   days: Optional[int] = None, *, max_points: int = 90) -> dict:
-    """Library-growth trend for one Kavita chip. Returns ``{days, samples,
-    latest_series, latest_size, series_added, series_series, size_series}`` where
+    """Library-growth + reading-activity trend for one Kavita chip. Returns
+    ``{days, samples, latest_series, latest_size, series_added, series_series,
+    size_series, reading_series, reading_total, reading_avg, reading_latest}``.
     ``series_series`` / ``size_series`` are each day's LAST cumulative value
     (oldest-first, days WITH data only) and ``series_added`` is the net series
-    growth across the window. Zeroed shape when no samples yet — never raises."""
+    growth across the window. ``reading_series`` is the per-day reading-MINUTES
+    rate — the DAY-OVER-DAY diff of the cumulative ``total_reading_minutes``
+    (minutes read that day); a negative diff (a Kavita reset / reinstall) is
+    SKIPPED (treated as 0), never synthesised. ``reading_total`` is the minutes
+    read across the window, ``reading_avg`` the mean per active reading-day,
+    ``reading_latest`` the most recent day's minutes. Zeroed shape when no
+    samples yet — never raises."""
     win = int(days) if days else _tuning.tuning_int(_Tunable.KAVITA_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "latest_series": 0,
                  "latest_size": 0, "series_added": 0, "series_series": [],
-                 "size_series": []}
+                 "size_series": [], "reading_series": [], "reading_total": 0,
+                 "reading_avg": 0.0, "reading_latest": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, series_count, total_size FROM kavita_samples "
+                "SELECT ts, series_count, total_size, total_reading_minutes "
+                "FROM kavita_samples "
                 "WHERE host_id=? AND service_idx=? AND ts >= ? ORDER BY ts ASC",
                 (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -137,19 +150,36 @@ def trend_summary(host_id: str, service_idx: int,
     # Per-day LAST cumulative value (monotonic → take the latest sample of day).
     series_last: dict = {}
     size_last: dict = {}
+    reading_last: dict = {}
     for r in rows:
         day = int(r["ts"]) // 86400
         series_last[day] = safe_int(r["series_count"])  # rows are ts ASC
         size_last[day] = safe_int(r["total_size"])
+        reading_last[day] = safe_int(r["total_reading_minutes"])
     ordered = sorted(series_last)
     series_series = [series_last[d] for d in ordered]
     size_series = [size_last[d] for d in ordered]
     out["series_added"] = max(0, series_series[-1] - series_series[0])
+    # Reading-activity RATE: day-over-day diff of the cumulative reading minutes.
+    # First day has no predecessor (0); a NEGATIVE diff is a reset → SKIP (0),
+    # never a synthesised value (counter-rate skip-don't-synthesize discipline).
+    reading_series: list = []
+    prev = None
+    for d in ordered:
+        cur = reading_last[d]
+        reading_series.append(max(0, cur - prev) if prev is not None else 0)
+        prev = cur
+    out["reading_total"] = sum(reading_series)
+    active = [m for m in reading_series if m > 0]
+    out["reading_avg"] = round(sum(active) / len(active), 1) if active else 0.0
+    out["reading_latest"] = reading_series[-1] if reading_series else 0
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]
         series_series = [series_series[i] for i in idx]
         size_series = [size_series[i] for i in idx]
+        reading_series = [reading_series[i] for i in idx]
     out["series_series"] = series_series
     out["size_series"] = size_series
+    out["reading_series"] = reading_series
     return out

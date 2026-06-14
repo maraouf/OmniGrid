@@ -3090,6 +3090,101 @@ export default {
     }
   },
 
+  // ---- Speedtest "below-floor" reliability floor (Mbps) — same per-instance
+  // CHIP-config pattern as avg_window: editable in BOTH the Admin → Apps
+  // editor AND the gear-flip card settings, both PATCHing services[].
+  // speed_floor_mbps. 0 / blank = OFF. ----
+
+  // Clamp a floor input (Mbps, 0..100000); '' passes through (=> OFF).
+  appsClampSpeedFloor(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (s === '') {
+      return '';
+    }
+    const n = parseFloat(s);
+    if (!Number.isFinite(n) || n <= 0) {
+      return '';
+    }
+    return Math.max(0, Math.min(100000, Math.round(n * 10) / 10));
+  },
+
+  // Current per-instance floor for a card's app, read from the FIRST instance.
+  // '' when unset (OFF). Seeds the gear-flip "ISP floor" input.
+  appChipSpeedFloor(item) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    return (inst && inst.speed_floor_mbps != null && inst.speed_floor_mbps !== '')
+      ? inst.speed_floor_mbps : '';
+  },
+
+  // Set the per-instance floor from the gear-flip card settings (ADMIN PATCH).
+  // Blank => clears the override (OFF); else clamped 0..100000. Refreshes the
+  // per-app data so the below-floor line re-renders.
+  async setAppChipSpeedFloor(item, value) {
+    const app = item && item.app;
+    const inst = (app && Array.isArray(app.instances)) ? app.instances[0] : null;
+    if (!inst || !inst.host_id || inst.service_idx == null) {
+      return;
+    }
+    const send = this.appsClampSpeedFloor(value);
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(inst.host_id)
+        + '/' + encodeURIComponent(inst.service_idx), {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({speed_floor_mbps: send}),
+      });
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      inst.speed_floor_mbps = (send === '' ? null : send);
+      if (typeof this.loadAppData === 'function') {
+        await this.loadAppData(inst, true);
+      }
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      } else {
+        console.error('[apps] set speed_floor_mbps failed:', msg);
+      }
+    }
+  },
+
+  // Compute a RECOMMENDED floor from the chip's own speed-test history over the
+  // last `days` (default 30) via the app-suggest endpoint. Returns the
+  // recommended Mbps (number) or null when there isn't enough history. Used by
+  // the "Recommend" buttons in BOTH the admin editor and the card settings.
+  async appsRecommendSpeedFloor(hostId, serviceIdx, days) {
+    if (!hostId || serviceIdx == null) {
+      return null;
+    }
+    const d = Math.max(1, Math.min(365, parseInt(days, 10) || 30));
+    try {
+      const r = await fetch('/api/services/' + encodeURIComponent(hostId)
+        + '/' + encodeURIComponent(serviceIdx) + '/app-suggest/speed-floor?days=' + d);
+      if (!r.ok) {
+        throw new Error(await this.fmtResponseError(r));
+      }
+      const j = await r.json();
+      const rec = Number(j && j.recommended_mbps) || 0;
+      if (rec <= 0) {
+        if (typeof this.showToast === 'function') {
+          this.showToast(this.t('apps.speedtest.floor_recommend_none')
+            || 'Not enough speed-test history yet to recommend a floor.', 'info');
+        }
+        return null;
+      }
+      return rec;
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
+      if (typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return null;
+    }
+  },
+
   // Persist the ACTIVE view's layout to the server (app_views) — fire-and-
   // forget PUT, called by every board mutator (drag / drop / resize / collapse
   // / section CRUD). appsCustomLayout is a live reference to the active view's

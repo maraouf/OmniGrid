@@ -756,6 +756,26 @@ WEATHER_SAMPLER_INTERVAL_SECONDS = 3600
 FLARESOLVERR_SAMPLE_INTERVAL_SECONDS = 600
 FLARESOLVERR_HISTORY_DAYS = 30
 
+# RustDesk Server (Pro) online-peers sampler. The Pro API exposes only current
+# peer state (no online-count history), so the lifespan sampler records each
+# configured RustDesk chip's registered/online-device + user count to drive the
+# card's "peak concurrent devices" online-peers trend + fleet-growth.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window; *_STALE_DAYS = a registered peer
+# that hasn't checked in for this many days is counted STALE (the "N devices to
+# clean up" card stat + the rustdesk_stale list skill).
+RUSTDESK_SAMPLE_INTERVAL_SECONDS = 600
+RUSTDESK_HISTORY_DAYS = 30
+RUSTDESK_STALE_DAYS = 30
+
+# Rundeck execution-outcome sampler. Rundeck keeps its own execution history,
+# but a local rollup of recent success/failure counts drives the card's "is my
+# automation getting flakier" failure-rate trend.
+# *_SAMPLE_INTERVAL_SECONDS = sample cadence (0 = inherit the global stats
+# interval); *_HISTORY_DAYS = retention window.
+RUNDECK_SAMPLE_INTERVAL_SECONDS = 900
+RUNDECK_HISTORY_DAYS = 30
+
 # Fing network-occupancy sampler. Fing's Local API is current-state-only, so the
 # lifespan sampler records each configured Fing chip's online / total device
 # counts to drive the card's online-device occupancy trend.
@@ -1310,6 +1330,11 @@ Quick index of every env var OmniGrid reads, grouped by scope:
 | `WEATHER_SAMPLER_INTERVAL_SECONDS`             | Runtime    | `3600`                  | Lifespan-managed weather sampler cadence. 0 disables the historical-data sampler. Range 0..86400.                                                                                                                                                                                                                                                                                             |
 | `FLARESOLVERR_SAMPLE_INTERVAL_SECONDS`         | Runtime    | `600`                   | FlareSolverr usage sampler cadence — records each FlareSolverr chip's live open-session count for the card's 30-day usage trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                       |
 | `FLARESOLVERR_HISTORY_DAYS`                    | Runtime    | `30`                    | Retention window (days) for the FlareSolverr open-session-count samples driving the card usage trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                            |
+| `RUSTDESK_SAMPLE_INTERVAL_SECONDS`             | Runtime    | `600`                   | RustDesk online-peers sampler cadence — records each RustDesk chip's registered/online-device + user count for the card's online-peers trend + fleet-growth. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                            |
+| `RUSTDESK_HISTORY_DAYS`                        | Runtime    | `30`                    | Retention window (days) for the RustDesk online-peers samples driving the card trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                                            |
+| `RUSTDESK_STALE_DAYS`                          | Runtime    | `30`                    | A registered RustDesk peer that hasn't checked in for this many days is counted STALE (the "N devices to clean up" card stat + the `rustdesk_stale` list skill). Range 1..3650.                                                                                                                                                                                                                |
+| `RUNDECK_SAMPLE_INTERVAL_SECONDS`              | Runtime    | `900`                   | Rundeck execution-outcome sampler cadence — records each Rundeck chip's recent success/failure tally for the card's failure-rate trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                 |
+| `RUNDECK_HISTORY_DAYS`                         | Runtime    | `30`                    | Retention window (days) for the Rundeck failure-rate samples driving the card trend. Pruned hourly. Range 1..365.                                                                                                                                                                                                                                                                             |
 | `FING_SAMPLE_INTERVAL_SECONDS`                 | Runtime    | `600`                   | Fing occupancy sampler cadence — records each Fing chip's online / total device counts for the card's online-device trend. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                                                                                             |
 | `FING_HISTORY_DAYS`                            | Runtime    | `90`                    | Retention window (days) for the Fing online-device samples driving the occupancy sparkline. Pruned hourly. Range 1..730.                                                                                                                                                                                                                                                                      |
 | `UNIFI_SAMPLE_INTERVAL_SECONDS`                | Runtime    | `900`                   | UniFi client-occupancy sampler cadence — records each UniFi chip's connected-client count (+ wireless split + devices-online) for the card's "clients over time" sparkline + peak-clients stat. 0 = inherit the global stats interval. Range 0..86400.                                                                                                                                         |

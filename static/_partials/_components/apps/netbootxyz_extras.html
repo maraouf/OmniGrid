@@ -31,6 +31,13 @@
             <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.assets') || 'Downloaded'"></div>
             <div class="apps-card-stat-value" x-text="netbootxyzData(inst).assets_count"></div>
           </div>
+          <!-- Untracked / orphaned downloads (old assets not used by the boot
+               menu — clearable via the Clear-untracked action). Warning-tinted;
+               shown only when there's at least one. -->
+          <div class="apps-card-ups-stat" x-show="(Number(netbootxyzData(inst).untracked_count) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.untracked') || 'Untracked'"></div>
+            <div class="apps-card-stat-value text-[var(--warning)]" x-text="netbootxyzData(inst).untracked_count"></div>
+          </div>
           <!-- Boot menu version -- the headline netboot.xyz stat. -->
           <div class="apps-card-ups-stat" x-show="netbootxyzData(inst).menu_version">
             <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.boot_menu') || 'Boot menu'"></div>
@@ -78,6 +85,22 @@
               </div>
             </template>
           </div>
+        </div>
+        <!-- Untracked / orphaned boot assets — old downloads not referenced by
+             the boot-menu catalog (clearable via the Clear-untracked action).
+             DRAWER-ONLY; lets the operator review WHAT will be cleared. -->
+        <div x-show="appsExtrasInDrawer && netbootxyzUntracked(inst).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1 text-[var(--warning)]"
+               x-text="t('apps.netbootxyz.untracked_list', { n: netbootxyzUntracked(inst).length }) || (netbootxyzUntracked(inst).length + ' untracked (orphaned) asset(s)')"></div>
+          <div class="flex flex-col gap-0.5">
+            <template x-for="u in netbootxyzUntracked(inst)" :key="u.name">
+              <div class="flex items-center gap-2 fs-2xs min-w-0">
+                <span class="truncate text-[var(--text-dim)] mono" x-text="u.name" :title="u.name"></span>
+              </div>
+            </template>
+          </div>
+          <div class="fs-3xs text-[var(--text-faint)] mt-1"
+               x-text="t('apps.netbootxyz.untracked_hint') || 'Not used by the current boot menu — use the “Clear untracked boot assets” action to delete them.'"></div>
         </div>
       </div>
     </template>

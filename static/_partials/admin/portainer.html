@@ -201,7 +201,7 @@
                  x-text="t('admin.config.fields.' + key + '.help')"></p>
               <div class="flex flex-wrap items-center gap-2">
                 <!--suppress HtmlFormInputWithoutLabel -->
-                <input type="number"
+                <input aria-label="TuningForm[key]" type="number"
                        x-model="tuningForm[key]" :aria-label="t('admin.config.fields.' + key + '.label')"
                        :placeholder="tuningPlaceholder(key)"
                        :min="(tuningEffective[key] || {}).min"

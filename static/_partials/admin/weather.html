@@ -219,7 +219,7 @@
           <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
              x-text="t('admin.config.fields.' + key + '.help')"></p>
           <div class="flex flex-wrap items-center gap-2">
-            <input :id="'wcfg-' + key" type="number"
+            <input aria-label="TuningForm[key]" :id="'wcfg-' + key" type="number"
                    x-model="tuningForm[key]"
                    @input="markWeatherDirty()"
                    :placeholder="tuningPlaceholder(key)"

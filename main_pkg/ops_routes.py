@@ -1797,6 +1797,15 @@ class SettingsIn(BaseModel):
     # 30-day usage trend.
     tuning_flaresolverr_sample_interval_seconds: Optional[str] = None
     tuning_flaresolverr_history_days: Optional[str] = None
+    # RustDesk sampler — online-peers trend + fleet-growth (sample cadence,
+    # 0 = inherit global stats interval + retention) + the stale-device window.
+    tuning_rustdesk_sample_interval_seconds: Optional[str] = None
+    tuning_rustdesk_history_days: Optional[str] = None
+    tuning_rustdesk_stale_days: Optional[str] = None
+    # Rundeck sampler — recent-execution failure-rate trend (sample cadence,
+    # 0 = inherit global stats interval + retention).
+    tuning_rundeck_sample_interval_seconds: Optional[str] = None
+    tuning_rundeck_history_days: Optional[str] = None
     # ddns-updater sampler — public-IP-change timeline + failing-count
     # sparkline (sample cadence, 0 = inherit global stats interval + retention).
     tuning_ddns_sample_interval_seconds: Optional[str] = None

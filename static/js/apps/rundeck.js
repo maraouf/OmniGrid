@@ -1,4 +1,4 @@
-// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS
+// noinspection NestedFunctionJS,FunctionContainsLoopsJS,FunctionWithMultipleLoopsJS,OverlyComplexFunctionJS,OverlyLongFunctionJS,OverlyLargeFunctionJS,ConstantOnRightSideOfComparisonJS,NestedFunctionCallJS,AnonymousFunctionJS,JSUnresolvedVariable,JSUnresolvedReference
 // noinspection DuplicatedCodeFragmentJS,DuplicatedCode,ChainedFunctionCallJS,ChainedMethodCallJS,ConditionalExpressionJS,NestedConditionalExpressionJS
 // noinspection RedundantConditionalExpressionJS,MagicNumberJS,JSMagicNumber,FunctionWithMultipleReturnPointsJS,IfStatementWithTooManyBranchesJS
 // noinspection NestedTemplateLiteralJS,JSUnusedLocalSymbols,JSUnusedGlobalSymbols,ElementNotExported,EmptyCatchBlockJS,UnusedCatchParameterJS
@@ -64,6 +64,71 @@ function rundeckCount(v) {
   return Math.round(n).toLocaleString();
 }
 
+// Human duration for a second count ('—' for non-positive) — "Xh Ym" / "Ym Zs"
+// / "Zs". Used by the avg-run-time + next-scheduled-run stats.
+function rundeckDuration(s) {
+  const n = Number(s) || 0;
+  if (n <= 0) {
+    return '—';
+  }
+  if (n >= 3600) {
+    return Math.floor(n / 3600) + 'h ' + Math.floor((n % 3600) / 60) + 'm';
+  }
+  if (n >= 60) {
+    return Math.floor(n / 60) + 'm ' + Math.floor(n % 60) + 's';
+  }
+  return Math.round(n) + 's';
+}
+
+// Recent-execution failure rate (0..100) — '—' when no finished runs in the
+// window (so the card doesn't show a misleading 0% on an idle Rundeck).
+function rundeckFailureRate(inst) {
+  /* jshint validthis: true */
+  const d = rundeckData.call(this, inst);
+  if (!d || !(Number(d.recent_completed) || 0)) {
+    return '—';
+  }
+  return (Number(d.failure_rate) || 0) + '%';
+}
+
+// Failure-rate trend (from the lifespan rundeck_sampler). Returns the trend
+// block `{series, peak, avg, samples, current, days}` or null.
+function rundeckTrend(inst) {
+  /* jshint validthis: true */
+  const d = rundeckData.call(this, inst);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` string per series array reference (avoids re-render
+// flicker on every Alpine flush -- the canonical SVG-builder memo pattern).
+const _rdSparkMemo = new WeakMap();
+
+// SVG polyline points for the failure-rate sparkline over a 0..100 × 0..24
+// viewBox (series is already a 0..100 percent, so the Y scale is fixed at 100
+// — a 50% spike always reads half-height). '' when < 2 points.
+function rundeckSparkPoints(inst) {
+  /* jshint validthis: true */
+  const tr = rundeckTrend.call(this, inst);
+  const series = (tr && Array.isArray(tr.series)) ? tr.series : null;
+  if (!series || series.length < 2) {
+    return '';
+  }
+  if (_rdSparkMemo.has(series)) {
+    return _rdSparkMemo.get(series);
+  }
+  const W = 100, H = 24, n = series.length;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const v = Math.max(0, Math.min(100, Number(series[i]) || 0));
+    const y = H - (v / 100) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _rdSparkMemo.set(series, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. requiresApiKey true
 // (API-token editor) and a wide card (multi-stat grid).
@@ -81,4 +146,8 @@ export const helpers = {
   rundeckIsApp: isRundeckApp,
   rundeckData: rundeckData,
   rundeckCount: rundeckCount,
+  rundeckDuration: rundeckDuration,
+  rundeckFailureRate: rundeckFailureRate,
+  rundeckTrend: rundeckTrend,
+  rundeckSparkPoints: rundeckSparkPoints,
 };

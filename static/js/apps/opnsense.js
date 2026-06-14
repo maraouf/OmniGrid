@@ -126,6 +126,11 @@ function opnsenseUptime(inst) {
   return min + 'm';
 }
 
+// Endpoint diagnostics (HTTP status + body snippet + self-diagnosed hint) are
+// stamped by this app's fetch_data into the standard out['_debug'] block and
+// rendered by the GENERIC drawer debug panel (_components/apps/_debug_panel.html
+// + appsDebug / appsDebugHint helpers) — no app-specific helper needed here.
+
 // Extender record -- consumed by the generic helpers in `static/js/app-apps.js`
 // via `window.OG_APPS_EXTENDERS`. Key+secret auth + a 2-column card span.
 export const extender = {

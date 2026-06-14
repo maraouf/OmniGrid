@@ -220,6 +220,13 @@
                  x-text="t('apps.speedtest.failed_stat', { count: (Number(appsAppData(inst).trend.failed_count) || 0), pct: (Number(appsAppData(inst).trend.failed_pct) || 0), days: appsAppData(inst).trend.days }) || ((Number(appsAppData(inst).trend.failed_count) || 0) + ' failed (' + (Number(appsAppData(inst).trend.failed_pct) || 0) + '%) in ' + appsAppData(inst).trend.days + 'd')"></div>
           </div>
         </template>
+        <!-- Below-floor reliability — % of SUCCESSFUL recent tests below the
+             operator's ISP floor (only when a floor is set + there are tests).
+             Danger-tinted when any test was below; green when all clear. -->
+        <div x-show="appsAppData(inst).below_floor && (Number(appsAppData(inst).below_floor.total) || 0) > 0"
+             class="fs-2xs pt-1"
+             :class="(Number(appsAppData(inst).below_floor.below_count) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+             x-text="t('apps.speedtest.below_floor_stat', { count: (Number(appsAppData(inst).below_floor.below_count) || 0), pct: (Number(appsAppData(inst).below_floor.pct) || 0), floor: (Number(appsAppData(inst).below_floor.floor_mbps) || 0), total: (Number(appsAppData(inst).below_floor.total) || 0) }) || ((Number(appsAppData(inst).below_floor.below_count) || 0) + ' of ' + (Number(appsAppData(inst).below_floor.total) || 0) + ' tests below ' + (Number(appsAppData(inst).below_floor.floor_mbps) || 0) + ' Mbps (' + (Number(appsAppData(inst).below_floor.pct) || 0) + '%)')"></div>
       </div>
     </template>
     <template x-if="appsAppDataStatus(inst) === 'idle' && !inst.api_key_set">

@@ -82,6 +82,45 @@ export default {
     return null;
   },
 
+  // ---- Generic per-app DIAGNOSTICS helpers — read the standard `out._debug`
+  // block ({endpoints, hint, notes}) that any app's fetch_data can stamp (via
+  // logic/apps/_common.py:DebugRecorder). The generic drawer debug panel
+  // (_components/apps/_debug_panel.html) renders them uniformly, so EVERY app
+  // card can self-explain WHY a value is empty / 0 (HTTP status + body snippet
+  // + a self-diagnosed hint) without the operator reading logs. ----
+
+  // Per-request diagnostics ([{label, method, path, status, rows, ok, snippet}],
+  // [] when the app stamps no _debug).
+  appsDebug(inst) {
+    const d = this.appsAppData(inst);
+    const dbg = (d && d._debug && typeof d._debug === 'object') ? d._debug : null;
+    return (dbg && Array.isArray(dbg.endpoints)) ? dbg.endpoints : [];
+  },
+
+  // Self-diagnosed actionable hint ('' when none) — e.g. "Services: HTTP 403 —
+  // grant the API user the 'Status: Services' privilege".
+  appsDebugHint(inst) {
+    const d = this.appsAppData(inst);
+    const dbg = (d && d._debug && typeof d._debug === 'object') ? d._debug : null;
+    return (dbg && typeof dbg.hint === 'string') ? dbg.hint : '';
+  },
+
+  // Free-form diagnostic notes ([] when none).
+  appsDebugNotes(inst) {
+    const d = this.appsAppData(inst);
+    const dbg = (d && d._debug && typeof d._debug === 'object') ? d._debug : null;
+    return (dbg && Array.isArray(dbg.notes)) ? dbg.notes : [];
+  },
+
+  // True when this instance has ANY diagnostics — gates the diagnostics section
+  // inside the app drawer's existing debug pane so apps that stamp no _debug
+  // render nothing.
+  appsHasDebug(inst) {
+    return this.appsDebug(inst).length > 0
+      || !!this.appsDebugHint(inst)
+      || this.appsDebugNotes(inst).length > 0;
+  },
+
   // ---- Generic *arr storage helpers (shared by the radarr / sonarr / lidarr
   // / readarr extras partials via _components/apps/_arr_storage.html). They
   // read the standard {path, free_gb, total_gb} disk shape every *arr

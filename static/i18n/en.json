@@ -1997,6 +1997,26 @@
           "label": "FlareSolverr usage history (days)",
           "help": "Retention window for the FlareSolverr open-session-count samples that drive the card's usage trend. Default 30 (the \"past 30 days\" view). Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..365. Takes effect at the next hourly prune."
         },
+        "tuning_rustdesk_sample_interval_seconds": {
+          "label": "RustDesk online-peers sampler interval (seconds)",
+          "help": "How often the lifespan RustDesk sampler records each configured RustDesk chip's registered/online-device + user count into the trend table. Default 600 (10 min) — the online-peers count moves slowly and the probe (login + /api/peers) is cheap. 0 inherits the global stats sample interval. Lower for finer-grained trend resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick. (RustDesk Server Pro exposes only current peer state, so this sampled count is the only online-history signal.)"
+        },
+        "tuning_rustdesk_history_days": {
+          "label": "RustDesk online-peers history (days)",
+          "help": "Retention window for the RustDesk online-peers samples that drive the card's trend + fleet-growth. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..365. Takes effect at the next hourly prune."
+        },
+        "tuning_rustdesk_stale_days": {
+          "label": "RustDesk stale-device window (days)",
+          "help": "A registered RustDesk peer that hasn't checked in for this many days is counted STALE — the \"N devices to clean up\" card stat + the Stale-devices list skill. Default 30. Lower to flag idle machines sooner; raise to be more lenient. Range 1..3650. Takes effect on the next card fetch."
+        },
+        "tuning_rundeck_sample_interval_seconds": {
+          "label": "Rundeck failure-rate sampler interval (seconds)",
+          "help": "How often the lifespan Rundeck sampler records each configured Rundeck chip's recent success/failure tally into the trend table. Default 900 (15 min) — the fetch fans out per-project, and execution outcomes accrue slowly. 0 inherits the global stats sample interval. Lower for finer-grained trend resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_rundeck_history_days": {
+          "label": "Rundeck failure-rate history (days)",
+          "help": "Retention window for the Rundeck failure-rate samples that drive the card's trend. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..365. Takes effect at the next hourly prune."
+        },
         "tuning_ddns_sample_interval_seconds": {
           "label": "ddns-updater history sampler interval (seconds)",
           "help": "How often the lifespan ddns-updater sampler records each configured ddns-updater chip's current public IP + record totals + failing count into the history table that drives the card's public-IP-change timeline + failing-count sparkline. Default 600 (10 min) — public IP changes are infrequent and the web-UI scrape is cheap. 0 inherits the global stats sample interval. Lower for finer-grained timeline resolution; raise to reduce load. Range 0..86400. Takes effect at the next tick. (ddns-updater exposes no historical API, so this sampled history is the only IP-change signal.)"
@@ -5747,7 +5767,14 @@
       "packet_loss": "Packet loss",
       "longterm": "Long-term trend ({days} days)",
       "median_label": "Median",
-      "failed_stat": "{count} failed ({pct}%) in {days}d"
+      "failed_stat": "{count} failed ({pct}%) in {days}d",
+      "floor_label": "Below-floor alert (Mbps)",
+      "floor_placeholder": "off",
+      "floor_days_label": "History (days)",
+      "floor_recommend": "Recommend",
+      "floor_recommend_none": "Not enough speed-test history yet to recommend a floor.",
+      "floor_hint": "Your ISP-advertised download speed (Mbps). The card flags the % of tests below it as a reliability signal. Blank = off. “Recommend” suggests ~90% of your median download over the last N days.",
+      "below_floor_stat": "{count} of {total} tests below {floor} Mbps ({pct}%)"
     },
     "adguard": {
       "username_label": "AdGuard username",
@@ -5937,9 +5964,11 @@
       "netbootxyz_status": "netboot.xyz status",
       "netbootxyz_assets": "Downloaded boot assets",
       "netbootxyz_update_menu": "Update the boot menu",
+      "netbootxyz_clear_untracked": "Clear untracked boot assets",
       "flaresolverr_status": "FlareSolverr status",
       "flaresolverr_sessions": "List FlareSolverr sessions",
       "flaresolverr_destroy_session": "Destroy a FlareSolverr session",
+      "flaresolverr_destroy_all": "Clear all FlareSolverr sessions",
       "npm_status": "Nginx Proxy Manager status",
       "npm_proxy_hosts": "List proxy hosts",
       "npm_expiring_certs": "Expiring SSL certificates",
@@ -5948,11 +5977,14 @@
       "rustdesk_status": "RustDesk status",
       "rustdesk_devices": "List RustDesk devices",
       "rustdesk_users": "RustDesk users",
+      "rustdesk_stale": "Stale RustDesk devices",
       "rundeck_status": "Rundeck status",
       "rundeck_jobs": "List Rundeck jobs",
       "rundeck_running": "Running Rundeck executions",
       "rundeck_executions": "Recent Rundeck executions",
       "rundeck_run_job": "Run a Rundeck job",
+      "rundeck_abort": "Abort a Rundeck execution",
+      "rundeck_retry": "Retry a failed Rundeck execution",
       "proxmox_status": "Proxmox status",
       "proxmox_vms": "List Proxmox VMs",
       "proxmox_containers": "List Proxmox containers",
@@ -6476,6 +6508,9 @@
       "most_read_count": "{count} most read",
       "active_readers": "Active readers",
       "reading_time": "Reading time",
+      "reading_rate_label": "Read/day",
+      "reading_trend": "Reading activity ({days} days)",
+      "reading_rate": "~{avg}/day",
       "most_read": "Most read",
       "series_trend": "Library growth ({days} days)",
       "series_added": "+{count} series in {days} days",
@@ -6857,6 +6892,9 @@
       "boot_menu": "Boot menu",
       "boot_options": "Boot options",
       "assets": "Downloaded",
+      "untracked": "Untracked",
+      "untracked_list": "{n} untracked (orphaned) asset(s)",
+      "untracked_hint": "Not used by the current boot menu — use the “Clear untracked boot assets” action to delete them.",
       "assets_count": "{count} assets",
       "downloaded_assets": "Downloaded boot assets",
       "webapp": "Web app",
@@ -6900,6 +6938,19 @@
       "executions_count": "{count} executions",
       "run_now": "Run now",
       "run_job_confirm": "Run this Rundeck job now?",
+      "failure_rate": "Failure rate",
+      "avg_duration": "Avg run time",
+      "scheduled": "Scheduled",
+      "runs_per_day": "Runs/day",
+      "next_run": "Next scheduled: {job} in {in}",
+      "recent_failed_summary": "{failed} of {total} recent runs failed",
+      "fr_peak": "Peak fail %",
+      "fr_avg": "Avg fail %",
+      "fr_caption": "Failure rate, last {days} days",
+      "abort": "Abort",
+      "abort_confirm": "Abort this running Rundeck execution?",
+      "retry": "Retry",
+      "retry_confirm": "Re-run this failed Rundeck execution?",
       "no_token": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Rundeck data…",
       "fetch_failed": "Rundeck fetch failed"
@@ -6919,7 +6970,20 @@
       "cache_ttl_hint": "How long fetched RustDesk stats are cached before re-querying (5–3600s). Leave blank for the app default (60s).",
       "devices": "Devices",
       "users": "Users",
+      "stale": "Stale",
       "offline_summary": "{n} device(s) offline",
+      "stale_summary": "{n} device(s) not seen in {days}+ days",
+      "stale_count": "{count} stale devices",
+      "os_label": "OS: {breakdown}",
+      "os_windows": "Windows",
+      "os_macos": "macOS",
+      "os_android": "Android",
+      "os_ios": "iOS",
+      "os_linux": "Linux",
+      "os_other": "Other",
+      "usage_peak": "Peak online",
+      "usage_avg": "Avg online",
+      "usage_caption": "Online devices, last {days} days",
       "devices_count": "{count} devices",
       "no_creds": "No credentials set — add the RustDesk Server Pro console username + password in Admin → Apps to enable.",
       "loading": "Loading RustDesk data…",
@@ -6969,6 +7033,10 @@
     "port_state_up": "open",
     "port_state_down": "closed",
     "port_state_unknown": "unknown",
+    "diagnostics": {
+      "title": "Endpoint diagnostics",
+      "hint": "If a value reads 0 but the service shows data elsewhere, this is the upstream's actual per-endpoint response (HTTP status + row count + body snippet) — the cause (privilege / endpoint / credential) is identifiable from it."
+    },
     "version_footnote": "{brand} {v}"
   }
 }

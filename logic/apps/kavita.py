@@ -597,6 +597,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"👥 Active readers: {active:,}")
     if read_time:
         lines.append(f"⏱️ Reading time: {read_time}")
+    # Reading-activity RATE — avg minutes/day from the kavita_sampler's diffed
+    # cumulative reading time (only once the sampler has ≥ 2 days of history).
+    _tr = as_dict(data.get("trend"))
+    rd_avg = round(float(_tr.get("reading_avg") or 0))
+    if rd_avg > 0:
+        lines.append(f"📈 Reading ~{rd_avg:,} min/day "
+                     f"(last {safe_int(_tr.get('days')) or 30}d)")
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -605,6 +612,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "chapter_count": chapters, "total_size": safe_int(data.get("total_size")),
         "top_read_series": top_read, "active_readers": active,
         "reading_minutes": safe_int(data.get("reading_minutes")),
+        "reading_avg_per_day": rd_avg,
     }
 
 

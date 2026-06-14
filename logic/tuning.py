@@ -214,6 +214,11 @@ class Tunable(str, Enum):
     RATE_LIMIT_WINDOW_SECONDS = "tuning_rate_limit_window_seconds"
     REGISTRY_CONCURRENCY = "tuning_registry_concurrency"
     REGISTRY_DIGEST_CACHE_TTL_SECONDS = "tuning_registry_digest_cache_ttl_seconds"
+    RUNDECK_HISTORY_DAYS = "tuning_rundeck_history_days"
+    RUNDECK_SAMPLE_INTERVAL_SECONDS = "tuning_rundeck_sample_interval_seconds"
+    RUSTDESK_HISTORY_DAYS = "tuning_rustdesk_history_days"
+    RUSTDESK_SAMPLE_INTERVAL_SECONDS = "tuning_rustdesk_sample_interval_seconds"
+    RUSTDESK_STALE_DAYS = "tuning_rustdesk_stale_days"
     SNMP_CONCURRENCY = "tuning_snmp_concurrency"
     SNMP_DEFAULT_PORT = "tuning_snmp_default_port"
     SNMP_FAILURE_PAUSE_ROUNDS = "tuning_snmp_failure_pause_rounds"
@@ -1402,6 +1407,33 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for flaresolverr_session_samples — drives the
     # card's usage trend. Default 30 (the "past 30 days" the operator asked for).
     "tuning_flaresolverr_history_days": ("FLARESOLVERR_HISTORY_DAYS", 30, 1, 365),
+
+    # ----- Rundeck ----------------------------------------------------------
+
+    # How often the lifespan rundeck sampler records each configured Rundeck
+    # chip's recent success/failure tally + job/running counts (0 = inherit the
+    # global stats sample interval). The fetch fans out per-project, so 15 min
+    # is a sensible default — execution outcomes accrue slowly.
+    "tuning_rundeck_sample_interval_seconds": ("RUNDECK_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for rundeck_samples — drives the card's
+    # failure-rate trend. Default 30.
+    "tuning_rundeck_history_days": ("RUNDECK_HISTORY_DAYS", 30, 1, 365),
+
+    # ----- RustDesk Server (Pro) --------------------------------------------
+
+    # How often the lifespan rustdesk sampler records each configured RustDesk
+    # chip's registered/online-device count + user count (0 = inherit the global
+    # stats sample interval). Cheap call (login + /api/peers), 10 min is plenty —
+    # the online-peers count moves slowly.
+    "tuning_rustdesk_sample_interval_seconds": ("RUSTDESK_SAMPLE_INTERVAL_SECONDS", 600, 0, 86400),
+    # Retention window (days) for rustdesk_samples — drives the card's
+    # online-peers trend + fleet-growth. Default 30.
+    "tuning_rustdesk_history_days": ("RUSTDESK_HISTORY_DAYS", 30, 1, 365),
+    # A registered RustDesk peer that hasn't checked in for this many days is
+    # counted as STALE (the "N devices haven't checked in for 30+ days =
+    # machines to clean up" card stat + the rustdesk_stale list skill). Default
+    # 30 days.
+    "tuning_rustdesk_stale_days": ("RUSTDESK_STALE_DAYS", 30, 1, 3650),
 
     # ----- ddns-updater -----------------------------------------------------
 

@@ -53,6 +53,12 @@
             <div class="apps-card-stat-label" x-text="t('apps.kavita.reading_time') || 'Reading time'"></div>
             <div class="apps-card-stat-value" x-text="kavitaReadingTime(kavitaData(inst).reading_minutes)"></div>
           </div>
+          <!-- Reading-activity RATE — avg minutes/day from the sampler's diffed
+               cumulative reading time. Shown once the sampler has reading data. -->
+          <div class="apps-card-ups-stat" x-show="kavitaTrend(inst) && (Number(kavitaTrend(inst).reading_avg) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.kavita.reading_rate_label') || 'Read/day'"></div>
+            <div class="apps-card-stat-value text-[var(--primary)]" x-text="kavitaReadingTime(kavitaTrend(inst).reading_avg)"></div>
+          </div>
         </div>
         <!-- Most-read series (reading-activity) — the top entry from the admin
              server stats; the kavita_most_read skill shows the full poster list. -->
@@ -84,6 +90,18 @@
               </svg>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="(t('apps.kavita.size_now') || 'Now') + ': ' + kavitaSize(kavitaTrend(inst).latest_size)"></div>
+            </div>
+            <!-- Reading-activity rate — minutes read per day (day-over-day diff
+                 of the cumulative reading time). Shown only when the library is
+                 actually being read (non-zero total). -->
+            <div class="space-y-1" x-show="(Number(kavitaTrend(inst).reading_total) || 0) > 0 && (kavitaTrend(inst).reading_series || []).length >= 2">
+              <span class="fs-2xs text-[var(--text-faint)] block"
+                    x-text="t('apps.kavita.reading_trend', { days: kavitaTrend(inst).days }) || ('Reading activity (' + kavitaTrend(inst).days + ' days)')"></span>
+              <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+                <path :d="kavitaTrendPath(kavitaTrend(inst).reading_series)" fill="none" stroke="var(--primary)" stroke-width="1.5"/>
+              </svg>
+              <div class="fs-3xs text-[var(--text-faint)]"
+                   x-text="t('apps.kavita.reading_rate', { avg: kavitaReadingTime(kavitaTrend(inst).reading_avg) }) || ('~' + kavitaReadingTime(kavitaTrend(inst).reading_avg) + '/day')"></div>
             </div>
           </div>
         </template>

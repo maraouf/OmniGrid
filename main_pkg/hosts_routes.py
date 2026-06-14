@@ -1352,6 +1352,17 @@ def _clean_host_services(raw: Any) -> list[dict]:
                 cleaned["avg_window"] = max(2, min(60, int(aw)))
             except (TypeError, ValueError):
                 pass
+        # Per-instance Speedtest "below-floor" reliability floor (Mbps) — the
+        # operator's own ISP-advertised download floor; the card flags the % of
+        # successful tests below it. 0 / blank = OFF (no below-floor line).
+        # Clamp 0..100000; round-trips to the editor + gear-flip card settings
+        # (NOT a secret). Float (e.g. 500.0).
+        sf = entry.get("speed_floor_mbps")
+        if isinstance(sf, (int, float, str)) and str(sf).strip() != "":
+            try:
+                cleaned["speed_floor_mbps"] = max(0.0, min(100000.0, float(sf)))
+            except (TypeError, ValueError):
+                pass
         # Per-instance data-cache TTL (seconds) — operator override of the
         # app module's default (resolve_cache_ttl). Clamp to 5..3600;
         # blank / unparseable omits the field so the app default applies.
