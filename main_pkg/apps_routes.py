@@ -4579,6 +4579,19 @@ def _shape_host_api_row(
         "host_battery_status": s.get("host_battery_status") or "",
         # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
         "host_load_percent": (float(_hlp) if (_hlp := s.get("host_load_percent")) is not None else None),
+        # APC PowerNet-MIB power-quality scalars (input/output voltage, mains
+        # frequency, last-transfer cause, battery-replace flag, self-test). NULL
+        # / "" → the drawer UPS-card power-quality rows hide. READ-ONLY SNMP.
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
+        "host_ups_input_voltage": (float(_huiv) if (_huiv := s.get("host_ups_input_voltage")) is not None else None),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
+        "host_ups_output_voltage": (float(_huov) if (_huov := s.get("host_ups_output_voltage")) is not None else None),
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
+        "host_ups_input_freq_hz": (float(_hufz) if (_hufz := s.get("host_ups_input_freq_hz")) is not None else None),
+        "host_ups_last_transfer": s.get("host_ups_last_transfer") or "",
+        # noinspection PyUnboundLocalVariable,PyTypeChecker,PyUnresolvedReferences
+        "host_ups_battery_replace": (int(_hubr) if (_hubr := s.get("host_ups_battery_replace")) is not None else None),
+        "host_ups_self_test": s.get("host_ups_self_test") or "",
         # Printer-MIB. Empty list / 0 / "" → frontend cards hide.
         "printer_page_count": int(s.get("printer_page_count") or 0),
         "printer_supplies": list(s.get("printer_supplies") or []),

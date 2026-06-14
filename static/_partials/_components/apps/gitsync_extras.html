@@ -62,6 +62,48 @@
          class="fs-3xs mt-1 mono"
          :class="(Number(gitsyncData(inst).alerts_error) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--warning)]'"
          x-text="t('apps.gitsync.alerts_summary', { error: (Number(gitsyncData(inst).alerts_error) || 0), warn: (Number(gitsyncData(inst).alerts_warn) || 0), info: (Number(gitsyncData(inst).alerts_info) || 0) })"></div>
+    <!-- Stale-pair + longest-run freshness stats (derived from the per-pair
+         last-sync timestamps). Stale = enabled+configured pairs whose last sync
+         is older than the threshold (or never synced); shown only when > 0. -->
+    <div x-show="(Number(gitsyncData(inst).stale_pairs) || 0) > 0
+                 || (gitsyncData(inst).longest_run && (Number(gitsyncData(inst).longest_run.duration_s) || 0) > 0)"
+         class="flex flex-wrap items-center gap-x-4 gap-y-0.5 fs-xs mt-1.5">
+      <span x-show="(Number(gitsyncData(inst).stale_pairs) || 0) > 0" class="inline-flex items-center gap-1 text-[var(--warning)]"
+            :title="t('apps.gitsync.stale_title') || 'Pairs whose last sync is overdue'">
+        <span aria-hidden="true">⏳</span>
+        <span class="mono" x-text="t('apps.gitsync.stale_n', { n: gitsyncCount(gitsyncData(inst).stale_pairs) })
+                                   + ((gitsyncData(inst).stalest_pair && gitsyncData(inst).stalest_pair.name) ? (' · ' + gitsyncData(inst).stalest_pair.name + ' ' + gitsyncAge(gitsyncData(inst).stalest_pair.age_s)) : '')"></span>
+      </span>
+      <span x-show="gitsyncData(inst).longest_run && (Number(gitsyncData(inst).longest_run.duration_s) || 0) > 0" class="inline-flex items-center gap-1"
+            :title="t('apps.gitsync.longest_title') || 'Longest last-run duration'">
+        <span class="text-[var(--text-dim)]" aria-hidden="true">⏱️</span>
+        <span class="mono" x-text="gitsyncData(inst).longest_run.name + ' ' + gitsyncAge(gitsyncData(inst).longest_run.duration_s)"></span>
+      </span>
+    </div>
+    <!-- Mirror trend — mappings-growth line + (when any) an alert-error trend,
+         from the shared lifespan gitsync_sampler. DRAWER-ONLY (the card stays
+         compact). Shown once >= 2 samples exist. -->
+    <template x-if="appsExtrasInDrawer && gitsyncTrend(inst) && gitsyncTrend(inst).samples > 1 && (gitsyncTrend(inst).series_mappings || []).length > 1">
+      <div class="mt-2">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="apps-card-stat-label" x-text="t('apps.gitsync.mappings_trend') || 'Mappings synced'"></span>
+          <span class="fs-3xs text-[var(--text-faint)] mono"
+                x-text="t('apps.gitsync.mappings_caption', { now: (Number(gitsyncTrend(inst).latest_mappings) || 0), week: (Number(gitsyncTrend(inst).week_throughput) || 0), days: (Number(gitsyncTrend(inst).days) || 0) })"></span>
+        </div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="gitsyncTrendPath(gitsyncTrend(inst).series_mappings)"></polyline>
+        </svg>
+        <!-- Alert-error trend — only when the window saw any errors. -->
+        <template x-if="(Number(gitsyncTrend(inst).peak_alerts) || 0) > 0 && (gitsyncTrend(inst).series_alerts || []).length > 1">
+          <div class="mt-1">
+            <div class="apps-card-stat-label text-[var(--danger)]" x-text="t('apps.gitsync.alerts_trend') || 'Alert errors'"></div>
+            <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="gitsyncTrendPath(gitsyncTrend(inst).series_alerts)"></polyline>
+            </svg>
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- Enabled-count + version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-text="(t('apps.gitsync.enabled') || 'Enabled') + ': ' + gitsyncCount(gitsyncData(inst).enabled) + ' / ' + gitsyncCount(gitsyncData(inst).pairs)"></span>

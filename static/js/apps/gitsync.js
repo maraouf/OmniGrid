@@ -80,6 +80,71 @@ function gitsyncAlertTotal(d) {
     (Number(d.alerts_info) || 0);
 }
 
+// Humanise a duration in seconds -> 'Ns' / 'Nm' / 'Nh' / 'Nd' (the per-pair
+// last-sync age + longest-run labels). '' for null / non-finite.
+function gitsyncAge(s) {
+  if (s == null) {
+    return '';
+  }
+  const n = Math.max(0, Math.round(Number(s) || 0));
+  if (!isFinite(n)) {
+    return '';
+  }
+  if (n < 60) {
+    return n + 's';
+  }
+  if (n < 3600) {
+    return Math.floor(n / 60) + 'm';
+  }
+  if (n < 86400) {
+    return Math.floor(n / 3600) + 'h';
+  }
+  return Math.floor(n / 86400) + 'd';
+}
+
+// Mirror-trend block `{days, samples, latest_mappings, week_throughput,
+// peak_alerts, series_mappings, series_alerts}` from the shared lifespan
+// gitsync_sampler, or null while idle / no samples yet. Drives the card's
+// mappings-growth + alert-trend sparklines.
+function gitsyncTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.gitsyncData ? this.gitsyncData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` per numeric series array (avoids re-render flicker on
+// every Alpine flush — the canonical SVG-builder memo).
+const _gitsyncTrendMemo = new WeakMap();
+
+// SVG polyline points for a trend series over a 0..100 x 0..24 viewBox,
+// auto-scaled to the series' own max (min pinned at 0). '' when < 2 points.
+// Memoised on the array ref.
+function gitsyncTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_gitsyncTrendMemo.has(arr)) {
+    return _gitsyncTrendMemo.get(arr);
+  }
+  const W = 100, H = 24, n = arr.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(arr[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _gitsyncTrendMemo.set(arr, pts);
+  return pts;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. GitSync gets a
 // 2-column span so the stat panel doesn't squeeze the per-instance host list,
@@ -102,4 +167,7 @@ export const helpers = {
   gitsyncData: gitsyncData,
   gitsyncCount: gitsyncCount,
   gitsyncAlertTotal: gitsyncAlertTotal,
+  gitsyncAge: gitsyncAge,
+  gitsyncTrend: gitsyncTrend,
+  gitsyncTrendPath: gitsyncTrendPath,
 };
