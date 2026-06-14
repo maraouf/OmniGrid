@@ -938,6 +938,28 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_forgejo_samples_ts
             ON forgejo_samples(ts);
 
+        -- GitSync Connector mirror retention. One row per (gitsync chip, tick).
+        -- synced_refs / *_mappings are CUMULATIVE running totals (a mirror only
+        -- grows), so the trend reads each day's LAST value (a growth line) +
+        -- diffs consecutive days for the per-week throughput; alerts_error is a
+        -- gauge read as each day's MAX (the "is my mirror health degrading"
+        -- signal).
+        CREATE TABLE IF NOT EXISTS gitsync_samples (
+            ts               INTEGER NOT NULL,
+            host_id          TEXT    NOT NULL,
+            service_idx      INTEGER NOT NULL,
+            synced_refs      INTEGER NOT NULL DEFAULT 0,
+            total_mappings   INTEGER NOT NULL DEFAULT 0,
+            alerts_error     INTEGER NOT NULL DEFAULT 0,
+            paused           INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_gitsync_samples_chip_ts
+            ON gitsync_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_gitsync_samples_ts
+            ON gitsync_samples(ts);
+
         -- Kavita library-growth retention. One row per (kavita chip, tick). All
         -- columns are CUMULATIVE running totals (a library only grows), so the
         -- trend reads them as each day's LAST value (a growth line). ``ts`` is

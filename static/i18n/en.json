@@ -2133,6 +2133,18 @@
           "label": "Forgejo history retention (days)",
           "help": "Retention window for the Forgejo backlog samples that drive the open-PR/issue burn-down sparkline and the week-change stat. Default 90. Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_gitsync_sample_interval_seconds": {
+          "label": "GitSync sampler interval (seconds)",
+          "help": "How often the lifespan GitSync sampler snapshots each configured instance's synced-refs / alert counts / mapping totals into the history table that drives the card's mappings-growth + alert-trend sparklines. Default 900 (15 min) — the mirror totals move slowly. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_gitsync_history_days": {
+          "label": "GitSync history retention (days)",
+          "help": "Retention window for the GitSync mapping / alert samples that drive the mappings-growth + alert-trend sparklines. Default 90. Older samples are pruned hourly. Lower to save disk. Range 1..1095. Takes effect at the next hourly prune."
+        },
+        "tuning_gitsync_stale_pair_hours": {
+          "label": "GitSync stale-pair threshold (hours)",
+          "help": "A GitSync sync pair counts as 'stale' on the card when its last successful sync is older than this many hours (or it has never synced). Default 24. Raise for mirrors that sync on a slow cadence; lower to catch sync lag sooner. Range 1..720. Takes effect on the next card refresh."
+        },
         "tuning_kavita_sample_interval_seconds": {
           "label": "Kavita sampler interval (seconds)",
           "help": "How often the lifespan Kavita sampler snapshots each configured instance's library totals (series / volume / chapter counts + total size) into the history table that drives the card's library-growth line. Default 900 (15 min) — a library grows slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6763,6 +6775,12 @@
       "row_pause": "Pause this pair",
       "row_resume": "Resume this pair",
       "row_pause_confirm": "Pause syncing for this pair?",
+      "stale_title": "Pairs whose last sync is overdue",
+      "stale_n": "{n} stale",
+      "longest_title": "Longest last-run duration",
+      "mappings_trend": "Mappings synced",
+      "mappings_caption": "now {now} · +{week} ({days}d)",
+      "alerts_trend": "Alert errors",
       "loading": "Loading GitSync data…",
       "fetch_failed": "GitSync fetch failed",
       "no_api_key": "No API token set — add one in Admin → Apps to enable."

@@ -186,15 +186,44 @@ async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw)
     return {"ok": False, "detail": f"HTTP {r.status_code}", "status": r.status_code}
 
 
+def _ts_epoch(v: Any) -> int:
+    """Parse a GitSync timestamp (ISO-8601 / RFC3339 string, or an epoch int) to
+    epoch seconds; 0 on blank / unparseable. Handles the trailing ``Z``."""
+    if isinstance(v, (int, float)):
+        return int(v)
+    s = str(v or "").strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    import datetime as _dt  # noqa: PLC0415
+    try:
+        dt = _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_dt.timezone.utc)
+    return int(dt.timestamp())
+
+
 def _shape_pair_rows(pairs_raw: list) -> list[dict]:
     """Reduce the verbose ``metrics.pairs[]`` objects to the per-pair card / skill
-    shape: ``{name, enabled, paused, configured, last_status, destination_kind}``."""
+    shape: ``{name, enabled, paused, configured, last_status, destination_kind,
+    last_finished_ts, last_duration_s}``. The ``last_run`` block carries the
+    started / finished timestamps used for the per-pair last-sync AGE + the
+    longest-running-pair stat (best-effort across the key-name variants Forgejo /
+    GitSync builds have used)."""
     rows: list[dict] = []
     for p in pairs_raw:
         if not isinstance(p, dict):
             continue
         last = as_dict(p.get("last_run"))
         name = str(p.get("name") or "").strip() or f"#{safe_int(p.get('id'))}"
+        fin = _ts_epoch(last.get("finished") or last.get("finished_at")
+                        or last.get("ended_at") or last.get("completed_at"))
+        start = _ts_epoch(last.get("started") or last.get("started_at")
+                          or last.get("created_at"))
+        dur = (fin - start) if (fin and start and fin >= start) else 0
         rows.append({
             "name": name,
             "enabled": bool(p.get("enabled")),
@@ -202,8 +231,63 @@ def _shape_pair_rows(pairs_raw: list) -> list[dict]:
             "configured": bool(p.get("configured")),
             "last_status": str(last.get("status") or "").strip(),
             "destination_kind": str(p.get("destination_kind") or "").strip().lower(),
+            "last_finished_ts": fin,
+            "last_duration_s": dur,
         })
     return rows
+
+
+def _pair_freshness(pair_rows: list, now: float) -> "tuple[int, dict, dict]":
+    """Derive the per-pair freshness stats from the shaped pair rows.
+
+    Returns ``(stale_pairs, stalest, longest)`` where:
+      * ``stale_pairs`` — count of ENABLED + CONFIGURED pairs whose last sync is
+        older than ``tuning_gitsync_stale_pair_hours`` (or that never synced);
+      * ``stalest`` — ``{name, age_s}`` of the enabled pair with the oldest last
+        sync (``{}`` when none have a timestamp);
+      * ``longest`` — ``{name, duration_s}`` of the pair with the longest last-run
+        duration (``{}`` when none recorded a duration).
+    A never-synced enabled pair counts as stale but is not the "stalest" (it has
+    no age to compare)."""
+    from logic.tuning import tuning_int, Tunable  # noqa: PLC0415
+    stale_hours = max(1, tuning_int(Tunable.GITSYNC_STALE_PAIR_HOURS))
+    cutoff_s = stale_hours * 3600
+    stale = 0
+    stalest: dict = {}
+    longest: dict = {}
+    best_age = -1
+    best_dur = 0
+    for p in pair_rows:
+        if not isinstance(p, dict) or not p.get("enabled") or not p.get("configured"):
+            continue
+        fin = safe_int(p.get("last_finished_ts"))
+        if not fin:  # never synced → stale, but no age
+            stale += 1
+            continue
+        age = int(now) - fin
+        if age > cutoff_s:
+            stale += 1
+        if age > best_age:
+            best_age = age
+            stalest = {"name": p.get("name") or "", "age_s": max(0, age)}
+        dur = safe_int(p.get("last_duration_s"))
+        if dur > best_dur:
+            best_dur = dur
+            longest = {"name": p.get("name") or "", "duration_s": dur}
+    return stale, stalest, longest
+
+
+def _safe_trend(host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort mappings-growth + alert trend for the card — the shared
+    gitsync_sampler's per-chip ``trend_summary``. Returns ``None`` (never raises)
+    when the sampler isn't importable / errors, so a trend hiccup can't fail the
+    card."""
+    try:
+        from logic.apps import gitsync_sampler as _sampler  # noqa: PLC0415
+        return _sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[gitsync] trend_summary({host_id}#{service_idx}) skipped: {e}")
+        return None
 
 
 # noinspection DuplicatedCode
@@ -246,6 +330,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     totals = as_dict(body.get("totals"))
     alerts = as_dict(totals.get("alerts_unacknowledged"))
     pair_rows = _shape_pair_rows(as_list(body.get("pairs")))
+    stale_pairs, stalest, longest = _pair_freshness(pair_rows, now)
     out: dict[str, Any] = {
         "available": True,
         "version": str(body.get("version") or "").strip(),
@@ -261,9 +346,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "alerts_warn": safe_int(alerts.get("warn")),
         "alerts_info": safe_int(alerts.get("info")),
         "last_sync_at": str(totals.get("last_sync_at") or "").strip(),
+        "stale_pairs": stale_pairs,
+        "stalest_pair": stalest,
+        "longest_run": longest,
         "pair_rows": pair_rows,
         "fetched_at": int(now),
     }
+    # Best-effort mappings-growth + alert trend from the shared lifespan
+    # gitsync_sampler. Missing sampler / no samples yet leaves the card's
+    # instantaneous counts untouched.
+    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[gitsync] INFO fetched host={host_id} pairs={out['pairs']} "
           f"enabled={out['enabled']} paused={out['paused']} "
           f"issues={out['issue_mappings']} commits={out['commit_mappings']} "
@@ -287,6 +379,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "commit_mappings": safe_int(data.get("commit_mappings")),
         "synced_refs": safe_int(data.get("synced_refs")),
         "alerts_error": safe_int(data.get("alerts_error")),
+        "stale_pairs": safe_int(data.get("stale_pairs")),
         "version": data.get("version") or "",
         "last_sync_at": data.get("last_sync_at") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -386,9 +479,19 @@ async def _status_skill(host_row: dict, chip: dict, *,
     a_err = safe_int(data.get("alerts_error"))
     a_warn = safe_int(data.get("alerts_warn"))
     a_info = safe_int(data.get("alerts_info"))
+    stale = safe_int(data.get("stale_pairs"))
+    stalest = as_dict(data.get("stalest_pair"))
+    longest = as_dict(data.get("longest_run"))
     lines = [f"🔗 Pairs: {pairs} ({enabled} enabled, {paused} paused)",
              f"🐛 Issues: {issues:,} · 📦 Commits: {commits:,} · 🏷️ Releases: {releases:,}",
              f"🔀 Synced refs: {refs:,}"]
+    if stale:
+        line = f"⏳ Stale pairs: {stale}"
+        if stalest.get("name"):
+            line += f" · stalest {stalest['name']} ({_fmt_age(safe_int(stalest.get('age_s')))} ago)"
+        lines.append(line)
+    if longest.get("name") and safe_int(longest.get("duration_s")) > 0:
+        lines.append(f"⏱️ Longest run: {longest['name']} ({_fmt_age(safe_int(longest.get('duration_s')))})")
     if a_err or a_warn or a_info:
         lines.append(f"🚨 Alerts: {a_err} error · {a_warn} warn · {a_info} info")
     return {
@@ -396,7 +499,20 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "pairs": pairs, "paused": paused, "alerts_error": a_err,
+        "stale_pairs": stale,
     }
+
+
+def _fmt_age(s: int) -> str:
+    """Humanise a duration in seconds → "Ns" / "Nm" / "Nh" / "Nd"."""
+    s = max(0, int(s))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
 
 
 # Per-pair state taxonomy → (emoji, label, sort order, group i18n key). Drives

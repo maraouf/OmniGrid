@@ -1860,6 +1860,10 @@ class SettingsIn(BaseModel):
     # Forgejo review-queue retention sampler.
     tuning_forgejo_sample_interval_seconds: Optional[str] = None
     tuning_forgejo_history_days: Optional[str] = None
+    # GitSync Connector retention sampler + stale-pair threshold.
+    tuning_gitsync_sample_interval_seconds: Optional[str] = None
+    tuning_gitsync_history_days: Optional[str] = None
+    tuning_gitsync_stale_pair_hours: Optional[str] = None
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None

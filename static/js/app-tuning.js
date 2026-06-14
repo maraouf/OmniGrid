@@ -382,6 +382,10 @@ export default {
     // Forgejo review-queue retention sampler.
     'tuning_forgejo_sample_interval_seconds',
     'tuning_forgejo_history_days',
+    // GitSync Connector retention sampler + stale-pair threshold.
+    'tuning_gitsync_sample_interval_seconds',
+    'tuning_gitsync_history_days',
+    'tuning_gitsync_stale_pair_hours',
     // Kavita library-growth retention sampler.
     'tuning_kavita_sample_interval_seconds',
     'tuning_kavita_history_days',

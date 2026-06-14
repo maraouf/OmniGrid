@@ -132,6 +132,9 @@ class Tunable(str, Enum):
     EMBY_SAMPLE_INTERVAL_SECONDS = "tuning_emby_sample_interval_seconds"
     FORGEJO_HISTORY_DAYS = "tuning_forgejo_history_days"
     FORGEJO_SAMPLE_INTERVAL_SECONDS = "tuning_forgejo_sample_interval_seconds"
+    GITSYNC_HISTORY_DAYS = "tuning_gitsync_history_days"
+    GITSYNC_SAMPLE_INTERVAL_SECONDS = "tuning_gitsync_sample_interval_seconds"
+    GITSYNC_STALE_PAIR_HOURS = "tuning_gitsync_stale_pair_hours"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
@@ -1559,6 +1562,17 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for forgejo_samples — drives the open-backlog
     # burn-down sparkline + the week-change stat. Default 90; lower to save disk.
     "tuning_forgejo_history_days": ("FORGEJO_HISTORY_DAYS", 90, 1, 1095),
+    # How often the GitSync sampler snapshots each chip's synced-refs / alert /
+    # mapping totals into gitsync_samples. 0 = inherit the global stats interval.
+    # Default 900 (15 min) — the mirror totals move slowly.
+    "tuning_gitsync_sample_interval_seconds": ("GITSYNC_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for gitsync_samples — drives the mappings-growth +
+    # alert-trend sparklines. Default 90; lower to save disk.
+    "tuning_gitsync_history_days": ("GITSYNC_HISTORY_DAYS", 90, 1, 1095),
+    # A GitSync sync pair counts as "stale" when its last successful sync is older
+    # than this many hours (or it has never synced). Drives the card's stale-pair
+    # stat. Default 24; raise for slow-cadence mirrors, lower to catch lag sooner.
+    "tuning_gitsync_stale_pair_hours": ("GITSYNC_STALE_PAIR_HOURS", 24, 1, 720),
     # How often the Kavita sampler snapshots each chip's library totals (series /
     # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
     # global stats interval. Default 900 (15 min) — a library grows slowly.
