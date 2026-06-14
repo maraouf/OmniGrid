@@ -662,6 +662,23 @@ async def api_service_edit(host_id: str, service_idx: int, payload: dict[str, An
             chip["avg_window"] = _awi
         else:
             chip.pop("avg_window", None)
+    # Per-instance Speedtest below-floor reliability floor (Mbps) — the
+    # operator's own ISP-advertised download floor; the card flags the % of
+    # successful tests below it. 0 / blank / unparseable CLEARS it (-> OFF).
+    # Clamp 0..100000. Returned in the clear so the Admin editor AND the
+    # gear-flip card settings round-trip it (both call THIS handler).
+    if "speed_floor_mbps" in payload:
+        _sf_raw = payload.get("speed_floor_mbps")
+        _sfv = None
+        if isinstance(_sf_raw, (int, float, str)) and str(_sf_raw).strip() != "":
+            try:
+                _sfv = max(0.0, min(100000.0, float(_sf_raw)))
+            except (TypeError, ValueError):
+                _sfv = None
+        if _sfv and _sfv > 0:
+            chip["speed_floor_mbps"] = _sfv
+        else:
+            chip.pop("speed_floor_mbps", None)
     # Per-instance data-cache TTL (seconds) — operator override of the app
     # module's default. Clamp to 5..3600; blank / unparseable clears the
     # override so the app default applies. Returned in the clear (round-trips
@@ -780,6 +797,30 @@ def _resolve_chip_app_module(host_id: str, service_idx: int):
                 continue
     mod = apps_registry.module_for_slug(slug) if slug else None
     return hosts[target_idx], chip, mod
+
+
+@app.get("/api/services/{host_id}/{service_idx}/app-suggest/{kind}")
+async def api_service_app_suggest(host_id: str, service_idx: int, kind: str,
+                                  request: Request, _admin: AdminUser):
+    """Admin-only: generic per-app SUGGESTION dispatcher (read-only, no state
+    change). The chip's catalog slug selects the per-app module; if it defines
+    ``suggest(kind, host_row, chip, *, host_id, service_idx, params)`` the call
+    is forwarded with the query params (e.g. ``?days=30``) and its dict returned.
+    Used by the Speedtest editor's "Recommend floor" button (``kind=speed-floor``
+    → a floor derived from the chip's own speed-test history). Apps without a
+    suggest hook return 400."""
+    host_row, chip, mod = _resolve_chip_app_module(host_id, service_idx)
+    if mod is None or not hasattr(mod, "suggest"):
+        raise HTTPException(400, "no suggestions for this app")
+    try:
+        result = await mod.suggest(kind, host_row, chip, host_id=host_id,
+                                   service_idx=service_idx,
+                                   params=dict(request.query_params))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except (RuntimeError,) as e:  # noqa: BLE001
+        result = {"ok": False, "detail": str(e)}
+    return result
 
 
 @app.post("/api/services/{host_id}/{service_idx}/test-credential")

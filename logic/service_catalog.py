@@ -1647,6 +1647,11 @@ def list_apps(force_refresh: bool = False) -> list[dict[str, Any]]:
                 # tests"). Returned in the clear so the editor + card
                 # settings can show/edit it; None when unset (SPA defaults).
                 "avg_window": svc.get("avg_window"),
+                # Per-instance Speedtest below-floor reliability floor (Mbps) —
+                # the operator's ISP download floor; the card flags % of tests
+                # below it. None when unset (OFF). Round-trips to the editor +
+                # card settings.
+                "speed_floor_mbps": svc.get("speed_floor_mbps"),
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),
@@ -1810,6 +1815,11 @@ def iter_instances() -> Iterable[dict[str, Any]]:
                 # Per-instance averages window (Speedtest "Avg of last N
                 # tests"); None when unset (SPA defaults).
                 "avg_window": svc.get("avg_window"),
+                # Per-instance Speedtest below-floor reliability floor (Mbps) —
+                # the operator's ISP download floor; the card flags % of tests
+                # below it. None when unset (OFF). Round-trips to the editor +
+                # card settings.
+                "speed_floor_mbps": svc.get("speed_floor_mbps"),
                 # Per-instance data-cache TTL (seconds) override; None when
                 # unset (the app module's default applies).
                 "cache_ttl": svc.get("cache_ttl"),

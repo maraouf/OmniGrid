@@ -8,17 +8,17 @@
       <h3 class="font-semibold fs-md" x-text="t('admin.users.create_title')"></h3>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-      <input :aria-label="t('admin.users.username_placeholder')" x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
-      <input :aria-label="t('admin.users.email_placeholder')" x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
-      <select :aria-label="t('admin.users.auth_source_label')" x-model="newUser.auth_source" class="w-full">
+      <input aria-label="Username" :aria-label="t('admin.users.username_placeholder')" x-model="newUser.username" type="text" :placeholder="t('admin.users.username_placeholder')" class="w-full">
+      <input aria-label="Email (optional)" :aria-label="t('admin.users.email_placeholder')" x-model="newUser.email" type="email" :placeholder="t('admin.users.email_placeholder')" class="w-full">
+      <select aria-label="Auth source" :aria-label="t('admin.users.auth_source_label')" x-model="newUser.auth_source" class="w-full">
         <option value="local" x-text="t('admin.users.auth_local')"></option>
         <option value="authentik" x-text="t('admin.users.auth_authentik')"></option>
       </select>
-      <select :aria-label="t('admin.users.role_label')" x-model="newUser.role" class="w-full">
+      <select aria-label="Role" :aria-label="t('admin.users.role_label')" x-model="newUser.role" class="w-full">
         <option value="readonly" x-text="t('admin.users.role_readonly')"></option>
         <option value="admin" x-text="t('admin.users.role_admin')"></option>
       </select>
-      <input :aria-label="t('admin.users.password_placeholder')" x-show="newUser.auth_source==='local'" x-model="newUser.password"
+      <input aria-label="Initial password (min 8 chars)" :aria-label="t('admin.users.password_placeholder')" x-show="newUser.auth_source==='local'" x-model="newUser.password"
              type="password" :placeholder="t('admin.users.password_placeholder')"
              autocomplete="new-password"
              class="w-full md:col-span-2">

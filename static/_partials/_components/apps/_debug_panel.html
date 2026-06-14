@@ -1,0 +1,46 @@
+<!-- Generic per-app DIAGNOSTICS section — part of the app drawer's EXISTING
+     per-instance debug pane (the admin-only "Show debug" panel).
+
+     Renders the standard `out._debug` block ({endpoints, hint, notes}) that
+     ANY app's fetch_data can stamp (via logic/apps/_common.py:DebugRecorder),
+     so every app card can self-explain WHY a value is empty / 0 — the upstream
+     HTTP status + parsed-row count + body snippet per request, plus a
+     self-diagnosed hint (e.g. a 403 → which privilege / credential to fix).
+
+     Included from static/index.html INSIDE the existing app-drawer debug pane
+     (already admin-gated + behind the Show-debug toggle), alongside the
+     /debug-endpoint probe-target diagnostics — ONE debug surface, not two.
+     Self-gates on `appsHasDebug(inst)` so apps that stamp no _debug add nothing.
+
+     Helpers (generic, from static/js/app-apps-data.js):
+       appsHasDebug(inst) / appsDebug(inst) / appsDebugHint(inst) /
+       appsDebugNotes(inst) -->
+<!--suppress HtmlUnknownAttribute -->
+<template x-if="appsHasDebug(inst)">
+  <div class="mt-2 pt-2 border-t border-[var(--border)]">
+    <div class="apps-card-stat-label mb-1" x-text="t('apps.diagnostics.title') || 'Endpoint diagnostics'"></div>
+    <!-- Self-diagnosed hint banner (the actionable answer when a value is 0). -->
+    <div x-show="appsDebugHint(inst)"
+         class="fs-3xs mb-1 px-2 py-1 rounded-md mono bg-[var(--pill-warning-bg)] text-[var(--pill-warning-fg)] border border-[var(--pill-warning-br)]"
+         x-text="appsDebugHint(inst)"></div>
+    <!-- Per-request log: status dot + label/method/path + HTTP status + rows. -->
+    <template x-for="(e, ei) in appsDebug(inst)" :key="(e.path || '') + ':' + (e.method || '') + ':' + ei">
+      <div class="fs-3xs py-0.5 mono">
+        <span class="flex items-baseline gap-1 min-w-0">
+          <span class="apps-ddns-dot"
+                :class="!e.ok ? 'apps-ddns-dot--fail' : ((Number(e.rows) || 0) > 0 ? 'apps-ddns-dot--ok' : 'apps-ddns-dot--pending')"
+                aria-hidden="true"></span>
+          <span class="truncate" x-text="(e.label ? e.label + ': ' : '') + (e.method || 'GET') + ' ' + (e.path || '')"></span>
+          <span class="text-[var(--text-faint)] shrink-0" x-text="'→ HTTP ' + e.status + ((Number(e.rows) || -1) >= 0 ? ' · rows ' + e.rows : '')"></span>
+        </span>
+        <div class="text-[var(--text-faint)] truncate" x-show="e.snippet" :title="e.snippet" x-text="e.snippet"></div>
+      </div>
+    </template>
+    <!-- Free-form notes. -->
+    <template x-for="(n, ni) in appsDebugNotes(inst)" :key="'note:' + ni">
+      <div class="fs-3xs py-0.5 text-[var(--text-faint)]" x-text="n"></div>
+    </template>
+    <div class="fs-3xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.diagnostics.hint') || 'If a value reads 0 but the service shows data elsewhere, this is the upstream’s actual per-endpoint response.'"></div>
+  </div>
+</template>

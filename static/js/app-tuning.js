@@ -323,6 +323,14 @@ export default {
     // generic Admin → Config tab.
     'tuning_flaresolverr_sample_interval_seconds',
     'tuning_flaresolverr_history_days',
+    // RustDesk history sampler — drives the card's online-peers trend +
+    // fleet-growth; the stale-device window flags peers that haven't checked in.
+    'tuning_rustdesk_sample_interval_seconds',
+    'tuning_rustdesk_history_days',
+    'tuning_rustdesk_stale_days',
+    // Rundeck history sampler — drives the card's failure-rate trend.
+    'tuning_rundeck_sample_interval_seconds',
+    'tuning_rundeck_history_days',
     // ddns-updater history sampler — drives the public-IP-change timeline +
     // failing-count sparkline (sample cadence + retention days).
     'tuning_ddns_sample_interval_seconds',

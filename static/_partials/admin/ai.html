@@ -432,7 +432,7 @@
               <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
                  x-text="t('admin.config.fields.' + key + '.help')"></p>
               <div class="flex flex-wrap items-center gap-2">
-                <input :id="'ai-cfg-' + key" type="number"
+                <input aria-label="TuningForm[key]" :id="'ai-cfg-' + key" type="number"
                        x-model="tuningForm[key]"
                        :placeholder="tuningPlaceholder(key)"
                        :min="(tuningEffective[key] || {}).min"
@@ -884,7 +884,7 @@
           <div class="space-y-2">
             <div>
               <label :for="'ai-prov-model-' + name" class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.model_label')"></label>
-              <input :id="'ai-prov-model-' + name" type="text" x-model="aiForm.providers[name].model"
+              <input aria-label="Model" :id="'ai-prov-model-' + name" type="text" x-model="aiForm.providers[name].model"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiProviderModelPlaceholder(name)"
@@ -899,7 +899,7 @@
               <span x-show="aiForm.providers[name].api_key_set"
                     class="block fs-2xs text-[var(--success)] mb-1"
                     x-text="t('settings.secret_input.saved_hint')"></span>
-              <input :id="'ai-prov-key-' + name" type="password" x-model="aiForm.providers[name].api_key"
+              <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :id="'ai-prov-key-' + name" type="password" x-model="aiForm.providers[name].api_key"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiForm.providers[name].api_key_set ? t('settings.secret_input.placeholder_keep') : t('admin.ai.api_key_placeholder')"
@@ -908,7 +908,7 @@
             </div>
             <div>
               <label :for="'ai-prov-url-' + name" class="block fs-2xs text-[var(--text-dim)] mb-1" x-text="t('admin.ai.base_url_label')"></label>
-              <input :id="'ai-prov-url-' + name" type="url" x-model="aiForm.providers[name].base_url"
+              <input aria-label="Base URL (optional)" :id="'ai-prov-url-' + name" type="url" x-model="aiForm.providers[name].base_url"
                      @input="markAiFormDirty()"
                      :disabled="isReadonly() || !settings.ai_enabled || !aiForm.providers[name].enabled"
                      :placeholder="aiProviderBaseUrlPlaceholder(name)"
@@ -997,7 +997,7 @@
     <p class="fs-xs text-[var(--text-faint)] mb-3 leading-snug max-w-[720px]"
        x-text="t('ai_memory.subtitle')"></p>
     <div class="flex items-stretch gap-2">
-      <input :aria-label="t('ai_memory.add_placeholder')" type="text"
+      <input aria-label="e.g. The Beszel agent on host01.example.com runs as a docker container — restart with `docker restart beszel-agent`, not via systemd" :aria-label="t('ai_memory.add_placeholder')" type="text"
              x-model="aiMemoryAddText"
              :placeholder="t('ai_memory.add_placeholder')"
              :disabled="isReadonly() || aiMemoryBusy"
@@ -1069,7 +1069,7 @@
           <!-- Jobs modal — paginated job log. -->
           <div x-show="aiModalKey === 'jobs'">
             <div class="flex items-center gap-2 flex-wrap mb-3">
-              <select :aria-label="t('admin.ai.modal.filter_all_providers')" x-model="aiJobsFilterProvider"
+              <select aria-label="All providers" :aria-label="t('admin.ai.modal.filter_all_providers')" x-model="aiJobsFilterProvider"
                       @change="aiModalPage = 1; loadAiJobs()"
                       class="fs-xs py-1">
                 <option value="" x-text="t('admin.ai.modal.filter_all_providers')"></option>
@@ -1077,7 +1077,7 @@
                   <option :value="name" x-text="aiProviderDisplayName(name)"></option>
                 </template>
               </select>
-              <select :aria-label="t('admin.ai.modal.filter_all_statuses')" x-model="aiJobsFilterStatus"
+              <select aria-label="All statuses" :aria-label="t('admin.ai.modal.filter_all_statuses')" x-model="aiJobsFilterStatus"
                       @change="aiModalPage = 1; loadAiJobs()"
                       class="fs-xs py-1">
                 <option value="" x-text="t('admin.ai.modal.filter_all_statuses')"></option>

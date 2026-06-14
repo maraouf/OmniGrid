@@ -652,6 +652,10 @@ export default {
   // Open-time snapshot signature for dirty tracking — see
   // `appsInstanceDirty()` / `_appsInstanceFormSig()`.
   _appsInstanceEditSnapshot: '',
+  // Speedtest "Recommend floor" — history window (days) the editor + card
+  // settings derive a recommended below-floor value over. Shared transient
+  // UI state (not a persisted chip field).
+  appsSpeedFloorDays: 30,
   appsInstanceEditForm: {
     host_id: '', service_idx: -1, host_label: '',
     catalog_name: '', catalog_slug: '',
@@ -755,6 +759,10 @@ export default {
       // = use the app default (10); backend clamps 2..60 + drops blanks.
       avg_window: (inst.avg_window != null && inst.avg_window !== '')
         ? String(inst.avg_window) : '',
+      // Per-instance Speedtest below-floor reliability floor (Mbps). Blank
+      // = OFF; backend clamps 0..100000.
+      speed_floor_mbps: (inst.speed_floor_mbps != null && inst.speed_floor_mbps !== '')
+        ? String(inst.speed_floor_mbps) : '',
       // Per-instance data-cache TTL (seconds). Blank = the app's default
       // (AdGuard / Pi-hole 30, Speedtest 60); backend clamps 5..3600.
       cache_ttl: (inst.cache_ttl != null && inst.cache_ttl !== '')
@@ -816,6 +824,7 @@ export default {
       totp_secret: (typeof f.totp_secret === 'string') ? f.totp_secret : '',
       username: f.username || '',
       avg_window: f.avg_window || '',
+      speed_floor_mbps: f.speed_floor_mbps || '',
       cache_ttl: f.cache_ttl || '',
       verify_tls: !!f.verify_tls,
       tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
@@ -1171,6 +1180,9 @@ export default {
           // Per-instance averages window (Speedtest). Blank => backend
           // drops it => app default (10); a value is clamped 2..60.
           avg_window: (f.avg_window != null) ? f.avg_window : '',
+          // Per-instance Speedtest below-floor reliability floor (Mbps). Blank
+          // => OFF; a value is clamped 0..100000.
+          speed_floor_mbps: (f.speed_floor_mbps != null) ? f.speed_floor_mbps : '',
           // Per-instance data-cache TTL (seconds). Blank => backend drops
           // it => the app module's default; a value is clamped 5..3600.
           cache_ttl: (f.cache_ttl != null) ? f.cache_ttl : '',

@@ -83,7 +83,7 @@
       <div class="md:col-span-2">
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('admin_assets.base_url_label')"></label>
-        <input type="url" x-model="assetForm.base_url" :disabled="isReadonly()"
+        <input aria-label="Base URL" :aria-label="t('admin_assets.base_url_label')" type="url" x-model="assetForm.base_url" :disabled="isReadonly()"
                class="w-full mono fs-sm py-1.5"
                :placeholder="t('admin_assets.base_url_placeholder')">
       </div>
@@ -94,14 +94,14 @@
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.token_url_label')"></label>
-            <input type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
+            <input aria-label="Token URL" :aria-label="t('admin_assets.token_url_label')" type="url" x-model="assetForm.token_url" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.token_url_placeholder')">
           </div>
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.client_id_label')"></label>
-            <input type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
+            <input aria-label="Username" :aria-label="t('admin_assets.client_id_label')" type="text" x-model="assetForm.client_id" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.client_id_placeholder')">
           </div>
@@ -113,7 +113,7 @@
                   class="block fs-xs text-[var(--success)] mb-1"
                   x-text="t('settings.secret_input.saved_hint')"></span>
             <div class="secret-input-row">
-              <input type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
+              <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" type="password" x-model="assetForm.client_secret" :disabled="isReadonly()"
                      class="w-full mono fs-sm py-1.5"
                      :placeholder="(assetStatus && assetStatus.client_secret_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.client_secret_placeholder')"
                      autocomplete="new-password">
@@ -127,7 +127,7 @@
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.scope_label')"></label>
-            <input type="text" x-model="assetForm.scope" :disabled="isReadonly()"
+            <input aria-label="Scope (optional)" :aria-label="t('admin_assets.scope_label')" type="text" x-model="assetForm.scope" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.scope_placeholder')">
           </div>
@@ -153,7 +153,7 @@
                   class="block fs-xs text-[var(--success)] mb-1"
                   x-text="t('settings.secret_input.saved_hint')"></span>
             <div class="secret-input-row">
-              <input type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
+              <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" type="password" x-model="assetForm.lifetime_token" :disabled="isReadonly()"
                      class="w-full mono fs-sm py-1.5"
                      :placeholder="(assetStatus && assetStatus.lifetime_token_set) ? t('settings.secret_input.placeholder_keep') : t('admin_assets.lifetime_token_placeholder')"
                      autocomplete="new-password">
@@ -167,14 +167,14 @@
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.service_label')"></label>
-            <input type="text" x-model="assetForm.service" :disabled="isReadonly()"
+            <input aria-label="Service" :aria-label="t('admin_assets.service_label')" type="text" x-model="assetForm.service" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.service_placeholder')">
           </div>
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.action_label')"></label>
-            <input type="text" x-model="assetForm.action" :disabled="isReadonly()"
+            <input aria-label="Action" :aria-label="t('admin_assets.action_label')" type="text" x-model="assetForm.action" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.action_placeholder')">
           </div>
@@ -184,14 +184,14 @@
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.min_value_label')"></label>
-            <input type="number" x-model="assetForm.min_value" :disabled="isReadonly()"
+            <input aria-label="Min custom_number" :aria-label="t('admin_assets.min_value_label')" type="number" x-model="assetForm.min_value" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.min_value_placeholder')">
           </div>
           <div>
             <label class="block fs-xs text-[var(--text-faint)] mb-1"
                    x-text="t('admin_assets.max_value_label')"></label>
-            <input type="number" x-model="assetForm.max_value" :disabled="isReadonly()"
+            <input aria-label="Max custom_number" :aria-label="t('admin_assets.max_value_label')" type="number" x-model="assetForm.max_value" :disabled="isReadonly()"
                    class="w-full mono fs-sm py-1.5"
                    :placeholder="t('admin_assets.max_value_placeholder')">
           </div>
@@ -207,7 +207,7 @@
       <div class="md:col-span-2">
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('admin_assets.edit_url_label')"></label>
-        <input type="url" x-model="assetForm.edit_url_template" :disabled="isReadonly()"
+        <input aria-label="Edit URL prefix" :aria-label="t('admin_assets.edit_url_label')" type="url" x-model="assetForm.edit_url_template" :disabled="isReadonly()"
                class="w-full mono fs-sm py-1.5"
                :placeholder="t('admin_assets.edit_url_placeholder')">
         <p class="fs-xs text-[var(--text-faint)] mt-1"
@@ -250,62 +250,66 @@
        Config row uses. -->
   <details x-show="isAdmin()" class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
     <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-      <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+      <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+      </svg>
+      <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+      </svg>
       <span x-text="t('common.tunables')"></span>
     </summary>
     <div class="mt-3 space-y-3">
-    <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-       x-text="t('admin_assets.tunables_intro')"></p>
+      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+         x-text="t('admin_assets.tunables_intro')"></p>
       <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-    <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-      <span class="spin" aria-hidden="true"></span>
-      <span x-text="t('common.loading')"></span>
-    </div>
-    <template x-for="key in (tuningLoaded ? ['tuning_asset_inventory_token_timeout_seconds',
+      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading')"></span>
+      </div>
+      <template x-for="key in (tuningLoaded ? ['tuning_asset_inventory_token_timeout_seconds',
                                     'tuning_asset_inventory_fetch_timeout_seconds'] : [])"
-              :key="key">
-      <div>
-        <!-- Canonical order: title → help → textbox + bounds.
-             Matches the AI Integration partial pattern. -->
-        <label class="block fs-xs font-medium mb-1"
-               x-text="t('admin.config.fields.' + key + '.label')"></label>
-        <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-           x-text="t('admin.config.fields.' + key + '.help')"></p>
-        <div class="flex flex-wrap items-center gap-2">
-          <input type="number"
-                 x-model="tuningForm[key]"
-                 :placeholder="tuningPlaceholder(key)"
-                 :min="(tuningEffective[key] || {}).min"
-                 :max="(tuningEffective[key] || {}).max"
-                 :disabled="!isAdmin() || assetSaving || !settings.asset_inventory_enabled"
-                 class="w-44 mono fs-sm py-1">
-          <div class="bounds-chips" role="group"
-               :aria-label="t('admin.config.bounds.group_label')">
+                :key="key">
+        <div>
+          <!-- Canonical order: title → help → textbox + bounds.
+               Matches the AI Integration partial pattern. -->
+          <label class="block fs-xs font-medium mb-1"
+                 x-text="t('admin.config.fields.' + key + '.label')"></label>
+          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+             x-text="t('admin.config.fields.' + key + '.help')"></p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input aria-label="TuningForm[key]" :aria-label="t('admin.config.fields.' + key + '.label')" type="number"
+                   x-model="tuningForm[key]"
+                   :placeholder="tuningPlaceholder(key)"
+                   :min="(tuningEffective[key] || {}).min"
+                   :max="(tuningEffective[key] || {}).max"
+                   :disabled="!isAdmin() || assetSaving || !settings.asset_inventory_enabled"
+                   class="w-44 mono fs-sm py-1">
+            <div class="bounds-chips" role="group"
+                 :aria-label="t('admin.config.bounds.group_label')">
                   <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).min"></span>
                   </span>
-            <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).max"></span>
                   </span>
-            <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
                     <svg width="11" height="11" aria-hidden="true">
                       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                     </svg>
                     <span x-text="(tuningEffective[key] || {}).default"></span>
                   </span>
+            </div>
+            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-          <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                x-text="tuningEffectiveLabel(key)"></span>
         </div>
-      </div>
-    </template>
+      </template>
     </div>
   </details>
 

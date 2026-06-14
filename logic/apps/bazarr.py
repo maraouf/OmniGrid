@@ -600,8 +600,8 @@ async def _wanted_skill(host_row: dict, chip: dict, *,
                 continue
             langs = _missing_langs(ep)
             lines.append(f"  • {t}")
-            row = {"title": t, "subtitle": (f"missing {langs}" if langs else ""),
-                   "group": "apps.bazarr.group_episodes"}
+            row: dict[str, Any] = {"title": t, "subtitle": (f"missing {langs}" if langs else ""),
+                                   "group": "apps.bazarr.group_episodes"}
             _stamp_poster(row, series_meta.get(safe_int(ep.get("sonarrSeriesId"))) or {})
             _sid = safe_int(ep.get("sonarrSeriesId"))
             _eid = safe_int(ep.get("sonarrEpisodeId"))
@@ -734,7 +734,6 @@ async def _search_subtitles_skill(host_row: dict, chip: dict, *,
             dl.update({"hi": best.get("hearing_impaired"), "forced": best.get("forced"),
                        "provider": best.get("provider"), "subtitle": best.get("subtitle"),
                        "original_format": best.get("original_format"), "language": lang_code})
-            downloaded = False
             try:
                 pr = await cli.post(base + endpoint, headers=_headers(api_key),
                                     data={k: v for k, v in dl.items() if v is not None})

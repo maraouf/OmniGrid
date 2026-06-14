@@ -56,25 +56,25 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.username')"></label>
-        <input :value="me && me.username" disabled class="w-full fs-sm">
+        <input aria-label="Username" :aria-label="t('settings.profile.username')" :value="me && me.username" disabled class="w-full fs-sm">
         <p class="fs-3xs text-[var(--text-faint)] mt-1"
            x-text="t(me && me.source === 'authentik' ? 'settings.profile.username_hint_authentik' : 'settings.profile.username_hint')"></p>
       </div>
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.source')"></label>
-        <input :value="me && me.source" disabled class="w-full fs-sm mono">
+        <input aria-label="Source" :aria-label="t('settings.profile.source')" :value="me && me.source" disabled class="w-full fs-sm mono">
       </div>
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.role')"></label>
-        <input :value="me && me.role" disabled class="w-full fs-sm mono">
+        <input aria-label="Role" :aria-label="t('settings.profile.role')" :value="me && me.role" disabled class="w-full fs-sm mono">
       </div>
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.last_login')"></label>
-        <input :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full fs-sm mono">
+        <input aria-label="Last login" :aria-label="t('settings.profile.last_login')" :value="me && me.last_login_at ? fmtDate(me.last_login_at) : '—'" disabled class="w-full fs-sm mono">
       </div>
       <div class="sm:col-span-2">
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.member_since')"></label>
-        <input :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full fs-sm mono">
+        <input aria-label="Member since" :aria-label="t('settings.profile.member_since')" :value="me && me.created_at ? fmtDate(me.created_at) : '—'" disabled class="w-full fs-sm mono">
       </div>
     </div>
   </section>
@@ -90,12 +90,12 @@
     <div class="space-y-3">
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.display_name')"></label>
-        <input x-model="profileForm.display_name" type="text" maxlength="80"
+        <input aria-label="Display name" :aria-label="t('settings.profile.display_name')" x-model="profileForm.display_name" type="text" maxlength="80"
                :placeholder="t('settings.profile.display_name_placeholder')" class="w-full fs-sm">
       </div>
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.email')"></label>
-        <input x-model="profileForm.email" type="email" maxlength="200"
+        <input aria-label="Email" :aria-label="t('settings.profile.email')" x-model="profileForm.email" type="email" maxlength="200"
                :placeholder="t('settings.profile.email_placeholder')"
                :disabled="me && me.source === 'authentik'"
                class="w-full fs-sm">
@@ -105,7 +105,7 @@
       </div>
       <div>
         <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('settings.profile.bio')"></label>
-        <textarea x-model="profileForm.bio" rows="3" maxlength="500"
+        <textarea aria-label="Bio" :aria-label="t('settings.profile.bio')" x-model="profileForm.bio" rows="3" maxlength="500"
                   :placeholder="t('settings.profile.bio_placeholder')"
                   class="w-full fs-sm"></textarea>
         <p class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('settings.profile.bio_count', { count: (profileForm.bio || '').length })"></p>
@@ -156,19 +156,19 @@
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.city_label')"></label>
-            <input type="text" x-model="userLabel"
+            <input aria-label="City / label" :aria-label="t('topbar_widgets.city_label')" type="text" x-model="userLabel"
                    :placeholder="t('topbar_widgets.city_placeholder')"
                    class="w-full fs-sm">
           </div>
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lat_label')"></label>
-            <input type="number" step="any" x-model.number="userLat"
+            <input aria-label="Latitude" :aria-label="t('topbar_widgets.lat_label')" type="number" step="any" x-model.number="userLat"
                    placeholder="30.0444"
                    class="w-full fs-sm mono">
           </div>
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1" x-text="t('topbar_widgets.lon_label')"></label>
-            <input type="number" step="any" x-model.number="userLon"
+            <input aria-label="Longitude" :aria-label="t('topbar_widgets.lon_label')" type="number" step="any" x-model.number="userLon"
                    placeholder="31.2357"
                    class="w-full fs-sm mono">
           </div>
@@ -265,7 +265,7 @@
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1"
                    x-text="t('settings.formats.datetime_label')"></label>
-            <input type="text"
+            <input aria-label="Datetime format" :aria-label="t('settings.formats.datetime_label')" type="text"
                    x-model="datetimeFormatDraft"
                    :placeholder="DEFAULT_DATETIME_FORMAT"
                    class="w-full fs-sm mono"

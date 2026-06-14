@@ -403,6 +403,9 @@
               <!-- INCLUDE: _components/apps/_all_extras_app.html -->
             </div>
           </template>
+          <!-- Per-app DIAGNOSTICS (out['_debug']) render inside the EXISTING
+               app-drawer debug pane (the admin-only "Show debug" panel in
+               static/index.html), NOT here — one debug surface, not two. -->
           <!-- Show-all / Show-less toggle so an app on many hosts doesn't
                grow the card tall + break the grid's uniform rows. -->
           <button type="button" x-show="appsInstancesCollapsible(app)"

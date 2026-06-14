@@ -306,6 +306,37 @@
   </template>
 
   <!-- ============================================================
+       Speedtest Tracker — per-instance "Below-floor alert (Mbps)" (admin
+       only). Same CHIP-data PATCH as avg_window above (services[].
+       speed_floor_mbps via PATCH /api/services/{host}/{idx}). Blank = OFF;
+       the card flags the % of tests below this ISP floor. The "Recommend"
+       button derives ~90% of the median download over the last
+       appsSpeedFloorDays days from this chip's own history. Mirrors the
+       Admin → Apps instance editor (changing either updates both).
+       ============================================================ -->
+  <template x-if="item.kind === 'app' && (typeof speedtestIsApp === 'function') && speedtestIsApp(item.app) && isAdmin()">
+    <div class="mt-1">
+      <label class="apps-card-settings-row">
+        <span class="apps-card-settings-label"
+              x-text="t('apps.speedtest.floor_label') || 'Below-floor alert (Mbps)'"></span>
+        <input type="number" min="0" max="100000" step="1" class="input fs-xs mono"
+               :value="appChipSpeedFloor(item)"
+               @change.stop="setAppChipSpeedFloor(item, $event.target.value)"
+               :placeholder="t('apps.speedtest.floor_placeholder') || 'off'">
+      </label>
+      <div class="flex items-center gap-2 mt-1 justify-end">
+        <input aria-label="History (days)" type="number" min="1" max="365" step="1" class="input fs-xs mono w-16"
+               x-model.number="appsSpeedFloorDays"
+               :aria-label="t('apps.speedtest.floor_days_label') || 'History (days)'"
+               :title="t('apps.speedtest.floor_days_label') || 'History (days)'">
+        <button type="button" class="btn btn-soft fs-2xs"
+                @click.stop="appsRecommendSpeedFloor((item.app.instances && item.app.instances[0] || {}).host_id, (item.app.instances && item.app.instances[0] || {}).service_idx, appsSpeedFloorDays).then(v => { if (v) { setAppChipSpeedFloor(item, v); } })"
+                x-text="t('apps.speedtest.floor_recommend') || 'Recommend'"></button>
+      </div>
+    </div>
+  </template>
+
+  <!-- ============================================================
        Bookmark — edit Name / URL / icon. Top-level item fields (not
        opts), persisted via setAppsItemField. The icon accepts a brand
        slug (resolved through appsBookmarkIconUrl: brand resolver +

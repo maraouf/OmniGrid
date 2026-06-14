@@ -2819,7 +2819,7 @@ async def probe_snmp(
     # which walks were actually live without having to wait for a
     # timeout. Same shape as the TimeoutError branch above so the
     # debug panel can render diagnostics uniformly.
-    out = {
+    out: dict[str, Any] = {
         "hosts": {host_key: stats} if host_key else {},
         "error": None,
         "active_vendors": sorted(active_vendors),

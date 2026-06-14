@@ -34,7 +34,60 @@
              :class="(Number(rundeckData(inst).running) || 0) > 0 ? 'text-[var(--success)]' : ''"
              x-text="rundeckCount(rundeckData(inst).running)"></div>
       </div>
+      <!-- Recent failure rate (CI-health signal) — danger-tinted when any
+           recent run failed. Shown only when there are finished runs. -->
+      <div class="apps-card-ups-stat" x-show="(Number(rundeckData(inst).recent_completed) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.failure_rate') || 'Failure rate'"></div>
+        <div class="apps-card-stat-value"
+             :class="(Number(rundeckData(inst).recent_failed) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+             x-text="rundeckFailureRate(inst)"></div>
+      </div>
+      <!-- Average execution run time (from recent finished executions). -->
+      <div class="apps-card-ups-stat" x-show="(Number(rundeckData(inst).avg_duration_s) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.avg_duration') || 'Avg run time'"></div>
+        <div class="apps-card-stat-value" x-text="rundeckDuration(rundeckData(inst).avg_duration_s)"></div>
+      </div>
+      <!-- Scheduled (schedule-enabled) jobs count. -->
+      <div class="apps-card-ups-stat" x-show="(Number(rundeckData(inst).scheduled_jobs) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.scheduled') || 'Scheduled'"></div>
+        <div class="apps-card-stat-value" x-text="rundeckCount(rundeckData(inst).scheduled_jobs)"></div>
+      </div>
+      <!-- Executions per day (throughput — runs started in the last 24h). -->
+      <div class="apps-card-ups-stat" x-show="(Number(rundeckData(inst).executions_per_day) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rundeck.runs_per_day') || 'Runs/day'"></div>
+        <div class="apps-card-stat-value" x-text="rundeckCount(rundeckData(inst).executions_per_day)"></div>
+      </div>
     </div>
+    <!-- Next scheduled run (best-effort; needs Rundeck API v31+). Footnote with
+         the soonest upcoming job + when. -->
+    <div x-show="rundeckData(inst).next_run_job && (Number(rundeckData(inst).next_run_in_s) || 0) > 0"
+         class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+         x-text="t('apps.rundeck.next_run', { job: (rundeckData(inst).next_run_job || ''), in: rundeckDuration(rundeckData(inst).next_run_in_s) })"></div>
+    <!-- Recent-runs footnote — "2 of 12 recent runs failed". -->
+    <div x-show="(Number(rundeckData(inst).recent_completed) || 0) > 0 && (Number(rundeckData(inst).recent_failed) || 0) > 0"
+         class="fs-3xs text-[var(--danger)] mt-1 mono"
+         x-text="t('apps.rundeck.recent_failed_summary', { failed: (Number(rundeckData(inst).recent_failed) || 0), total: (Number(rundeckData(inst).recent_completed) || 0) })"></div>
+    <!-- Failure-rate trend — sampled by the lifespan rundeck_sampler. Drawer-
+         only (appsExtrasInDrawer); shown once at least one sample exists. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && rundeckTrend(inst) && rundeckTrend(inst).samples > 0">
+      <div class="mt-2">
+        <div class="apps-card-ups-grid">
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.rundeck.fr_peak') || 'Peak fail %'"></div>
+            <div class="apps-card-stat-value" x-text="(Number(rundeckTrend(inst).peak) || 0) + '%'"></div>
+          </div>
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.rundeck.fr_avg') || 'Avg fail %'"></div>
+            <div class="apps-card-stat-value" x-text="(Number(rundeckTrend(inst).avg) || 0) + '%'"></div>
+          </div>
+        </div>
+        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line apps-spark-line--danger" :points="rundeckSparkPoints(inst)"></polyline>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)] mono"
+             x-text="t('apps.rundeck.fr_caption', { days: rundeckTrend(inst).days }) || ('Failure rate, last ' + rundeckTrend(inst).days + ' days')"></div>
+      </div>
+    </template>
     <!-- Rundeck version footnote. -->
     <div x-show="rundeckData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"

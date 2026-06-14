@@ -28,11 +28,49 @@
         <div class="apps-card-stat-label" x-text="t('apps.rustdesk.users') || 'Users'"></div>
         <div class="apps-card-stat-value" x-text="rustdeskCount(rustdeskData(inst).users)"></div>
       </div>
+      <!-- Stale devices — machines that haven't checked in for the stale
+           window (default 30 days); an actionable "clean these up" signal.
+           Only shown when there's at least one. -->
+      <div class="apps-card-ups-stat" x-show="(Number(rustdeskData(inst).stale_devices) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.rustdesk.stale') || 'Stale'"></div>
+        <div class="apps-card-stat-value text-[var(--warning)]" x-text="rustdeskCount(rustdeskData(inst).stale_devices)"></div>
+      </div>
     </div>
+    <!-- Stale-devices footnote — explains the window (e.g. "2 not seen in 30+ days"). -->
+    <div x-show="(Number(rustdeskData(inst).stale_devices) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--warning)]"
+         x-text="t('apps.rustdesk.stale_summary', { n: (Number(rustdeskData(inst).stale_devices) || 0), days: (Number(rustdeskData(inst).stale_days) || 30) })"></div>
+    <!-- OS-breakdown — fleet composition (Windows / macOS / Linux / …). -->
+    <div x-show="rustdeskOsSummary(inst)"
+         class="fs-3xs mt-1 mono text-[var(--text-faint)]"
+         x-text="t('apps.rustdesk.os_label', { breakdown: rustdeskOsSummary(inst) })"></div>
     <!-- Offline-devices footnote — only when something is offline. -->
     <div x-show="(Number(rustdeskData(inst).devices_offline) || 0) > 0"
          class="fs-3xs mt-1 mono text-[var(--text-faint)]"
          x-text="t('apps.rustdesk.offline_summary', { n: (Number(rustdeskData(inst).devices_offline) || 0) })"></div>
+    <!-- Online-peers trend — sampled by the lifespan rustdesk_sampler (the Pro
+         API exposes only current state). Drawer-only (`appsExtrasInDrawer`),
+         shown once at least one sample exists, so the cramped apps-grid card
+         stays compact. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && rustdeskUsage(inst) && rustdeskUsage(inst).samples > 0">
+      <div class="mt-2">
+        <div class="apps-card-ups-grid">
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.rustdesk.usage_peak') || 'Peak online'"></div>
+            <div class="apps-card-stat-value" x-text="rustdeskCount(rustdeskUsage(inst).peak)"></div>
+          </div>
+          <div class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.rustdesk.usage_avg') || 'Avg online'"></div>
+            <div class="apps-card-stat-value" x-text="rustdeskUsage(inst).avg"></div>
+          </div>
+        </div>
+        <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="rustdeskSparkPoints(inst)"></polyline>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)] mono"
+             x-text="t('apps.rustdesk.usage_caption', { days: rustdeskUsage(inst).days }) || ('Online devices, last ' + rustdeskUsage(inst).days + ' days')"></div>
+      </div>
+    </template>
     <!-- RustDesk version footnote. -->
     <div x-show="rustdeskData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono"

@@ -577,6 +577,49 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_flaresolverr_sessions_ts
             ON flaresolverr_session_samples(ts);
 
+        -- RustDesk Server (Pro) per-chip history. The Pro API exposes only the
+        -- CURRENT peer state (no online-count history), so the lifespan
+        -- ``rustdesk_sampler`` records the live registered/online-device count +
+        -- user count per tick to give the card a "peak concurrent devices"
+        -- online-peers trend + fleet-growth. One row per (host_id, service_idx,
+        -- tick).
+        CREATE TABLE IF NOT EXISTS rustdesk_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            devices         INTEGER NOT NULL,
+            devices_online  INTEGER NOT NULL,
+            users           INTEGER NOT NULL,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rustdesk_samples_chip_ts
+            ON rustdesk_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_rustdesk_samples_ts
+            ON rustdesk_samples(ts);
+
+        -- Rundeck per-chip execution-outcome history. Rundeck keeps its own
+        -- execution history, but a glanceable LOCAL rollup of recent
+        -- success/failure counts gives the "is my automation getting flakier"
+        -- failure-rate trend at a glance. The lifespan ``rundeck_sampler``
+        -- records the recent-execution tally + job/running counts per tick.
+        -- One row per (host_id, service_idx, tick).
+        CREATE TABLE IF NOT EXISTS rundeck_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            jobs            INTEGER NOT NULL,
+            running         INTEGER NOT NULL,
+            recent_failed   INTEGER NOT NULL,
+            recent_total    INTEGER NOT NULL,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rundeck_samples_chip_ts
+            ON rundeck_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_rundeck_samples_ts
+            ON rundeck_samples(ts);
+
         -- ddns-updater per-chip history. ddns-updater exposes NO JSON API and
         -- no historical data, so the lifespan ``ddns_updater_sampler`` records
         -- each configured chip's current public IP + record totals + failing
@@ -1015,6 +1058,10 @@ def init_db():
             volume_count  INTEGER NOT NULL DEFAULT 0,
             chapter_count INTEGER NOT NULL DEFAULT 0,
             total_size    INTEGER NOT NULL DEFAULT 0,
+            -- Cumulative server-wide reading time (minutes, totalReadingTime).
+            -- Monotonic, so the trend DIFFS consecutive days into a
+            -- reading-minutes-per-day activity rate.
+            total_reading_minutes INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_kavita_samples_chip_ts
@@ -1517,6 +1564,9 @@ def init_db():
                 "ALTER TABLE seerr_samples ADD COLUMN declined INTEGER DEFAULT 0",
                 # Prowlarr fleet avg response time (ms) gauge — P3 slowness trend.
                 "ALTER TABLE prowlarr_samples ADD COLUMN response_ms INTEGER NOT NULL DEFAULT 0",
+                # Kavita cumulative reading time (minutes) — diffed per day for
+                # a reading-minutes-per-day activity rate.
+                "ALTER TABLE kavita_samples ADD COLUMN total_reading_minutes INTEGER NOT NULL DEFAULT 0",
                 # wall-clock of the MOST RECENT probe failure.
                 # ``first_failure_ts`` already records the start of the
                 # streak; this is the timestamp of the latest failed

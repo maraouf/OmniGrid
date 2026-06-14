@@ -77,60 +77,64 @@
          (DB retention window, popup pagination, SPA poll cadence),
          so they live inside the In-app tab body. -->
     <details x-show="isAdmin()"
-         class="mt-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
+             class="mt-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
-         x-text="t('admin.notifications.tunables_intro')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <template x-for="key in (tuningLoaded ? ['tuning_notification_retention_days',
+        <p class="fs-2xs text-[var(--text-faint)] mb-3 leading-snug"
+           x-text="t('admin.notifications.tunables_intro')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <template x-for="key in (tuningLoaded ? ['tuning_notification_retention_days',
                                       'tuning_notification_page_size',
                                       'tuning_notifications_poll_interval_seconds'] : [])"
-                :key="key">
-        <div class="mt-3">
-          <label class="block fs-xs font-medium mb-1"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="!isAdmin() || tuningSaving"
-                   class="w-44 mono fs-sm py-1">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+                  :key="key">
+          <div class="mt-3">
+            <label class="block fs-xs font-medium mb-1"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-xs text-[var(--text-faint)] mb-2 leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Loading…" :aria-label="t('common.loading')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="!isAdmin() || tuningSaving"
+                     class="w-44 mono fs-sm py-1">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
+        </template>
       </div>
     </details>
   </div>
@@ -160,11 +164,11 @@
       <span x-text="t('settings.notifications.url_format_prefix')"></span> <code class="mono text-[var(--text-dim)]">http://&lt;host&gt;:&lt;port&gt;/notify/&lt;CONFIG-KEY&gt;</code> —
       <code class="mono text-[var(--text-dim)]">&lt;CONFIG-KEY&gt;</code> <span x-html="t('settings.notifications.url_format_suffix')"></span>
     </p>
-    <input x-model="settings.apprise_url" type="url"
+    <input aria-label="URL format:" :aria-label="t('settings.notifications.url_format_prefix')" x-model="settings.apprise_url" type="url"
            @input="markAppriseDirty()"
            :disabled="isReadonly() || !settings.apprise_enabled"
            :placeholder="t('settings.notifications.url_placeholder')" class="w-full">
-    <input x-model="settings.apprise_tag" type="text"
+    <input aria-label="URL format:" :aria-label="t('settings.notifications.url_format_prefix')" x-model="settings.apprise_tag" type="text"
            @input="markAppriseDirty()"
            :disabled="isReadonly() || !settings.apprise_enabled"
            :placeholder="t('settings.notifications.tag_placeholder')" class="w-full mt-2">
@@ -222,7 +226,7 @@
       <span x-show="settings.telegram_bot_token_set"
             class="block fs-xs text-[var(--success)] mb-1"
             x-text="t('settings.secret_input.saved_hint')"></span>
-      <input x-model="settings.telegram_bot_token" type="password"
+      <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.telegram_bot_token" type="password"
              autocomplete="new-password"
              :disabled="isReadonly() || !settings.notify_medium_telegram"
              class="w-full mono fs-xs"
@@ -237,7 +241,7 @@
     <div class="mb-3">
       <label class="block fs-xs font-medium mb-1"
              x-text="t('admin.notifications.telegram_chat_id_label')"></label>
-      <input x-model="settings.telegram_chat_id" type="text"
+      <input aria-label="Chat ID(s)" :aria-label="t('admin.notifications.telegram_chat_id_label')" x-model="settings.telegram_chat_id" type="text"
              :disabled="isReadonly() || !settings.notify_medium_telegram"
              class="w-full mono fs-xs"
              :placeholder="t('admin.notifications.telegram_chat_id_placeholder')">
@@ -248,7 +252,7 @@
     <div class="mb-3">
       <label class="block fs-xs font-medium mb-1"
              x-text="t('admin.notifications.telegram_thread_id_label')"></label>
-      <input x-model="settings.telegram_thread_id" type="text"
+      <input aria-label="Topic ID (optional)" :aria-label="t('admin.notifications.telegram_thread_id_label')" x-model="settings.telegram_thread_id" type="text"
              :disabled="isReadonly() || !settings.notify_medium_telegram"
              class="w-full mono fs-xs"
              :placeholder="t('admin.notifications.telegram_thread_id_placeholder')">
@@ -266,7 +270,7 @@
     <div class="mt-4">
       <label class="block fs-xs font-medium mb-1"
              x-text="t('admin.notifications.telegram_api_base_label')"></label>
-      <input x-model="settings.telegram_api_base" type="text"
+      <input aria-label="Bot API base URL" :aria-label="t('admin.notifications.telegram_api_base_label')" x-model="settings.telegram_api_base" type="text"
              :disabled="isReadonly() || !settings.notify_medium_telegram"
              class="w-full mono fs-xs"
              :placeholder="t('admin.notifications.telegram_api_base_placeholder')">
@@ -285,59 +289,63 @@
          Portainer / OIDC Tunables sections. -->
     <details x-show="isAdmin()" class="mt-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('admin.notifications.telegram_tunables_intro')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <template x-for="key in (tuningLoaded ? _telegramSectionTuningKeys() : [])"
-                :key="key">
-        <div>
-          <label class="block fs-xs font-medium mb-1"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="isReadonly() || !settings.notify_medium_telegram"
-                   class="w-44 mono fs-sm py-1">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('admin.notifications.telegram_tunables_intro')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <template x-for="key in (tuningLoaded ? _telegramSectionTuningKeys() : [])"
+                  :key="key">
+          <div>
+            <label class="block fs-xs font-medium mb-1"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug mb-2"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Loading…" :aria-label="t('common.loading')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="isReadonly() || !settings.notify_medium_telegram"
+                     class="w-44 mono fs-sm py-1">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min" :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max" :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default" :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true">
                         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/>
                       </svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-2xs text-[var(--text-faint)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-2xs text-[var(--text-faint)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
+        </template>
       </div>
     </details>
     <!-- Shared Test-connection component — fires ONLY Telegram via
@@ -404,7 +412,7 @@
                x-text="t('admin.notifications.telegram_authorized_user_ids_label')"></label>
         <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
            x-text="t('admin.notifications.telegram_authorized_user_ids_hint')"></p>
-        <input type="text"
+        <input aria-label="Comma-separated list of Telegram user_id integers allowed to issue commands. Empty list means &quot;any sender in the authorized chat is allowed&quot; — good default for DMs where you ARE the only member; less safe for groups / supergroups with multiple members. Get a user_id by DM'ing @userinfobot on Telegram, or by reading the &lt;code&gt;from.id&lt;/code&gt; field on a /help echo." :aria-label="t('admin.notifications.telegram_authorized_user_ids_hint')" type="text"
                x-model="settings.telegram_authorized_user_ids"
                :disabled="isReadonly() || !settings.telegram_listener_enabled"
                class="w-full mono fs-xs"

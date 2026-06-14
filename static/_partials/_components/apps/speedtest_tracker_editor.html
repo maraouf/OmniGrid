@@ -43,6 +43,35 @@
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
          x-text="t('apps.speedtest.avg_window_hint') || 'How many of the most-recent results to average for &quot;Avg of last N tests&quot; (2–60). Leave blank for the default of 10.'"></p>
     </div>
+    <!-- Below-floor reliability — the operator's OWN ISP-advertised download
+         floor (Mbps); the card flags the % of tests below it. Blank = OFF.
+         "Recommend" derives ~90% of the median download over the last N days
+         (the days input) from this chip's own history. Does NOT read
+         speedtest-tracker's own threshold. -->
+    <div>
+      <label for="apps-instance-speedtest-floor"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.speedtest.floor_label') || 'Below-floor alert (Mbps)'"></label>
+      <div class="flex items-center gap-2 flex-wrap">
+        <input id="apps-instance-speedtest-floor"
+               type="number" min="0" max="100000" step="1"
+               x-model="appsInstanceEditForm.speed_floor_mbps"
+               @change="appsInstanceEditForm.speed_floor_mbps = appsClampSpeedFloor(appsInstanceEditForm.speed_floor_mbps)"
+               class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :placeholder="t('apps.speedtest.floor_placeholder') || 'off'"
+               autocomplete="off">
+        <input aria-label="History (days)" type="number" min="1" max="365" step="1"
+               x-model.number="appsSpeedFloorDays"
+               class="w-20 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+               :aria-label="t('apps.speedtest.floor_days_label') || 'History (days)'"
+               :title="t('apps.speedtest.floor_days_label') || 'History (days)'">
+        <button type="button" class="btn btn-soft fs-xs"
+                @click="appsRecommendSpeedFloor(appsInstanceEditForm.host_id, appsInstanceEditForm.service_idx, appsSpeedFloorDays).then(v => { if (v) { appsInstanceEditForm.speed_floor_mbps = String(v); } })"
+                x-text="t('apps.speedtest.floor_recommend') || 'Recommend'"></button>
+      </div>
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.speedtest.floor_hint') || 'Your ISP-advertised download speed (Mbps). The card flags the % of tests below it as a reliability signal. Blank = off. “Recommend” suggests ~90% of your median download over the last N days.'"></p>
+    </div>
     <!-- Per-instance data-cache TTL (contained in the app, NOT a global
          Config tunable). Blank = the app default (60s); backend clamps
          5..3600. -->

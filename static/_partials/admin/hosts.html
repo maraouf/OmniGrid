@@ -64,7 +64,7 @@
       </svg>
       <span x-text="t('admin_hosts.import_button')"></span>
     </button>
-    <input type="file" x-ref="hostsImportFile" accept="application/json,.json"
+    <input aria-label="Import" :aria-label="t('admin_hosts.import_button')" type="file" x-ref="hostsImportFile" accept="application/json,.json"
            class="hidden"
            @change="importHostsConfig($event)">
     <!-- Reload via the shared og-reload-button component — gates PURELY on
@@ -127,7 +127,7 @@
     <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true">
       <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
     </svg>
-    <input type="search" x-model.debounce.150ms="hostsConfigFilter"
+    <input aria-label="Filter hosts by id, label, provider name, URL…" :aria-label="t('admin_hosts.filter_placeholder')" type="search" x-model.debounce.150ms="hostsConfigFilter"
            class="flex-1 fs-sm py-1.5"
            :placeholder="t('admin_hosts.filter_placeholder')">
     <span class="fs-2xs text-[var(--text-faint)]"
@@ -150,7 +150,7 @@
        class="flex items-center gap-2 mb-3 flex-wrap fs-xs">
           <span class="text-[var(--text-faint)]"
                 x-text="t('admin_hosts.snmp_vendors_bulk_label')"></span>
-    <select x-model="hostsConfigBulkVendor"
+    <select aria-label="Bulk Vendor MIB:" :aria-label="t('admin_hosts.snmp_vendors_bulk_label')" x-model="hostsConfigBulkVendor"
             class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
       <option value="" x-text="t('admin_hosts.snmp_vendors_bulk_pick')"></option>
       <template x-for="vendor in snmpVendorKeys()" :key="'bulk_' + vendor">
@@ -367,7 +367,7 @@
                      mid-edit. Instead, mark the row dirty here and
                      let the parent card's @focusout fire the sort
                      only when focus actually leaves the entire row. -->
-                <input type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
+                <input aria-label="Custom #" :aria-label="t('hosts_extra.custom_number_label')" type="number" x-model.number="row.custom_number" :disabled="isReadonly()"
                        @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_cn'); row._cnDirty = true"
                        class="w-full mono fs-md py-1.5"
                        :class="hasFieldError('host_' + idx + '_cn') ? 'field-invalid' : ''"
@@ -378,7 +378,7 @@
               </div>
               <div>
                 <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1">ID · Docker hostname</label>
-                <input type="text" x-model="row.id" :disabled="isReadonly()"
+                <input aria-label="e.g. host01" :aria-label="t('admin_hosts.row.id_placeholder')" type="text" x-model="row.id" :disabled="isReadonly()"
                        @input="onHostRowEdit(idx, 'id', $event.target.value); clearFieldError('host_' + idx + '_id')"
                        class="w-full mono fs-md py-1.5"
                        :class="hasFieldError('host_' + idx + '_id') ? 'field-invalid' : ''"
@@ -390,7 +390,7 @@
               <div>
                 <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                        x-text="t('admin_hosts.row.display_label')"></label>
-                <input type="text" x-model="row.label" :disabled="isReadonly()"
+                <input aria-label="Display label" :aria-label="t('admin_hosts.row.display_label')" type="text" x-model="row.label" :disabled="isReadonly()"
                        @input="markHostRowDirty(idx)"
                        class="w-full fs-md py-1.5"
                        :placeholder="t('admin_hosts.row.label_placeholder')">
@@ -410,7 +410,7 @@
                   <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                         x-text="t('admin_hosts.row.external_url_hint')"></span>
                 </label>
-                <input type="url" x-model="row.url" :disabled="isReadonly()"
+                <input aria-label="(host's web UI or dashboard)" :aria-label="t('admin_hosts.row.external_url_hint')" type="url" x-model="row.url" :disabled="isReadonly()"
                        @input="markHostRowDirty(idx)"
                        class="w-full mono fs-sm py-1.5"
                        :placeholder="t('admin_hosts.row.url_placeholder')">
@@ -432,7 +432,7 @@
                        width="22" height="22" class="flex-shrink-0 rounded-sm"
                        alt="" loading="lazy"
                        @error="$event.target.style.display='none'">
-                  <input type="text" x-model="row.icon" :disabled="isReadonly()"
+                  <input aria-label="opnsense · pfsense · ghcr.io/… · none" :aria-label="t('admin_hosts.row.icon_placeholder')" type="text" x-model="row.icon" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="flex-1 mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.icon_placeholder')">
@@ -453,7 +453,7 @@
                 <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                       x-text="t('admin_hosts.row.address_hint')"></span>
               </label>
-              <input type="text" x-model="row.address" :disabled="isReadonly()"
+              <input aria-label="(default probe target for port-scan / ping / SNMP / SSH when no provider override is set)" :aria-label="t('admin_hosts.row.address_hint')" type="text" x-model="row.address" :disabled="isReadonly()"
                      @input="markHostRowDirty(idx)"
                      class="w-full mono fs-sm py-1.5"
                      maxlength="64"
@@ -474,7 +474,7 @@
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.provider.blank_skip')"></span>
                   </label>
-                  <input type="url" x-model="row.ne_url" :disabled="isReadonly()"
+                  <input aria-label="(blank = skip)" :aria-label="t('admin_hosts.provider.blank_skip')" type="url" x-model="row.ne_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.ne_url_placeholder')">
@@ -486,7 +486,7 @@
                           x-show="hostsDiscovery.beszel.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
-                  <input type="text" x-model="row.beszel_name" :disabled="isReadonly()"
+                  <input aria-label="(autocomplete)" :aria-label="t('admin_hosts.provider.autocomplete')" type="text" x-model="row.beszel_name" :disabled="isReadonly()"
                          list="beszel-names"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
@@ -499,7 +499,7 @@
                           x-show="hostsDiscovery.pulse.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
-                  <input type="text" x-model="row.pulse_name" :disabled="isReadonly()"
+                  <input aria-label="(autocomplete)" :aria-label="t('admin_hosts.provider.autocomplete')" type="text" x-model="row.pulse_name" :disabled="isReadonly()"
                          list="pulse-names"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
@@ -517,7 +517,7 @@
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.provider.webmin_blank_skip')"></span>
                   </label>
-                  <input type="url" x-model="row.webmin_url" :disabled="isReadonly()"
+                  <input aria-label="(blank = skip — hosts without Webmin keep working)" :aria-label="t('admin_hosts.provider.webmin_blank_skip')" type="url" x-model="row.webmin_url" :disabled="isReadonly()"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
                          :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
@@ -529,7 +529,7 @@
                           x-show="hostsDiscovery.webmin && hostsDiscovery.webmin.length"
                           x-text="t('admin_hosts.provider.autocomplete')"></span>
                   </label>
-                  <input type="text" x-model="row.webmin_name" :disabled="isReadonly()"
+                  <input aria-label="(autocomplete)" :aria-label="t('admin_hosts.provider.autocomplete')" type="text" x-model="row.webmin_name" :disabled="isReadonly()"
                          list="webmin-names"
                          @input="markHostRowDirty(idx); clearFieldError('host_' + idx + '_webmin_name')"
                          class="w-full mono fs-sm py-1.5"
@@ -578,7 +578,7 @@
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.per_host_user')"></label>
-                    <input type="text"
+                    <input aria-label="Override user" :aria-label="t('hosts_extra_ssh.per_host_user')" type="text"
                            :value="row.ssh && row.ssh.user || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { user: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
@@ -588,7 +588,7 @@
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.per_host_port')"></label>
-                    <input type="number" min="1" max="65535"
+                    <input aria-label="Override port" :aria-label="t('hosts_extra_ssh.per_host_port')" type="number" min="1" max="65535"
                            :value="row.ssh && row.ssh.port || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
@@ -603,7 +603,7 @@
                       <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                             x-text="t('admin_hosts.row.ssh_fqdn_hint') || '(blank = falls back to Hostname or IP)'"></span>
                     </label>
-                    <input type="text"
+                    <input aria-label="(blank = falls back to Hostname or IP)" :aria-label="t('admin_hosts.row.ssh_fqdn_hint')" type="text"
                            :value="row.ssh && (row.ssh.fqdn || row.ssh.host) || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { fqdn: $event.target.value }); markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
@@ -616,7 +616,7 @@
                       <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                             x-text="t('common.hint_global_default')"></span>
                     </label>
-                    <input type="password"
+                    <input aria-label="(global default)" :aria-label="t('common.hint_global_default')" type="password"
                            autocomplete="new-password"
                            :value="row.ssh && row.ssh.password || ''"
                            @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { password: $event.target.value }); markHostRowDirty(idx)"
@@ -657,7 +657,7 @@
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.provider.ping_port_label')"></label>
-                  <input type="number" min="1" max="65535"
+                  <input aria-label="Ping port (optional)" :aria-label="t('admin_hosts.provider.ping_port_label')" type="number" min="1" max="65535"
                          :value="row.ping && row.ping.port || ''"
                          @input="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
@@ -667,7 +667,7 @@
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.provider.ping_transport_label')"></label>
-                  <select :value="row.ping && row.ping.transport || ''"
+                  <select aria-label="Ping transport" :aria-label="t('admin_hosts.provider.ping_transport_label')" :value="row.ping && row.ping.transport || ''"
                           @change="hostsConfig[idx].ping = Object.assign({}, hostsConfig[idx].ping || {}, { transport: $event.target.value || null }); markHostRowDirty(idx)"
                           :disabled="isReadonly() || !row.enabled"
                           class="w-full mono fs-sm py-1.5">
@@ -717,7 +717,7 @@
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('admin_hosts.row.snmp_target_hint') || '(blank = falls back to Hostname or IP)'"></span>
                   </label>
-                  <input type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
+                  <input aria-label="(blank = falls back to Hostname or IP)" :aria-label="t('admin_hosts.row.snmp_target_hint')" type="text" x-model="row.snmp_name" :disabled="isReadonly() || !row.enabled"
                          list="snmp-names"
                          @input="markHostRowDirty(idx)"
                          class="w-full mono fs-sm py-1.5"
@@ -732,7 +732,7 @@
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1"
                           x-text="t('common.hint_global_default')"></span>
                   </label>
-                  <input type="text"
+                  <input aria-label="(global default)" :aria-label="t('common.hint_global_default')" type="text"
                          :value="row.snmp && row.snmp.community || ''"
                          @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { community: $event.target.value || null }); markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
@@ -741,7 +741,7 @@
                 </div>
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1" x-text="t('admin_hosts.snmp_version_label')"></label>
-                  <select :value="row.snmp && row.snmp.version || ''"
+                  <select aria-label="Version" :aria-label="t('admin_hosts.snmp_version_label')" :value="row.snmp && row.snmp.version || ''"
                           @change="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { version: $event.target.value || null }); markHostRowDirty(idx)"
                           :disabled="isReadonly() || !row.enabled"
                           class="w-full mono fs-sm py-1.5">
@@ -755,7 +755,7 @@
                     UDP port
                     <span class="fs-3xs normal-case text-[var(--text-faint)] ms-1">(blank = 161)</span>
                   </label>
-                  <input type="number" min="1" max="65535"
+                  <input aria-label="(global default)" :aria-label="t('admin_hosts.provider.ping_transport_default')" type="number" min="1" max="65535"
                          :value="row.snmp && row.snmp.port || ''"
                          @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { port: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
@@ -778,7 +778,7 @@
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('admin_hosts.snmp_walk_concurrency_hint')"
                          x-text="t('admin_hosts.snmp_walk_concurrency_label')"></label>
-                  <input type="number" min="1" max="16"
+                  <input aria-label="How many SNMP walks run in parallel against THIS host. Blank = the global default (1, the safety floor). Server-class BMCs like Dell iDRAC, Cisco IMC, and Supermicro IPMI handle parallel queries fine and need 4-8 to fit pysnmp's per-walk overhead inside the probe budget. Leave blank for low-power printers / NAS / OpenWrt-class gear that drop UDP packets at higher concurrency." type="number" min="1" max="16"
                          :value="row.snmp && row.snmp.walk_concurrency || ''"
                          @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { walk_concurrency: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
@@ -797,7 +797,7 @@
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          :title="t('admin_hosts.snmp_wall_clock_budget_hint')"
                          x-text="t('admin_hosts.snmp_wall_clock_budget_label')"></label>
-                  <input type="number" min="5" max="600"
+                  <input aria-label="Total wall-clock budget for ONE SNMP probe against THIS host (seconds). Blank = the global default (60s). Slow iDRAC chassis with the BIOS / virtual-disk / power-supply walks may need 90-120s; embedded snmpd's typically finish well under the default. Range 5..600s." type="number" min="5" max="600"
                          :value="row.snmp && row.snmp.wall_clock_budget || ''"
                          @input="hostsConfig[idx].snmp = Object.assign({}, hostsConfig[idx].snmp || {}, { wall_clock_budget: $event.target.value ? parseInt($event.target.value, 10) : null }); markHostRowDirty(idx)"
                          :disabled="isReadonly() || !row.enabled"
@@ -896,7 +896,7 @@
                   <span :title="t('admin_hosts.snmp_exclude_mounts_hint')"
                         x-text="t('admin_hosts.snmp_exclude_mounts_label')"></span>
               </label>
-              <textarea x-model="row.snmp.exclude_mounts_text"
+              <textarea aria-label="Exclude mounts" :aria-label="t('admin_hosts.snmp_exclude_mounts_label')" x-model="row.snmp.exclude_mounts_text"
                         rows="2"
                         class="w-full mono fs-xs"
                         :class="(isReadonly() || !row.enabled || !(row.snmp && row.snmp.enabled)) ? 'opacity-50 cursor-not-allowed' : ''"
@@ -950,7 +950,7 @@
                 <div>
                   <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                          x-text="t('admin_hosts.http_probe_urls_label')"></label>
-                  <textarea rows="3"
+                  <textarea aria-label="Probe URLs (one per line)" :aria-label="t('admin_hosts.http_probe_urls_label')" rows="3"
                             x-model="row.http_probe.urls_text"
                             @input.debounce.250ms="markHostRowDirty(idx)"
                             :disabled="isReadonly() || !row.enabled"
@@ -966,7 +966,7 @@
                   <div>
                     <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
                            x-text="t('admin_hosts.http_probe_content_match_label')"></label>
-                    <input type="text"
+                    <input aria-label="Content-match string (optional)" :aria-label="t('admin_hosts.http_probe_content_match_label')" type="text"
                            :value="(row.http_probe && row.http_probe.content_match) || ''"
                            @input="setHttpProbeField(idx, 'content_match', $event.target.value || null)"
                            :disabled="isReadonly() || !row.enabled"
@@ -983,7 +983,7 @@
                          the array) so typing doesn't round-trip through the
                          array and clear the field on every keystroke. Parsed to
                          an int array on save; hydrated from the array on load. -->
-                    <input type="text"
+                    <input aria-label="Accepted status codes (CSV)" :aria-label="t('admin_hosts.http_probe_status_codes_label')" type="text"
                            x-model="row.http_probe.accepted_status_codes_text"
                            @input="markHostRowDirty(idx)"
                            :disabled="isReadonly() || !row.enabled"
@@ -1155,7 +1155,7 @@
                 :class="hostsConfigPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                 class="btn btn-soft fs-xs px-2.5">‹ Prev
         </button>
-        <input type="number" min="1" :max="hostsConfigTotalPages()"
+        <input aria-label="Jump to page" type="number" min="1" :max="hostsConfigTotalPages()"
                :value="Math.min(hostsConfigPage, hostsConfigTotalPages())"
                @change="hostsConfigGoToPage($event.target.value)"
                class="w-14 text-center fs-xs py-1"
@@ -1170,7 +1170,7 @@
                 :class="hostsConfigPage >= hostsConfigTotalPages() ? 'opacity-40 cursor-not-allowed' : ''"
                 class="btn btn-ghost fs-xs px-2" :title="t('pagination.last_page_title')">»
         </button>
-        <select :value="hostsConfigPerPage"
+        <select aria-label="Rows per page" :value="hostsConfigPerPage"
                 @change="hostsConfigSetPerPage($event.target.value)"
                 class="fs-xs py-1 ms-2"
                 :title="t('pagination.rows_per_page_title')">

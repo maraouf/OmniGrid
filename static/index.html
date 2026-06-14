@@ -789,7 +789,7 @@
       <!-- Language picker — `order-4` on mobile so it appears BEFORE
            the SYNC range row (order-5), per operator preference.
            Desktop unchanged. -->
-      <select :value="lang" @change="setLang($event.target.value)"
+      <select aria-label="Language" :value="lang" @change="setLang($event.target.value)"
               class="lang-picker fs-xs order-4 sm:order-none"
               :title="t('settings.language.label')">
         <template x-for="l in availableLanguages" :key="l.code">
@@ -1207,7 +1207,7 @@
                   x-show="expanded.includes(stack.name)"
                   @click="openDrawer(item)">
                 <td @click.stop>
-                  <input type="checkbox" :value="item.id" x-model="selected"
+                  <input aria-label="Select row" :aria-label="t('common.select_row') || 'Select row'" type="checkbox" :value="item.id" x-model="selected"
                          :disabled="!isSelectable(item)"
                          class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
                 </td>
@@ -1412,7 +1412,7 @@
           <thead>
           <tr>
             <th class="col-checkbox">
-              <input type="checkbox"
+              <input aria-label="Select all" :aria-label="t('common.select_all') || 'Select all'" type="checkbox"
                      :checked="selected.length>0 && selected.length===filteredItems.filter(i=>isSelectable(i)).length"
                      @click="toggleSelectAll()"
                      class="w-[13px] h-[13px] accent-[var(--primary)]">
@@ -1438,7 +1438,7 @@
                 :class="[selected.includes(item.id) ? 'sel' : '', (item._stale || isStale(statsFor(item))) ? 'row-stale-flash' : '']"
                 @click="openDrawer(item)">
               <td @click.stop>
-                <input type="checkbox" :value="item.id" x-model="selected"
+                <input aria-label="Select row" :aria-label="t('common.select_row') || 'Select row'" type="checkbox" :value="item.id" x-model="selected"
                        :disabled="!isSelectable(item)"
                        class="w-[13px] h-[13px] accent-[var(--primary)] disabled:opacity-25">
               </td>
@@ -2041,7 +2041,7 @@
               <span class="truncate" x-text="(t('apps.drawer.logs_title') || 'Container logs') + (appLogModal.title ? ' — ' + appLogModal.title : '')"></span>
             </h3>
             <div class="flex items-center gap-2 flex-shrink-0">
-              <select x-model.number="appLogModal.tail" @change="reloadAppLog()" class="fs-xs"
+              <select aria-label="Lines to tail" x-model.number="appLogModal.tail" @change="reloadAppLog()" class="fs-xs"
                       :disabled="appLogModal.loading"
                       :aria-label="t('apps.drawer.logs_tail_label') || 'Lines to tail'">
                 <template x-for="n in [100, 200, 500, 1000, 2000]" :key="n">
@@ -2083,7 +2083,7 @@
           <div class="mb-3">
             <label class="fs-xs text-[var(--text-faint)] block mb-1"
                    x-text="t('hosts_extra.bulk.snmp_vendors_mode_label') || 'Mode'"></label>
-            <select x-model="bulkSnmpVendorsModal.mode" class="fs-sm w-full">
+            <select aria-label="Mode" :aria-label="t('hosts_extra.bulk.snmp_vendors_mode_label') || 'Mode'" x-model="bulkSnmpVendorsModal.mode" class="fs-sm w-full">
               <option value="set" x-text="t('hosts_extra.bulk.snmp_vendors_mode_set') || 'Replace selection'"></option>
               <option value="add" x-text="t('hosts_extra.bulk.snmp_vendors_mode_add') || 'Add to existing'"></option>
               <option value="remove" x-text="t('hosts_extra.bulk.snmp_vendors_mode_remove') || 'Remove from existing'"></option>
@@ -2134,7 +2134,7 @@
             <div>
               <label class="fs-xs text-[var(--text-faint)] block mb-1"
                      x-text="t('hosts_extra.bulk.snmp_tunables_walk_label') || 'walk_concurrency (1-16)'"></label>
-              <input type="number" min="1" max="16"
+              <input aria-label="walk_concurrency (1-16)" :aria-label="t('hosts_extra.bulk.snmp_tunables_walk_label') || 'Walk concurrency'" type="number" min="1" max="16"
                      x-model="bulkSnmpTunablesModal.walk_concurrency"
                      :disabled="bulkSnmpTunablesModal.clear"
                      class="fs-sm w-full">
@@ -2142,7 +2142,7 @@
             <div>
               <label class="fs-xs text-[var(--text-faint)] block mb-1"
                      x-text="t('hosts_extra.bulk.snmp_tunables_budget_label') || 'wall_clock_budget (5-600s)'"></label>
-              <input type="number" min="5" max="600"
+              <input aria-label="wall_clock_budget (5-600s)" :aria-label="t('hosts_extra.bulk.snmp_tunables_budget_label') || 'Wall-clock budget'" type="number" min="5" max="600"
                      x-model="bulkSnmpTunablesModal.wall_clock_budget"
                      :disabled="bulkSnmpTunablesModal.clear"
                      class="fs-sm w-full">
@@ -2420,7 +2420,7 @@
         <svg width="14" height="14" class="text-[var(--text-faint)]" aria-hidden="true">
           <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-search"/>
         </svg>
-        <input type="search" x-model.debounce.150ms="hostsSearch"
+        <input aria-label="Search hosts" :aria-label="t('common.search') || 'Search hosts'" type="search" x-model.debounce.150ms="hostsSearch"
                class="flex-1 min-w-[180px] fs-sm py-1.5"
                :placeholder="t('hosts_extra.filter_placeholder')">
         <span class="fs-2xs text-[var(--text-faint)]"
@@ -2533,7 +2533,7 @@
                   <div class="host-mobile-card-head">
                     <!-- Bulk-selection checkbox. Same admin-only gate +
                    click-stop pattern as the desktop row. -->
-                    <input type="checkbox"
+                    <input aria-label="Select host {name}" type="checkbox"
                            x-show="isAdmin()"
                            :checked="isHostSelected(h.id)"
                            @click.stop
@@ -2854,7 +2854,7 @@
                    `@click.stop` on the checkbox so toggling selection
                    doesn't open the drawer. -->
                     <div class="flex items-center gap-1.5">
-                      <input type="checkbox"
+                      <input aria-label="Select host {name}" type="checkbox"
                              x-show="isAdmin()"
                              :checked="isHostSelected(h.id)"
                              @click.stop
@@ -3375,7 +3375,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-          <input type="search" class="fs-sm"
+          <input aria-label="Search apps…" :aria-label="t('apps.search_placeholder') || 'Search apps'" type="search" class="fs-sm"
                  :placeholder="t('apps.search_placeholder') || 'Search apps…'"
                  x-model="appsSearchQuery"
                  style="min-width:200px;">
@@ -3605,7 +3605,7 @@
                  displayed). Each option self-selects when it renders, and
                  re-evaluates when appsActiveViewId() changes (create /
                  duplicate / delete), so it stays in sync both ways. -->
-            <select class="fs-sm py-1 max-w-[180px]"
+            <select aria-label="Custom view" class="fs-sm py-1 max-w-[180px]"
                     @change="appsSwitchView($event.target.value)"
                     :aria-label="t('apps.custom.view_picker_label') || 'Custom view'">
               <template x-for="v in appsViews()" :key="v.id">
@@ -3741,7 +3741,7 @@
                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
                   </svg>
                 </button>
-                <input x-show="appsCustomEditMode" type="text"
+                <input aria-label="Section name" x-show="appsCustomEditMode" type="text"
                        class="apps-section-name flex-1 fs-display-sm font-semibold bg-transparent border-0"
                        :value="sec.name"
                        :placeholder="t('apps.custom.section_name_placeholder') || 'Section name'"
@@ -3781,7 +3781,7 @@
                 </template>
                 <template x-if="appsCustomEditMode">
                 <span class="flex items-center gap-1 flex-shrink-0">
-                  <select class="fs-2xs" :aria-label="t('apps.custom.add_widget') || 'Add widget'"
+                  <select aria-label="+ Widget" class="fs-2xs" :aria-label="t('apps.custom.add_widget') || 'Add widget'"
                           @change="addAppsWidget(sec.id, $event.target.value); $event.target.value=''">
                     <option value="" x-text="t('apps.custom.add_widget') || '+ Widget'"></option>
                     <template x-for="wk in appsAvailableWidgetKinds()" :key="wk">
@@ -3805,11 +3805,11 @@
               </header>
               <div x-show="appsCustomEditMode && appsBookmarkOpenFor === sec.id"
                    class="flex items-center gap-2 px-2 py-1.5 border-t border-[var(--border)] flex-wrap">
-                <input type="text" class="fs-xs apps-bookmark-quickadd-input"
+                <input aria-label="Name" type="text" class="fs-xs apps-bookmark-quickadd-input"
                        x-model="appsBookmarkName"
                        :placeholder="t('apps.custom.bookmark_name_placeholder') || 'Name'"
                        :aria-label="t('apps.custom.bookmark_name_placeholder') || 'Name'">
-                <input type="url" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--url"
+                <input aria-label="https://…" type="url" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--url"
                        x-model="appsBookmarkUrl"
                        :placeholder="t('apps.custom.bookmark_url_placeholder') || 'https://…'"
                        :aria-label="t('apps.custom.bookmark_url_placeholder') || 'URL'"
@@ -3823,7 +3823,7 @@
                      icon source (operator saw it try to load `https://5g/`
                      as the image). appsBookmarkIconUrl resolves the slug
                      through the same brand resolver the hosts use. -->
-                <input type="text" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--icon"
+                <input aria-label="Optional icon — paste a URL or type a brand slug" type="text" class="fs-xs apps-bookmark-quickadd-input apps-bookmark-quickadd-input--icon"
                        x-model="appsBookmarkIcon"
                        :placeholder="t('apps.custom.bookmark_icon_placeholder') || 'Icon slug, URL, or blank'"
                        :aria-label="t('apps.custom.bookmark_icon_aria') || 'Icon slug or URL (optional)'"
@@ -4089,7 +4089,7 @@
 
       <!-- HISTORY FILTER BAR -->
       <div class="flex flex-wrap items-center gap-2">
-        <input type="search" x-model.debounce.300ms="historyFilters.q" @input="historyApplyFilter()"
+        <input aria-label="Search name, id, error…" :aria-label="t('history.search_placeholder') || 'Search history'" type="search" x-model.debounce.300ms="historyFilters.q" @input="historyApplyFilter()"
                :placeholder="t('history.search_placeholder')"
                class="fs-sm min-w-[220px] flex-1 max-w-[340px]">
         <div class="flex items-center gap-1.5 flex-wrap">
@@ -4110,7 +4110,7 @@
              — when adding a new op_type, extend this array AND add the
              matching i18n key under `op_types.<name>` so localised
              operators see a clean label. -->
-        <select x-model="historyFilters.op_type" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
+        <select aria-label="All op types" :aria-label="t('history.all_op_types') || 'Filter by operation type'" x-model="historyFilters.op_type" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
           <option value="" x-text="t('history.all_op_types')"></option>
           <template x-for="ot in [
               'update_stack','update_container','restart_service','restart_container','remove_container',
@@ -4133,7 +4133,7 @@
             <option :value="ot" x-text="opTypeLabel(ot)"></option>
           </template>
         </select>
-        <select x-model="historyFilters.stack" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
+        <select aria-label="All stacks" :aria-label="t('history.all_stacks') || 'Filter by stack'" x-model="historyFilters.stack" @change="historyApplyFilter()" class="fs-sm min-w-[150px]">
           <option value="" x-text="t('history.all_stacks')"></option>
           <template x-for="s in historyStackOptions" :key="s">
             <option :value="s" x-text="s"></option>
@@ -4147,14 +4147,14 @@
              converts back to the ISO `YYYY-MM-DD` value the existing
              filter logic consumes. Placeholder shows the active format
              token so operators can see at a glance what to type. -->
-        <input type="text"
+        <input aria-label="From date" type="text"
                :value="_formatIsoDate(historyFilters.fromDate)"
                @change="setHistoryDateFromText('from', $event.target.value)"
                :placeholder="_userDateOnlyFormat()"
                class="fs-sm mono"
                style="width: 9.5rem;"
                :title="t('history.from_date_title')">
-        <input type="text"
+        <input aria-label="To date" type="text"
                :value="_formatIsoDate(historyFilters.toDate)"
                @change="setHistoryDateFromText('to', $event.target.value)"
                :placeholder="_userDateOnlyFormat()"
@@ -4226,7 +4226,7 @@
                     :class="historyPage <= 1 ? 'opacity-40 cursor-not-allowed' : ''"
                     class="btn btn-soft fs-xs px-2.5"
                     x-text="t('pagination.prev')"></button>
-            <input type="number" min="1" :max="historyTotalPages()"
+            <input aria-label="Jump to page" type="number" min="1" :max="historyTotalPages()"
                    :value="Math.min(historyPage, historyTotalPages())"
                    @change="historyGoToPage($event.target.value)"
                    class="w-14 text-center fs-xs py-1"
@@ -4242,7 +4242,7 @@
                     class="btn btn-ghost fs-xs px-2"
                     :title="t('pagination.last_page_title')"
                     x-text="t('pagination.last_glyph')"></button>
-            <select :value="historyPerPage"
+            <select aria-label="Rows per page" :value="historyPerPage"
                     @change="historySetPerPage($event.target.value)"
                     class="fs-xs py-1 ms-2"
                     :title="t('pagination.rows_per_page_title')">
@@ -4327,7 +4327,7 @@
              ≥768px (CSS hides this `.page-mobile-nav` block). -->
         <div class="page-mobile-nav">
           <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.admin')"></label>
-          <select :value="adminTab" @change="openAdminTab($event.target.value)" class="w-full fs-md py-2">
+          <select aria-label="Admin" :aria-label="t('nav.admin') || 'Admin section'" :value="adminTab" @change="openAdminTab($event.target.value)" class="w-full fs-md py-2">
             <!-- Skip separator entries entirely on the mobile select.
                  iOS Safari renders `<option :disabled>` similarly to
                  regular options, so the `──────────` rows would clutter
@@ -4409,7 +4409,7 @@
     <div x-show="view==='stats'" class="page-layout">
       <div class="page-mobile-nav">
         <label class="fs-xs text-[var(--text-faint)] block mb-1" x-text="t('nav.stats')"></label>
-        <select :value="statsTab" @change="openStatsTab($event.target.value)" class="w-full fs-md py-2">
+        <select aria-label="Stats" :aria-label="t('nav.stats') || 'Stats section'" :value="statsTab" @change="openStatsTab($event.target.value)" class="w-full fs-md py-2">
           <template x-for="s in statsSections" :key="s.id">
             <option :value="s.id" :selected="statsTab === s.id" x-text="t('stats.sections.' + s.id)"></option>
           </template>
@@ -9935,7 +9935,7 @@
                   <div class="mb-3">
                     <label class="block fs-xs text-[var(--text-faint)] mb-1"
                            x-text="t('hosts_extra_ssh.custom_label')"></label>
-                    <textarea :value="sshCommand[h.id] || ''"
+                    <textarea aria-label="Custom command" :value="sshCommand[h.id] || ''"
                               @input="sshCommand = Object.assign({}, sshCommand, { [h.id]: $event.target.value })"
                               :disabled="!(sshStatus[h.id] && sshStatus[h.id].configured) || !isSshAllowed(h)"
                               :title="!isSshAllowed(h) ? sshDisabledReason(h) : ''"
@@ -10380,6 +10380,13 @@
                            when collapsed — user-toggled panel, safe to unmount. -->
                       <template x-if="appDebugOpen[appInstanceKey(inst)] && me && me.role === 'admin' && (settings && settings.debug_panel_enabled !== false)">
                         <div class="mt-2 rounded-md bg-[var(--surface-2)] border border-[var(--border)] p-2">
+                          <!-- App-data endpoint diagnostics (out['_debug'] from
+                               fetch_data) — the upstream's actual per-request
+                               status + body snippet + self-diagnosed hint, so a
+                               "0" value is traceable. Independent of the /debug
+                               probe-target data below; self-gates on
+                               appsHasDebug. -->
+                          <!-- INCLUDE: _components/apps/_debug_panel.html -->
                           <template x-if="appDebug[appInstanceKey(inst)] && appDebug[appInstanceKey(inst)].loading">
                             <div class="fs-xs text-[var(--text-faint)] flex items-center gap-2">
                               <span class="spin"></span><span x-text="t('apps.drawer.debug_loading') || 'Loading diagnostics…'"></span>
@@ -10957,7 +10964,7 @@
                       <span class="text-[var(--text-faint)] fs-2xs" x-text="t('drawer.retag_tag_current_label')"></span>
                       <code class="mono fs-xs text-[var(--text-dim)]" x-text="drawerItem.image || '—'"></code>
                     </div>
-                    <input type="text"
+                    <input aria-label="New image tag" :aria-label="t('drawer.retag_label') || 'New image tag'" type="text"
                            :data-retag-input="drawerItem.raw_id || drawerItem.id"
                            x-model="_retagDraft"
                            @keyup.enter="submitRetagPopover(drawerItem)"
@@ -11359,7 +11366,7 @@
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1" x-html="t('admin.token_modal.token_label')"></label>
             <div class="flex items-stretch gap-2">
-              <input type="text" readonly
+              <input aria-label="Generated API token" :aria-label="t('admin.token_modal.token_label_plain') || 'Generated API token'" type="text" readonly
                      :value="lastCreatedToken && lastCreatedToken.token"
                      class="mono fs-sm flex-1"
                      onclick="this.select()">
@@ -11427,7 +11434,7 @@
               <label class="block fs-xs font-medium text-[var(--text-dim)] mb-1.5"
                      x-text="t('admin.notify_templates.title_label')"></label>
               <template x-if="!notifyTemplateEditor.readOnly">
-                <input type="text"
+                <input aria-label="Title" :aria-label="t('admin.notify_templates.title_label') || 'Notification title template'" type="text"
                        x-ref="notifyTemplateTitleInput"
                        x-model="notifyTemplateEditor.title"
                        :placeholder="notifyTemplateEditor.title_default"
@@ -11460,7 +11467,7 @@
               <label class="block fs-xs font-medium text-[var(--text-dim)] mb-1.5"
                      x-text="t('admin.notify_templates.body_label')"></label>
               <template x-if="!notifyTemplateEditor.readOnly">
-              <textarea x-ref="notifyTemplateBodyInput"
+              <textarea aria-label="Body" :aria-label="t('admin.notify_templates.body_label') || 'Notification body template'" x-ref="notifyTemplateBodyInput"
                         x-model="notifyTemplateEditor.body"
                         :placeholder="notifyTemplateEditor.body_default"
                         @input.debounce.200ms="refreshNotifyTemplatePreview()"
@@ -11631,7 +11638,7 @@
             </div>
 
             <span class="text-[var(--text-faint)] ms-2" x-text="t('notifications.filter_event')"></span>
-            <select x-model="notificationsFilterEvent" @change="loadNotifications()"
+            <select aria-label="Event:" :aria-label="t('notifications.filter_event') || 'Filter by event'" x-model="notificationsFilterEvent" @change="loadNotifications()"
                     class="fs-sm">
               <option value="all" x-text="t('filters.all')"></option>
               <template x-for="ev in notificationEventOptions()" :key="ev">
@@ -11981,7 +11988,7 @@
       <svg width="13" height="13" class="text-[var(--text-faint)]" aria-hidden="true">
         <use :href="'/img/ui-sprite.svg?v=' + (window.OG_VERSION || '') + '#icon-search'"/>
       </svg>
-      <input type="text"
+      <input aria-label="Search this AI conversation" type="text"
              x-model.debounce.150ms="aiConversationSearch"
              @input="_recomputeAiConversationMatches()"
              @keydown.enter.prevent="cycleAiConversationMatch(1)"
@@ -12403,7 +12410,7 @@
              will fire (Send → action). Same `fs-sm` size as the Send
              button so the row reads as one unit instead of two
              different typographic scales. -->
-        <select class="ai-sidebar-mode-select fs-sm"
+        <select aria-label="AI action mode" class="ai-sidebar-mode-select fs-sm"
                 :value="aiSidebarMode"
                 @change="setAiSidebarMode($event.target.value)"
                 :title="aiSidebarMode === 'autonomous' ? t('ai_sidebar.mode_autonomous_title') : t('ai_sidebar.mode_approval_title')"

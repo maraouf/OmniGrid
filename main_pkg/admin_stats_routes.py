@@ -162,6 +162,8 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     ("ddns_samples", "ddns_updater", "ddns-updater per-tick", "ts", "host_id"),
     ("fing_samples", "fing", "fing occupancy", "ts", "host_id"),
     ("flaresolverr_session_samples", "flaresolverr", "flaresolverr sessions", "ts", "host_id"),
+    ("rustdesk_samples", "rustdesk", "rustdesk online-peers", "ts", "host_id"),
+    ("rundeck_samples", "rundeck", "rundeck failure-rate", "ts", "host_id"),
     ("speedtest_samples", "speedtest_tracker", "speedtest results", "ts", "host_id"),
     ("prowlarr_samples", "prowlarr", "prowlarr per-tick", "ts", "host_id"),
     ("qbittorrent_samples", "qbittorrent", "qbittorrent per-tick", "ts", "host_id"),
@@ -898,7 +900,6 @@ def _compute_admin_stats_database() -> dict:
                     ).fetchone()[0])
                 except (sqlite3.OperationalError, TypeError, ValueError):
                     _dbs_rows = None
-                _dbs_bytes = None
                 try:
                     _r = c.execute(
                         "SELECT SUM(pgsize) FROM dbstat WHERE name = 'db_size_samples'"

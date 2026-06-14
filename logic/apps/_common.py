@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 from typing import Optional
 
+import httpx
+
 from logic.coerce import safe_int
 
 
@@ -671,3 +673,112 @@ async def fleet_run_skill(skill_id: str, *, prefix: str, status_fn, action_fn,
             raise ValueError(f"unknown disable preset: {skill_id!r}")
         return await action_fn("disable", secs)
     raise ValueError(f"unknown skill: {skill_id!r}")
+
+
+# ---------------------------------------------------------------------------
+# Generic per-app DIAGNOSTICS — the standard ``out['_debug']`` shape rendered by
+# the generic drawer debug panel, so EVERY app card can self-explain WHY a value
+# is empty / 0 (HTTP status + body snippet + a self-diagnosed hint) without the
+# operator reading logs. A credentialed app's ``fetch_data`` builds a
+# ``DebugRecorder``, records each diagnostic-worthy request (``record`` /
+# ``probe_json``), then stamps ``out['_debug'] = rec.result(hint=...)``.
+# OPNsense is the reference consumer. The generic frontend panel reads
+# ``_debug.endpoints`` / ``_debug.hint`` / ``_debug.notes`` and renders them
+# uniformly for any app that stamps the block.
+# ---------------------------------------------------------------------------
+class DebugRecorder:
+    """Collects per-request diagnostics into the standard ``out['_debug']``
+    shape: ``{endpoints: [{label, method, path, status, rows, ok, snippet}],
+    hint: str, notes: [str]}``. ``endpoints`` is the per-request log;
+    ``hint`` is a self-diagnosed actionable banner (e.g. a 403 → which
+    privilege / credential to fix); ``notes`` is free-form context."""
+
+    def __init__(self) -> None:
+        self.endpoints: list = []
+        self.notes: list = []
+
+    def record(self, label: str, method: str, path: str, *, status: int = 0,
+               rows: int = -1, ok: Optional[bool] = None,
+               snippet: str = "") -> None:
+        """Record one request outcome. ``rows`` is the parsed row / item count
+        (or -1 when not applicable); ``ok`` defaults to a 2xx ``status``."""
+        st = safe_int(status)
+        self.endpoints.append({
+            "label": str(label), "method": str(method or "GET").upper(),
+            "path": str(path), "status": st, "rows": int(rows),
+            "ok": bool(ok if ok is not None else (200 <= st < 300)),
+            "snippet": str(snippet or "").strip().replace("\n", " ")[:200],
+        })
+
+    def note(self, msg: str) -> None:
+        """Add a free-form diagnostic note (rendered under the endpoint list)."""
+        self.notes.append(str(msg))
+
+    def result(self, hint: str = "") -> dict:
+        """The ``out['_debug']`` dict to stamp onto the card payload."""
+        return {"endpoints": list(self.endpoints), "hint": str(hint or ""),
+                "notes": list(self.notes)}
+
+
+async def probe_json(cli: "httpx.AsyncClient", method: str, base: str, path: str,
+                     *, body: Optional[dict] = None) -> dict:
+    """Debug-capturing single request → ``{status, ok, snippet, json}``.
+
+    Keeps the HTTP status + a short raw-body snippet (which a plain ``cli.get``
+    + ``r.json()`` discards on a non-2xx) so a ``DebugRecorder`` can show exactly
+    what the upstream answered. ``json`` is the parsed body on a 2xx, else
+    ``None``. Never raises — a transport error returns
+    ``{status: 0, ok: False, snippet: <ExceptionType>, json: None}``."""
+    m = str(method or "GET").upper()
+    try:
+        if m == "POST":
+            r = await cli.post(base + path, json=(body or {}),
+                               headers={"Accept": "application/json"})
+        else:
+            r = await cli.get(base + path, headers={"Accept": "application/json"})
+    except (httpx.HTTPError, OSError) as e:
+        return {"status": 0, "ok": False, "snippet": type(e).__name__, "json": None}
+    ok = 200 <= r.status_code < 300
+    snippet = (r.text or "").strip().replace("\n", " ")[:200]
+    parsed = None
+    if ok:
+        try:
+            parsed = r.json()
+        except (ValueError, TypeError):
+            parsed = None
+    return {"status": r.status_code, "ok": ok, "snippet": snippet, "json": parsed}
+
+
+def diagnose_endpoints(endpoints: list, *, hints: dict,
+                       cat_names: Optional[dict] = None,
+                       cat_of=None) -> str:
+    """Derive an actionable hint string from recorded endpoints. Fires ONLY on
+    unambiguous failure signals per category — 401/403 (→ the category's
+    ``hints`` string), all-404 (endpoint not on this version), or
+    all-unreachable — NOT on a reachable 200-with-0-rows (which could be a
+    legitimate zero; the per-endpoint snippet already exposes it).
+
+    ``cat_of(label) -> category`` groups endpoint labels (defaults to the label
+    itself); ``hints = {category: 'grant X' / 'fix Y'}``; ``cat_names`` prettifies
+    the category in the message. '' when nothing actionable."""
+    names = cat_names or {}
+    catfn = cat_of or (lambda lbl: lbl)
+    cats: dict = {}
+    for e in endpoints:
+        cats.setdefault(catfn(str(e.get("label") or "")), []).append(e)
+    out: list = []
+    for cat, entries in cats.items():
+        if any(e.get("ok") and safe_int(e.get("rows")) > 0 for e in entries):
+            continue
+        statuses = [safe_int(e.get("status")) for e in entries]
+        if not statuses:
+            continue
+        nm = names.get(cat, cat)
+        if any(s in (401, 403) for s in statuses):
+            tip = hints.get(cat, "check the API user's privileges / credentials")
+            out.append(f"{nm}: HTTP 403 — {tip}")
+        elif all(s == 404 for s in statuses):
+            out.append(f"{nm}: HTTP 404 — this endpoint isn't on this version")
+        elif all(s == 0 for s in statuses):
+            out.append(f"{nm}: unreachable (connection / TLS error)")
+    return " · ".join(out)

@@ -148,6 +148,52 @@ def _avg_window(chip: dict) -> int:
     return max(_AVG_WINDOW_MIN, min(_AVG_WINDOW_MAX, n))
 
 
+# Recommend a floor at this fraction of the median download (flag tests that run
+# meaningfully slower than typical without false-positiving on minor jitter).
+_FLOOR_RECOMMEND_FACTOR = 0.9
+
+
+def _speed_floor(chip: dict) -> float:
+    """The operator's per-instance below-floor reliability floor (Mbps); 0.0
+    when unset / non-positive (= the below-floor stat is OFF)."""
+    try:
+        return max(0.0, float((chip or {}).get("speed_floor_mbps") or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+# noinspection PyUnusedLocal
+async def suggest(kind: str, host_row: dict, chip: dict, *,
+                  host_id: str = "", service_idx: int = 0,
+                  params: Optional[dict] = None) -> dict:
+    """Generic per-app suggestion hook (dispatched by the ``app-suggest``
+    route). ``speed-floor``: recommend a below-floor value from the chip's own
+    speed-test history over the last ``days`` (default 30) — ~90% of the median
+    download, so it flags meaningfully-slow tests. Returns ``{ok,
+    recommended_mbps, median_mbps, samples, days}``; ``recommended_mbps`` is 0
+    when there isn't enough history yet."""
+    if kind != "speed-floor":
+        raise ValueError(f"unknown suggestion: {kind!r}")
+    p = params or {}
+    try:
+        days = max(1, min(365, int(p.get("days") or 30)))
+    except (TypeError, ValueError):
+        days = 30
+    median = 0.0
+    samples = 0
+    try:
+        from logic.apps import speedtest_tracker_sampler as _st_sampler  # noqa: PLC0415
+        tr = _st_sampler.trend_summary(str(host_id or ""), int(service_idx or 0),
+                                       days=days)
+        median = float(tr.get("median_download") or 0)
+        samples = safe_int(tr.get("samples"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[speedtest] warning: suggest(speed-floor) trend read failed: {e}")
+    recommended = round(median * _FLOOR_RECOMMEND_FACTOR, 1) if (median > 0 and samples >= 2) else 0.0
+    return {"ok": True, "recommended_mbps": recommended,
+            "median_mbps": round(median, 1), "samples": samples, "days": days}
+
+
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -399,6 +445,23 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "series": series,
         "fetched_at": int(now),
     }
+    # Below-floor reliability: the operator's own ISP download floor (Mbps); the
+    # card flags the % of SUCCESSFUL tests below it (a failed/errored test is a
+    # 0-download row — excluded so it doesn't double-count with the failed-test
+    # stat). 0 / unset = OFF (no below-floor block). This is OmniGrid-side — it
+    # does NOT read speedtest-tracker's own pass/fail threshold.
+    floor = _speed_floor(chip)
+    if floor > 0:
+        ok_dl = [float(p.get("download") or 0) for p in series
+                 if (float(p.get("download") or 0) > 0)]
+        total_ok = len(ok_dl)
+        below = sum(1 for d in ok_dl if d < floor)
+        out["below_floor"] = {
+            "floor_mbps": round(floor, 1),
+            "below_count": below,
+            "total": total_ok,
+            "pct": round(below / total_ok * 100, 1) if total_ok else 0.0,
+        }
     # Embed the long-horizon trend (daily-median download + medians over the
     # retention window) from the lifespan sampler's independent history table —
     # best-effort, a sampler / DB hiccup must not fail the card.

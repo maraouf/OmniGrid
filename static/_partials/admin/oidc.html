@@ -170,7 +170,7 @@
               one input where it fires.
             -->
             <!--suppress HtmlFormInputWithoutLabel -->
-            <input :id="'og-oidc-tunable-' + key" type="number"
+            <input aria-label="TuningForm[key]" :id="'og-oidc-tunable-' + key" type="number"
                    x-model="tuningForm[key]"
                    :placeholder="tuningPlaceholder(key)"
                    :min="(tuningEffective[key] || {}).min"

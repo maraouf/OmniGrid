@@ -83,7 +83,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.url_label')"></label>
-      <input x-model="settings.node_exporter_url_template" type="text"
+      <input aria-label="Endpoint URL template" :aria-label="t('settings.host_stats.url_label')" x-model="settings.node_exporter_url_template" type="text"
              :disabled="isReadonly() || !hasHostStatsSource('node_exporter')"
              class="w-full mono fs-xs"
              :placeholder="t('settings.host_stats.url_placeholder')">
@@ -93,7 +93,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.overrides_label')"></label>
-      <textarea x-model="settings.node_exporter_overrides_json"
+      <textarea aria-label="Per-node URL overrides (JSON)" :aria-label="t('settings.host_stats.overrides_label')" x-model="settings.node_exporter_overrides_json"
                 :disabled="isReadonly() || !hasHostStatsSource('node_exporter')" rows="5"
                 class="w-full mono fs-xs"
                 :placeholder='`{\n  "host-id": "http://192.X.X.X:9100/metrics"\n}`'></textarea>
@@ -108,69 +108,73 @@
          Save alongside the URL template + per-host overrides. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.node_exporter : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('node_exporter')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_node_exporter')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.node_exporter : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('node_exporter')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Per-provider chip colour — operator-customisable
          override that flows into the row-chip + drawer-chip
@@ -239,7 +243,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.beszel_url_label')"></label>
-      <input x-model="settings.beszel_hub_url" type="url"
+      <input aria-label="Beszel Hub URL" :aria-label="t('settings.host_stats.beszel_url_label')" x-model="settings.beszel_hub_url" type="url"
              :disabled="isReadonly() || !hasHostStatsSource('beszel')"
              class="w-full mono fs-xs"
              :placeholder="t('settings.host_stats.beszel_url_placeholder')">
@@ -249,7 +253,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.beszel_identity_label')"></label>
-      <input x-model="settings.beszel_identity" type="text"
+      <input aria-label="Identity (email)" :aria-label="t('settings.host_stats.beszel_identity_label')" x-model="settings.beszel_identity" type="text"
              :disabled="isReadonly() || !hasHostStatsSource('beszel')"
              class="w-full fs-xs"
              :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
@@ -261,7 +265,7 @@
       <span x-show="settings.beszel_password_set" class="block fs-xs text-[var(--success)] mb-1"
             x-text="t('settings.secret_input.saved_hint')"></span>
       <div class="secret-input-row">
-        <input x-model="settings.beszel_password" type="password"
+        <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.beszel_password" type="password"
                autocomplete="new-password"
                :disabled="isReadonly() || !hasHostStatsSource('beszel')"
                class="w-full fs-xs"
@@ -297,69 +301,73 @@
          commit through the Beszel section's Save button. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.beszel : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('beszel')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_beszel')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.beszel : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('beszel')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -430,7 +438,7 @@
        x-text="t('settings.host_stats.section_desc_pulse')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.pulse_url_label')"></label>
-      <input x-model="settings.pulse_url" type="url"
+      <input aria-label="Pulse URL" :aria-label="t('settings.host_stats.pulse_url_label')" x-model="settings.pulse_url" type="url"
              :disabled="isReadonly() || !hasHostStatsSource('pulse')"
              class="w-full mono fs-xs"
              :placeholder="t('settings.host_stats.pulse_url_placeholder')">
@@ -444,7 +452,7 @@
       <span x-show="settings.pulse_token_set" class="block fs-xs text-[var(--success)] mb-1"
             x-text="t('settings.secret_input.saved_hint')"></span>
       <div class="secret-input-row">
-        <input x-model="settings.pulse_token" type="password"
+        <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.pulse_token" type="password"
                autocomplete="new-password"
                :disabled="isReadonly() || !hasHostStatsSource('pulse')"
                class="w-full fs-xs"
@@ -479,69 +487,73 @@
          Save button. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.pulse : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('pulse')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_pulse')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.pulse : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('pulse')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -613,7 +625,7 @@
        x-text="t('settings.host_stats.section_desc_webmin')"></p>
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1" x-text="t('settings.host_stats.webmin_user_label')"></label>
-      <input x-model="settings.webmin_user" type="text"
+      <input aria-label="Webmin user" :aria-label="t('settings.host_stats.webmin_user_label')" x-model="settings.webmin_user" type="text"
              :disabled="isReadonly() || !hasHostStatsSource('webmin')"
              class="w-full fs-xs"
              :placeholder="t('settings.host_stats.webmin_user_placeholder')">
@@ -627,7 +639,7 @@
       <span x-show="settings.webmin_password_set" class="block fs-xs text-[var(--success)] mb-1"
             x-text="t('settings.secret_input.saved_hint')"></span>
       <div class="secret-input-row">
-        <input x-model="settings.webmin_password" type="password"
+        <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.webmin_password" type="password"
                autocomplete="new-password"
                :disabled="isReadonly() || !hasHostStatsSource('webmin')"
                class="w-full fs-xs"
@@ -654,7 +666,7 @@
         </svg>
         <span x-text="(webminTestResult && webminTestResult.pending) ? t('settings.host_stats.webmin_testing') : t('settings.host_stats.webmin_test_button')"></span>
       </button>
-      <input x-model="webminTestUrl" type="url" class="flex-1 fs-xs mono"
+      <input aria-label="Verify TLS certificate (Webmin's default cert is self-signed — leave off for homelab)" :aria-label="t('settings.host_stats.webmin_verify_tls_label')" x-model="webminTestUrl" type="url" class="flex-1 fs-xs mono"
              :placeholder="t('admin_hosts.row.webmin_url_placeholder')">
       <span x-show="lastTestSuccessLabel('webmin')"
             class="fs-xs text-[var(--text-faint)]"
@@ -682,69 +694,73 @@
          Save button. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.webmin : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('webmin')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_webmin')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.webmin : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('webmin')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -819,7 +835,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.ping.default_port_label')"></label>
-      <input x-model="settings.ping_default_port" type="number" min="1" max="65535"
+      <input aria-label="Default TCP port" :aria-label="t('settings.host_stats.ping.default_port_label')" x-model="settings.ping_default_port" type="number" min="1" max="65535"
              :disabled="isReadonly() || !hasHostStatsSource('ping')"
              class="w-full mono fs-xs"
              placeholder="443">
@@ -854,7 +870,7 @@
         </svg>
         <span x-text="(pingTestResult && pingTestResult.pending) ? t('settings.host_stats.ping.test_running') : t('settings.host_stats.ping.test_button')"></span>
       </button>
-      <select x-model="pingTestHostId"
+      <select aria-label="Pick a ping-enabled host" :aria-label="t('settings.host_stats.ping.test_target_label')" x-model="pingTestHostId"
               :disabled="isReadonly() || !hasHostStatsSource('ping')"
               class="fs-xs mono">
         <option value="" x-text="t('settings.host_stats.ping.test_target_label')"></option>
@@ -890,69 +906,73 @@
          All edits commit through the Ping section's Save button. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_ping')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.ping : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('ping')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_ping')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.ping : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('ping')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Per-provider chip colour. -->
     <div class="pt-3 mt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
@@ -1043,7 +1063,7 @@
       <div>
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.snmp.community_label')"></label>
-        <input x-model="settings.snmp_default_community" type="text"
+        <input aria-label="Default community (v2c)" :aria-label="t('settings.host_stats.snmp.community_label')" x-model="settings.snmp_default_community" type="text"
                :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                class="w-full mono fs-xs"
                placeholder="public">
@@ -1051,7 +1071,7 @@
       <div>
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.snmp.version_label')"></label>
-        <select x-model="settings.snmp_default_version"
+        <select aria-label="Default version" :aria-label="t('settings.host_stats.snmp.version_label')" x-model="settings.snmp_default_version"
                 :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                 class="w-full fs-xs">
           <option value="v2c">v2c</option>
@@ -1061,7 +1081,7 @@
       <div>
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.snmp.port_label')"></label>
-        <input x-model="settings.snmp_default_port" type="number" min="1" max="65535"
+        <input aria-label="Default UDP port" :aria-label="t('settings.host_stats.snmp.port_label')" x-model="settings.snmp_default_port" type="number" min="1" max="65535"
                :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                class="w-full mono fs-xs"
                placeholder="161">
@@ -1081,7 +1101,7 @@
         <div>
           <label class="block fs-xs text-[var(--text-faint)] mb-1"
                  x-text="t('settings.host_stats.snmp.v3_user_label')"></label>
-          <input x-model="settings.snmp_v3_user" type="text"
+          <input aria-label="Username" :aria-label="t('settings.host_stats.snmp.v3_user_label')" x-model="settings.snmp_v3_user" type="text"
                  :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                  class="w-full fs-xs"
                  :placeholder="t('settings.host_stats.snmp.v3_user_placeholder')">
@@ -1092,7 +1112,7 @@
           </label>
           <span x-show="settings.snmp_v3_auth_key_set" class="block fs-xs text-[var(--success)] mb-1"
                 x-text="t('settings.secret_input.saved_hint')"></span>
-          <input x-model="settings.snmp_v3_auth_key" type="password"
+          <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.snmp_v3_auth_key" type="password"
                  autocomplete="new-password"
                  :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                  class="w-full fs-xs"
@@ -1104,7 +1124,7 @@
           </label>
           <span x-show="settings.snmp_v3_priv_key_set" class="block fs-xs text-[var(--success)] mb-1"
                 x-text="t('settings.secret_input.saved_hint')"></span>
-          <input x-model="settings.snmp_v3_priv_key" type="password"
+          <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.snmp_v3_priv_key" type="password"
                  autocomplete="new-password"
                  :disabled="isReadonly() || !hasHostStatsSource('snmp')"
                  class="w-full fs-xs"
@@ -1118,7 +1138,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.snmp.aliases_label')"></label>
-      <textarea x-model="settings.snmp_aliases_json"
+      <textarea aria-label="Per-host alias map (Docker hostname → SNMP target)" :aria-label="t('settings.host_stats.snmp.aliases_label')" x-model="settings.snmp_aliases_json"
                 :disabled="isReadonly() || !hasHostStatsSource('snmp')" rows="5"
                 class="w-full mono fs-xs"
                 :placeholder='`{\n  "switch01": "192.X.X.10",\n  "ups01": "192.X.X.50"\n}`'></textarea>
@@ -1141,7 +1161,7 @@
         </svg>
         <span x-text="(snmpTestResult && snmpTestResult.pending) ? t('settings.host_stats.snmp.testing') : t('settings.host_stats.snmp.test_button')"></span>
       </button>
-      <select x-model="snmpTestHostId"
+      <select aria-label="Pick an SNMP-mapped host" :aria-label="t('settings.host_stats.snmp.test_target_label')" x-model="snmpTestHostId"
               :disabled="isReadonly() || !hasHostStatsSource('snmp')"
               class="fs-xs mono">
         <option value="" x-text="t('settings.host_stats.snmp.test_target_label')"></option>
@@ -1177,69 +1197,73 @@
          through the SNMP section's Save button. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.snmp : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="tuneKnobDisabled('snmp')"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_snmp')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? _perProviderTuneKeys.snmp : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="tuneKnobDisabled('snmp')"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
 
     <!-- Per-provider chip colour. -->
@@ -1341,7 +1365,7 @@
       <div class="flex-1 min-w-[260px]">
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.http_probe.test_url_label')"></label>
-        <input x-model="httpProbeTestUrl" type="text"
+        <input aria-label="Test URL" :aria-label="t('settings.host_stats.http_probe.test_url_label')" x-model="httpProbeTestUrl" type="text"
                :disabled="isReadonly() || !settings.http_probe_enabled"
                class="w-full mono fs-xs"
                :placeholder="t('settings.host_stats.http_probe.test_url_placeholder')">
@@ -1371,81 +1395,85 @@
          automatically. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_http_probe')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []) : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="isReadonly() || !settings.http_probe_enabled"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_http_probe')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.http_probe) || []) : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="isReadonly() || !settings.http_probe_enabled"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Chip colour picker (matches the SNMP / Ping pattern). -->
     <div x-show="settings.http_probe_enabled" class="flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-[var(--border)]">
       <label class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
         <span x-text="t('settings.host_stats.chip_color_label')"></span>
       </label>
-      <input type="color"
+      <input aria-label="Chip colour" :aria-label="t('settings.host_stats.chip_color_label')" type="color"
              :value="settings.provider_color_http_probe || providerColor('http_probe')"
              @input="settings.provider_color_http_probe = $event.target.value"
              :disabled="isReadonly() || !settings.http_probe_enabled"
              class="h-7 w-8 cursor-pointer border-0 p-0 bg-transparent">
-      <input type="text" x-model="settings.provider_color_http_probe"
+      <input aria-label="Chip colour" :aria-label="t('settings.host_stats.chip_color_label')" type="text" x-model="settings.provider_color_http_probe"
              @blur="settings.provider_color_http_probe = normalizeHexColor(settings.provider_color_http_probe)"
              :disabled="isReadonly() || !settings.http_probe_enabled"
              :placeholder="t('settings.host_stats.chip_color_placeholder')"
@@ -1523,69 +1551,73 @@
          array surfaces a row here automatically. -->
     <details class="mt-3 bg-[var(--surface-2)] border border-[var(--border)] rounded-md p-3" x-show="isAdmin()">
       <summary class="cursor-pointer fs-sm font-medium select-none flex items-center gap-2">
-        <svg width="12" height="12" class="transition-transform" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/></svg>
-        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/></svg>
+        <svg width="12" height="12" class="transition-transform" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-chevron-right"/>
+        </svg>
+        <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-sliders"/>
+        </svg>
         <span x-text="t('common.tunables')"></span>
       </summary>
       <div class="mt-3 space-y-3">
-      <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
-         x-text="t('settings.host_stats.tunables_intro_service_probe')"></p>
-      <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
-      <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
-        <span class="spin" aria-hidden="true"></span>
-        <span x-text="t('common.loading')"></span>
-      </div>
-      <!-- Per-tab tunable search — fuzzy-matches against
-           key, localised label, and help text. Shared
-           `tunableSearch` state persists across tab switches. -->
-      <div class="flex items-center gap-2 mb-2">
-        <input type="search" x-model.debounce.150ms="tunableSearch"
-               :placeholder="t('admin.config.search_placeholder')"
-               :aria-label="t('admin.config.search_aria')"
-               class="flex-1 fs-sm">
-        <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
-                class="btn btn-ghost fs-xs"
-                :title="t('admin.config.search_clear')"
-                x-text="t('admin.config.search_clear')"></button>
-      </div>
-      <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.service_probe) || []) : [])" :key="key">
-        <div x-show="tunableMatchesSearch(key)" class="space-y-1">
-          <label class="block fs-xs font-medium"
-                 x-text="t('admin.config.fields.' + key + '.label')"></label>
-          <p class="fs-2xs text-[var(--text-faint)] leading-snug"
-             x-text="t('admin.config.fields.' + key + '.help')"></p>
-          <div class="flex flex-wrap items-center gap-2">
-            <input type="number"
-                   x-model="tuningForm[key]"
-                   :placeholder="tuningPlaceholder(key)"
-                   :min="(tuningEffective[key] || {}).min"
-                   :max="(tuningEffective[key] || {}).max"
-                   :disabled="isReadonly() || !settings.service_probe_enabled"
-                   class="w-32 mono fs-sm">
-            <div class="bounds-chips" role="group"
-                 :aria-label="t('admin.config.bounds.group_label')">
+        <p class="fs-2xs text-[var(--text-faint)] mb-2 leading-snug"
+           x-text="t('settings.host_stats.tunables_intro_service_probe')"></p>
+        <div class="border-t border-[var(--border)] mb-3" aria-hidden="true"></div>
+        <div x-show="!tuningLoaded" class="flex items-center gap-2 fs-xs text-[var(--text-faint)] py-2">
+          <span class="spin" aria-hidden="true"></span>
+          <span x-text="t('common.loading')"></span>
+        </div>
+        <!-- Per-tab tunable search — fuzzy-matches against
+             key, localised label, and help text. Shared
+             `tunableSearch` state persists across tab switches. -->
+        <div class="flex items-center gap-2 mb-2">
+          <input aria-label="Search tunables in this tab" type="search" x-model.debounce.150ms="tunableSearch"
+                 :placeholder="t('admin.config.search_placeholder')"
+                 :aria-label="t('admin.config.search_aria')"
+                 class="flex-1 fs-sm">
+          <button type="button" x-show="tunableSearch" @click="tunableSearch=''"
+                  class="btn btn-ghost fs-xs"
+                  :title="t('admin.config.search_clear')"
+                  x-text="t('admin.config.search_clear')"></button>
+        </div>
+        <template x-for="key in (tuningLoaded ? ((_perProviderTuneKeys && _perProviderTuneKeys.service_probe) || []) : [])" :key="key">
+          <div x-show="tunableMatchesSearch(key)" class="space-y-1">
+            <label class="block fs-xs font-medium"
+                   x-text="t('admin.config.fields.' + key + '.label')"></label>
+            <p class="fs-2xs text-[var(--text-faint)] leading-snug"
+               x-text="t('admin.config.fields.' + key + '.help')"></p>
+            <div class="flex flex-wrap items-center gap-2">
+              <input aria-label="Clear" :aria-label="t('admin.config.search_clear')" type="number"
+                     x-model="tuningForm[key]"
+                     :placeholder="tuningPlaceholder(key)"
+                     :min="(tuningEffective[key] || {}).min"
+                     :max="(tuningEffective[key] || {}).max"
+                     :disabled="isReadonly() || !settings.service_probe_enabled"
+                     class="w-32 mono fs-sm">
+              <div class="bounds-chips" role="group"
+                   :aria-label="t('admin.config.bounds.group_label')">
                     <span class="bounds-chip bounds-chip--min"
                           :title="t('admin.config.bounds.min_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-down-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).min"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--max"
-                    :title="t('admin.config.bounds.max_title')">
+                <span class="bounds-chip bounds-chip--max"
+                      :title="t('admin.config.bounds.max_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-arrow-up-to-line"/></svg>
                       <span x-text="(tuningEffective[key] || {}).max"></span>
                     </span>
-              <span class="bounds-chip bounds-chip--default"
-                    :title="t('admin.config.bounds.default_title')">
+                <span class="bounds-chip bounds-chip--default"
+                      :title="t('admin.config.bounds.default_title')">
                       <svg width="11" height="11" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-target"/></svg>
                       <span x-text="(tuningEffective[key] || {}).default"></span>
                     </span>
+              </div>
+              <span class="fs-xs text-[var(--text-dim)] ms-auto"
+                    x-text="tuningEffectiveLabel(key)"></span>
             </div>
-            <span class="fs-xs text-[var(--text-dim)] ms-auto"
-                  x-text="tuningEffectiveLabel(key)"></span>
           </div>
-        </div>
-      </template>
-    </div>
+        </template>
+      </div>
     </details>
     <!-- Chip colour picker (matches the HTTP probe / SNMP / Ping pattern).
          Gate on the master toggle directly (service_probe has only one
@@ -1594,12 +1626,12 @@
       <label class="fs-xs text-[var(--text-faint)] inline-flex items-center gap-1.5">
         <span x-text="t('settings.host_stats.chip_color_label')"></span>
       </label>
-      <input type="color"
+      <input aria-label="Chip colour" :aria-label="t('settings.host_stats.chip_color_label')" type="color"
              :value="settings.provider_color_service_probe || providerColor('service_probe')"
              @input="settings.provider_color_service_probe = $event.target.value"
              :disabled="isReadonly() || !settings.service_probe_enabled"
              class="h-7 w-8 cursor-pointer border-0 p-0 bg-transparent">
-      <input type="text" x-model="settings.provider_color_service_probe"
+      <input aria-label="Chip colour" :aria-label="t('settings.host_stats.chip_color_label')" type="text" x-model="settings.provider_color_service_probe"
              @blur="settings.provider_color_service_probe = normalizeHexColor(settings.provider_color_service_probe)"
              :disabled="isReadonly() || !settings.service_probe_enabled"
              :placeholder="t('settings.host_stats.chip_color_placeholder')"

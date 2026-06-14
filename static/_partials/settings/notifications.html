@@ -38,7 +38,7 @@
            specificity beats Tailwind's `ps-9` / `pe-8` utilities;
            without the override the leading search icon (~25px from
            the start edge) overlaps the placeholder text. -->
-      <input type="text"
+      <input aria-label="Search events…" type="text"
              x-model="notifySearchQuery"
              :placeholder="t('profile.notifications.search_placeholder') || 'Search events…'"
              class="w-full py-1.5 fs-sm"
@@ -325,7 +325,7 @@
                 x-text="t('admin.notifications.events.bulk_pattern_label')"></span>
     <span class="text-[var(--text-faint)]"
           x-text="t('admin.notifications.events.bulk_pattern_success_to')"></span>
-    <select x-model="userNotifyBulkSuccessMedium"
+    <select aria-label="successes to" :aria-label="t('admin.notifications.events.bulk_pattern_success_to')" x-model="userNotifyBulkSuccessMedium"
             class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
       <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
       <template x-for="m in notifyMediumNames()" :key="m">
@@ -334,7 +334,7 @@
     </select>
     <span class="text-[var(--text-faint)]"
           x-text="t('admin.notifications.events.bulk_pattern_failure_to')"></span>
-    <select x-model="userNotifyBulkFailureMedium"
+    <select aria-label="failures to" :aria-label="t('admin.notifications.events.bulk_pattern_failure_to')" x-model="userNotifyBulkFailureMedium"
             class="bg-[var(--surface-2)] border border-[var(--border)] rounded px-1.5 py-0.5">
       <option value="" x-text="t('admin.notifications.events.bulk_pattern_skip')"></option>
       <template x-for="m in notifyMediumNames()" :key="m">
@@ -390,7 +390,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.url_label')"></label>
-      <input x-model="settings.node_exporter_url_template" type="text"
+      <input aria-label="Endpoint URL template" :aria-label="t('settings.host_stats.url_label')" x-model="settings.node_exporter_url_template" type="text"
              :disabled="isReadonly()"
              class="w-full mono fs-xs"
              :placeholder="t('settings.host_stats.url_placeholder')">
@@ -400,7 +400,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.overrides_label')"></label>
-      <textarea x-model="settings.node_exporter_overrides_json"
+      <textarea aria-label="Per-node URL overrides (JSON)" :aria-label="t('settings.host_stats.overrides_label')" x-model="settings.node_exporter_overrides_json"
                 :disabled="isReadonly()" rows="5"
                 class="w-full mono fs-xs"
                 :placeholder='`{\n  "host-id": "http://192.X.X.X:9100/metrics"\n}`'></textarea>
@@ -414,7 +414,7 @@
     <div>
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('settings.host_stats.beszel_url_label')"></label>
-      <input x-model="settings.beszel_hub_url" type="url"
+      <input aria-label="Beszel Hub URL" :aria-label="t('settings.host_stats.beszel_url_label')" x-model="settings.beszel_hub_url" type="url"
              :disabled="isReadonly()"
              class="w-full mono fs-xs"
              :placeholder="t('settings.host_stats.beszel_url_placeholder')">
@@ -425,7 +425,7 @@
       <div>
         <label class="block fs-xs text-[var(--text-faint)] mb-1"
                x-text="t('settings.host_stats.beszel_identity_label')"></label>
-        <input x-model="settings.beszel_identity" type="text"
+        <input aria-label="Identity (email)" :aria-label="t('settings.host_stats.beszel_identity_label')" x-model="settings.beszel_identity" type="text"
                :disabled="isReadonly()"
                class="w-full fs-xs"
                :placeholder="t('settings.host_stats.beszel_identity_placeholder')">
@@ -436,7 +436,7 @@
         </label>
         <span x-show="settings.beszel_password_set" class="block fs-xs text-[var(--success)] mb-1"
               x-text="t('settings.secret_input.saved_hint')"></span>
-        <input x-model="settings.beszel_password" type="password"
+        <input aria-label="✓ Saved — leave blank to keep, or paste a new value to replace" :aria-label="t('settings.secret_input.saved_hint')" x-model="settings.beszel_password" type="password"
                :disabled="isReadonly()"
                autocomplete="new-password"
                class="w-full fs-xs"

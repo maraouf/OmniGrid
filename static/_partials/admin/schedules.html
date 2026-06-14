@@ -15,7 +15,7 @@
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('scheduler_settings.intro')"></p>
     <div class="flex flex-col gap-1">
       <label class="fs-xs text-[var(--text-faint)]" x-text="t('scheduler_settings.tz_label')"></label>
-      <input type="text" x-model="settings.scheduler_timezone"
+      <input aria-label="Timezone (IANA name)" :aria-label="t('scheduler_settings.tz_label')" type="text" x-model="settings.scheduler_timezone"
              :disabled="!isAdmin()"
              list="tz-common-admin"
              :placeholder="t('scheduler_settings.tz_placeholder')"
@@ -75,9 +75,9 @@
     </div>
     <p class="fs-xs text-[var(--text-faint)] mb-3" x-text="t('admin.schedules.create_hint')"></p>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-      <input x-model="newSchedule.name" type="text"
+      <input aria-label="Admin-defined recurring jobs. Each tick checks once a minute; schedules fire when their interval elapses. Runs go through the regular ops system, so they appear in the live ops panel and the history table with actor = scheduler." :aria-label="t('admin.schedules.create_hint')" x-model="newSchedule.name" type="text"
              :placeholder="t('admin.schedules.name_placeholder')" class="w-full">
-      <select x-model="newSchedule.kind" class="w-full">
+      <select aria-label="Admin-defined recurring jobs. Each tick checks once a minute; schedules fire when their interval elapses. Runs go through the regular ops system, so they appear in the live ops panel and the history table with actor = scheduler." :aria-label="t('admin.schedules.create_hint')" x-model="newSchedule.kind" class="w-full">
         <template x-for="k in sortedScheduleKinds()" :key="k">
           <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
         </template>
@@ -88,7 +88,7 @@
       <div class="flex flex-col gap-1">
         <label class="fs-xs text-[var(--text-faint)]"
                x-text="t('admin.schedules.cadence_label')"></label>
-        <select x-model="newSchedule.cadence_mode" class="w-full">
+        <select aria-label="Cadence" :aria-label="t('admin.schedules.cadence_label')" x-model="newSchedule.cadence_mode" class="w-full">
           <template x-for="m in ['interval','daily','weekly','monthly']" :key="m">
             <option :value="m" x-text="t('admin.schedules.cadence.' + m)"></option>
           </template>
@@ -104,7 +104,7 @@
     <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
       <template x-if="newSchedule.cadence_mode === 'interval'">
         <div class="flex flex-col gap-1">
-          <input x-model.number="newSchedule.interval_seconds" type="number"
+          <input aria-label="Enabled" :aria-label="t('admin.schedules.enabled')" x-model.number="newSchedule.interval_seconds" type="number"
                  :min="scheduleMinInterval" step="60"
                  :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
           <span class="fs-2xs text-[var(--text-faint)]"
@@ -112,12 +112,12 @@
         </div>
       </template>
       <template x-if="newSchedule.cadence_mode !== 'interval'">
-        <input x-model="newSchedule.run_at_hhmm" type="time"
+        <input aria-label="Run at (optional)" :aria-label="t('admin.schedules.run_at_label')" x-model="newSchedule.run_at_hhmm" type="time"
                class="w-full"
                :placeholder="t('admin.schedules.run_at_placeholder')">
       </template>
       <template x-if="newSchedule.cadence_mode === 'monthly'">
-        <input x-model.number="newSchedule.day_of_month" type="number"
+        <input aria-label="Day of month (1-31)" :aria-label="t('admin.schedules.dom_placeholder')" x-model.number="newSchedule.day_of_month" type="number"
                min="1" max="31" step="1"
                :placeholder="t('admin.schedules.dom_placeholder')" class="w-full">
       </template>
@@ -140,7 +140,7 @@
     <div class="mt-2">
       <label class="block fs-xs text-[var(--text-faint)] mb-1"
              x-text="t('admin.schedules.params_label')"></label>
-      <textarea x-model="newSchedule.params_text" rows="3"
+      <textarea aria-label="Params (JSON)" :aria-label="t('admin.schedules.params_label')" x-model="newSchedule.params_text" rows="3"
                 class="w-full mono fs-xs"
                 :placeholder="t('admin.schedules.params_placeholder')"></textarea>
     </div>
@@ -314,7 +314,7 @@
            250ms; clearing the field re-fetches the unfiltered
            first page. -->
       <div class="flex items-center gap-2 ms-auto">
-        <input type="search"
+        <input aria-label="Queue" :aria-label="t('admin.schedules.queue_title')" type="search"
                x-model="scheduleQueueSearch"
                @input="onScheduleQueueSearchInput()"
                :placeholder="t('admin.schedules.queue_search_placeholder')"
@@ -372,7 +372,7 @@
          class="flex items-center justify-between gap-3 flex-wrap p-3 border-t border-[var(--border)] fs-xs">
       <div class="flex items-center gap-2 text-[var(--text-dim)]">
         <span x-text="t('admin.schedules.queue_per_page')"></span>
-        <select :value="scheduleQueuePageSize"
+        <select aria-label="Per page" :aria-label="t('admin.schedules.queue_per_page')" :value="scheduleQueuePageSize"
                 @change="setScheduleQueuePageSize($event.target.value)"
                 class="fs-xs py-1">
           <option value="10">10</option>
@@ -435,9 +435,9 @@
         </div>
         <template x-if="editingSchedule">
           <div class="space-y-2">
-            <input x-model="editingSchedule.name" type="text"
+            <input aria-label="Cancel" :aria-label="t('actions.cancel')" x-model="editingSchedule.name" type="text"
                    :placeholder="t('admin.schedules.name_placeholder')" class="w-full">
-            <select x-model="editingSchedule.kind" class="w-full">
+            <select aria-label="Cancel" :aria-label="t('actions.cancel')" x-model="editingSchedule.kind" class="w-full">
               <template x-for="k in scheduleKinds" :key="k">
                 <option :value="k" x-text="t('admin.schedules.kinds.' + k) || k"></option>
               </template>
@@ -445,24 +445,24 @@
             <div class="flex flex-col gap-1">
               <label class="fs-xs text-[var(--text-faint)]"
                      x-text="t('admin.schedules.cadence_label')"></label>
-              <select x-model="editingSchedule.cadence_mode" class="w-full">
+              <select aria-label="Cadence" :aria-label="t('admin.schedules.cadence_label')" x-model="editingSchedule.cadence_mode" class="w-full">
                 <template x-for="m in ['interval','daily','weekly','monthly']" :key="m">
                   <option :value="m" x-text="t('admin.schedules.cadence.' + m)"></option>
                 </template>
               </select>
             </div>
             <template x-if="editingSchedule.cadence_mode === 'interval'">
-              <input x-model.number="editingSchedule.interval_seconds" type="number"
+              <input aria-label="Cadence" :aria-label="t('admin.schedules.cadence_label')" x-model.number="editingSchedule.interval_seconds" type="number"
                      :min="scheduleMinInterval" step="60"
                      :placeholder="t('admin.schedules.interval_placeholder')" class="w-full">
             </template>
             <template x-if="editingSchedule.cadence_mode !== 'interval'">
-              <input x-model="editingSchedule.run_at_hhmm" type="time"
+              <input aria-label="Run at (optional)" :aria-label="t('admin.schedules.run_at_label')" x-model="editingSchedule.run_at_hhmm" type="time"
                      class="w-full"
                      :placeholder="t('admin.schedules.run_at_placeholder')">
             </template>
             <template x-if="editingSchedule.cadence_mode === 'monthly'">
-              <input x-model.number="editingSchedule.day_of_month" type="number"
+              <input aria-label="Day of month (1-31)" :aria-label="t('admin.schedules.dom_placeholder')" x-model.number="editingSchedule.day_of_month" type="number"
                      min="1" max="31" step="1"
                      :placeholder="t('admin.schedules.dom_placeholder')" class="w-full">
             </template>
@@ -486,7 +486,7 @@
             <div>
               <label class="block fs-xs text-[var(--text-faint)] mb-1"
                      x-text="t('admin.schedules.params_label')"></label>
-              <textarea x-model="editingSchedule.params_text" rows="4"
+              <textarea aria-label="Params (JSON)" :aria-label="t('admin.schedules.params_label')" x-model="editingSchedule.params_text" rows="4"
                         class="w-full mono fs-xs"
                         :placeholder="t('admin.schedules.params_placeholder')"></textarea>
             </div>

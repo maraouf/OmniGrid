@@ -162,6 +162,52 @@ def _shape_assets(assets: Any) -> list:
     return out
 
 
+def _untracked_paths(endpoints: Any, localfiles: Any) -> list:
+    """netboot.xyz **untracked** local assets — downloaded files that are NOT
+    referenced by any endpoint in the ``endpoints.yml`` catalog (the webapp's
+    own Local-Assets "untracked" bucket = old / orphaned downloads to clean up).
+
+    Mirrors the webapp client's exact rule (``netbootxyz-web.ejs``): a localfile
+    path is TRACKED iff it equals ``endpoint.path + file`` for some catalog
+    endpoint+file; the leftover localfiles are untracked. Returns the leftover
+    path strings (deduped, order-preserving).
+
+    SAFETY: when the catalog has endpoints but NONE expose a ``files`` list (an
+    endpoints shape we don't recognise), we refuse to call everything untracked
+    — a delete built on that would wipe TRACKED assets — and return [] instead.
+    Only when the catalog is genuinely empty are all localfiles untracked."""
+    files = [str(f).strip() for f in (localfiles if isinstance(localfiles, list) else [])
+             if str(f).strip()]
+    if not files:
+        return []
+    eps = endpoints.get("endpoints") if isinstance(endpoints, dict) else None
+    if not isinstance(eps, dict):
+        eps = endpoints if isinstance(endpoints, dict) else {}
+    tracked: set = set()
+    for ep in eps.values():
+        if not isinstance(ep, dict):
+            continue
+        path = str(ep.get("path") or "")
+        ep_files = ep.get("files")
+        for f in (ep_files if isinstance(ep_files, list) else []):
+            tracked.add(path + str(f))
+    # Endpoints exist but no files[] parsed → unknown shape; don't mark anything
+    # untracked (a delete would be catastrophic). Genuinely-empty catalog → all
+    # localfiles are untracked (correct).
+    if eps and not tracked:
+        print("[netbootxyz] warning: endpoints catalog has no recognisable "
+              "files[] — skipping untracked-asset computation (won't risk "
+              "flagging tracked assets)")
+        return []
+    seen: set = set()
+    out: list = []
+    for f in files:
+        if f not in tracked and f not in seen:
+            seen.add(f)
+            out.append(f)
+    return out
+
+
 async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
     """Fetch the netboot.xyz dashboard over socket.io HTTP long-polling. Emits
     BOTH ``getdash`` (versions + host CPU/mem) AND ``getlocal`` (the
@@ -214,6 +260,10 @@ async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
             out["_endpoints_count"] = _count_endpoints(endpoints)
             out["_assets_count"] = len(assets) if isinstance(assets, list) else 0
             out["_assets"] = assets if isinstance(assets, list) else []
+            # Untracked = downloaded localfiles not referenced by the catalog
+            # (old / orphaned downloads). Computed here where BOTH the endpoints
+            # catalog AND the localfiles list are in scope.
+            out["_untracked"] = _untracked_paths(endpoints, assets)
             out["_has_local"] = True
         return out
     except (httpx.HTTPError, OSError, ValueError):
@@ -271,7 +321,7 @@ def _shape_dash(dash: dict) -> dict:
     # systeminformation reports `active` as the genuinely-used memory (used
     # includes buffers/cache); fall back to `used` when active is absent.
     mem_used = safe_int(mem.get("active")) or safe_int(mem.get("used"))
-    out = {
+    out: dict[str, Any] = {
         "version": web,  # webapp version
         "menu_version": menu,  # local installed boot-menu version
         "latest_menu_version": remote,  # latest upstream release tag
@@ -287,6 +337,14 @@ def _shape_dash(dash: dict) -> dict:
         out["boot_endpoints"] = safe_int(d.get("_endpoints_count"))
         out["assets_count"] = safe_int(d.get("_assets_count"))
         out["assets"] = _shape_assets(d.get("_assets"))
+        # Untracked / orphaned downloads (old assets to clean up) — count +
+        # the path list (capped) for the drawer stat + the clear-untracked
+        # action. Each is a bare path string (localfiles carry no size).
+        untracked = [str(p).strip() for p in (d.get("_untracked") or [])
+                     if str(p).strip()]
+        out["untracked_count"] = len(untracked)
+        out["untracked"] = [{"name": p, "size_bytes": 0}
+                            for p in untracked[:_MAX_ASSETS]]
     return out
 
 
@@ -316,6 +374,17 @@ SKILLS: tuple[dict, ...] = (
                        "netboot.xyz boot menu, get the latest netboot menu"),
         # DESTRUCTIVE: replaces the served boot-menu version (a config change to
         # what every PXE client will boot).
+        "destructive": True,
+    },
+    {
+        "id": "netbootxyz_clear_untracked",
+        "name": "Clear untracked boot assets",
+        "ai_phrases": ("clear untracked netboot assets, delete old boot assets, "
+                       "remove orphaned netboot files, clean up netboot.xyz "
+                       "downloads, purge untracked assets, free up netboot disk, "
+                       "delete unused boot files"),
+        # DESTRUCTIVE: deletes downloaded files from disk (the untracked /
+        # orphaned ones — those not referenced by the boot-menu catalog).
         "destructive": True,
     },
 )
@@ -411,6 +480,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "mem_total": safe_int(data.get("mem_total")),
         "boot_endpoints": safe_int(data.get("boot_endpoints")),
         "assets_count": safe_int(data.get("assets_count")),
+        "untracked_count": safe_int(data.get("untracked_count")),
         "assets": [str(a.get("name") or "") for a in (data.get("assets") or [])
                    if isinstance(a, dict)][:20],
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -433,6 +503,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "netbootxyz_update_menu":
         return await _update_menu_skill(host_row, chip, host_id=host_id,
                                         service_idx=service_idx)
+    if skill_id == "netbootxyz_clear_untracked":
+        return await _clear_untracked_skill(host_row, chip, host_id=host_id,
+                                            service_idx=service_idx)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -470,8 +543,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"⬆️ Boot-menu update available: {latest} (installed {menu})")
     endpoints = safe_int(data.get("boot_endpoints"))
     assets = safe_int(data.get("assets_count"))
+    untracked = safe_int(data.get("untracked_count"))
     if endpoints or assets:
         lines.append(f"🧰 {endpoints} boot option(s) · {assets} asset(s) downloaded")
+    if untracked:
+        lines.append(f"🧹 {untracked} untracked asset(s) (old / orphaned — clearable)")
     cpu = safe_float(data.get("cpu_percent"))
     mem_used = safe_int(data.get("mem_used"))
     mem_total = safe_int(data.get("mem_total"))
@@ -481,6 +557,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "version": web, "menu_version": menu, "latest_menu_version": latest,
             "boot_endpoints": endpoints, "assets_count": assets,
+            "untracked_count": untracked,
             "update_available": bool(data.get("update_available"))}
 
 
@@ -548,7 +625,6 @@ async def _update_menu_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
     # Resolve the latest version to update TO (best-effort — the webapp also
     # defaults to latest when the arg is blank).
-    latest = ""
     try:
         data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
                                 service_idx=int(service_idx or 0), force=True)
@@ -578,3 +654,73 @@ async def _update_menu_skill(host_row: dict, chip: dict, *,
             "detail": "couldn't confirm the boot-menu update started — your "
                       "netboot.xyz version may use a different control event; "
                       "trigger the update from the netboot.xyz web UI instead."}
+
+
+# Socket.IO events the webapp may emit after a `deletelocal` (it re-renders the
+# Local-Assets list) — best-effort ack; the real confirmation is the re-probe
+# diff below.
+_DELETE_ACK_EVENTS = ("renderlocal", "localdelete", "filedeleted", "deletestatus",
+                      "renderdash")
+
+
+async def _clear_untracked_skill(host_row: dict, chip: dict, *,
+                                 host_id: Optional[str] = None,
+                                 service_idx: Optional[int] = None) -> dict:
+    """Action (DESTRUCTIVE): delete the UNTRACKED (orphaned / old) downloaded
+    boot assets via netboot.xyz's socket.io ``deletelocal`` control event. ONLY
+    the untracked files (those not referenced by the boot-menu catalog) are
+    targeted — tracked assets are never touched (and the untracked computation
+    refuses to run on an unrecognised catalog shape, so it can't mis-flag a
+    tracked file). Confirms by re-probing the local list and reporting how many
+    were actually removed (honest — never a false success). Never raises."""
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    print(f"[netbootxyz] INFO netbootxyz_clear_untracked host={host_id} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    if not data.get("has_local"):
+        return {"ok": True, "status": 200,
+                "detail": "🥾 Couldn't read the local boot-asset list (the "
+                          "dashboard probe didn't return it — try again in a "
+                          "moment)."}
+    untracked = [str(u.get("name") or "").strip()
+                 for u in (data.get("untracked") or []) if isinstance(u, dict)]
+    untracked = [u for u in untracked if u]
+    if not untracked:
+        return {"ok": True, "status": 200,
+                "detail": "🧹 No untracked boot assets — nothing to clear."}
+    before = len(untracked)
+    packet = '42["deletelocal",' + json.dumps(untracked) + ']'
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=30.0,
+                                     follow_redirects=True) as cli:
+            await _emit_action(cli, base, packet, _DELETE_ACK_EVENTS)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"clear failed: {type(e).__name__}: {e}"}
+    # Honest confirmation — re-probe and count how many targeted files are gone
+    # (the deletelocal handler unlinks asynchronously; _emit_action already gave
+    # the server a poll window).
+    removed = before
+    try:
+        after = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                 service_idx=int(service_idx or 0), force=True)
+        still = {str(u.get("name") or "").strip()
+                 for u in (after.get("untracked") or []) if isinstance(u, dict)}
+        removed = sum(1 for u in untracked if u not in still)
+    except (ValueError, RuntimeError):
+        pass  # keep the optimistic 'before' count when the re-probe fails
+    if removed > 0:
+        return {"ok": True, "status": 200, "removed": removed,
+                "detail": f"🧹 Cleared {removed} untracked boot asset(s) from "
+                          f"netboot.xyz (freed the orphaned downloads not used by "
+                          f"the boot menu)."}
+    return {"ok": False, "status": 502,
+            "detail": "couldn't confirm the untracked assets were removed — your "
+                      "netboot.xyz version may use a different delete event; "
+                      "delete them from the netboot.xyz web UI (Local Assets) "
+                      "instead."}
