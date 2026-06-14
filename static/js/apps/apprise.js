@@ -98,6 +98,19 @@ function appriseTags(inst) {
   return d.tags.filter((t) => String(t || '').toLowerCase() !== 'all');
 }
 
+// Per-tag endpoint routing ([{tag, count}], most-used first) -- which routing
+// tag hits how many endpoints. Drops the implicit "all" tag. [] when the
+// payload's URL entries carry no tags (older apprise-api / untagged config).
+function appriseTagRoutes(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.appriseData ? this.appriseData(inst) : null);
+  if (!d || !Array.isArray(d.tag_routes)) {
+    return [];
+  }
+  return d.tag_routes.filter((tr) => tr && String(tr.tag || '').toLowerCase() !== 'all');
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. requiresApiKey
 // is false: the apprise-api server has no built-in auth.
@@ -120,4 +133,5 @@ export const helpers = {
   appriseCount: appriseCount,
   appriseServices: appriseServices,
   appriseTags: appriseTags,
+  appriseTagRoutes: appriseTagRoutes,
 };

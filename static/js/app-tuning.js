@@ -386,6 +386,12 @@ export default {
     'tuning_gitsync_sample_interval_seconds',
     'tuning_gitsync_history_days',
     'tuning_gitsync_stale_pair_hours',
+    // Grafana meta-monitor retention sampler.
+    'tuning_grafana_sample_interval_seconds',
+    'tuning_grafana_history_days',
+    // Nginx Proxy Manager config-drift retention sampler.
+    'tuning_npm_sample_interval_seconds',
+    'tuning_npm_history_days',
     // Kavita library-growth retention sampler.
     'tuning_kavita_sample_interval_seconds',
     'tuning_kavita_history_days',

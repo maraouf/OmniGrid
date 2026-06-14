@@ -66,6 +66,19 @@
         <div x-show="netbootxyzData(inst).update_available && netbootxyzData(inst).latest_menu_version"
              class="fs-3xs text-[var(--warning)] mt-1 mono"
              x-text="t('apps.netbootxyz.update_available', { v: (netbootxyzData(inst).latest_menu_version || '') }) || ('Boot-menu update available: ' + (netbootxyzData(inst).latest_menu_version || ''))"></div>
+        <!-- Downloaded boot assets — what you can PXE-boot locally right now.
+             DRAWER-ONLY (the card stays compact; the count is on the grid above). -->
+        <div x-show="appsExtrasInDrawer && netbootxyzAssets(inst).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.netbootxyz.downloaded_assets') || 'Downloaded boot assets'"></div>
+          <div class="flex flex-col gap-0.5">
+            <template x-for="a in netbootxyzAssets(inst)" :key="a.name">
+              <div class="flex items-center justify-between gap-2 fs-2xs min-w-0">
+                <span class="truncate text-[var(--text-dim)] mono" x-text="a.name"></span>
+                <span x-show="netbootxyzSize(a.size_bytes)" class="mono text-[var(--text-faint)] shrink-0" x-text="netbootxyzSize(a.size_bytes)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
     </template>
     <!-- Loading — first fetch in flight. -->

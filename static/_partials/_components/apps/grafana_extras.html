@@ -75,6 +75,22 @@
         </span>
       </div>
     </template>
+    <!-- Firing-alert meta-monitor trend — a 'monitor of the monitor' sparkline
+         from the shared lifespan grafana_sampler. DRAWER-ONLY (the card stays
+         compact). Shown once >= 2 samples exist AND the window saw any alert
+         firing (an all-zero line is noise on a healthy Grafana). -->
+    <template x-if="appsExtrasInDrawer && grafanaTrend(inst) && grafanaTrend(inst).samples > 1 && (Number(grafanaTrend(inst).peak_firing) || 0) > 0 && (grafanaTrend(inst).series_firing || []).length > 1">
+      <div class="mt-2">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="apps-card-stat-label text-[var(--danger)]" x-text="t('apps.grafana.firing_trend') || 'Alerts firing'"></span>
+          <span class="fs-3xs text-[var(--text-faint)] mono"
+                x-text="t('apps.grafana.firing_caption', { now: (Number(grafanaTrend(inst).latest_firing) || 0), peak: (Number(grafanaTrend(inst).peak_firing) || 0), days: (Number(grafanaTrend(inst).days) || 0) })"></span>
+        </div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" style="stroke: var(--danger)" :points="grafanaTrendPath(grafanaTrend(inst).series_firing)"></polyline>
+        </svg>
+      </div>
+    </template>
     <!-- Org + version footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
       <span x-show="grafanaData(inst).org"

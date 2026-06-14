@@ -68,6 +68,34 @@ function netbootxyzMemPercent(d) {
   return Math.round((used / total) * 100);
 }
 
+// The locally-downloaded boot assets ([{name, size_bytes}], [] when absent) —
+// "what can I PXE-boot right now". Drives the drawer's downloaded-assets list.
+function netbootxyzAssets(inst) {
+  /* jshint validthis: true */
+  const d = (this.netbootxyzData ? this.netbootxyzData(inst) : null);
+  if (!d || !Array.isArray(d.assets)) {
+    return [];
+  }
+  return d.assets.filter((a) => a && String(a.name || '').trim());
+}
+
+// Render a byte count as a human size (KB / MB / GB, decimal/1000). '' for
+// non-positive / missing — the row then shows just the name.
+function netbootxyzSize(n) {
+  let b = Number(n) || 0;
+  if (!isFinite(b) || b <= 0) {
+    return '';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  for (let i = 0; i < units.length; i++) {
+    if (b < 1000) {
+      return (i === 0 ? b.toFixed(0) : b.toFixed(1)) + ' ' + units[i];
+    }
+    b /= 1000;
+  }
+  return b.toFixed(1) + ' PB';
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. No api_key (the
 // webapp has no auth) and the default single-column layout (it's a compact
@@ -83,4 +111,6 @@ export const helpers = {
   netbootxyzIsApp: isNetbootxyzApp,
   netbootxyzData: netbootxyzData,
   netbootxyzMemPercent: netbootxyzMemPercent,
+  netbootxyzAssets: netbootxyzAssets,
+  netbootxyzSize: netbootxyzSize,
 };

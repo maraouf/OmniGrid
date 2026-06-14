@@ -56,6 +56,13 @@
         <div class="apps-card-stat-label" x-text="t('apps.npm.dead_hosts') || '404 hosts'"></div>
         <div class="apps-card-stat-value" x-text="npmCount(npmData(inst).dead_hosts)"></div>
       </div>
+      <!-- Access lists — how many access lists + how many hosts they protect. -->
+      <div class="apps-card-ups-stat" x-show="(Number(npmData(inst).access_lists) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.access_lists') || 'Access lists'"></div>
+        <div class="apps-card-stat-value"
+             :title="t('apps.npm.protected_title', { n: (Number(npmData(inst).protected_hosts) || 0) })"
+             x-text="npmCount(npmData(inst).access_lists)"></div>
+      </div>
     </div>
     <!-- Disabled-hosts footnote -- only when something is off. -->
     <div x-show="(Number(npmData(inst).proxy_disabled) || 0) > 0"
@@ -89,6 +96,31 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
             </button>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- Config-drift trend — proxy-host-growth sparkline + a 'added N this week'
+         caption from the shared lifespan npm_sampler. DRAWER-ONLY (the card stays
+         compact). Shown once >= 2 samples exist. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && npmTrend(inst) && npmTrend(inst).samples > 1 && (npmTrend(inst).series_hosts || []).length > 1">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="apps-card-stat-label" x-text="t('apps.npm.hosts_trend') || 'Proxy hosts'"></span>
+          <span class="fs-3xs mono"
+                :class="(Number(npmTrend(inst).hosts_week_change) || 0) > 0 ? 'text-[var(--success)]' : ((Number(npmTrend(inst).hosts_week_change) || 0) < 0 ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]')"
+                x-text="((Number(npmTrend(inst).hosts_week_change) || 0) >= 0 ? t('apps.npm.hosts_up', { n: Math.abs(Number(npmTrend(inst).hosts_week_change) || 0) }) : t('apps.npm.hosts_down', { n: Math.abs(Number(npmTrend(inst).hosts_week_change) || 0) }))"></span>
+        </div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="npmTrendPath(npmTrend(inst).series_hosts)"></polyline>
+        </svg>
+        <!-- Plain-HTTP drift — only when the window saw any plain-HTTP host. -->
+        <template x-if="(Number(npmTrend(inst).peak_plain_http) || 0) > 0 && (npmTrend(inst).series_plain_http || []).length > 1">
+          <div class="mt-1">
+            <div class="apps-card-stat-label text-[var(--warning)]" x-text="t('apps.npm.plain_http_trend') || 'Plain-HTTP hosts'"></div>
+            <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+              <polyline class="apps-spark-line" style="stroke: var(--warning)" :points="npmTrendPath(npmTrend(inst).series_plain_http)"></polyline>
+            </svg>
           </div>
         </template>
       </div>

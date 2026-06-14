@@ -135,6 +135,15 @@ SKILLS: tuple[dict, ...] = (
         # window (or already expired). Non-destructive.
         "destructive": False,
     },
+    {
+        "id": "npm_access_lists",
+        "name": "List access lists",
+        "ai_phrases": ("npm access lists, list access lists, which sites have "
+                       "access control, what access lists are configured, proxy "
+                       "host authentication, which hosts are password protected, "
+                       "access control lists"),
+        "destructive": False,
+    },
 )
 
 
@@ -402,13 +411,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 raise RuntimeError(
                     "auth failed (check the NPM admin email + password"
                     + (" / 2FA secret" if totp_secret else "") + ")")
-            health, hosts, certs, redirs, streams, dead = await asyncio.gather(
+            health, hosts, certs, redirs, streams, dead, acls = await asyncio.gather(
                 _get(cli, base + "/api/", token),
                 _get(cli, base + "/api/nginx/proxy-hosts", token),
                 _get(cli, base + "/api/nginx/certificates", token),
                 _get(cli, base + "/api/nginx/redirection-hosts", token),
                 _get(cli, base + "/api/nginx/streams", token),
                 _get(cli, base + "/api/nginx/dead-hosts", token),
+                _get(cli, base + "/api/nginx/access-lists", token),
             )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[npm] error: fetch host={host_id} base={base} "
@@ -427,6 +437,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     # only ENABLED hosts count (a disabled host serves nothing).
     proxy_plain_http = sum(1 for h in hosts_l
                            if h.get("enabled") and not safe_int(h.get("certificate_id")))
+    # Access-list usage — how many access lists exist + how many ENABLED proxy
+    # hosts are protected by one (access_list_id > 0). A "5 sites have no access
+    # control" complement to the plain-HTTP signal.
+    acl_l = [a for a in as_list(acls) if isinstance(a, dict)]
+    protected_hosts = sum(1 for h in hosts_l
+                          if h.get("enabled") and safe_int(h.get("access_list_id")))
 
     out: dict[str, Any] = {
         "available": True,
@@ -445,17 +461,36 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "redirections": len([r for r in as_list(redirs) if isinstance(r, dict)]),
         "streams": len([s for s in as_list(streams) if isinstance(s, dict)]),
         "dead_hosts": len([d for d in as_list(dead) if isinstance(d, dict)]),
+        "access_lists": len(acl_l),
+        "protected_hosts": protected_hosts,
         "fetched_at": int(now),
     }
+    # Best-effort config-drift trend from the shared lifespan npm_sampler.
+    # Missing sampler / no samples yet leaves the card's instantaneous stats
+    # untouched.
+    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[npm] INFO fetched host={host_id} hosts={out['proxy_hosts']} "
           f"(on={out['proxy_enabled']}/off={out['proxy_disabled']}) "
           f"plain_http={out['proxy_plain_http']} "
           f"certs={out['certs']} expiring={out['certs_expiring']} "
           f"expired={out['certs_expired']} min_days={out['cert_min_days']} "
           f"redirs={out['redirections']} streams={out['streams']} "
-          f"dead={out['dead_hosts']} ver={out['version'] or '-'}")
+          f"dead={out['dead_hosts']} acls={out['access_lists']} "
+          f"protected={out['protected_hosts']} ver={out['version'] or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort config-drift trend for the card — the shared npm_sampler's
+    per-chip ``trend_summary``. Returns ``None`` (never raises) when the sampler
+    isn't importable / errors, so a trend hiccup can't fail the card."""
+    try:
+        from logic.apps import npm_sampler as _sampler  # noqa: PLC0415
+        return _sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[npm] trend_summary({host_id}#{service_idx}) skipped: {e}")
+        return None
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -477,6 +512,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "redirections": safe_int(data.get("redirections")),
         "streams": safe_int(data.get("streams")),
         "dead_hosts": safe_int(data.get("dead_hosts")),
+        "access_lists": safe_int(data.get("access_lists")),
+        "protected_hosts": safe_int(data.get("protected_hosts")),
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -531,6 +568,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _renew_cert_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "npm_renew_expiring":
         return await _renew_expiring_skill(host_row, chip, host_id=host_id)
+    if skill_id == "npm_access_lists":
+        return await _access_lists_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -570,6 +609,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"⛔ {expired} cert(s) already EXPIRED")
     if plain:
         lines.append(f"🔓 {plain} proxy host(s) served over plain HTTP (no SSL)")
+    acls = safe_int(data.get("access_lists"))
+    protected = safe_int(data.get("protected_hosts"))
+    if acls or protected:
+        lines.append(f"🛡️ Access lists: {acls} · {protected} host(s) protected")
     lines.append(
         f"↪️ {safe_int(data.get('redirections'))} redirections · "
         f"🔀 {safe_int(data.get('streams'))} streams · "
@@ -876,3 +919,57 @@ async def _renew_expiring_skill(host_row: dict, chip: dict, *,
         extra += f" {skipped_custom} custom cert(s) skipped."
     return {"ok": True, "status": 200,
             "detail": f"🔄 Started renewal for {renewed:,} cert(s){tail}.{extra}"}
+
+
+# noinspection DuplicatedCode
+async def _access_lists_skill(host_row: dict, chip: dict, *,
+                              host_id: Optional[str] = None) -> dict:
+    """Read-only: list the configured access lists (HTTP-auth / IP allow-deny
+    rules) with how many auth users + client rules each carries AND how many
+    proxy hosts each protects (cross-referenced from the proxy-hosts list). Never
+    raises."""
+    email, password, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[npm] INFO npm_access_lists host={host_id} (live fetch)")
+    try:
+        async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token = await _get_token(cli, base, email, password, str(chip.get("totp_secret") or ""))
+            if not token:
+                return {"ok": False, "status": 401,
+                        "detail": "auth failed (check the NPM email + password)"}
+            acls, hosts = await asyncio.gather(
+                _get(cli, base + "/api/nginx/access-lists?expand=items,clients", token),
+                _get(cli, base + "/api/nginx/proxy-hosts", token))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"fetch failed: {type(e).__name__}: {e}"}
+    acl_l = [a for a in as_list(acls) if isinstance(a, dict)]
+    if not acl_l:
+        return {"ok": True, "status": 200, "detail": "🛡️ No access lists configured."}
+    # How many ENABLED proxy hosts each access list protects.
+    host_count: dict = {}
+    for h in as_list(hosts):
+        if isinstance(h, dict) and h.get("enabled"):
+            aid = safe_int(h.get("access_list_id"))
+            if aid:
+                host_count[aid] = host_count.get(aid, 0) + 1
+    items: list = []
+    lines: list = []
+    for a in acl_l[:_MAX_ROWS]:
+        name = str(a.get("name") or f"list #{safe_int(a.get('id'))}").strip()
+        users = len([u for u in as_list(a.get("items")) if isinstance(u, dict)])
+        clients = len([c for c in as_list(a.get("clients")) if isinstance(c, dict)])
+        used = host_count.get(safe_int(a.get("id")), 0)
+        bits = []
+        if users:
+            bits.append(f"{users} user(s)")
+        if clients:
+            bits.append(f"{clients} IP rule(s)")
+        bits.append(f"{used} host(s)")
+        sub = " · ".join(bits)
+        items.append({"title": f"🛡️ {name}", "subtitle": sub})
+        lines.append(f"• {name}  ({sub})")
+    out: dict = {"ok": True, "status": 200,
+                 "detail": "🛡️ Access lists:\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.npm.access_lists_count")

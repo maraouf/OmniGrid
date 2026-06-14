@@ -118,6 +118,50 @@ def _count_endpoints(endpoints: Any) -> int:
     return len(endpoints)
 
 
+# Cap on the downloaded-asset rich rows surfaced (a busy netboot.xyz can hold
+# many kernels / initrds / ISOs — keep the payload bounded).
+_MAX_ASSETS = 60
+
+
+def _fmt_size(n: Any) -> str:
+    """Render a byte count as a human size (KB / MB / GB, decimal/1000). '' for
+    non-positive / non-numeric."""
+    b = float(safe_int(n))
+    if b <= 0:
+        return ""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if b < 1000:
+            return f"{b:.0f} {unit}" if unit == "B" else f"{b:.1f} {unit}"
+        b /= 1000.0
+    return f"{b:.1f} PB"
+
+
+def _shape_assets(assets: Any) -> list:
+    """Normalise the ``renderlocal`` downloaded-asset list into
+    ``[{name, size_bytes}]`` (newest webapp builds emit objects; older ones emit
+    bare filename strings — handle both). ``name`` is the readable file / asset
+    identifier; ``size_bytes`` is 0 when the upstream doesn't report a size.
+    Capped at ``_MAX_ASSETS``."""
+    out: list = []
+    for a in (assets if isinstance(assets, list) else []):
+        if isinstance(a, str):
+            name = a.strip()
+            size = 0
+        elif isinstance(a, dict):
+            name = str(a.get("name") or a.get("file") or a.get("filename")
+                       or a.get("path") or a.get("asset") or "").strip()
+            size = safe_int(a.get("size") or a.get("bytes") or a.get("filesize")
+                            or a.get("length"))
+        else:
+            continue
+        if not name:
+            continue
+        out.append({"name": name, "size_bytes": size})
+        if len(out) >= _MAX_ASSETS:
+            break
+    return out
+
+
 async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
     """Fetch the netboot.xyz dashboard over socket.io HTTP long-polling. Emits
     BOTH ``getdash`` (versions + host CPU/mem) AND ``getlocal`` (the
@@ -169,10 +213,48 @@ async def _probe_dash(cli: "httpx.AsyncClient", base: str) -> "Optional[dict]":
             assets = local[1] if len(local) >= 2 else None
             out["_endpoints_count"] = _count_endpoints(endpoints)
             out["_assets_count"] = len(assets) if isinstance(assets, list) else 0
+            out["_assets"] = assets if isinstance(assets, list) else []
             out["_has_local"] = True
         return out
     except (httpx.HTTPError, OSError, ValueError):
         return None
+
+
+# Socket.IO events the webapp emits while a boot-menu update runs — any of these
+# landing after our `update` emit confirms the server accepted the trigger.
+_UPDATE_ACK_EVENTS = ("updatestatus", "updatedone", "installerlog", "menuupdate",
+                      "bootupdate", "renderdash")
+
+
+async def _emit_action(cli: "httpx.AsyncClient", base: str, packet: str,
+                       ack_events: "tuple[str, ...]") -> "tuple[bool, str]":
+    """Drive a Socket.IO control EVENT over the HTTP long-polling transport
+    (handshake → CONNECT → emit ``packet``) then poll for any of ``ack_events``
+    to confirm the server accepted it. Returns ``(accepted, ack_name)``;
+    ``(False, "")`` when the handshake fails or no ack lands in the poll window
+    (so the caller can report HONESTLY that it couldn't confirm — never a false
+    success). Never raises."""
+    p = base + _SIO_PATH
+    try:
+        r = await cli.get(p)
+        if not (200 <= r.status_code < 300):
+            return False, ""
+        sid = _parse_sid(r.text)
+        if not sid:
+            return False, ""
+        ps = f"{p}&sid={sid}"
+        await cli.post(ps, content="40", headers=_SIO_CT)
+        await cli.post(ps, content=packet, headers=_SIO_CT)
+        for _ in range(_SIO_POLL_TRIES):
+            rr = await cli.get(ps)
+            if not (200 <= rr.status_code < 300):
+                break
+            for ev in ack_events:
+                if _extract_event_args(rr.text, ev) is not None:
+                    return True, ev
+        return False, ""
+    except (httpx.HTTPError, OSError, ValueError):
+        return False, ""
 
 
 def _shape_dash(dash: dict) -> dict:
@@ -204,6 +286,7 @@ def _shape_dash(dash: dict) -> dict:
         out["has_local"] = True
         out["boot_endpoints"] = safe_int(d.get("_endpoints_count"))
         out["assets_count"] = safe_int(d.get("_assets_count"))
+        out["assets"] = _shape_assets(d.get("_assets"))
     return out
 
 
@@ -215,6 +298,25 @@ SKILLS: tuple[dict, ...] = (
                        "pxe boot status, network boot server, what version is "
                        "netboot.xyz, is netboot.xyz reachable, netbootxyz health"),
         "destructive": False,
+    },
+    {
+        "id": "netbootxyz_assets",
+        "name": "Downloaded boot assets",
+        "ai_phrases": ("netboot assets, what can i pxe boot, downloaded boot "
+                       "assets, which installers are downloaded, what oses can i "
+                       "netboot, list netboot.xyz assets, local boot files, "
+                       "what's downloaded on netboot"),
+        "destructive": False,
+    },
+    {
+        "id": "netbootxyz_update_menu",
+        "name": "Update the boot menu",
+        "ai_phrases": ("update the netboot menu, update netboot.xyz, pull the "
+                       "latest boot menu, refresh the netboot menu, upgrade "
+                       "netboot.xyz boot menu, get the latest netboot menu"),
+        # DESTRUCTIVE: replaces the served boot-menu version (a config change to
+        # what every PXE client will boot).
+        "destructive": True,
     },
 )
 
@@ -309,6 +411,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "mem_total": safe_int(data.get("mem_total")),
         "boot_endpoints": safe_int(data.get("boot_endpoints")),
         "assets_count": safe_int(data.get("assets_count")),
+        "assets": [str(a.get("name") or "") for a in (data.get("assets") or [])
+                   if isinstance(a, dict)][:20],
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -323,6 +427,12 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
     if skill_id == "netbootxyz_status":
         return await _status_skill(host_row, chip, host_id=host_id,
                                    service_idx=service_idx)
+    if skill_id == "netbootxyz_assets":
+        return await _assets_skill(host_row, chip, host_id=host_id,
+                                   service_idx=service_idx)
+    if skill_id == "netbootxyz_update_menu":
+        return await _update_menu_skill(host_row, chip, host_id=host_id,
+                                        service_idx=service_idx)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -372,3 +482,99 @@ async def _status_skill(host_row: dict, chip: dict, *,
             "version": web, "menu_version": menu, "latest_menu_version": latest,
             "boot_endpoints": endpoints, "assets_count": assets,
             "update_available": bool(data.get("update_available"))}
+
+
+def _asset_row(a: dict) -> Optional[dict]:
+    """One downloaded boot asset as a rich skill-result item: the file name
+    (title) + a human size subtitle. No poster — netboot.xyz has no thumbnails."""
+    if not isinstance(a, dict):
+        return None
+    name = str(a.get("name") or "").strip()
+    if not name:
+        return None
+    size = _fmt_size(a.get("size_bytes"))
+    return {"title": name, "subtitle": size}
+
+
+async def _assets_skill(host_row: dict, chip: dict, *,
+                        host_id: Optional[str] = None,
+                        service_idx: Optional[int] = None) -> dict:
+    """Read-only: the locally-downloaded boot assets (what you can PXE-boot right
+    now) as rich rows. Never raises."""
+    print(f"[netbootxyz] INFO netbootxyz_assets host={host_id} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    assets = [a for a in (data.get("assets") or []) if isinstance(a, dict)]
+    if not assets:
+        # The dashboard probe may not have returned the local list (socket.io
+        # timing / older webapp) — say so rather than imply nothing's downloaded.
+        if not data.get("has_local"):
+            return {"ok": True, "status": 200,
+                    "detail": "🥾 Couldn't read the local boot-asset list from "
+                              "netboot.xyz (the dashboard probe didn't return it — "
+                              "try again in a moment)."}
+        return {"ok": True, "status": 200,
+                "detail": "🥾 No boot assets are downloaded locally yet."}
+    items: list[dict] = []
+    lines: list[str] = []
+    for a in assets:
+        row = _asset_row(a)
+        if not row:
+            continue
+        items.append(row)
+        lines.append(f"• {row['title']}" + (f"  ({row['subtitle']})" if row.get("subtitle") else ""))
+    out: dict = {"ok": True, "status": 200,
+                 "detail": f"🥾 {len(items)} downloaded boot asset(s):\n" + "\n".join(lines)}
+    if items:
+        out["items"] = items
+        out["count"] = len(items)
+        out["count_i18n"] = "apps.netbootxyz.assets_count"
+    return out
+
+
+async def _update_menu_skill(host_row: dict, chip: dict, *,
+                             host_id: Optional[str] = None,
+                             service_idx: Optional[int] = None) -> dict:
+    """Action (DESTRUCTIVE): trigger a boot-menu update on netboot.xyz via its
+    socket.io ``update`` control event, updating the served boot menu to the
+    latest upstream release. Confirms the server accepted the trigger by polling
+    for an update-progress event; reports HONESTLY (ok=False) when it can't
+    confirm rather than claiming a false success. Never raises."""
+    base = resolve_base_url(host_row, chip)
+    if not base:
+        return {"ok": False, "status": 0, "detail": "no upstream URL configured"}
+    # Resolve the latest version to update TO (best-effort — the webapp also
+    # defaults to latest when the arg is blank).
+    latest = ""
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+        latest = str(data.get("latest_menu_version") or "").strip()
+        if data.get("menu_version") and not data.get("update_available"):
+            return {"ok": True, "status": 200,
+                    "detail": f"✅ netboot.xyz boot menu is already up to date "
+                              f"(version {data.get('menu_version')})."}
+    except (ValueError, RuntimeError):
+        latest = ""
+    packet = f'42["update",{json.dumps(latest)}]' if latest else '42["update"]'
+    print(f"[netbootxyz] INFO netbootxyz_update_menu host={host_id} target={latest or '(latest)'}")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            accepted, ack = await _emit_action(cli, base, packet, _UPDATE_ACK_EVENTS)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"update failed: {type(e).__name__}: {e}"}
+    if accepted:
+        tgt = f" to {latest}" if latest else ""
+        return {"ok": True, "status": 200,
+                "detail": f"⬆️ Triggered a netboot.xyz boot-menu update{tgt} "
+                          f"(ack: {ack}). It runs asynchronously — check status "
+                          f"again in a minute."}
+    return {"ok": False, "status": 502,
+            "detail": "couldn't confirm the boot-menu update started — your "
+                      "netboot.xyz version may use a different control event; "
+                      "trigger the update from the netboot.xyz web UI instead."}

@@ -154,6 +154,49 @@ export const extender = {
   },
 };
 
+// Config-drift trend block `{days, samples, latest_hosts, hosts_week_change,
+// peak_plain_http, series_hosts, series_plain_http}` from the shared lifespan
+// npm_sampler, or null while idle / no samples yet. Drives the card's
+// proxy-host-growth sparkline.
+function npmTrend(inst) {
+  /* jshint validthis: true */
+  const d = (this.npmData ? this.npmData(inst) : null);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:points` per numeric series array (avoids re-render flicker on
+// every Alpine flush — the canonical SVG-builder memo).
+const _npmTrendMemo = new WeakMap();
+
+// SVG polyline points for a trend series over a 0..100 x 0..24 viewBox,
+// auto-scaled to the series' own max (min pinned at 0). '' when < 2 points.
+// Memoised on the array ref.
+function npmTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_npmTrendMemo.has(arr)) {
+    return _npmTrendMemo.get(arr);
+  }
+  const W = 100, H = 24, n = arr.length;
+  let max = 1;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v > max) {
+      max = v;
+    }
+  }
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * W;
+    const y = H - ((Number(arr[i]) || 0) / max) * H;
+    parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
+  }
+  const pts = parts.join(' ');
+  _npmTrendMemo.set(arr, pts);
+  return pts;
+}
+
 // Helpers attached to the Alpine `app()` component via the merge in
 // `static/js/apps/_registry.js`. Names are prefixed `npm*`.
 export const helpers = {
@@ -167,4 +210,6 @@ export const helpers = {
   npmCertColor: npmCertColor,
   npmPlainHttp: npmPlainHttp,
   npmCertList: npmCertList,
+  npmTrend: npmTrend,
+  npmTrendPath: npmTrendPath,
 };

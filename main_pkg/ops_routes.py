@@ -1864,6 +1864,12 @@ class SettingsIn(BaseModel):
     tuning_gitsync_sample_interval_seconds: Optional[str] = None
     tuning_gitsync_history_days: Optional[str] = None
     tuning_gitsync_stale_pair_hours: Optional[str] = None
+    # Grafana meta-monitor retention sampler.
+    tuning_grafana_sample_interval_seconds: Optional[str] = None
+    tuning_grafana_history_days: Optional[str] = None
+    # Nginx Proxy Manager config-drift retention sampler.
+    tuning_npm_sample_interval_seconds: Optional[str] = None
+    tuning_npm_history_days: Optional[str] = None
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None
