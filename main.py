@@ -1063,6 +1063,14 @@ async def _lifespan(_app: FastAPI):
         _emby_sampler.emby_sampler_loop(),
         name="emby-sampler",
     )
+    # Forgejo review-queue retention sampler — snapshots the open-PR / open-issue
+    # / notification backlog so the card can draw a burn-down sparkline + a
+    # week-change stat. Dormant-cheap when no Forgejo chip is pinned.
+    from logic.apps import forgejo_sampler as _forgejo_sampler
+    forgejo_sampler = asyncio.create_task(
+        _forgejo_sampler.forgejo_sampler_loop(),
+        name="forgejo-sampler",
+    )
     # Kavita library-growth retention sampler — drives the series-count + total-
     # size growth line. Dormant-cheap when no Kavita chip is pinned.
     from logic.apps import kavita_sampler as _kavita_sampler
@@ -1086,7 +1094,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

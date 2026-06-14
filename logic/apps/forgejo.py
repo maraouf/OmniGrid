@@ -120,6 +120,24 @@ SKILLS: tuple[dict, ...] = (
                        "notifications"),
         "destructive": False,
     },
+    {
+        "id": "forgejo_failing_actions",
+        "name": "Failing CI / Actions runs",
+        "ai_phrases": ("failing actions, failed ci runs, is my ci red, which "
+                       "actions failed, broken builds on forgejo, failing "
+                       "workflows, ci status, forgejo actions failures"),
+        "destructive": False,
+    },
+    {
+        "id": "forgejo_mirror_sync",
+        "name": "Sync a push/pull mirror",
+        "ai_phrases": ("sync the <name> mirror, mirror-sync <name>, pull the "
+                       "github mirror now, sync my <name> mirror, update the "
+                       "<name> mirror, trigger a mirror sync"),
+        "arg": True,
+        "arg_hint": "the repository name (or part of it) whose mirror to sync",
+        "destructive": False,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -323,6 +341,37 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     notifications = _count_header(nr)
             except (httpx.HTTPError, OSError):
                 notifications = 0
+            # "Needs your attention" stats — PRs awaiting YOUR review +
+            # PRs/issues assigned to you. Far more actionable than the raw open
+            # counts. Best-effort: a failure leaves the count at 0.
+            review_requested = assigned_prs = assigned_issues = 0
+            try:
+                rv = await cli.get(base + _API + "/repos/issues/search",
+                                   headers=_headers(token),
+                                   params={"type": "pulls", "state": "open",
+                                           "review_requested": "true", "limit": "1"})
+                if rv.status_code == 200:
+                    review_requested = _count_header(rv)
+            except (httpx.HTTPError, OSError):
+                review_requested = 0
+            try:
+                ap = await cli.get(base + _API + "/repos/issues/search",
+                                   headers=_headers(token),
+                                   params={"type": "pulls", "state": "open",
+                                           "assigned": "true", "limit": "1"})
+                if ap.status_code == 200:
+                    assigned_prs = _count_header(ap)
+            except (httpx.HTTPError, OSError):
+                assigned_prs = 0
+            try:
+                ai = await cli.get(base + _API + "/repos/issues/search",
+                                   headers=_headers(token),
+                                   params={"type": "issues", "state": "open",
+                                           "assigned": "true", "limit": "1"})
+                if ai.status_code == 200:
+                    assigned_issues = _count_header(ai)
+            except (httpx.HTTPError, OSError):
+                assigned_issues = 0
             # Starred repos + organizations — nice-to-have extra stats.
             starred = orgs = 0
             try:
@@ -354,15 +403,36 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "open_prs": open_prs,
         "open_issues": open_issues,
         "notifications": notifications,
+        "review_requested": review_requested,
+        "assigned_prs": assigned_prs,
+        "assigned_issues": assigned_issues,
         "starred": starred,
         "orgs": orgs,
         "version": version,
         "fetched_at": int(now),
     }
+    # Best-effort open-PR/issue backlog trend from the shared lifespan
+    # forgejo_sampler (a 30d review-queue burn-down). Missing sampler / no
+    # samples yet leaves the card's instantaneous counts untouched.
+    out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[forgejo] INFO fetched host={host_id} repos={repos} prs={open_prs} "
-          f"issues={open_issues} notifications={notifications} starred={starred} orgs={orgs}")
+          f"issues={open_issues} notifications={notifications} starred={starred} "
+          f"orgs={orgs} review_req={review_requested} assigned={assigned_prs}/{assigned_issues}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
+
+
+def _safe_trend(host_id: str, service_idx: int) -> Optional[dict]:
+    """Best-effort open-PR/issue backlog trend for the card — the shared
+    forgejo_sampler's per-chip ``trend_summary``. Returns ``None`` (never raises)
+    when the sampler isn't importable / errors, so a trend hiccup can't fail the
+    card."""
+    try:
+        from logic.apps import forgejo_sampler as _sampler  # noqa: PLC0415
+        return _sampler.trend_summary(host_id, int(service_idx))
+    except Exception as e:  # noqa: BLE001
+        print(f"[forgejo] trend_summary({host_id}#{service_idx}) skipped: {e}")
+        return None
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -376,6 +446,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "open_prs": safe_int(data.get("open_prs")),
         "open_issues": safe_int(data.get("open_issues")),
         "notifications": safe_int(data.get("notifications")),
+        "review_requested": safe_int(data.get("review_requested")),
+        "assigned_prs": safe_int(data.get("assigned_prs")),
+        "assigned_issues": safe_int(data.get("assigned_issues")),
         "starred": safe_int(data.get("starred")),
         "orgs": safe_int(data.get("orgs")),
         "version": data.get("version") or "",
@@ -408,6 +481,10 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _starred_skill(host_row, chip, host_id=host_id)
     if skill_id == "forgejo_mark_read":
         return await _mark_read_skill(host_row, chip, host_id=host_id)
+    if skill_id == "forgejo_failing_actions":
+        return await _failing_actions_skill(host_row, chip, host_id=host_id)
+    if skill_id == "forgejo_mirror_sync":
+        return await _mirror_sync_skill(host_row, chip, arg=arg, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -494,11 +571,17 @@ async def _status_skill(host_row: dict, chip: dict, *,
     prs = safe_int(data.get("open_prs"))
     issues = safe_int(data.get("open_issues"))
     notifs = safe_int(data.get("notifications"))
+    review_req = safe_int(data.get("review_requested"))
+    assigned = safe_int(data.get("assigned_prs")) + safe_int(data.get("assigned_issues"))
     lines = [
         f"📦 Repos: {repos:,}",
         f"🔀 Open PRs: {prs:,}",
         f"🐛 Open issues: {issues:,}",
     ]
+    if review_req:
+        lines.append(f"👀 PRs awaiting your review: {review_req:,}")
+    if assigned:
+        lines.append(f"📌 Assigned to you: {assigned:,}")
     if notifs:
         lines.append(f"🔔 Unread notifications: {notifs:,}")
     return {
@@ -506,7 +589,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "repos": repos, "open_prs": prs, "open_issues": issues,
-        "notifications": notifs,
+        "notifications": notifs, "review_requested": review_req,
     }
 
 
@@ -737,3 +820,166 @@ async def _mark_read_skill(host_row: dict, chip: dict, *,
     if r.status_code not in (200, 205):
         return {"ok": False, "status": r.status_code, "detail": f"HTTP {r.status_code}"}
     return {"ok": True, "status": 200, "detail": "🔔 Marked all notifications as read."}
+
+
+# Forgejo Actions has no server-wide runs endpoint — runs are per-repo, so the
+# failing-runs aggregation walks a bounded set of the most-recently-updated
+# repos (capped so a big server can't fan out hundreds of calls).
+_ACTIONS_REPO_CAP = 12
+_FAILED_STATES = ("failure", "failed", "error", "cancelled", "canceled")
+
+
+def _action_runs(body: Any) -> list:
+    """Pull the run rows out of a Forgejo ``/actions/tasks`` response, tolerant of
+    the shape drift across versions (``{workflow_runs: [...]}`` /
+    ``{tasks: [...]}`` / a bare list). Returns a list of dict rows ([] when
+    none)."""
+    if isinstance(body, list):
+        return [r for r in body if isinstance(r, dict)]
+    d = as_dict(body)
+    for key in ("workflow_runs", "tasks", "runs", "data"):
+        rows = [r for r in as_list(d.get(key)) if isinstance(r, dict)]
+        if rows:
+            return rows
+    return []
+
+
+def _run_failed(run: dict) -> bool:
+    """True when a run's status / conclusion marks it failed."""
+    for k in ("status", "conclusion", "state"):
+        if str(run.get(k) or "").strip().lower() in _FAILED_STATES:
+            return True
+    return False
+
+
+async def _repo_failing_runs(cli: "httpx.AsyncClient", base: str, token: str,
+                             repo: dict) -> list:
+    """Failing Actions runs for ONE repo as rich rows. Best-effort: [] on any
+    per-repo failure (Actions disabled / endpoint absent / non-200)."""
+    full = str(repo.get("full_name") or "").strip()
+    if not full or "/" not in full:
+        return []
+    owner, name = full.split("/", 1)
+    try:
+        r = await cli.get(base + _API + f"/repos/{owner}/{name}/actions/tasks",
+                          headers=_headers(token), params={"limit": "20"})
+        if r.status_code != 200:
+            return []
+        runs = _action_runs(r.json())
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return []
+    out: list = []
+    for run in runs:
+        if not _run_failed(run):
+            continue
+        wf = str(run.get("name") or run.get("display_title")
+                 or run.get("workflow_id") or "workflow").strip()
+        when = _rel_time(run.get("updated_at") or run.get("created_at")
+                         or run.get("created"))
+        sub_bits = [b for b in (full, when) if b]
+        out.append({"title": f"❌ {wf}", "subtitle": " · ".join(sub_bits)})
+    return out
+
+
+# noinspection DuplicatedCode
+async def _failing_actions_skill(host_row: dict, chip: dict, *,
+                                 host_id: Optional[str] = None) -> dict:
+    """Read-only: aggregate FAILING CI / Actions runs across the most-recently-
+    updated repos (bounded). 'Is my CI red' at a glance. Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[forgejo] INFO forgejo_failing_actions host={host_id} (live, bounded repos)")
+    r = await _skill_get(base, _API + "/user/repos", token=token,
+                         params={"limit": str(_ACTIONS_REPO_CAP), "sort": "updated",
+                                 "order": "desc"}, timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        repos = as_list(r.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not repos:
+        return {"ok": True, "status": 200, "detail": "📦 No repositories to check."}
+    import asyncio as _asyncio  # noqa: PLC0415
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            results = await _asyncio.gather(
+                *(_repo_failing_runs(cli, base, token, as_dict(rp))
+                  for rp in repos[:_ACTIONS_REPO_CAP]),
+                return_exceptions=True)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"actions fetch failed: {type(e).__name__}: {e}"}
+    items: list[dict] = []
+    for res in results:
+        if isinstance(res, list):
+            items.extend(res)
+    items = items[:_MAX_ROWS]
+    if not items:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ No failing Actions runs in the {min(len(repos), _ACTIONS_REPO_CAP)} "
+                          f"most-recently-updated repos."}
+    lines = [f"• {it['title']}" + (f"  ({it['subtitle']})" if it.get("subtitle") else "")
+             for it in items]
+    out: dict = {"ok": True, "status": 200,
+                 "detail": f"❌ {len(items)} failing Actions run(s):\n" + "\n".join(lines)}
+    return _attach_items(out, items, "apps.forgejo.failing_count")
+
+
+async def _mirror_sync_skill(host_row: dict, chip: dict, *,
+                             arg: Optional[str] = None,
+                             host_id: Optional[str] = None) -> dict:
+    """Action (arg): trigger a push/pull mirror sync for ONE repo. Resolves the
+    repo by name (exact full_name / name first, then substring) from the user's
+    repos, then ``POST /repos/{owner}/{repo}/mirror-sync``. Non-destructive — it
+    only kicks an already-configured mirror. Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no repo given — say e.g. 'sync the omnigrid mirror'"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[forgejo] INFO forgejo_mirror_sync host={host_id} target={needle!r}")
+    r = await _skill_get(base, _API + "/user/repos", token=token,
+                         params={"limit": "50"}, timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        repos = [as_dict(rp) for rp in as_list(r.json())]
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    target = None
+    for rp in repos:  # exact full_name / name first
+        if nl in (str(rp.get("full_name") or "").lower(), str(rp.get("name") or "").lower()):
+            target = rp
+            break
+    if target is None:  # substring fallback
+        for rp in repos:
+            if nl in str(rp.get("full_name") or "").lower():
+                target = rp
+                break
+    if target is None:
+        return {"ok": False, "status": 404, "detail": f"no Forgejo repo matched \"{needle}\""}
+    full = str(target.get("full_name") or "").strip()
+    if "/" not in full:
+        return {"ok": False, "status": 404, "detail": f"could not resolve owner/name for \"{needle}\""}
+    if not target.get("mirror"):
+        return {"ok": False, "status": 400,
+                "detail": f"“{full}” is not a mirror repository (nothing to sync)"}
+    owner, name = full.split("/", 1)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            mr = await cli.post(base + _API + f"/repos/{owner}/{name}/mirror-sync",
+                                headers=_headers(token))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"mirror-sync failed: {type(e).__name__}: {e}"}
+    if mr.status_code in (401, 403):
+        return {"ok": False, "status": mr.status_code, "detail": "auth failed (check the Forgejo token)"}
+    if mr.status_code not in (200, 202, 204):
+        return {"ok": False, "status": mr.status_code, "detail": f"HTTP {mr.status_code}"}
+    return {"ok": True, "status": 200, "detail": f"🔄 Triggered a mirror sync for “{full}”."}

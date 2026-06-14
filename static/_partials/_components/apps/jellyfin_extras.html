@@ -100,6 +100,10 @@
             x-text="t('apps.jellyfin.episodes_footnote', { n: (Number(jellyfinData(inst).episodes) || 0) })"></span>
       <span x-show="(Number(jellyfinData(inst).items_this_week) || 0) > 0" class="text-[var(--success)]"
             x-text="t('apps.jellyfin.added_this_week', { n: jellyfinCount(jellyfinData(inst).items_this_week) }) + (jellyfinData(inst).items_this_week_capped ? '+' : '')"></span>
+      <span x-show="(Number(jellyfinData(inst).users_total) || 0) > 0"
+            x-text="t('apps.jellyfin.users_footnote', { n: jellyfinCount(jellyfinData(inst).users_total) })"></span>
+      <span x-show="(Number(jellyfinData(inst).resume_count) || 0) > 0"
+            x-text="t('apps.jellyfin.resume_footnote', { n: jellyfinCount(jellyfinData(inst).resume_count) })"></span>
       <span x-show="jellyfinData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Jellyfin', v: (jellyfinData(inst).version || '') })"></span>
     </div>

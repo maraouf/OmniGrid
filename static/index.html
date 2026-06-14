@@ -6325,6 +6325,12 @@
                                  || typeof h.host_load_percent === 'number'
                                  || h.host_battery_runtime_s
                                  || h.host_battery_status
+                                 || typeof h.host_ups_input_voltage === 'number'
+                                 || typeof h.host_ups_output_voltage === 'number'
+                                 || typeof h.host_ups_input_freq_hz === 'number'
+                                 || h.host_ups_last_transfer
+                                 || h.host_ups_self_test
+                                 || h.host_ups_battery_replace === 1
                                  || isStaleField(h, 'host_ups_status')
                                  || isStaleField(h, 'host_battery_percent')
                                  || isStaleField(h, 'host_load_percent')">
@@ -6409,6 +6415,64 @@
                               :class="[upsBatteryStatusPillClass(h.host_battery_status), isStaleField(h, 'host_battery_status') ? 'stale' : '']"
                               :title="isStaleField(h, 'host_battery_status') ? staleAge(h) : ''"
                               x-text="upsBatteryStatusLabel(h.host_battery_status)"></span>
+                    </dd>
+                  </template>
+                  <!-- PowerNet-MIB power-quality scalars (input/output voltage,
+                       line frequency, last-transfer cause, self-test result) +
+                       a battery-replace warning — same fields as the Apps APC
+                       card, sourced from the live host row's host_ups_* keys. -->
+                  <template x-if="typeof h.host_ups_input_voltage === 'number'">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.input_voltage')"></dt>
+                  </template>
+                  <template x-if="typeof h.host_ups_input_voltage === 'number'">
+                    <dd class="text-end mono"
+                        :class="isStaleField(h, 'host_ups_input_voltage') ? 'stale' : ''"
+                        :title="isStaleField(h, 'host_ups_input_voltage') ? staleAge(h) : ''"
+                        x-text="(+h.host_ups_input_voltage).toFixed(0) + ' V'"></dd>
+                  </template>
+                  <template x-if="typeof h.host_ups_output_voltage === 'number'">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.output_voltage')"></dt>
+                  </template>
+                  <template x-if="typeof h.host_ups_output_voltage === 'number'">
+                    <dd class="text-end mono"
+                        :class="isStaleField(h, 'host_ups_output_voltage') ? 'stale' : ''"
+                        :title="isStaleField(h, 'host_ups_output_voltage') ? staleAge(h) : ''"
+                        x-text="(+h.host_ups_output_voltage).toFixed(0) + ' V'"></dd>
+                  </template>
+                  <template x-if="typeof h.host_ups_input_freq_hz === 'number'">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.line_frequency')"></dt>
+                  </template>
+                  <template x-if="typeof h.host_ups_input_freq_hz === 'number'">
+                    <dd class="text-end mono"
+                        :class="isStaleField(h, 'host_ups_input_freq_hz') ? 'stale' : ''"
+                        :title="isStaleField(h, 'host_ups_input_freq_hz') ? staleAge(h) : ''"
+                        x-text="(+h.host_ups_input_freq_hz).toFixed(0) + ' Hz'"></dd>
+                  </template>
+                  <template x-if="h.host_ups_last_transfer">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.last_transfer')"></dt>
+                  </template>
+                  <template x-if="h.host_ups_last_transfer">
+                    <dd class="text-end"
+                        :class="isStaleField(h, 'host_ups_last_transfer') ? 'stale' : ''"
+                        :title="isStaleField(h, 'host_ups_last_transfer') ? staleAge(h) : ''"
+                        x-text="apcTransferLabel(h.host_ups_last_transfer)"></dd>
+                  </template>
+                  <template x-if="h.host_ups_self_test">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.self_test')"></dt>
+                  </template>
+                  <template x-if="h.host_ups_self_test">
+                    <dd class="text-end"
+                        :class="isStaleField(h, 'host_ups_self_test') ? 'stale' : ''"
+                        :title="isStaleField(h, 'host_ups_self_test') ? staleAge(h) : ''"
+                        x-text="apcSelfTestLabel(h.host_ups_self_test)"></dd>
+                  </template>
+                  <template x-if="h.host_ups_battery_replace === 1">
+                    <dt class="text-[var(--text-dim)]" x-text="t('host_drawer.ups.battery_replace')"></dt>
+                  </template>
+                  <template x-if="h.host_ups_battery_replace === 1">
+                    <dd class="text-end">
+                        <span class="chip fs-2xs pill-error"
+                              x-text="t('host_drawer.ups.battery_replace_yes')"></span>
                     </dd>
                   </template>
                 </dl>

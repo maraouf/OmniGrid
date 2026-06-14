@@ -99,6 +99,10 @@
             x-text="t('apps.emby.episodes_footnote', { n: (Number(embyData(inst).episodes) || 0) })"></span>
       <span x-show="(Number(embyData(inst).items_this_week) || 0) > 0" class="text-[var(--success)]"
             x-text="t('apps.emby.added_this_week', { n: embyCount(embyData(inst).items_this_week) }) + (embyData(inst).items_this_week_capped ? '+' : '')"></span>
+      <span x-show="(Number(embyData(inst).users_total) || 0) > 0"
+            x-text="t('apps.emby.users_footnote', { n: embyCount(embyData(inst).users_total) })"></span>
+      <span x-show="(Number(embyData(inst).resume_count) || 0) > 0"
+            x-text="t('apps.emby.resume_footnote', { n: embyCount(embyData(inst).resume_count) })"></span>
       <span x-show="embyData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Emby', v: (embyData(inst).version || '') })"></span>
     </div>

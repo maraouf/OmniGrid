@@ -264,6 +264,37 @@ def _items_added_this_week(created: list, now: float) -> int:
     return n
 
 
+async def _users_count(cli: "httpx.AsyncClient", base: str, key: str,
+                       scheme: str) -> int:
+    """Total user count from ``GET /Users`` (the user list). Best-effort: 0 on a
+    non-200 / parse failure."""
+    try:
+        r = await cli.get(base + "/Users", headers=headers(key, scheme))
+        if r.status_code != 200:
+            return 0
+        return len([u for u in as_list(r.json()) if isinstance(u, dict)])
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return 0
+
+
+async def _resume_count(cli: "httpx.AsyncClient", base: str, key: str,
+                        scheme: str) -> int:
+    """Server-wide "Continue watching" / on-deck count — items the server marks
+    resumable (``Filters=IsResumable``). Returns the ``TotalRecordCount``.
+    Best-effort: 0 on a non-200 / parse failure OR on versions that scope
+    ``IsResumable`` to a per-user context (the card hides the chip then)."""
+    try:
+        r = await cli.get(base + "/Items", headers=headers(key, scheme), params={
+            "Recursive": "true", "Filters": "IsResumable",
+            "IncludeItemTypes": "Movie,Episode,Video", "Limit": "0",
+            "EnableTotalRecordCount": "true", "EnableImages": "false"})
+        if r.status_code != 200:
+            return 0
+        return safe_int(as_dict(r.json()).get("TotalRecordCount"))
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return 0
+
+
 def version_from(resp) -> str:
     """Server version from a ``GET /System/Info`` body ('' on any non-200 /
     parse failure — version is never load-bearing)."""
@@ -376,6 +407,12 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
             # the SPA when the cap is hit.
             items_this_week = _items_added_this_week(
                 await _recent_created(cli, base, key, cfg.scheme), now)
+            # Total user count (GET /Users) — best-effort, 0 on failure.
+            users_total = await _users_count(cli, base, key, cfg.scheme)
+            # On-deck / resume count (items the server marks resumable, i.e.
+            # "Continue watching"). Best-effort: 0 on versions that scope
+            # IsResumable to a user context (the card hides the chip then).
+            resume_count = await _resume_count(cli, base, key, cfg.scheme)
             # Version (nice-to-have).
             try:
                 version = version_from(
@@ -414,6 +451,8 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "active_devices": len(active_devices),
         "items_this_week": items_this_week,
         "items_this_week_capped": items_this_week >= _RECENT_CREATED_CAP,
+        "users_total": users_total,
+        "resume_count": resume_count,
         "version": version,
         "fetched_at": int(now),
     }
@@ -462,6 +501,8 @@ def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict
         "active_users": safe_int(data.get("active_users")),
         "active_devices": safe_int(data.get("active_devices")),
         "items_this_week": safe_int(data.get("items_this_week")),
+        "users_total": safe_int(data.get("users_total")),
+        "resume_count": safe_int(data.get("resume_count")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -1079,6 +1120,63 @@ async def scan_library_skill(host_row: dict, chip: dict, *,
             "detail": f"🔄 Started a scan of the “{target_name or needle}” library on {cfg.brand}."}
 
 
+# noinspection DuplicatedCode
+#   The sessions-fetch + parse + active-filter preamble is shape-similar to
+#   now_playing / terminate_session but each skill's body differs after it.
+async def send_message_skill(host_row: dict, chip: dict, *,
+                             arg: Optional[str], host_id: Optional[str],
+                             cfg: Config) -> dict:
+    """Action skill (arg): broadcast a short message to every ACTIVE session
+    (a toast on each watcher's client) via ``POST /Sessions/{id}/Message``
+    (the DisplayMessage command, supported by both Emby and Jellyfin).
+    Non-destructive — it only shows a notification, never interrupts playback.
+    ``arg`` is the message text. Never raises."""
+    text = (arg or "").strip()
+    if not text:
+        return {"ok": False, "status": 0,
+                "detail": "no message given — say e.g. 'tell everyone dinner's ready'"}
+    key, base, err = _resolve_skill_target(host_row, chip, cfg=cfg)
+    if err:
+        return err
+    print(f"[{cfg.log_tag}] INFO {cfg.slug}_send_message host={host_id} text={text!r}")
+    r = await _skill_request("GET", base, "/Sessions", key=key, cfg=cfg,
+                             timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        sessions = [s for s in as_list(r.json())
+                    if isinstance(s, dict) and s.get("NowPlayingItem")]
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    if not sessions:
+        return {"ok": True, "status": 200,
+                "detail": f"⏸️ No active {cfg.brand} sessions to message right now."}
+    body = {"Header": "OmniGrid", "Text": text, "TimeoutMs": 8000}
+    sent = 0
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            for s in sessions:
+                sid = str(s.get("Id") or "").strip()
+                if not sid:
+                    continue
+                try:
+                    mr = await cli.post(base + f"/Sessions/{sid}/Message",
+                                        headers=headers(key, cfg.scheme), json=body)
+                    if mr.status_code in (200, 202, 204):
+                        sent += 1
+                except (httpx.HTTPError, OSError):
+                    continue
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"send failed: {type(e).__name__}: {e}"}
+    if sent == 0:
+        return {"ok": False, "status": 502,
+                "detail": f"couldn't deliver the message to any {cfg.brand} session"}
+    return {"ok": True, "status": 200,
+            "detail": f"💬 Sent “{text}” to {sent} {cfg.brand} session{'s' if sent != 1 else ''}."}
+
+
 async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
                     host_id: Optional[str], service_idx: Optional[int],
                     arg: Optional[str], cfg: Config, cache: dict) -> dict:
@@ -1100,6 +1198,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await scan_skill(host_row, chip, host_id=host_id, cfg=cfg)
     if skill_id == f"{cfg.slug}_scan_library":
         return await scan_library_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
+    if skill_id == f"{cfg.slug}_send_message":
+        return await send_message_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -1172,6 +1272,17 @@ def build_skills(slug: str, brand: str) -> "tuple[dict, ...]":
                            f"<name> {slug} library, scan just the <name> library"),
             "arg": True,
             "arg_hint": "the name of the library to scan (e.g. Movies, TV Shows)",
+            "destructive": False,
+        },
+        {
+            "id": f"{slug}_send_message",
+            "name": f"Send a message to {b} viewers",
+            "ai_phrases": (f"send a message to {slug} viewers, tell everyone on "
+                           f"{slug} <message>, broadcast a message on {slug}, "
+                           f"notify {slug} watchers, message all {slug} sessions, "
+                           f"pop a message on {slug} screens"),
+            "arg": True,
+            "arg_hint": "the message text to show on every active session's screen",
             "destructive": False,
         },
     )
