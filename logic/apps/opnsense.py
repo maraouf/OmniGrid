@@ -38,6 +38,8 @@ Upstream API reference (HTTP Basic key:secret) — https://<host>/api :
     GET  /api/routes/gateway/status                 — per-gateway RTT / loss
     POST /api/core/service/search                   — running services
     GET  /api/dhcpv4/leases/searchLease             — DHCP lease count
+    GET  /api/diagnostics/traffic/interface         — per-NIC cumulative byte counters
+    GET  /api/interfaces/overview/export            — per-NIC list + statistics (fallback)
     POST /api/core/service/restart/{id}             — restart a service (action)
 """
 from __future__ import annotations
@@ -213,8 +215,10 @@ _PRIV_HINTS = {
     "services": "grant the API user the 'Status: Services' privilege",
     "pf": "grant the API user the 'Diagnostics: pf info' / 'Firewall: states' privilege",
     "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
+    "interfaces": "grant the API user the 'Diagnostics: Traffic' and 'Interfaces: Overview' privileges",
 }
-_CAT_NAMES = {"services": "Services", "pf": "Firewall states", "dhcp": "DHCP leases"}
+_CAT_NAMES = {"services": "Services", "pf": "Firewall states", "dhcp": "DHCP leases",
+              "interfaces": "Interfaces"}
 
 
 def _diagnose_endpoints(dbg: list) -> str:
@@ -389,13 +393,33 @@ def _firmware_shape(fw: dict) -> "tuple[str, bool]":
     return ver, update
 
 
-def _gateways_shape(gw: dict) -> "tuple[list, int, int, dict]":
+def _parse_standby(raw: Any) -> "list[str]":
+    """Operator-supplied STANDBY gateway hints — a CSV string (or list) of
+    gateway names / substrings the operator runs as passive failover members.
+    Lower-cased, blanks dropped."""
+    items = raw if isinstance(raw, list) else str(raw or "").split(",")
+    return [s.strip().lower() for s in items if str(s).strip()]
+
+
+def _gateways_shape(gw: dict, standby: "Optional[list]" = None
+                    ) -> "tuple[list, int, int, dict, int, int]":
     """Parse ``/api/routes/gateway/status`` ``items`` into a compact list +
-    ``(total, online, worst)`` where worst is the gateway with the highest
-    packet loss (or the first down one)."""
+    ``(active_total, active_online, worst, standby_total, standby_online)``.
+
+    ACTIVE/PASSIVE failover awareness: a gateway whose name matches an operator
+    ``standby_gateways`` hint (or whose OPNsense status is ``force_down``) is a
+    STANDBY member. A standby gateway at 100% loss is EXPECTED (it only carries
+    traffic when the primary fails), so standby gateways are NOT counted in the
+    active ``online``/``total`` health and are NEVER picked as ``worst`` — that
+    keeps a healthy active/passive setup from reading as '1/2 online · worst
+    100% loss'. Each row carries a ``role`` of ``active`` / ``standby``."""
+    standby = standby or []
     items = as_list(gw.get("items"))
     out: list = []
-    online = 0
+    active_online = 0
+    active_total = 0
+    sb_online = 0
+    sb_total = 0
     worst: dict = {}
     worst_loss = -1.0
     for g in items:
@@ -407,17 +431,25 @@ def _gateways_shape(gw: dict) -> "tuple[list, int, int, dict]":
         loss = safe_float(str(g.get("loss") or "0").replace("%", "").strip())
         delay = safe_float(str(g.get("delay") or "0").replace("ms", "").strip())
         ok = status in ("online", "up", "none", "")
-        if ok:
-            online += 1
+        is_standby = status == "force_down" or any(s in name.lower() for s in standby)
         row = {"name": name, "status": status or "online",
                "loss": round(loss, 1), "delay": round(delay, 1),
-               "address": str(g.get("address") or "").strip()}
+               "address": str(g.get("address") or "").strip(),
+               "role": "standby" if is_standby else "active"}
         out.append(row)
+        if is_standby:
+            sb_total += 1
+            if ok:
+                sb_online += 1
+            continue  # never counts toward active health / worst
+        active_total += 1
+        if ok:
+            active_online += 1
         score = loss + (1000.0 if not ok else 0.0)
         if score > worst_loss:
             worst_loss = score
             worst = row
-    return out[:_MAX_ROWS], len(out), online, worst
+    return out[:_MAX_ROWS], active_total, active_online, worst, sb_total, sb_online
 
 
 def _services_shape(svc: dict) -> "tuple[list, int, int]":
@@ -549,7 +581,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _fetch_services(cli, base, dbg),
                 _fetch_pf_states(cli, base, dbg),
                 _fetch_dhcp_leases(cli, base, dbg),
-                _get_json(cli, base, "/api/diagnostics/traffic/interface"),
+                _fetch_interfaces(cli, base, dbg),
                 _get_json(cli, base, "/api/diagnostics/activity/getActivity"),
             )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
@@ -574,7 +606,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
     if load_1m <= 0 and load_5m <= 0 and load_15m <= 0:
         load_1m, load_5m, load_15m = _loadavg_from_activity(activity)
     uptime_s = _uptime_seconds(stime_d)
-    gw_list, gw_total, gw_online, worst_gw = _gateways_shape(as_dict(gw))
+    gw_list, gw_total, gw_online, worst_gw, gw_sb_total, gw_sb_online = _gateways_shape(
+        as_dict(gw), _parse_standby(chip.get("standby_gateways")))
     svc_list, svc_total, svc_running = _services_shape(as_dict(svc))
     # pf state-table count + limit — _fetch_pf_states already tries pf_states
     # (summary / list shapes) then the pf_statistics counters fallback.
@@ -603,6 +636,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "uptime_s": uptime_s,
         "gateways_total": gw_total,
         "gateways_online": gw_online,
+        "gateways_standby_total": gw_sb_total,
+        "gateways_standby_online": gw_sb_online,
         "worst_gateway": worst_gw,
         "gateways": gw_list,
         "services_total": svc_total,
@@ -767,45 +802,142 @@ def _mem_from_activity(activity: Any) -> "tuple[int, int]":
     return 0, 0
 
 
-def _throughput(host_id: str, service_idx: int, traffic: dict,
+# Candidate (rx, tx) cumulative-byte-counter key pairs across OPNsense versions
+# / endpoints. `traffic/interface` historically used "bytes received" /
+# "bytes transmitted"; `interfaces/overview/export` nests counters under a
+# `statistics` block whose key spelling has drifted (spaces vs underscores vs
+# in/out). We probe all of them so a casing change can't blank the list.
+_RX_TX_KEYS: "tuple[tuple[str, str], ...]" = (
+    ("bytes received", "bytes transmitted"),
+    ("bytes_received", "bytes_transmitted"),
+    ("bytesReceived", "bytesTransmitted"),
+    ("in_bytes", "out_bytes"),
+    ("inbytes", "outbytes"),
+    ("received", "transmitted"),
+    ("rx", "tx"),
+)
+
+
+def _iface_counter_pair(info: dict) -> "tuple[int, int]":
+    """Best-effort (rx_bytes, tx_bytes) from an interface entry — checks the
+    top level AND a nested ``statistics`` sub-dict, across every key spelling
+    OPNsense builds have used. (0, 0) when none present."""
+    d = as_dict(info)
+    for src in (d, as_dict(d.get("statistics"))):
+        for rk, tk in _RX_TX_KEYS:
+            if rk in src or tk in src:
+                return safe_int(src.get(rk)), safe_int(src.get(tk))
+    return 0, 0
+
+
+def _normalize_interfaces(traffic: Any, overview: Any, names: Any) -> "dict[str, dict]":
+    """Merge the interface sources into ``{key: {name, rx, tx, status}}``.
+
+    ``traffic`` is ``/api/diagnostics/traffic/interface`` (``{"interfaces":
+    {dev: {...}}}``); ``overview`` is ``/api/interfaces/overview/export`` (a
+    LIST of rich per-interface rows, the modern source Homarr-style dashboards
+    read); ``names`` is ``/api/diagnostics/interface/getInterfaceNames`` (a bare
+    ``{dev: "Label"}`` map — no counters, but it at least ENUMERATES the NICs
+    when the counter endpoints are privilege-blocked). Any may be missing on a
+    given version / privilege set — we union them, keyed by device, so a working
+    source backfills a missing one and interfaces still LIST."""
+    out: "dict[str, dict]" = {}
+    tif = as_dict(as_dict(traffic).get("interfaces"))
+    for key, info in tif.items():
+        info = as_dict(info)
+        rx, tx = _iface_counter_pair(info)
+        name = str(info.get("name") or info.get("description") or key).strip() or str(key)
+        out[str(key)] = {"name": name, "rx": rx, "tx": tx,
+                         "status": str(info.get("status") or "").strip()}
+    ov_items = overview if isinstance(overview, list) else as_list(as_dict(overview).get("rows"))
+    for it in ov_items:
+        it = as_dict(it)
+        key = str(it.get("device") or it.get("identifier") or it.get("name") or "").strip()
+        if not key:
+            continue
+        rx, tx = _iface_counter_pair(it)
+        name = str(it.get("description") or it.get("name") or key).strip() or key
+        status = str(it.get("status") or it.get("link") or "").strip()
+        cur = out.get(key)
+        if cur is None:
+            out[key] = {"name": name, "rx": rx, "tx": tx, "status": status}
+        else:
+            if not (cur["rx"] or cur["tx"]) and (rx or tx):
+                cur["rx"], cur["tx"] = rx, tx
+            if not cur.get("status") and status:
+                cur["status"] = status
+    for key, label in as_dict(names).items():
+        key = str(key).strip()
+        if key and key not in out:
+            out[key] = {"name": str(label or key).strip() or key,
+                        "rx": 0, "tx": 0, "status": ""}
+    return out
+
+
+async def _fetch_interfaces(cli: httpx.AsyncClient, base: str,
+                            dbg: Optional[list] = None) -> "dict[str, dict]":
+    """Fetch + normalize the interface list from the traffic-counter endpoint,
+    the interfaces overview, and the interface-names map, recording each attempt
+    in ``dbg`` so the drawer debug panel shows exactly what the firewall
+    answered (status + row count + snippet). Returns the normalized
+    ``{key: {name, rx, tx, status}}`` map ({} when no endpoint is usable)."""
+    t_probe = await _probe_raw(cli, base, "GET", "/api/diagnostics/traffic/interface")
+    o_probe = await _probe_raw(cli, base, "GET", "/api/interfaces/overview/export")
+    n_probe = await _probe_raw(cli, base, "GET", "/api/diagnostics/interface/getInterfaceNames")
+    norm = _normalize_interfaces(t_probe.get("json"), o_probe.get("json"), n_probe.get("json"))
+    if dbg is not None:
+        t_if = as_dict(as_dict(t_probe.get("json")).get("interfaces"))
+        o_raw = o_probe.get("json")
+        o_n = len(o_raw) if isinstance(o_raw, list) else len(as_list(as_dict(o_raw).get("rows")))
+        n_n = len(as_dict(n_probe.get("json")))
+        dbg.append(_dbg_entry("interfaces", "GET",
+                              "/api/diagnostics/traffic/interface", t_probe,
+                              len(t_if) if t_if else (0 if t_probe.get("ok") else -1)))
+        dbg.append(_dbg_entry("interfaces", "GET",
+                              "/api/interfaces/overview/export", o_probe,
+                              o_n if o_n else (0 if o_probe.get("ok") else -1)))
+        dbg.append(_dbg_entry("interfaces", "GET",
+                              "/api/diagnostics/interface/getInterfaceNames", n_probe,
+                              n_n if n_n else (0 if n_probe.get("ok") else -1)))
+    return norm
+
+
+def _throughput(host_id: str, service_idx: int, ifaces: "dict[str, dict]",
                 now: float) -> "tuple[int, int, list]":
-    """Rate-diff ``traffic/interface``'s CUMULATIVE per-NIC byte counters into
-    bytes-per-second. Returns ``(total_rx_bps, total_tx_bps, per_iface_list)``
-    where each iface row is ``{name, rx_bps, tx_bps}``. The first sample (no
-    predecessor) yields zeros — the next tick establishes the baseline.
-    Counter resets / reboots (negative delta) and absurd gaps are skipped, never
-    synthesized as a spike (the host_net_sampler discipline)."""
+    """Rate-diff the per-NIC CUMULATIVE byte counters into bytes-per-second.
+    Returns ``(total_rx_bps, total_tx_bps, per_iface_list)`` where each row is
+    ``{name, rx_bps, tx_bps, status}``.
+
+    EVERY interface present in the current sample is listed — throughput reads
+    0 until a baseline exists (the first sample establishes it; the next yields
+    real rates), so the interfaces DISPLAY immediately instead of being hidden
+    until two samples land. Counter resets / reboots (negative delta) and
+    absurd gaps fall back to 0 for that NIC, never a synthesized spike
+    (the host_net_sampler discipline)."""
     ck = cache_key(host_id, service_idx)
-    ifaces = as_dict(traffic.get("interfaces"))
-    cur: dict = {}
-    for key, info in ifaces.items():
-        d = as_dict(info)
-        cur[key] = (safe_int(d.get("bytes received")), safe_int(d.get("bytes transmitted")))
+    cur: dict = {k: (safe_int(v.get("rx")), safe_int(v.get("tx")))
+                 for k, v in ifaces.items()}
     prev = _iface_counters.get(ck)
     _iface_counters[ck] = (now, cur)
-    if not prev:
-        return 0, 0, []
-    prev_ts, prev_cnts = prev
-    dt = now - prev_ts
-    if dt < 1 or dt > 900:  # too-short / stale gap — skip this rate
-        return 0, 0, []
+    dt = (now - prev[0]) if prev else 0.0
+    have_baseline = bool(prev) and 1 <= dt <= 900
     total_rx = 0
     total_tx = 0
     rows: list = []
-    for key, (rx, tx) in cur.items():
-        if key not in prev_cnts:
-            continue
-        prx, ptx = prev_cnts[key]
-        d_rx = rx - prx
-        d_tx = tx - ptx
-        if d_rx < 0 or d_tx < 0:  # counter reset / reboot — skip
-            continue
-        rx_bps = int(d_rx / dt)
-        tx_bps = int(d_tx / dt)
+    for key, meta in ifaces.items():
+        rx_bps = 0
+        tx_bps = 0
+        if have_baseline and key in prev[1]:
+            prx, ptx = prev[1][key]
+            d_rx = cur[key][0] - prx
+            d_tx = cur[key][1] - ptx
+            if d_rx >= 0 and d_tx >= 0:
+                rx_bps = int(d_rx / dt)
+                tx_bps = int(d_tx / dt)
         total_rx += rx_bps
         total_tx += tx_bps
-        name = str(as_dict(ifaces.get(key)).get("name") or key).strip() or key
-        rows.append({"name": name, "rx_bps": rx_bps, "tx_bps": tx_bps})
+        rows.append({"name": meta.get("name") or key, "rx_bps": rx_bps,
+                     "tx_bps": tx_bps, "status": meta.get("status") or ""})
     # Busiest interfaces first (rx+tx), capped for the card.
     rows.sort(key=lambda r: (r["rx_bps"] + r["tx_bps"]), reverse=True)
     return total_rx, total_tx, rows[:_MAX_ROWS]
@@ -900,13 +1032,21 @@ async def _status_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "detail": str(e), "status": 0}
     gw_total = safe_int(data.get("gateways_total"))
     gw_online = safe_int(data.get("gateways_online"))
+    sb_total = safe_int(data.get("gateways_standby_total"))
+    sb_online = safe_int(data.get("gateways_standby_online"))
     worst = as_dict(data.get("worst_gateway"))
+    gw_line = f"📡 Gateways: {gw_online}/{gw_total} online"
+    if sb_total:
+        # Standby/failover members shown separately — a passive WAN at 100% loss
+        # is expected, so it never reads as a degraded fleet.
+        gw_line += f" · {sb_online}/{sb_total} standby"
+    if worst and (gw_total != gw_online or safe_float(worst.get("loss")) > 0):
+        gw_line += (f" · worst {worst.get('name')} {worst.get('loss')}% loss / "
+                    f"{worst.get('delay')}ms")
     lines = [
         f"🛡️ OPNsense {data.get('version') or '?'}"
         + ("  ⬆️ update available" if data.get("update_available") else ""),
-        f"📡 Gateways: {gw_online}/{gw_total} online"
-        + (f" · worst {worst.get('name')} {worst.get('loss')}% loss / "
-           f"{worst.get('delay')}ms" if worst and (gw_total != gw_online or safe_float(worst.get('loss')) > 0) else ""),
+        gw_line,
         f"⚙️ Services: {safe_int(data.get('services_running'))}/"
         f"{safe_int(data.get('services_total'))} running",
         f"🖥️ CPU: {safe_float(data.get('cpu_percent'))}%"
@@ -947,17 +1087,29 @@ async def _gateways_skill(host_row: dict, chip: dict, *,
     if not gws:
         return {"ok": True, "status": 200, "detail": "No gateways configured on OPNsense."}
     lines = []
+    sb_n = 0
     for g in gws:
         if not isinstance(g, dict):
             continue
-        emoji = _GW_EMOJI.get(str(g.get("status") or "").lower(), "•")
+        is_standby = str(g.get("role") or "").lower() == "standby"
+        # A standby member that's down is EXPECTED — render it 🟡 (ready) not 🔴.
+        if is_standby:
+            sb_n += 1
+            ok = str(g.get("status") or "").lower() in ("online", "up", "none", "")
+            emoji = "🟢" if ok else "🟡"
+        else:
+            emoji = _GW_EMOJI.get(str(g.get("status") or "").lower(), "•")
         bits = [f"{emoji} {g.get('name') or '?'}"]
         addr = str(g.get("address") or "").strip()
         if addr:
             bits.append(f"({addr})")
         bits.append(f"· {safe_float(g.get('delay'))}ms · {safe_float(g.get('loss'))}% loss")
+        if is_standby:
+            bits.append("· standby")
         lines.append(" ".join(bits))
     head = f"📡 {len(gws)} gateway{'s' if len(gws) != 1 else ''}"
+    if sb_n:
+        head += f" ({sb_n} standby)"
     return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
 
 
@@ -1026,8 +1178,13 @@ async def _interfaces_skill(host_row: dict, chip: dict, *,
     try:
         data = await fetch_data(host_row, chip, host_id=hid, service_idx=sidx, force=True)
         ifaces = as_list(data.get("interfaces"))
-        if not ifaces:
-            # No baseline yet — sample again so the diff produces real rates.
+        # Throughput is rate-diffed from two samples; on a cold call every NIC
+        # reads 0 (the first sample just sets the baseline). Re-sample ~2s later
+        # so the card shows REAL rates — whether the list was empty OR all-zero.
+        all_zero = bool(ifaces) and all(
+            safe_int(n.get("rx_bps")) == 0 and safe_int(n.get("tx_bps")) == 0
+            for n in ifaces if isinstance(n, dict))
+        if not ifaces or all_zero:
             await asyncio.sleep(2)
             data = await fetch_data(host_row, chip, host_id=hid, service_idx=sidx, force=True)
             ifaces = as_list(data.get("interfaces"))

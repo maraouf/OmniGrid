@@ -41,6 +41,24 @@
       <input type="checkbox" x-model="appsInstanceEditForm.verify_tls">
       <span x-text="t('apps.opnsense.verify_tls_label') || 'Verify TLS certificate (off for self-signed)'"></span>
     </label>
+    <!-- Active/passive failover: name(s) of STANDBY gateways (comma-separated,
+         substring match). A standby WAN at 100% loss is expected, so it's
+         excluded from the "N/M online" health + worst-gateway pick and shown
+         as standby instead. -->
+    <div>
+      <label for="apps-instance-opnsense-standby"
+             class="block fs-xs text-[var(--text-faint)] mb-1"
+             x-text="t('apps.opnsense.standby_gateways_label') || 'Standby (failover) gateways'"></label>
+      <input id="apps-instance-opnsense-standby"
+             type="text" maxlength="256"
+             x-model="appsInstanceEditForm.standby_gateways"
+             class="w-full bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
+             :placeholder="t('apps.opnsense.standby_gateways_placeholder') || 'e.g. WAN_CELL_DHCP'"
+             :aria-label="t('apps.opnsense.standby_gateways_label') || 'Standby (failover) gateways'"
+             autocomplete="off">
+      <p class="fs-2xs text-[var(--text-faint)] mt-1"
+         x-text="t('apps.opnsense.standby_gateways_hint') || 'Comma-separated gateway names (or substrings) you run as passive failover. They are not counted as down when offline.'"></p>
+    </div>
     <!-- Per-instance data-cache TTL (contained in the app, NOT a global Config
          tunable). Blank = the app default (30s); backend clamps 5..3600. -->
     <div>

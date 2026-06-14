@@ -10438,13 +10438,13 @@
                                        x-text="JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2)"></pre>
                                 </details>
                                 <button type="button" class="btn btn-ghost fs-2xs inline-flex items-center gap-1 flex-shrink-0 self-start"
-                                        @click.stop="copyToClipboard(JSON.stringify(appDebug[appInstanceKey(inst)].data, null, 2))"
-                                        :aria-label="t('apps.drawer.copy_debug') || 'Copy debug JSON'"
-                                        :title="t('apps.drawer.copy_debug') || 'Copy debug JSON'">
+                                        @click.stop="copyAppInstanceDebug(inst)"
+                                        :aria-label="t('apps.drawer.copy_debug_all') || 'Copy all debug info'"
+                                        :title="t('apps.drawer.copy_debug_all') || 'Copy the full debug pane (endpoint diagnostics + probe targets + raw JSON)'">
                                   <svg width="12" height="12" aria-hidden="true">
                                     <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-copy"/>
                                   </svg>
-                                  <span x-text="t('apps.drawer.copy_debug') || 'Copy'"></span>
+                                  <span x-text="t('apps.drawer.copy_debug_all') || 'Copy all'"></span>
                                 </button>
                               </div>
                             </div>

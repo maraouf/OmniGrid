@@ -763,6 +763,8 @@ export default {
       // = OFF; backend clamps 0..100000.
       speed_floor_mbps: (inst.speed_floor_mbps != null && inst.speed_floor_mbps !== '')
         ? String(inst.speed_floor_mbps) : '',
+      // OPNsense active/passive failover: CSV of STANDBY gateway names. Blank = none.
+      standby_gateways: (typeof inst.standby_gateways === 'string') ? inst.standby_gateways : '',
       // Per-instance data-cache TTL (seconds). Blank = the app's default
       // (AdGuard / Pi-hole 30, Speedtest 60); backend clamps 5..3600.
       cache_ttl: (inst.cache_ttl != null && inst.cache_ttl !== '')
@@ -825,6 +827,7 @@ export default {
       username: f.username || '',
       avg_window: f.avg_window || '',
       speed_floor_mbps: f.speed_floor_mbps || '',
+      standby_gateways: f.standby_gateways || '',
       cache_ttl: f.cache_ttl || '',
       verify_tls: !!f.verify_tls,
       tmdb_api_key: (typeof f.tmdb_api_key === 'string') ? f.tmdb_api_key : '',
@@ -1183,6 +1186,7 @@ export default {
           // Per-instance Speedtest below-floor reliability floor (Mbps). Blank
           // => OFF; a value is clamped 0..100000.
           speed_floor_mbps: (f.speed_floor_mbps != null) ? f.speed_floor_mbps : '',
+          standby_gateways: (typeof f.standby_gateways === 'string') ? f.standby_gateways : '',
           // Per-instance data-cache TTL (seconds). Blank => backend drops
           // it => the app module's default; a value is clamped 5..3600.
           cache_ttl: (f.cache_ttl != null) ? f.cache_ttl : '',
