@@ -130,6 +130,8 @@ class Tunable(str, Enum):
     TDARR_SAMPLE_INTERVAL_SECONDS = "tuning_tdarr_sample_interval_seconds"
     EMBY_HISTORY_DAYS = "tuning_emby_history_days"
     EMBY_SAMPLE_INTERVAL_SECONDS = "tuning_emby_sample_interval_seconds"
+    FORGEJO_HISTORY_DAYS = "tuning_forgejo_history_days"
+    FORGEJO_SAMPLE_INTERVAL_SECONDS = "tuning_forgejo_sample_interval_seconds"
     KAVITA_HISTORY_DAYS = "tuning_kavita_history_days"
     KAVITA_SAMPLE_INTERVAL_SECONDS = "tuning_kavita_sample_interval_seconds"
     PROWLARR_HISTORY_DAYS = "tuning_prowlarr_history_days"
@@ -1550,6 +1552,13 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for emby_samples — drives the daily peak-streams
     # sparkline + the 'peak N streams today' stat. Default 30; lower to save disk.
     "tuning_emby_history_days": ("EMBY_HISTORY_DAYS", 30, 1, 1095),
+    # How often the Forgejo sampler snapshots each chip's open-PR / open-issue /
+    # notification backlog into forgejo_samples. 0 = inherit the global stats
+    # sample interval. Default 900 (15 min) — the review queue moves slowly.
+    "tuning_forgejo_sample_interval_seconds": ("FORGEJO_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for forgejo_samples — drives the open-backlog
+    # burn-down sparkline + the week-change stat. Default 90; lower to save disk.
+    "tuning_forgejo_history_days": ("FORGEJO_HISTORY_DAYS", 90, 1, 1095),
     # How often the Kavita sampler snapshots each chip's library totals (series /
     # volume / chapter counts + total size) into kavita_samples. 0 = inherit the
     # global stats interval. Default 900 (15 min) — a library grows slowly.

@@ -1857,6 +1857,9 @@ class SettingsIn(BaseModel):
     # Emby / Jellyfin streaming retention sampler (shared by both brands).
     tuning_emby_sample_interval_seconds: Optional[str] = None
     tuning_emby_history_days: Optional[str] = None
+    # Forgejo review-queue retention sampler.
+    tuning_forgejo_sample_interval_seconds: Optional[str] = None
+    tuning_forgejo_history_days: Optional[str] = None
     # Kavita library-growth retention sampler.
     tuning_kavita_sample_interval_seconds: Optional[str] = None
     tuning_kavita_history_days: Optional[str] = None

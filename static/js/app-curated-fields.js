@@ -103,6 +103,14 @@ export const CURATED_REFRESH_FIELDS = new Set([
   'host_ups_status', 'host_battery_status',
   'host_battery_percent', 'host_battery_runtime_s',
   'host_battery_temp_c', 'host_load_percent',
+  // APC PowerNet-MIB power-quality scalars (input/output voltage,
+  // mains frequency, last-transfer cause, battery-replace flag,
+  // self-test result). Same overlay reason as the UPS fields above:
+  // collapse to null when a probe goes missing so the drawer's
+  // power-quality rows hide predictably + a recovered probe overwrites.
+  'host_ups_input_voltage', 'host_ups_output_voltage',
+  'host_ups_input_freq_hz', 'host_ups_last_transfer',
+  'host_ups_battery_replace', 'host_ups_self_test',
   // Hardware identity rows (model / serial / firmware / vendor) —
   // populated by the SNMP entityPhysical walk and a few vendor-
   // specific OIDs. Same reason as the UPS fields: explicit overlay

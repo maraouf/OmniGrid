@@ -919,6 +919,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_emby_samples_ts
             ON emby_samples(ts);
 
+        -- Forgejo / Gitea review-queue retention. One row per (forgejo chip,
+        -- tick). open_prs / open_issues / notifications are point-in-time gauges
+        -- (the open backlog right now), so the trend reads each day's MEAN — the
+        -- "is my review queue climbing" burn-down Forgejo doesn't chart itself.
+        CREATE TABLE IF NOT EXISTS forgejo_samples (
+            ts            INTEGER NOT NULL,
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            open_prs      INTEGER NOT NULL DEFAULT 0,
+            open_issues   INTEGER NOT NULL DEFAULT 0,
+            notifications INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_forgejo_samples_chip_ts
+            ON forgejo_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate.
+        CREATE INDEX IF NOT EXISTS idx_forgejo_samples_ts
+            ON forgejo_samples(ts);
+
         -- Kavita library-growth retention. One row per (kavita chip, tick). All
         -- columns are CUMULATIVE running totals (a library only grows), so the
         -- trend reads them as each day's LAST value (a growth line). ``ts`` is
