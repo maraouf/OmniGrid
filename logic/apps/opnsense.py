@@ -227,10 +227,13 @@ def _append_probe_diag(diag: "list[str]", method: str, path: str,
 # a key scoped for Homarr can read CPU/mem but NOT these three.
 _PRIV_HINTS = {
     "services": "grant the API user the 'Status: Services' privilege",
-    "pf": ("grant the API user the firewall states/sessions diagnostic "
-           "privilege — System -> Access -> Groups -> Effective Privileges; "
-           "the entry's label varies by OPNsense version, look for one with "
-           "'Firewall' + 'Diagnostics'/'states'/'sessions' (or 'pf')"),
+    "pf": ("OPNsense has NO granular privilege for the firewall-states API "
+           "(/api/diagnostics/firewall/pf_states isn't in any ACL pattern), and "
+           "its ACL is default-deny — so the API user needs BROAD access: put it "
+           "in a group with the 'GUI - All pages' effective privilege, or use an "
+           "admin/root account. Also confirm the API key belongs to THAT user "
+           "(System -> Access -> Users -> <user> -> API keys -> +). This is the "
+           "only stat that needs it; the rest of the card works without it"),
     "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
     "interfaces": "grant the API user the 'Diagnostics: Traffic' and 'Interfaces: Overview' privileges",
 }

@@ -6202,7 +6202,8 @@
       "probe_failed": "Probe failed: ",
       "refresh": "Refresh",
       "refresh_title": "Re-probe and refresh this app’s data",
-      "copy_debug_all": "Copy all"
+      "copy_debug_all": "Copy all",
+      "data_freshness_title": "When this app’s data was last pulled from the service"
     },
     "host_drawer": {
       "title": "Host apps",
