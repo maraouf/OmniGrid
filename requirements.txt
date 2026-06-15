@@ -77,7 +77,7 @@ asyncssh>=2.23.1
 # secret). cryptography is already pulled in transitively by PyJWT[crypto]
 # / asyncssh, so this is a no-op for the wheel size; pinned explicitly so
 # logic/totp.py has a hard contract on the Fernet API.
-pyotp>=2.9.0
+pyotp>=2.10.0
 cryptography>=48.0.0
 # WebAuthn / FIDO2 passkeys as a 2FA factor. Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
