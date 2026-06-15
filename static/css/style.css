@@ -5173,7 +5173,7 @@ body.ai-pinned > .og-app-shell--ai-pinned {
 .img-shimmer:not(.img-loaded) {
   background-color: var(--surface-3);
   background-image: linear-gradient(100deg,
-      transparent 25%, var(--surface-2) 45%, var(--surface-2) 55%, transparent 75%);
+  transparent 25%, var(--surface-2) 45%, var(--surface-2) 55%, transparent 75%);
   background-size: 220% 100%;
   background-repeat: no-repeat;
   animation: skeleton-shimmer 1.25s ease-in-out infinite;
@@ -11809,6 +11809,55 @@ select.field-invalid {
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   overflow-wrap: break-word;
+}
+
+/* OPNsense per-interface throughput row — name + coloured down/up rates over a
+   pair of relative-throughput bars (rx green, tx violet, scaled to the busiest
+   NIC). Colours reuse the shared --metric-net-* tokens. */
+.opnsense-iface {
+  padding: var(--s-1) 0;
+}
+
+.opnsense-iface-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.opnsense-iface-rates {
+  display: inline-flex;
+  gap: var(--s-2);
+}
+
+.opnsense-iface-rx {
+  color: var(--metric-net);
+}
+
+.opnsense-iface-tx {
+  color: var(--metric-net-out);
+}
+
+.opnsense-iface-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.opnsense-iface-bar {
+  height: 2px;
+  width: var(--w);
+  min-width: 1px;
+  border-radius: var(--r-sm);
+}
+
+.opnsense-iface-bar--rx {
+  background: var(--metric-net);
+}
+
+.opnsense-iface-bar--tx {
+  background: var(--metric-net-out);
 }
 
 .apps-card--up {

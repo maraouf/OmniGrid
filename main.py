@@ -2086,13 +2086,18 @@ def _wire_cross_module_underscore_globals() -> None:
             ("logic.merge", "merge_best", "_merge_best"),
             ("logic.merge", "is_meaningful", "_meaningful"),
         ],
+        "main_pkg.hosts_merge_routes": [
+            ("logic.merge", "merge_best", "_merge_best"),
+            ("logic.merge", "is_meaningful", "_meaningful"),
+        ],
     }
     fixups: dict[str, list[tuple[str, list[str]]]] = {
         "main_pkg.admin_ai_routes": [
             ("main", ["_cache", "_gather", "_actor_from", "_ops_mod", "_logs",
                       "_NOTIFY_EVENT_NAMES", "_coerce_int_local"]),
             ("main_pkg.admin_stats_routes", ["_SAMPLES_TABLE_HOST_COL", "_resolve_ai_fallback_chain", "_ai_supported_providers"]),
-            ("main_pkg.apps_routes", ["_load_hosts_config", "_populate_detected_ports"]),
+            ("main_pkg.apps_routes", ["_load_hosts_config"]),
+            ("main_pkg.hosts_merge_routes", ["_populate_detected_ports"]),
             ("main_pkg.hosts_routes", ["_clean_vendors_input"]),
         ],
         "main_pkg.admin_stats_routes": [
@@ -2102,6 +2107,7 @@ def _wire_cross_module_underscore_globals() -> None:
         ],
         "main_pkg.apps_routes": [
             ("main", ["_actor_from", "_ops_mod"]),
+            ("main_pkg.hosts_merge_routes", ["_populate_detected_ports"]),
             ("main_pkg.hosts_routes", ["_clean_vendors_input", "_clean_host_services",
                                        "_failure_state_for_host",
                                        "_is_provider_paused", "_provider_pause_state_for_host"]),
@@ -2113,17 +2119,27 @@ def _wire_cross_module_underscore_globals() -> None:
             ("main_pkg.hosts_routes", ["_clean_vendors_input"]),
         ],
         "main_pkg.hosts_routes": [
-            ("main_pkg.apps_routes", ["_get_host_provider_state", "_http_probe_host_cache",
-                                      "_merge_one_host", "_shape_host_api_row",
-                                      "_snmp_host_cache", "_snmp_host_fail_cache",
-                                      "_webmin_host_cache", "_webmin_host_fail_cache",
-                                      "_host_provider_lock", "_peek_cached_host_provider_state",
-                                      "_populate_detected_ports"]),
+            ("main_pkg.hosts_merge_routes", ["_get_host_provider_state", "_http_probe_host_cache",
+                                             "_merge_one_host", "_shape_host_api_row",
+                                             "_snmp_host_cache", "_snmp_host_fail_cache",
+                                             "_webmin_host_cache", "_webmin_host_fail_cache",
+                                             "_host_provider_lock", "_peek_cached_host_provider_state",
+                                             "_populate_detected_ports"]),
+        ],
+        # The extracted Hosts pipeline (hosts_merge_routes) consumes Apps-section
+        # helpers that STAYED in apps_routes + hosts_routes housekeeping helpers
+        # + main globals — same bare-LOAD_GLOBAL leak class as the rest.
+        "main_pkg.hosts_merge_routes": [
+            ("main", ["_actor_from", "_ops_mod"]),
+            ("main_pkg.apps_routes", ["_load_hosts_config"]),
+            ("main_pkg.hosts_routes", ["_clean_vendors_input", "_clean_host_services",
+                                       "_failure_state_for_host",
+                                       "_is_provider_paused", "_provider_pause_state_for_host"]),
         ],
         "main_pkg.hosts_ssh_routes": [
             ("main", ["_cache", "_stats_cache"]),
-            ("main_pkg.apps_routes", ["_shape_host_api_row"]),
             ("main_pkg.auth_routes", ["_request_origin"]),
+            ("main_pkg.hosts_merge_routes", ["_shape_host_api_row"]),
             ("main_pkg.hosts_routes", ["_clean_vendors_input", "_failure_state_for_host",
                                        "_item_samples_in_window", "_provider_pause_state_for_host",
                                        "_sqlite_like_escape"]),
@@ -2137,7 +2153,7 @@ def _wire_cross_module_underscore_globals() -> None:
             # split chain so the star-import sees nothing at module
             # import time. Wire it explicitly so api_set_settings can
             # call it without per-site late-imports.
-            ("main_pkg.apps_routes", ["_sync_host_stats_source", "invalidate_host_provider_cache"]),
+            ("main_pkg.hosts_merge_routes", ["_sync_host_stats_source", "invalidate_host_provider_cache"]),
             ("main_pkg.hosts_routes", ["_slugify_action"]),
         ],
         "main_pkg.users_routes": [

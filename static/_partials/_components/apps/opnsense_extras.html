@@ -41,10 +41,15 @@
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.memory') || 'Memory'"></div>
         <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).mem_percent) + '%'"></div>
       </div>
-      <!-- Load (1 min) -->
+      <!-- Load (1 min) — shown as a % of CPU cores (100% = every core busy)
+           so it's interpretable; raw load average is in the tooltip. Falls
+           back to the raw number when the core count is unknown. -->
       <div class="apps-card-ups-stat">
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.load') || 'Load'"></div>
-        <div class="apps-card-stat-value" x-text="(Number(opnsenseData(inst).load_1m) || 0).toFixed(2)"></div>
+        <div class="apps-card-stat-value"
+             :style="opnsenseLoadPct(inst) !== null ? ('color: ' + opnsenseLoadColor(opnsenseLoadPct(inst))) : ''"
+             :title="t('apps.opnsense.load_title', { load: (Number(opnsenseData(inst).load_1m) || 0).toFixed(2), cores: (Number(opnsenseData(inst).cpu_cores) || 0) })"
+             x-text="opnsenseLoadPct(inst) !== null ? (opnsenseLoadPct(inst) + '%') : (Number(opnsenseData(inst).load_1m) || 0).toFixed(2)"></div>
       </div>
       <!-- Firewall states -->
       <div class="apps-card-ups-stat">
@@ -82,10 +87,19 @@
       <div class="mt-2">
         <div class="apps-card-stat-label mb-1" x-text="t('apps.opnsense.interfaces') || 'Interfaces'"></div>
         <template x-for="(nif, ni) in opnsenseInterfaces(inst).slice(0, 8)" :key="(nif.name || '') + ':' + ni">
-          <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
-            <span class="mono truncate" x-text="nif.name || '?'"></span>
-            <span class="text-[var(--text-faint)] shrink-0 mono"
-                  x-text="'↓ ' + opnsenseBps(nif.rx_bps) + ' · ↑ ' + opnsenseBps(nif.tx_bps)"></span>
+          <div class="opnsense-iface">
+            <div class="opnsense-iface-head fs-3xs">
+              <span class="mono truncate" x-text="nif.name || '?'"></span>
+              <span class="opnsense-iface-rates mono shrink-0">
+                <span class="opnsense-iface-rx">↓ <span x-text="opnsenseBps(nif.rx_bps)"></span></span>
+                <span class="opnsense-iface-tx">↑ <span x-text="opnsenseBps(nif.tx_bps)"></span></span>
+              </span>
+            </div>
+            <!-- Relative throughput bars (rx + tx) scaled to the busiest NIC. -->
+            <div class="opnsense-iface-bars" aria-hidden="true">
+              <span class="opnsense-iface-bar opnsense-iface-bar--rx" :style="'--w: ' + opnsenseIfaceBarPct(inst, nif.rx_bps) + '%'"></span>
+              <span class="opnsense-iface-bar opnsense-iface-bar--tx" :style="'--w: ' + opnsenseIfaceBarPct(inst, nif.tx_bps) + '%'"></span>
+            </div>
           </div>
         </template>
       </div>

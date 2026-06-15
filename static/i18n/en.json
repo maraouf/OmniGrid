@@ -28,6 +28,9 @@
       "http_status": "Request failed (HTTP {status})."
     },
     "loading": "Loading…",
+    "select_all": "Select all",
+    "select_row": "Select row",
+    "search": "Search",
     "testing": "Testing…",
     "tunables": "Tunables",
     "unit_seconds_short": "s",
@@ -3021,6 +3024,7 @@
       "name": "Name",
       "role": "Role",
       "token_label": "Token (send as <code class=\"mono\">Authorization: Bearer …</code>)",
+      "token_label_plain": "Token (send as an Authorization: Bearer header)",
       "saved": "I saved it"
     },
     "backups": {
@@ -6420,6 +6424,7 @@
       "cpu": "CPU",
       "memory": "Memory",
       "storage_footnote": "Storage {used} ({pct}%)",
+      "perm_limited": "⚠ The API token can see the node but no guests or CPU/memory metrics. Grant its user the PVEAuditor role on path / with Propagate enabled (Datacenter → Permissions → Add), then re-test.",
       "guests_count": "{count} guests",
       "start_guest": "Start",
       "start_guest_confirm": "Start this Proxmox guest?",
@@ -6446,6 +6451,7 @@
       "cpu": "CPU",
       "memory": "Memory",
       "load": "Load",
+      "load_title": "Load average {load} across {cores} CPU core(s), 1-minute (100% = every core fully busy)",
       "states": "FW states",
       "leases": "DHCP",
       "throughput": "Throughput",

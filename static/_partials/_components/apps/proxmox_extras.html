@@ -48,6 +48,12 @@
         <div class="apps-card-stat-value" x-text="proxmoxCount(proxmoxData(inst).mem_percent) + '%'"></div>
       </div>
     </div>
+    <!-- Permission-scope warning: the token sees the node(s) but no guests or
+         per-node metrics — almost always a missing propagated PVEAuditor role
+         on '/'. Shown instead of silently-wrong 0/0 + 0% values. -->
+    <div x-show="proxmoxData(inst).perm_limited"
+         class="fs-3xs mt-1" style="color: var(--warning);"
+         x-text="t('apps.proxmox.perm_limited')"></div>
     <!-- Storage + version footnote. -->
     <div x-show="proxmoxStorage(inst) || proxmoxData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">

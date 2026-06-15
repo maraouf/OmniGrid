@@ -272,10 +272,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     cts_running = cts_total = 0
     node_cpu_sum = 0.0
     node_mem = node_maxmem = 0
+    type_counts: dict[str, int] = {}
     for r in resources:
         if not isinstance(r, dict):
             continue
         typ = str(r.get("type") or "").strip().lower()
+        type_counts[typ] = type_counts.get(typ, 0) + 1
         status = str(r.get("status") or "").strip().lower()
         if typ == "node":
             nodes_total += 1
@@ -295,6 +297,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     storage_used, storage_total = _storage_totals(resources)
     cpu_percent = round(node_cpu_sum / nodes_online * 100) if nodes_online else 0
     mem_percent = _pct(node_mem, node_maxmem)
+    # Permission-scope heuristic: GET /cluster/resources returns ONLY the
+    # objects the API token may audit. When the token sees the node(s) but no
+    # guests AND no node cpu/mem, it almost certainly lacks the propagated
+    # PVEAuditor role on '/', so qemu/lxc + per-node metrics are filtered out
+    # (the "Containers 0/0 + CPU/Memory 0%" report). Surface an actionable hint
+    # rather than a silently-wrong card.
+    perm_limited = bool(
+        nodes_online > 0
+        and (vms_total + cts_total) == 0
+        and node_maxmem == 0)
     out: dict[str, Any] = {
         "available": True,
         "nodes_online": nodes_online,
@@ -308,12 +320,18 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "storage_used": storage_used,
         "storage_total": storage_total,
         "storage_percent": _pct(storage_used, storage_total),
+        "perm_limited": perm_limited,
         "version": version,
         "fetched_at": int(now),
     }
+    # Resource-type breakdown is the fastest way to diagnose a "guests missing"
+    # report from Admin -> Logs — it shows exactly what the token was allowed
+    # to see (e.g. {'node': 1} with no 'lxc'/'qemu' == a permission scope gap).
+    _types = ",".join(f"{k}={v}" for k, v in sorted(type_counts.items())) or "none"
     print(f"[proxmox] INFO fetched host={host_id} nodes={nodes_online}/{nodes_total} "
           f"vms={vms_running}/{vms_total} cts={cts_running}/{cts_total} "
-          f"cpu={cpu_percent}% mem={mem_percent}% ver={version or '-'}")
+          f"cpu={cpu_percent}% mem={mem_percent}% ver={version or '-'} "
+          f"resources=[{_types}]{' PERM-LIMITED' if perm_limited else ''}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
