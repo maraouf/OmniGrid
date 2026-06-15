@@ -52,8 +52,8 @@ from typing import Any, Optional
 import httpx
 
 from logic.apps._common import (
-    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
-    resolve_credential_target)
+    DebugRecorder, cache_key, fetch_gate, peek_cache, resolve_base_url,
+    resolve_cache_ttl, resolve_credential_target)
 from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
@@ -228,6 +228,68 @@ def _storage_totals(resources: list) -> "tuple[int, int]":
     return used, total
 
 
+# Audit privileges PVEAuditor grants that /cluster/resources needs to list
+# guests + read node CPU / memory. The token must hold at least one of these
+# (on / with Propagate) for the card to populate.
+_AUDIT_PRIVS = ("Sys.Audit", "VM.Audit", "Datastore.Audit", "Pool.Audit")
+
+
+def _summarize_permissions(perms: Any) -> "tuple[bool, str]":
+    """From ``GET /access/permissions`` output, return ``(has_audit, summary)``.
+
+    The endpoint returns the TOKEN's effective permission tree (the intersection
+    of the user's roles AND the token's own ACL when Privilege Separation is on),
+    shaped ``{path: {Priv: 1, ...}}`` under ``data``. ``has_audit`` is True when
+    the token holds any audit privilege on ANY path — the minimum PVEAuditor
+    grants that ``/cluster/resources`` needs to surface guests + node metrics.
+    ``summary`` is a short human description of what the token can actually see
+    (the smoking gun for a "guests missing" report)."""
+    pm = as_dict(perms)
+    data = pm.get("data")
+    data = data if isinstance(data, dict) else pm
+    if not isinstance(data, dict) or not data:
+        return False, "empty — the token has NO effective permissions"
+    paths_with_audit: list = []
+    for path, privs in data.items():
+        if isinstance(privs, dict) and any(privs.get(p) for p in _AUDIT_PRIVS):
+            paths_with_audit.append(str(path))
+    if paths_with_audit:
+        return True, "audit on " + ", ".join(sorted(paths_with_audit)[:6])
+    return False, ("sees " + ", ".join(sorted(str(p) for p in data)[:6])
+                   + " but holds NO audit privilege")
+
+
+def _perm_limited_hint(perms_probe: Any) -> str:
+    """Build the precise, actionable hint for the "node visible but no guests /
+    metrics" case from the token's effective permissions."""
+    has_audit, summary = _summarize_permissions(perms_probe)
+    if perms_probe is None:
+        return ("The API token sees the node but no guests or CPU / memory. "
+                "This is almost always the API-token 'Privilege Separation' "
+                "gotcha — a token does NOT inherit its user's roles. FIX: edit "
+                "the token and UNCHECK 'Privilege Separation', OR add an API "
+                "Token Permission (Datacenter → Permissions → Add → API Token "
+                "Permission: path /, the token, role PVEAuditor, Propagate ON). "
+                "Granting PVEAuditor to the user alone is not enough.")
+    if "empty" in summary:
+        return ("Confirmed: GET /access/permissions shows this token has NO "
+                "effective permissions — Privilege Separation is ON and nothing "
+                "is granted to the TOKEN itself, so it ignores the user's "
+                "PVEAuditor role. FIX (either): (a) Datacenter → Permissions → "
+                "API Tokens → edit the token → UNCHECK 'Privilege Separation'; "
+                "or (b) Datacenter → Permissions → Add → API Token Permission → "
+                "Path '/', this token, Role 'PVEAuditor', Propagate ON.")
+    if not has_audit:
+        return (f"The token {summary} — it can see paths but lacks an AUDIT "
+                "privilege. Grant the PVEAuditor role (it includes Sys.Audit / "
+                "VM.Audit) on path '/' with Propagate ON; a lesser role can't "
+                "list guests or read node CPU / memory.")
+    return (f"The token HAS audit permissions ({summary}) yet "
+            "/cluster/resources returned no guests. Check the role is on path "
+            "'/' (not just a sub-path) with Propagate ON, and that the guests "
+            "aren't all on a node this token can't audit.")
+
+
 # noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
@@ -245,6 +307,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
     if hit is not None:
         return hit
     res_url = base + _API + "/cluster/resources"
+    dbg = DebugRecorder()
+    perms_probe: Any = None
+    perms_status = 0
+    perms_snippet = ""
+    perms_probed = False
     try:
         async with httpx.AsyncClient(verify=_verify(chip), timeout=20.0,
                                      follow_redirects=True) as cli:
@@ -261,6 +328,30 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 resources = as_list(as_dict(rr.json()).get("data"))
             except (ValueError, TypeError):
                 raise RuntimeError("upstream returned non-JSON")
+            # When the token sees the node(s) but no guests, the card looks
+            # broken. Ask Proxmox what this TOKEN can actually audit (GET
+            # /access/permissions returns the token's EFFECTIVE permission tree)
+            # so we can name the exact gap (Privilege Separation vs missing
+            # PVEAuditor vs wrong path) instead of guessing.
+            _has_guests = any(
+                isinstance(r, dict)
+                and str(r.get("type") or "").lower() in ("qemu", "lxc")
+                for r in resources)
+            if not _has_guests:
+                perms_probed = True
+                try:
+                    pr = await cli.get(base + _API + "/access/permissions",
+                                       headers=_headers(token))
+                    perms_status = pr.status_code
+                    perms_snippet = (pr.text or "").strip()[:200]
+                    if 200 <= pr.status_code < 300:
+                        try:
+                            perms_probe = pr.json()
+                        except (ValueError, TypeError):
+                            perms_probe = None
+                except (httpx.HTTPError, OSError) as e:
+                    perms_status = 0
+                    perms_snippet = type(e).__name__
             version = await _fetch_version(cli, base, token)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[proxmox] error: fetch host={host_id} url={res_url} "
@@ -307,6 +398,24 @@ async def fetch_data(host_row: dict, chip: dict, *,
         nodes_online > 0
         and (vms_total + cts_total) == 0
         and node_maxmem == 0)
+    # Diagnostics block — record the load-bearing resources call + (when guests
+    # were missing) the token-permissions probe, then derive a precise,
+    # actionable hint from the token's effective permissions. Surfaced via the
+    # generic app-drawer debug pane (out['_debug']) AND as perm_summary on the
+    # card's perm-limited warning so the exact gap is visible without it.
+    _types_str = ",".join(f"{k}={v}" for k, v in sorted(type_counts.items())) or "none"
+    dbg.record("Cluster resources", "GET", "/api2/json/cluster/resources",
+               status=200, rows=len(resources), ok=True,
+               snippet=f"types: {_types_str}")
+    perm_summary = ""
+    perm_hint = ""
+    if perms_probed:
+        _has_audit, perm_summary = _summarize_permissions(perms_probe)
+        dbg.record("Token permissions", "GET", "/api2/json/access/permissions",
+                   status=perms_status, ok=(200 <= perms_status < 300),
+                   snippet=perms_snippet or perm_summary)
+    if perm_limited:
+        perm_hint = _perm_limited_hint(perms_probe if perms_probed else None)
     out: dict[str, Any] = {
         "available": True,
         "nodes_online": nodes_online,
@@ -326,17 +435,26 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # self-diagnosing ({'node': 1} with no 'lxc'/'qemu' == a token that
         # can't audit guests, almost always Privilege Separation).
         "resource_types": type_counts,
+        # Effective-permissions summary from GET /access/permissions (only
+        # probed when guests were missing) + the precise fix hint — shown on the
+        # card's perm-limited warning so the exact gap is visible without
+        # opening the debug pane.
+        "perm_summary": perm_summary,
+        "perm_hint": perm_hint,
+        "_debug": dbg.result(hint=perm_hint),
         "version": version,
         "fetched_at": int(now),
     }
-    # Resource-type breakdown is the fastest way to diagnose a "guests missing"
-    # report from Admin -> Logs — it shows exactly what the token was allowed
-    # to see (e.g. {'node': 1} with no 'lxc'/'qemu' == a permission scope gap).
-    _types = ",".join(f"{k}={v}" for k, v in sorted(type_counts.items())) or "none"
+    # Resource-type breakdown (_types_str, computed above) is the fastest way to
+    # diagnose a "guests missing" report from Admin -> Logs — it shows exactly
+    # what the token was allowed to see (e.g. {'node': 1} with no 'lxc'/'qemu'
+    # == a permission scope gap); perm_summary adds the effective-permissions
+    # readout when the token couldn't audit guests.
     print(f"[proxmox] INFO fetched host={host_id} nodes={nodes_online}/{nodes_total} "
           f"vms={vms_running}/{vms_total} cts={cts_running}/{cts_total} "
           f"cpu={cpu_percent}% mem={mem_percent}% ver={version or '-'} "
-          f"resources=[{_types}]{' PERM-LIMITED' if perm_limited else ''}")
+          f"resources=[{_types_str}]"
+          f"{' PERM-LIMITED perms=[' + perm_summary + ']' if perm_limited else ''}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 

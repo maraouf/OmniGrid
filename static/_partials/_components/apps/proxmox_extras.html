@@ -49,11 +49,14 @@
       </div>
     </div>
     <!-- Permission-scope warning: the token sees the node(s) but no guests or
-         per-node metrics — almost always a missing propagated PVEAuditor role
-         on '/'. Shown instead of silently-wrong 0/0 + 0% values. -->
+         per-node metrics. Prefers the backend-derived `perm_hint` — the precise
+         diagnosis from probing the token's own GET /access/permissions (e.g.
+         "Confirmed: the token has NO effective permissions — Privilege
+         Separation is ON …") — so the card names the exact fix; falls back to
+         the generic localized message when the probe couldn't pin it down. -->
     <div x-show="proxmoxData(inst).perm_limited"
          class="fs-3xs mt-1" style="color: var(--warning);"
-         x-text="t('apps.proxmox.perm_limited')"></div>
+         x-text="proxmoxData(inst).perm_hint || t('apps.proxmox.perm_limited')"></div>
     <!-- Storage + version footnote. -->
     <div x-show="proxmoxStorage(inst) || proxmoxData(inst).version"
          class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
