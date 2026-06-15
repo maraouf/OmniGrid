@@ -321,6 +321,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "storage_total": storage_total,
         "storage_percent": _pct(storage_used, storage_total),
         "perm_limited": perm_limited,
+        # What the token was actually allowed to SEE in /cluster/resources —
+        # surfaced in the app-data debug JSON so a "guests missing" report is
+        # self-diagnosing ({'node': 1} with no 'lxc'/'qemu' == a token that
+        # can't audit guests, almost always Privilege Separation).
+        "resource_types": type_counts,
         "version": version,
         "fetched_at": int(now),
     }
