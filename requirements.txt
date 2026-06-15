@@ -78,7 +78,7 @@ asyncssh>=2.23.1
 # / asyncssh, so this is a no-op for the wheel size; pinned explicitly so
 # logic/totp.py has a hard contract on the Fernet API.
 pyotp>=2.9.0
-cryptography>=48.0.0
+cryptography>=49.0.0
 # WebAuthn / FIDO2 passkeys as a 2FA factor. Duo Security's
 # `webauthn` package wraps the W3C ceremony in a small, dependency-light
 # API: generate_registration_options / verify_registration_response /
