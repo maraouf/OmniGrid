@@ -60,17 +60,16 @@
                class="w-32 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
                :placeholder="t('apps.speedtest.floor_placeholder') || 'off'"
                autocomplete="off">
-        <input aria-label="History (days)" type="number" min="1" max="365" step="1"
-               x-model.number="appsSpeedFloorDays"
-               class="w-20 bg-[var(--surface-2)] border border-[var(--border)] rounded-md px-2 py-1.5 fs-sm mono"
-               :aria-label="t('apps.speedtest.floor_days_label') || 'History (days)'"
-               :title="t('apps.speedtest.floor_days_label') || 'History (days)'">
+        <!-- Fills the field above with ~90% of the median download over the
+             last 30 days of this chip's history (no separate days input — the
+             window is fixed so the control is unambiguous). -->
         <button type="button" class="btn btn-soft fs-xs"
-                @click="appsRecommendSpeedFloor(appsInstanceEditForm.host_id, appsInstanceEditForm.service_idx, appsSpeedFloorDays).then(v => { if (v) { appsInstanceEditForm.speed_floor_mbps = String(v); } })"
+                :title="t('apps.speedtest.floor_recommend_hint')"
+                @click="appsRecommendSpeedFloor(appsInstanceEditForm.host_id, appsInstanceEditForm.service_idx, 30).then(v => { if (v) { appsInstanceEditForm.speed_floor_mbps = String(v); } })"
                 x-text="t('apps.speedtest.floor_recommend') || 'Recommend'"></button>
       </div>
       <p class="fs-2xs text-[var(--text-faint)] mt-1"
-         x-text="t('apps.speedtest.floor_hint') || 'Your ISP-advertised download speed (Mbps). The card flags the % of tests below it as a reliability signal. Blank = off. “Recommend” suggests ~90% of your median download over the last N days.'"></p>
+         x-text="t('apps.speedtest.floor_hint') || 'Your ISP-advertised download speed (Mbps). The card flags the % of tests below it as a reliability signal. Blank = off. “Recommend” fills it with ~90% of your median download over the last 30 days.'"></p>
     </div>
     <!-- Per-instance data-cache TTL (contained in the app, NOT a global
          Config tunable). Blank = the app default (60s); backend clamps

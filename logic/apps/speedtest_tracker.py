@@ -391,6 +391,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         jitter, packet_loss, isp, server_location = _extra(entry)
         ts_str = (entry.get("created_at") or entry.get("scheduled") or "").strip()
         result_url = _result_url(entry)
+        # Speedtest Tracker marks a failed/errored run with `healthy: false`
+        # (it can still carry a stale/partial download value, so a download-only
+        # check misses it). Default True when the field is absent (older builds
+        # don't emit it — treat as healthy so we don't over-count).
+        _healthy = entry.get("healthy")
+        healthy = bool(_healthy) if isinstance(_healthy, bool) else True
         series.append({
             "ts": ts_str,
             "download": download,
@@ -399,6 +405,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             "jitter": jitter,
             "packet_loss": packet_loss,
             "isp": isp,
+            "healthy": healthy,
             "status": (entry.get("status") or "").strip(),
             "server": (entry.get("server_name") or entry.get("service") or "").strip(),
             "server_location": server_location,
@@ -447,16 +454,19 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     # Below-floor reliability: the operator's own ISP download floor (Mbps); the
     # card flags the % of tests below it across EVERY test in the window. A
-    # failed/errored test is a 0-download row (the sampler's canonical "failed"
-    # definition) and never reached the floor, so it counts as below-floor too —
-    # alongside successful tests whose download came in under the floor. 0 /
-    # unset = OFF (no below-floor block). This is OmniGrid-side — it does NOT
-    # read speedtest-tracker's own pass/fail threshold.
+    # test counts as below-floor when EITHER its download came in under the
+    # floor OR the run failed (`healthy == False`) — a failed run never reached
+    # the floor even when Speedtest Tracker left a stale/partial download value
+    # on the row (so a download-only check under-counts failures, the operator-
+    # reported "0 of 25 while some failed" case). 0 / unset = OFF (no below-floor
+    # block). OmniGrid-side — it does NOT read speedtest-tracker's pass/fail
+    # threshold.
     floor = _speed_floor(chip)
     if floor > 0:
-        downloads = [float(p.get("download") or 0) for p in series]
-        total = len(downloads)
-        below = sum(1 for d in downloads if d < floor)
+        total = len(series)
+        below = sum(1 for p in series
+                    if not p.get("healthy", True)
+                    or float(p.get("download") or 0) < floor)
         out["below_floor"] = {
             "floor_mbps": round(floor, 1),
             "below_count": below,

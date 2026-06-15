@@ -795,6 +795,20 @@ export default {
       if (typeof this.loadAppsList === 'function') {
         await this.loadAppsList(true);
       }
+      // Also FORCE-refetch the per-app EXPANDED-card data (Proxmox nodes/VMs,
+      // Speedtest below-floor, etc.) — the probe above only updates the
+      // alive/RTT dot, not the app-data that the drawer renders. force=true
+      // bypasses the app-data cache so a config/permission change shows
+      // immediately instead of waiting out the TTL.
+      if (typeof this.loadAppData === 'function') {
+        for (const inst of (app.instances || [])) {
+          if (inst && inst.host_id != null && inst.service_idx != null) {
+            try {
+              this.loadAppData(inst, true);
+            } catch (_e) { /* best-effort per instance */ }
+          }
+        }
+      }
       if (typeof this.showToast === 'function') {
         this.showToast(
           this.t('apps.probe_all_done', {name: app.name, up: up, total: total})

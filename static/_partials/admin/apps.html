@@ -1228,6 +1228,7 @@
       </div>
       <div class="flex items-center gap-2 mt-4">
         <button type="button" class="btn btn-primary fs-sm"
+                :class="appsInstanceDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
                 :disabled="appsInstanceEditSaving || !appsInstanceDirty()"
                 :title="!appsInstanceDirty() ? (t('apps.no_changes') || 'No changes to save') : ''"
                 @click="saveInstanceEdit()">
