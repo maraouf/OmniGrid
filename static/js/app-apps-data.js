@@ -205,6 +205,28 @@ export default {
     return Math.max(0, Math.min(100, Math.round((1 - free / total) * 100)));
   },
 
+  // Relative-age label ("Updated Xs/m/h ago") for the per-instance
+  // app-data card in the app drawer — mirrors the host drawer's
+  // chart-freshness line (hostHistoryFreshness / "Last sample Xm ago").
+  // Reads the backend-stamped `fetched_at` epoch (the actual upstream
+  // pull time, which is cache-aware: a server-side cache hit keeps the
+  // ORIGINAL pull stamp, so the label honestly reflects data age, not
+  // the SPA receive time). Re-renders each second via the shared
+  // `hostHistoryNow` 1s ticker, which runs while ANY drawer — incl. the
+  // app drawer — is open (see app.js's Alpine.effect on drawerApp).
+  // '' when there's no live data yet / no stamp, so the template's
+  // x-show hides the line cleanly.
+  appsDataFreshness(inst) {
+    const d = this.appsAppData(inst);
+    const ts = d ? Number(d.fetched_at) : 0;
+    if (!ts || !isFinite(ts) || ts <= 0) {
+      return '';
+    }
+    const nowMs = this.hostHistoryNow || Date.now();
+    const delta = Math.max(0, Math.floor(nowMs / 1000 - ts));
+    return this.fmtSecondsAgoLabel(delta);
+  },
+
   // Status of the per-app data fetch for one instance. Drives the
   // template's empty-state branches: `pending` shows "Loading...",
   // `error` shows the upstream failure detail, `ok` is the live

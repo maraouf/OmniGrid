@@ -190,6 +190,25 @@ async def suggest(kind: str, host_row: dict, chip: dict, *,
     except Exception as e:  # noqa: BLE001
         print(f"[speedtest] warning: suggest(speed-floor) trend read failed: {e}")
     recommended = round(median * _FLOOR_RECOMMEND_FACTOR, 1) if (median > 0 and samples >= 2) else 0.0
+    # Live fallback: the lifespan sampler accrues only one row per tick (~15 min
+    # default), so a freshly-pinned chip has < 2 samples and the sampler-based
+    # recommendation is empty — the "Recommend does nothing" report. Fall back
+    # to the upstream's OWN recent results (up to 60, immediately available) via
+    # the cache-backed fetch_data, taking ~90% of the median SUCCESSFUL download.
+    if recommended <= 0:
+        try:
+            data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                    service_idx=int(service_idx or 0))
+            live = sorted(d for d in (float(p.get("download") or 0)
+                                      for p in (data.get("series") or []))
+                          if d > 0)
+            if len(live) >= 2:
+                from statistics import median as _median  # noqa: PLC0415
+                median = float(_median(live))
+                samples = len(live)
+                recommended = round(median * _FLOOR_RECOMMEND_FACTOR, 1)
+        except (ValueError, RuntimeError) as e:
+            print(f"[speedtest] warning: suggest live-median fallback failed: {e}")
     return {"ok": True, "recommended_mbps": recommended,
             "median_mbps": round(median, 1), "samples": samples, "days": days}
 
