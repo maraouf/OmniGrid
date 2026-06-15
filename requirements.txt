@@ -87,7 +87,7 @@ cryptography>=48.0.0
 # deps. Used from logic/webauthn_helper.py; the module gracefully
 # degrades when this package is missing (boot succeeds, every passkey
 # route returns 503 with a "library not installed" hint).
-webauthn>=2.7.1
+webauthn>=2.8.0
 # Webmin 2.x HTML-scrape fallback. Webmin's ``?xml=1`` and ``?json=1``
 # query params are honoured on different modules by different builds —
 # on 2.630 in particular package-updates / mount / net return the
