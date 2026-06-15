@@ -377,7 +377,15 @@
                file — drop the partial under `_components/apps/` + add
                one INCLUDE line in `_components/apps/_all_extras.html`. -->
           <template x-if="anyAppExtrasMatch(app)">
-            <div class="mt-2 space-y-2 apps-card-extras-col">
+            <!-- `appsExtrasInDrawer: false` — defines the flag every per-app
+                 extras partial references (drawer-only trend sparklines / fleet
+                 actions gate on it). The CARD context must define it as false so
+                 those blocks hide AND, crucially, so a partial's bare
+                 `appsExtrasInDrawer && …` doesn't throw a ReferenceError here
+                 (which aborts the card's Alpine subtree and cascades to sibling
+                 widgets like weather / moon failing to render). The drawer boxes
+                 set it true. -->
+            <div class="mt-2 space-y-2 apps-card-extras-col" x-data="{ appsExtrasInDrawer: false }">
               <template x-for="inst in appsVisibleInstances(app)" :key="'ext:' + inst.host_id + ':' + inst.service_idx">
                 <div>
                   <!-- INCLUDE: _components/apps/_all_extras.html -->
@@ -399,7 +407,7 @@
                show_extras from the FIRST instance (→ catalog default →
                size preset), matching how the card is one combined view. -->
           <template x-if="anyAppAggExtrasMatch(app) && appsShowExtras(app, (app.instances && app.instances[0]) || null, (typeof item !== 'undefined' ? item : null))">
-            <div class="mt-2 apps-card-extras-col">
+            <div class="mt-2 apps-card-extras-col" x-data="{ appsExtrasInDrawer: false }">
               <!-- INCLUDE: _components/apps/_all_extras_app.html -->
             </div>
           </template>

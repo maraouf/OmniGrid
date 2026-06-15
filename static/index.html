@@ -10473,7 +10473,14 @@
                            default-off). Without this, an app with extras toggled
                            off rendered an EMPTY bordered box here. -->
                       <template x-if="anyAppExtrasMatch(app) && appsShowExtras(app, inst, null)">
-                        <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box">
+                        <!-- `appsExtrasInDrawer: true` — this is the per-instance
+                             DRAWER box, so drawer-only blocks in each per-app
+                             extras partial (trend sparklines, etc.) render here;
+                             defining the flag also stops a partial's bare
+                             `appsExtrasInDrawer && …` from throwing a
+                             ReferenceError (the card wrappers set it false). -->
+                        <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box"
+                             x-data="{ appsExtrasInDrawer: true }">
                           <!-- Data-freshness line — "Updated Xs/m/h ago" for
                                THIS instance's app-data, mirroring the host
                                drawer's chart-freshness label so the operator

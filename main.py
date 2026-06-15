@@ -1745,17 +1745,17 @@ async def api_items(force: bool = False):
         # the cold-cache caller awaits the same task the single-flight
         # guard tracks (no race between this await and a subsequent
         # `_background_gather_task` read). `_kick_background_gather` +
-        # `_background_gather_task` live in main_pkg/apps_routes.py;
-        # they enter main's namespace via the tail star-import chain.
-        # `_kick_background_gather` + the `_background_gather_task`
-        # global both live in main_pkg/apps_routes.py. Underscore-
-        # prefixed names AREN'T pulled in by `from X import *`, and
-        # `_background_gather_task` is a MUTABLE global (the
-        # spawner re-binds it on each kick) so we MUST read it via
-        # attribute access on the source module every time — caching
-        # the value here would race the spawner.
-        from main_pkg import apps_routes as _apps_routes
-        gather_task = _apps_routes._kick_background_gather()
+        # the `_background_gather_task` global both live in
+        # main_pkg/hosts_merge_routes.py (extracted there from
+        # apps_routes). Underscore-prefixed names AREN'T pulled in by
+        # `from X import *`, and `_background_gather_task` is a MUTABLE
+        # global (the spawner re-binds it on each kick) so we MUST read
+        # it via attribute access on the DEFINING module every time —
+        # going through apps_routes' __getattr__ resolver would hand back
+        # a stale copy (and raise for the not-yet-cached name), so import
+        # hosts_merge_routes directly.
+        from main_pkg import hosts_merge_routes as _hosts_merge_routes
+        gather_task = _hosts_merge_routes._kick_background_gather()
         if gather_task is not None:
             try:
                 # Outer wall-clock budget — gather has its own per-
@@ -1788,8 +1788,8 @@ async def api_items(force: bool = False):
         # Stale cache OR force-bypass — kick a refresh in the
         # background. Single-flight: no-op when one is already in
         # flight.
-        from main_pkg import apps_routes as _apps_routes
-        _apps_routes._kick_background_gather()
+        from main_pkg import hosts_merge_routes as _hosts_merge_routes
+        _hosts_merge_routes._kick_background_gather()
     # `cache_refreshing` reflects whether a BACKGROUND gather is
     # actually in flight RIGHT NOW. Pre-fix the flag tracked the
     # cache-stale predicate, which evaluated True on every poll when
@@ -1798,8 +1798,8 @@ async def api_items(force: bool = False):
     # a running task; once the task completes the next poll's
     # response carries `cache_refreshing: false` and the spinner
     # clears.
-    from main_pkg import apps_routes as _apps_routes
-    _bg_task = _apps_routes._background_gather_task
+    from main_pkg import hosts_merge_routes as _hosts_merge_routes
+    _bg_task = _hosts_merge_routes._background_gather_task
     if _bg_task is not None and not _bg_task.done():
         cache_refreshing = True
 
