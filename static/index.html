@@ -10780,6 +10780,18 @@
                          undefined there and hides them. -->
                     <div class="rounded-md border border-[var(--border)] p-3 apps-drawer-extras-box mt-2"
                          x-data="{ appsExtrasInDrawer: true }">
+                      <!-- Data-freshness line — fleet apps (AdGuard / Pi-hole)
+                           render ONE aggregated box across instances, so the
+                           per-instance freshness line never reaches them; this
+                           shows the FRESHEST pull across the fleet via
+                           appsDataFreshnessApp(app). Same style + ticker as the
+                           per-instance line; hidden until data lands. -->
+                      <div x-show="appsDataFreshnessApp(app)"
+                           class="fs-2xs italic inline-flex items-center gap-1 text-[var(--text-faint)] mb-2"
+                           :title="t('apps.drawer.data_freshness_title') || 'When this app’s data was last pulled'">
+                        <svg width="10" height="10" aria-hidden="true"><use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-clock"/></svg>
+                        <span x-text="appsDataFreshnessApp(app)"></span>
+                      </div>
                       <!-- INCLUDE: _components/apps/_all_extras_app.html -->
                     </div>
                   </template>

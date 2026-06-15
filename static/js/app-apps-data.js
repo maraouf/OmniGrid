@@ -205,26 +205,62 @@ export default {
     return Math.max(0, Math.min(100, Math.round((1 - free / total) * 100)));
   },
 
-  // Relative-age label ("Updated Xs/m/h ago") for the per-instance
-  // app-data card in the app drawer — mirrors the host drawer's
-  // chart-freshness line (hostHistoryFreshness / "Last sample Xm ago").
-  // Reads the backend-stamped `fetched_at` epoch (the actual upstream
-  // pull time, which is cache-aware: a server-side cache hit keeps the
-  // ORIGINAL pull stamp, so the label honestly reflects data age, not
-  // the SPA receive time). Re-renders each second via the shared
-  // `hostHistoryNow` 1s ticker, which runs while ANY drawer — incl. the
-  // app drawer — is open (see app.js's Alpine.effect on drawerApp).
-  // '' when there's no live data yet / no stamp, so the template's
-  // x-show hides the line cleanly.
-  appsDataFreshness(inst) {
+  // Epoch-SECONDS stamp for an instance's live app-data, preferring the
+  // backend `fetched_at` (the upstream pull time, cache-aware: a
+  // server-side cache hit keeps the ORIGINAL pull stamp so the age is
+  // honest) and falling back to a `ts` field — apps that render from a DB
+  // sample rather than a live fetch (e.g. APC, which reads the latest
+  // host_snmp_samples row) stamp the sample epoch as `ts`, not
+  // `fetched_at`. 0 when there's no live data / no usable stamp.
+  _appsDataStampSeconds(inst) {
     const d = this.appsAppData(inst);
-    const ts = d ? Number(d.fetched_at) : 0;
-    if (!ts || !isFinite(ts) || ts <= 0) {
+    if (!d) {
+      return 0;
+    }
+    const fa = Number(d.fetched_at);
+    if (fa && isFinite(fa) && fa > 0) {
+      return fa;
+    }
+    const ts = Number(d.ts);
+    return (ts && isFinite(ts) && ts > 0) ? ts : 0;
+  },
+
+  // Relative-age label ("Updated Xs/m/h ago") for the rendered age of one
+  // instance's app-data — mirrors the host drawer's chart-freshness line
+  // (hostHistoryFreshness / "Last sample Xm ago"). Re-renders each second
+  // via the shared `hostHistoryNow` 1s ticker, which runs while ANY drawer
+  // — incl. the app drawer — is open (see app.js's Alpine.effect on
+  // drawerApp). '' when there's no live data yet / no stamp, so the
+  // template's x-show hides the line cleanly.
+  appsDataFreshness(inst) {
+    const ts = this._appsDataStampSeconds(inst);
+    if (!ts) {
       return '';
     }
     const nowMs = this.hostHistoryNow || Date.now();
-    const delta = Math.max(0, Math.floor(nowMs / 1000 - ts));
-    return this.fmtSecondsAgoLabel(delta);
+    return this.fmtSecondsAgoLabel(Math.max(0, Math.floor(nowMs / 1000 - ts)));
+  },
+
+  // App-LEVEL freshness label for FLEET apps (AdGuard Home / Pi-hole)
+  // whose drawer renders ONE aggregated extras box across every instance
+  // instead of a per-instance box (so the per-instance appsDataFreshness
+  // line never reaches them). Takes the FRESHEST (max) stamp across the
+  // app's instances so the label reflects the most-recent pull in the
+  // fleet. '' when no instance has live data.
+  appsDataFreshnessApp(app) {
+    const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
+    let best = 0;
+    for (const inst of insts) {
+      const ts = this._appsDataStampSeconds(inst);
+      if (ts > best) {
+        best = ts;
+      }
+    }
+    if (!best) {
+      return '';
+    }
+    const nowMs = this.hostHistoryNow || Date.now();
+    return this.fmtSecondsAgoLabel(Math.max(0, Math.floor(nowMs / 1000 - best)));
   },
 
   // Status of the per-app data fetch for one instance. Drives the
