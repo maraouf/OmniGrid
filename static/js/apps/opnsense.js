@@ -106,6 +106,57 @@ function opnsenseInterfaces(inst) {
   return (d && Array.isArray(d.interfaces)) ? d.interfaces : [];
 }
 
+// Load average (1m) as a percentage of CPU cores — the understandable form
+// (100% = every core fully busy). null when core count is unknown (caller
+// then falls back to the raw load number).
+function opnsenseLoadPct(inst) {
+  /* jshint validthis: true */
+  const d = opnsenseData.call(this, inst);
+  if (!d) {
+    return null;
+  }
+  const cores = Number(d.cpu_cores) || 0;
+  if (cores <= 0) {
+    return null;
+  }
+  return Math.round((Number(d.load_1m) || 0) / cores * 100);
+}
+
+// Colour for a load-% value: green / amber / red at the same thresholds the
+// stat bars use (so Load reads consistently with CPU / Memory).
+function opnsenseLoadColor(pct) {
+  const p = Number(pct) || 0;
+  if (p >= 90) {
+    return 'var(--danger)';
+  }
+  if (p >= 70) {
+    return 'var(--warning)';
+  }
+  return 'var(--success)';
+}
+
+// Busiest interface's total (rx+tx) bytes/sec — the denominator for the
+// per-interface relative throughput bars. Floored at 1 to avoid /0.
+function opnsenseIfaceMax(inst) {
+  /* jshint validthis: true */
+  const list = opnsenseInterfaces.call(this, inst);
+  let m = 1;
+  for (let i = 0; i < list.length; i++) {
+    const t = (Number(list[i].rx_bps) || 0) + (Number(list[i].tx_bps) || 0);
+    if (t > m) {
+      m = t;
+    }
+  }
+  return m;
+}
+
+// Width % (0..100) of an interface's rx OR tx bar, relative to the busiest
+// interface's total throughput.
+function opnsenseIfaceBarPct(inst, bps) {
+  /* jshint validthis: true */
+  return Math.min(100, (Number(bps) || 0) / opnsenseIfaceMax.call(this, inst) * 100);
+}
+
 // Humanise uptime seconds -> "Xd Yh" / "Yh Zm" / "Zm"; '' when zero/unknown.
 function opnsenseUptime(inst) {
   /* jshint validthis: true */
@@ -212,6 +263,10 @@ export const helpers = {
   opnsenseBps: opnsenseBps,
   opnsenseBytes: opnsenseBytes,
   opnsenseInterfaces: opnsenseInterfaces,
+  opnsenseLoadPct: opnsenseLoadPct,
+  opnsenseLoadColor: opnsenseLoadColor,
+  opnsenseIfaceMax: opnsenseIfaceMax,
+  opnsenseIfaceBarPct: opnsenseIfaceBarPct,
   opnsenseUsage: opnsenseUsage,
   opnsenseUsagePath: opnsenseUsagePath,
 };

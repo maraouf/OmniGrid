@@ -227,7 +227,10 @@ def _append_probe_diag(diag: "list[str]", method: str, path: str,
 # a key scoped for Homarr can read CPU/mem but NOT these three.
 _PRIV_HINTS = {
     "services": "grant the API user the 'Status: Services' privilege",
-    "pf": "grant the API user the 'Diagnostics: Firewall sessions' privilege",
+    "pf": ("grant the API user the firewall states/sessions diagnostic "
+           "privilege — System -> Access -> Groups -> Effective Privileges; "
+           "the entry's label varies by OPNsense version, look for one with "
+           "'Firewall' + 'Diagnostics'/'states'/'sessions' (or 'pf')"),
     "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
     "interfaces": "grant the API user the 'Diagnostics: Traffic' and 'Interfaces: Overview' privileges",
 }
@@ -638,6 +641,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "version": version,
         "update_available": update_available,
         "cpu_percent": cpu_percent,
+        "cpu_cores": cores,
         "mem_used": mem_used,
         "mem_total": mem_total,
         "mem_percent": mem_percent,
