@@ -6412,10 +6412,15 @@
       "ago": "{ago} ago",
       "fail_trend_title": "Failing records",
       "fail_trend_caption": "Failing records, last {days} days",
+      "up_trend_title": "Records trend",
+      "up_trend_caption": "Up vs failing records, last {days} days",
       "records_title": "Records",
       "last_updated": "Updated {when}",
       "more_records": "+{count} more",
-      "stale_footnote": "{count} stale (no update in >{hours}h)"
+      "stale_footnote": "{count} stale (no update in >{hours}h)",
+      "ip_stable": "stable for {days}d",
+      "ip_split": "IPv4: {v4} · IPv6: {v6}",
+      "providers": "Providers"
     },
     "proxmox": {
       "token_label": "Proxmox API token",

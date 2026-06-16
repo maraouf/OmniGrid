@@ -68,14 +68,15 @@ async def _probe_one(host_id: str, service_idx: int,
     public_ip = str(data.get("public_ip") or "").strip()
     records_total = int(data.get("records_total") or 0)
     fail_count = int(data.get("fail_count") or 0)
+    up_count = int(data.get("up_count") or 0)
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO ddns_samples "
-                "(ts, host_id, service_idx, public_ip, records_total, fail_count) "
-                "VALUES (?,?,?,?,?,?)",
+                "(ts, host_id, service_idx, public_ip, records_total, fail_count, up_count) "
+                "VALUES (?,?,?,?,?,?,?)",
                 (int(time.time()), host_id, int(service_idx),
-                 public_ip, records_total, fail_count),
+                 public_ip, records_total, fail_count, up_count),
             )
     except Exception as e:  # noqa: BLE001
         print(f"[ddns_sampler] write {host_id}#{service_idx} failed: {e}")
@@ -140,14 +141,17 @@ def history_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.DDNS_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "current_ip": "",
                  "current_ip_since": 0, "ip_change_count": 0,
-                 "ip_changes": [], "fail_series": [], "fail_peak": 0}
+                 "ip_changes": [], "fail_series": [], "fail_peak": 0,
+                 # Up-vs-fail stacked-trend companion series (daily-MAX up_count,
+                 # same buckets as fail_series).
+                 "up_series": []}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, public_ip, fail_count FROM ddns_samples "
+                "SELECT ts, public_ip, fail_count, up_count FROM ddns_samples "
                 "WHERE host_id=? AND service_idx=? AND ts >= ? ORDER BY ts ASC",
                 (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -176,16 +180,22 @@ def history_summary(host_id: str, service_idx: int,
         out["ip_change_count"] = max(0, len(changes) - 1)
         out["ip_changes"] = changes[-20:]
     # Failing-count sparkline: daily-MAX bucket (day index = ts // 86400) →
-    # a contiguous fixed-length, 0-filled series.
+    # a contiguous fixed-length, 0-filled series. up_series is the daily-MAX
+    # healthy-record count over the same buckets for the stacked trend.
     day_max: dict = defaultdict(int)
+    up_day_max: dict = defaultdict(int)
     for r in rows:
         d = int(r["ts"]) // 86400
         f = int(r["fail_count"] or 0)
         if f > day_max[d]:
             day_max[d] = f
+        u = int(r["up_count"] or 0)
+        if u > up_day_max[d]:
+            up_day_max[d] = u
     out["fail_peak"] = max(day_max.values()) if day_max else 0
     today = int(time.time()) // 86400
     span = max(1, min(int(win), int(max_points)))
     start_day = today - span + 1
     out["fail_series"] = [int(day_max.get(d, 0)) for d in range(start_day, today + 1)]
+    out["up_series"] = [int(up_day_max.get(d, 0)) for d in range(start_day, today + 1)]
     return out

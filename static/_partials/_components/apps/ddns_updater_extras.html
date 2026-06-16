@@ -37,10 +37,28 @@
                  x-text="ddnsCount(ddnsData(inst).fail_count)"></div>
           </div>
         </div>
-        <!-- Public IP footnote. -->
+        <!-- Public IP footnote + "stable for N days" (from the sampler's
+             current_ip_since). -->
         <div x-show="ddnsData(inst).public_ip"
-             class="fs-3xs text-[var(--text-faint)] mt-1 mono"
-             x-text="(t('apps.ddns.public_ip') || 'Public IP') + ': ' + (ddnsData(inst).public_ip || '')"></div>
+             class="fs-3xs text-[var(--text-faint)] mt-1 mono">
+          <span x-text="(t('apps.ddns.public_ip') || 'Public IP') + ': ' + (ddnsData(inst).public_ip || '')"></span>
+          <span x-show="ddnsIpStableDays(inst) !== null"
+                x-text="' · ' + t('apps.ddns.ip_stable', { days: ddnsIpStableDays(inst) })"></span>
+        </div>
+        <!-- IPv4 / IPv6 record split + provider breakdown — DRAWER-ONLY (the
+             card stays lean: core stats + public IP + warnings only). -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+          <div>
+            <div x-show="(Number(ddnsData(inst).ipv4_count) || 0) > 0 || (Number(ddnsData(inst).ipv6_count) || 0) > 0"
+                 class="fs-3xs text-[var(--text-faint)] mt-1 mono"
+                 x-text="t('apps.ddns.ip_split', { v4: (Number(ddnsData(inst).ipv4_count) || 0), v6: (Number(ddnsData(inst).ipv6_count) || 0) })"></div>
+            <div x-show="ddnsProviders(inst).length"
+                 class="fs-3xs text-[var(--text-faint)] mt-1">
+              <span x-text="(t('apps.ddns.providers') || 'Providers') + ': '"></span>
+              <span x-text="ddnsProviders(inst).slice(0, 6).map(p => p.provider + ' ×' + p.count).join(', ')"></span>
+            </div>
+          </div>
+        </template>
         <!-- Failing-domains footnote (only when > 0). -->
         <div x-show="ddnsFailing(inst).length"
              class="fs-3xs text-[var(--danger)] mt-1"
@@ -51,63 +69,72 @@
              class="fs-3xs text-[var(--warning)] mt-1"
              x-text="t('apps.ddns.stale_footnote', { count: (Number(ddnsData(inst).stale_count) || 0), hours: (Number(ddnsData(inst).stale_after_hours) || 24) }) || ((Number(ddnsData(inst).stale_count) || 0) + ' stale (no update in >' + (Number(ddnsData(inst).stale_after_hours) || 24) + 'h)')"></div>
 
-        <!-- Public-IP-change timeline (newest-first). From the lifespan ddns
-             sampler — shown once at least one change has been recorded. -->
-        <template x-if="ddnsIpChanges(inst).length">
-          <div class="mt-2">
-            <div class="apps-card-stat-label mb-1"
-                 x-text="t('apps.ddns.ip_timeline_title') || 'Public IP changes'"></div>
-            <template x-for="(chg, ci) in ddnsIpChanges(inst).slice(0, 6)" :key="chg.ts + ':' + chg.ip">
-              <div class="flex items-center justify-between gap-2 fs-3xs">
-                <span class="mono"
-                      :class="ci === 0 ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'"
-                      x-text="(ci === 0 ? '→ ' : '') + chg.ip"></span>
-                <span class="text-[var(--text-faint)]"
-                      x-text="t('apps.ddns.ago', { ago: fmtAgo(chg.ts * 1000) }) || (fmtAgo(chg.ts * 1000) + ' ago')"></span>
+        <!-- Everything below is DRAWER-ONLY — the timeline, trend sparklines and
+             per-record detail are full-detail views; the card stays lean (core
+             stats + public IP + warnings). -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+          <div>
+            <!-- Public-IP-change timeline (newest-first). From the lifespan ddns
+                 sampler — shown once at least one change has been recorded. -->
+            <template x-if="ddnsIpChanges(inst).length">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.ddns.ip_timeline_title') || 'Public IP changes'"></div>
+                <template x-for="(chg, ci) in ddnsIpChanges(inst).slice(0, 6)" :key="chg.ts + ':' + chg.ip">
+                  <div class="flex items-center justify-between gap-2 fs-3xs">
+                    <span class="mono"
+                          :class="ci === 0 ? 'text-[var(--success)]' : 'text-[var(--text-dim)]'"
+                          x-text="(ci === 0 ? '→ ' : '') + chg.ip"></span>
+                    <span class="text-[var(--text-faint)]"
+                          x-text="t('apps.ddns.ago', { ago: fmtAgo(chg.ts * 1000) }) || (fmtAgo(chg.ts * 1000) + ' ago')"></span>
+                  </div>
+                </template>
               </div>
             </template>
-          </div>
-        </template>
 
-        <!-- Failing-count sparkline (daily max). Only when there's a trend to
-             show (samples accrued AND at least one failure in the window). -->
-        <template x-if="ddnsHistory(inst) && ddnsHistory(inst).samples > 0 && ddnsHistory(inst).fail_peak > 0">
-          <div class="mt-2">
-            <div class="apps-card-stat-label mb-1"
-                 x-text="t('apps.ddns.fail_trend_title') || 'Failing records'"></div>
-            <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-              <polyline class="apps-spark-line apps-spark-line--danger" :points="ddnsFailSparkPoints(inst)"></polyline>
-            </svg>
-            <div class="fs-3xs text-[var(--text-faint)]"
-                 x-text="t('apps.ddns.fail_trend_caption', { days: ddnsHistory(inst).days }) || ('Failing records, last ' + ddnsHistory(inst).days + ' days')"></div>
-          </div>
-        </template>
-
-        <!-- Per-record detail (provider / IP version / last-updated /
-             previous IP). The richer parse the card couldn't show before. -->
-        <template x-if="ddnsRecords(inst).length">
-          <div class="mt-2">
-            <div class="apps-card-stat-label mb-1"
-                 x-text="t('apps.ddns.records_title') || 'Records'"></div>
-            <template x-for="(rec, ri) in ddnsRecords(inst).slice(0, 6)" :key="(rec.domain || '') + ':' + ri">
-              <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
-                <span class="flex items-baseline gap-1 min-w-0">
-                  <span class="apps-ddns-dot"
-                        :class="rec.status === 'ok' ? 'apps-ddns-dot--ok' : (rec.status === 'fail' ? 'apps-ddns-dot--fail' : 'apps-ddns-dot--pending')"
-                        aria-hidden="true"></span>
-                  <span class="mono truncate" x-text="rec.domain || '?'" :title="rec.domain"></span>
-                  <span class="text-[var(--text-faint)] truncate"
-                        x-show="rec.provider || rec.ip_version"
-                        x-text="'· ' + [rec.provider, rec.ip_version].filter(Boolean).join(' · ')"></span>
-                </span>
-                <span class="text-[var(--text-faint)] shrink-0"
-                      x-show="rec.last_updated"
-                      x-text="t('apps.ddns.last_updated', { when: rec.last_updated }) || rec.last_updated"></span>
+            <!-- Records up-vs-fail trend — daily-max up (green) + failing (red)
+                 sparklines, each auto-scaled. The up line always shows once
+                 history exists; the fail line only when there's been a failure. -->
+            <template x-if="ddnsHistory(inst) && ddnsHistory(inst).samples > 0 && (ddnsHistory(inst).up_series || []).length > 1">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.ddns.up_trend_title') || 'Records trend'"></div>
+                <svg class="apps-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline class="apps-spark-line apps-spark-line--ok" :points="ddnsUpSparkPoints(inst)"></polyline>
+                  <polyline x-show="ddnsHistory(inst).fail_peak > 0" class="apps-spark-line apps-spark-line--danger" :points="ddnsFailSparkPoints(inst)"></polyline>
+                </svg>
+                <div class="fs-3xs text-[var(--text-faint)]"
+                     x-text="t('apps.ddns.up_trend_caption', { days: ddnsHistory(inst).days })"></div>
               </div>
             </template>
-            <div x-show="ddnsRecords(inst).length > 6"
-                 class="fs-3xs text-[var(--text-faint)] mt-0.5"
-                 x-text="t('apps.ddns.more_records', { count: ddnsRecords(inst).length - 6 }) || ('+' + (ddnsRecords(inst).length - 6) + ' more')"></div>
+
+            <!-- Per-record detail (provider / IP version / last-updated /
+                 previous IP). The richer parse the card couldn't show before. -->
+            <template x-if="ddnsRecords(inst).length">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.ddns.records_title') || 'Records'"></div>
+                <template x-for="(rec, ri) in ddnsRecords(inst).slice(0, 6)" :key="(rec.domain || '') + ':' + ri">
+                  <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
+                    <span class="flex items-baseline gap-1 min-w-0">
+                      <span class="apps-ddns-dot"
+                            :class="rec.status === 'ok' ? 'apps-ddns-dot--ok' : (rec.status === 'fail' ? 'apps-ddns-dot--fail' : 'apps-ddns-dot--pending')"
+                            aria-hidden="true"></span>
+                      <span class="mono truncate" x-text="rec.domain || '?'" :title="rec.domain"></span>
+                      <span class="text-[var(--text-faint)] truncate"
+                            x-show="rec.provider || rec.ip_version"
+                            x-text="'· ' + [rec.provider, rec.ip_version].filter(Boolean).join(' · ')"></span>
+                    </span>
+                    <span class="text-[var(--text-faint)] shrink-0"
+                          x-show="rec.last_updated"
+                          x-text="t('apps.ddns.last_updated', { when: rec.last_updated }) || rec.last_updated"></span>
+                  </div>
+                </template>
+                <div x-show="ddnsRecords(inst).length > 6"
+                     class="fs-3xs text-[var(--text-faint)] mt-0.5"
+                     x-text="t('apps.ddns.more_records', { count: ddnsRecords(inst).length - 6 }) || ('+' + (ddnsRecords(inst).length - 6) + ' more')"></div>
+              </div>
+            </template>
           </div>
         </template>
       </div>

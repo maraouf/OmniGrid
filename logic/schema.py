@@ -634,6 +634,7 @@ def init_db():
             public_ip     TEXT    NOT NULL DEFAULT '',
             records_total INTEGER NOT NULL DEFAULT 0,
             fail_count    INTEGER NOT NULL DEFAULT 0,
+            up_count      INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_ddns_samples_chip_ts
@@ -1686,6 +1687,10 @@ def init_db():
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_last_transfer TEXT",
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_battery_replace INTEGER",
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_self_test TEXT",
+                # ddns-updater up-count column — the healthy-record count per
+                # tick, for the up-vs-fail stacked trend (fail_count already
+                # stored). Default 0 for rows written pre-fix.
+                "ALTER TABLE ddns_samples ADD COLUMN up_count INTEGER NOT NULL DEFAULT 0",
                 # APC additional UPS scalars — output real power (Watts,
                 # upsAdvOutputActivePower), elapsed time-on-battery (seconds,
                 # upsBasicBatteryTimeOnBattery), and the last battery-replace

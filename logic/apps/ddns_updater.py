@@ -233,6 +233,19 @@ def _shape(records: list[dict]) -> dict:
         age = _reltime_to_seconds(r.get("last_updated"))
         if age is not None and age > stale_after_s:
             stale += 1
+    # IPv4 vs IPv6 record split — ddns-updater's "IP Version" cell is "ipv4" /
+    # "ipv6" (a dual "ipv4 or ipv6" carries both digits → counts toward both).
+    ipv4 = sum(1 for r in records if "4" in str(r.get("ip_version") or "").lower())
+    ipv6 = sum(1 for r in records if "6" in str(r.get("ip_version") or "").lower())
+    # Provider breakdown — count per DNS provider, busiest-first (already parsed
+    # per record).
+    prov_counts: dict[str, int] = {}
+    for r in records:
+        prov = str(r.get("provider") or "").strip()
+        if prov:
+            prov_counts[prov] = prov_counts.get(prov, 0) + 1
+    provider_breakdown = [{"provider": p, "count": n} for p, n in
+                          sorted(prov_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
     public_ip = ""
     for r in records:
         m = _IP_RE.search(str(r.get("current_ip") or ""))
@@ -259,6 +272,9 @@ def _shape(records: list[dict]) -> dict:
         "fail_count": fail,
         "stale_count": stale,
         "stale_after_hours": stale_after_s // 3600,
+        "ipv4_count": ipv4,
+        "ipv6_count": ipv6,
+        "provider_breakdown": provider_breakdown,
         "public_ip": public_ip,
         "failing_domains": failing[:8],
         "records": compact,

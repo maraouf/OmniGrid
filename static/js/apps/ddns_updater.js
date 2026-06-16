@@ -101,21 +101,40 @@ function ddnsIpChanges(inst) {
   return arr.slice().reverse();
 }
 
-// Memo: stable `:points` string per fail_series array reference (the
-// canonical SVG-builder memo — avoids re-render flicker on every flush).
-const _ddnsFailSparkMemo = new WeakMap();
+// The provider breakdown ([{provider, count}], busiest-first) — [] when absent.
+function ddnsProviders(inst) {
+  /* jshint validthis: true */
+  const d = ddnsData.call(this, inst);
+  return (d && Array.isArray(d.provider_breakdown)) ? d.provider_breakdown : [];
+}
 
-// SVG polyline points for the failing-count sparkline over a 0..100 × 0..24
-// viewBox. '' when there's < 2 points (nothing to draw yet).
-function ddnsFailSparkPoints(inst) {
+// "IP stable for N days" — whole days since the current public IP was first
+// observed (history.current_ip_since, epoch seconds). null when unknown / no
+// sampler history yet (so the card line hides).
+function ddnsIpStableDays(inst) {
   /* jshint validthis: true */
   const h = ddnsHistory.call(this, inst);
-  const series = (h && Array.isArray(h.fail_series)) ? h.fail_series : null;
-  if (!series || series.length < 2) {
+  const since = h ? Number(h.current_ip_since) : 0;
+  if (!since || !isFinite(since) || since <= 0) {
+    return null;
+  }
+  const days = Math.floor((Date.now() / 1000 - since) / 86400);
+  return days >= 0 ? days : null;
+}
+
+// Memo: stable `:points` string per series array reference (the canonical
+// SVG-builder memo — avoids re-render flicker on every flush). Shared by the
+// fail + up sparklines (keyed on each array ref, so no collision).
+const _ddnsSparkMemo = new WeakMap();
+
+// SVG polyline points for a daily-count series over a 0..100 × 0..24 viewBox,
+// auto-scaled to its own max (min pinned at 0). '' when < 2 points.
+function _ddnsSpark(series) {
+  if (!Array.isArray(series) || series.length < 2) {
     return '';
   }
-  if (_ddnsFailSparkMemo.has(series)) {
-    return _ddnsFailSparkMemo.get(series);
+  if (_ddnsSparkMemo.has(series)) {
+    return _ddnsSparkMemo.get(series);
   }
   const W = 100, H = 24, n = series.length;
   let max = 1;
@@ -132,8 +151,22 @@ function ddnsFailSparkPoints(inst) {
     parts.push((Math.round(x * 100) / 100) + ',' + (Math.round(y * 100) / 100));
   }
   const pts = parts.join(' ');
-  _ddnsFailSparkMemo.set(series, pts);
+  _ddnsSparkMemo.set(series, pts);
   return pts;
+}
+
+// Failing-count sparkline points. '' when < 2 points.
+function ddnsFailSparkPoints(inst) {
+  /* jshint validthis: true */
+  const h = ddnsHistory.call(this, inst);
+  return _ddnsSpark((h && Array.isArray(h.fail_series)) ? h.fail_series : null);
+}
+
+// Up-to-date-count sparkline points (the up-vs-fail trend companion line).
+function ddnsUpSparkPoints(inst) {
+  /* jshint validthis: true */
+  const h = ddnsHistory.call(this, inst);
+  return _ddnsSpark((h && Array.isArray(h.up_series)) ? h.up_series : null);
 }
 
 // Extender record -- consumed by the generic helpers in
@@ -160,5 +193,8 @@ export const helpers = {
   ddnsRecords: ddnsRecords,
   ddnsHistory: ddnsHistory,
   ddnsIpChanges: ddnsIpChanges,
+  ddnsProviders: ddnsProviders,
+  ddnsIpStableDays: ddnsIpStableDays,
   ddnsFailSparkPoints: ddnsFailSparkPoints,
+  ddnsUpSparkPoints: ddnsUpSparkPoints,
 };

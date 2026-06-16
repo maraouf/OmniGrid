@@ -11757,6 +11757,12 @@ select.field-invalid {
   stroke: var(--danger);
 }
 
+/* Success-tinted sparkline variant — for "up / healthy" trends (e.g. the
+   ddns-updater up-vs-fail records trend's green line). */
+.apps-spark-line--ok {
+  stroke: var(--success);
+}
+
 /* ddns-updater per-record status dot (ok / fail / pending) in the extras
    record list. */
 .apps-ddns-dot {

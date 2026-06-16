@@ -75,10 +75,22 @@
             <div class="apps-card-stat-value" x-text="apcHostUpsData(inst).status || '--'"></div>
           </div>
         </div>
+        <!-- UPS warnings — kept on the card (actionable): on-battery banner
+             (only during an outage) + battery-replace flag. -->
+        <template x-if="(Number(apcHostUpsData(inst).time_on_battery_s) || 0) > 0">
+          <p class="fs-3xs text-[var(--warning)] mt-1.5 inline-flex items-center gap-1"
+             x-text="'🔋 ' + t('apps.apc.on_battery_for', { dur: apcUpsRuntimeLabel(apcHostUpsData(inst).time_on_battery_s) })"></p>
+        </template>
+        <template x-if="apcHostUpsData(inst).battery_replace === 1">
+          <p class="fs-3xs text-[var(--danger)] mt-1.5 inline-flex items-center gap-1"
+             x-text="'⚠️ ' + (t('apps.apc.battery_replace') || 'Battery needs replacing')"></p>
+        </template>
         <!-- Power-quality scalars (input/output voltage, mains frequency, last
-             transfer cause, self-test, battery-replace flag). Read-only SNMP
-             (PowerNet-MIB). Hidden when the UPS / firmware doesn't expose them. -->
-        <template x-if="apcHasPowerQuality(apcHostUpsData(inst))">
+             transfer cause, self-test, output power, battery-installed date).
+             Read-only SNMP (PowerNet-MIB). DRAWER-ONLY — the card stays lean
+             (the 5-stat panel + warnings); hidden when the UPS doesn't expose
+             these. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && apcHasPowerQuality(apcHostUpsData(inst))">
           <div class="mt-2">
             <div class="apps-card-ups-grid">
               <!-- Input voltage (utility line VAC) -->
@@ -130,28 +142,16 @@
               <template x-if="apcHostUpsData(inst).battery_replace_date">
                 <div class="apps-card-ups-stat">
                   <div class="apps-card-stat-label" x-text="t('apps.apc.battery_installed') || 'Battery installed'"></div>
-                  <div class="apps-card-stat-value mono" x-text="apcHostUpsData(inst).battery_replace_date"></div>
+                  <div class="apps-card-stat-value mono" x-text="apcBatteryDate(inst)"></div>
                 </div>
               </template>
             </div>
-            <!-- On-battery banner — only shown DURING an outage (the OID reads 0
-                 on mains). Tells you how long the UPS has been carrying load. -->
-            <template x-if="(Number(apcHostUpsData(inst).time_on_battery_s) || 0) > 0">
-              <p class="fs-3xs text-[var(--warning)] mt-1.5 inline-flex items-center gap-1"
-                 x-text="'🔋 ' + t('apps.apc.on_battery_for', { dur: apcUpsRuntimeLabel(apcHostUpsData(inst).time_on_battery_s) })"></p>
-            </template>
-            <!-- Battery-replace warning (only when the UPS reports it needs a
-                 new battery pack). -->
-            <template x-if="apcHostUpsData(inst).battery_replace === 1">
-              <p class="fs-3xs text-[var(--danger)] mt-1.5 inline-flex items-center gap-1"
-                 x-text="'⚠️ ' + (t('apps.apc.battery_replace') || 'Battery needs replacing')"></p>
-            </template>
           </div>
         </template>
-        <!-- Battery / load / runtime trend sparklines — windowed read of the
-             already-persisted host_snmp_samples (no APC sampler). Shown once at
-             least two samples exist in the window. -->
-        <template x-if="apcHistory(inst) && apcHistory(inst).samples > 1">
+        <!-- Battery / load / runtime / voltage trend sparklines — windowed read
+             of host_snmp_samples (no APC sampler). DRAWER-ONLY (the card stays
+             lean). Shown once at least two samples exist in the window. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && apcHistory(inst) && apcHistory(inst).samples > 1">
           <div class="mt-2 space-y-1.5">
             <!-- Runtime remaining (minutes) — the headline UPS trend. -->
             <template x-if="(apcHistory(inst).runtime_series || []).length > 1">

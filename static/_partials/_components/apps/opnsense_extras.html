@@ -41,16 +41,18 @@
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.memory') || 'Memory'"></div>
         <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).mem_percent) + '%'"></div>
       </div>
-      <!-- Load (1 min) — shown as a % of CPU cores (100% = every core busy)
-           so it's interpretable; raw load average is in the tooltip. Falls
-           back to the raw number when the core count is unknown. -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.opnsense.load') || 'Load'"></div>
-        <div class="apps-card-stat-value"
-             :style="opnsenseLoadPct(inst) !== null ? ('color: ' + opnsenseLoadColor(opnsenseLoadPct(inst))) : ''"
-             :title="t('apps.opnsense.load_title', { load: (Number(opnsenseData(inst).load_1m) || 0).toFixed(2), cores: (Number(opnsenseData(inst).cpu_cores) || 0) })"
-             x-text="opnsenseLoadPct(inst) !== null ? (opnsenseLoadPct(inst) + '%') : (Number(opnsenseData(inst).load_1m) || 0).toFixed(2)"></div>
-      </div>
+      <!-- Load (1 min) — DRAWER-ONLY secondary stat (CPU% on the card already
+           conveys utilisation). Shown as a % of CPU cores (100% = every core
+           busy); raw load average is in the tooltip. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat">
+          <div class="apps-card-stat-label" x-text="t('apps.opnsense.load') || 'Load'"></div>
+          <div class="apps-card-stat-value"
+               :style="opnsenseLoadPct(inst) !== null ? ('color: ' + opnsenseLoadColor(opnsenseLoadPct(inst))) : ''"
+               :title="t('apps.opnsense.load_title', { load: (Number(opnsenseData(inst).load_1m) || 0).toFixed(2), cores: (Number(opnsenseData(inst).cpu_cores) || 0) })"
+               x-text="opnsenseLoadPct(inst) !== null ? (opnsenseLoadPct(inst) + '%') : (Number(opnsenseData(inst).load_1m) || 0).toFixed(2)"></div>
+        </div>
+      </template>
       <!-- Firewall states -->
       <div class="apps-card-ups-stat">
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.states') || 'FW states'"></div>
@@ -61,19 +63,23 @@
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.leases') || 'DHCP'"></div>
         <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).dhcp_leases)"></div>
       </div>
-      <!-- Active LAN devices (ARP / neighbour table). Hidden when 0 so a box
-           without the ARP-table privilege doesn't show a misleading 0. -->
-      <div class="apps-card-ups-stat" x-show="(Number(opnsenseData(inst).arp_devices) || 0) > 0">
-        <div class="apps-card-stat-label" x-text="t('apps.opnsense.arp_devices') || 'LAN devices'"></div>
-        <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).arp_devices)"></div>
-      </div>
-      <!-- Throughput (total ↓ rx / ↑ tx) -->
-      <div class="apps-card-ups-stat"
-           x-show="(Number(opnsenseData(inst).net_rx_bps) || 0) > 0 || (Number(opnsenseData(inst).net_tx_bps) || 0) > 0">
-        <div class="apps-card-stat-label" x-text="t('apps.opnsense.throughput') || 'Throughput'"></div>
-        <div class="apps-card-stat-value fs-2xs mono"
-             x-text="'↓ ' + opnsenseBps(opnsenseData(inst).net_rx_bps) + ' · ↑ ' + opnsenseBps(opnsenseData(inst).net_tx_bps)"></div>
-      </div>
+      <!-- Active LAN devices (ARP) + Throughput — DRAWER-ONLY secondary stats
+           (the per-interface throughput list in the drawer covers the detail).
+           Hidden when 0 / no traffic. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat" x-show="(Number(opnsenseData(inst).arp_devices) || 0) > 0">
+          <div class="apps-card-stat-label" x-text="t('apps.opnsense.arp_devices') || 'LAN devices'"></div>
+          <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).arp_devices)"></div>
+        </div>
+      </template>
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat"
+             x-show="(Number(opnsenseData(inst).net_rx_bps) || 0) > 0 || (Number(opnsenseData(inst).net_tx_bps) || 0) > 0">
+          <div class="apps-card-stat-label" x-text="t('apps.opnsense.throughput') || 'Throughput'"></div>
+          <div class="apps-card-stat-value fs-2xs mono"
+               x-text="'↓ ' + opnsenseBps(opnsenseData(inst).net_rx_bps) + ' · ↑ ' + opnsenseBps(opnsenseData(inst).net_tx_bps)"></div>
+        </div>
+      </template>
     </div>
     <!-- Version (+ update badge) / uptime / temperature footnote. -->
     <div class="fs-3xs text-[var(--text-faint)] mt-1 mono inline-flex flex-wrap gap-x-2">
@@ -87,9 +93,10 @@
       <span x-show="(Number(opnsenseData(inst).temp_max_c) || 0) > 0"
             x-text="(Number(opnsenseData(inst).temp_max_c) || 0) + '°C'"></span>
     </div>
-    <!-- Per-interface throughput list (↓ rx / ↑ tx). Shown once the rate-diff
+    <!-- Per-interface throughput list (↓ rx / ↑ tx). DRAWER-ONLY (the card
+         stays lean: the stat grid + version footnote). Shown once the rate-diff
          has at least one interface (needs two samples — first tick is empty). -->
-    <template x-if="opnsenseInterfaces(inst).length">
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && opnsenseInterfaces(inst).length">
       <div class="mt-2">
         <div class="apps-card-stat-label mb-1" x-text="t('apps.opnsense.interfaces') || 'Interfaces'"></div>
         <template x-for="(nif, ni) in opnsenseInterfaces(inst).slice(0, 8)" :key="(nif.name || '') + ':' + ni">
@@ -152,9 +159,10 @@
         </svg>
       </div>
     </template>
-    <!-- Gateway detail list (status dot + name + latency / loss). Shown when
-         there's at least one gateway. -->
-    <template x-if="opnsenseGateways(inst).length">
+    <!-- Gateway detail list (status dot + name + latency / loss). DRAWER-ONLY
+         (the card's gateway stat already shows online/total). Shown when there's
+         at least one gateway. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && opnsenseGateways(inst).length">
       <div class="mt-2">
         <div class="apps-card-stat-label mb-1" x-text="t('apps.opnsense.gateways') || 'Gateways'"></div>
         <template x-for="(gw, gi) in opnsenseGateways(inst).slice(0, 6)" :key="(gw.name || '') + ':' + gi">

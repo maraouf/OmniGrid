@@ -138,6 +138,40 @@ function hostUpsData(inst) {
   };
 }
 
+// Battery last-replace date, rendered in the user's configured date format.
+// APC reports it as a raw "mm/dd/yy" / "mm/dd/yyyy" DisplayString; this parses
+// that (American month-first) and reformats via the SPA's user date-only
+// format. Falls back to the raw string if it doesn't parse as a date, and ''
+// when absent.
+function apcBatteryDate(inst) {
+  /* jshint validthis: true */
+  const u = hostUpsData.call(this, inst);
+  const raw = u ? String(u.battery_replace_date || '').trim() : '';
+  if (!raw) {
+    return '';
+  }
+  // Validate the shape (no capture groups — JSHint rejects named groups with
+  // E016, and PyCharm flags anonymous ones), then split into month/day/year.
+  if (!/^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(raw)) {
+    return raw;
+  }
+  const parts = raw.split(/[/.-]/);
+  let yr = Number(parts[2]);
+  if (yr < 100) {
+    yr += 2000;
+  }
+  const dt = new Date(yr, Number(parts[0]) - 1, Number(parts[1]));
+  if (isNaN(dt.getTime())) {
+    return raw;
+  }
+  const fmtFn = this._applyDateTimeFormat;
+  const dateOnlyFn = this._userDateOnlyFormat;
+  if (typeof fmtFn !== 'function' || typeof dateOnlyFn !== 'function') {
+    return raw;
+  }
+  return this._applyDateTimeFormat(dt, this._userDateOnlyFormat()) || raw;
+}
+
 // True when the UPS sample carries ANY power-quality scalar — gates the
 // power-quality row so it hides cleanly on UPSes / firmwares that don't
 // expose the upsAdvInput*/Output* OIDs.
@@ -311,4 +345,5 @@ export const helpers = {
   apcHasPowerQuality: apcHasPowerQuality,
   apcTransferLabel: apcTransferLabel,
   apcSelfTestLabel: apcSelfTestLabel,
+  apcBatteryDate: apcBatteryDate,
 };
