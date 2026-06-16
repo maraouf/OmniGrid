@@ -27,7 +27,7 @@ from typing import Optional
 from logic import tuning as _tuning
 from logic.apps._common import (
     resolve_sample_interval, run_sampler_tick, sampler_instances)
-from logic.coerce import safe_int
+from logic.coerce import safe_float, safe_int
 from logic.db import db_conn
 from logic.tuning import Tunable as _Tunable
 
@@ -67,13 +67,18 @@ async def _probe_one(host_id: str, service_idx: int,
     if not isinstance(data, dict):
         return
     row = (int(time.time()), host_id, int(service_idx),
-           safe_int(data.get("net_rx_bps")), safe_int(data.get("net_tx_bps")))
+           safe_int(data.get("net_rx_bps")), safe_int(data.get("net_tx_bps")),
+           safe_int(data.get("pf_states_current")),
+           safe_float(data.get("cpu_percent")),
+           safe_float(data.get("mem_percent")),
+           safe_float(data.get("load_1m")))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO opnsense_samples "
-                "(ts, host_id, service_idx, rx_bps, tx_bps) "
-                "VALUES (?,?,?,?,?)", row)
+                "(ts, host_id, service_idx, rx_bps, tx_bps, "
+                "pf_states, cpu_pct, mem_pct, load_1m) "
+                "VALUES (?,?,?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[opnsense_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -130,14 +135,19 @@ def usage_summary(host_id: str, service_idx: int,
                  "total_rx_bytes": 0, "total_tx_bytes": 0,
                  "peak_rx_bps": 0, "peak_tx_bps": 0,
                  "avg_rx_bps": 0, "avg_tx_bps": 0, "active_days": 0,
-                 "series_rx": [], "series_tx": []}
+                 "series_rx": [], "series_tx": [],
+                 # System-health trend (pf state-table count + CPU/mem%/1-min
+                 # load), daily-average series + peak, from the same samples.
+                 "series_pf": [], "series_cpu": [], "series_mem": [],
+                 "series_load": [], "peak_pf_states": 0, "peak_cpu_pct": 0,
+                 "peak_mem_pct": 0, "peak_load_1m": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, rx_bps, tx_bps "
+                "SELECT ts, rx_bps, tx_bps, pf_states, cpu_pct, mem_pct, load_1m "
                 "FROM opnsense_samples WHERE host_id=? AND service_idx=? "
                 "AND ts >= ? ORDER BY ts ASC", (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -180,11 +190,42 @@ def usage_summary(host_id: str, service_idx: int,
     out["active_days"] = len(ordered)
     series_rx = [int(sum(rx_day[d]) / len(rx_day[d])) for d in ordered]
     series_tx = [int(sum(tx_day[d]) / len(tx_day[d])) for d in ordered]
+    # System-health daily-average series (same day buckets as rx/tx).
+    pf_vals = [safe_int(r["pf_states"]) for r in rows]
+    cpu_vals = [safe_float(r["cpu_pct"]) for r in rows]
+    mem_vals = [safe_float(r["mem_pct"]) for r in rows]
+    load_vals = [safe_float(r["load_1m"]) for r in rows]
+    out["peak_pf_states"] = max(pf_vals) if pf_vals else 0
+    out["peak_cpu_pct"] = round(max(cpu_vals), 1) if cpu_vals else 0
+    out["peak_mem_pct"] = round(max(mem_vals), 1) if mem_vals else 0
+    out["peak_load_1m"] = round(max(load_vals), 2) if load_vals else 0
+    pf_day: "defaultdict[int, list[int]]" = defaultdict(list)
+    cpu_day: "defaultdict[int, list[float]]" = defaultdict(list)
+    mem_day: "defaultdict[int, list[float]]" = defaultdict(list)
+    load_day: "defaultdict[int, list[float]]" = defaultdict(list)
+    for i, r in enumerate(rows):
+        day = int(r["ts"]) // 86400
+        pf_day[day].append(pf_vals[i])
+        cpu_day[day].append(cpu_vals[i])
+        mem_day[day].append(mem_vals[i])
+        load_day[day].append(load_vals[i])
+    series_pf = [int(sum(pf_day[d]) / len(pf_day[d])) for d in ordered]
+    series_cpu = [round(sum(cpu_day[d]) / len(cpu_day[d]), 1) for d in ordered]
+    series_mem = [round(sum(mem_day[d]) / len(mem_day[d]), 1) for d in ordered]
+    series_load = [round(sum(load_day[d]) / len(load_day[d]), 2) for d in ordered]
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]
         series_rx = [series_rx[i] for i in idx]
         series_tx = [series_tx[i] for i in idx]
+        series_pf = [series_pf[i] for i in idx]
+        series_cpu = [series_cpu[i] for i in idx]
+        series_mem = [series_mem[i] for i in idx]
+        series_load = [series_load[i] for i in idx]
     out["series_rx"] = series_rx
     out["series_tx"] = series_tx
+    out["series_pf"] = series_pf
+    out["series_cpu"] = series_cpu
+    out["series_mem"] = series_mem
+    out["series_load"] = series_load
     return out

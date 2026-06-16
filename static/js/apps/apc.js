@@ -130,6 +130,11 @@ function hostUpsData(inst) {
     last_transfer: String(d.last_transfer || '').trim(),
     battery_replace: (d.battery_replace == null) ? null : Number(d.battery_replace),
     self_test: String(d.self_test || '').trim(),
+    // Additional APC scalars — output real power (W), elapsed time-on-battery
+    // (s, > 0 only during an outage), last battery-replace date string.
+    output_power_w: (d.output_power_w == null) ? null : Number(d.output_power_w),
+    time_on_battery_s: (d.time_on_battery_s == null) ? null : Number(d.time_on_battery_s),
+    battery_replace_date: String(d.battery_replace_date || '').trim(),
   };
 }
 
@@ -152,7 +157,10 @@ function apcHasPowerQuality(u) {
   if (u.battery_replace != null) {
     return true;
   }
-  return Boolean(u.last_transfer) || Boolean(u.self_test);
+  if (u.output_power_w != null) {
+    return true;
+  }
+  return Boolean(u.last_transfer) || Boolean(u.self_test) || Boolean(u.battery_replace_date);
 }
 
 // Humanise a kebab-case enum token ("high-line-voltage" -> "High line

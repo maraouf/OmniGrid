@@ -236,9 +236,10 @@ _PRIV_HINTS = {
            "only stat that needs it; the rest of the card works without it"),
     "dhcp": "grant the API user the 'Services: Kea DHCP' (or legacy 'Status: DHCPv4 leases') privilege",
     "interfaces": "grant the API user the 'Diagnostics: Traffic' and 'Interfaces: Overview' privileges",
+    "arp": "grant the API user the 'Diagnostics: ARP Table' privilege",
 }
 _CAT_NAMES = {"services": "Services", "pf": "Firewall states", "dhcp": "DHCP leases",
-              "interfaces": "Interfaces"}
+              "interfaces": "Interfaces", "arp": "ARP table"}
 
 
 # noinspection DuplicatedCode
@@ -353,6 +354,24 @@ async def _fetch_pf_states(cli: httpx.AsyncClient, base: str,
                               "/api/diagnostics/firewall/pf_statistics", p2,
                               cur if cur else -1))
     return cur, lim
+
+
+async def _fetch_arp_count(cli: httpx.AsyncClient, base: str,
+                           dbg: Optional[list] = None) -> int:
+    """Active LAN device count from the ARP / neighbour table
+    (``GET /api/diagnostics/interface/search_arp`` — a bootgrid ``{total, rows}``
+    result; ``total`` reflects the full table regardless of pagination). 0 when
+    unreadable / the privilege isn't granted. ``dbg`` collects a per-endpoint
+    diagnostic row for the drawer debug panel."""
+    p = await _probe_raw(cli, base, "GET",
+                         "/api/diagnostics/interface/search_arp")
+    body = as_dict(p.get("json"))
+    count = safe_int(body.get("total")) or len(_extract_grid_rows(p.get("json")))
+    if dbg is not None:
+        dbg.append(_dbg_entry("arp", "GET",
+                              "/api/diagnostics/interface/search_arp", p,
+                              count if count else -1))
+    return count
 
 
 def _loadavg(system_time: dict) -> "tuple[float, float, float]":
@@ -590,7 +609,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             # exactly what the firewall answered (status + body snippet) when a
             # count reads 0 despite the data being present.
             dbg: list[dict] = []
-            res, stime, temp, gw, svc, pf, leases, traffic, activity = await asyncio.gather(
+            res, stime, temp, gw, svc, pf, leases, traffic, activity, arp = await asyncio.gather(
                 _get_json(cli, base, "/api/diagnostics/system/systemResources"),
                 _get_json(cli, base, "/api/diagnostics/system/systemTime"),
                 _get_json(cli, base, "/api/diagnostics/system/systemTemperature"),
@@ -600,6 +619,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _fetch_dhcp_leases(cli, base, dbg),
                 _fetch_interfaces(cli, base, dbg),
                 _get_json(cli, base, "/api/diagnostics/activity/getActivity"),
+                _fetch_arp_count(cli, base, dbg),
             )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[opnsense] error: fetch host={host_id} base={base} failed — "
@@ -630,6 +650,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     # (summary / list shapes) then the pf_statistics counters fallback.
     pf_current, pf_limit = pf
     leases_total = safe_int(leases)
+    arp_devices = safe_int(arp)
     temp_max_c = _temp_max(temp)
     cpu_percent = _cpu_from_activity(activity)
     # CPU% has no clean snapshot endpoint; when getActivity isn't readable
@@ -664,6 +685,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "pf_states_current": pf_current,
         "pf_states_limit": pf_limit,
         "dhcp_leases": leases_total,
+        "arp_devices": arp_devices,
         "temp_max_c": temp_max_c,
         "net_rx_bps": net_rx_bps,
         "net_tx_bps": net_tx_bps,
@@ -689,7 +711,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"upd={update_available} cpu={cpu_percent}% mem={mem_percent}% "
           f"load={out['load_1m']} gw={gw_online}/{gw_total} "
           f"svc={svc_running}/{svc_total} pf={pf_current} leases={leases_total} "
-          f"net={net_rx_bps}/{net_tx_bps}B/s temp={temp_max_c}C")
+          f"arp={arp_devices} net={net_rx_bps}/{net_tx_bps}B/s temp={temp_max_c}C")
     _data_cache[ck] = (now, out)
     return out
 

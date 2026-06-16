@@ -329,6 +329,9 @@ _OID_APC_UPS_LAST_TRANSFER = "1.3.6.1.4.1.318.1.1.1.3.2.5.0"  # upsAdvInputLineF
 _OID_APC_UPS_OUTPUT_VOLTAGE = "1.3.6.1.4.1.318.1.1.1.4.2.1.0"  # upsAdvOutputVoltage (VAC)
 _OID_APC_UPS_BATT_REPLACE = "1.3.6.1.4.1.318.1.1.1.2.2.4.0"  # upsAdvBatteryReplaceIndicator
 _OID_APC_UPS_SELF_TEST = "1.3.6.1.4.1.318.1.1.1.7.2.3.0"  # upsAdvTestDiagnosticsResults (enum)
+_OID_APC_UPS_OUTPUT_POWER_W = "1.3.6.1.4.1.318.1.1.1.4.2.8.0"  # upsAdvOutputActivePower (W)
+_OID_APC_UPS_TIME_ON_BATT = "1.3.6.1.4.1.318.1.1.1.2.1.2.0"  # upsBasicBatteryTimeOnBattery (TimeTicks)
+_OID_APC_UPS_BATT_REPLACE_DATE = "1.3.6.1.4.1.318.1.1.1.2.1.3.0"  # upsBasicBatteryLastReplaceDate (str)
 
 # APC last-transfer-to-battery cause enum (upsAdvInputLineFailCause).
 _APC_LAST_TRANSFER_LABELS = {
@@ -1141,6 +1144,24 @@ def extract_vendor_info(walks: dict[str, Any], existing: Optional[dict[str, Any]
     if apc_self_test > 0:
         out["host_ups_self_test"] = _APC_SELF_TEST_LABELS.get(
             apc_self_test, f"result={apc_self_test}")
+    # upsAdvOutputActivePower — total output real power in Watts (sum of
+    # phases). Model-dependent (SRT / SMT expose it; older Back-UPS may not);
+    # emitted only when it answers a sane value. 0 < W < 50000 rails out a
+    # garbage / unsupported reading.
+    apc_out_w = _coerce_int(apc.get(_OID_APC_UPS_OUTPUT_POWER_W))
+    if 0 < apc_out_w < 50000:
+        out["host_ups_output_power_w"] = int(apc_out_w)
+    # upsBasicBatteryTimeOnBattery — TimeTicks (centiseconds) elapsed on
+    # battery; 0 when on mains. Store seconds so the card can show "on
+    # battery for N" during an outage.
+    apc_on_batt_ticks = _coerce_int(apc.get(_OID_APC_UPS_TIME_ON_BATT))
+    if apc_on_batt_ticks > 0:
+        out["host_ups_time_on_battery_s"] = apc_on_batt_ticks // 100
+    # upsBasicBatteryLastReplaceDate — DisplayString "mm/dd/yy[yy]"; the
+    # battery-age reference. Emitted verbatim when non-empty.
+    apc_replace_date = _coerce_str(apc.get(_OID_APC_UPS_BATT_REPLACE_DATE)).strip()
+    if apc_replace_date:
+        out["host_ups_battery_replace_date"] = apc_replace_date
     # ---- UCD-SNMP-MIB (Linux net-snmp) ------------------------------
     # DD-WRT / OpenWrt / generic Linux without Beszel/NE pick
     # up CPU% (100 - ssCpuIdle), memory (KB → bytes), 1/5/15-min load
@@ -2354,6 +2375,8 @@ async def probe_snmp(
                 _OID_APC_UPS_INPUT_VOLTAGE, _OID_APC_UPS_INPUT_FREQ,
                 _OID_APC_UPS_LAST_TRANSFER, _OID_APC_UPS_OUTPUT_VOLTAGE,
                 _OID_APC_UPS_BATT_REPLACE, _OID_APC_UPS_SELF_TEST,
+                _OID_APC_UPS_OUTPUT_POWER_W, _OID_APC_UPS_TIME_ON_BATT,
+                _OID_APC_UPS_BATT_REPLACE_DATE,
             ])
         else:
             apc_vendor_task = _resolved_dict()

@@ -5672,6 +5672,10 @@
       "last_transfer": "Last transfer",
       "self_test": "Self-test",
       "battery_replace": "Battery needs replacing",
+      "output_power": "Output power",
+      "battery_installed": "Battery installed",
+      "on_battery_for": "On battery for {dur}",
+      "input_voltage_trend": "Input voltage trend",
       "transfer_no_transfer": "No transfer",
       "transfer_high_line_voltage": "High line voltage",
       "transfer_brownout": "Brownout",
@@ -6456,6 +6460,7 @@
       "load_title": "Load average {load} across {cores} CPU core(s), 1-minute (100% = every core fully busy)",
       "states": "FW states",
       "leases": "DHCP",
+      "arp_devices": "LAN devices",
       "throughput": "Throughput",
       "interfaces": "Interfaces",
       "update_available": "⬆️ update available",
@@ -6469,7 +6474,11 @@
       "usage_title": "Throughput trend ({days}d)",
       "usage_total": "↓ {down} · ↑ {up} total",
       "usage_peak": "Peak ↓ {down} · ↑ {up}",
-      "usage_avg": "Avg ↓ {down} · ↑ {up}"
+      "usage_avg": "Avg ↓ {down} · ↑ {up}",
+      "health_title": "System-health trend ({days}d)",
+      "health_peak": "Peak states {states} · CPU {cpu}% · Mem {mem}% · load {load}",
+      "health_states_label": "Firewall states",
+      "health_cpu_label": "CPU %"
     },
     "fing": {
       "api_key_label": "Fing Local API key",

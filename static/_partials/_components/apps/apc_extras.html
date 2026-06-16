@@ -119,7 +119,27 @@
                   <div class="apps-card-stat-value" x-text="apcSelfTestLabel(apcHostUpsData(inst).self_test)"></div>
                 </div>
               </template>
+              <!-- Output real power (Watts) — model-dependent OID. -->
+              <template x-if="apcHostUpsData(inst).output_power_w != null">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.output_power') || 'Output power'"></div>
+                  <div class="apps-card-stat-value" x-text="apcHostUpsData(inst).output_power_w + ' W'"></div>
+                </div>
+              </template>
+              <!-- Battery last-replace date (battery-age reference). -->
+              <template x-if="apcHostUpsData(inst).battery_replace_date">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label" x-text="t('apps.apc.battery_installed') || 'Battery installed'"></div>
+                  <div class="apps-card-stat-value mono" x-text="apcHostUpsData(inst).battery_replace_date"></div>
+                </div>
+              </template>
             </div>
+            <!-- On-battery banner — only shown DURING an outage (the OID reads 0
+                 on mains). Tells you how long the UPS has been carrying load. -->
+            <template x-if="(Number(apcHostUpsData(inst).time_on_battery_s) || 0) > 0">
+              <p class="fs-3xs text-[var(--warning)] mt-1.5 inline-flex items-center gap-1"
+                 x-text="'🔋 ' + t('apps.apc.on_battery_for', { dur: apcUpsRuntimeLabel(apcHostUpsData(inst).time_on_battery_s) })"></p>
+            </template>
             <!-- Battery-replace warning (only when the UPS reports it needs a
                  new battery pack). -->
             <template x-if="apcHostUpsData(inst).battery_replace === 1">
@@ -165,6 +185,21 @@
                 </div>
               </template>
             </div>
+            <!-- Input-voltage (mains-quality) trend — reuses the same
+                 host_snmp_samples history; shown when the UPS reports input
+                 voltage and at least two points exist. -->
+            <template x-if="(apcHistory(inst).voltage_series || []).length > 1">
+              <div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="apps-card-stat-label" x-text="t('apps.apc.input_voltage_trend') || 'Input voltage trend'"></span>
+                  <span class="fs-3xs text-[var(--text-faint)] mono"
+                        x-text="(apcHistory(inst).voltage_current != null) ? (apcHistory(inst).voltage_current + ' V') : ''"></span>
+                </div>
+                <svg class="apps-spark apps-spark--mini" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+                  <polyline class="apps-spark-line" :points="apcSparkPoints(inst, 'voltage')"></polyline>
+                </svg>
+              </div>
+            </template>
             <div class="fs-3xs text-[var(--text-faint)] mono"
                  x-text="t('apps.ups.trend_caption', { days: apcHistory(inst).days }) || ('Last ' + apcHistory(inst).days + ' days')"></div>
           </div>

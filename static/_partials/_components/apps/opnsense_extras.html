@@ -61,6 +61,12 @@
         <div class="apps-card-stat-label" x-text="t('apps.opnsense.leases') || 'DHCP'"></div>
         <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).dhcp_leases)"></div>
       </div>
+      <!-- Active LAN devices (ARP / neighbour table). Hidden when 0 so a box
+           without the ARP-table privilege doesn't show a misleading 0. -->
+      <div class="apps-card-ups-stat" x-show="(Number(opnsenseData(inst).arp_devices) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.opnsense.arp_devices') || 'LAN devices'"></div>
+        <div class="apps-card-stat-value" x-text="opnsenseCount(opnsenseData(inst).arp_devices)"></div>
+      </div>
       <!-- Throughput (total ↓ rx / ↑ tx) -->
       <div class="apps-card-ups-stat"
            x-show="(Number(opnsenseData(inst).net_rx_bps) || 0) > 0 || (Number(opnsenseData(inst).net_tx_bps) || 0) > 0">
@@ -122,6 +128,27 @@
         <!-- Daily-average download throughput sparkline. -->
         <svg class="apps-spark apps-spark--trend mt-1" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
           <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_rx)"></polyline>
+        </svg>
+      </div>
+    </template>
+    <!-- System-health trend — daily-average pf state-table count + CPU/mem%/load
+         from the same opnsense_sampler history (no extra upstream calls).
+         DRAWER-ONLY, shown once >= 2 daily points of state data exist. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && opnsenseUsage(inst) && opnsenseUsage(inst).active_days > 1 && (opnsenseUsage(inst).series_pf || []).length > 1">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label mb-1"
+             x-text="t('apps.opnsense.health_title', { days: opnsenseUsage(inst).days })"></div>
+        <div class="fs-3xs mono text-[var(--text-faint)]"
+             x-text="t('apps.opnsense.health_peak', { states: opnsenseUsage(inst).peak_pf_states, cpu: opnsenseUsage(inst).peak_cpu_pct, mem: opnsenseUsage(inst).peak_mem_pct, load: opnsenseUsage(inst).peak_load_1m })"></div>
+        <!-- pf state-table count daily sparkline. -->
+        <div class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('apps.opnsense.health_states_label') || 'Firewall states'"></div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_pf)"></polyline>
+        </svg>
+        <!-- CPU % daily sparkline. -->
+        <div class="fs-3xs text-[var(--text-faint)] mt-1" x-text="t('apps.opnsense.health_cpu_label') || 'CPU %'"></div>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :points="opnsenseUsagePath(opnsenseUsage(inst).series_cpu)"></polyline>
         </svg>
       </div>
     </template>

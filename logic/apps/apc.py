@@ -96,6 +96,12 @@ def _latest_ups_sample(host_id: str) -> dict:
         "last_transfer": "",
         "battery_replace": None,
         "self_test": "",
+        # Additional APC scalars — output real power (W), elapsed
+        # time-on-battery (s, > 0 only during an outage), last battery-replace
+        # date (the battery-age reference). NULL / "" when unsupported.
+        "output_power_w": None,
+        "time_on_battery_s": None,
+        "battery_replace_date": "",
         "ts": 0,
     }
     try:
@@ -104,7 +110,9 @@ def _latest_ups_sample(host_id: str) -> dict:
                 "SELECT battery_percent, load_percent, battery_temp_c, "
                 "battery_runtime_s, ups_status, battery_status, "
                 "ups_input_voltage, ups_output_voltage, ups_input_freq_hz, "
-                "ups_last_transfer, ups_battery_replace, ups_self_test, ts "
+                "ups_last_transfer, ups_battery_replace, ups_self_test, "
+                "ups_output_power_w, ups_time_on_battery_s, "
+                "ups_battery_replace_date, ts "
                 "FROM host_snmp_samples WHERE host_id = ? "
                 "ORDER BY ts DESC LIMIT 1",
                 (host_id,),
@@ -125,14 +133,18 @@ def _latest_ups_sample(host_id: str) -> dict:
     out["last_transfer"] = row[9] or ""
     out["battery_replace"] = row[10]
     out["self_test"] = row[11] or ""
-    out["ts"] = int(row[12] or 0)
+    out["output_power_w"] = row[12]
+    out["time_on_battery_s"] = row[13]
+    out["battery_replace_date"] = row[14] or ""
+    out["ts"] = int(row[15] or 0)
     # "available" = at least one UPS field came back non-null. A plain
     # SNMP host (no PowerNet OIDs) writes a row with every UPS column
     # NULL, so the card must distinguish that from a real UPS reading.
     out["available"] = any(
         out[k] is not None
         for k in ("battery_percent", "load_percent", "battery_temp_c", "battery_runtime_s",
-                  "input_voltage", "output_voltage", "input_freq_hz", "battery_replace")
+                  "input_voltage", "output_voltage", "input_freq_hz", "battery_replace",
+                  "output_power_w")
     ) or bool(out["ups_status"] or out["battery_status"]
               or out["last_transfer"] or out["self_test"])
     return out
@@ -153,14 +165,18 @@ def _history_summary(host_id: str) -> dict:
     out: dict = {"days": win, "samples": 0, "battery_series": [],
                  "load_series": [], "runtime_series": [], "battery_current": None,
                  "load_current": None, "runtime_current_min": None,
-                 "runtime_low_min": None}
+                 "runtime_low_min": None,
+                 # Input-voltage (mains-quality) trend — same table, no new
+                 # sampler. Empty when the UPS doesn't expose input voltage.
+                 "voltage_series": [], "voltage_current": None}
     if not host_id:
         return out
     cutoff = int(time.time()) - win * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT battery_percent, load_percent, battery_runtime_s "
+                "SELECT battery_percent, load_percent, battery_runtime_s, "
+                "ups_input_voltage "
                 "FROM host_snmp_samples WHERE host_id = ? AND ts >= ? "
                 "ORDER BY ts ASC", (host_id, cutoff),
             ).fetchall()
@@ -172,9 +188,13 @@ def _history_summary(host_id: str) -> dict:
     batt = [r[0] for r in rows if r[0] is not None]
     load = [r[1] for r in rows if r[1] is not None]
     rt_min = [float(r[2]) / 60.0 for r in rows if r[2] is not None]
+    volts = [float(r[3]) for r in rows if r[3] is not None]
     out["battery_series"] = _downsample(batt, _MAX_POINTS)
     out["load_series"] = _downsample(load, _MAX_POINTS)
     out["runtime_series"] = _downsample(rt_min, _MAX_POINTS)
+    out["voltage_series"] = _downsample(volts, _MAX_POINTS)
+    if volts:
+        out["voltage_current"] = round(volts[-1])
     if batt:
         out["battery_current"] = round(float(batt[-1]))
     if load:

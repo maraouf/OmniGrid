@@ -1059,6 +1059,10 @@ def init_db():
             service_idx     INTEGER NOT NULL,
             rx_bps          INTEGER NOT NULL DEFAULT 0,
             tx_bps          INTEGER NOT NULL DEFAULT 0,
+            pf_states       INTEGER NOT NULL DEFAULT 0,
+            cpu_pct         REAL    NOT NULL DEFAULT 0,
+            mem_pct         REAL    NOT NULL DEFAULT 0,
+            load_1m         REAL    NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_opnsense_samples_chip_ts
@@ -1682,6 +1686,14 @@ def init_db():
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_last_transfer TEXT",
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_battery_replace INTEGER",
                 "ALTER TABLE host_snmp_samples ADD COLUMN ups_self_test TEXT",
+                # APC additional UPS scalars — output real power (Watts,
+                # upsAdvOutputActivePower), elapsed time-on-battery (seconds,
+                # upsBasicBatteryTimeOnBattery), and the last battery-replace
+                # date string (upsBasicBatteryLastReplaceDate, the battery-age
+                # reference). All NULL for non-UPS hosts / unsupported models.
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_output_power_w INTEGER",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_time_on_battery_s INTEGER",
+                "ALTER TABLE host_snmp_samples ADD COLUMN ups_battery_replace_date TEXT",
                 # HTTP probe — TLS certificate metadata + DNS / TLS
                 # error strings persisted alongside the numeric outcome
                 # so the drawer card can surface cert subject / issuer
@@ -1701,6 +1713,15 @@ def init_db():
                 # added under the prior DEFAULT 1 are flipped to 0 by
                 # migration 006 so the unchecked state matches the render.
                 "ALTER TABLE service_catalog ADD COLUMN show_extras INTEGER NOT NULL DEFAULT 0",
+                # OPNsense system-health trend columns — pf state-table count,
+                # CPU %, memory %, 1-min load. The sampler already fetches these
+                # each tick (fetch_data returns them); recording them alongside
+                # the rx/tx throughput gives a system-health sparkline with no
+                # extra upstream calls. Default 0 for rows written pre-fix.
+                "ALTER TABLE opnsense_samples ADD COLUMN pf_states INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE opnsense_samples ADD COLUMN cpu_pct REAL NOT NULL DEFAULT 0",
+                "ALTER TABLE opnsense_samples ADD COLUMN mem_pct REAL NOT NULL DEFAULT 0",
+                "ALTER TABLE opnsense_samples ADD COLUMN load_1m REAL NOT NULL DEFAULT 0",
         ):
             try:
                 c.execute(ddl)

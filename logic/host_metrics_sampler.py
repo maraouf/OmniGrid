@@ -1442,6 +1442,12 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                     ups_last_xfer = stats.get("host_ups_last_transfer") or None
                     ups_batt_replace = _int_or_none(stats.get("host_ups_battery_replace"))
                     ups_self_test = stats.get("host_ups_self_test") or None
+                    # APC additional scalars — output Watts, elapsed
+                    # time-on-battery (seconds), last battery-replace date.
+                    # NULL when the OID didn't answer / non-UPS host.
+                    ups_out_w = _int_or_none(stats.get("host_ups_output_power_w"))
+                    ups_on_batt_s = _int_or_none(stats.get("host_ups_time_on_battery_s"))
+                    ups_replace_date = stats.get("host_ups_battery_replace_date") or None
                     # Aggregate disk totals — capture so SNMP-only
                     # hosts can render the inline disk sparkline. The
                     # extractor's `host_disk_total` / `host_disk_used`
@@ -1464,9 +1470,11 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                             "ups_status, battery_status, battery_runtime_s, "
                             "ups_input_voltage, ups_output_voltage, "
                             "ups_input_freq_hz, ups_last_transfer, "
-                            "ups_battery_replace, ups_self_test) "
+                            "ups_battery_replace, ups_self_test, "
+                            "ups_output_power_w, ups_time_on_battery_s, "
+                            "ups_battery_replace_date) "
                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                            "?, ?, ?, ?, ?, ?)",
+                            "?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 int(now), hid,
                                 json.dumps(list(cores)) if cores else None,
@@ -1497,6 +1505,9 @@ async def _probe_one_snmp(host: dict, sem: asyncio.Semaphore) -> None:
                                 ups_last_xfer,
                                 ups_batt_replace,
                                 ups_self_test,
+                                ups_out_w,
+                                ups_on_batt_s,
+                                ups_replace_date,
                             ),
                         )
                         # per-interface counter snapshot for the
