@@ -49,7 +49,9 @@ API reference: https://github.com/AdguardTeam/AdGuardHome/tree/master/openapi
 from __future__ import annotations
 
 import asyncio
+import re
 import time
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -324,6 +326,51 @@ def _custom_rule_count(filt: dict) -> int:
     return n
 
 
+_ISO_RE = re.compile(
+    r"^(?P<base>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+    r"(?:\.(?P<frac>\d+))?(?P<tz>Z|[+-]\d{2}:?\d{2})?$")
+
+
+def _iso_to_epoch(val: Any) -> int:
+    """Parse an AdGuard ISO-8601 ``last_updated`` timestamp (may carry a
+    trailing ``Z`` and Go-style nanosecond fractional seconds) to a unix epoch.
+    0 for the never-updated sentinel (year <= 1) / empty / unparseable."""
+    s = str(val or "").strip()
+    m = _ISO_RE.match(s)
+    if not m:
+        return 0
+    frac = (m.group("frac") or "")[:6]   # datetime can't take 9-digit fractions
+    tz = m.group("tz") or "+00:00"
+    if tz == "Z":
+        tz = "+00:00"
+    elif ":" not in tz:
+        tz = tz[:3] + ":" + tz[3:]
+    iso = m.group("base") + (("." + frac) if frac else "") + tz
+    try:
+        dt = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return 0
+    if dt.year <= 1:
+        return 0
+    return int(dt.timestamp())
+
+
+def _blocklist_updated_ts(filt: dict) -> int:
+    """Most-recent ``last_updated`` epoch across the ENABLED subscribed
+    blocklists (``/control/filtering/status`` ``filters[]``) — the "blocklists
+    last refreshed when" staleness signal. 0 when none / never updated."""
+    filters = filt.get("filters")
+    if not isinstance(filters, list):
+        return 0
+    newest = 0
+    for f in filters:
+        if isinstance(f, dict) and f.get("enabled"):
+            ts = _iso_to_epoch(f.get("last_updated"))
+            if ts > newest:
+                newest = ts
+    return newest
+
+
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
                      force: bool = False) -> dict:
@@ -411,6 +458,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # operator custom-rule count (hand-written allow/block/rewrite rules).
         "slowest_upstream": _slowest_upstream(stats),
         "custom_rules": _custom_rule_count(filt),
+        # P2 — blocklist refresh staleness (the most-recent subscribed-filter
+        # last_updated, epoch s). 0 when never updated; the card shows
+        # "blocklists updated N days ago".
+        "blocklists_updated_ts": _blocklist_updated_ts(filt),
         # P3 — full top-blocked-domain distribution (top 10) for the card's
         # horizontal-bar chart (data already in this /control/stats response).
         "top_blocked_list": _top_list(stats.get("top_blocked_domains")),

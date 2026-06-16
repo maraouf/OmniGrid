@@ -55,32 +55,44 @@
                      x-text="t('apps.adguard.clients') || 'Active clients'"></div>
                 <div class="apps-card-stat-value" x-text="adguardInt(agg.clients)"></div>
               </div>
-              <div class="apps-card-ups-stat">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.adguard.avg_processing') || 'Avg processing'"></div>
-                <div class="apps-card-stat-value" x-text="adguardMs(agg.avgMs)"></div>
-              </div>
-              <div class="apps-card-ups-stat" x-show="agg.topBlocked">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.adguard.top_blocked') || 'Top blocked'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + adguardInt(agg.topBlocked.count) + ')') : ''"
-                     x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
-              </div>
-              <div class="apps-card-ups-stat" x-show="agg.topQueried">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.adguard.top_queried') || 'Top queried'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topQueried ? (agg.topQueried.name + ' (' + adguardInt(agg.topQueried.count) + ')') : ''"
-                     x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
-              </div>
-              <div class="apps-card-ups-stat" x-show="agg.topClient">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.adguard.top_client') || 'Top client'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topClient ? (agg.topClient.name + ' (' + adguardInt(agg.topClient.count) + ')') : ''"
-                     x-text="agg.topClient ? agg.topClient.name : '—'"></div>
-              </div>
+              <!-- Avg processing + top blocked/queried/client — DRAWER-ONLY
+                   secondary stats (the card keeps blocked/queries/blocklist/
+                   clients/slowest-upstream). Each tile is template-wrapped so it
+                   stays a direct grid child (no wrapping cell). -->
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.adguard.avg_processing') || 'Avg processing'"></div>
+                  <div class="apps-card-stat-value" x-text="adguardMs(agg.avgMs)"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topBlocked">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.adguard.top_blocked') || 'Top blocked'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + adguardInt(agg.topBlocked.count) + ')') : ''"
+                       x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topQueried">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.adguard.top_queried') || 'Top queried'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topQueried ? (agg.topQueried.name + ' (' + adguardInt(agg.topQueried.count) + ')') : ''"
+                       x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topClient">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.adguard.top_client') || 'Top client'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topClient ? (agg.topClient.name + ' (' + adguardInt(agg.topClient.count) + ')') : ''"
+                       x-text="agg.topClient ? agg.topClient.name : '—'"></div>
+                </div>
+              </template>
               <!-- P1 — slowest upstream resolver (the "why is DNS slow" stat). -->
               <div class="apps-card-ups-stat" x-show="agg.slowestUpstream">
                 <div class="apps-card-stat-label"
@@ -89,15 +101,25 @@
                      :title="agg.slowestUpstream ? (agg.slowestUpstream.name + ' · ' + adguardMs(agg.slowestUpstream.ms)) : ''"
                      x-text="agg.slowestUpstream ? adguardMs(agg.slowestUpstream.ms) : '—'"></div>
               </div>
-              <!-- P1 — operator custom-rule count (hand-written allow/block/rewrite). -->
-              <div class="apps-card-ups-stat" x-show="agg.customRules > 0">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.adguard.custom_rules') || 'Custom rules'"></div>
-                <div class="apps-card-stat-value" x-text="adguardInt(agg.customRules)"></div>
-              </div>
+              <!-- Operator custom-rule count — DRAWER-ONLY secondary stat. -->
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.customRules > 0">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.adguard.custom_rules') || 'Custom rules'"></div>
+                  <div class="apps-card-stat-value" x-text="adguardInt(agg.customRules)"></div>
+                </div>
+              </template>
             </div>
-            <!-- Safe-browsing / parental block split (only when non-zero). -->
-            <div x-show="(agg.safebrowsing + agg.parental) > 0"
+            <!-- Blocklist staleness — "blocklists updated N ago" (oldest host in
+                 the fleet). Amber when the most-stale host hasn't refreshed in
+                 > 7 days. A card-level reliability signal. -->
+            <div x-show="agg.blocklistsUpdatedTs > 0"
+                 class="fs-3xs mt-1"
+                 :class="(Date.now() / 1000 - agg.blocklistsUpdatedTs) > 604800 ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'"
+                 x-text="t('apps.adguard.blocklists_updated', { ago: fmtAgo(agg.blocklistsUpdatedTs * 1000) })"></div>
+            <!-- Safe-browsing / parental block split (only when non-zero).
+                 DRAWER-ONLY secondary footnote. -->
+            <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (agg.safebrowsing + agg.parental) > 0"
                  class="fs-3xs text-[var(--text-faint)] mt-1"
                  x-text="(t('apps.adguard.safebrowsing') || 'Safe-browsing') + ': ' + adguardInt(agg.safebrowsing) + ' · ' + (t('apps.adguard.parental') || 'Parental') + ': ' + adguardInt(agg.parental)"></div>
             <!-- P3 — top-blocked-domain distribution: horizontal bars of the

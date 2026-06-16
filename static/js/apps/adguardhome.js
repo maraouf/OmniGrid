@@ -123,6 +123,9 @@ function adguardAggregate(app) {
     failedHosts: [], version: '',
     // P1 — slowest upstream across the fleet + summed custom-rule count.
     slowestUpstream: null, customRules: 0,
+    // P2 — blocklist staleness: OLDEST (most-stale) last-refresh epoch across
+    // the fleet (0 = unknown). The card shows "blocklists updated N days ago".
+    blocklistsUpdatedTs: 0,
     // P3 — merged top-blocked-domain distribution (top 10, counts summed
     // across hosts) for the card's horizontal-bar chart.
     topBlockedList: [],
@@ -171,6 +174,12 @@ function adguardAggregate(app) {
     const su = d.slowest_upstream;
     if (su && su.name && (!out.slowestUpstream || _num(su.ms) > _num(out.slowestUpstream.ms))) {
       out.slowestUpstream = {name: String(su.name), ms: _num(su.ms)};
+    }
+    // Blocklist staleness — keep the OLDEST (most-stale) refresh epoch so a
+    // host that's fallen behind on filter updates surfaces.
+    const bts = _num(d.blocklists_updated_ts);
+    if (bts > 0 && (out.blocklistsUpdatedTs === 0 || bts < out.blocklistsUpdatedTs)) {
+      out.blocklistsUpdatedTs = bts;
     }
     // Merge per-host top-blocked lists by domain (sum counts) for the fleet bar.
     if (Array.isArray(d.top_blocked_list)) {

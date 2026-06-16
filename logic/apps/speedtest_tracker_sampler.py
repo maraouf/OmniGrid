@@ -161,6 +161,11 @@ def trend_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.SPEEDTEST_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "median_download": 0.0,
                  "median_upload": 0.0, "median_ping": 0.0, "series": [],
+                 # Upload + ping daily-median companion series (same buckets as
+                 # `series`) so the chart can toggle metrics, + best/worst
+                 # download seen in the window.
+                 "series_upload": [], "series_ping": [],
+                 "best_download": 0.0, "worst_download": 0.0,
                  "failed_count": 0, "failed_pct": 0.0,
                  "first_ts": 0, "last_ts": 0}
     if not host_id:
@@ -190,20 +195,37 @@ def trend_summary(host_id: str, service_idx: int,
     out["failed_pct"] = (round(out["failed_count"] / len(rows) * 100, 1)
                          if rows else 0.0)
     if ok_rows:
-        out["median_download"] = round(float(median([float(r["download"]) for r in ok_rows])), 2)
+        dls = [float(r["download"]) for r in ok_rows]
+        out["median_download"] = round(float(median(dls)), 2)
         out["median_upload"] = round(float(median([float(r["upload"]) for r in ok_rows])), 2)
         out["median_ping"] = round(float(median([float(r["ping"]) for r in ok_rows])), 1)
-    # Daily-MEDIAN download — bucket by day, median per day, oldest-first. Only
-    # days with data (gaps collapse rather than 0-fill). Downsample to
-    # max_points by striding so a multi-year window stays a tidy sparkline.
-    # Successful rows only (a failed zero would read as a misleading outage).
-    by_day: dict = {}
+        out["best_download"] = round(max(dls), 2)
+        out["worst_download"] = round(min(dls), 2)
+    # Daily-MEDIAN download / upload / ping — bucket by day, median per day,
+    # oldest-first. Only days with data (gaps collapse rather than 0-fill).
+    # Downsample to max_points by striding so a multi-year window stays a tidy
+    # sparkline. Successful rows only (a failed zero would read as a misleading
+    # outage). The three series share the same day buckets + stride so the chart
+    # can overlay / toggle them.
+    dl_day: dict = {}
+    up_day: dict = {}
+    pg_day: dict = {}
     for r in ok_rows:
         d = int(r["ts"]) // 86400
-        by_day.setdefault(d, []).append(float(r["download"]))
-    daily = [round(float(median(by_day[d])), 2) for d in sorted(by_day)]
+        dl_day.setdefault(d, []).append(float(r["download"]))
+        up_day.setdefault(d, []).append(float(r["upload"]))
+        pg_day.setdefault(d, []).append(float(r["ping"]))
+    days_sorted = sorted(dl_day)
+    daily = [round(float(median(dl_day[d])), 2) for d in days_sorted]
+    daily_up = [round(float(median(up_day[d])), 2) for d in days_sorted]
+    daily_pg = [round(float(median(pg_day[d])), 1) for d in days_sorted]
     if len(daily) > max_points:
         stride = len(daily) / float(max_points)
-        daily = [daily[int(i * stride)] for i in range(max_points)]
+        idx = [int(i * stride) for i in range(max_points)]
+        daily = [daily[i] for i in idx]
+        daily_up = [daily_up[i] for i in idx]
+        daily_pg = [daily_pg[i] for i in idx]
     out["series"] = daily
+    out["series_upload"] = daily_up
+    out["series_ping"] = daily_pg
     return out

@@ -45,11 +45,10 @@
             </div>
           </div>
           <!-- Connection-quality row — jitter + packet loss (the latest test).
-               Shown only when the upstream reported them (Ookla includes
-               data.ping.jitter + data.packetLoss). Operators watch jitter as
-               closely as raw Mbps. Sits ABOVE the averages (it describes the
-               latest test, like the latest down/up/ping row above it). -->
-          <template x-if="appsAppData(inst).latest && ((Number(appsAppData(inst).latest.jitter) || 0) > 0 || (Number(appsAppData(inst).latest.packet_loss) || 0) > 0)">
+               DRAWER-ONLY (the card keeps the headline down/up/ping). Shown only
+               when the upstream reported them (Ookla includes data.ping.jitter +
+               data.packetLoss). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && appsAppData(inst).latest && ((Number(appsAppData(inst).latest.jitter) || 0) > 0 || (Number(appsAppData(inst).latest.packet_loss) || 0) > 0)">
             <div class="apps-speedtest-statgrid">
               <div class="apps-card-stat">
                 <div class="fs-2xs text-[var(--text-faint)]"
@@ -66,29 +65,31 @@
               </div>
             </div>
           </template>
-          <!-- Divider — separates the LIVE latest-test rows above from the
-               AGGREGATE averages below, so the two data planes read distinctly. -->
-          <div class="apps-speedtest-statgrid pt-1 mt-1 border-t border-[var(--border)]">
-            <div class="apps-card-stat">
-              <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_download', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg down (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
-              <div class="fs-sm"
-                   x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
+          <!-- Rolling averages (last N) — DRAWER-ONLY (the card shows the
+               headline latest test; averages are the deeper view). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-speedtest-statgrid pt-1 mt-1 border-t border-[var(--border)]">
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.avg_download', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg down (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
+                <div class="fs-sm"
+                     x-text="speedtestMbpsLabel(appsAppData(inst).averages.download)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.avg_upload', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg up (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
+                <div class="fs-sm"
+                     x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
+              </div>
+              <div class="apps-card-stat">
+                <div class="fs-2xs text-[var(--text-faint)]"
+                     x-text="t('apps.speedtest.avg_ping', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg ping (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
+                <div class="fs-sm"
+                     x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
+              </div>
             </div>
-            <div class="apps-card-stat">
-              <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_upload', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg up (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
-              <div class="fs-sm"
-                   x-text="speedtestMbpsLabel(appsAppData(inst).averages.upload)"></div>
-            </div>
-            <div class="apps-card-stat">
-              <div class="fs-2xs text-[var(--text-faint)]"
-                   x-text="t('apps.speedtest.avg_ping', { n: (appsAppData(inst).averages.sample_size || 10) }) || ('Avg ping (last ' + (appsAppData(inst).averages.sample_size || 10) + ')')"></div>
-              <div class="fs-sm"
-                   x-text="speedtestPingLabel(appsAppData(inst).averages.ping)"></div>
-            </div>
-          </div>
-          <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
+          </template>
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && appsAppData(inst).series && appsAppData(inst).series.length >= 2">
             <div class="space-y-1 apps-speedtest-trend">
               <!-- No per-chart reload button — the card header already carries a
                    refresh pill, so a second reload affordance here is redundant
@@ -128,7 +129,7 @@
              (paths + ticks) is built once via a single-element x-for over
              speedtestChartModel(series). preserveAspectRatio is left at the
              default (meet) so the tick TEXT isn't horizontally stretched. -->
-        <template x-if="appsAppData(inst).series && appsAppData(inst).series.length >= 2">
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && appsAppData(inst).series && appsAppData(inst).series.length >= 2">
           <div class="apps-speedtest-axchart space-y-1">
             <template x-for="cm in [speedtestChartModel(appsAppData(inst).series)]" :key="'axc'">
               <div>
@@ -192,9 +193,9 @@
           </div>
         </template>
         <!-- ISP / test-server provenance footnote (Ookla data.isp +
-             data.server.name/location). Shown when the latest result carries
-             it. -->
-        <div x-show="appsAppData(inst).latest && (appsAppData(inst).latest.isp || appsAppData(inst).latest.server)"
+             data.server.name/location). DRAWER-ONLY. Shown when the latest
+             result carries it. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && appsAppData(inst).latest && (appsAppData(inst).latest.isp || appsAppData(inst).latest.server)"
              class="fs-2xs text-[var(--text-faint)] truncate"
              :title="speedtestProvenance(appsAppData(inst).latest)"
              x-text="speedtestProvenance(appsAppData(inst).latest)"></div>
@@ -202,17 +203,35 @@
              history (survives the upstream ageing out its own results). Daily-
              median download sparkline + the median download/upload/ping over
              the retention window. Shown once the sampler has ≥ 2 daily points. -->
-        <template x-if="appsAppData(inst).trend && appsAppData(inst).trend.series && appsAppData(inst).trend.series.length >= 2">
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && appsAppData(inst).trend && appsAppData(inst).trend.series && appsAppData(inst).trend.series.length >= 2">
           <div class="space-y-1 pt-1 border-t border-[var(--border)]">
             <span class="fs-2xs text-[var(--text-faint)] block"
                   x-text="t('apps.speedtest.longterm', { days: appsAppData(inst).trend.days }) || ('Long-term trend (' + appsAppData(inst).trend.days + ' days)')"></span>
+            <!-- Daily-median download (green) + upload (blue) + ping (amber,
+                 dashed), each scaled to its own range so the trend SHAPE of each
+                 metric is visible (toggle/overlay view). -->
             <svg viewBox="0 0 200 32" preserveAspectRatio="none"
                  class="w-full h-8 apps-card-speedtest-chart">
               <path :d="speedtestTrendSparkPath(appsAppData(inst).trend.series)"
                     fill="none" stroke="var(--success)" stroke-width="1.5"/>
+              <path x-show="(appsAppData(inst).trend.series_upload || []).length >= 2"
+                    :d="speedtestTrendSparkPath(appsAppData(inst).trend.series_upload)"
+                    fill="none" stroke="var(--info)" stroke-width="1.5"/>
+              <path x-show="(appsAppData(inst).trend.series_ping || []).length >= 2"
+                    :d="speedtestTrendSparkPath(appsAppData(inst).trend.series_ping)"
+                    fill="none" stroke="var(--warning)" stroke-width="1.5" stroke-dasharray="2 2"/>
             </svg>
+            <div class="flex items-center justify-around fs-2xs text-[var(--text-faint)]">
+              <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--success);"></span><span x-text="t('apps.speedtest.legend_download') || 'down'"></span></span>
+              <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--info);"></span><span x-text="t('apps.speedtest.legend_upload') || 'up'"></span></span>
+              <span><span class="inline-block w-2 h-2 rounded-full me-1" style="background: var(--warning);"></span><span x-text="t('apps.speedtest.legend_ping') || 'ping'"></span></span>
+            </div>
             <div class="fs-2xs text-[var(--text-faint)]"
                  x-text="(t('apps.speedtest.median_label') || 'Median') + ': ⬇️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_download) + '  ⬆️ ' + speedtestMbpsLabel(appsAppData(inst).trend.median_upload) + '  🏓 ' + speedtestPingLabel(appsAppData(inst).trend.median_ping)"></div>
+            <!-- Best / worst download seen across the retention window. -->
+            <div x-show="(Number(appsAppData(inst).trend.best_download) || 0) > 0"
+                 class="fs-2xs text-[var(--text-faint)]"
+                 x-text="t('apps.speedtest.best_worst', { best: speedtestMbpsLabel(appsAppData(inst).trend.best_download), worst: speedtestMbpsLabel(appsAppData(inst).trend.worst_download) })"></div>
             <!-- Reliability: failed / errored tests over the retention window
                  (amber, only when > 0). A flaky ISP shows up here. -->
             <div x-show="(Number(appsAppData(inst).trend.failed_count) || 0) > 0"
