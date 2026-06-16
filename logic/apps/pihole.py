@@ -349,6 +349,19 @@ def _top_client(body: Any) -> Optional[dict]:
     return None
 
 
+def _query_types(queries_obj: dict) -> list:
+    """Top DNS query types from the v6 summary ``queries.types`` map
+    (``{A, AAAA, HTTPS, PTR, ...}``, FTL src/api/stats.c). Returns
+    ``[{type, count}]`` busiest-first, top 6, non-zero only. [] when absent."""
+    types = queries_obj.get("types")
+    if not isinstance(types, dict):
+        return []
+    rows = [{"type": str(k), "count": safe_int(v)}
+            for k, v in types.items() if safe_int(v) > 0]
+    rows.sort(key=lambda r: -r["count"])
+    return rows[:6]
+
+
 def _history_series(body: Any, cap: int = 48) -> "tuple[list, list]":
     """Parse /api/history (``{history:[{timestamp, total, blocked, …}]}``) into
     ``(queries_series, blocked_series)`` — per-bin total + blocked counts, last
@@ -436,6 +449,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         blocked_pct = round((blocked / queries) * 100.0, 2)
     domains_blocked = safe_int(gravity_obj.get("domains_being_blocked"))
     num_clients = safe_int(clients_obj.get("active"))
+    # P2 — gravity (blocklist) last-update epoch, unique-domains-over-window,
+    # and the DNS query-type breakdown — all from the SAME summary response
+    # (FTL gravity.last_update / queries.unique_domains / queries.types).
+    gravity_last_update = safe_int(gravity_obj.get("last_update"))
+    unique_domains = safe_int(queries_obj.get("unique_domains"))
+    query_types = _query_types(queries_obj)
 
     blocking_state = ""
     timer_remaining = 0
@@ -480,6 +499,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # aggregated card chart — capped to the most recent 48 bins.
         "queries_series": queries_series,
         "blocked_series": blocked_series,
+        # P2 — gravity staleness + unique domains + query-type breakdown.
+        "gravity_last_update": gravity_last_update,
+        "unique_domains": unique_domains,
+        "query_types": query_types,
         "version": _version_str(vinfo),
         "fetched_at": int(now),
     }

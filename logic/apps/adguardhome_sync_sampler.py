@@ -141,7 +141,13 @@ def history_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.ADGUARDSYNC_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "sync_pct_series": [],
                  "reliability_pct": 0, "out_of_sync_days": 0,
-                 "current_ok": 0, "current_total": 0}
+                 "current_ok": 0, "current_total": 0,
+                 # OmniGrid-native staleness (the upstream status API carries NO
+                 # last-sync timestamp — replicaStatus is host/url/status/error/
+                 # protection only): currently_in_sync = the latest sample had
+                 # every replica + origin in sync; last_full_sync_ts = the ts of
+                 # the most recent fully-in-sync sample (0 when none in window).
+                 "currently_in_sync": False, "last_full_sync_ts": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
@@ -169,8 +175,10 @@ def history_summary(host_id: str, service_idx: int,
     day_min: dict = defaultdict(lambda: 100.0)
     bad_days: set = set()
     all_in_sync = 0
+    last_full_sync_ts = 0
     for r in rows:
-        d = int(r["ts"]) // 86400
+        ts_i = int(r["ts"])
+        d = ts_i // 86400
         total = int(r["replicas_total"] or 0)
         ok = int(r["replicas_ok"] or 0)
         origin = int(r["origin_ok"] or 0)
@@ -180,10 +188,19 @@ def history_summary(host_id: str, service_idx: int,
         in_sync = (ok >= total) and origin == 1
         if in_sync:
             all_in_sync += 1
+            if ts_i > last_full_sync_ts:
+                last_full_sync_ts = ts_i
         else:
             bad_days.add(d)
     out["reliability_pct"] = round(all_in_sync / len(rows) * 100.0, 1)
     out["out_of_sync_days"] = len(bad_days)
+    out["last_full_sync_ts"] = last_full_sync_ts
+    # The latest sample's in-sync state — drives the card's "out of sync for X"
+    # warning (shown only when this is False).
+    _last = rows[-1]
+    out["currently_in_sync"] = (
+        (int(_last["replicas_ok"] or 0) >= int(_last["replicas_total"] or 0))
+        and int(_last["origin_ok"] or 0) == 1)
     today = int(time.time()) // 86400
     span = max(1, min(int(win), int(max_points)))
     start_day = today - span + 1

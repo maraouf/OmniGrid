@@ -123,6 +123,43 @@ function adguardsyncAllOk(inst) {
   return Boolean(d.origin_ok) && total > 0 && ok === total;
 }
 
+// True when the fleet is NOT fully in sync right now — origin unreachable OR
+// at least one configured replica out of sync. Drives the card's actionable
+// out-of-sync warning. (A zero-replica instance with an OK origin is "in sync"
+// — nothing to replicate.)
+function adguardsyncOutOfSync(inst) {
+  // `this` is the Alpine component (merged in via `appsHelpers`).
+  /* jshint validthis: true */
+  const d = (this.adguardsyncData ? this.adguardsyncData(inst) : null);
+  if (!d) {
+    return false;
+  }
+  if (!d.origin_ok) {
+    return true;
+  }
+  const total = Number(d.replicas_total) || 0;
+  const ok = Number(d.replicas_ok) || 0;
+  return total > 0 && ok < total;
+}
+
+// "How long since the fleet was last fully in sync" — derived from OmniGrid's
+// own sampler history (the upstream status API has NO last-sync timestamp), so
+// the card can flag a stale replica with HOW stale. '' when in sync now / no
+// history / no prior full sync in the window. Uses the shared fmtAgo so the
+// format matches the rest of the UI.
+function adguardsyncStaleAge(inst) {
+  /* jshint validthis: true */
+  const h = adguardsyncHistory.call(this, inst);
+  if (!h || !h.samples || h.currently_in_sync) {
+    return '';
+  }
+  const ts = Number(h.last_full_sync_ts) || 0;
+  if (ts <= 0) {
+    return '';
+  }
+  return (typeof this.fmtAgo === 'function') ? this.fmtAgo(ts * 1000) : '';
+}
+
 // Per-instance sync-reliability history (the lifespan sampler's series),
 // embedded on the per-app data as `history`. Null when absent / not yet sampled.
 function adguardsyncHistory(inst) {
@@ -191,6 +228,8 @@ export const helpers = {
   adguardsyncReplicas: adguardsyncReplicas,
   adguardsyncRelAge: adguardsyncRelAge,
   adguardsyncAllOk: adguardsyncAllOk,
+  adguardsyncOutOfSync: adguardsyncOutOfSync,
+  adguardsyncStaleAge: adguardsyncStaleAge,
   adguardsyncHistory: adguardsyncHistory,
   adguardsyncSyncSpark: adguardsyncSyncSpark,
 };

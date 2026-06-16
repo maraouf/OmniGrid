@@ -63,9 +63,23 @@
                  x-text="adguardsyncCount(adguardsyncData(inst).replicas_ok) + ' / ' + adguardsyncCount(adguardsyncData(inst).replicas_total)"></div>
           </div>
         </div>
+        <!-- Out-of-sync warning (card essential, actionable) — failing replica
+             names + HOW LONG since the fleet was last fully in sync. The age
+             comes from OmniGrid's own sampler (the upstream status API carries
+             no last-sync timestamp). Shown only when not fully in sync. -->
+        <template x-if="adguardsyncOutOfSync(inst)">
+          <p class="fs-3xs text-[var(--warning)] mt-1.5">
+            <span x-text="'⚠️ ' + (adguardsyncFailed(inst).length
+                ? (t('apps.adguardsync.out_of_sync_names', { names: adguardsyncFailed(inst).join(', ') }) || ('Out of sync: ' + adguardsyncFailed(inst).join(', ')))
+                : (t('apps.adguardsync.out_of_sync') || 'Replicas out of sync'))"></span>
+            <span x-show="adguardsyncStaleAge(inst)"
+                  x-text="' · ' + (t('apps.adguardsync.last_in_sync', { ago: adguardsyncStaleAge(inst) }) || ('last fully in sync ' + adguardsyncStaleAge(inst)))"></span>
+          </p>
+        </template>
         <!-- Per-replica detail — which replica is stale + HOW stale (last-sync
-             age) + why (error, drawer-only so the grid card stays compact). -->
-        <template x-if="adguardsyncReplicas(inst).length">
+             age) + why (error). DRAWER-ONLY so the grid card stays compact (the
+             card keeps the 3 stats + the out-of-sync warning above). -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && adguardsyncReplicas(inst).length">
           <div class="mt-1 space-y-0.5">
             <template x-for="(rep, ri) in adguardsyncReplicas(inst)" :key="(rep.host || '') + ':' + ri">
               <div class="fs-3xs">
@@ -80,8 +94,8 @@
                         x-show="adguardsyncRelAge(rep.last_sync)"
                         x-text="t('apps.adguardsync.last_sync', { ago: adguardsyncRelAge(rep.last_sync) }) || ('synced ' + adguardsyncRelAge(rep.last_sync))"></span>
                 </div>
-                <!-- Error detail — drawer-only (too long for the grid card). -->
-                <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && !rep.ok && rep.error"
+                <!-- Error detail (the whole list is already drawer-only). -->
+                <div x-show="!rep.ok && rep.error"
                      class="text-[var(--danger)] ps-3 truncate" :title="rep.error"
                      x-text="rep.error"></div>
               </div>
@@ -90,8 +104,9 @@
         </template>
         <!-- Sync-reliability trend — daily-MIN in-sync %, recorded by the
              lifespan sampler (the sync tool keeps no history of its own).
-             Shown once at least two samples exist in the window. -->
-        <template x-if="adguardsyncHistory(inst) && adguardsyncHistory(inst).samples > 1">
+             DRAWER-ONLY (the card stays lean). Shown once at least two samples
+             exist in the window. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && adguardsyncHistory(inst) && adguardsyncHistory(inst).samples > 1">
           <div class="mt-2">
             <div class="flex items-baseline justify-between gap-2">
               <span class="apps-card-stat-label" x-text="t('apps.adguardsync.reliability') || 'Sync reliability'"></span>

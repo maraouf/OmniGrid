@@ -58,27 +58,37 @@
                      x-text="t('apps.pihole.clients') || 'Active clients'"></div>
                 <div class="apps-card-stat-value" x-text="piholeInt(agg.clients)"></div>
               </div>
-              <div class="apps-card-ups-stat" x-show="agg.topBlocked">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.pihole.top_blocked') || 'Top blocked'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
-                     x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
-              </div>
-              <div class="apps-card-ups-stat" x-show="agg.topQueried">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.pihole.top_queried') || 'Top queried'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topQueried ? (agg.topQueried.name + ' (' + piholeInt(agg.topQueried.count) + ')') : ''"
-                     x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
-              </div>
-              <div class="apps-card-ups-stat" x-show="agg.topClient">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.pihole.top_client') || 'Top client'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topClient ? (agg.topClient.name + ' (' + piholeInt(agg.topClient.count) + ')') : ''"
-                     x-text="agg.topClient ? agg.topClient.name : '—'"></div>
-              </div>
+              <!-- Top blocked / queried / client — DRAWER-ONLY secondary stats
+                   (the card keeps blocked/queries/blocklist/clients/cache).
+                   Each tile is template-wrapped so it stays a direct grid
+                   child. -->
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topBlocked">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.pihole.top_blocked') || 'Top blocked'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topBlocked ? (agg.topBlocked.name + ' (' + piholeInt(agg.topBlocked.count) + ')') : ''"
+                       x-text="agg.topBlocked ? agg.topBlocked.name : '—'"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topQueried">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.pihole.top_queried') || 'Top queried'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topQueried ? (agg.topQueried.name + ' (' + piholeInt(agg.topQueried.count) + ')') : ''"
+                       x-text="agg.topQueried ? agg.topQueried.name : '—'"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topClient">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.pihole.top_client') || 'Top client'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topClient ? (agg.topClient.name + ' (' + piholeInt(agg.topClient.count) + ')') : ''"
+                       x-text="agg.topClient ? agg.topClient.name : '—'"></div>
+                </div>
+              </template>
               <!-- P1 — % of queries answered straight from cache (the classic
                    Pi-hole bragging-rights stat). -->
               <div class="apps-card-ups-stat" x-show="agg.cachePct > 0">
@@ -86,15 +96,44 @@
                      x-text="t('apps.pihole.cached') || 'From cache'"></div>
                 <div class="apps-card-stat-value" x-text="piholePct(agg.cachePct)"></div>
               </div>
-              <!-- P1 — busiest forwarding upstream resolver. -->
-              <div class="apps-card-ups-stat" x-show="agg.topUpstream">
-                <div class="apps-card-stat-label"
-                     x-text="t('apps.pihole.top_upstream') || 'Top upstream'"></div>
-                <div class="apps-card-stat-value truncate"
-                     :title="agg.topUpstream ? (agg.topUpstream.name + ' (' + piholeInt(agg.topUpstream.count) + ')') : ''"
-                     x-text="agg.topUpstream ? agg.topUpstream.name : '—'"></div>
-              </div>
+              <!-- Top upstream + unique-domains — DRAWER-ONLY secondary stats. -->
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.topUpstream">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.pihole.top_upstream') || 'Top upstream'"></div>
+                  <div class="apps-card-stat-value truncate"
+                       :title="agg.topUpstream ? (agg.topUpstream.name + ' (' + piholeInt(agg.topUpstream.count) + ')') : ''"
+                       x-text="agg.topUpstream ? agg.topUpstream.name : '—'"></div>
+                </div>
+              </template>
+              <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.uniqueDomains > 0">
+                <div class="apps-card-ups-stat">
+                  <div class="apps-card-stat-label"
+                       x-text="t('apps.pihole.unique_domains') || 'Unique domains'"></div>
+                  <div class="apps-card-stat-value" x-text="piholeInt(agg.uniqueDomains)"></div>
+                </div>
+              </template>
             </div>
+            <!-- Gravity (blocklist) staleness — "gravity updated N ago" (oldest
+                 host in the fleet). Amber past 7 days. Card-level reliability
+                 signal (mirrors the AdGuard staleness footnote). -->
+            <div x-show="agg.gravityLastUpdate > 0"
+                 class="fs-3xs mt-1"
+                 :class="(Date.now() / 1000 - agg.gravityLastUpdate) > 604800 ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'"
+                 x-text="t('apps.pihole.gravity_updated', { ago: fmtAgo(agg.gravityLastUpdate * 1000) })"></div>
+            <!-- DNS query-type breakdown (A / AAAA / HTTPS / …) — DRAWER-ONLY.
+                 From the SAME summary response (queries.types). -->
+            <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && agg.queryTypes && agg.queryTypes.length">
+              <div class="mt-2">
+                <div class="apps-card-stat-label mb-1"
+                     x-text="t('apps.pihole.query_types') || 'Query types'"></div>
+                <div class="flex flex-wrap gap-x-3 gap-y-0.5 fs-3xs text-[var(--text-faint)] mono">
+                  <template x-for="(qt, qi) in agg.queryTypes" :key="(qt.type || '') + ':' + qi">
+                    <span><span x-text="qt.type"></span> <span class="text-[var(--text-dim)]" x-text="piholeInt(qt.count)"></span></span>
+                  </template>
+                </div>
+              </div>
+            </template>
             <!-- Queries-vs-blocked time-bucket chart (from /api/history),
                  summed across the fleet. Queries + blocked share one scale so
                  blocked reads as a true proportion. Drawer-only

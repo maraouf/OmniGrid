@@ -111,6 +111,9 @@ function piholeAggregate(app) {
     cachePct: 0, forwardedPct: 0, topUpstream: null,
     // P2 — merged top-blocked / top-permitted distributions (top 10 each).
     topBlockedList: [], topPermittedList: [],
+    // P2 — gravity staleness (OLDEST host refresh epoch, 0 = unknown), summed
+    // unique domains, and the merged DNS query-type breakdown across the fleet.
+    gravityLastUpdate: 0, uniqueDomains: 0, queryTypes: [],
   };
   const insts = (app && Array.isArray(app.instances)) ? app.instances : [];
   out.n = insts.length;
@@ -120,6 +123,7 @@ function piholeAggregate(app) {
   let fwdWeighted = 0;
   const blockedAcc = {};  // P2 domain -> summed blocked count
   const permittedAcc = {};
+  const typesAcc = {};    // P2 query-type -> summed count across hosts
   const pickTop = (cur, t) => (
     (t && t.name && (!cur || _num(t.count) > _num(cur.count)))
       ? {name: String(t.name), count: _num(t.count)} : cur);
@@ -173,10 +177,27 @@ function piholeAggregate(app) {
     if (Array.isArray(d.blocked_series) && d.blocked_series.length) {
       bSeriesList.push(d.blocked_series);
     }
+    out.uniqueDomains += _num(d.unique_domains);
+    const glu = _num(d.gravity_last_update);
+    if (glu > 0 && (out.gravityLastUpdate === 0 || glu < out.gravityLastUpdate)) {
+      out.gravityLastUpdate = glu;  // oldest (most-stale) host
+    }
+    if (Array.isArray(d.query_types)) {
+      for (const row of d.query_types) {
+        if (row && row.type) {
+          typesAcc[row.type] = (typesAcc[row.type] || 0) + _num(row.count);
+        }
+      }
+    }
     if (!out.trend && d.fleet_trend && typeof d.fleet_trend === 'object') {
       out.trend = d.fleet_trend;
     }
   }
+  // Merged query-type breakdown (busiest-first, top 6).
+  out.queryTypes = Object.keys(typesAcc)
+    .map((type) => ({type: type, count: typesAcc[type]}))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
   out.queriesSeries = _sumAlign(qSeriesList);
   out.blockedSeries = _sumAlign(bSeriesList);
   out.pct = out.queries > 0 ? (out.blocked / out.queries) * 100 : 0;

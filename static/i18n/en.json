@@ -5876,6 +5876,9 @@
       "top_client": "Top client",
       "cached": "From cache",
       "top_upstream": "Top upstream",
+      "unique_domains": "Unique domains",
+      "gravity_updated": "Gravity updated {ago} ago",
+      "query_types": "Query types",
       "top_blocked_dist": "Top blocked domains",
       "top_permitted_dist": "Top permitted domains",
       "activity": "Queries vs blocked",
@@ -6331,7 +6334,10 @@
       "failing": "Failing",
       "last_sync": "synced {ago} ago",
       "interval": "Every",
-      "syncs": "syncs"
+      "syncs": "syncs",
+      "out_of_sync": "Replicas out of sync",
+      "out_of_sync_names": "Out of sync: {names}",
+      "last_in_sync": "last fully in sync {ago}"
     },
     "extras_filter_label": "Filter by extras",
     "filter_extras_only": "Extras only",
