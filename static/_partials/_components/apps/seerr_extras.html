@@ -27,6 +27,9 @@
          class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
          x-text="inst.host_address || inst.host_id"></div>
     <div class="apps-card-ups-grid">
+      <!-- Card essentials (always shown): Pending · Processing · Available ·
+           This week. The rest (Declined / Movies / TV / Total) are drawer-only
+           so the apps-grid card stays lean. -->
       <!-- Pending approval -->
       <div class="apps-card-ups-stat">
         <div class="apps-card-stat-label" x-text="t('apps.seerr.pending') || 'Pending'"></div>
@@ -45,33 +48,49 @@
         <div class="apps-card-stat-value text-[var(--success)]"
              x-text="seerrCount(seerrData(inst).available_count)"></div>
       </div>
-      <!-- Declined (rejected) -->
+      <!-- Requests this week (demand / volume — created in the last 7 days; a
+           full page shows "N+"). Card essential. -->
       <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.seerr.declined') || 'Declined'"></div>
+        <div class="apps-card-stat-label" x-text="t('apps.seerr.this_week') || 'This week'"></div>
         <div class="apps-card-stat-value"
-             :class="(Number(seerrData(inst).declined) || 0) > 0 ? 'text-[var(--danger)]' : ''"
-             x-text="seerrCount(seerrData(inst).declined)"></div>
+             :class="(Number(seerrData(inst).requests_this_week) || 0) > 0 ? 'text-[var(--info)]' : ''"
+             x-text="seerrCount(seerrData(inst).requests_this_week) + (seerrData(inst).requests_this_week_capped ? '+' : '')"></div>
       </div>
-      <!-- Movie requests -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.seerr.movies') || 'Movies'"></div>
-        <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).movie_count)"></div>
-      </div>
-      <!-- TV requests -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.seerr.tv') || 'TV'"></div>
-        <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).tv_count)"></div>
-      </div>
-      <!-- Total requests -->
-      <div class="apps-card-ups-stat">
-        <div class="apps-card-stat-label" x-text="t('apps.seerr.total') || 'Total'"></div>
-        <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).total)"></div>
-      </div>
+      <!-- Declined (rejected) — DRAWER-ONLY. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat">
+          <div class="apps-card-stat-label" x-text="t('apps.seerr.declined') || 'Declined'"></div>
+          <div class="apps-card-stat-value"
+               :class="(Number(seerrData(inst).declined) || 0) > 0 ? 'text-[var(--danger)]' : ''"
+               x-text="seerrCount(seerrData(inst).declined)"></div>
+        </div>
+      </template>
+      <!-- Movie requests (handled by Radarr) — DRAWER-ONLY. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat" :title="t('apps.seerr.movies_title') || 'Movie requests (handled by Radarr)'">
+          <div class="apps-card-stat-label" x-text="t('apps.seerr.movies') || 'Movies'"></div>
+          <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).movie_count)"></div>
+        </div>
+      </template>
+      <!-- TV requests (handled by Sonarr) — DRAWER-ONLY. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat" :title="t('apps.seerr.tv_title') || 'TV requests (handled by Sonarr)'">
+          <div class="apps-card-stat-label" x-text="t('apps.seerr.tv') || 'TV'"></div>
+          <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).tv_count)"></div>
+        </div>
+      </template>
+      <!-- Total requests — DRAWER-ONLY. -->
+      <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+        <div class="apps-card-ups-stat">
+          <div class="apps-card-stat-label" x-text="t('apps.seerr.total') || 'Total'"></div>
+          <div class="apps-card-stat-value" x-text="seerrCount(seerrData(inst).total)"></div>
+        </div>
+      </template>
     </div>
     <!-- Median requested→available latency — "fulfilled in ~X days median"
          over the recent available requests (createdAt → media.mediaAddedAt).
-         Hidden when no samples. -->
-    <div x-show="(Number(seerrData(inst).availability_sample_count) || 0) > 0"
+         DRAWER-ONLY. Hidden when no samples. -->
+    <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(seerrData(inst).availability_sample_count) || 0) > 0"
          class="fs-2xs text-[var(--text-faint)] mt-1.5 inline-flex items-center gap-1">
       <svg width="11" height="11" aria-hidden="true">
         <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-timer"/>
@@ -79,8 +98,8 @@
       <span x-text="t('apps.seerr.availability_latency', { days: seerrData(inst).availability_median_days, n: seerrData(inst).availability_sample_count }) || ('Fulfilled in ~' + seerrData(inst).availability_median_days + ' days median (' + seerrData(inst).availability_sample_count + ' recent)')"></span>
     </div>
     <!-- Top requesters — avatar + name + request count (from
-         GET /api/v1/user?sort=requests; hidden when none). -->
-    <template x-if="(seerrData(inst).top_users || []).length">
+         GET /api/v1/user?sort=requests; hidden when none). DRAWER-ONLY. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (seerrData(inst).top_users || []).length">
       <div class="mt-2">
         <div class="apps-card-stat-label mb-1" x-text="t('apps.seerr.top_requesters') || 'Top requesters'"></div>
         <div class="flex flex-col gap-1">
@@ -121,6 +140,21 @@
         </svg>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="(t('apps.seerr.peak_pending') || 'Peak pending') + ': ' + seerrCount(seerrTrend(inst).peak_pending)"></div>
+      </div>
+    </template>
+    <!-- Request-volume trend — NEW requests per day (demand spikes), from the
+         day-over-day diff of OmniGrid's cumulative request-count sampler.
+         Drawer-only; shown once ≥ 2 daily points exist AND at least one request
+         landed in the window. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && seerrTrend(inst) && (seerrTrend(inst).volume_series || []).length >= 2 && (Number(seerrTrend(inst).volume_total) || 0) > 0">
+      <div class="space-y-1 mt-1 pt-1 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.seerr.volume_trend', { days: seerrTrend(inst).days }) || ('Requests per day (' + seerrTrend(inst).days + ' days)')"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="seerrTrendPath(seerrTrend(inst).volume_series)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)]"
+             x-text="t('apps.seerr.volume_peak', { n: seerrCount(seerrTrend(inst).volume_peak) }) || ('Peak ' + seerrCount(seerrTrend(inst).volume_peak) + '/day')"></div>
       </div>
     </template>
     <!-- Request-state composition (available / approved / declined) over the

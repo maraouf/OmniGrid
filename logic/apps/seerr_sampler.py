@@ -70,13 +70,15 @@ async def _probe_one(host_id: str, service_idx: int,
     row = (int(time.time()), host_id, int(service_idx),
            int(data.get("pending") or 0), int(data.get("processing") or 0),
            int(data.get("available_count") or 0), int(data.get("issues_open") or 0),
-           int(data.get("approved") or 0), int(data.get("declined") or 0))
+           int(data.get("approved") or 0), int(data.get("declined") or 0),
+           int(data.get("total") or 0))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO seerr_samples "
                 "(ts, host_id, service_idx, pending, processing, available, "
-                "issues_open, approved, declined) VALUES (?,?,?,?,?,?,?,?,?)", row)
+                "issues_open, approved, declined, total) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[seerr_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -120,14 +122,18 @@ def trend_summary(host_id: str, service_idx: int,
     win = int(days) if days else _tuning.tuning_int(_Tunable.SEERR_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "peak_pending": 0,
                  "latest_pending": 0, "series": [], "composition": [],
-                 "composition_max": 0}
+                 "composition_max": 0,
+                 # Request-volume-per-day (demand) — new requests per day, from
+                 # the day-over-day diff of the cumulative ``total`` counter.
+                 "volume_series": [], "volume_total": 0, "volume_peak": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, pending, approved, declined, available FROM seerr_samples "
+                "SELECT ts, pending, approved, declined, available, total "
+                "FROM seerr_samples "
                 "WHERE host_id=? AND service_idx=? AND ts >= ? ORDER BY ts ASC",
                 (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -146,6 +152,10 @@ def trend_summary(host_id: str, service_idx: int,
     day_appr: dict = defaultdict(int)
     day_decl: dict = defaultdict(int)
     day_avail: dict = defaultdict(int)
+    # ``total`` is a cumulative counter, so the daily roll-up is the MAX seen
+    # that day (the end-of-day cumulative value) — diffed below into a per-day
+    # new-request volume.
+    day_total_max: dict = defaultdict(int)
     for r in rows:
         d = int(r["ts"]) // 86400
         day_cnt[d] += 1
@@ -153,19 +163,39 @@ def trend_summary(host_id: str, service_idx: int,
         day_appr[d] += int(r["approved"] or 0)
         day_decl[d] += int(r["declined"] or 0)
         day_avail[d] += int(r["available"] or 0)
+        tot = int(r["total"] or 0)
+        if tot > day_total_max[d]:
+            day_total_max[d] = tot
     ordered = sorted(day_cnt)
     series = [round(day_pend[d] / max(1, day_cnt[d]), 1) for d in ordered]
     comp = [{"approved": round(day_appr[d] / max(1, day_cnt[d]), 1),
              "declined": round(day_decl[d] / max(1, day_cnt[d]), 1),
              "available": round(day_avail[d] / max(1, day_cnt[d]), 1)}
             for d in ordered]
+    # Per-day NEW requests = positive day-over-day diff of the cumulative total.
+    # First present-day has no baseline (0); a net-negative day (deletions /
+    # reset) is clamped to 0 — never a synthesized negative spike.
+    volume: list = []
+    prev_total: Optional[int] = None
+    for d in ordered:
+        cur = day_total_max[d]
+        if prev_total is None:
+            volume.append(0)
+        else:
+            diff = cur - prev_total
+            volume.append(diff if diff > 0 else 0)
+        prev_total = cur
     if len(series) > max_points:
         stride = len(series) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]
         series = [series[i] for i in idx]
         comp = [comp[i] for i in idx]
+        volume = [volume[i] for i in idx]
     out["series"] = series
     out["composition"] = comp
     out["composition_max"] = max(
         (c["approved"] + c["declined"] + c["available"] for c in comp), default=0)
+    out["volume_series"] = volume
+    out["volume_total"] = sum(volume)
+    out["volume_peak"] = max(volume, default=0)
     return out

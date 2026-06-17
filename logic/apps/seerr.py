@@ -989,6 +989,43 @@ async def _fetch_availability_latency(cli: httpx.AsyncClient, base: str, key: st
     return round(median, 1), n
 
 
+# First-page sample size for the 7-day request-volume count. Seerr's request
+# endpoint has no server-side date filter, so we read the newest page
+# (createdAt-desc) and count the rows within the window — a full page means the
+# real count may be "N+".
+_REQUESTS_WEEK_TAKE = 100
+
+
+async def _fetch_requests_this_week(cli: httpx.AsyncClient, base: str, key: str,
+                                    *, take: int = _REQUESTS_WEEK_TAKE
+                                    ) -> "tuple[int, bool]":
+    """Best-effort count of requests CREATED in the last 7 days — the "how busy
+    is the request queue this week" demand stat. Reads the newest page of
+    ``GET /api/v1/request?sort=added`` (createdAt-descending) and counts the rows
+    whose ``createdAt`` falls inside the window. Returns ``(count, capped)``
+    where ``capped`` is True when the WHOLE page landed inside the window (so the
+    real total may be ``N+``). ``(0, False)`` on any failure (never
+    load-bearing)."""
+    cutoff = time.time() - 7 * 86400
+    try:
+        r = await cli.get(base + "/api/v1/request", headers=_headers(key),
+                          params={"take": take, "skip": 0,
+                                  "filter": "all", "sort": "added"})
+    except (httpx.HTTPError, OSError):
+        return 0, False
+    if getattr(r, "status_code", 0) != 200:
+        return 0, False
+    try:
+        results = as_list((r.json() or {}).get("results"))
+    except (ValueError, TypeError):
+        return 0, False
+    cnt = 0
+    for req in results:
+        if isinstance(req, dict) and _iso_epoch(req.get("createdAt")) >= cutoff:
+            cnt += 1
+    return cnt, (cnt >= take)
+
+
 # noinspection DuplicatedCode
 # The httpx-client + GET + upstream-error-guard shape below is structurally
 # shared with this module's fetch_data AND every sibling per-app module's
@@ -1067,6 +1104,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
             # Median requested→available latency — tolerated (nice-to-have).
             avail_median_days, avail_samples = await _fetch_availability_latency(
                 cli, base, api_key)
+            # Requests created in the last 7 days — demand / volume (tolerated).
+            week_requests, week_capped = await _fetch_requests_this_week(
+                cli, base, api_key)
             ver = await _fetch_version(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[seerr] error: fetch host={host_id} url={count_url} "
@@ -1101,6 +1141,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "failed_count": safe_int(failed_count),
         "availability_median_days": avail_median_days,
         "availability_sample_count": avail_samples,
+        "requests_this_week": safe_int(week_requests),
+        "requests_this_week_capped": bool(week_capped),
         "version": ver,
         "fetched_at": int(now),
     }
@@ -1138,6 +1180,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "top_users": as_list(data.get("top_users")),
         "issues_open": safe_int(data.get("issues_open")),
         "failed_count": safe_int(data.get("failed_count")),
+        "requests_this_week": safe_int(data.get("requests_this_week")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }

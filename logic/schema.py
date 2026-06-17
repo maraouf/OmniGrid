@@ -779,6 +779,10 @@ def init_db():
             issues_open INTEGER NOT NULL DEFAULT 0,
             approved    INTEGER NOT NULL DEFAULT 0,
             declined    INTEGER NOT NULL DEFAULT 0,
+            -- ``total`` is the cumulative all-requests-ever count (a COUNTER,
+            -- not a gauge): the request-volume-per-day trend diffs the daily-MAX
+            -- total day-over-day (skip-negative on deletions/resets).
+            total       INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (ts, host_id, service_idx)
         );
         CREATE INDEX IF NOT EXISTS idx_seerr_samples_chip_ts
@@ -1588,6 +1592,9 @@ def init_db():
                 # pending / processing / available gauges.
                 "ALTER TABLE seerr_samples ADD COLUMN approved INTEGER DEFAULT 0",
                 "ALTER TABLE seerr_samples ADD COLUMN declined INTEGER DEFAULT 0",
+                # Cumulative all-requests-ever counter — diffed per day for the
+                # request-volume-per-day (demand-spike) trend.
+                "ALTER TABLE seerr_samples ADD COLUMN total INTEGER DEFAULT 0",
                 # Prowlarr fleet avg response time (ms) gauge — P3 slowness trend.
                 "ALTER TABLE prowlarr_samples ADD COLUMN response_ms INTEGER NOT NULL DEFAULT 0",
                 # Kavita cumulative reading time (minutes) — diffed per day for

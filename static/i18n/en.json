@@ -5753,7 +5753,12 @@
       "decline_confirm": "Decline this request?",
       "failed": "Failed / stuck",
       "backlog_trend": "Pending backlog ({days} days)",
-      "peak_pending": "Peak pending"
+      "peak_pending": "Peak pending",
+      "this_week": "This week",
+      "movies_title": "Movie requests (handled by Radarr)",
+      "tv_title": "TV requests (handled by Sonarr)",
+      "volume_trend": "Requests per day ({days} days)",
+      "volume_peak": "Peak {n}/day"
     },
     "speedtest": {
       "api_key_label": "Speedtest Tracker API key",
