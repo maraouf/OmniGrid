@@ -35,6 +35,8 @@ AI / Telegram skills
 * ``sonarr_add_series``      — (arg) add a series by title (or TVDB id).
 * ``sonarr_remove_series``   — (arg, DESTRUCTIVE) remove a series; KEEPS files.
 * ``sonarr_search_missing``  — trigger a search for all monitored missing eps.
+* ``sonarr_search_cutoff_unmet`` — search for quality upgrades of below-cutoff
+  episodes (POST /api/v3/command {name: CutoffUnmetEpisodeSearch}).
 * ``sonarr_refresh``         — refresh + disk-scan the whole library.
 
 Auth model: every authenticated Sonarr v3 endpoint takes the ``X-Api-Key``
@@ -54,14 +56,17 @@ Upstream API reference: <sonarr-host>/api/v3 (Swagger at /api). Endpoints:
     GET  /api/v3/queue/status      — downloading count
     GET  /api/v3/diskspace         — per-mount free / total bytes
     GET  /api/v3/health            — active health issues
-    GET  /api/v3/calendar          — upcoming episodes
+    GET  /api/v3/calendar          — upcoming episodes (+ this-week / aired-missing)
+    GET  /api/v3/history/since     — today's grabbed / imported activity
+    GET  /api/v3/wanted/cutoff     — below-quality-cutoff episode count
     GET  /api/v3/series/lookup     — TVDB-backed series search (add)
     GET  /api/v3/qualityprofile    — quality profiles (add)
     GET  /api/v3/languageprofile   — language profiles (add, v3 only)
     GET  /api/v3/rootfolder        — root folders (add)
     POST /api/v3/series            — add a series
     DELETE /api/v3/series/{id}     — remove a series
-    POST /api/v3/command           — MissingEpisodeSearch / RefreshSeries
+    POST /api/v3/command           — MissingEpisodeSearch /
+                                     CutoffUnmetEpisodeSearch / RefreshSeries
 """
 from __future__ import annotations
 
@@ -205,6 +210,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "sonarr_search_cutoff_unmet",
+        "name": "Search cutoff-unmet episodes",
+        "ai_phrases": ("search cutoff unmet episodes, upgrade my episodes, find "
+                       "quality upgrades, search for better releases, grab "
+                       "quality upgrades sonarr, search below-cutoff episodes, "
+                       "upgrade episodes below quality cutoff"),
+        "destructive": False,
+    },
+    {
         "id": "sonarr_refresh",
         "name": "Refresh series library",
         "ai_phrases": ("refresh sonarr, rescan the tv library, refresh series, "
@@ -266,6 +280,52 @@ async def _missing_episode_count(cli: httpx.AsyncClient, base: str, key: str) ->
         return safe_int((r.json() or {}).get("totalRecords"))
     except (httpx.HTTPError, OSError, ValueError, TypeError):
         return 0
+
+
+def _iso_epoch(s: Any) -> float:
+    """ISO 8601 timestamp string → epoch seconds; 0.0 when blank / unparseable
+    (the calendar's ``airDateUtc`` carries a trailing ``Z``)."""
+    t = str(s or "").strip()
+    if not t:
+        return 0.0
+    if t.endswith("Z"):
+        t = t[:-1] + "+00:00"
+    try:
+        from datetime import datetime  # noqa: PLC0415
+        return datetime.fromisoformat(t).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+async def _fetch_calendar_activity(host_row: dict, chip: dict) -> "tuple[int, int]":
+    """Episodes airing this week + today-aired-but-missing, from ONE calendar
+    fetch over ``[today 00:00Z, +7d)``. ``fetch_calendar`` already filters to
+    monitored episodes (``unmonitored=false``), so ``airing_this_week`` is the
+    entry count. ``today_aired_missing`` is the episodes that aired EARLIER today
+    (``airDateUtc`` between today-midnight and now) but still have no file — the
+    "I should have these by now" actionable count. Returns
+    ``(airing_this_week, today_aired_missing)``; ``(0, 0)`` on any failure (the
+    shared fetch tolerates it). Never raises."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    now_ts = now.timestamp()
+    start_ts = start.timestamp()
+    raw = await _servarr.fetch_calendar(
+        host_row, chip, api_version="v3", app_label="Sonarr",
+        start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end=(start + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        extra_params={"includeSeries": "false"})
+    airing_week = 0
+    today_missing = 0
+    for ep in raw:
+        if not isinstance(ep, dict):
+            continue
+        airing_week += 1
+        air = _iso_epoch(ep.get("airDateUtc") or ep.get("airDate"))
+        if start_ts <= air <= now_ts and not ep.get("hasFile"):
+            today_missing += 1
+    return airing_week, today_missing
 
 
 # noinspection DuplicatedCode
@@ -361,20 +421,33 @@ async def fetch_data(host_row: dict, chip: dict, *,
     eps_have = 0
     eps_total = 0
     size_bytes = 0.0
+    # Monitored series with ZERO episode files — a "season-pass" show you're
+    # tracking but have nothing of yet (highly actionable for a new add).
+    series_no_files = 0
     for s in series:
         if not isinstance(s, dict):
             continue
-        if s.get("monitored"):
-            monitored += 1
         st = as_dict(s.get("statistics"))
-        eps_have += safe_int(st.get("episodeFileCount"))
+        file_count = safe_int(st.get("episodeFileCount"))
+        eps_have += file_count
         eps_total += safe_int(st.get("episodeCount"))
         size_bytes += safe_float(st.get("sizeOnDisk"))
+        if s.get("monitored"):
+            monitored += 1
+            if file_count == 0:
+                series_no_files += 1
     eps_pct = int(round(eps_have / eps_total * 100)) if eps_total > 0 else 0
     library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
     # Episodes airing TODAY — one cheap calendar call, the card's "Today" chip.
     calendar_today = await _servarr.fetch_today_calendar_count(
+        host_row, chip, api_version="v3", app_label="Sonarr")
+    # Airing this week + aired-today-but-missing (one calendar fetch over a
+    # 7-day window). Tolerated on failure (0, 0).
+    airing_week, today_aired_missing = await _fetch_calendar_activity(host_row, chip)
+    # Grabbed / imported TODAY from the history feed (shared *arr helper; Sonarr's
+    # import event is the default ``downloadFolderImported``). Tolerated (0, 0).
+    grabbed_today, imported_today = await _servarr.fetch_today_activity(
         host_row, chip, api_version="v3", app_label="Sonarr")
     out: dict[str, Any] = {
         "available": True,
@@ -382,7 +455,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "monitored": monitored,
         "missing": safe_int(missing),
         "cutoff_unmet": safe_int(cutoff_unmet),
+        "series_no_files": safe_int(series_no_files),
         "calendar_today": safe_int(calendar_today),
+        "airing_this_week": safe_int(airing_week),
+        "today_aired_missing": safe_int(today_aired_missing),
+        "grabbed_today": safe_int(grabbed_today),
+        "imported_today": safe_int(imported_today),
         "episodes_have": eps_have,
         "episodes_total": eps_total,
         "episodes_pct": eps_pct,
@@ -402,6 +480,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
     }
     print(f"[sonarr] INFO fetched host={host_id} series={total} "
           f"monitored={monitored} missing={out['missing']} cutoff_unmet={out['cutoff_unmet']} "
+          f"no_files={out['series_no_files']} airing_week={out['airing_this_week']} "
+          f"today_aired_missing={out['today_aired_missing']} "
+          f"grabbed_today={out['grabbed_today']} imported_today={out['imported_today']} "
           f"episodes={eps_have}/{eps_total} size_gb={library_size_gb} queue={out['queue']} "
           f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
           f"health={out['health_issues']}")
@@ -432,6 +513,11 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
         "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "series_no_files": safe_int(data.get("series_no_files")),
+        "airing_this_week": safe_int(data.get("airing_this_week")),
+        "today_aired_missing": safe_int(data.get("today_aired_missing")),
+        "grabbed_today": safe_int(data.get("grabbed_today")),
+        "imported_today": safe_int(data.get("imported_today")),
         "episodes_have": safe_int(data.get("episodes_have")),
         "episodes_total": safe_int(data.get("episodes_total")),
         "library_size_gb": safe_float(data.get("library_size_gb")),
@@ -485,6 +571,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _command_skill(host_row, chip, command="MissingEpisodeSearch",
                                     started_msg="🔍 Started a search for all monitored "
                                                 "missing episodes on Sonarr.",
+                                    host_id=host_id)
+    if skill_id == "sonarr_search_cutoff_unmet":
+        return await _command_skill(host_row, chip, command="CutoffUnmetEpisodeSearch",
+                                    started_msg="📈 Started a search for quality upgrades "
+                                                "(cutoff-unmet episodes) on Sonarr.",
                                     host_id=host_id)
     if skill_id == "sonarr_refresh":
         return await _command_skill(host_row, chip, command="RefreshSeries",
@@ -576,6 +667,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
     cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    series_no_files = safe_int(data.get("series_no_files"))
+    airing_week = safe_int(data.get("airing_this_week"))
+    today_aired_missing = safe_int(data.get("today_aired_missing"))
+    grabbed_today = safe_int(data.get("grabbed_today"))
+    imported_today = safe_int(data.get("imported_today"))
     eps_have = safe_int(data.get("episodes_have"))
     eps_total = safe_int(data.get("episodes_total"))
     eps_pct = safe_int(data.get("episodes_pct"))
@@ -592,11 +688,19 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if eps_total:
         lines.append(f"🎞️ Episodes: {eps_have:,} / {eps_total:,} ({eps_pct}%)")
     lines.append(f"{'❓' if missing else '✅'} Missing episodes: {missing:,}")
+    if today_aired_missing:
+        lines.append(f"⏰ Aired today, still missing: {today_aired_missing:,}")
+    if airing_week:
+        lines.append(f"📅 Airing this week: {airing_week:,}")
+    if series_no_files:
+        lines.append(f"📭 Monitored series with no files: {series_no_files:,}")
     if cutoff_unmet:
         lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
     if library_size_gb > 0:
         lines.append(f"📦 Library size: {_fmt_size_gib(library_size_gb)}")
     lines.append(f"⬇️ Downloading: {queue:,}")
+    if grabbed_today or imported_today:
+        lines.append(f"📆 Today: {grabbed_today:,} grabbed · {imported_today:,} imported")
     # Compact storage summary for the text surfaces (AI / Telegram); the web
     # drawer renders the per-mount CARDS from the result's `disks` field.
     storage_line = _storage_summary_line(disks, free_gb)

@@ -22,6 +22,10 @@
              class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
              x-text="inst.host_address || inst.host_id"></div>
         <div class="apps-card-ups-grid">
+          <!-- Card essentials: Series · Missing eps · Today-missing · Downloading
+               (+ conditional Today / Grabbed-today / Library-size). Secondary
+               stats (Monitored / Episodes / Below-cutoff / Airing-this-week /
+               Imported-today / No-files) are drawer-only. -->
           <!-- Series (total library size) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.sonarr.series') || 'Series'"></div>
@@ -33,6 +37,14 @@
             <div class="apps-card-stat-value"
                  :class="(Number(sonarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                  x-text="sonarrCount(sonarrData(inst).missing)"></div>
+          </div>
+          <!-- Aired today but still missing — highly actionable: episodes that
+               aired earlier today and have no file yet. -->
+          <div class="apps-card-ups-stat" :title="t('apps.sonarr.today_missing_title') || 'Episodes that aired earlier today but have no file yet'">
+            <div class="apps-card-stat-label" x-text="t('apps.sonarr.today_missing') || 'Today missing'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(sonarrData(inst).today_aired_missing) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                 x-text="sonarrCount(sonarrData(inst).today_aired_missing)"></div>
           </div>
           <!-- Downloading (queue) -->
           <div class="apps-card-ups-stat">
@@ -46,29 +58,61 @@
             <div class="apps-card-stat-label" x-text="t('apps.sonarr.releasing_today') || 'Today'"></div>
             <div class="apps-card-stat-value text-[var(--info)]" x-text="sonarrCount(sonarrData(inst).calendar_today)"></div>
           </div>
-          <!-- Monitored series -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.sonarr.monitored') || 'Monitored'"></div>
-            <div class="apps-card-stat-value" x-text="sonarrCount(sonarrData(inst).monitored)"></div>
-          </div>
-          <!-- Episodes (have / total) -->
-          <div class="apps-card-ups-stat" x-show="(Number(sonarrData(inst).episodes_total) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.sonarr.episodes') || 'Episodes'"></div>
-            <div class="apps-card-stat-value"
-                 x-text="sonarrCount(sonarrData(inst).episodes_have) + ' / ' + sonarrCount(sonarrData(inst).episodes_total)"></div>
-          </div>
-          <!-- Below quality cutoff -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.sonarr.cutoff_unmet') || 'Below cutoff'"></div>
-            <div class="apps-card-stat-value"
-                 :class="(Number(sonarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
-                 x-text="sonarrCount(sonarrData(inst).cutoff_unmet)"></div>
+          <!-- Grabbed today (sent to the downloader today) — card essential when active. -->
+          <div class="apps-card-ups-stat" x-show="(Number(sonarrData(inst).grabbed_today) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.sonarr.grabbed_today') || 'Grabbed today'"></div>
+            <div class="apps-card-stat-value text-[var(--success)]" x-text="sonarrCount(sonarrData(inst).grabbed_today)"></div>
           </div>
           <!-- Library size on disk -->
           <div class="apps-card-ups-stat" x-show="(Number(sonarrData(inst).library_size_gb) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.sonarr.library_size') || 'Library size'"></div>
             <div class="apps-card-stat-value" x-text="sonarrGb(sonarrData(inst).library_size_gb)"></div>
           </div>
+          <!-- Monitored series — DRAWER-ONLY. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.monitored') || 'Monitored'"></div>
+              <div class="apps-card-stat-value" x-text="sonarrCount(sonarrData(inst).monitored)"></div>
+            </div>
+          </template>
+          <!-- Episodes (have / total) — DRAWER-ONLY, when there are episodes. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(sonarrData(inst).episodes_total) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.episodes') || 'Episodes'"></div>
+              <div class="apps-card-stat-value"
+                   x-text="sonarrCount(sonarrData(inst).episodes_have) + ' / ' + sonarrCount(sonarrData(inst).episodes_total)"></div>
+            </div>
+          </template>
+          <!-- Below quality cutoff — DRAWER-ONLY (secondary to Missing). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.cutoff_unmet') || 'Below cutoff'"></div>
+              <div class="apps-card-stat-value"
+                   :class="(Number(sonarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                   x-text="sonarrCount(sonarrData(inst).cutoff_unmet)"></div>
+            </div>
+          </template>
+          <!-- Airing this week (calendar, next 7 days) — DRAWER-ONLY, when >0. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(sonarrData(inst).airing_this_week) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.airing_week') || 'Airing this week'"></div>
+              <div class="apps-card-stat-value text-[var(--info)]" x-text="sonarrCount(sonarrData(inst).airing_this_week)"></div>
+            </div>
+          </template>
+          <!-- Imported today (landed in the library today) — DRAWER-ONLY, when >0. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(sonarrData(inst).imported_today) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.imported_today') || 'Imported today'"></div>
+              <div class="apps-card-stat-value text-[var(--success)]" x-text="sonarrCount(sonarrData(inst).imported_today)"></div>
+            </div>
+          </template>
+          <!-- Monitored series with no files (season-pass) — DRAWER-ONLY, when >0. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(sonarrData(inst).series_no_files) || 0) > 0">
+            <div class="apps-card-ups-stat" :title="t('apps.sonarr.no_files_title') || 'Monitored series you have zero episodes of'">
+              <div class="apps-card-stat-label" x-text="t('apps.sonarr.no_files') || 'No files'"></div>
+              <div class="apps-card-stat-value text-[var(--warning)]" x-text="sonarrCount(sonarrData(inst).series_no_files)"></div>
+            </div>
+          </template>
         </div>
         <!-- Disk-fill projection chip — "disk full in ~N days at current growth"
              from the retention series. Card-level (always visible). -->

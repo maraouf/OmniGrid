@@ -36,6 +36,8 @@ AI / Telegram skills
 * ``readarr_add_author``      — (arg) add an author by name.
 * ``readarr_remove_author``   — (arg, DESTRUCTIVE) remove an author; KEEPS files.
 * ``readarr_search_missing``  — trigger a search for all monitored missing books.
+* ``readarr_search_cutoff_unmet`` — search for quality upgrades of below-cutoff
+  books (POST /api/v1/command {name: CutoffUnmetBookSearch}).
 * ``readarr_refresh``         — refresh + disk-scan the whole library.
 
 Auth model: every authenticated Readarr v1 endpoint takes the ``X-Api-Key``
@@ -55,14 +57,16 @@ Upstream API reference: <readarr-host>/api/v1 (Swagger at /api). Endpoints:
     GET  /api/v1/queue/status    — downloading count
     GET  /api/v1/diskspace       — per-mount free / total bytes
     GET  /api/v1/health          — active health issues
-    GET  /api/v1/calendar        — upcoming book releases
+    GET  /api/v1/wanted/cutoff   — below-quality-cutoff book count
+    GET  /api/v1/calendar        — upcoming releases (+ this-week releases)
     GET  /api/v1/author/lookup   — Goodreads-backed author search (add)
     GET  /api/v1/qualityprofile  — quality profiles (add)
     GET  /api/v1/metadataprofile — metadata profiles (add, Readarr-required)
     GET  /api/v1/rootfolder      — root folders (add)
     POST /api/v1/author          — add an author
     DELETE /api/v1/author/{id}   — remove an author
-    POST /api/v1/command         — MissingBookSearch / RefreshAuthor
+    POST /api/v1/command         — MissingBookSearch /
+                                   CutoffUnmetBookSearch / RefreshAuthor
 """
 from __future__ import annotations
 
@@ -256,6 +260,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "readarr_search_cutoff_unmet",
+        "name": "Search cutoff-unmet books",
+        "ai_phrases": ("search cutoff unmet books, upgrade my books, find "
+                       "quality upgrades, search for better releases, grab "
+                       "quality upgrades readarr, search below-cutoff books, "
+                       "upgrade books below quality cutoff, re-grab books"),
+        "destructive": False,
+    },
+    {
         "id": "readarr_refresh",
         "name": "Refresh book library",
         "ai_phrases": ("refresh readarr, rescan the book library, refresh "
@@ -317,6 +330,24 @@ async def _missing_book_count(cli: httpx.AsyncClient, base: str, key: str) -> in
         return safe_int((r.json() or {}).get("totalRecords"))
     except (httpx.HTTPError, OSError, ValueError, TypeError):
         return 0
+
+
+async def _fetch_releases_this_week(host_row: dict, chip: dict) -> int:
+    """Book releases in the LAST 7 days (monitored authors) — the "newly
+    published this week" count. One calendar fetch over ``[today-6d 00:00Z,
+    tomorrow 00:00Z)`` (``fetch_calendar`` already filters to monitored). Returns
+    the entry count; 0 on any failure (the shared fetch tolerates it). Never
+    raises."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    today0 = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = today0 - timedelta(days=6)
+    end = today0 + timedelta(days=1)
+    raw = await _servarr.fetch_calendar(
+        host_row, chip, api_version="v1", app_label="Readarr",
+        start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end=end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        extra_params={"includeAuthor": "false"})
+    return len(raw)
 
 
 # noinspection DuplicatedCode
@@ -412,28 +443,39 @@ async def fetch_data(host_row: dict, chip: dict, *,
     books_have = 0
     books_total = 0
     size_bytes = 0.0
+    # Monitored authors not fully downloaded (some monitored books missing) —
+    # the "authors" half of the missing-books-vs-authors split.
+    authors_incomplete = 0
     for a in authors:
         if not isinstance(a, dict):
             continue
+        st = as_dict(a.get("statistics"))
+        a_files = safe_int(st.get("bookFileCount"))
+        a_books = safe_int(st.get("bookCount"))
+        books_have += a_files
+        books_total += a_books
+        size_bytes += safe_float(st.get("sizeOnDisk"))
         if a.get("monitored"):
             monitored += 1
-        st = as_dict(a.get("statistics"))
-        books_have += safe_int(st.get("bookFileCount"))
-        books_total += safe_int(st.get("bookCount"))
-        size_bytes += safe_float(st.get("sizeOnDisk"))
+            if a_books > 0 and a_files < a_books:
+                authors_incomplete += 1
     books_pct = int(round(books_have / books_total * 100)) if books_total > 0 else 0
     library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
     # Books releasing TODAY — one cheap calendar call, the card's "Today" chip.
     calendar_today = await _servarr.fetch_today_calendar_count(
         host_row, chip, api_version="v1", app_label="Readarr")
+    # Book releases in the last 7 days (one calendar fetch). Tolerated (0).
+    releases_this_week = await _fetch_releases_this_week(host_row, chip)
     out: dict[str, Any] = {
         "available": True,
         "authors_total": total,
         "monitored": monitored,
         "missing": safe_int(missing),
+        "authors_incomplete": safe_int(authors_incomplete),
         "cutoff_unmet": safe_int(cutoff_unmet),
         "calendar_today": safe_int(calendar_today),
+        "releases_this_week": safe_int(releases_this_week),
         "books_have": books_have,
         "books_total": books_total,
         "books_pct": books_pct,
@@ -452,7 +494,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "trend": _safe_trend(host_id, service_idx),
     }
     print(f"[readarr] INFO fetched host={host_id} authors={total} books={books_total} "
-          f"monitored={monitored} missing={out['missing']} cutoff_unmet={out['cutoff_unmet']} "
+          f"monitored={monitored} missing={out['missing']} incomplete={out['authors_incomplete']} "
+          f"cutoff_unmet={out['cutoff_unmet']} releases_week={out['releases_this_week']} "
           f"have={books_have} size_gb={library_size_gb} queue={out['queue']} "
           f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
           f"health={out['health_issues']}")
@@ -482,7 +525,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "authors_total": safe_int(data.get("authors_total")),
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
+        "authors_incomplete": safe_int(data.get("authors_incomplete")),
         "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "releases_this_week": safe_int(data.get("releases_this_week")),
         "books_have": safe_int(data.get("books_have")),
         "books_total": safe_int(data.get("books_total")),
         "library_size_gb": safe_float(data.get("library_size_gb")),
@@ -536,6 +581,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _command_skill(host_row, chip, command="MissingBookSearch",
                                     started_msg="🔍 Started a search for all monitored "
                                                 "missing books on Readarr.",
+                                    host_id=host_id)
+    if skill_id == "readarr_search_cutoff_unmet":
+        return await _command_skill(host_row, chip, command="CutoffUnmetBookSearch",
+                                    started_msg="📈 Started a search for quality upgrades "
+                                                "(cutoff-unmet books) on Readarr.",
                                     host_id=host_id)
     if skill_id == "readarr_refresh":
         return await _command_skill(host_row, chip, command="RefreshAuthor",
@@ -645,7 +695,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("authors_total"))
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
+    authors_incomplete = safe_int(data.get("authors_incomplete"))
     cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    releases_this_week = safe_int(data.get("releases_this_week"))
     books_have = safe_int(data.get("books_have"))
     books_total = safe_int(data.get("books_total"))
     books_pct = safe_int(data.get("books_pct"))
@@ -662,6 +714,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if books_total:
         lines.append(f"📖 Books: {books_have:,} / {books_total:,} ({books_pct}%)")
     lines.append(f"{'❓' if missing else '✅'} Missing books: {missing:,}")
+    if authors_incomplete:
+        lines.append(f"👤 Incomplete authors: {authors_incomplete:,}")
+    if releases_this_week:
+        lines.append(f"🆕 Published this week: {releases_this_week:,}")
     if cutoff_unmet:
         lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
     if library_size_gb > 0:

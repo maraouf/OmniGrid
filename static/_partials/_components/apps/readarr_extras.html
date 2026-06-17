@@ -22,6 +22,10 @@
              class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
              x-text="inst.host_address || inst.host_id"></div>
         <div class="apps-card-ups-grid">
+          <!-- Card essentials: Authors · Missing books · Incomplete authors ·
+               Downloading (+ conditional This-week / Today). Secondary stats
+               (Monitored / Books / Below-cutoff / Library-size) are
+               drawer-only. -->
           <!-- Authors (total library size) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.readarr.authors') || 'Authors'"></div>
@@ -34,6 +38,14 @@
                  :class="(Number(readarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                  x-text="readarrCount(readarrData(inst).missing)"></div>
           </div>
+          <!-- Incomplete authors — the "authors" half of the missing split
+               (monitored authors not fully downloaded). -->
+          <div class="apps-card-ups-stat" :title="t('apps.readarr.incomplete_title') || 'Monitored authors not fully downloaded (some books missing)'">
+            <div class="apps-card-stat-label" x-text="t('apps.readarr.incomplete') || 'Incomplete'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(readarrData(inst).authors_incomplete) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
+                 x-text="readarrCount(readarrData(inst).authors_incomplete)"></div>
+          </div>
           <!-- Downloading (queue) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.readarr.downloading') || 'Downloading'"></div>
@@ -41,34 +53,48 @@
                  :class="(Number(readarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="readarrCount(readarrData(inst).queue)"></div>
           </div>
+          <!-- Published this week (last 7 days) — only when there's new books. -->
+          <div class="apps-card-ups-stat" x-show="(Number(readarrData(inst).releases_this_week) || 0) > 0"
+               :title="t('apps.readarr.this_week_title') || 'Book releases from monitored authors in the last 7 days'">
+            <div class="apps-card-stat-label" x-text="t('apps.readarr.this_week') || 'This week'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="readarrCount(readarrData(inst).releases_this_week)"></div>
+          </div>
           <!-- Releasing today (calendar) — only when something is due today. -->
           <div class="apps-card-ups-stat" x-show="(Number(readarrData(inst).calendar_today) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.readarr.releasing_today') || 'Today'"></div>
             <div class="apps-card-stat-value text-[var(--info)]" x-text="readarrCount(readarrData(inst).calendar_today)"></div>
           </div>
-          <!-- Monitored authors -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.readarr.monitored') || 'Monitored'"></div>
-            <div class="apps-card-stat-value" x-text="readarrCount(readarrData(inst).monitored)"></div>
-          </div>
-          <!-- Books (have / total) -->
-          <div class="apps-card-ups-stat" x-show="(Number(readarrData(inst).books_total) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.readarr.books') || 'Books'"></div>
-            <div class="apps-card-stat-value"
-                 x-text="readarrCount(readarrData(inst).books_have) + ' / ' + readarrCount(readarrData(inst).books_total)"></div>
-          </div>
-          <!-- Below quality cutoff -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.readarr.cutoff_unmet') || 'Below cutoff'"></div>
-            <div class="apps-card-stat-value"
-                 :class="(Number(readarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
-                 x-text="readarrCount(readarrData(inst).cutoff_unmet)"></div>
-          </div>
-          <!-- Library size on disk -->
-          <div class="apps-card-ups-stat" x-show="(Number(readarrData(inst).library_size_gb) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.readarr.library_size') || 'Library size'"></div>
-            <div class="apps-card-stat-value" x-text="readarrGb(readarrData(inst).library_size_gb)"></div>
-          </div>
+          <!-- Monitored authors — DRAWER-ONLY. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.readarr.monitored') || 'Monitored'"></div>
+              <div class="apps-card-stat-value" x-text="readarrCount(readarrData(inst).monitored)"></div>
+            </div>
+          </template>
+          <!-- Books (have / total) — DRAWER-ONLY, when there are books. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(readarrData(inst).books_total) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.readarr.books') || 'Books'"></div>
+              <div class="apps-card-stat-value"
+                   x-text="readarrCount(readarrData(inst).books_have) + ' / ' + readarrCount(readarrData(inst).books_total)"></div>
+            </div>
+          </template>
+          <!-- Below quality cutoff — DRAWER-ONLY (secondary to Missing). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.readarr.cutoff_unmet') || 'Below cutoff'"></div>
+              <div class="apps-card-stat-value"
+                   :class="(Number(readarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                   x-text="readarrCount(readarrData(inst).cutoff_unmet)"></div>
+            </div>
+          </template>
+          <!-- Library size on disk — DRAWER-ONLY, when known. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(readarrData(inst).library_size_gb) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.readarr.library_size') || 'Library size'"></div>
+              <div class="apps-card-stat-value" x-text="readarrGb(readarrData(inst).library_size_gb)"></div>
+            </div>
+          </template>
         </div>
         <!-- Disk-fill projection chip — "disk full in ~N days at current growth"
              from the retention series. Card-level (always visible). -->

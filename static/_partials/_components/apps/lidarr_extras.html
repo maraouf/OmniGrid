@@ -22,6 +22,10 @@
              class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
              x-text="inst.host_address || inst.host_id"></div>
         <div class="apps-card-ups-grid">
+          <!-- Card essentials: Artists · Missing albums · Incomplete artists ·
+               Downloading (+ conditional This-week / Today). Secondary stats
+               (Monitored / Albums / Tracks / Below-cutoff / Library-size) are
+               drawer-only. -->
           <!-- Artists (total library size) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.lidarr.artists') || 'Artists'"></div>
@@ -34,6 +38,14 @@
                  :class="(Number(lidarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                  x-text="lidarrCount(lidarrData(inst).missing)"></div>
           </div>
+          <!-- Incomplete artists — the "artists" half of the missing split
+               (monitored artists not fully downloaded). -->
+          <div class="apps-card-ups-stat" :title="t('apps.lidarr.incomplete_title') || 'Monitored artists not fully downloaded (some tracks missing)'">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.incomplete') || 'Incomplete'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(lidarrData(inst).artists_incomplete) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
+                 x-text="lidarrCount(lidarrData(inst).artists_incomplete)"></div>
+          </div>
           <!-- Downloading (queue) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.lidarr.downloading') || 'Downloading'"></div>
@@ -41,39 +53,55 @@
                  :class="(Number(lidarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="lidarrCount(lidarrData(inst).queue)"></div>
           </div>
+          <!-- Released this week (last 7 days) — only when there's new music. -->
+          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).releases_this_week) || 0) > 0"
+               :title="t('apps.lidarr.this_week_title') || 'Album releases from monitored artists in the last 7 days'">
+            <div class="apps-card-stat-label" x-text="t('apps.lidarr.this_week') || 'This week'"></div>
+            <div class="apps-card-stat-value text-[var(--info)]" x-text="lidarrCount(lidarrData(inst).releases_this_week)"></div>
+          </div>
           <!-- Releasing today (calendar) — only when something is due today. -->
           <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).calendar_today) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.lidarr.releasing_today') || 'Today'"></div>
             <div class="apps-card-stat-value text-[var(--info)]" x-text="lidarrCount(lidarrData(inst).calendar_today)"></div>
           </div>
-          <!-- Monitored artists -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.lidarr.monitored') || 'Monitored'"></div>
-            <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).monitored)"></div>
-          </div>
-          <!-- Albums (total) -->
-          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).albums_total) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.lidarr.albums') || 'Albums'"></div>
-            <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).albums_total)"></div>
-          </div>
-          <!-- Tracks (have / total) -->
-          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).tracks_total) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.lidarr.tracks') || 'Tracks'"></div>
-            <div class="apps-card-stat-value"
-                 x-text="lidarrCount(lidarrData(inst).tracks_have) + ' / ' + lidarrCount(lidarrData(inst).tracks_total)"></div>
-          </div>
-          <!-- Below quality cutoff -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.lidarr.cutoff_unmet') || 'Below cutoff'"></div>
-            <div class="apps-card-stat-value"
-                 :class="(Number(lidarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
-                 x-text="lidarrCount(lidarrData(inst).cutoff_unmet)"></div>
-          </div>
-          <!-- Library size on disk -->
-          <div class="apps-card-ups-stat" x-show="(Number(lidarrData(inst).library_size_gb) || 0) > 0">
-            <div class="apps-card-stat-label" x-text="t('apps.lidarr.library_size') || 'Library size'"></div>
-            <div class="apps-card-stat-value" x-text="lidarrGb(lidarrData(inst).library_size_gb)"></div>
-          </div>
+          <!-- Monitored artists — DRAWER-ONLY. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.lidarr.monitored') || 'Monitored'"></div>
+              <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).monitored)"></div>
+            </div>
+          </template>
+          <!-- Albums (total) — DRAWER-ONLY, when there are albums. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(lidarrData(inst).albums_total) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.lidarr.albums') || 'Albums'"></div>
+              <div class="apps-card-stat-value" x-text="lidarrCount(lidarrData(inst).albums_total)"></div>
+            </div>
+          </template>
+          <!-- Tracks (have / total) — DRAWER-ONLY, when there are tracks. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(lidarrData(inst).tracks_total) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.lidarr.tracks') || 'Tracks'"></div>
+              <div class="apps-card-stat-value"
+                   x-text="lidarrCount(lidarrData(inst).tracks_have) + ' / ' + lidarrCount(lidarrData(inst).tracks_total)"></div>
+            </div>
+          </template>
+          <!-- Below quality cutoff — DRAWER-ONLY (secondary to Missing). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.lidarr.cutoff_unmet') || 'Below cutoff'"></div>
+              <div class="apps-card-stat-value"
+                   :class="(Number(lidarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                   x-text="lidarrCount(lidarrData(inst).cutoff_unmet)"></div>
+            </div>
+          </template>
+          <!-- Library size on disk — DRAWER-ONLY, when known. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(lidarrData(inst).library_size_gb) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.lidarr.library_size') || 'Library size'"></div>
+              <div class="apps-card-stat-value" x-text="lidarrGb(lidarrData(inst).library_size_gb)"></div>
+            </div>
+          </template>
         </div>
         <!-- Disk-fill projection chip — "disk full in ~N days at current growth"
              from the retention series. Card-level (always visible). -->

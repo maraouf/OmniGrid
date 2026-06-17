@@ -36,6 +36,8 @@ AI / Telegram skills
 * ``lidarr_add_artist``      — (arg) add an artist by name.
 * ``lidarr_remove_artist``   — (arg, DESTRUCTIVE) remove an artist; KEEPS files.
 * ``lidarr_search_missing``  — trigger a search for all monitored missing albums.
+* ``lidarr_search_cutoff_unmet`` — search for quality upgrades of below-cutoff
+  albums (POST /api/v1/command {name: CutoffUnmetAlbumSearch}).
 * ``lidarr_refresh``         — refresh + disk-scan the whole library.
 
 Auth model: every authenticated Lidarr v1 endpoint takes the ``X-Api-Key``
@@ -55,14 +57,16 @@ Upstream API reference: <lidarr-host>/api/v1 (Swagger at /api). Endpoints:
     GET  /api/v1/queue/status    — downloading count
     GET  /api/v1/diskspace       — per-mount free / total bytes
     GET  /api/v1/health          — active health issues
-    GET  /api/v1/calendar        — upcoming album releases
+    GET  /api/v1/wanted/cutoff   — below-quality-cutoff album count
+    GET  /api/v1/calendar        — upcoming releases (+ this-week releases)
     GET  /api/v1/artist/lookup   — MusicBrainz-backed artist search (add)
     GET  /api/v1/qualityprofile  — quality profiles (add)
     GET  /api/v1/metadataprofile — metadata profiles (add, Lidarr-specific)
     GET  /api/v1/rootfolder      — root folders (add)
     POST /api/v1/artist          — add an artist
     DELETE /api/v1/artist/{id}   — remove an artist
-    POST /api/v1/command         — MissingAlbumSearch / RefreshArtist
+    POST /api/v1/command         — MissingAlbumSearch /
+                                   CutoffUnmetAlbumSearch / RefreshArtist
 """
 from __future__ import annotations
 
@@ -225,6 +229,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "lidarr_search_cutoff_unmet",
+        "name": "Search cutoff-unmet albums",
+        "ai_phrases": ("search cutoff unmet albums, upgrade my albums, find "
+                       "quality upgrades, search for better releases, grab "
+                       "quality upgrades lidarr, search below-cutoff albums, "
+                       "upgrade albums below quality cutoff, re-grab albums"),
+        "destructive": False,
+    },
+    {
         "id": "lidarr_refresh",
         "name": "Refresh music library",
         "ai_phrases": ("refresh lidarr, rescan the music library, refresh "
@@ -286,6 +299,24 @@ async def _missing_album_count(cli: httpx.AsyncClient, base: str, key: str) -> i
         return safe_int((r.json() or {}).get("totalRecords"))
     except (httpx.HTTPError, OSError, ValueError, TypeError):
         return 0
+
+
+async def _fetch_releases_this_week(host_row: dict, chip: dict) -> int:
+    """Album releases in the LAST 7 days (monitored artists) — the "new music
+    that just dropped" count. One calendar fetch over ``[today-6d 00:00Z,
+    tomorrow 00:00Z)`` (``fetch_calendar`` already filters to monitored). Returns
+    the entry count; 0 on any failure (the shared fetch tolerates it). Never
+    raises."""
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+    today0 = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = today0 - timedelta(days=6)
+    end = today0 + timedelta(days=1)
+    raw = await _servarr.fetch_calendar(
+        host_row, chip, api_version="v1", app_label="Lidarr",
+        start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end=end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        extra_params={"includeArtist": "false"})
+    return len(raw)
 
 
 # noinspection DuplicatedCode
@@ -382,29 +413,40 @@ async def fetch_data(host_row: dict, chip: dict, *,
     tracks_have = 0
     tracks_total = 0
     size_bytes = 0.0
+    # Monitored artists not fully downloaded (some monitored tracks missing) —
+    # the "artists" half of the missing-albums-vs-artists split.
+    artists_incomplete = 0
     for a in artists:
         if not isinstance(a, dict):
             continue
+        st = as_dict(a.get("statistics"))
+        a_files = safe_int(st.get("trackFileCount"))
+        a_tracks = safe_int(st.get("trackCount"))
+        albums_total += safe_int(st.get("albumCount"))
+        tracks_have += a_files
+        tracks_total += a_tracks
+        size_bytes += safe_float(st.get("sizeOnDisk"))
         if a.get("monitored"):
             monitored += 1
-        st = as_dict(a.get("statistics"))
-        albums_total += safe_int(st.get("albumCount"))
-        tracks_have += safe_int(st.get("trackFileCount"))
-        tracks_total += safe_int(st.get("trackCount"))
-        size_bytes += safe_float(st.get("sizeOnDisk"))
+            if a_tracks > 0 and a_files < a_tracks:
+                artists_incomplete += 1
     tracks_pct = int(round(tracks_have / tracks_total * 100)) if tracks_total > 0 else 0
     library_size_gb = round(size_bytes / _GIB, 1)
     disk_free_gb, disk_total_gb = _primary_disk(disks)
     # Albums releasing TODAY — one cheap calendar call, the card's "Today" chip.
     calendar_today = await _servarr.fetch_today_calendar_count(
         host_row, chip, api_version="v1", app_label="Lidarr")
+    # Album releases in the last 7 days (one calendar fetch). Tolerated (0).
+    releases_this_week = await _fetch_releases_this_week(host_row, chip)
     out: dict[str, Any] = {
         "available": True,
         "artists_total": total,
         "monitored": monitored,
         "missing": safe_int(missing),
+        "artists_incomplete": safe_int(artists_incomplete),
         "cutoff_unmet": safe_int(cutoff_unmet),
         "calendar_today": safe_int(calendar_today),
+        "releases_this_week": safe_int(releases_this_week),
         "albums_total": albums_total,
         "tracks_have": tracks_have,
         "tracks_total": tracks_total,
@@ -424,7 +466,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "trend": _safe_trend(host_id, service_idx),
     }
     print(f"[lidarr] INFO fetched host={host_id} artists={total} albums={albums_total} "
-          f"monitored={monitored} missing={out['missing']} cutoff_unmet={out['cutoff_unmet']} "
+          f"monitored={monitored} missing={out['missing']} incomplete={out['artists_incomplete']} "
+          f"cutoff_unmet={out['cutoff_unmet']} releases_week={out['releases_this_week']} "
           f"tracks={tracks_have}/{tracks_total} size_gb={library_size_gb} queue={out['queue']} "
           f"mounts={len(disks)} disk_free_gb={disk_free_gb} "
           f"health={out['health_issues']}")
@@ -454,7 +497,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "artists_total": safe_int(data.get("artists_total")),
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
+        "artists_incomplete": safe_int(data.get("artists_incomplete")),
         "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "releases_this_week": safe_int(data.get("releases_this_week")),
         "albums_total": safe_int(data.get("albums_total")),
         "tracks_have": safe_int(data.get("tracks_have")),
         "tracks_total": safe_int(data.get("tracks_total")),
@@ -509,6 +554,11 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _command_skill(host_row, chip, command="MissingAlbumSearch",
                                     started_msg="🔍 Started a search for all monitored "
                                                 "missing albums on Lidarr.",
+                                    host_id=host_id)
+    if skill_id == "lidarr_search_cutoff_unmet":
+        return await _command_skill(host_row, chip, command="CutoffUnmetAlbumSearch",
+                                    started_msg="📈 Started a search for quality upgrades "
+                                                "(cutoff-unmet albums) on Lidarr.",
                                     host_id=host_id)
     if skill_id == "lidarr_refresh":
         return await _command_skill(host_row, chip, command="RefreshArtist",
@@ -623,7 +673,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("artists_total"))
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
+    artists_incomplete = safe_int(data.get("artists_incomplete"))
     cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    releases_this_week = safe_int(data.get("releases_this_week"))
     albums_total = safe_int(data.get("albums_total"))
     tracks_have = safe_int(data.get("tracks_have"))
     tracks_total = safe_int(data.get("tracks_total"))
@@ -643,6 +695,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if tracks_total:
         lines.append(f"🎶 Tracks: {tracks_have:,} / {tracks_total:,} ({tracks_pct}%)")
     lines.append(f"{'❓' if missing else '✅'} Missing albums: {missing:,}")
+    if artists_incomplete:
+        lines.append(f"👤 Incomplete artists: {artists_incomplete:,}")
+    if releases_this_week:
+        lines.append(f"🆕 Released this week: {releases_this_week:,}")
     if cutoff_unmet:
         lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
     if library_size_gb > 0:
