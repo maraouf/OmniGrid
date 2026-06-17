@@ -483,6 +483,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             sessions_active = 0
             sessions_transcoding = 0
             bandwidth_kbps = 0
+            _reason_counts: dict[str, int] = {}
             try:
                 sr = await cli.get(base + "/status/sessions", headers=_headers(token))
                 if sr.status_code == 200:
@@ -493,9 +494,17 @@ async def fetch_data(host_row: dict, chip: dict, *,
                             continue
                         if _is_transcoding(_s):
                             sessions_transcoding += 1
+                            # Tally WHY (codec / bandwidth / audio / subtitle /
+                            # container) for the card's transcode-reason breakdown.
+                            _cat, _ = _transcode_detail(_s)
+                            if _cat:
+                                _reason_counts[_cat] = _reason_counts.get(_cat, 0) + 1
                         bandwidth_kbps += safe_int(as_dict(_s.get("Session")).get("bandwidth"))
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 sessions_active = sessions_transcoding = bandwidth_kbps = 0
+                _reason_counts = {}
+            transcode_reasons = [{"label": k, "count": v}
+                                 for k, v in sorted(_reason_counts.items(), key=lambda kv: -kv[1])]
             ver_r = await cli.get(base + "/", headers=_headers(token))
             ver = _version_from(ver_r)
             try:
@@ -517,6 +526,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "sections": len(keyed),
         "sessions_active": sessions_active,
         "sessions_transcoding": sessions_transcoding,
+        # WHY the active sessions are transcoding (codec / bandwidth / audio /
+        # subtitle / container), busiest-first — for the card's reason breakdown.
+        "transcode_reasons": transcode_reasons,
         # Direct play / direct stream = every active session that ISN'T
         # transcoding (the transcode-vs-direct split, parity with the
         # Jellyfin / Emby cards). Clamped at 0 defensively.
@@ -553,6 +565,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "music": safe_int(data.get("music")),
         "sessions_active": safe_int(data.get("sessions_active")),
         "sessions_transcoding": safe_int(data.get("sessions_transcoding")),
+        "transcode_reasons": [{"label": str(as_dict(rr).get("label") or ""), "count": safe_int(as_dict(rr).get("count"))} for rr in as_list(data.get("transcode_reasons")) if as_dict(rr).get("label")],
         "direct_streams": safe_int(data.get("direct_streams")),
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "added_week": data.get("added_week"),
@@ -631,9 +644,14 @@ async def _status_skill(host_row: dict, chip: dict, *,
     transcoding = safe_int(data.get("sessions_transcoding"))
     direct = safe_int(data.get("direct_streams"))
     mbps = _fmt_mbps(data.get("bandwidth_kbps"))
+    # Why those sessions are transcoding (codec / bandwidth / …), busiest-first.
+    _reasons = as_list(data.get("transcode_reasons"))
+    _reason_str = " · ".join(f"{safe_int(as_dict(r).get('count'))} {str(as_dict(r).get('label') or '').strip()}"
+                             for r in _reasons if as_dict(r).get("label"))
     np_extra = []
     if transcoding:
-        np_extra.append(f"{transcoding:,} transcoding")
+        np_extra.append(f"{transcoding:,} transcoding"
+                        + (f" — {_reason_str}" if _reason_str else ""))
     if direct:
         np_extra.append(f"{direct:,} direct")
     if mbps:
@@ -650,6 +668,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "libraries": libs, "movies": movies, "shows": shows,
         "music": music, "sessions_active": sessions,
         "sessions_transcoding": transcoding,
+        "transcode_reasons": _reasons,
         "direct_streams": direct,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "added_week": added_week,
@@ -671,6 +690,39 @@ def _is_transcoding(item: dict) -> bool:
             if str(as_dict(p).get("decision") or "").lower() == "transcode":
                 return True
     return False
+
+
+def _transcode_detail(item: dict) -> "tuple[str, str]":
+    """Infer WHY a session is transcoding from its ``TranscodeSession`` decisions
+    + source-vs-target codecs (Plex exposes no single "reason" field). Returns
+    ``("", "")`` when not transcoding, else ``(category_key, human_reason)`` where
+    ``category_key`` is one of ``codec`` / ``bandwidth`` / ``audio`` / ``subtitle``
+    / ``container`` (for the card's reason tally + i18n) and ``human_reason`` is
+    the detailed string for the now-playing rows (e.g. ``video H264→HEVC``).
+    Priority: subtitle burn-in → video → audio → container."""
+    if not _is_transcoding(item):
+        return "", ""
+    ts = as_dict(item.get("TranscodeSession"))
+    vdec = str(ts.get("videoDecision") or "").lower()
+    adec = str(ts.get("audioDecision") or "").lower()
+    sdec = str(ts.get("subtitleDecision") or "").lower()
+    if sdec == "burn":
+        return "subtitle", "subtitle burn-in"
+    if vdec == "transcode":
+        src = str(ts.get("sourceVideoCodec") or "").strip().upper()
+        tgt = str(ts.get("videoCodec") or "").strip().upper()
+        if src and tgt and src != tgt:
+            return "codec", f"video {src}→{tgt}"
+        # Same video codec but still transcoding → the client requested a lower
+        # quality / the server is bitrate-limiting → bandwidth.
+        return "bandwidth", "bandwidth / quality"
+    if adec == "transcode":
+        src = str(ts.get("sourceAudioCodec") or "").strip().upper()
+        tgt = str(ts.get("audioCodec") or "").strip().upper()
+        if src and tgt and src != tgt:
+            return "audio", f"audio {src}→{tgt}"
+        return "audio", "audio"
+    return "container", "container remux"
 
 
 def _fmt_mbps(kbps: Any) -> str:
@@ -703,7 +755,9 @@ def _session_line(item: dict) -> str:
     pct = f" ({round(offset / duration * 100)}%)" if (offset and duration) else ""
     who = user or "someone"
     where = f" on {player}" if player else ""
-    return f"▶️ {who} — {label}{pct}{where}"
+    _cat, _reason = _transcode_detail(item)
+    trans = (" · ⚙️ Transcode" + (f" ({_reason})" if _reason else "")) if _cat else ""
+    return f"▶️ {who} — {label}{pct}{where}{trans}"
 
 
 # noinspection DuplicatedCode
@@ -726,9 +780,13 @@ def _session_item(item: dict) -> Optional[dict]:
                  or item.get("thumb") or "").strip()
     offset = safe_int(item.get("viewOffset"))
     duration = safe_int(item.get("duration"))
-    # Subtitle: player · Transcode/Direct · bandwidth.
+    # Subtitle: player · Transcode (why) / Direct · bandwidth.
     sub_bits = [player] if player else []
-    sub_bits.append("⚙️ Transcode" if _is_transcoding(item) else "▶️ Direct")
+    _cat, _reason = _transcode_detail(item)
+    if _cat:
+        sub_bits.append("⚙️ Transcode" + (f" · {_reason}" if _reason else ""))
+    else:
+        sub_bits.append("▶️ Direct")
     mbps = _fmt_mbps(as_dict(item.get("Session")).get("bandwidth"))
     if mbps:
         sub_bits.append(mbps)

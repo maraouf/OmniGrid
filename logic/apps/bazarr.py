@@ -32,6 +32,9 @@ key. Single-instance app (NOT fleet) — one card per pinned chip.
 Upstream API reference: <bazarr-host>/api/ (Swagger). Endpoints used:
     GET /api/system/status  — test-credential probe + version
     GET /api/badges         — the missing-subtitle / health counts
+    GET /api/providers      — throttled-provider names + retry status (card)
+    GET /api/history/stats  — subtitle-download history (today / week / per-day)
+    GET /api/movies/wanted + /api/episodes/wanted — per-language wanted breakdown
 """
 from __future__ import annotations
 
@@ -171,34 +174,80 @@ async def _fetch_throttled_providers(cli: "httpx.AsyncClient", base: str,
     return out
 
 
-async def _fetch_downloaded_today(cli: "httpx.AsyncClient", base: str,
-                                  key: str) -> "Optional[int]":
-    """Best-effort count of subtitles downloaded TODAY from Bazarr's aggregated
-    history stats (``GET /api/history/stats``). Returns the latest day's
-    movies + series download count, or ``None`` on any non-200 / parse failure /
-    unexpected shape (the card hides the chip rather than show a misleading 0).
-    Never raises. The stats shape varies by version — the latest entry of each
-    series is taken as "today"."""
+async def _fetch_history_counts(cli: "httpx.AsyncClient", base: str,
+                                key: str) -> "tuple[Optional[int], int, list]":
+    """Best-effort subtitle-download history counts from Bazarr's aggregated
+    stats (``GET /api/history/stats?timeFrame=week`` → ``{series:[{date,count}],
+    movies:[{date,count}]}``, per-day zero-filled). Returns ``(downloaded_today,
+    downloaded_this_week, per_day_series)`` where:
+
+    * ``downloaded_today`` is the most-recent day's combined (movies + series)
+      count (``None`` when no data — the card hides the chip rather than show a
+      misleading 0),
+    * ``downloaded_this_week`` is the sum across the window,
+    * ``per_day_series`` is the date-ordered combined daily counts (for the
+      drawer's downloaded-per-day sparkline).
+
+    Never raises (returns ``(None, 0, [])`` on any failure / unexpected shape).
+    The stats shape varies by version, so the kind list + count/value keys are
+    probed defensively."""
     try:
         r = await cli.get(base + "/api/history/stats",
                           headers=_headers(key), params={"timeFrame": "week"})
         if r.status_code != 200:
-            return None
+            return None, 0, []
         body = r.json()
     except (httpx.HTTPError, OSError, ValueError, TypeError):
-        return None
+        return None, 0, []
     data = as_dict(body.get("data") if isinstance(body, dict) and "data" in body else body)
-    total = 0
+    # Align all kinds' per-day points by date and sum → a combined daily series.
+    by_date: dict[str, int] = {}
     found = False
     for kind in ("movies", "series", "episodes"):
-        points = as_list(data.get(kind))
-        if not points:
-            continue
-        last = as_dict(points[-1])  # the most recent day
-        if "count" in last or "value" in last:
-            total += safe_int(last.get("count") if "count" in last else last.get("value"))
+        for pt in as_list(data.get(kind)):
+            pd = as_dict(pt)
+            if "count" not in pd and "value" not in pd:
+                continue
             found = True
-    return total if found else None
+            d = str(pd.get("date") or "").strip()
+            c = safe_int(pd.get("count") if "count" in pd else pd.get("value"))
+            # Days with no date key still count toward the week total under a
+            # synthetic key so the sum stays correct (the series just lacks them).
+            by_date[d or f"_{len(by_date)}"] = by_date.get(d or f"_{len(by_date)}", 0) + c
+    if not found:
+        return None, 0, []
+    # Real (dated) points, oldest-first, drive the sparkline; the week total is
+    # the sum across everything (incl. any undated points).
+    dated = sorted((k for k in by_date if not k.startswith("_")))
+    series = [by_date[d] for d in dated]
+    week_total = sum(by_date.values())
+    today = series[-1] if series else 0
+    return today, week_total, series
+
+
+async def _fetch_lang_breakdown(cli: "httpx.AsyncClient", base: str,
+                                key: str) -> list:
+    """Best-effort per-language WANTED breakdown — which subtitle languages are
+    most-missing across the wanted lists. Tallies each wanted item's
+    ``missing_subtitles`` languages over ``/api/movies/wanted`` +
+    ``/api/episodes/wanted`` (capped at 500 rows each via ``_fetch_wanted_rows``),
+    busiest-first, top 8. Returns ``[{label, count}]``; ``[]`` on any failure (the
+    card hides the breakdown). Never raises. On a backlog > 500 the breakdown is a
+    representative sample of the newest rows."""
+    counts: dict[str, int] = {}
+    for path in ("/api/movies/wanted", "/api/episodes/wanted"):
+        rows = await _fetch_wanted_rows(cli, base, key, path)
+        for item in rows:
+            ms = item.get("missing_subtitles")
+            if not isinstance(ms, list):
+                continue
+            for s in ms:
+                if isinstance(s, dict):
+                    name = str(s.get("name") or s.get("code2") or "").strip()
+                    if name:
+                        counts[name] = counts.get(name, 0) + 1
+    return [{"label": k, "count": v}
+            for k, v in sorted(counts.items(), key=lambda kv: -kv[1])][:8]
 
 
 # noinspection DuplicatedCode
@@ -256,11 +305,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
                                                   headers=_headers(api_key)))
             except (httpx.HTTPError, OSError):
                 ver = ""
-            # Per-provider throttle list + subtitles-downloaded-today — both
+            # Per-provider throttle list + subtitle-download history (today /
+            # this-week / per-day series) + per-language wanted breakdown — all
             # best-effort (never fail the card; degrade to []/None on a shape
             # the upstream version doesn't match).
             throttled_providers = await _fetch_throttled_providers(cli, base, api_key)
-            downloaded_today = await _fetch_downloaded_today(cli, base, api_key)
+            downloaded_today, downloaded_week, downloaded_series = \
+                await _fetch_history_counts(cli, base, api_key)
+            lang_breakdown = await _fetch_lang_breakdown(cli, base, api_key)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[bazarr] error: fetch host={host_id} url={badges_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -288,9 +340,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # Total wanted-subtitle backlog — the metric the sampler trends.
         "total_missing": episodes_missing + movies_missing,
         "providers_throttled": safe_int(body.get("providers")),
-        # Named throttled-provider list + subtitles-downloaded-today (best-effort).
+        # Named throttled-provider list + subtitle-download history + per-language
+        # wanted breakdown (all best-effort).
         "throttled_providers": throttled_providers,
         "downloaded_today": downloaded_today,
+        "downloaded_this_week": safe_int(downloaded_week),
+        "downloaded_week_series": downloaded_series,
+        "lang_breakdown": lang_breakdown,
         "health_issues": safe_int(body.get("status")),
         "version": ver,
         # Subtitle-backlog trend from bazarr_samples (drawer chart). Tolerated on
@@ -301,8 +357,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
     print(f"[bazarr] INFO fetched host={host_id} episodes_missing="
           f"{out['episodes_missing']} movies_missing={out['movies_missing']} "
           f"total_missing={out['total_missing']} throttled={out['providers_throttled']} "
-          f"throttled_named={len(throttled_providers)} "
-          f"downloaded_today={downloaded_today} health={out['health_issues']}")
+          f"throttled_named={len(throttled_providers)} downloaded_today={downloaded_today} "
+          f"downloaded_week={out['downloaded_this_week']} langs={len(lang_breakdown)} "
+          f"health={out['health_issues']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -321,6 +378,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "providers_throttled": safe_int(data.get("providers_throttled")),
         "throttled_providers": [str(as_dict(p).get("name") or "") for p in as_list(data.get("throttled_providers")) if as_dict(p).get("name")],
         "downloaded_today": data.get("downloaded_today"),
+        "downloaded_this_week": safe_int(data.get("downloaded_this_week")),
+        "lang_breakdown": [{"label": str(as_dict(f).get("label") or ""), "count": safe_int(as_dict(f).get("count"))} for f in as_list(data.get("lang_breakdown")) if as_dict(f).get("label")],
         "health_issues": safe_int(data.get("health_issues")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -774,6 +833,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
     thr = safe_int(data.get("providers_throttled"))
     hi = safe_int(data.get("health_issues"))
     dl_today = data.get("downloaded_today")
+    dl_week = safe_int(data.get("downloaded_this_week"))
+    langs = as_list(data.get("lang_breakdown"))
     thr_names = [str(as_dict(p).get("name") or "") for p in as_list(data.get("throttled_providers"))
                  if as_dict(p).get("name")]
     trend = as_dict(data.get("trend"))
@@ -781,6 +842,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"📺 Episodes missing subtitles: {em:,}",
         f"🎬 Movies missing subtitles: {mm:,}",
     ]
+    # Per-language wanted breakdown — which languages are most-missing.
+    if langs:
+        _lp = [f"{safe_int(as_dict(f).get('count'))} {str(as_dict(f).get('label') or '').strip()}"
+               for f in langs if as_dict(f).get("label")]
+        if _lp:
+            lines.append("🌐 Missing by language: " + " · ".join(_lp[:6]))
     # Week-over-week backlog change (from the sampler), when available.
     wk = safe_int(trend.get("week_change"))
     if trend.get("samples") and wk != 0:
@@ -788,6 +855,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
                      f"{abs(wk):,} this week")
     if isinstance(dl_today, int):
         lines.append(f"✅ Subtitles downloaded today: {dl_today:,}")
+    if dl_week:
+        lines.append(f"📅 Downloaded this week: {dl_week:,}")
     if thr_names:
         lines.append("⏳ Throttled: " + ", ".join(thr_names[:8]))
     elif thr:
@@ -802,5 +871,6 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "total_missing": em + mm,
         "providers_throttled": thr,
         "downloaded_today": dl_today,
+        "downloaded_this_week": dl_week,
         "health_issues": hi,
     }

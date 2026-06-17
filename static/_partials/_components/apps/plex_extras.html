@@ -57,6 +57,11 @@
       <span x-show="(Number(plexData(inst).sessions_transcoding) || 0) > 0"
             class="text-[var(--warning)]"
             x-text="t('apps.plex.transcoding_footnote', { n: (Number(plexData(inst).sessions_transcoding) || 0) })"></span>
+      <!-- WHY the sessions are transcoding (codec / bandwidth / …). -->
+      <span x-show="(plexData(inst).transcode_reasons || []).length"
+            class="text-[var(--warning)]"
+            :title="t('apps.plex.transcode_why_title') || 'Why the active streams are transcoding'"
+            x-text="'(' + (plexData(inst).transcode_reasons || []).map(r => plexCount(r.count) + ' ' + (t('apps.plex.transcode_' + r.label) || r.label)).join(' · ') + ')'"></span>
       <span x-show="(Number(plexData(inst).direct_streams) || 0) > 0"
             x-text="t('apps.plex.direct_footnote', { n: (Number(plexData(inst).direct_streams) || 0) })"></span>
       <span x-show="plexBandwidth(inst)"

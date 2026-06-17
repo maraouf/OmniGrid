@@ -54,13 +54,20 @@
     <!-- Subtitles-downloaded-today (best-effort) + week-over-week backlog
          change (from the sampler) — actionable Bazarr signals. Each chip shows
          only when its data is present. -->
-    <div x-show="typeof bazarrData(inst).downloaded_today === 'number' || (bazarrTrend(inst) && bazarrTrend(inst).samples && (Number(bazarrTrend(inst).week_change) || 0) !== 0)"
+    <div x-show="typeof bazarrData(inst).downloaded_today === 'number' || (Number(bazarrData(inst).downloaded_this_week) || 0) > 0 || (bazarrTrend(inst) && bazarrTrend(inst).samples && (Number(bazarrTrend(inst).week_change) || 0) !== 0)"
          class="flex flex-wrap items-center gap-x-3 gap-y-0.5 fs-3xs mt-1">
       <span x-show="typeof bazarrData(inst).downloaded_today === 'number'"
             class="inline-flex items-center gap-1 text-[var(--success)]"
             :title="t('apps.bazarr.downloaded_today_title') || 'Subtitles downloaded today'">
         <span aria-hidden="true">✅</span>
         <span x-text="t('apps.bazarr.downloaded_today_n', { n: (Number(bazarrData(inst).downloaded_today) || 0) })"></span>
+      </span>
+      <!-- Subtitles downloaded THIS WEEK (sum of the per-day history). -->
+      <span x-show="(Number(bazarrData(inst).downloaded_this_week) || 0) > 0"
+            class="inline-flex items-center gap-1 text-[var(--text-dim)]"
+            :title="t('apps.bazarr.downloaded_week_title') || 'Subtitles downloaded in the last 7 days'">
+        <span aria-hidden="true">📅</span>
+        <span x-text="t('apps.bazarr.downloaded_week_n', { n: (Number(bazarrData(inst).downloaded_this_week) || 0) })"></span>
       </span>
       <template x-if="bazarrTrend(inst) && bazarrTrend(inst).samples && (Number(bazarrTrend(inst).week_change) || 0) !== 0">
         <span class="inline-flex items-center gap-1"
@@ -71,11 +78,23 @@
       </template>
     </div>
     <!-- Throttled-provider names (when any) — the actionable "OpenSubtitles
-         throttled" signal beyond the bare count. -->
+         throttled" signal beyond the bare count. The :title carries each
+         provider's retry / last-failed status (the per-provider failure detail). -->
     <template x-if="(bazarrData(inst).throttled_providers || []).length">
       <div class="fs-3xs text-[var(--warning)] mt-0.5 truncate"
            :title="(bazarrData(inst).throttled_providers || []).map(p => p.name + (p.status ? ' (' + p.status + ')' : '')).join(', ')"
            x-text="'⏳ ' + (t('apps.bazarr.throttled_label') || 'Throttled') + ': ' + (bazarrData(inst).throttled_providers || []).map(p => p.name).join(', ')"></div>
+    </template>
+    <!-- Per-language wanted breakdown — which subtitle languages are most-missing
+         (tallied across the wanted lists). DRAWER-ONLY — a list, so the card
+         stays lean. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (bazarrData(inst).lang_breakdown || []).length">
+      <div class="fs-3xs text-[var(--text-faint)] mt-1">
+        <span x-text="'🌐 ' + (t('apps.bazarr.missing_by_language') || 'Missing by language') + ': '"></span>
+        <template x-for="(l, li) in (bazarrData(inst).lang_breakdown || [])" :key="li">
+          <span x-text="(li > 0 ? ' · ' : '') + bazarrCount(l.count) + ' ' + (l.label || '')"></span>
+        </template>
+      </div>
     </template>
     <!-- Version footnote (when reported by /api/system/status). -->
     <div x-show="bazarrData(inst).version"
@@ -92,6 +111,19 @@
         </svg>
         <div class="fs-3xs text-[var(--text-faint)]"
              x-text="t('apps.bazarr.backlog_peak', { latest: bazarrCount(bazarrTrend(inst).latest_backlog), peak: bazarrCount(bazarrTrend(inst).peak_backlog) })"></div>
+      </div>
+    </template>
+    <!-- Subtitles-downloaded-per-day (last 7 days, from Bazarr's own history
+         stats — not the sampler). DRAWER-ONLY; shown once ≥ 2 daily points. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (bazarrData(inst).downloaded_week_series || []).length >= 2">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.bazarr.downloaded_trend') || 'Subtitles downloaded (7 days)'"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="bazarrTrendPath(bazarrData(inst).downloaded_week_series)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)]"
+             x-text="t('apps.bazarr.downloaded_week_n', { n: bazarrCount(bazarrData(inst).downloaded_this_week) })"></div>
       </div>
     </template>
   </div>

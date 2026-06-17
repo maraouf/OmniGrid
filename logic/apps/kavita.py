@@ -39,6 +39,8 @@ AI / Telegram skills
                           a term (``GET /api/Search/search``); returns top series.
 * ``kavita_scan``       — (action) trigger a scan of EVERY library (loops the
                           confirmed library list → ``POST /api/Library/scan``).
+* ``kavita_refresh_metadata`` — (action) refresh covers / metadata for EVERY
+                          library (loops → ``POST /api/Library/refresh-metadata``).
 
 There is deliberately NO destructive skill (deleting a library / series via the
 AI is risky and wasn't requested). Single-instance app (NOT fleet) — one card
@@ -47,10 +49,12 @@ per pinned chip.
 Upstream API reference: <kavita-host>/api (Swagger at /swagger). Endpoints:
     POST /api/Plugin/authenticate?apiKey=&pluginName= — JWT token (auth probe)
     GET  /api/Library          — configured libraries (count + names + type)
-    GET  /api/Stats/server/stats — series / volume / chapter counts + total size (admin)
+    GET  /api/Stats/server/stats — series / volume / chapter / file / genre counts
+                                   + total size + reading activity (admin)
     GET  /api/Server/version   — Kavita version (best-effort footnote)
     GET  /api/Search/search?queryString= — global search (series / collections / …)
     POST /api/Library/scan?libraryId= — rescan one library
+    POST /api/Library/refresh-metadata?libraryId= — refresh covers / metadata
 """
 from __future__ import annotations
 
@@ -147,6 +151,16 @@ SKILLS: tuple[dict, ...] = (
         # list (arg = the library id). Non-destructive (a scan is additive).
         "arg": True,
         "arg_hint": "the library name (or id) to rescan",
+        "destructive": False,
+    },
+    {
+        "id": "kavita_refresh_metadata",
+        "name": "Refresh metadata",
+        "ai_phrases": ("refresh kavita metadata, regenerate covers, refresh "
+                       "covers and metadata, rebuild kavita metadata, refresh "
+                       "series metadata, update kavita metadata, fix missing covers"),
+        # Non-destructive background task (re-reads covers / metadata; nothing is
+        # deleted). No-arg → a one-click drawer button + AI / Telegram action.
         "destructive": False,
     },
 )
@@ -406,6 +420,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
             # recently-read / active readers / total reading time), parsed in ONE
             # pass via _reading_activity — no extra call.
             series = volumes = chapters = total_size = 0
+            total_files = total_genres = 0
             reading: dict = {}
             try:
                 sr = await cli.get(base + "/api/Stats/server/stats",
@@ -417,9 +432,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
                         volumes = safe_int(_sj.get("volumeCount"))
                         chapters = safe_int(_sj.get("chapterCount"))
                         total_size = safe_int(_sj.get("totalSize"))
+                        # Free extra totals from the SAME response (no extra call):
+                        # file count (real library scale) + distinct-genre count
+                        # (a partial answer to "genre breakdown" — the API exposes
+                        # no per-genre count, only this total).
+                        total_files = safe_int(_sj.get("totalFiles"))
+                        total_genres = safe_int(_sj.get("totalGenres"))
                         reading = _reading_activity(_sj)
             except (httpx.HTTPError, OSError, ValueError, TypeError):
                 series = volumes = chapters = total_size = 0
+                total_files = total_genres = 0
                 reading = {}
             if not version:
                 version = await _fetch_version(cli, base, token)
@@ -453,6 +475,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
               f"HTTP {r.status_code} (check the chip URL points at the Kavita "
               f"root, e.g. https://kavita.example.com)")
         raise RuntimeError(f"upstream returned HTTP {r.status_code} for {lib_url}")
+    # Format breakdown (comics vs manga vs books …) from the library types — a
+    # free count from the already-fetched library list (no per-genre / per-format
+    # count endpoint exists). Busiest-first.
+    _fmt_counts: dict[str, int] = {}
+    for _lib in libraries:
+        if isinstance(_lib, dict):
+            _label = _LIBRARY_TYPES.get(safe_int(_lib.get("type")), "Other")
+            _fmt_counts[_label] = _fmt_counts.get(_label, 0) + 1
+    format_breakdown = [{"label": k, "count": v}
+                        for k, v in sorted(_fmt_counts.items(), key=lambda kv: -kv[1])]
     out: dict[str, Any] = {
         "available": True,
         "libraries": len(libraries),
@@ -460,6 +492,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "volume_count": safe_int(volumes),
         "chapter_count": safe_int(chapters),
         "total_size": safe_int(total_size),
+        "total_files": safe_int(total_files),
+        "total_genres": safe_int(total_genres),
+        "format_breakdown": format_breakdown,
         # Reading-activity (P1) — from the same server-stats response; 0 / "" for
         # a non-admin key or older Kavita (the card just hides those chips).
         "top_read_series": str(reading.get("top_read_series") or ""),
@@ -504,6 +539,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "volume_count": safe_int(data.get("volume_count")),
         "chapter_count": safe_int(data.get("chapter_count")),
         "total_size": safe_int(data.get("total_size")),
+        "total_files": safe_int(data.get("total_files")),
+        "total_genres": safe_int(data.get("total_genres")),
+        "format_breakdown": as_list(data.get("format_breakdown")),
         "top_read_series": str(data.get("top_read_series") or ""),
         "recently_read_count": safe_int(data.get("recently_read_count")),
         "active_readers": safe_int(data.get("active_readers")),
@@ -541,6 +579,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _scan_skill(host_row, chip, host_id=host_id)
     if skill_id == "kavita_scan_library":
         return await _scan_library_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "kavita_refresh_metadata":
+        return await _refresh_metadata_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -585,6 +625,19 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if size:
         lines.append(f"💾 Size: {size}")
+    # Format breakdown (Manga / Comic / Book …) from the library types.
+    _fmt = as_list(data.get("format_breakdown"))
+    if _fmt:
+        _parts = [f"{safe_int(f.get('count'))} {str(f.get('label') or '').strip()}"
+                  for f in _fmt if isinstance(f, dict) and f.get("label")]
+        if _parts:
+            lines.append("🗂️ Formats: " + " · ".join(_parts))
+    _genres = safe_int(data.get("total_genres"))
+    if _genres:
+        lines.append(f"🏷️ Genres: {_genres:,}")
+    _files = safe_int(data.get("total_files"))
+    if _files:
+        lines.append(f"🗃️ Files: {_files:,}")
     # Reading activity (P1) — only when the admin-stats response carried it.
     top_read = str(data.get("top_read_series") or "").strip()
     top_count = safe_int(data.get("top_read_count"))
@@ -935,6 +988,63 @@ async def _scan_skill(host_row: dict, chip: dict, *,
                 "detail": "no libraries could be scanned (check the api_key has access)"}
     return {"ok": True, "status": 200,
             "detail": f"🔄 Started a scan of {queued:,} "
+                      f"librar{'y' if queued == 1 else 'ies'} on Kavita."}
+
+
+# noinspection DuplicatedCode
+async def _refresh_metadata_skill(host_row: dict, chip: dict, *,
+                                  host_id: Optional[str] = None) -> dict:
+    """Action: refresh metadata (covers / extracted metadata) for EVERY library.
+    Kavita refreshes per-library, so we fetch the library list and
+    ``POST /api/Library/refresh-metadata?libraryId=&force=true&forceColorscape=false``
+    for each. Non-destructive (re-reads metadata; nothing is deleted). Never
+    raises — reports how many libraries were queued."""
+    api_key, base, err = _resolve_target(host_row, chip)
+    if err:
+        return err
+    print(f"[kavita] INFO kavita_refresh_metadata host={host_id} (refresh all libraries)")
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            token, _ = await _authenticate(cli, base, api_key)
+            lr = await cli.get(base + "/api/Library", headers=_bearer(token))
+            if lr.status_code == 204:
+                return {"ok": True, "status": 200,
+                        "detail": "📚 No libraries configured — nothing to refresh."}
+            if lr.status_code != 200:
+                return {"ok": False, "status": lr.status_code,
+                        "detail": f"could not list libraries: HTTP {lr.status_code}"}
+            try:
+                libs = lr.json()
+            except (ValueError, TypeError):
+                libs = []
+            if not isinstance(libs, list):
+                libs = []
+            queued = 0
+            for lib in libs:
+                if not isinstance(lib, dict):
+                    continue
+                lib_id = lib.get("id")
+                if lib_id is None:
+                    continue
+                try:
+                    rr = await cli.post(base + "/api/Library/refresh-metadata",
+                                        headers=_bearer(token),
+                                        params={"libraryId": lib_id, "force": "true",
+                                                "forceColorscape": "false"})
+                    if 200 <= rr.status_code < 300:
+                        queued += 1
+                except (httpx.HTTPError, OSError):
+                    continue
+    except RuntimeError as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0, "detail": f"refresh failed: {type(e).__name__}: {e}"}
+    if queued <= 0:
+        return {"ok": False, "status": 0,
+                "detail": "no libraries could be refreshed (check the api_key has access)"}
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Started a metadata refresh of {queued:,} "
                       f"librar{'y' if queued == 1 else 'ies'} on Kavita."}
 
 

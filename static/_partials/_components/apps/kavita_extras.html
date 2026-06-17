@@ -66,6 +66,24 @@
              class="fs-3xs text-[var(--text-faint)] mt-1 truncate"
              :title="kavitaData(inst).top_read_series"
              x-text="(t('apps.kavita.most_read') || 'Most read') + ': ' + (kavitaData(inst).top_read_series || '')"></div>
+        <!-- Format breakdown (Manga / Comic / Book …) from the library types.
+             DRAWER-ONLY — the card stays lean. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (kavitaData(inst).format_breakdown || []).length">
+          <div class="fs-3xs text-[var(--text-faint)] mt-1">
+            <span x-text="(t('apps.kavita.formats') || 'Formats') + ': '"></span>
+            <template x-for="(f, fi) in (kavitaData(inst).format_breakdown || [])" :key="fi">
+              <span x-text="(fi > 0 ? ' · ' : '') + kavitaCount(f.count) + ' ' + (f.label || '')"></span>
+            </template>
+          </div>
+        </template>
+        <!-- Genre / file counts (free from the admin server stats — the API has
+             no per-genre count, only this total). DRAWER-ONLY. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && ((Number(kavitaData(inst).total_genres) || 0) > 0 || (Number(kavitaData(inst).total_files) || 0) > 0)"
+             class="fs-3xs text-[var(--text-faint)] mt-1"
+             x-text="[
+               (Number(kavitaData(inst).total_genres) || 0) > 0 ? (kavitaCount(kavitaData(inst).total_genres) + ' ' + (t('apps.kavita.genres') || 'genres')) : '',
+               (Number(kavitaData(inst).total_files) || 0) > 0 ? (kavitaCount(kavitaData(inst).total_files) + ' ' + (t('apps.kavita.files') || 'files')) : ''
+             ].filter(Boolean).join(' · ')"></div>
         <!-- Library-growth trend (from OmniGrid's kavita_samples): series count
              + total size over time. Drawer-only (`appsExtrasInDrawer`) — no room
              on the apps-grid card; shown once ≥ 2 daily points exist. -->
