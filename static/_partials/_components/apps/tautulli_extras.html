@@ -22,44 +22,74 @@
              class="apps-card-ups-host fs-3xs text-[var(--text-faint)] mb-1 mono"
              x-text="inst.host_address || inst.host_id"></div>
         <div class="apps-card-ups-grid">
-          <!-- Active streams -->
+          <!-- Active streams (card essential; highlighted when something plays) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.streams') || 'Streams'"></div>
-            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).streams)"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(tautulliData(inst).streams) || 0) > 0 ? 'text-[var(--success)]' : ''"
+                 x-text="tautulliCount(tautulliData(inst).streams)"></div>
           </div>
-          <!-- Transcodes -->
+          <!-- Transcodes (card essential; warning-tinted when transcoding) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.transcodes') || 'Transcodes'"></div>
-            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).transcodes)"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(tautulliData(inst).transcodes) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                 x-text="tautulliCount(tautulliData(inst).transcodes)"></div>
           </div>
-          <!-- Bandwidth -->
+          <!-- Bandwidth (card essential) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.bandwidth') || 'Bandwidth'"></div>
             <div class="apps-card-stat-value" x-text="tautulliBandwidth(tautulliData(inst).bandwidth_kbps)"></div>
           </div>
-          <!-- Libraries -->
+          <!-- Libraries (card essential) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.libraries') || 'Libraries'"></div>
             <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).libraries)"></div>
           </div>
-          <!-- Plays in the last 30 days (sum of the chart series). -->
-          <div class="apps-card-ups-stat" x-show="(Number(tautulliData(inst).plays_30d) || 0) > 0">
+          <!-- This week — total watch time over the last 7 days (card essential;
+               Tautulli's own filter_duration). -->
+          <div class="apps-card-ups-stat" x-show="tautulliData(inst).watch_time_week_label">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.watch_week') || 'This week'"></div>
+            <div class="apps-card-stat-value fs-sm truncate" x-text="tautulliData(inst).watch_time_week_label || '—'"></div>
+          </div>
+          <!-- Peak concurrent today — from the local sampler (card essential, >0). -->
+          <div class="apps-card-ups-stat" x-show="tautulliTodayPeak(inst) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.peak_today') || 'Peak today'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliTodayPeak(inst))"></div>
+          </div>
+          <!-- Plays in the last 30 days (drawer-only). -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(tautulliData(inst).plays_30d) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.plays_30d') || 'Plays (30d)'"></div>
             <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).plays_30d)"></div>
           </div>
-          <!-- Top watcher (last 30d). -->
-          <div class="apps-card-ups-stat" x-show="tautulliTopUser(inst)">
+          <!-- Most-active library (last 30d) — drawer-only. -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliMostActiveLib(inst)">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.most_active_library') || 'Top library'"></div>
+            <div class="apps-card-stat-value fs-sm truncate" x-text="(tautulliMostActiveLib(inst) || {}).name || '—'"></div>
+          </div>
+          <!-- Most-played title (last 30d) — drawer-only. -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliMostPlayed(inst)">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.most_played_stat') || 'Most played'"></div>
+            <div class="apps-card-stat-value fs-sm truncate" x-text="(tautulliMostPlayed(inst) || {}).title || '—'"></div>
+          </div>
+          <!-- Peak concurrent (30d) — Tautulli's native most_concurrent, drawer-only. -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(tautulliData(inst).peak_concurrent_30d) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.tautulli.peak_30d') || 'Peak (30d)'"></div>
+            <div class="apps-card-stat-value" x-text="tautulliCount(tautulliData(inst).peak_concurrent_30d)"></div>
+          </div>
+          <!-- Top watcher (last 30d) — drawer-only. -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliTopUser(inst)">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.top_watcher') || 'Top watcher'"></div>
             <div class="apps-card-stat-value fs-sm truncate" x-text="(tautulliTopUser(inst) || {}).name || '—'"></div>
           </div>
-          <!-- Avg watched — mean % completion across recent plays (engagement). -->
-          <div class="apps-card-ups-stat" x-show="(Number(tautulliData(inst).history_sampled) || 0) > 0">
+          <!-- Avg watched — mean % completion across recent plays (drawer-only). -->
+          <div class="apps-card-ups-stat" x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(tautulliData(inst).history_sampled) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.tautulli.avg_watched') || 'Avg watched'"></div>
             <div class="apps-card-stat-value" x-text="(Number(tautulliData(inst).avg_completion) || 0) + '%'"></div>
           </div>
         </div>
-        <!-- Plays-over-time sparkline (last 30 days) — like the Tracearr graph. -->
-        <div x-show="tautulliHasPlays(inst)" class="mt-2">
+        <!-- Plays-over-time sparkline (last 30 days) — drawer-only. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliHasPlays(inst)" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tautulli.plays_chart') || 'Plays (last 30 days)'"></div>
           <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tautulli-spark" role="img"
                :aria-label="t('apps.tautulli.plays_chart') || 'Plays (last 30 days)'">
@@ -143,6 +173,21 @@
                       x-text="t('apps.tautulli.transcode_share', { n: (tautulliTranscodeShare(inst) || 0) })"></span>
               </div>
             </div>
+          </div>
+        </template>
+        <!-- Concurrent-streams retention trend (drawer-only): per-day peak
+             streams from the lifespan tautulli_sampler — an OmniGrid-owned trend
+             that doesn't round-trip Tautulli's history each render; ≥ 2 daily
+             points. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tautulliTrend(inst) && tautulliTrend(inst).series_streams && tautulliTrend(inst).series_streams.length >= 2">
+          <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.tautulli.streams_trend', { days: tautulliTrend(inst).days })"></span>
+            <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+              <path :d="tautulliTrendPath(tautulliTrend(inst).series_streams)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+            </svg>
+            <div class="fs-3xs text-[var(--text-faint)]"
+                 x-text="t('apps.tautulli.streams_peak', { peak: tautulliTrend(inst).peak_streams, latest: tautulliTrend(inst).latest_streams })"></div>
           </div>
         </template>
         <!-- Footnote: version + total library items. -->

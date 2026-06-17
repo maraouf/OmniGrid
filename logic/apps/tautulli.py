@@ -52,6 +52,7 @@ Upstream API reference: <tautulli-host>/api/v2?apikey=<key>&cmd=<command>
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Optional
 
@@ -244,6 +245,51 @@ def _fmt_bandwidth(kbps: Any) -> str:
     return f"{mbps / 1000.0:,.1f} Gbps"
 
 
+_DURATION_TOKEN_RE = re.compile(
+    r"(?P<num>\d+)\s*(?P<unit>day|days|hr|hrs|hour|hours|min|mins|minute|minutes|"
+    r"sec|secs|second|seconds)",
+    re.IGNORECASE)
+
+
+def _parse_duration_str(s: Any) -> int:
+    """Tautulli renders ``get_history``'s duration totals as a human string
+    (``"3 days 5 hrs 18 mins"`` / ``"10 hrs 12 mins"`` / ``"42 mins"``). Parse it
+    to whole seconds. ``0`` on a blank / non-string / unparseable value (the
+    label is kept verbatim for display, so a parse miss only loses the numeric)."""
+    if not isinstance(s, str):
+        return 0
+    total = 0
+    for num, unit in _DURATION_TOKEN_RE.findall(s):
+        n = int(num)
+        u = unit.lower()
+        if u.startswith("day"):
+            total += n * 86400
+        elif u.startswith("hr") or u.startswith("hour"):
+            total += n * 3600
+        elif u.startswith("min"):
+            total += n * 60
+        else:  # sec
+            total += n
+    return total
+
+
+def _fmt_watch_time(seconds: int) -> str:
+    """A watch-time figure (seconds) as a compact ``"3d 5h"`` / ``"5h 12m"`` /
+    ``"42m"`` label. ``""`` for non-positive. Used as a fallback when Tautulli's
+    own duration string is missing but the parsed seconds are known."""
+    s = max(0, safe_int(seconds))
+    if s <= 0:
+        return ""
+    days, rem = divmod(s, 86400)
+    hrs, rem = divmod(rem, 3600)
+    mins = rem // 60
+    if days:
+        return f"{days}d {hrs}h" if hrs else f"{days}d"
+    if hrs:
+        return f"{hrs}h {mins}m" if mins else f"{hrs}h"
+    return f"{mins}m"
+
+
 def _sum_series(data: Any) -> "tuple[list, list]":
     """``(categories, per-category totals)`` summed across a ``get_plays_by_*``
     payload's Movies / TV / Music series. ``([], [])`` on an unexpected shape.
@@ -277,13 +323,21 @@ def _shape_distribution(data: Any) -> dict:
 
 
 def _shape_home_stats(data: Any) -> dict:
-    """Parse a ``cmd=get_home_stats`` payload into ``{top_users, top_media}``.
-    ``top_users`` is ``[{name, plays, avatar}]`` (the most-active watchers);
-    ``top_media`` is ``[{title, plays, type}]`` merged across the top-movies +
-    top-tv stat groups (plays desc). Best-effort over the stat groups — empty
-    lists on an unexpected shape."""
+    """Parse a ``cmd=get_home_stats`` payload into ``{top_users, top_media,
+    most_active_library, most_played, peak_concurrent}``. ``top_users`` is
+    ``[{name, plays, avatar}]`` (the most-active watchers); ``top_media`` is
+    ``[{title, plays, type, thumb}]`` merged across the top-movies + top-tv stat
+    groups (plays desc); ``most_active_library`` is ``{name, plays, type}`` from
+    the ``top_libraries`` group (the busiest library in the window);
+    ``most_played`` is the single most-played title (``top_media[0]``);
+    ``peak_concurrent`` is the max concurrent-stream count from the
+    ``most_concurrent`` group. All best-effort — empty / zeroed on a stat group
+    the homepage config didn't return (zero extra calls; these ride the existing
+    get_home_stats payload)."""
     top_users: list = []
     top_media: list = []
+    most_active_library: dict = {}
+    peak_concurrent = 0
     for g in as_list(data):
         gd = as_dict(g)
         sid = str(gd.get("stat_id") or "").strip()
@@ -309,8 +363,24 @@ def _shape_home_stats(data: Any) -> dict:
                     "thumb": str(rd.get("thumb")
                                  or rd.get("grandparent_thumb") or "").strip(),
                 })
+        elif sid == "top_libraries" and rows and not most_active_library:
+            rd = as_dict(rows[0])
+            most_active_library = {
+                "name": str(rd.get("section_name") or rd.get("title") or "?").strip(),
+                "plays": safe_int(rd.get("total_plays")),
+                "type": str(rd.get("section_type") or "").strip().lower(),
+            }
+        elif sid == "most_concurrent":
+            # Rows are per-metric peaks ("Concurrent Streams" / "Concurrent
+            # Transcodes" / …); the max count is the headline peak concurrency.
+            for r in rows:
+                peak_concurrent = max(peak_concurrent, safe_int(as_dict(r).get("count")))
     top_media.sort(key=lambda m: m["plays"], reverse=True)
-    return {"top_users": top_users, "top_media": top_media[:5]}
+    top_media = top_media[:5]
+    return {"top_users": top_users, "top_media": top_media,
+            "most_active_library": most_active_library,
+            "most_played": top_media[0] if top_media else {},
+            "peak_concurrent": peak_concurrent}
 
 
 def _shape_completion(data: Any) -> dict:
@@ -369,6 +439,18 @@ def _shape_stream_type(data: Any) -> dict:
     return {"labels": cats, "direct": direct, "transcode": transcode}
 
 
+def _safe_trend(host_id: str, service_idx: int) -> dict:
+    """Best-effort concurrent-stream trend from the Tautulli sampler. Returns the
+    ``trend_summary`` dict, or ``{}`` on any failure (a missing sampler / empty
+    table / import error must never fail the card)."""
+    try:
+        from logic.apps import tautulli_sampler  # noqa: PLC0415
+        return tautulli_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[tautulli] warning: trend_summary failed — {type(e).__name__}: {e}")
+        return {}
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -422,13 +504,31 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 plays_series = _shape_plays_series(pbd)
             except RuntimeError:
                 plays_series = []
-            # Home stats — top watchers + most-played media (last 30d). The
-            # signature Tautulli insight; drawer-only, best-effort.
+            # Home stats — top watchers + most-played media + most-active library
+            # + peak concurrency (last 30d). The signature Tautulli insight;
+            # drawer-only, best-effort.
             try:
                 home = _shape_home_stats(await _call(
                     cli, base, api_key, "get_home_stats", time_range=30, stats_count=5))
             except RuntimeError:
-                home = {"top_users": [], "top_media": []}
+                home = {"top_users": [], "top_media": [], "most_active_library": {},
+                        "most_played": {}, "peak_concurrent": 0}
+            # Watch-time this week — get_history filtered to the last 7 days; the
+            # top-level filter_duration is Tautulli's own sum over the matching
+            # rows (length=1 keeps the page tiny — we only want the total).
+            # Best-effort; the label is kept verbatim for display.
+            watch_week_label = ""
+            watch_week_s = 0
+            try:
+                after = time.strftime("%Y-%m-%d", time.gmtime(now - 7 * 86400))
+                hist7 = as_dict(await _call(cli, base, api_key, "get_history",
+                                            after=after, length=1))
+                watch_week_label = str(hist7.get("filter_duration") or "").strip()
+                watch_week_s = _parse_duration_str(watch_week_label)
+                if not watch_week_label and watch_week_s:
+                    watch_week_label = _fmt_watch_time(watch_week_s)
+            except RuntimeError:
+                watch_week_label, watch_week_s = "", 0
             # Play distribution by day-of-week + hour-of-day (last 30d) — the
             # "when is the server busy" charts. Best-effort.
             dayofweek = {"labels": [], "values": []}
@@ -473,6 +573,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "plays_30d": sum(plays_series),
         "top_users": home["top_users"],
         "top_media": home["top_media"],
+        # Most-active library + single most-played title (last 30d) + Tautulli's
+        # native peak concurrency over the window. All ride the home payload.
+        "most_active_library": home.get("most_active_library") or {},
+        "most_played": home.get("most_played") or {},
+        "peak_concurrent_30d": safe_int(home.get("peak_concurrent")),
+        # Watch-time over the last 7 days (Tautulli's own filter_duration).
+        "watch_time_week_label": watch_week_label,
+        "watch_time_week_s": watch_week_s,
         "dayofweek": dayofweek,
         "hourofday": hourofday,
         # Engagement (avg % watched + completion rate) over the recent history.
@@ -481,6 +589,9 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "history_sampled": completion["history_sampled"],
         # Transcode-vs-direct plays over time (drawer chart).
         "stream_type": stream_type,
+        # Concurrent-stream trend from the local sampler (empty when the table
+        # has no samples yet — fresh deploy / just-pinned chip).
+        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
         "version": version,
         "fetched_at": int(now),
     }
@@ -491,7 +602,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"dow={len(dayofweek['values'])} hod={len(hourofday['values'])} "
           f"avg_watched={out['avg_completion']}% "
           f"completion={out['completion_rate']}% (n={out['history_sampled']}) "
-          f"streamtype_days={len(stream_type['labels'])}")
+          f"streamtype_days={len(stream_type['labels'])} "
+          f"watch7d={out['watch_time_week_label'] or '-'} "
+          f"top_lib={(out['most_active_library'] or {}).get('name') or '-'} "
+          f"peak30d={out['peak_concurrent_30d']} "
+          f"trend_today_peak={(out['trend'] or {}).get('today_peak', 0)}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -511,6 +626,10 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "plays_30d": safe_int(data.get("plays_30d")),
         "avg_completion": safe_int(data.get("avg_completion")),
         "completion_rate": safe_int(data.get("completion_rate")),
+        "watch_time_week": data.get("watch_time_week_label") or "",
+        "most_active_library": (as_dict(data.get("most_active_library")).get("name") or ""),
+        "most_played": (as_dict(data.get("most_played")).get("title") or ""),
+        "today_peak_streams": safe_int(as_dict(data.get("trend")).get("today_peak")),
         "top_user": (as_dict(as_list(data.get("top_users"))[0]).get("name")
                      if as_list(data.get("top_users")) else ""),
         "version": data.get("version") or "",
@@ -721,9 +840,23 @@ async def _status_skill(host_row: dict, chip: dict, *,
     lines.append(f"📚 Libraries: {libraries:,}")
     if items:
         lines.append(f"🎬 Items: {items:,}")
+    watch_week = str(data.get("watch_time_week_label") or "").strip()
+    if watch_week:
+        lines.append(f"⏱️ Watched this week: {watch_week}")
+    today_peak = safe_int(as_dict(data.get("trend")).get("today_peak"))
+    if today_peak:
+        lines.append(f"📊 Peak concurrent today: {today_peak:,}")
     plays_30d = safe_int(data.get("plays_30d"))
     if plays_30d:
         lines.append(f"📈 Plays (30d): {plays_30d:,}")
+    mal = as_dict(data.get("most_active_library"))
+    if mal.get("name"):
+        lines.append(f"📚 Most-active library: {mal.get('name')}"
+                     + (f" ({safe_int(mal.get('plays')):,} plays)" if mal.get("plays") else ""))
+    mp = as_dict(data.get("most_played"))
+    if mp.get("title"):
+        lines.append(f"🏆 Most played (30d): {mp.get('title')}"
+                     + (f" ({safe_int(mp.get('plays')):,} plays)" if mp.get("plays") else ""))
     avg_completion = safe_int(data.get("avg_completion"))
     completion_rate = safe_int(data.get("completion_rate"))
     history_sampled = safe_int(data.get("history_sampled"))
@@ -738,6 +871,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "bandwidth_kbps": safe_int(data.get("bandwidth_kbps")),
         "libraries": libraries, "total_items": items,
         "plays_30d": plays_30d,
+        "watch_time_week": watch_week,
+        "today_peak_streams": today_peak,
+        "most_active_library": mal.get("name") or "",
+        "most_played": mp.get("title") or "",
+        "peak_concurrent_30d": safe_int(data.get("peak_concurrent_30d")),
         "avg_completion": avg_completion, "completion_rate": completion_rate,
         "history_sampled": history_sampled,
     }

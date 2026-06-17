@@ -124,6 +124,8 @@ class Tunable(str, Enum):
     BAZARR_SAMPLE_INTERVAL_SECONDS = "tuning_bazarr_sample_interval_seconds"
     PLEX_HISTORY_DAYS = "tuning_plex_history_days"
     PLEX_SAMPLE_INTERVAL_SECONDS = "tuning_plex_sample_interval_seconds"
+    TAUTULLI_HISTORY_DAYS = "tuning_tautulli_history_days"
+    TAUTULLI_SAMPLE_INTERVAL_SECONDS = "tuning_tautulli_sample_interval_seconds"
     TRACEARR_HISTORY_DAYS = "tuning_tracearr_history_days"
     TRACEARR_SAMPLE_INTERVAL_SECONDS = "tuning_tracearr_sample_interval_seconds"
     TDARR_HISTORY_DAYS = "tuning_tdarr_history_days"
@@ -1567,6 +1569,16 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for plex_samples — drives the concurrent-stream
     # trend. Default 30. Lower to save disk; raise for a longer trend.
     "tuning_plex_history_days": ("PLEX_HISTORY_DAYS", 30, 1, 1095),
+    # Tautulli concurrent-stream sampler cadence (s) — snapshots each Tautulli
+    # chip's active-stream count (+ transcodes + bandwidth) for the card's
+    # streams-over-time sparkline + "peak N concurrent streams today" stat
+    # (Tautulli keeps the history but it's round-tripped per render; this owns a
+    # local trend). 0 = inherit the global stats interval. Default 300 (5 min) —
+    # streams are bursty, so sample finer to catch concurrency peaks.
+    "tuning_tautulli_sample_interval_seconds": ("TAUTULLI_SAMPLE_INTERVAL_SECONDS", 300, 0, 86400),
+    # Retention window (days) for tautulli_samples — drives the concurrent-stream
+    # trend. Default 30. Lower to save disk; raise for a longer trend.
+    "tuning_tautulli_history_days": ("TAUTULLI_HISTORY_DAYS", 30, 1, 1095),
     # Tracearr fleet sampler cadence (s). 0 = inherit the global stats interval.
     # Default 900 (15 min) — violation counts + fleet concurrency move slowly,
     # so a coarser cadence than Plex is plenty.

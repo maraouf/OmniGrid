@@ -11817,6 +11817,26 @@ select.field-invalid {
   overflow-wrap: break-word;
 }
 
+/* Apps-VIEW card (and Custom-dashboard locked sections): render the per-app
+   stat panel FLAT — no tinted container box, no per-cell accent chip — matching
+   the clean Speedtest card look (operator preference: the tinted box read as a
+   heavy "green box" on every other app, Speedtest's borderless grid is neater).
+   Scoped to `.apps-card-extras-col` (the card extras wrapper in apps-card.html)
+   so the host DRAWER — whose extras live under `.apps-drawer-extras-box` — keeps
+   its boxed chrome unchanged. The custom-dashboard size rules still re-tune
+   padding / grid columns / font-size; only the background + border are dropped
+   here, so the cells reflow exactly as before, minus the box. */
+.apps-card-extras-col .apps-card-ups {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.apps-card-extras-col .apps-card-ups-stat {
+  background: none;
+  padding: 0;
+}
+
 /* OPNsense per-interface throughput row — name + coloured down/up rates over a
    pair of relative-throughput bars (rx green, tx violet, scaled to the busiest
    NIC). Colours reuse the shared --metric-net-* tokens. */

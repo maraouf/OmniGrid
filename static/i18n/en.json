@@ -2124,6 +2124,14 @@
           "label": "Plex history retention (days)",
           "help": "Retention window for the Plex samples that drive the concurrent-stream sparkline and peak-streams stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_tautulli_sample_interval_seconds": {
+          "label": "Tautulli sampler interval (seconds)",
+          "help": "How often the lifespan Tautulli sampler snapshots each configured chip's concurrent-stream count (plus transcodes and bandwidth) into the history table that drives the card's streams-over-time sparkline and the \"peak N concurrent streams today\" stat. Tautulli keeps its own history, but this gives OmniGrid a local trend without round-tripping that history on every render. Default 300 (5 min) — streams are bursty, so sample finer than the slow-moving samplers to catch concurrency peaks; lower it (e.g. 60) for sharper peaks at the cost of more rows. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_tautulli_history_days": {
+          "label": "Tautulli history retention (days)",
+          "help": "Retention window for the Tautulli samples that drive the concurrent-stream sparkline and peak-streams stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_tracearr_sample_interval_seconds": {
           "label": "Tracearr sampler interval (seconds)",
           "help": "How often the lifespan Tracearr sampler snapshots each configured fleet's active-stream count and rolling 7-day account-sharing violation count into the history table that drives the card's violation-rate trend and the fleet concurrency sparkline (Tracearr's API only reports point-in-time counts). Default 900 (15 min) — violation and concurrency counts move slowly, so a coarser cadence than Plex is plenty; lower it for sharper peaks at the cost of more rows. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6618,6 +6626,13 @@
       "items_n": "{n} items",
       "plays_30d": "Plays (30d)",
       "plays_chart": "Plays (last 30 days)",
+      "watch_week": "This week",
+      "peak_today": "Peak today",
+      "peak_30d": "Peak (30d)",
+      "most_active_library": "Top library",
+      "most_played_stat": "Most played",
+      "streams_trend": "Concurrent streams ({days}d)",
+      "streams_peak": "Peak {peak} · now {latest}",
       "top_watcher": "Top watcher",
       "top_watchers": "Top watchers (30d)",
       "most_played": "Most played (30d)",

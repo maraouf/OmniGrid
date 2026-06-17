@@ -1054,6 +1054,14 @@ async def _lifespan(_app: FastAPI):
         _plex_sampler.plex_sampler_loop(),
         name="plex-sampler",
     )
+    # Tautulli concurrent-stream sampler — an OmniGrid-owned streams-over-time
+    # trend + "peak concurrent today" stat (Tautulli keeps history but it's
+    # round-tripped per render). Dormant-cheap when no Tautulli chip is pinned.
+    from logic.apps import tautulli_sampler as _tautulli_sampler
+    tautulli_sampler = asyncio.create_task(
+        _tautulli_sampler.tautulli_sampler_loop(),
+        name="tautulli-sampler",
+    )
     # Tracearr fleet retention sampler — drives the violation-rate trend (P1)
     # + the concurrency trend (P2) the point-in-time stats can't answer.
     from logic.apps import tracearr_sampler as _tracearr_sampler
@@ -1141,7 +1149,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tautulli_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

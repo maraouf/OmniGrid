@@ -379,6 +379,10 @@ export default {
     // (snapshot cadence + retention).
     'tuning_plex_sample_interval_seconds',
     'tuning_plex_history_days',
+    // Tautulli concurrent-stream sampler — streams-over-time sparkline
+    // (snapshot cadence + retention).
+    'tuning_tautulli_sample_interval_seconds',
+    'tuning_tautulli_history_days',
     'tuning_tracearr_sample_interval_seconds',
     'tuning_tracearr_history_days',
     // Tdarr retention sampler (snapshot cadence + retention).

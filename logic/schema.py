@@ -901,6 +901,26 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_plex_samples_ts
             ON plex_samples(ts);
 
+        -- Tautulli concurrent-stream retention. Tautulli IS a stats DB, but its
+        -- history is round-tripped per render; this lightweight sampler keeps an
+        -- OmniGrid-owned point-in-time trend (mirrors plex_samples) so the card
+        -- can draw a streams-over-time sparkline + a "peak N concurrent streams
+        -- today" stat without re-querying Tautulli's history each render.
+        CREATE TABLE IF NOT EXISTS tautulli_samples (
+            ts                   INTEGER NOT NULL,
+            host_id              TEXT    NOT NULL,
+            service_idx          INTEGER NOT NULL,
+            streams              INTEGER NOT NULL DEFAULT 0,
+            transcodes           INTEGER NOT NULL DEFAULT 0,
+            bandwidth_kbps       INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tautulli_samples_chip_ts
+            ON tautulli_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_tautulli_samples_ts
+            ON tautulli_samples(ts);
+
         -- Tracearr fleet retention. One row per (tracearr chip, tick): the
         -- concurrent active streams (peak-per-day for a concurrency trend) +
         -- the rolling 7-day account-sharing violation count (so a daily trend

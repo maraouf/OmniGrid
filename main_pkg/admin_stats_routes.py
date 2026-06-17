@@ -170,6 +170,7 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     ("tdarr_samples", "tdarr", "tdarr per-tick", "ts", "host_id"),
     ("kavita_samples", "kavita", "kavita per-tick", "ts", "host_id"),
     ("seerr_samples", "seerr", "seerr per-tick", "ts", "host_id"),
+    ("tautulli_samples", "tautulli", "tautulli concurrent streams", "ts", "host_id"),
     ("servarr_samples", "servarr", "*arr per-tick", "ts", "host_id"),
     ("opnsense_samples", "opnsense", "opnsense interface throughput", "ts", "host_id"),
     # Host-less time-series — host_col None so the per-host DISTINCT count +

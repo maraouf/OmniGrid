@@ -280,6 +280,77 @@ function tautulliTranscodeShare(inst) {
   return Math.round((100 * tr) / total);
 }
 
+// Concurrent-stream retention trend from the lifespan tautulli_sampler (per-day
+// peak streams + per-day mean bandwidth + today_peak), or null while idle / no
+// samples. Mirrors plexTrend.
+function tautulliTrend(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker on every
+// Alpine flush).
+const _tautulliTrendMemo = new WeakMap();
+
+// SVG polyline points for a sparkline over a 0..200 × 0..32 viewBox, auto-scaled
+// to the series' own min/max. '' when < 2 points. Memoised on the array ref.
+function tautulliTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_tautulliTrendMemo.has(arr)) {
+    return _tautulliTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = Number(arr[i]) || 0;
+    if (v < min) {
+      min = v;
+    }
+    if (v > max) {
+      max = v;
+    }
+  }
+  const range = (max - min) || 1;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const y = (H - ((Number(arr[i]) || 0) - min) / range * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _tautulliTrendMemo.set(arr, d);
+  return d;
+}
+
+// The "peak concurrent today" figure from the local sampler (or 0). The card
+// shows it only when > 0.
+function tautulliTodayPeak(inst) {
+  /* jshint validthis: true */
+  const t = tautulliTrend.call(this, inst);
+  return (t && Number(t.today_peak)) || 0;
+}
+
+// The most-active library {name, plays, type} (last 30d) for the drawer stat,
+// or null when the home-stats payload didn't carry the top_libraries card.
+function tautulliMostActiveLib(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  const lib = (d && d.most_active_library) || {};
+  return lib && lib.name ? lib : null;
+}
+
+// The single most-played title {title, plays, type} (last 30d), or null.
+function tautulliMostPlayed(inst) {
+  /* jshint validthis: true */
+  const d = tautulliData.call(this, inst);
+  const m = (d && d.most_played) || {};
+  return m && m.title ? m : null;
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tautulli gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -310,4 +381,9 @@ export const helpers = {
   tautulliStreamTypeMax: tautulliStreamTypeMax,
   tautulliStreamTypePath: tautulliStreamTypePath,
   tautulliTranscodeShare: tautulliTranscodeShare,
+  tautulliTrend: tautulliTrend,
+  tautulliTrendPath: tautulliTrendPath,
+  tautulliTodayPeak: tautulliTodayPeak,
+  tautulliMostActiveLib: tautulliMostActiveLib,
+  tautulliMostPlayed: tautulliMostPlayed,
 };
