@@ -138,6 +138,16 @@ SKILLS: tuple[dict, ...] = (
         "arg_hint": "the repository name (or part of it) whose mirror to sync",
         "destructive": False,
     },
+    {
+        "id": "forgejo_sync_all_mirrors",
+        "name": "Sync all mirrors",
+        "ai_phrases": ("sync all mirrors, mirror-sync everything, pull every "
+                       "mirror now, update all my mirrors, refresh all mirrors, "
+                       "trigger a sync on every mirror, sync all my mirror repos"),
+        # No-arg fleet action; non-destructive — it only kicks already-configured
+        # mirrors (no data loss), so no confirm gate.
+        "destructive": False,
+    },
 )
 
 # Per-(host_id, service_idx) data cache for the expanded card. Default TTL
@@ -244,6 +254,64 @@ def _version_from(resp) -> str:
         return str(as_dict(resp.json()).get("version") or "").strip()
     except (ValueError, TypeError, AttributeError):
         return ""
+
+
+def _heatmap_week(heatmap: Any, now: float) -> int:
+    """Sum the authenticated user's contributions over the last 7 days from a
+    ``GET /users/{username}/heatmap`` payload (rows of ``{timestamp (epoch s,
+    15-min buckets), contributions}``). 0 on an empty / unexpected shape."""
+    cutoff = now - 7 * 86400
+    total = 0
+    for row in as_list(heatmap):
+        rd = as_dict(row)
+        if safe_int(rd.get("timestamp")) >= cutoff:
+            total += safe_int(rd.get("contributions"))
+    return total
+
+
+def _heatmap_daily_series(heatmap: Any, now: float, *, days: int = 14) -> list:
+    """Per-day contribution totals over the last ``days`` days (oldest-first) from
+    a heatmap payload — the activity sparkline. The heatmap buckets by 15 min, so
+    several rows fall on one day; sum them per calendar day (UTC). Always returns
+    a dense ``days``-long list (0 for days with no activity) so the sparkline x-axis
+    is even. ``[]`` only on an empty heatmap."""
+    if not as_list(heatmap):
+        return []
+    today = int(now // 86400)
+    start = today - (days - 1)
+    buckets = [0] * days
+    for row in as_list(heatmap):
+        rd = as_dict(row)
+        day = safe_int(rd.get("timestamp")) // 86400
+        idx = day - start
+        if 0 <= idx < days:
+            buckets[idx] += safe_int(rd.get("contributions"))
+    return buckets
+
+
+async def _fetch_activity(cli: "httpx.AsyncClient", base: str, token: str,
+                          now: float) -> "tuple[int, list]":
+    """Best-effort ``(activity_week, activity_series)`` from the authenticated
+    user's contribution heatmap. Resolves the username via ``GET /user`` then
+    pulls ``GET /users/{username}/heatmap``. ``(0, [])`` when the token can't
+    resolve a user OR the heatmap is disabled (``ENABLE_USER_HEATMAP=false``) /
+    empty — never raises (a heatmap hiccup must not fail the card)."""
+    try:
+        ur = await cli.get(base + _API + "/user", headers=_headers(token))
+        if ur.status_code != 200:
+            return 0, []
+        username = str(as_dict(ur.json()).get("login") or "").strip()
+        if not username:
+            return 0, []
+        from urllib.parse import quote  # noqa: PLC0415
+        hr = await cli.get(base + _API + f"/users/{quote(username, safe='')}/heatmap",
+                           headers=_headers(token))
+        if hr.status_code != 200:
+            return 0, []
+        heatmap = hr.json()
+    except (httpx.HTTPError, OSError, ValueError, TypeError):
+        return 0, []
+    return _heatmap_week(heatmap, now), _heatmap_daily_series(heatmap, now)
 
 
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:
@@ -393,6 +461,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
                     await cli.get(base + _API + "/version", headers=_headers(token)))
             except (httpx.HTTPError, OSError):
                 version = ""
+            # Activity this week + a 14-day activity sparkline from the user's
+            # contribution heatmap (commits + PRs + issues + reviews). Best-effort:
+            # 0 / [] when the heatmap is disabled server-side.
+            activity_week, activity_series = await _fetch_activity(cli, base, token, now)
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[forgejo] error: fetch host={host_id} url={repos_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -408,6 +480,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "assigned_issues": assigned_issues,
         "starred": starred,
         "orgs": orgs,
+        # Contribution activity (last 7 days) + a 14-day daily series (drawer
+        # sparkline) from the user's heatmap.
+        "activity_week": activity_week,
+        "activity_series": activity_series,
         "version": version,
         "fetched_at": int(now),
     }
@@ -417,7 +493,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
     out["trend"] = _safe_trend(host_id, service_idx)
     print(f"[forgejo] INFO fetched host={host_id} repos={repos} prs={open_prs} "
           f"issues={open_issues} notifications={notifications} starred={starred} "
-          f"orgs={orgs} review_req={review_requested} assigned={assigned_prs}/{assigned_issues}")
+          f"orgs={orgs} review_req={review_requested} assigned={assigned_prs}/{assigned_issues} "
+          f"activity7d={activity_week} activity_series={len(activity_series)}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -451,6 +528,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "assigned_issues": safe_int(data.get("assigned_issues")),
         "starred": safe_int(data.get("starred")),
         "orgs": safe_int(data.get("orgs")),
+        "activity_week": safe_int(data.get("activity_week")),
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -485,6 +563,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _failing_actions_skill(host_row, chip, host_id=host_id)
     if skill_id == "forgejo_mirror_sync":
         return await _mirror_sync_skill(host_row, chip, arg=arg, host_id=host_id)
+    if skill_id == "forgejo_sync_all_mirrors":
+        return await _sync_all_mirrors_skill(host_row, chip, host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -584,12 +664,17 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"📌 Assigned to you: {assigned:,}")
     if notifs:
         lines.append(f"🔔 Unread notifications: {notifs:,}")
+    activity_week = safe_int(data.get("activity_week"))
+    if activity_week:
+        lines.append(f"📈 Activity this week: {activity_week:,} contribution"
+                     + ("" if activity_week == 1 else "s"))
     return {
         "ok": True,
         "detail": "\n".join(lines),
         "status": 200,
         "repos": repos, "open_prs": prs, "open_issues": issues,
         "notifications": notifs, "review_requested": review_req,
+        "activity_week": activity_week,
     }
 
 
@@ -983,3 +1068,64 @@ async def _mirror_sync_skill(host_row: dict, chip: dict, *,
     if mr.status_code not in (200, 202, 204):
         return {"ok": False, "status": mr.status_code, "detail": f"HTTP {mr.status_code}"}
     return {"ok": True, "status": 200, "detail": f"🔄 Triggered a mirror sync for “{full}”."}
+
+
+# noinspection DuplicatedCode
+async def _sync_all_mirrors_skill(host_row: dict, chip: dict, *,
+                                  host_id: Optional[str] = None) -> dict:
+    """Action (no arg): trigger a mirror sync for EVERY mirror repo the token can
+    see — the fleet companion to ``forgejo_mirror_sync``. Lists ``/user/repos``,
+    filters ``mirror == true``, then ``POST /repos/{owner}/{repo}/mirror-sync``
+    for each (best-effort — a per-repo failure is skipped so one bad sync doesn't
+    abort the rest). Non-destructive (only kicks already-configured mirrors).
+    Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[forgejo] INFO forgejo_sync_all_mirrors host={host_id} (live, bounded repos)")
+    r = await _skill_get(base, _API + "/user/repos", token=token,
+                         params={"limit": "50"}, timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        repos = [as_dict(rp) for rp in as_list(r.json())]
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    mirrors = [rp for rp in repos
+               if rp.get("mirror") and "/" in str(rp.get("full_name") or "")]
+    if not mirrors:
+        return {"ok": True, "status": 200,
+                "detail": "🪞 No mirror repositories to sync."}
+    synced = 0
+    synced_names: list = []
+    failed = 0
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            for rp in mirrors:
+                full = str(rp.get("full_name") or "").strip()
+                owner, name = full.split("/", 1)
+                try:
+                    mr = await cli.post(base + _API + f"/repos/{owner}/{name}/mirror-sync",
+                                        headers=_headers(token))
+                except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+                    failed += 1
+                    print(f"[forgejo] warning: sync_all_mirrors {full} skipped — "
+                          f"{type(e).__name__}: {e}")
+                    continue
+                if mr.status_code in (200, 202, 204):
+                    synced += 1
+                    synced_names.append(full)
+                else:
+                    failed += 1
+                    print(f"[forgejo] warning: sync_all_mirrors {full} HTTP {mr.status_code}")
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"sync-all-mirrors failed: {type(e).__name__}: {e}"}
+    if not synced:
+        return {"ok": False, "status": 502,
+                "detail": f"None of the {len(mirrors):,} mirror(s) synced."}
+    tail = (f" ({failed:,} failed)" if failed else "")
+    return {"ok": True, "status": 200,
+            "detail": f"🔄 Triggered a mirror sync for {synced:,} mirror(s){tail}: "
+                      + "; ".join(synced_names)}

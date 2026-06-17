@@ -62,6 +62,12 @@
         <span class="text-[var(--warning)]" aria-hidden="true">🔄</span>
         <span class="mono" x-text="t('apps.jellyfin.transcodes_n', { n: jellyfinCount(jellyfinData(inst).transcodes) })"></span>
       </span>
+      <!-- WHY the sessions are transcoding (codec / bandwidth / subtitle / …) —
+           from each session's TranscodeReasons, busiest first. -->
+      <span x-show="(jellyfinData(inst).transcode_reasons || []).length"
+            class="inline-flex items-center gap-1 text-[var(--warning)]"
+            :title="t('apps.jellyfin.transcode_why_title') || 'Why the active streams are transcoding'"
+            x-text="'(' + (jellyfinData(inst).transcode_reasons || []).map(r => jellyfinCount(r.count) + ' ' + (t('apps.jellyfin.transcode_' + r.label) || r.label)).join(' · ') + ')'"></span>
       <span x-show="(Number(jellyfinData(inst).direct_streams) || 0) > 0" class="inline-flex items-center gap-1"
             :title="t('apps.jellyfin.direct_title') || 'Direct-play streams'">
         <span class="text-[var(--success)]" aria-hidden="true">▶️</span>

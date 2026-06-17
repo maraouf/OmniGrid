@@ -57,6 +57,12 @@
         <div class="apps-card-stat-label" x-text="t('apps.forgejo.orgs') || 'Orgs'"></div>
         <div class="apps-card-stat-value" x-text="forgejoCount(forgejoData(inst).orgs)"></div>
       </div>
+      <!-- Activity this week — contributions (commits + PRs + issues + reviews)
+           from the user's heatmap; shown when > 0 (or the heatmap's disabled). -->
+      <div x-show="(Number(forgejoData(inst).activity_week) || 0) > 0" class="apps-card-ups-stat">
+        <div class="apps-card-stat-label" x-text="t('apps.forgejo.activity_week') || 'Activity (7d)'"></div>
+        <div class="apps-card-stat-value text-[var(--success)]" x-text="forgejoCount(forgejoData(inst).activity_week)"></div>
+      </div>
     </div>
     <!-- "Needs your attention" — PRs awaiting your review + items assigned to
          you. Far more actionable than the raw open counts; shown only when > 0. -->
@@ -91,6 +97,17 @@
         </svg>
         <div class="fs-3xs text-[var(--text-faint)] mono"
              x-text="t('apps.forgejo.backlog_caption', { now: (Number(forgejoTrend(inst).latest_backlog) || 0), peak: (Number(forgejoTrend(inst).peak_backlog) || 0), days: (Number(forgejoTrend(inst).days) || 0) })"></div>
+      </div>
+    </template>
+    <!-- Activity trend — a 14-day contribution sparkline straight from the user's
+         Forgejo heatmap (no local sampler needed). DRAWER-ONLY. Shown when the
+         heatmap returned a series with any activity. -->
+    <template x-if="appsExtrasInDrawer && (forgejoData(inst).activity_series || []).length > 1 && (forgejoData(inst).activity_series || []).some(v => Number(v) > 0)">
+      <div class="mt-2">
+        <span class="apps-card-stat-label" x-text="t('apps.forgejo.activity_trend') || 'Activity (14 days)'"></span>
+        <svg class="apps-spark apps-spark--trend" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+          <polyline class="apps-spark-line" :style="'stroke: var(--success)'" :points="forgejoTrendPath(forgejoData(inst).activity_series)"></polyline>
+        </svg>
       </div>
     </template>
     <!-- Version footnote. -->

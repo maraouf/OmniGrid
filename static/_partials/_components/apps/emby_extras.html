@@ -61,6 +61,12 @@
         <span class="text-[var(--warning)]" aria-hidden="true">🔄</span>
         <span class="mono" x-text="t('apps.emby.transcodes_n', { n: embyCount(embyData(inst).transcodes) })"></span>
       </span>
+      <!-- WHY the sessions are transcoding (codec / bandwidth / subtitle / …) —
+           from each session's TranscodeReasons, busiest first. -->
+      <span x-show="(embyData(inst).transcode_reasons || []).length"
+            class="inline-flex items-center gap-1 text-[var(--warning)]"
+            :title="t('apps.emby.transcode_why_title') || 'Why the active streams are transcoding'"
+            x-text="'(' + (embyData(inst).transcode_reasons || []).map(r => embyCount(r.count) + ' ' + (t('apps.emby.transcode_' + r.label) || r.label)).join(' · ') + ')'"></span>
       <span x-show="(Number(embyData(inst).direct_streams) || 0) > 0" class="inline-flex items-center gap-1"
             :title="t('apps.emby.direct_title') || 'Direct-play streams'">
         <span class="text-[var(--success)]" aria-hidden="true">▶️</span>

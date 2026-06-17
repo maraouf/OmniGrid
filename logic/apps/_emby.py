@@ -306,6 +306,47 @@ def version_from(resp) -> str:
         return ""
 
 
+# Transcode-reason classification. Jellyfin / Emby expose the reasons DIRECTLY
+# on each session's ``TranscodingInfo.TranscodeReasons`` (a list of enum strings
+# like ``VideoCodecNotSupported`` / ``AudioBitrateNotSupported`` /
+# ``SubtitleCodecNotSupported`` / ``ContainerBitrateExceedsLimit``) — no
+# inference needed (unlike Plex). We bucket them into the same 5 categories the
+# Plex card uses so the breakdown reads identically across the media apps.
+# Priority order matters: a session can carry several reasons, so the FIRST
+# matching bucket wins (subtitle burn-in is the costliest, bitrate/bandwidth next,
+# then the codec / container / audio mismatches).
+def _transcode_category(reasons: Any) -> str:
+    """Bucket a session's ``TranscodeReasons`` list into one of
+    ``subtitle | bandwidth | codec | audio | container | other``. ``"other"``
+    when the list is empty / unrecognised (a transcode with no stated reason)."""
+    joined = " ".join(str(r) for r in as_list(reasons)).lower()
+    if not joined:
+        return "other"
+    if "subtitle" in joined:
+        return "subtitle"
+    if "bitrate" in joined:  # VideoBitrate / AudioBitrate / ContainerBitrateExceedsLimit
+        return "bandwidth"
+    if "videocodec" in joined or "video" in joined:  # codec / resolution / level / profile / framerate / range
+        return "codec"
+    if "audiocodec" in joined or "audio" in joined:  # channels / profile / samplerate / bitdepth / external
+        return "audio"
+    if "container" in joined:
+        return "container"
+    return "other"
+
+
+def _session_transcode_reason(s: dict) -> "tuple[str, str]":
+    """``(category_key, human_reason)`` for ONE session, or ``("", "")`` when it
+    isn't transcoding. ``human_reason`` is the category label (the i18n layer
+    renders it); kept short for the now-playing subtitle."""
+    ti = as_dict(s.get("TranscodingInfo"))
+    method = str(as_dict(s.get("PlayState")).get("PlayMethod") or "").lower()
+    if not ("transcode" in method or ti):
+        return "", ""
+    cat = _transcode_category(ti.get("TranscodeReasons"))
+    return cat, cat
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                           cfg: Config) -> dict:
     """Probe the auth-required ``/System/Info`` with the supplied API key.
@@ -373,6 +414,7 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
             bandwidth_bps = 0
             active_users: set = set()
             active_devices: set = set()
+            reason_counts: dict = {}
             try:
                 sr = await cli.get(base + "/Sessions", headers=headers(key, cfg.scheme))
                 if sr.status_code == 200:
@@ -384,6 +426,11 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
                         method = str(as_dict(s.get("PlayState")).get("PlayMethod") or "").lower()
                         if "transcode" in method or ti:
                             transcodes += 1
+                            # WHY it's transcoding (codec / bandwidth / subtitle /
+                            # …) from TranscodeReasons — tallied for the card
+                            # breakdown, same as the Plex card.
+                            cat = _transcode_category(ti.get("TranscodeReasons"))
+                            reason_counts[cat] = reason_counts.get(cat, 0) + 1
                         # Bandwidth (bps): the transcode TARGET bitrate when
                         # transcoding, else the source item's own bitrate.
                         bandwidth_bps += (safe_int(ti.get("Bitrate"))
@@ -400,6 +447,7 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
                 sessions_active = transcodes = bandwidth_bps = 0
                 active_users = set()
                 active_devices = set()
+                reason_counts = {}
             # Items added in the last 7 days — a bounded recently-added pull
             # (DateCreated desc) counted against a 7-day cutoff. Best-effort: a
             # failure leaves the count at 0 (the card hides the chip then). Capped
@@ -446,6 +494,10 @@ async def fetch_data(host_row: dict, chip: dict, *, host_id: str,
         "sessions_active": sessions_active,
         "transcodes": transcodes,
         "direct_streams": max(0, sessions_active - transcodes),
+        # WHY the active sessions are transcoding (codec / bandwidth / subtitle /
+        # audio / container) — busiest first; the card shows "(N codec · M …)".
+        "transcode_reasons": [{"label": k, "count": v} for k, v in
+                              sorted(reason_counts.items(), key=lambda kv: kv[1], reverse=True)],
         "bandwidth_bps": bandwidth_bps,
         "active_users": len(active_users),
         "active_devices": len(active_devices),
@@ -497,6 +549,7 @@ def peek_latest(host_id: str, service_idx: int, *, cache: dict) -> Optional[dict
         "libraries": safe_int(data.get("libraries")),
         "sessions_active": safe_int(data.get("sessions_active")),
         "transcodes": safe_int(data.get("transcodes")),
+        "transcode_reasons": as_list(data.get("transcode_reasons")),
         "direct_streams": safe_int(data.get("direct_streams")),
         "bandwidth_bps": safe_int(data.get("bandwidth_bps")),
         "active_users": safe_int(data.get("active_users")),
@@ -642,7 +695,14 @@ async def status_skill(host_row: dict, chip: dict, *,
     ]
     if songs:
         lines.append(f"🎵 Songs: {songs:,}")
-    lines.append(f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}")
+    sess_line = f"{'▶️' if sessions else '⏸️'} Now playing: {sessions:,}"
+    transcodes = safe_int(data.get("transcodes"))
+    if transcodes:
+        reasons = as_list(data.get("transcode_reasons"))
+        why = " · ".join(f"{safe_int(as_dict(r).get('count'))} {as_dict(r).get('label')}"
+                         for r in reasons if as_dict(r).get("label"))
+        sess_line += f" ({transcodes:,} transcoding{(' — ' + why) if why else ''})"
+    lines.append(sess_line)
     # Per-library breakdown — list EVERY library (name + item count), not just
     # the three aggregate buckets, so custom / mixed libraries are visible.
     lib_list = as_list(data.get("library_list"))
@@ -680,7 +740,9 @@ def _session_line(s: dict) -> str:
     pos = safe_int(as_dict(s.get("PlayState")).get("PositionTicks"))
     pct = f" ({round(pos / runtime * 100)}%)" if (runtime and pos) else ""
     where = f" on {device}" if device else ""
-    return f"▶️ {user} — {label}{pct}{where}"
+    cat, _ = _session_transcode_reason(s)
+    reason = f" · ⚙️ {cat}" if (cat and cat != "other") else ""
+    return f"▶️ {user} — {label}{pct}{where}{reason}"
 
 
 def _session_item(s: dict, cfg: Config) -> Optional[dict]:
@@ -709,8 +771,12 @@ def _session_item(s: dict, cfg: Config) -> Optional[dict]:
     pos = safe_int(ps.get("PositionTicks"))
     state = "paused" if ps.get("IsPaused") else "playing"
     method = str(ps.get("PlayMethod") or "").strip()  # DirectPlay / Transcode
+    # WHY it's transcoding (codec / bandwidth / subtitle / …) appended to the
+    # play-method so the now-playing row explains the load, like the Plex card.
+    cat, _ = _session_transcode_reason(s)
+    method_seg = f"{method} ({cat})" if (method and cat and cat != "other") else method
     out: dict = {"title": label,
-                 "subtitle": " · ".join(p for p in (device, state, method) if p)}
+                 "subtitle": " · ".join(p for p in (device, state, method_seg) if p)}
     if poster_id:
         out["poster"] = f"/Items/{poster_id}/Images/Primary"
         out["poster_proxy"] = True
@@ -839,6 +905,56 @@ async def terminate_session_skill(host_row: dict, chip: dict, *,
         return {"ok": False, "status": sr.status_code, "detail": f"HTTP {sr.status_code}"}
     return {"ok": True, "status": 200,
             "detail": f"🛑 Stopped {target_label or ('the ' + cfg.brand + ' stream')}."}
+
+
+async def terminate_transcodes_skill(host_row: dict, chip: dict, *,
+                                     host_id: Optional[str], cfg: Config) -> dict:
+    """DESTRUCTIVE (no arg): stop EVERY active session that is transcoding — the
+    one-click "free the CPU". Reads ``GET /Sessions``, then ``POST
+    /Sessions/{id}/Playing/Stop`` for each transcoding session (any
+    TranscodeReason). A per-session failure is skipped (best-effort) so one bad
+    stop doesn't abort the rest. Never raises."""
+    key, base, err = _resolve_skill_target(host_row, chip, cfg=cfg)
+    if err:
+        return err
+    print(f"[{cfg.log_tag}] INFO {cfg.slug}_terminate_transcodes host={host_id}")
+    sessions, ferr = await _fetch_sessions(base, key, cfg=cfg, only_playing=True)
+    if ferr:
+        return ferr
+    assert sessions is not None
+    targets: list = []
+    for s in sessions:
+        if not (isinstance(s, dict) and s.get("NowPlayingItem")):
+            continue
+        cat, _ = _session_transcode_reason(s)  # non-empty ⇒ transcoding
+        sid = str(s.get("Id") or "").strip()
+        if cat and sid:
+            now = as_dict(s.get("NowPlayingItem"))
+            title = str(now.get("SeriesName") or now.get("Name") or "").strip()
+            user = str(s.get("UserName") or "").strip()
+            targets.append((sid, f"{user} — {title}".strip(" —")))
+    if not targets:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ No transcoding {cfg.brand} streams to stop — nothing is transcoding."}
+    stopped = 0
+    stopped_labels: list = []
+    for sid, label in targets:
+        sr = await _skill_request("POST", base, f"/Sessions/{sid}/Playing/Stop",
+                                  key=key, cfg=cfg, timeout=15.0, verb="stop", guard=False)
+        if isinstance(sr, dict):  # transport / per-session error — skip, keep going
+            print(f"[{cfg.log_tag}] warning: {cfg.slug}_terminate_transcodes session={sid} "
+                  f"skipped — {sr.get('detail')}")
+            continue
+        if sr.status_code in (200, 202, 204):
+            stopped += 1
+            if label:
+                stopped_labels.append(label)
+    if not stopped:
+        return {"ok": False, "status": 502,
+                "detail": f"{cfg.brand} didn't stop any of the {len(targets):,} transcoding stream(s)."}
+    tail = (": " + "; ".join(stopped_labels)) if stopped_labels else ""
+    return {"ok": True, "status": 200,
+            "detail": f"🛑 Stopped {stopped:,} transcoding {cfg.brand} stream(s){tail}."}
 
 
 # Recently-added: per-library fetch breadth. Items are pulled PER library (by
@@ -1215,6 +1331,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await scan_library_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
     if skill_id == f"{cfg.slug}_send_message":
         return await send_message_skill(host_row, chip, arg=arg, host_id=host_id, cfg=cfg)
+    if skill_id == f"{cfg.slug}_terminate_transcodes":
+        return await terminate_transcodes_skill(host_row, chip, host_id=host_id, cfg=cfg)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -1299,5 +1417,15 @@ def build_skills(slug: str, brand: str) -> "tuple[dict, ...]":
             "arg": True,
             "arg_hint": "the message text to show on every active session's screen",
             "destructive": False,
+        },
+        {
+            "id": f"{slug}_terminate_transcodes",
+            "name": f"Stop all transcoding {b} streams",
+            "ai_phrases": (f"stop all transcoding {slug} streams, kill the {slug} "
+                           f"transcodes, free the cpu on {slug}, terminate every "
+                           f"transcode on {slug}, stop transcoding on {slug}, end "
+                           f"all transcoding {slug} sessions, {slug} server is maxed out"),
+            # DESTRUCTIVE: ends EVERY transcoding session at once (no arg).
+            "destructive": True,
         },
     )
