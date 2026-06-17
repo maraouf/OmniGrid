@@ -250,6 +250,76 @@ def _violation_rate(recent_violations: int, total_sessions: int) -> float:
     return round(recent_violations * 100.0 / total_sessions, 1) if total_sessions else 0.0
 
 
+def _fmt_kbps(kbps: Any) -> str:
+    """Render a kbps figure as a human rate (kbps / Mbps / Gbps). ``""`` for
+    missing / non-positive. Used for the per-server bandwidth rollup (the card's
+    fleet total is already a pre-formatted string from Tracearr)."""
+    k = safe_int(kbps)
+    if k <= 0:
+        return ""
+    if k < 1000:
+        return f"{k:,} kbps"
+    mbps = k / 1000.0
+    if mbps < 1000:
+        return f"{mbps:,.1f} Mbps"
+    return f"{mbps / 1000.0:,.1f} Gbps"
+
+
+def _shape_per_server_bandwidth(streams_data: Any) -> list:
+    """Group the active-stream rows by ``serverName`` and sum each stream's
+    ``bitrate`` (kbps) → ``[{name, bitrate_kbps, label, streams}]`` busiest-first.
+    Tracearr's stream rows carry a per-stream ``bitrate`` (nullable kbps) +
+    ``serverName``, so per-server bandwidth needs NO extra call — it's derived
+    from the ``/streams`` response the card already fetches. ``[]`` when no
+    stream carries a positive bitrate (e.g. all direct-play with no rate)."""
+    by_server: dict = {}
+    counts: dict = {}
+    for s in as_list(streams_data):
+        sd = as_dict(s)
+        name = str(sd.get("serverName") or "?").strip() or "?"
+        rate = safe_int(sd.get("bitrate"))
+        by_server[name] = by_server.get(name, 0) + max(0, rate)
+        counts[name] = counts.get(name, 0) + 1
+    out = []
+    for name, kbps in by_server.items():
+        if kbps <= 0:
+            continue
+        out.append({"name": name, "bitrate_kbps": kbps,
+                    "label": _fmt_kbps(kbps), "streams": counts.get(name, 0)})
+    out.sort(key=lambda x: x["bitrate_kbps"], reverse=True)
+    return out
+
+
+def _shape_violation_rollup(violations_data: Any, *, total: int = 0) -> dict:
+    """Roll up a page of recent ``/violations`` rows into ``{top_offenders,
+    top_types, sampled, capped}``. ``top_offenders`` is ``[{name, count}]`` by
+    ``user.username`` (busiest first); ``top_types`` is ``[{name, count}]`` by the
+    violation ``rule.name`` (falling back to ``rule.type``). Tracearr exposes no
+    aggregation endpoint, so this tallies the latest page (pageSize max 100,
+    newest-first); ``capped`` flags that the upstream total exceeds the page so
+    the rollup is over the most-recent slice. ``{...: [], sampled: 0,
+    capped: False}`` on an empty / unexpected shape."""
+    offenders: dict = {}
+    types: dict = {}
+    sampled = 0
+    for v in as_list(violations_data):
+        vd = as_dict(v)
+        user = str(as_dict(vd.get("user")).get("username") or "").strip()
+        rule = as_dict(vd.get("rule"))
+        rname = str(rule.get("name") or rule.get("type") or "").strip()
+        if user:
+            offenders[user] = offenders.get(user, 0) + 1
+        if rname:
+            types[rname] = types.get(rname, 0) + 1
+        sampled += 1
+    top_offenders = [{"name": n, "count": c} for n, c in
+                     sorted(offenders.items(), key=lambda kv: kv[1], reverse=True)][:5]
+    top_types = [{"name": n, "count": c} for n, c in
+                 sorted(types.items(), key=lambda kv: kv[1], reverse=True)][:5]
+    return {"top_offenders": top_offenders, "top_types": top_types,
+            "sampled": sampled, "capped": bool(total and total > sampled)}
+
+
 # noinspection DuplicatedCode
 # The upstream-error guard + cache block below is structurally shared with every
 # other per-app module's fetch_data — the deliberate per-app encapsulation
@@ -294,14 +364,32 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 servers = []
             # Stream summary — transcodes + direct-play/stream split + total
             # bandwidth (a pre-formatted string from Tracearr's formatBitrate).
-            # Best-effort; an empty summary never fails the card.
+            # Per-server bandwidth is derived from the SAME response's stream rows
+            # (each carries a per-stream bitrate kbps + serverName) — zero extra
+            # calls. Best-effort; an empty summary never fails the card.
             summary: dict = {}
+            per_server_bw: list = []
             try:
                 sdata = await _call(cli, base, api_key, "streams", summary="true")
-                if isinstance(sdata, dict) and isinstance(sdata.get("summary"), dict):
-                    summary = sdata["summary"]
+                if isinstance(sdata, dict):
+                    if isinstance(sdata.get("summary"), dict):
+                        summary = sdata["summary"]
+                    per_server_bw = _shape_per_server_bandwidth(sdata.get("data"))
             except RuntimeError:
                 summary = {}
+                per_server_bw = []
+            # Violation rollup — top-offending users + top violation types from the
+            # latest page of /violations (Tracearr has no aggregation endpoint, so
+            # tally the newest page client-side; pageSize max 100). Best-effort —
+            # the only raising call is _call, caught below.
+            try:
+                vdata = as_dict(await _call(cli, base, api_key, "violations", pageSize=100))
+                viol_rollup = _shape_violation_rollup(
+                    vdata.get("data"),
+                    total=safe_int(as_dict(vdata.get("meta")).get("total")))
+            except RuntimeError:
+                viol_rollup = {"top_offenders": [], "top_types": [], "sampled": 0,
+                               "capped": False}
             # Activity (last 30 days) — the plays-over-time series for the drawer
             # chart + the playback-quality breakdown (Direct Play / Direct Stream
             # / Transcode) + the top platforms. Best-effort; an empty activity
@@ -336,6 +424,17 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "servers_total": len(servers),
         "servers_online": servers_online,
         "servers": servers,
+        # Per-server bandwidth (from the active-stream rows' bitrate) — drawer.
+        "per_server_bandwidth": per_server_bw,
+        # Violation rollup (recent): top-offending users + top violation types.
+        "top_offenders": viol_rollup["top_offenders"],
+        "top_offender": (viol_rollup["top_offenders"][0]
+                         if viol_rollup["top_offenders"] else {}),
+        "violation_types": viol_rollup["top_types"],
+        "top_violation_type": (viol_rollup["top_types"][0]
+                               if viol_rollup["top_types"] else {}),
+        "violation_rollup_sampled": viol_rollup["sampled"],
+        "violation_rollup_capped": viol_rollup["capped"],
         "plays_series": plays_series,
         "quality": quality,
         "platforms": platforms,
@@ -346,7 +445,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"transcodes={out['transcodes']} bw={out['bandwidth'] or '-'} "
           f"users={out['total_users']} plays30d={out['total_sessions']} "
           f"violations7d={out['recent_violations']} "
-          f"servers={servers_online}/{out['servers_total']}")
+          f"servers={servers_online}/{out['servers_total']} "
+          f"top_offender={(out['top_offender'] or {}).get('name') or '-'} "
+          f"top_viol_type={(out['top_violation_type'] or {}).get('name') or '-'} "
+          f"(rollup n={out['violation_rollup_sampled']}"
+          f"{'+' if out['violation_rollup_capped'] else ''}) "
+          f"per_server_bw={len(out['per_server_bandwidth'])}")
     _data_cache[ck] = (now, out)
     return out
 
@@ -365,6 +469,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "total_sessions": safe_int(data.get("total_sessions")),
         "recent_violations": safe_int(data.get("recent_violations")),
         "violation_rate": data.get("violation_rate") or 0.0,
+        "top_offender": (as_dict(data.get("top_offender")).get("name") or ""),
+        "top_violation_type": (as_dict(data.get("top_violation_type")).get("name") or ""),
         "servers_online": safe_int(data.get("servers_online")),
         "servers_total": safe_int(data.get("servers_total")),
         "version": data.get("version") or "",
@@ -492,6 +598,15 @@ async def _status_skill(host_row: dict, chip: dict, *,
         f"🚨 Violations (7d): {viol:,}"
         + (f" ({rate:g} per 100 plays)" if rate else ""),
     ]
+    offender = as_dict(data.get("top_offender"))
+    if offender.get("name"):
+        lines.append(f"⛔ Top offender: {offender.get('name')}"
+                     + (f" ({safe_int(offender.get('count')):,} violations)"
+                        if offender.get("count") else ""))
+    vtype = as_dict(data.get("top_violation_type"))
+    if vtype.get("name"):
+        lines.append(f"🔁 Top violation type: {vtype.get('name')}"
+                     + (f" ({safe_int(vtype.get('count')):,})" if vtype.get("count") else ""))
     return {
         "ok": True,
         "detail": "\n".join(lines),
@@ -499,6 +614,8 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "active_streams": streams, "transcodes": transcodes, "bandwidth": bw,
         "total_users": users, "total_sessions": plays, "recent_violations": viol,
         "violation_rate": rate,
+        "top_offender": offender.get("name") or "",
+        "top_violation_type": vtype.get("name") or "",
         "servers_online": s_on, "servers_total": s_tot,
     }
 

@@ -98,8 +98,8 @@
           <span x-show="(Number(tracearrData(inst).total_sessions) || 0) > 0"
                 x-text="(tracearrData(inst).version ? ' · ' : '') + (t('apps.tracearr.plays_n', { n: tracearrData(inst).total_sessions }) || (tracearrData(inst).total_sessions + ' plays (30d)'))"></span>
         </div>
-        <!-- Plays-over-time sparkline (last 30 days) — like the speedtest graph. -->
-        <div x-show="tracearrHasPlays(tracearrData(inst))" class="mt-2">
+        <!-- Plays-over-time sparkline (last 30 days) — drawer-only. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrHasPlays(tracearrData(inst))" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'"></div>
           <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="apps-tracearr-spark" role="img"
                :aria-label="t('apps.tracearr.plays_chart') || 'Plays (last 30 days)'">
@@ -109,7 +109,7 @@
         <!-- Streaming-quality breakdown: Direct Play / Direct Stream / Transcode.
              (Tracearr's API reports the playback-tier split, not a 4k/1080p
              resolution pie.) -->
-        <div x-show="tracearrHasQuality(tracearrData(inst))" class="mt-2">
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrHasQuality(tracearrData(inst))" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.quality_title') || 'Streaming quality'"></div>
           <div class="apps-quality-bar" role="img"
                :aria-label="t('apps.tracearr.quality_title') || 'Streaming quality'">
@@ -132,12 +132,50 @@
             </span>
           </div>
         </div>
-        <!-- Top platforms (by play count, last 30 days). -->
-        <div x-show="tracearrPlatforms(tracearrData(inst)).length" class="mt-2">
+        <!-- Top platforms (by play count, last 30 days) — drawer-only. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrPlatforms(tracearrData(inst)).length" class="mt-2">
           <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.platforms') || 'Top platforms'"></div>
           <div class="flex flex-wrap gap-1">
             <template x-for="p in tracearrPlatforms(tracearrData(inst))" :key="p.name">
               <span class="chip pill-muted fs-3xs" x-text="p.name + ' · ' + tracearrCount(p.count)"></span>
+            </template>
+          </div>
+        </div>
+        <!-- Top-offending users (recent violation rollup) — drawer-only. Tracearr
+             has no aggregation endpoint, so this is tallied from the latest page
+             of /violations. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrTopOffenders(inst).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.top_offenders') || 'Top offenders'"></div>
+          <div class="space-y-0.5">
+            <template x-for="o in tracearrTopOffenders(inst).slice(0, 5)" :key="o.name">
+              <div class="flex items-center gap-2 fs-2xs min-w-0">
+                <span aria-hidden="true">⛔</span>
+                <span class="truncate text-[var(--text-dim)]" x-text="o.name"></span>
+                <span class="mono text-[var(--text-faint)] shrink-0 ms-auto"
+                      x-text="t('apps.tracearr.violations_n', { n: tracearrCount(o.count) })"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <!-- Top violation types (recent rollup) — drawer-only. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrViolationTypes(inst).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.top_violation_types') || 'Top violation types'"></div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="vt in tracearrViolationTypes(inst).slice(0, 5)" :key="vt.name">
+              <span class="chip pill-muted fs-3xs" x-text="vt.name + ' · ' + tracearrCount(vt.count)"></span>
+            </template>
+          </div>
+        </div>
+        <!-- Per-server bandwidth (active streams' bitrate grouped by server) —
+             drawer-only. -->
+        <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && tracearrPerServerBandwidth(inst).length" class="mt-2">
+          <div class="apps-card-stat-label mb-1" x-text="t('apps.tracearr.bandwidth_per_server') || 'Bandwidth per server'"></div>
+          <div class="space-y-0.5">
+            <template x-for="b in tracearrPerServerBandwidth(inst)" :key="b.name">
+              <div class="flex items-center gap-2 fs-2xs min-w-0">
+                <span class="truncate text-[var(--text-dim)]" x-text="b.name"></span>
+                <span class="mono text-[var(--text-faint)] shrink-0 ms-auto" x-text="b.label"></span>
+              </div>
             </template>
           </div>
         </div>

@@ -213,6 +213,22 @@ def _fmt_duration(seconds: float) -> str:
     return f"{m}m" + (f" {sec}s" if sec else "")
 
 
+def _fmt_eta_days(days: float) -> str:
+    """Humanise a "days remaining" queue ETA: ``5d 6h`` / ``8h`` / ``< 1h``.
+    ``""`` for non-positive (no ETA — empty queue or unknown rate)."""
+    d = safe_float(days)
+    if d <= 0:
+        return ""
+    total_h = d * 24.0
+    whole_d = int(total_h // 24)
+    hrs = int(round(total_h - whole_d * 24))
+    if whole_d >= 1:
+        return f"{whole_d}d {hrs}h" if hrs else f"{whole_d}d"
+    if total_h >= 1:
+        return f"{int(round(total_h))}h"
+    return "< 1h"
+
+
 def _scan_eta_phrase(host_id: str) -> str:
     """The ETA sentence for a 'Scanning…' message — a MEASURED average when this
     host has history, else the static fallback."""
@@ -559,17 +575,36 @@ async def fetch_data(host_row: dict, chip: dict, *,
         raise RuntimeError(str(e))
     transcodes = safe_int(stats.get("totalTranscodeCount"))
     space_saved = round(safe_float(stats.get("sizeDiff")), 1)
+    transcode_queue = safe_int(stats.get("table1Count"))
+    # Health-check pass rate — table5 = health-check SUCCESS, table6 = FAILED.
+    health_success = safe_int(stats.get("table5Count"))
+    health_failed = safe_int(stats.get("table6Count"))
+    health_checked = health_success + health_failed
+    health_pass_rate = round(100.0 * health_success / health_checked, 1) if health_checked else 0.0
+    # Time-to-empty-queue ETA — current transcode queue ÷ the recent completion
+    # rate (transcodes/day) from the sampler. Empty when the queue is 0 or the
+    # rate is unknown (< 2 days of samples).
+    trend = _safe_trend(str(host_id or ""), int(service_idx or 0))
+    rate_per_day = safe_float(as_dict(trend).get("throughput_per_day"))
+    queue_eta_days = round(transcode_queue / rate_per_day, 2) if (rate_per_day > 0 and transcode_queue > 0) else 0.0
     out: dict[str, Any] = {
         "available": True,
         "total_files": safe_int(stats.get("totalFileCount")),
         "transcodes": transcodes,
         "health_checks": safe_int(stats.get("totalHealthCheckCount")),
-        "transcode_queue": safe_int(stats.get("table1Count")),
+        "transcode_queue": transcode_queue,
         "health_queue": safe_int(stats.get("table4Count")),
         # Failed / error buckets (table3 = transcode failed, table6 = health-
         # check failed) — surfaced so the card can flag a stuck pipeline.
         "transcode_failed": safe_int(stats.get("table3Count")),
-        "health_failed": safe_int(stats.get("table6Count")),
+        "health_failed": health_failed,
+        # Health-check pass rate (table5 success / (success + failed)).
+        "health_success": health_success,
+        "health_pass_rate": health_pass_rate,
+        # Time-to-empty-queue ETA (current queue ÷ recent transcodes/day).
+        "queue_eta_days": queue_eta_days,
+        "queue_eta_label": _fmt_eta_days(queue_eta_days),
+        "throughput_per_day": round(rate_per_day, 1),
         "space_saved_gb": space_saved,
         # Avg space reclaimed per completed transcode — a "how effective" number.
         "avg_saved_per_transcode_gb": (round(space_saved / transcodes, 2)
@@ -590,12 +625,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "fetched_at": int(now),
         # Retention trend (cumulative space-saved + queue burn-down + throughput) —
         # best-effort; the sampler may have no rows yet (fresh pin) → zeroed shape.
-        "trend": _safe_trend(str(host_id or ""), int(service_idx or 0)),
+        "trend": trend,
     }
     print(f"[tdarr] INFO fetched host={host_id} files={out['total_files']} "
           f"tq={out['transcode_queue']} hq={out['health_queue']} "
           f"failed={out['transcode_failed']}/{out['health_failed']} "
           f"transcodes={out['transcodes']} healthchecks={out['health_checks']} "
+          f"healthpass={out['health_pass_rate']}% "
+          f"eta={out['queue_eta_label'] or '-'}(rate={out['throughput_per_day']}/d) "
           f"saved={out['space_saved_gb']}GB fps={fps} workers={workers_active}/{nodes} "
           f"res={len(out['resolutions'])} codecs={len(out['codecs'])}")
     _data_cache[ck] = (now, out)
@@ -611,8 +648,8 @@ def _safe_trend(host_id: str, service_idx: int) -> dict:
         return _s.trend_summary(host_id, service_idx)
     except (ImportError, RuntimeError, ValueError, sqlite3.Error):
         return {"days": 0, "samples": 0, "latest_saved_gb": 0.0, "latest_queue": 0,
-                "peak_queue": 0, "window_throughput": 0, "series_saved": [],
-                "series_queue": [], "series_throughput": []}
+                "peak_queue": 0, "window_throughput": 0, "throughput_per_day": 0.0,
+                "series_saved": [], "series_queue": [], "series_throughput": []}
 
 
 def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
@@ -629,6 +666,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "health_queue": safe_int(data.get("health_queue")),
         "transcode_failed": safe_int(data.get("transcode_failed")),
         "health_failed": safe_int(data.get("health_failed")),
+        "health_pass_rate": safe_float(data.get("health_pass_rate")),
+        "queue_eta": data.get("queue_eta_label") or "",
         "space_saved_gb": safe_float(data.get("space_saved_gb")),
         "avg_saved_per_transcode_gb": safe_float(data.get("avg_saved_per_transcode_gb")),
         "fps": safe_float(data.get("fps")),
@@ -834,11 +873,18 @@ async def _status_skill(host_row: dict, chip: dict, *,
         saved = safe_float(data.get("space_saved_gb"))
         fps = safe_float(data.get("fps"))
         failed = safe_int(data.get("transcode_failed"))
+        eta = str(data.get("queue_eta_label") or "").strip()
+        hpr = safe_float(data.get("health_pass_rate"))
+        h_checked = safe_int(data.get("health_success")) + safe_int(data.get("health_failed"))
         summary = f"📊 Transcode queue: {tq:,} · Health queue: {hq:,} · Saved: {_fmt_gb(saved)}"
         if fps > 0:
             summary += f" · Speed: {fps:,.0f} fps"
         if failed > 0:
             summary += f" · ⚠️ {failed:,} failed"
+        if eta and tq > 0:
+            summary += f"\n⏳ Queue ETA: ~{eta} (at {safe_float(data.get('throughput_per_day')):g}/day)"
+        if h_checked > 0:
+            summary += f"\n✅ Health pass rate: {hpr:g}% ({h_checked:,} checked)"
     except (ValueError, RuntimeError):
         summary = ""
     if not lines:

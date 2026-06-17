@@ -117,11 +117,14 @@ def trend_summary(host_id: str, service_idx: int,
     (the burn-down); ``series_throughput`` is the per-day DELTA of the cumulative
     ``transcodes`` counter (negatives — a Tdarr stats reset — are dropped). Each
     series is up to ``max_points`` points (oldest-first, days WITH data only).
-    ``window_throughput`` is the total transcodes completed across the window.
+    ``window_throughput`` is the total transcodes completed across the window;
+    ``throughput_per_day`` is the RECENT completion rate (mean of the last up-to-7
+    days, dropping the first-day sentinel) — drives the "time to empty queue" ETA.
     Zeroed shape when no samples yet — never raises."""
     win = int(days) if days else _tuning.tuning_int(_Tunable.TDARR_HISTORY_DAYS)
     out: dict = {"days": int(win), "samples": 0, "latest_saved_gb": 0.0,
                  "latest_queue": 0, "peak_queue": 0, "window_throughput": 0,
+                 "throughput_per_day": 0.0,
                  "series_saved": [], "series_queue": [], "series_throughput": []}
     if not host_id:
         return out
@@ -169,6 +172,14 @@ def trend_summary(host_id: str, service_idx: int,
             series_throughput.append(max(0, tc_last[d] - prev_tc))
         prev_tc = tc_last[d]
     out["window_throughput"] = sum(series_throughput)
+    # Recent completion rate (transcodes/day) for the queue burn-down ETA — mean
+    # of the last up-to-7 days of throughput, dropping the first-day 0 sentinel
+    # (it has no predecessor). 0 when < 2 days of data (no ETA possible). Computed
+    # from the FULL series, before the max_points downsample below.
+    _rates = series_throughput[1:]
+    _recent = _rates[-7:]
+    out["throughput_per_day"] = (round(sum(_recent) / len(_recent), 1)
+                                 if _recent else 0.0)
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]

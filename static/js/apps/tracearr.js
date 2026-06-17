@@ -200,6 +200,30 @@ function tracearrTrendPath(arr) {
   return d;
 }
 
+// Top-offending users (recent) — [{name, count}] busiest-first, or []. Drives
+// the drawer "Top offenders" list.
+function tracearrTopOffenders(inst) {
+  /* jshint validthis: true */
+  const d = tracearrData.call(this, inst);
+  return (d && Array.isArray(d.top_offenders)) ? d.top_offenders : [];
+}
+
+// Top violation types (recent) — [{name, count}] busiest-first, or []. Drives
+// the drawer "Top violation types" list.
+function tracearrViolationTypes(inst) {
+  /* jshint validthis: true */
+  const d = tracearrData.call(this, inst);
+  return (d && Array.isArray(d.violation_types)) ? d.violation_types : [];
+}
+
+// Per-server bandwidth [{name, label, streams}] busiest-first (from the active
+// streams' bitrate grouped by server), or [].
+function tracearrPerServerBandwidth(inst) {
+  /* jshint validthis: true */
+  const d = tracearrData.call(this, inst);
+  return (d && Array.isArray(d.per_server_bandwidth)) ? d.per_server_bandwidth : [];
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. Tracearr gets a
 // 2-column span + a vertical telemetry-card layout like the rest of the family.
@@ -230,4 +254,7 @@ export const helpers = {
   tracearrViolationRate: tracearrViolationRate,
   tracearrHasTrend: tracearrHasTrend,
   tracearrTrendPath: tracearrTrendPath,
+  tracearrTopOffenders: tracearrTopOffenders,
+  tracearrViolationTypes: tracearrViolationTypes,
+  tracearrPerServerBandwidth: tracearrPerServerBandwidth,
 };

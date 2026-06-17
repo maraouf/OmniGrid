@@ -57,10 +57,26 @@
             <div class="apps-card-stat-label" x-text="t('apps.tdarr.workers') || 'Workers'"></div>
             <div class="apps-card-stat-value" x-text="tdarrWorkers(tdarrData(inst))"></div>
           </div>
+          <!-- Time-to-empty-queue ETA (card essential) — current queue ÷ the
+               recent transcodes/day rate. Shown only when the queue is non-empty
+               AND the sampler has a rate (>= 2 days of samples). -->
+          <div x-show="tdarrData(inst).queue_eta_label && (Number(tdarrData(inst).transcode_queue) || 0) > 0" class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.queue_eta') || 'ETA empty'"></div>
+            <div class="apps-card-stat-value fs-sm" :title="t('apps.tdarr.queue_eta_title', { rate: (Number(tdarrData(inst).throughput_per_day) || 0) })"
+                 x-text="'~' + tdarrData(inst).queue_eta_label"></div>
+          </div>
           <!-- Failed transcodes (table3) — warning-tinted when > 0. -->
           <div x-show="(Number(tdarrData(inst).transcode_failed) || 0) > 0" class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.tdarr.failed') || 'Failed'"></div>
             <div class="apps-card-stat-value text-[var(--danger)]" x-text="tdarrCount(tdarrData(inst).transcode_failed)"></div>
+          </div>
+          <!-- Health-check pass rate (table5 success / checked) — drawer-only;
+               amber when below 90%. -->
+          <div x-show="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && ((Number(tdarrData(inst).health_success) || 0) + (Number(tdarrData(inst).health_failed) || 0)) > 0" class="apps-card-ups-stat">
+            <div class="apps-card-stat-label" x-text="t('apps.tdarr.health_pass_rate') || 'Health pass'"></div>
+            <div class="apps-card-stat-value"
+                 :class="(Number(tdarrData(inst).health_pass_rate) || 0) < 90 ? 'text-[var(--warning)]' : ''"
+                 x-text="(Number(tdarrData(inst).health_pass_rate) || 0) + '%'"></div>
           </div>
         </div>
         <!-- Live transcode SPEED (fps, when processing) + per-transcode
