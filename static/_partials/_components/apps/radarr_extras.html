@@ -52,13 +52,25 @@
                  :class="(Number(radarrData(inst).missing) || 0) > 0 ? 'text-[var(--warning)]' : 'text-[var(--success)]'"
                  x-text="radarrCount(radarrData(inst).missing)"></div>
           </div>
-          <!-- Below quality cutoff (has a file but below the cutoff) -->
-          <div class="apps-card-ups-stat">
-            <div class="apps-card-stat-label" x-text="t('apps.radarr.cutoff_unmet') || 'Below cutoff'"></div>
-            <div class="apps-card-stat-value"
-                 :class="(Number(radarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
-                 x-text="radarrCount(radarrData(inst).cutoff_unmet)"></div>
-          </div>
+          <!-- Below quality cutoff (has a file but below the cutoff) —
+               DRAWER-ONLY (secondary to Missing; the card keeps the headline
+               backlog stats lean). -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer)">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.radarr.cutoff_unmet') || 'Below cutoff'"></div>
+              <div class="apps-card-stat-value"
+                   :class="(Number(radarrData(inst).cutoff_unmet) || 0) > 0 ? 'text-[var(--warning)]' : ''"
+                   x-text="radarrCount(radarrData(inst).cutoff_unmet)"></div>
+            </div>
+          </template>
+          <!-- Wanted = missing + below-cutoff (everything Radarr still wants to
+               grab or upgrade) — DRAWER-ONLY, only when there's a backlog. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(radarrData(inst).wanted) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.radarr.wanted') || 'Wanted'"></div>
+              <div class="apps-card-stat-value text-[var(--warning)]" x-text="radarrCount(radarrData(inst).wanted)"></div>
+            </div>
+          </template>
           <!-- Downloading (queue) -->
           <div class="apps-card-ups-stat">
             <div class="apps-card-stat-label" x-text="t('apps.radarr.downloading') || 'Downloading'"></div>
@@ -66,6 +78,20 @@
                  :class="(Number(radarrData(inst).queue) || 0) > 0 ? 'text-[var(--info)]' : ''"
                  x-text="radarrCount(radarrData(inst).queue)"></div>
           </div>
+          <!-- Grabbed today (sent to the downloader today) — card essential,
+               only when there's activity. -->
+          <div class="apps-card-ups-stat" x-show="(Number(radarrData(inst).grabbed_today) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.radarr.grabbed_today') || 'Grabbed today'"></div>
+            <div class="apps-card-stat-value text-[var(--success)]" x-text="radarrCount(radarrData(inst).grabbed_today)"></div>
+          </div>
+          <!-- Imported today (landed in the library today) — DRAWER-ONLY, only
+               when there's activity. -->
+          <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (Number(radarrData(inst).imported_today) || 0) > 0">
+            <div class="apps-card-ups-stat">
+              <div class="apps-card-stat-label" x-text="t('apps.radarr.imported_today') || 'Imported today'"></div>
+              <div class="apps-card-stat-value text-[var(--success)]" x-text="radarrCount(radarrData(inst).imported_today)"></div>
+            </div>
+          </template>
           <!-- Releasing today (calendar) — only when something is due today. -->
           <div class="apps-card-ups-stat" x-show="(Number(radarrData(inst).calendar_today) || 0) > 0">
             <div class="apps-card-stat-label" x-text="t('apps.radarr.releasing_today') || 'Today'"></div>

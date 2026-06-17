@@ -29,9 +29,13 @@ AI / Telegram skills
 * ``radarr_status``          — read-only library summary (live fetch).
 * ``radarr_search_missing``  — trigger a search for every monitored
   missing movie (POST /api/v3/command {name: MissingMoviesSearch}).
+* ``radarr_search_cutoff_unmet`` — search for quality upgrades of
+  below-cutoff movies (POST /api/v3/command {name: CutOffUnmetMoviesSearch}).
+* ``radarr_rss_sync``        — check the indexer RSS feeds now
+  (POST /api/v3/command {name: RssSync}).
 * ``radarr_refresh``         — refresh + disk-scan the whole library
   (POST /api/v3/command {name: RefreshMovie}).
-Both command skills are NON-destructive — they queue a background task
+These command skills are NON-destructive — they queue a background task
 on Radarr (nothing is deleted), so no typed-confirm is required.
 
 Auth model: every authenticated Radarr v3 endpoint takes the
@@ -46,7 +50,9 @@ Upstream API reference: <radarr-host>/api/v3 (Swagger at /api). Endpoints:
     GET  /api/v3/queue/status    — downloading count
     GET  /api/v3/diskspace       — per-mount free / total bytes
     GET  /api/v3/health          — active health issues
-    POST /api/v3/command         — MissingMoviesSearch / RefreshMovie
+    GET  /api/v3/history/since   — today's grabbed / imported activity
+    POST /api/v3/command         — MissingMoviesSearch / CutOffUnmetMoviesSearch
+                                   / RssSync / RefreshMovie
 """
 from __future__ import annotations
 
@@ -190,6 +196,23 @@ SKILLS: tuple[dict, ...] = (
         "ai_phrases": ("search for missing movies, find missing movies, "
                        "search radarr for missing, download missing movies, "
                        "grab missing movies, look for missing movies"),
+        "destructive": False,
+    },
+    {
+        "id": "radarr_search_cutoff_unmet",
+        "name": "Search cutoff-unmet movies",
+        "ai_phrases": ("search cutoff unmet movies, upgrade my movies, find "
+                       "quality upgrades, search for better releases, grab "
+                       "quality upgrades radarr, search below-cutoff movies, "
+                       "upgrade movies below quality cutoff"),
+        "destructive": False,
+    },
+    {
+        "id": "radarr_rss_sync",
+        "name": "RSS sync",
+        "ai_phrases": ("rss sync radarr, check the rss feeds, sync radarr rss, "
+                       "check indexers for new releases now, run an rss sync, "
+                       "force radarr to check feeds"),
         "destructive": False,
     },
     {
@@ -355,12 +378,22 @@ async def fetch_data(host_row: dict, chip: dict, *,
     # call, surfaced as the card's "Today" chip. Tolerated on failure (0).
     calendar_today = await _servarr.fetch_today_calendar_count(
         host_row, chip, api_version="v3", app_label="Radarr")
+    # Grabbed / imported TODAY — "what has the downloader done today" activity
+    # from the history feed. Tolerated on failure (0, 0).
+    grabbed_today, imported_today = await _servarr.fetch_today_activity(
+        host_row, chip, api_version="v3", app_label="Radarr")
+    # "Wanted" rollup — everything Radarr still wants to fetch/upgrade:
+    # missing (no file) + below-cutoff (has a file, wants a better release).
+    wanted = missing + safe_int(cutoff_unmet)
     out: dict[str, Any] = {
         "available": True,
         "movies_total": total,
         "monitored": monitored,
         "missing": missing,
         "cutoff_unmet": safe_int(cutoff_unmet),
+        "wanted": safe_int(wanted),
+        "grabbed_today": safe_int(grabbed_today),
+        "imported_today": safe_int(imported_today),
         "calendar_today": safe_int(calendar_today),
         "library_size_gb": library_size_gb,
         "queue": safe_int(queue),
@@ -409,6 +442,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "monitored": safe_int(data.get("monitored")),
         "missing": safe_int(data.get("missing")),
         "cutoff_unmet": safe_int(data.get("cutoff_unmet")),
+        "wanted": safe_int(data.get("wanted")),
+        "grabbed_today": safe_int(data.get("grabbed_today")),
+        "imported_today": safe_int(data.get("imported_today")),
         "library_size_gb": safe_float(data.get("library_size_gb")),
         "queue": safe_int(data.get("queue")),
         "disk_free_gb": safe_float(data.get("disk_free_gb")),
@@ -462,6 +498,16 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _command_skill(host_row, chip, command="MissingMoviesSearch",
                                     started_msg="🔍 Started a search for all monitored "
                                                 "missing movies on Radarr.",
+                                    host_id=host_id)
+    if skill_id == "radarr_search_cutoff_unmet":
+        return await _command_skill(host_row, chip, command="CutOffUnmetMoviesSearch",
+                                    started_msg="📈 Started a search for quality upgrades "
+                                                "(cutoff-unmet movies) on Radarr.",
+                                    host_id=host_id)
+    if skill_id == "radarr_rss_sync":
+        return await _command_skill(host_row, chip, command="RssSync",
+                                    started_msg="📡 Started an RSS sync on Radarr — "
+                                                "checking the indexer feeds for new releases.",
                                     host_id=host_id)
     if skill_id == "radarr_refresh":
         return await _command_skill(host_row, chip, command="RefreshMovie",
@@ -688,6 +734,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     monitored = safe_int(data.get("monitored"))
     missing = safe_int(data.get("missing"))
     cutoff_unmet = safe_int(data.get("cutoff_unmet"))
+    wanted = safe_int(data.get("wanted"))
+    grabbed_today = safe_int(data.get("grabbed_today"))
+    imported_today = safe_int(data.get("imported_today"))
     library_size_gb = safe_float(data.get("library_size_gb"))
     queue = safe_int(data.get("queue"))
     free_gb = safe_float(data.get("disk_free_gb"))
@@ -701,9 +750,13 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if cutoff_unmet:
         lines.append(f"📉 Below quality cutoff: {cutoff_unmet:,}")
+    if wanted:
+        lines.append(f"🎯 Wanted (missing + below-cutoff): {wanted:,}")
     if library_size_gb > 0:
         lines.append(f"🎞️ Library size: {_fmt_size_gib(library_size_gb)}")
     lines.append(f"⬇️ Downloading: {queue:,}")
+    if grabbed_today or imported_today:
+        lines.append(f"📆 Today: {grabbed_today:,} grabbed · {imported_today:,} imported")
     # Compact storage summary for the text surfaces (AI / Telegram); the web
     # drawer renders the per-mount CARDS from the result's `disks` field.
     storage_line = _storage_summary_line(disks, free_gb)

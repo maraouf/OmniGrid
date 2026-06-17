@@ -742,6 +742,54 @@ async def fetch_today_calendar_count(host_row: dict, chip: dict, *,
     return len(items)
 
 
+async def fetch_today_activity(host_row: dict, chip: dict, *,
+                               api_version: str, app_label: str,
+                               import_events: "tuple[str, ...]" = ("downloadFolderImported",)
+                               ) -> "tuple[int, int]":
+    """How many items were GRABBED and IMPORTED today (the instance's UTC day) —
+    the "what has my downloader actually done today" activity signal. Reads
+    ``GET /api/<v>/history/since?date=<today 00:00Z>`` (all events since
+    midnight) and tallies the ``grabbed`` events + the app's import event(s).
+    The history record's ``eventType`` is the string enum (``grabbed`` is
+    universal across the *arr family; the import event name differs — Radarr /
+    Sonarr ``downloadFolderImported``, so callers override ``import_events`` for
+    Lidarr / Readarr). Returns ``(grabbed, imported)``; ``(0, 0)`` on ANY
+    failure (tolerated — the card renders fine without it). Never raises."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+    tag = app_label.lower()
+    api_key, base, err = resolve_skill_target(host_row, chip, app_label)
+    if err:
+        return 0, 0
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15.0,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(base + f"/api/{api_version}/history/since",
+                              headers=headers(api_key),
+                              params={"date": start.strftime("%Y-%m-%dT%H:%M:%SZ")})
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        print(f"[{tag}] warning: history/since fetch failed — {type(e).__name__}: {e}")
+        return 0, 0
+    if r.status_code != 200:
+        return 0, 0
+    try:
+        events = r.json()
+    except (ValueError, TypeError):
+        return 0, 0
+    if not isinstance(events, list):
+        return 0, 0
+    grabbed = imported = 0
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        et = str(ev.get("eventType") or "").strip()
+        if et == "grabbed":
+            grabbed += 1
+        elif et in import_events:
+            imported += 1
+    return grabbed, imported
+
+
 async def queue_blocklist_search_skill(host_row: dict, chip: dict, *,
                                        arg: Optional[str], app_label: str,
                                        api_version: str, parent_id_field: str,
