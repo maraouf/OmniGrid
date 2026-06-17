@@ -86,6 +86,22 @@
             </template>
           </div>
         </template>
+        <!-- Busiest indexers (drawer-only) — the per-indexer rows re-sorted by
+             GRABS (which indexers actually deliver, distinct from the
+             failure-rate bars above). Shown when any indexer has grabs. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (prowlarrData(inst).top_grabbed || []).length">
+          <div class="space-y-0.5 mt-2 pt-2 border-t border-[var(--border)]">
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.prowlarr.busiest') || 'Busiest indexers'"></span>
+            <template x-for="(ix, ii) in (prowlarrData(inst).top_grabbed || [])" :key="(ix.name || '') + ':' + ii">
+              <div class="flex items-baseline justify-between gap-2 fs-3xs">
+                <span class="mono truncate" x-text="(ii + 1) + '. ' + (ix.name || '?')" :title="ix.name"></span>
+                <span class="text-[var(--text-faint)] shrink-0 mono"
+                      x-text="t('apps.prowlarr.busiest_row', { grabs: prowlarrCount(ix.grabs), queries: prowlarrCount(ix.queries) }) || (prowlarrCount(ix.grabs) + ' grabs · ' + prowlarrCount(ix.queries) + ' queries')"></span>
+              </div>
+            </template>
+          </div>
+        </template>
         <!-- Connected-app names: the REAL synced *arr apps (Sonarr / Radarr /
              Whisparr / …), rendered as brand-icon chips rather than a raw
              comma-joined string. Lives outside the stat-grid so the 1x1..4x2

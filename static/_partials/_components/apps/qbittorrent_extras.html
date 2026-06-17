@@ -69,6 +69,13 @@
             <span class="text-[var(--text-faint)]" aria-hidden="true">💽</span>
             <span class="mono" x-text="qbittorrentBytes((Number(qbittorrentData(inst).free_space_gb) || 0) * 1073741824)"></span>
           </span>
+          <!-- Torrents on disk (total data downloaded across all torrents). -->
+          <span x-show="(Number(qbittorrentData(inst).torrents_on_disk_gb) || 0) > 0"
+                class="inline-flex items-center gap-1"
+                :title="t('apps.qbittorrent.on_disk_title') || 'Total data on disk across all torrents'">
+            <span class="text-[var(--text-faint)]" aria-hidden="true">📁</span>
+            <span class="mono" x-text="qbittorrentBytes((Number(qbittorrentData(inst).torrents_on_disk_gb) || 0) * 1073741824)"></span>
+          </span>
           <!-- Stalled downloads — the actionable seedbox alert (downloads stuck
                with no peers). Shown only when > 0. -->
           <span x-show="(Number(qbittorrentData(inst).stalled) || 0) > 0"
@@ -85,13 +92,31 @@
                :title="qbittorrentData(inst).longest_active.name"
                x-text="'⏳ ' + (t('apps.qbittorrent.longest') || 'Longest') + ': ' + qbittorrentData(inst).longest_active.name + ' — ' + qbittorrentEta(qbittorrentData(inst).longest_active.eta) + ' (' + Math.round((Number(qbittorrentData(inst).longest_active.progress) || 0) * 100) + '%)'"></div>
         </template>
-        <!-- All-time totals + a non-connected warning. -->
-        <div x-show="(Number(qbittorrentData(inst).alltime_dl) || 0) > 0 || (Number(qbittorrentData(inst).alltime_ul) || 0) > 0"
+        <!-- This-session + all-time totals + a non-connected warning. -->
+        <div x-show="(Number(qbittorrentData(inst).dl_total) || 0) > 0 || (Number(qbittorrentData(inst).up_total) || 0) > 0"
              class="fs-3xs text-[var(--text-faint)] mt-1"
+             x-text="(t('apps.qbittorrent.session') || 'This session') + ': ↓ ' + qbittorrentBytes(qbittorrentData(inst).dl_total) + ' / ↑ ' + qbittorrentBytes(qbittorrentData(inst).up_total)"></div>
+        <div x-show="(Number(qbittorrentData(inst).alltime_dl) || 0) > 0 || (Number(qbittorrentData(inst).alltime_ul) || 0) > 0"
+             class="fs-3xs text-[var(--text-faint)] mt-0.5"
              x-text="(t('apps.qbittorrent.alltime') || 'All-time') + ': ↓ ' + qbittorrentBytes(qbittorrentData(inst).alltime_dl) + ' / ↑ ' + qbittorrentBytes(qbittorrentData(inst).alltime_ul)"></div>
         <div x-show="qbittorrentData(inst).connection_status && qbittorrentData(inst).connection_status !== 'connected'"
              class="fs-3xs text-[var(--warning)] mt-0.5"
              x-text="'⚠️ ' + (t('apps.qbittorrent.connection') || 'Connection') + ': ' + qbittorrentData(inst).connection_status"></div>
+        <!-- Per-category breakdown (drawer-only) — count + size per category,
+             busiest-first. -->
+        <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (qbittorrentData(inst).category_breakdown || []).length">
+          <div class="space-y-0.5 mt-2 pt-2 border-t border-[var(--border)]">
+            <span class="fs-2xs text-[var(--text-faint)] block"
+                  x-text="t('apps.qbittorrent.categories') || 'Categories'"></span>
+            <template x-for="(c, ci) in (qbittorrentData(inst).category_breakdown || [])" :key="(c.label || '') + ':' + ci">
+              <div class="flex items-baseline justify-between gap-2 fs-3xs">
+                <span class="truncate" x-text="c.label || '?'" :title="c.label"></span>
+                <span class="text-[var(--text-faint)] shrink-0 mono"
+                      x-text="t('apps.qbittorrent.category_row', { count: qbittorrentCount(c.count), size: qbittorrentBytes((Number(c.size_gb) || 0) * 1073741824) }) || (qbittorrentCount(c.count) + ' · ' + qbittorrentBytes((Number(c.size_gb) || 0) * 1073741824))"></span>
+              </div>
+            </template>
+          </div>
+        </template>
         <!-- Transfer-speed + free-disk trend (from OmniGrid's qbittorrent_samples).
              Drawer-only (`appsExtrasInDrawer`) — no room on the apps-grid card;
              shown once ≥ 2 daily points exist. -->

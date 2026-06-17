@@ -471,6 +471,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         # Capped per-indexer breakdown (worst-failure-rate first) for the
         # rich indexer-stats skill + the AI context.
         "indexer_stats": (stats.get("per_indexer") or [])[:15],
+        # Busiest indexers — the same per-indexer rows re-sorted by GRABS (then
+        # queries), top 8 with at least one grab. Answers "which indexers actually
+        # deliver" (distinct from the worst-failure-rate sort above).
+        "top_grabbed": sorted(
+            (p for p in (stats.get("per_indexer") or [])
+             if isinstance(p, dict) and safe_int(p.get("grabs")) > 0),
+            key=lambda p: (safe_int(p.get("grabs")), safe_int(p.get("queries"))),
+            reverse=True)[:8],
         "health_issues": safe_int(health_issues),
         "version": ver,
         "fetched_at": int(now),
@@ -604,6 +612,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     fail_rate = float(data.get("fail_rate_pct") or 0.0)
     worst = data.get("worst_failing")
     slowest = data.get("slowest_indexer")
+    busiest = as_list(data.get("top_grabbed"))
     health = safe_int(data.get("health_issues"))
     # Spell out the actual connected apps so the AI never invents names.
     apps_line = f"🔗 Apps synced: {apps:,}"
@@ -623,6 +632,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
     if isinstance(slowest, dict) and slowest.get("name"):
         lines.append(f"🐢 Slowest: {slowest.get('name')} "
                      f"({safe_int(slowest.get('avg_response_ms')):,}ms avg)")
+    # Busiest indexers (top 3 by grabs) — which indexers actually deliver.
+    _busy = [b for b in busiest if isinstance(b, dict) and b.get("name")][:3]
+    if _busy:
+        lines.append("📥 Busiest: " + " · ".join(
+            f"{b.get('name')} ({safe_int(b.get('grabs')):,} grabs)" for b in _busy))
     lines.append(f"{'⚠️' if health else '✅'} Health issues: {health:,}")
     return {
         "ok": True,

@@ -81,7 +81,7 @@ _SEMVER_RE = _re.compile(r"(?P<v>\d+\.\d+\.\d+)")
 _STRICT_SEMVER_RE = _re.compile(r"^\d+\.\d+\.\d+$")
 _SAFE_PATH_RE = _re.compile(r"^/[A-Za-z0-9_./ -]+$")
 from logic.apps._common import cache_key, peek_cache, resolve_userpass
-from logic.coerce import as_list, safe_float, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
 SLUGS: tuple[str, ...] = ("qbittorrent",)
@@ -474,6 +474,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
     # downloads (∞ eta) are excluded here and surfaced via the `stalled` count.
     longest: "Optional[tuple]" = None
     longest_eta = -1
+    # Per-category breakdown (count + total size) + total bytes on disk — both
+    # tallied from the same torrents list (no extra call). A torrent has exactly
+    # ONE category (unlike multi-valued tags), so the category split is clean.
+    cat_counts: dict[str, list] = {}
+    on_disk_bytes = 0
     for t in torrents:
         if not isinstance(t, dict):
             continue
@@ -494,6 +499,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
             paused += 1
         if safe_float(t.get("progress")) >= 1.0:
             completed += 1
+        cat = str(t.get("category") or "").strip() or "(uncategorised)"
+        _cc = cat_counts.setdefault(cat, [0, 0])
+        _cc[0] += 1
+        _cc[1] += safe_int(t.get("size"))
+        # ``completed`` = bytes actually downloaded to disk for this torrent.
+        on_disk_bytes += safe_int(t.get("completed"))
+    category_breakdown = [
+        {"label": k, "count": v[0], "size_gb": round(v[1] / _GIB, 1)}
+        for k, v in sorted(cat_counts.items(), key=lambda kv: (-kv[1][0], -kv[1][1]))][:8]
+    torrents_on_disk_gb = round(on_disk_bytes / _GIB, 1)
     free_space_gb = round(safe_float(srv.get("free_space_on_disk")) / _GIB, 1)
     out: dict[str, Any] = {
         "available": True,
@@ -511,6 +526,10 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "longest_active": ({"name": longest[1], "eta": longest[0],
                             "progress": round(longest[2], 4)}
                            if longest else None),
+        # Per-category breakdown (count + size, busiest-first) + total bytes
+        # actually on disk across all torrents.
+        "category_breakdown": category_breakdown,
+        "torrents_on_disk_gb": torrents_on_disk_gb,
         # server_state extras (from sync/maindata) — tolerated on failure.
         "free_space_gb": free_space_gb,
         "global_ratio": round(safe_float(srv.get("global_ratio")), 2),
@@ -548,10 +567,14 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "paused": safe_int(data.get("paused")),
         "completed": safe_int(data.get("completed")),
         "stalled": safe_int(data.get("stalled")),
+        "category_breakdown": [{"label": str(as_dict(c).get("label") or ""), "count": safe_int(as_dict(c).get("count")), "size_gb": safe_float(as_dict(c).get("size_gb"))} for c in as_list(data.get("category_breakdown")) if as_dict(c).get("label")],
+        "torrents_on_disk_gb": safe_float(data.get("torrents_on_disk_gb")),
         "free_space_gb": safe_float(data.get("free_space_gb")),
         "global_ratio": safe_float(data.get("global_ratio")),
         "alltime_dl": safe_int(data.get("alltime_dl")),
         "alltime_ul": safe_int(data.get("alltime_ul")),
+        "session_dl": safe_int(data.get("dl_total")),
+        "session_ul": safe_int(data.get("up_total")),
         "connection_status": data.get("connection_status") or "",
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -932,6 +955,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
     free_gb = safe_float(data.get("free_space_gb"))
     alltime_dl = safe_int(data.get("alltime_dl"))
     alltime_ul = safe_int(data.get("alltime_ul"))
+    session_dl = safe_int(data.get("dl_total"))
+    session_ul = safe_int(data.get("up_total"))
+    on_disk_gb = safe_float(data.get("torrents_on_disk_gb"))
+    cats = as_list(data.get("category_breakdown"))
     conn = str(data.get("connection_status") or "").strip().lower()
     lines = [
         f"⬇️ Download: {_fmt_speed(data.get('dl_speed'))}",
@@ -944,14 +971,24 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     if stalled > 0:
         lines.append(f"🛑 Stalled downloads: {stalled:,}")
+    # Per-category breakdown (top 5 by count) — count + size per category.
+    _cat_parts = [f"{str(as_dict(c).get('label') or '').strip()} {safe_int(as_dict(c).get('count')):,}"
+                  f" ({_fmt_size_bytes(safe_float(as_dict(c).get('size_gb')) * _GIB)})"
+                  for c in cats[:5] if as_dict(c).get("label")]
+    if _cat_parts:
+        lines.append("🗂️ Categories: " + " · ".join(_cat_parts))
     if isinstance(longest, dict) and longest.get("name"):
         _pct = round(safe_float(longest.get("progress")) * 100)
         lines.append(f"⏳ Longest download: {longest['name']} — "
                      f"{_fmt_eta(longest.get('eta'))} left ({_pct}%)")
     if ratio > 0:
         lines.append(f"⚖️ Global ratio: {ratio:.2f}")
+    if session_dl > 0 or session_ul > 0:
+        lines.append(f"📈 This session: ↓ {_fmt_size_bytes(session_dl)} / ↑ {_fmt_size_bytes(session_ul)}")
     if alltime_dl > 0 or alltime_ul > 0:
         lines.append(f"📊 All-time: ↓ {_fmt_size_bytes(alltime_dl)} / ↑ {_fmt_size_bytes(alltime_ul)}")
+    if on_disk_gb > 0:
+        lines.append(f"📁 Torrents on disk: {_fmt_size_bytes(on_disk_gb * _GIB)}")
     if free_gb > 0:
         lines.append(f"💽 Free disk: {_fmt_size_bytes(free_gb * _GIB)}")
     if conn and conn != "connected":
