@@ -32,6 +32,16 @@
         <div class="apps-card-stat-value" x-text="flaresolverrCount(flaresolverrData(inst).sessions)"
              :title="t('apps.flaresolverr.sessions_hint')"></div>
       </div>
+      <!-- Oldest still-open session's age — a leaked / stale-session signal
+           (FlareSolverr gives no session timestamps; this is OmniGrid's own
+           first-seen tracking). Shown only when a session is open + its age is
+           known; amber past 6h (a long-lived session is likely leaked). -->
+      <div class="apps-card-ups-stat" x-show="(Number(flaresolverrData(inst).sessions) || 0) > 0 && (Number(flaresolverrData(inst).oldest_session_age_s) || 0) > 0">
+        <div class="apps-card-stat-label" x-text="t('apps.flaresolverr.oldest_session') || 'Oldest session'"></div>
+        <div class="apps-card-stat-value fs-sm"
+             :class="(Number(flaresolverrData(inst).oldest_session_age_s) || 0) >= 21600 ? 'text-[var(--warning)]' : ''"
+             x-text="flaresolverrAge(flaresolverrData(inst).oldest_session_age_s)"></div>
+      </div>
     </div>
     <!-- No persistent sessions ever seen in the window — say WHY 0 is normal so
          the card doesn't read as broken (FlareSolverr only counts

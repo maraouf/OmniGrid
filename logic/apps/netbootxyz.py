@@ -136,6 +136,22 @@ def _fmt_size(n: Any) -> str:
     return f"{b:.1f} PB"
 
 
+def _asset_size(a: dict) -> int:
+    """A downloaded asset's size in bytes, across the key names different webapp
+    builds use (``size`` / ``bytes`` / ``filesize`` / ``length``). 0 when none
+    are present (older builds emit bare filename strings → no size)."""
+    return safe_int(a.get("size") or a.get("bytes") or a.get("filesize")
+                    or a.get("length"))
+
+
+def _assets_disk_bytes(assets: Any) -> int:
+    """Total assets-directory disk usage = sum of every downloaded asset's size,
+    over the FULL list (not the capped display list) so the total is accurate.
+    0 when the webapp build reports no sizes (best-effort)."""
+    return sum(_asset_size(a) for a in (assets if isinstance(assets, list) else [])
+               if isinstance(a, dict))
+
+
 def _shape_assets(assets: Any) -> list:
     """Normalise the ``renderlocal`` downloaded-asset list into
     ``[{name, size_bytes}]`` (newest webapp builds emit objects; older ones emit
@@ -150,8 +166,7 @@ def _shape_assets(assets: Any) -> list:
         elif isinstance(a, dict):
             name = str(a.get("name") or a.get("file") or a.get("filename")
                        or a.get("path") or a.get("asset") or "").strip()
-            size = safe_int(a.get("size") or a.get("bytes") or a.get("filesize")
-                            or a.get("length"))
+            size = _asset_size(a)
         else:
             continue
         if not name:
@@ -344,6 +359,10 @@ def _shape_dash(dash: dict) -> dict:
         out["boot_endpoints"] = safe_int(d.get("_endpoints_count"))
         out["assets_count"] = safe_int(d.get("_assets_count"))
         out["assets"] = _shape_assets(d.get("_assets"))
+        # Assets-directory disk usage = sum of every downloaded asset's size
+        # (best-effort: 0 when the webapp build emits bare filenames). Summed over
+        # the FULL list, not the capped display list.
+        out["assets_disk_bytes"] = _assets_disk_bytes(d.get("_assets"))
         # Untracked / orphaned downloads (old assets to clean up) — count +
         # the path list (capped) for the drawer stat + the clear-untracked
         # action. Each is a bare path string (localfiles carry no size).
@@ -487,6 +506,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "mem_total": safe_int(data.get("mem_total")),
         "boot_endpoints": safe_int(data.get("boot_endpoints")),
         "assets_count": safe_int(data.get("assets_count")),
+        "assets_disk_bytes": safe_int(data.get("assets_disk_bytes")),
         "untracked_count": safe_int(data.get("untracked_count")),
         "assets": [str(a.get("name") or "") for a in (data.get("assets") or [])
                    if isinstance(a, dict)][:20],
@@ -551,8 +571,12 @@ async def _status_skill(host_row: dict, chip: dict, *,
     endpoints = safe_int(data.get("boot_endpoints"))
     assets = safe_int(data.get("assets_count"))
     untracked = safe_int(data.get("untracked_count"))
+    disk = _fmt_size(data.get("assets_disk_bytes"))
     if endpoints or assets:
-        lines.append(f"🧰 {endpoints} boot option(s) · {assets} asset(s) downloaded")
+        line = f"🧰 {endpoints} boot option(s) · {assets} asset(s) downloaded"
+        if disk:
+            line += f" ({disk})"
+        lines.append(line)
     if untracked:
         lines.append(f"🧹 {untracked} untracked asset(s) (old / orphaned — clearable)")
     cpu = safe_float(data.get("cpu_percent"))
@@ -564,6 +588,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "version": web, "menu_version": menu, "latest_menu_version": latest,
             "boot_endpoints": endpoints, "assets_count": assets,
+            "assets_disk_bytes": safe_int(data.get("assets_disk_bytes")),
             "untracked_count": untracked,
             "update_available": bool(data.get("update_available"))}
 

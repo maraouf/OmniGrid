@@ -431,6 +431,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
     cert_rows = _cert_rows(certs_l)
     expiring = sum(1 for r in cert_rows if r["days"] <= _EXPIRY_SOON_DAYS)
     certs_expired = sum(1 for r in cert_rows if r["days"] < 0)
+    # Renewal FAILURES — expired Let's Encrypt certs. LE auto-renews ~30d before
+    # expiry, so a RENEWABLE cert that's already expired means the auto-renewal
+    # failed (actionable: re-run it). Distinct from certs_expired, which also
+    # counts custom-uploaded certs that simply lapsed (operator must re-upload).
+    certs_renewal_failed = sum(1 for r in cert_rows if r["days"] < 0 and r["renewable"])
     cert_min_days = cert_rows[0]["days"] if cert_rows else None
     # Proxy hosts served over plain HTTP — no SSL cert assigned
     # (``certificate_id == 0``). A "N sites over plain HTTP" security signal;
@@ -454,6 +459,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "certs": len(certs_l),
         "certs_expiring": expiring,
         "certs_expired": certs_expired,
+        # Expired Let's Encrypt certs = auto-renewal failures (actionable).
+        "certs_renewal_failed": certs_renewal_failed,
         # Soonest-expiry first (drives the card "next cert" stat + the drawer
         # sorted list + per-cert renew buttons).
         "cert_min_days": cert_min_days,
@@ -461,6 +468,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "redirections": len([r for r in as_list(redirs) if isinstance(r, dict)]),
         "streams": len([s for s in as_list(streams) if isinstance(s, dict)]),
         "dead_hosts": len([d for d in as_list(dead) if isinstance(d, dict)]),
+        # WHICH hosts are 404 / dead — the domain names (NPM doesn't health-check
+        # upstreams; this is its 404-host list). Drawer detail, capped.
+        "dead_host_names": [
+            nm for d in as_list(dead) if isinstance(d, dict)
+            for nm in [", ".join(str(x) for x in as_list(d.get("domain_names")) if x)]
+            if nm][:_MAX_ROWS],
         "access_lists": len(acl_l),
         "protected_hosts": protected_hosts,
         "fetched_at": int(now),
@@ -473,7 +486,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"(on={out['proxy_enabled']}/off={out['proxy_disabled']}) "
           f"plain_http={out['proxy_plain_http']} "
           f"certs={out['certs']} expiring={out['certs_expiring']} "
-          f"expired={out['certs_expired']} min_days={out['cert_min_days']} "
+          f"expired={out['certs_expired']} renew_failed={out['certs_renewal_failed']} "
+          f"min_days={out['cert_min_days']} "
           f"redirs={out['redirections']} streams={out['streams']} "
           f"dead={out['dead_hosts']} acls={out['access_lists']} "
           f"protected={out['protected_hosts']} ver={out['version'] or '-'}")
@@ -508,6 +522,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "certs": safe_int(data.get("certs")),
         "certs_expiring": safe_int(data.get("certs_expiring")),
         "certs_expired": safe_int(data.get("certs_expired")),
+        "certs_renewal_failed": safe_int(data.get("certs_renewal_failed")),
         "cert_min_days": data.get("cert_min_days"),
         "redirections": safe_int(data.get("redirections")),
         "streams": safe_int(data.get("streams")),
@@ -605,10 +620,17 @@ async def _status_skill(host_row: dict, chip: dict, *,
             lines.append(f"🟠 Soonest cert expires in {min_days}d")
         else:
             lines.append(f"🟢 Soonest cert expires in {min_days}d")
-    if expired:
+    renewal_failed = safe_int(data.get("certs_renewal_failed"))
+    if renewal_failed:
+        lines.append(f"🔁 {renewal_failed} Let's Encrypt cert(s) FAILED to auto-renew "
+                     f"(expired + renewable — re-run the renewal)")
+    elif expired:
         lines.append(f"⛔ {expired} cert(s) already EXPIRED")
     if plain:
         lines.append(f"🔓 {plain} proxy host(s) served over plain HTTP (no SSL)")
+    dead_names = [str(n) for n in as_list(data.get("dead_host_names")) if str(n).strip()]
+    if dead_names:
+        lines.append(f"💀 404 hosts: {', '.join(dead_names[:8])}")
     acls = safe_int(data.get("access_lists"))
     protected = safe_int(data.get("protected_hosts"))
     if acls or protected:

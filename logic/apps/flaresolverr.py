@@ -47,6 +47,7 @@ Single-instance app (NOT fleet) — one card per pinned chip.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Optional
 
@@ -55,6 +56,66 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl)
 from logic.coerce import as_dict, as_list, safe_int
+
+
+def _track_session_ages(host_id: str, service_idx: int, ids: "list[str]",
+                        now: int) -> "tuple[int, str]":
+    """Track per-session first-seen so the card can show the OLDEST still-open
+    session's age (FlareSolverr's sessions.list returns bare ids with no
+    timestamp). UPSERTs the live ids into ``flaresolverr_sessions`` (recording
+    first_seen on a NEW id, last_seen on every probe — never resetting first_seen),
+    prunes rows for sessions no longer present, and returns ``(oldest_age_s,
+    oldest_id)``. ``(0, "")`` when there are no sessions or on any DB error (a
+    tracking hiccup must never fail the card). Sync — call via asyncio.to_thread."""
+    from logic.db import db_conn  # noqa: PLC0415
+    if not host_id:
+        return 0, ""
+    try:
+        with db_conn() as c:
+            if not ids:
+                # No open sessions → clear this chip's tracking so a destroyed
+                # session doesn't linger as a phantom "oldest".
+                c.execute("DELETE FROM flaresolverr_sessions WHERE host_id=? AND "
+                          "service_idx=?", (host_id, int(service_idx)))
+                return 0, ""
+            for sid in ids:
+                c.execute(
+                    "INSERT INTO flaresolverr_sessions "
+                    "(host_id, service_idx, session_id, first_seen_ts, last_seen_ts) "
+                    "VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(host_id, service_idx, session_id) "
+                    "DO UPDATE SET last_seen_ts=excluded.last_seen_ts",
+                    (host_id, int(service_idx), sid, now, now))
+            placeholders = ",".join("?" * len(ids))
+            c.execute(
+                f"DELETE FROM flaresolverr_sessions WHERE host_id=? AND "
+                f"service_idx=? AND session_id NOT IN ({placeholders})",
+                (host_id, int(service_idx), *ids))
+            row = c.execute(
+                "SELECT session_id, first_seen_ts FROM flaresolverr_sessions "
+                "WHERE host_id=? AND service_idx=? ORDER BY first_seen_ts ASC LIMIT 1",
+                (host_id, int(service_idx))).fetchone()
+            if row:
+                return max(0, now - safe_int(row["first_seen_ts"])), str(row["session_id"])
+    except Exception as e:  # noqa: BLE001
+        print(f"[flaresolverr] session-age tracking skipped: {type(e).__name__}: {e}")
+    return 0, ""
+
+
+def _fmt_age(seconds: int) -> str:
+    """Humanise a session age in seconds → ``Nm`` / ``Nh Mm`` / ``Nd Mh``. ``""``
+    for non-positive."""
+    s = max(0, int(seconds))
+    if s <= 0:
+        return ""
+    days, rem = divmod(s, 86400)
+    hrs, rem = divmod(rem, 3600)
+    mins = rem // 60
+    if days:
+        return f"{days}d {hrs}h" if hrs else f"{days}d"
+    if hrs:
+        return f"{hrs}h {mins}m" if mins else f"{hrs}h"
+    return f"{mins}m" if mins else "<1m"
 
 # Catalog template slug handled by this module.
 SLUGS: tuple[str, ...] = ("flaresolverr",)
@@ -220,6 +281,11 @@ async def fetch_data(host_row: dict, chip: dict, *,
               f"failed — {type(e).__name__}: {e}")
         raise RuntimeError(f"upstream fetch failed: {type(e).__name__}: {e}")
     ids = sessions if isinstance(sessions, list) else []
+    # Oldest still-open session's age (leaked / stale-session detection) — from
+    # OmniGrid's own first-seen tracking (the API gives no session timestamps).
+    # Best-effort; runs off the event loop so the DB touch can't stall the card.
+    oldest_age_s, oldest_id = await asyncio.to_thread(
+        _track_session_ages, str(host_id), int(service_idx), ids, int(now))
     out: dict = {
         "available": True,
         "ready": bool(root.get("ready")),
@@ -227,6 +293,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "user_agent": root.get("user_agent") or "",
         "sessions": len(ids),
         "session_ids": ids,
+        "oldest_session_age_s": oldest_age_s,
+        "oldest_session_id": oldest_id,
         "fetched_at": int(now),
     }
     # 30-day open-session usage trend from the lifespan sampler (FlareSolverr
@@ -242,7 +310,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
     except Exception as e:  # noqa: BLE001
         print(f"[flaresolverr] usage_summary skipped: {type(e).__name__}: {e}")
     print(f"[flaresolverr] INFO fetched host={host_id} ready={out['ready']} "
-          f"ver={out['version'] or '-'} sessions={out['sessions']}")
+          f"ver={out['version'] or '-'} sessions={out['sessions']} "
+          f"oldest={oldest_age_s}s")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -257,6 +326,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "ready": bool(data.get("ready")),
         "version": data.get("version") or "",
         "sessions": safe_int(data.get("sessions")),
+        "oldest_session_age_s": safe_int(data.get("oldest_session_age_s")),
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -315,6 +385,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
         head + (f" — v{ver}" if ver else ""),
         f"🧩 {sessions} active session(s)",
     ]
+    oldest = safe_int(data.get("oldest_session_age_s"))
+    if sessions and oldest > 0:
+        lines.append(f"⏳ Oldest session open {_fmt_age(oldest)}")
     if ua:
         lines.append(f"🌐 UA: {ua}")
     _usage = data.get("usage")
@@ -326,6 +399,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
                      f"avg {usage.get('avg', 0)} · active {active_days} day(s)")
     return {"ok": True, "status": 200, "detail": "\n".join(lines),
             "ready": bool(data.get("ready")), "version": ver, "sessions": sessions,
+            "oldest_session_age_s": safe_int(data.get("oldest_session_age_s")),
             "usage": usage}
 
 

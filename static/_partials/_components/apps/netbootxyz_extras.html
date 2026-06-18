@@ -31,6 +31,12 @@
             <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.assets') || 'Downloaded'"></div>
             <div class="apps-card-stat-value" x-text="netbootxyzData(inst).assets_count"></div>
           </div>
+          <!-- Assets-directory disk usage (sum of downloaded-asset sizes) — shown
+               only when the webapp reports sizes (> 0). -->
+          <div class="apps-card-ups-stat" x-show="(Number(netbootxyzData(inst).assets_disk_bytes) || 0) > 0">
+            <div class="apps-card-stat-label" x-text="t('apps.netbootxyz.assets_disk') || 'Assets disk'"></div>
+            <div class="apps-card-stat-value fs-sm" x-text="netbootxyzSize(netbootxyzData(inst).assets_disk_bytes)"></div>
+          </div>
           <!-- Untracked / orphaned downloads (old assets not used by the boot
                menu — clearable via the Clear-untracked action). Warning-tinted;
                shown only when there's at least one. -->

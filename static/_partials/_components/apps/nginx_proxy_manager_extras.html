@@ -72,6 +72,11 @@
     <div x-show="(Number(npmData(inst).certs_expiring) || 0) > 0"
          class="fs-3xs mt-1 mono text-[var(--warning)]"
          x-text="t('apps.npm.expiring_summary', { n: (Number(npmData(inst).certs_expiring) || 0) })"></div>
+    <!-- Cert auto-renewal FAILURES — expired Let's Encrypt certs (the renewal
+         didn't run). Danger-tinted, card-visible (actionable: re-run the renewal). -->
+    <div x-show="(Number(npmData(inst).certs_renewal_failed) || 0) > 0"
+         class="fs-3xs mt-1 mono text-[var(--danger)]"
+         x-text="t('apps.npm.renewal_failed_summary', { n: (Number(npmData(inst).certs_renewal_failed) || 0) })"></div>
     <!-- Soonest-expiry certificate list (drawer-only): status dot + days-left +
          a one-click ↻ Renew on Let's Encrypt certs (custom certs have no renew
          endpoint, so no button). Cert expiry is NPM's #1 failure mode and the
@@ -96,6 +101,20 @@
                 <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-refresh-cw"/>
               </svg>
             </button>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- 404 / dead-host names (drawer-only) — WHICH hosts are configured to
+         return 404 (NPM doesn't health-check upstreams; this is its dead-host
+         list). Shown when any exist + their names came back. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && (npmData(inst).dead_host_names || []).length">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label" x-text="t('apps.npm.dead_hosts_list') || '404 hosts'"></div>
+        <template x-for="dh in (npmData(inst).dead_host_names || [])" :key="dh">
+          <div class="flex items-center gap-2 fs-2xs min-w-0">
+            <span aria-hidden="true">💀</span>
+            <span class="truncate text-[var(--text-dim)]" x-text="dh" :title="dh"></span>
           </div>
         </template>
       </div>

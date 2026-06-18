@@ -625,11 +625,12 @@ async def _devices_skill(host_row: dict, chip: dict, *,
         name = str(info.get("hostname") or "").strip() or str(p.get("id") or "").strip()
         if not name:
             continue
-        rows.append((_peer_online(p), name, info, str(p.get("id") or "").strip()))
+        rows.append((_peer_online(p), name, info, str(p.get("id") or "").strip(),
+                     _peer_last_online_s(p)))
     rows.sort(key=lambda r: (0 if r[0] else 1, r[1].lower()))
     items: list = []
     lines: list = []
-    for is_on, name, info, pid in rows[:_MAX_ROWS]:
+    for is_on, name, info, pid, age in rows[:_MAX_ROWS]:
         dot = "🟢 online" if is_on else "⚪ offline"
         bits = [dot]
         osname = str(info.get("os") or "").strip()
@@ -637,6 +638,10 @@ async def _devices_skill(host_row: dict, chip: dict, *,
             bits.append(osname)
         if pid:
             bits.append(f"ID {pid}")
+        # Per-device last-seen ("last connected") — only for OFFLINE devices with
+        # a known last_online (online ones are connected right now).
+        if not is_on and age > 0:
+            bits.append(f"last seen {_fmt_age(age)}")
         sub = " · ".join(bits)
         items.append({"title": name, "subtitle": sub})
         lines.append(f"• {name}  ({sub})")

@@ -577,6 +577,21 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_flaresolverr_sessions_ts
             ON flaresolverr_session_samples(ts);
 
+        -- FlareSolverr per-session first-seen tracking. sessions.list returns
+        -- bare session IDs with NO creation timestamp, so OmniGrid records when
+        -- it FIRST saw each session id -> the oldest still-present session's age
+        -- (a leaked / stale browser session). One row per (host, svc, session);
+        -- fetch_data UPSERTs the live ids each probe + deletes rows for sessions
+        -- that are no longer present. Survives a restart (DB-backed).
+        CREATE TABLE IF NOT EXISTS flaresolverr_sessions (
+            host_id       TEXT    NOT NULL,
+            service_idx   INTEGER NOT NULL,
+            session_id    TEXT    NOT NULL,
+            first_seen_ts INTEGER NOT NULL,
+            last_seen_ts  INTEGER NOT NULL,
+            PRIMARY KEY (host_id, service_idx, session_id)
+        );
+
         -- RustDesk Server (Pro) per-chip history. The Pro API exposes only the
         -- CURRENT peer state (no online-count history), so the lifespan
         -- ``rustdesk_sampler`` records the live registered/online-device count +

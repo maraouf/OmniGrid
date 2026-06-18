@@ -108,6 +108,25 @@ function flaresolverrSparkPoints(inst) {
   return pts;
 }
 
+// Humanise a session age in seconds -> "Nm" / "Nh Mm" / "Nd Mh" ('' for <= 0).
+// Mirrors the backend _fmt_age so the card + status read identically.
+function flaresolverrAge(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (s <= 0) {
+    return '';
+  }
+  const days = Math.floor(s / 86400);
+  const hrs = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  if (days) {
+    return hrs ? (days + 'd ' + hrs + 'h') : (days + 'd');
+  }
+  if (hrs) {
+    return mins ? (hrs + 'h ' + mins + 'm') : (hrs + 'h');
+  }
+  return mins ? (mins + 'm') : '<1m';
+}
+
 // Extender record -- consumed by the generic helpers in
 // `static/js/app-apps.js` via `window.OG_APPS_EXTENDERS`. No api_key (the proxy
 // has no auth) and the default single-column layout (a compact status tile).
@@ -124,4 +143,5 @@ export const helpers = {
   flaresolverrCount: flaresolverrCount,
   flaresolverrUsage: flaresolverrUsage,
   flaresolverrSparkPoints: flaresolverrSparkPoints,
+  flaresolverrAge: flaresolverrAge,
 };
