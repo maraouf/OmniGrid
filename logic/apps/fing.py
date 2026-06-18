@@ -86,6 +86,15 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "fing_new_devices",
+        "name": "New devices (Fing)",
+        "ai_phrases": ("what new devices joined, any unknown devices on my network, "
+                       "new device alert, what just connected to my network, show "
+                       "new devices, did anything new join my network, unknown "
+                       "device joined, who joined my network recently"),
+        "destructive": False,
+    },
+    {
         "id": "fing_device",
         "name": "Is a device online (Fing)",
         "ai_phrases": ("is the <name> online, is my <name> connected, is the "
@@ -144,6 +153,22 @@ def _device_first_seen(d: dict) -> int:
         return 0
 
 
+def _fmt_age(seconds: Any) -> str:
+    """Humanise an age in seconds → ``Nd`` / ``Nh`` / ``Nm`` / ``just now``
+    ('' for non-positive). Backend skill text (English)."""
+    s = max(0, safe_int(seconds))
+    if s <= 0:
+        return ""
+    days = s // 86400
+    hrs = (s % 86400) // 3600
+    mins = (s % 3600) // 60
+    if days:
+        return f"{days}d"
+    if hrs:
+        return f"{hrs}h"
+    return f"{mins}m" if mins else "just now"
+
+
 def _device_ip(d: dict) -> str:
     """First IP of a Fing device (``ip`` is a list, or a bare string)."""
     ip = d.get("ip")
@@ -166,6 +191,11 @@ def _shape(devices: list[dict]) -> dict:
     by_type: dict = {}
     by_vendor: dict = {}
     compact: list = []
+    # Focused breakdowns derivable from the same loop: the NEW devices (the
+    # "unknown device joined" security signal — names + MACs, not just a count)
+    # and the OFFLINE-but-known devices (a known device that dropped off).
+    new_list: list = []
+    offline_list: list = []
     for d in devices:
         if not isinstance(d, dict):
             continue
@@ -181,17 +211,22 @@ def _shape(devices: list[dict]) -> dict:
         vendor = str(d.get("make") or d.get("vendor") or "").strip()
         if vendor:
             by_vendor[vendor] = by_vendor.get(vendor, 0) + 1
+        row = {
+            "name": str(d.get("name") or _device_ip(d) or d.get("mac") or "?").strip(),
+            "ip": _device_ip(d),
+            "mac": str(d.get("mac") or "").strip(),
+            "type": dtype,
+            "vendor": vendor,
+            "online": is_on,
+            "new": is_new,
+            "first_seen": first_seen,
+        }
         if len(compact) < _MAX_ROWS:
-            compact.append({
-                "name": str(d.get("name") or _device_ip(d) or d.get("mac") or "?").strip(),
-                "ip": _device_ip(d),
-                "mac": str(d.get("mac") or "").strip(),
-                "type": dtype,
-                "vendor": vendor,
-                "online": is_on,
-                "new": is_new,
-                "first_seen": first_seen,
-            })
+            compact.append(row)
+        if is_new and len(new_list) < _MAX_ROWS:
+            new_list.append(row)
+        if (not is_on) and len(offline_list) < _MAX_ROWS:
+            offline_list.append(row)
 
     def _top(counts: dict, n: int = 6) -> list:
         return [{"name": k, "count": v}
@@ -199,6 +234,9 @@ def _shape(devices: list[dict]) -> dict:
 
     # Online devices first, then by name — most-relevant rows lead the list.
     compact.sort(key=lambda r: (not r["online"], r["name"].lower()))
+    # New devices newest-first (most-recent join leads); offline known by name.
+    new_list.sort(key=lambda r: (-r["first_seen"], r["name"].lower()))
+    offline_list.sort(key=lambda r: r["name"].lower())
     return {
         "devices_total": total,
         "devices_online": online,
@@ -207,6 +245,10 @@ def _shape(devices: list[dict]) -> dict:
         "by_type": _top(by_type),
         "by_vendor": _top(by_vendor),
         "devices": compact,
+        # P1: the actual new devices (names + MACs + first-seen) — the killer
+        # "unknown device joined" surface; P2: the known devices that dropped off.
+        "new_device_list": new_list,
+        "offline_device_list": offline_list,
     }
 
 
@@ -312,7 +354,13 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
     return {
         "devices_total": safe_int(data.get("devices_total")),
         "devices_online": safe_int(data.get("devices_online")),
+        "devices_offline": safe_int(data.get("devices_offline")),
         "new_devices": safe_int(data.get("new_devices")),
+        # The actual new-device NAMES (capped) so the AI can say WHICH joined,
+        # not just how many.
+        "new_device_names": [str(as_dict(d).get("name") or "").strip()
+                             for d in as_list(data.get("new_device_list"))
+                             if as_dict(d).get("name")][:10],
         "fetched_at": safe_int(data.get("fetched_at")),
     }
 
@@ -330,6 +378,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _scan_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "fing_devices":
         return await _devices_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
+    if skill_id == "fing_new_devices":
+        return await _new_devices_skill(host_row, chip, host_id=host_id, service_idx=service_idx)
     if skill_id == "fing_device":
         return await _device_skill(host_row, chip, arg=_kw.get("arg"),
                                    host_id=host_id, service_idx=service_idx)
@@ -353,7 +403,15 @@ async def _status_skill(host_row: dict, chip: dict, *,
     new_count = safe_int(data.get("new_devices"))
     lines = [f"📡 Devices: {online}/{total} online"]
     if new_count:
-        lines.append(f"🆕 New (recent): {new_count}")
+        new_names = [str(as_dict(d).get("name") or "?").strip()
+                     for d in as_list(data.get("new_device_list"))][:5]
+        line = f"🆕 New (recent): {new_count}"
+        if new_names:
+            line += " — " + ", ".join(new_names)
+        lines.append(line)
+    offline = safe_int(data.get("devices_offline"))
+    if offline:
+        lines.append(f"⚪ Offline (known): {offline}")
     types = as_list(data.get("by_type"))[:4]
     if types:
         lines.append("   " + " · ".join(f"{as_dict(t).get('name')} {as_dict(t).get('count')}"
@@ -418,6 +476,39 @@ async def _devices_skill(host_row: dict, chip: dict, *,
     total = safe_int(data.get("devices_total"))
     head = f"📡 {online}/{total} devices online"
     return {"ok": True, "status": 200, "detail": head + "\n" + "\n".join(lines)}
+
+
+# noinspection DuplicatedCode
+async def _new_devices_skill(host_row: dict, chip: dict, *,
+                            host_id: Optional[str] = None,
+                            service_idx: Optional[int] = None) -> dict:
+    """Read-only: list the recently-joined (NEW) devices with name + MAC + IP +
+    when they first appeared — the "unknown device joined your network" security
+    surface (the killer Fing question). Never raises."""
+    print(f"[fing] INFO fing_new_devices host={host_id} (live fetch)")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "detail": str(e), "status": 0}
+    new_list = [d for d in as_list(data.get("new_device_list")) if isinstance(d, dict)]
+    win_h = _new_window_seconds() // 3600
+    if not new_list:
+        return {"ok": True, "status": 200,
+                "detail": f"✅ No new devices joined in the last {win_h}h.",
+                "new_devices": 0}
+    now = int(time.time())
+    lines = [f"🆕 {len(new_list)} new device(s) in the last {win_h}h:"]
+    for d in new_list:
+        name = str(d.get("name") or "?").strip()
+        fs = safe_int(d.get("first_seen"))
+        age = _fmt_age(now - fs) if fs else ""
+        on = "🟢" if d.get("online") else "⚪"
+        bits = [b for b in (str(d.get("ip") or "").strip(), str(d.get("mac") or "").strip(),
+                            (f"joined {age} ago" if age else "")) if b]
+        lines.append(f"{on} {name}" + (f" ({' · '.join(bits)})" if bits else ""))
+    return {"ok": True, "status": 200, "detail": "\n".join(lines),
+            "new_devices": len(new_list)}
 
 
 async def _device_skill(host_row: dict, chip: dict, *,

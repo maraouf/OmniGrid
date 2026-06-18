@@ -82,6 +82,22 @@ function fingByType(inst) {
   return (d && Array.isArray(d.by_type)) ? d.by_type : [];
 }
 
+// The recently-joined NEW devices [{name, mac, ip, vendor, type, online,
+// first_seen}], newest-first — the "unknown device joined" surface. [] when none.
+function fingNewDevices(inst) {
+  /* jshint validthis: true */
+  const d = fingData.call(this, inst);
+  return (d && Array.isArray(d.new_device_list)) ? d.new_device_list : [];
+}
+
+// The known devices that are currently OFFLINE (dropped off) [{name, mac, ip,
+// vendor, type}], by name — [] when none.
+function fingOfflineDevices(inst) {
+  /* jshint validthis: true */
+  const d = fingData.call(this, inst);
+  return (d && Array.isArray(d.offline_device_list)) ? d.offline_device_list : [];
+}
+
 // The online-occupancy history block `{online_series, peak_online,
 // current_online, current_total, new_event_days, samples, days}` or null.
 function fingHistory(inst) {
@@ -145,6 +161,8 @@ export const helpers = {
   fingCount: fingCount,
   fingDevices: fingDevices,
   fingByType: fingByType,
+  fingNewDevices: fingNewDevices,
+  fingOfflineDevices: fingOfflineDevices,
   fingHistory: fingHistory,
   fingSparkPoints: fingSparkPoints,
 };

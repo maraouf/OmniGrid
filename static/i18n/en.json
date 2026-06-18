@@ -6052,6 +6052,7 @@
       "fing_status": "Fing network status",
       "fing_scan": "Scan now",
       "fing_devices": "List Fing devices",
+      "fing_new_devices": "New devices (Fing)",
       "fing_device": "Is a device online (Fing)",
       "seerr_status": "Seerr status",
       "seerr_requests": "List requests",
@@ -6571,6 +6572,8 @@
       "devices": "Devices",
       "trend_caption": "Online devices, last {days} days",
       "new_footnote": "🆕 {n} new device(s) recently joined",
+      "new_devices_title": "New devices",
+      "offline_known_title": "Offline (known)",
       "no_key": "No Local API key set — add it in Admin → Apps to enable.",
       "loading": "Loading Fing data…",
       "fetch_failed": "Fing fetch failed"

@@ -101,6 +101,41 @@
       <span class="text-[var(--warning)]"
             x-text="t('apps.fing.new_footnote', { n: (Number(fingData(inst).new_devices) || 0) }) || ('🆕 ' + (Number(fingData(inst).new_devices) || 0) + ' new device(s) recently joined')"></span>
     </div>
+    <!-- New-device detail (drawer-only) — the "unknown device joined" surface:
+         each new device's name + MAC + IP, newest-first. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && fingNewDevices(inst).length">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label mb-1 text-[var(--warning)]"
+             x-text="t('apps.fing.new_devices_title') || 'New devices'"></div>
+        <template x-for="(dv, ni) in fingNewDevices(inst)" :key="(dv.mac || dv.ip || dv.name || '') + ':n' + ni">
+          <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
+            <span class="flex items-baseline gap-1 min-w-0">
+              <span class="apps-ddns-dot"
+                    :class="dv.online ? 'apps-ddns-dot--ok' : 'apps-ddns-dot--fail'"
+                    aria-hidden="true"></span>
+              <span class="mono truncate" x-text="dv.name || '?'"></span>
+            </span>
+            <span class="text-[var(--text-faint)] shrink-0 mono truncate"
+                  x-text="[dv.mac, dv.ip].filter(Boolean).join(' · ')"></span>
+          </div>
+        </template>
+      </div>
+    </template>
+    <!-- Offline-but-known devices (drawer-only) — known devices that dropped off
+         the network, by name. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && fingOfflineDevices(inst).length">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <div class="apps-card-stat-label mb-1"
+             x-text="t('apps.fing.offline_known_title') || 'Offline (known)'"></div>
+        <template x-for="(dv, oi) in fingOfflineDevices(inst).slice(0, 20)" :key="(dv.mac || dv.ip || dv.name || '') + ':o' + oi">
+          <div class="flex items-baseline justify-between gap-2 fs-3xs py-0.5">
+            <span class="mono truncate" x-text="dv.name || '?'" :title="(dv.mac || '') + ' · ' + (dv.ip || '')"></span>
+            <span class="text-[var(--text-faint)] shrink-0 mono truncate"
+                  x-text="[dv.type, dv.vendor].filter(Boolean).join(' · ')"></span>
+          </div>
+        </template>
+      </div>
+    </template>
   </div>
 </template>
 <!-- No credentials yet — idle and unconfigured. -->
