@@ -183,6 +183,17 @@ export default {
       'adguardhome-sync_adguardhome-sync': 'adguard-home-sync',
       'adguard-exporter': 'adguard-home',
       'blackbox-exporter': 'prometheus',
+      // TrueNAS SCALE catalog apps — every container / compose project is
+      // namespaced with an `ix-` prefix (e.g. `ix-dockge`, `ix-dozzle`,
+      // `ix-beszel-agent`). The prefix is stripped generically below before
+      // the KNOWN_ICONS lookup, so the bare brands (dockge / dozzle /
+      // syncthing) resolve automatically. These overrides cover the cases
+      // where the de-namespaced name still isn't a bare brand slug: the
+      // monitoring agents carry an `-agent` suffix (Beszel ships a hub AND
+      // an agent; Zabbix's container is `zabbix-agent2`).
+      'beszel-agent': 'beszel',
+      'zabbix-agent': 'zabbix',
+      'zabbix-agent2': 'zabbix',
       'fing-agent': '/img/icons/fing.svg',
       'fing': '/img/icons/fing.svg',
       'lubelogger': '/img/icons/lubelogger.svg',
@@ -250,7 +261,16 @@ export default {
     ];
     const raw = String(name).toLowerCase().trim();
     const natural = raw.replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const mapped = overrides[raw] || overrides[natural];
+    // TrueNAS SCALE namespaces every catalog app's container / compose
+    // project with an `ix-` prefix (`ix-dockge`, `ix-beszel-agent`). Derive
+    // the de-namespaced form so the app's real brand resolves against the
+    // override + KNOWN_ICONS tables below. Only the leading `ix-` is
+    // stripped; the rest of the name is left intact (so `ix-beszel-agent`
+    // → `beszel-agent`, which the override above maps to `beszel`).
+    const ixStripped = natural.startsWith('ix-') ? natural.slice(3) : '';
+    // `overrides['']` is undefined, so the bare lookup is safe when there's
+    // no `ix-` prefix (ixStripped === '') — no guard needed.
+    const mapped = overrides[raw] || overrides[natural] || overrides[ixStripped];
     // If the override looks like a URL or path, return it (guaranteeing
     // a leading "/" so it stays absolute under deep-link routes).
     if (mapped && /[/.]/.test(mapped)) {
@@ -275,6 +295,10 @@ export default {
     // image" → fixed by gating on KNOWN_ICONS.
     if (KNOWN_ICONS.has(natural)) {
       return this._themeIcon(`/img/icons/${natural}.svg`);
+    }
+    // De-namespaced TrueNAS app name (e.g. `ix-dockge` → `dockge`).
+    if (ixStripped && KNOWN_ICONS.has(ixStripped)) {
+      return this._themeIcon(`/img/icons/${ixStripped}.svg`);
     }
     return '';
   },
