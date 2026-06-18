@@ -3160,6 +3160,7 @@
     "retag_tag_title": "Switch this image to a different tag (e.g. :latest, :2, :v2-stable). Mutates the compose file (stack-managed) or recreates the container (standalone) to track the new tag. The original tag stays in the registry — manual rollback still works.",
     "retag_tag_header": "Switch image tag",
     "retag_tag_current_label": "Current image",
+    "retag_label": "New image tag",
     "retag_tag_placeholder": "latest",
     "retag_tag_help": "Type the new tag (e.g. latest, 2, v2-stable). Press Enter to apply, Esc to cancel.",
     "retag_tag_submit": "Switch",
