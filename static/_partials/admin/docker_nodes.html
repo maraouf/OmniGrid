@@ -1,0 +1,143 @@
+<!-- Admin → Docker Nodes — direct-Docker (Portainer-less) daemons OmniGrid
+     manages over SSH. Per-node list editor; SSH password follows the keep-
+     current-if-blank contract. State + handlers in static/js/app-docker-nodes.js. -->
+<!--suppress HtmlUnknownAttribute -->
+<div x-show="adminTab==='docker_nodes'" class="space-y-4">
+  <section class="bg-[var(--surface)] border border-[var(--border)] rounded-md p-5 space-y-4">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
+            <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-server"/>
+          </svg>
+          <h3 class="font-semibold fs-md" x-text="t('admin.docker_nodes.title') || 'Docker Nodes'"></h3>
+        </div>
+        <p class="fs-xs text-[var(--text-faint)]" x-text="t('admin.docker_nodes.desc') || 'Manage a node running plain Docker (no Portainer) — OmniGrid reaches its Docker daemon over SSH and shows its containers in the Stacks / Nodes views alongside the Portainer fleet.'"></p>
+      </div>
+      <span x-show="!dockerNodesLoaded" class="chip pill-muted inline-flex items-center gap-1.5">
+        <span class="spin" aria-hidden="true"></span>
+        <span x-text="t('common.loading') || 'Loading…'"></span>
+      </span>
+    </div>
+
+    <!-- How-it-works / SSH note (incl. the TrueNAS specifics). -->
+    <div class="fs-xs text-[var(--text-dim)] bg-[var(--surface-2)] border border-[var(--border)] rounded p-3 space-y-1">
+      <p x-text="t('admin.docker_nodes.ssh_note') || 'SSH credentials come from Admin → SSH (the global key / password); each node can override the user / port / password below. The SSH user must be able to read the Docker socket (be root, or in the docker group).'"></p>
+      <p x-text="t('admin.docker_nodes.truenas_note') || 'TrueNAS SCALE: enable SSH (Services → SSH), use an account that can access /var/run/docker.sock. Restarting an app container is safe; recreating one TrueNAS itself manages may be reverted by its middleware.'"></p>
+    </div>
+
+    <!-- Node rows -->
+    <template x-for="(n, i) in dockerNodes" :key="n.id">
+      <div class="border border-[var(--border)] rounded-md p-4 space-y-3"
+           :class="!n.enabled ? 'opacity-60' : ''">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <img x-show="n.icon" :src="'/img/icons/' + n.icon + '.svg'" alt="" class="w-5 h-5 shrink-0"
+                 @error="$el.style.display='none'">
+            <span class="font-medium fs-sm truncate" x-text="n.label || (t('admin.docker_nodes.unnamed') || 'Unnamed node')"></span>
+            <span class="chip pill-info fs-3xs" x-text="t('admin.docker_nodes.direct_badge') || 'Direct'"></span>
+          </div>
+          <label class="flex items-center gap-1.5 fs-xs cursor-pointer select-none shrink-0">
+            <input type="checkbox" x-model="n.enabled" :disabled="isReadonly()">
+            <span x-text="t('admin_integrations.enabled_label') || 'Enabled'"></span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-label-'+i" x-text="t('admin.docker_nodes.label_label') || 'Label'"></label>
+            <input :id="'dn-label-'+i" x-model="n.label" type="text" :disabled="isReadonly()"
+                   aria-label="Label" :aria-label="t('admin.docker_nodes.label_label')"
+                   :placeholder="t('admin.docker_nodes.label_placeholder') || 'TrueNAS'" class="w-full fs-sm">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-addr-'+i" x-text="t('admin.docker_nodes.address_label') || 'Address (host / IP)'"></label>
+            <input :id="'dn-addr-'+i" x-model="n.address" type="text" :disabled="isReadonly()"
+                   aria-label="Address" :aria-label="t('admin.docker_nodes.address_label')"
+                   :placeholder="'192.X.X.X'" class="w-full mono fs-sm">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-user-'+i" x-text="t('admin.docker_nodes.ssh_user_label') || 'SSH user (optional override)'"></label>
+            <input :id="'dn-user-'+i" x-model="n.ssh.user" type="text" :disabled="isReadonly()"
+                   aria-label="SSH user" :aria-label="t('admin.docker_nodes.ssh_user_label')"
+                   :placeholder="t('admin.docker_nodes.ssh_user_placeholder') || 'inherits Admin → SSH'" class="w-full mono fs-sm">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-port-'+i" x-text="t('admin.docker_nodes.ssh_port_label') || 'SSH port'"></label>
+            <input :id="'dn-port-'+i" x-model="n.ssh.port" type="number" min="1" max="65535" :disabled="isReadonly()"
+                   aria-label="SSH port" :aria-label="t('admin.docker_nodes.ssh_port_label')"
+                   :placeholder="'22'" class="w-full mono fs-sm">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-pw-'+i" x-text="t('admin.docker_nodes.ssh_password_label') || 'SSH password (optional override)'"></label>
+            <span x-show="n.ssh.password_set" class="block fs-3xs text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint') || 'A value is saved — leave blank to keep it.'"></span>
+            <input :id="'dn-pw-'+i" x-model="n.ssh.password" type="password" :disabled="isReadonly()"
+                   aria-label="SSH password" :aria-label="t('admin.docker_nodes.ssh_password_label')"
+                   :placeholder="n.ssh.password_set ? (t('settings.secret_input.placeholder_keep') || '•••••••• (keep current)') : (t('admin.docker_nodes.ssh_password_placeholder') || 'inherits Admin → SSH')"
+                   class="w-full mono fs-sm" autocomplete="new-password">
+          </div>
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-icon-'+i" x-text="t('admin.docker_nodes.icon_label') || 'Icon (optional)'"></label>
+            <input :id="'dn-icon-'+i" x-model="n.icon" type="text" :disabled="isReadonly()" list="dn-icon-options"
+                   aria-label="Icon" :aria-label="t('admin.docker_nodes.icon_label')"
+                   :placeholder="t('admin.docker_nodes.icon_placeholder') || 'e.g. truenas'" class="w-full mono fs-sm">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-sock-'+i" x-text="t('admin.docker_nodes.socket_label') || 'Docker socket path (advanced)'"></label>
+            <input :id="'dn-sock-'+i" x-model="n.socket_path" type="text" :disabled="isReadonly()"
+                   aria-label="Docker socket path" :aria-label="t('admin.docker_nodes.socket_label')"
+                   :placeholder="'/var/run/docker.sock'" class="w-full mono fs-sm">
+          </div>
+        </div>
+
+        <!-- Per-row Test + Remove -->
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn btn-ghost fs-xs" :disabled="isReadonly() || (dockerNodeTests[i] && dockerNodeTests[i].pending)"
+                    @click="testDockerNode(i)">
+              <span x-show="dockerNodeTests[i] && dockerNodeTests[i].pending" class="spin" aria-hidden="true"></span>
+              <span x-text="t('admin.docker_nodes.test') || 'Test connection'"></span>
+            </button>
+            <span x-show="dockerNodeTests[i] && !dockerNodeTests[i].pending" class="fs-xs"
+                  :class="(dockerNodeTests[i] && dockerNodeTests[i].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+                  x-text="dockerNodeTests[i] ? ((dockerNodeTests[i].ok ? '✓ ' : '✗ ') + (dockerNodeTests[i].detail || '')) : ''"></span>
+          </div>
+          <button type="button" class="btn btn-ghost fs-xs text-[var(--danger)]" :disabled="isReadonly()"
+                  @click="removeDockerNode(i)" x-text="t('admin.docker_nodes.remove') || 'Remove'"></button>
+        </div>
+      </div>
+    </template>
+
+    <datalist id="dn-icon-options">
+      <option value="truenas"></option>
+      <option value="truenas-scale"></option>
+      <option value="docker"></option>
+      <option value="server"></option>
+    </datalist>
+
+    <div x-show="dockerNodesLoaded && !dockerNodes.length" class="fs-xs text-[var(--text-faint)] italic"
+         x-text="t('admin.docker_nodes.empty') || 'No Docker nodes yet — add one to manage a Portainer-less Docker host.'"></div>
+
+    <!-- Add + Save -->
+    <div class="flex items-center justify-between gap-2 flex-wrap pt-1">
+      <button type="button" class="btn btn-ghost fs-sm" :disabled="isReadonly()" @click="addDockerNode()"
+              x-text="t('admin.docker_nodes.add') || '+ Add Docker node'"></button>
+      <div class="flex items-center gap-2">
+        <span x-show="dockerNodesDirty()" class="inline-flex items-center gap-1.5 fs-xs text-[var(--warning)]">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span x-text="t('common.unsaved_title') || 'Unsaved changes'"></span>
+        </span>
+        <span x-show="dockerNodesLoaded && !dockerNodesDirty()" class="fs-xs text-[var(--text-faint)]"
+              x-text="t('apps.no_changes') || 'No changes to save'"></span>
+        <button type="button" class="btn btn-primary fs-sm"
+                :class="dockerNodesDirty() ? 'ring-2 ring-[var(--warning)]' : ''"
+                :disabled="isReadonly() || dockerNodesSaving || !dockerNodesDirty()"
+                @click="saveDockerNodes()">
+          <span x-show="dockerNodesSaving" class="spin" aria-hidden="true"></span>
+          <span x-text="dockerNodesSaving ? (t('common.saving') || 'Saving…') : (t('common.save') || 'Save')"></span>
+        </button>
+      </div>
+    </div>
+  </section>
+</div>

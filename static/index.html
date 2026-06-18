@@ -1668,7 +1668,16 @@
                 <line x1="6" y1="18" x2="6.01" y2="18"/>
               </svg>
               <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-baseline sm:gap-3">
-                <span class="font-semibold fs-md mono truncate" x-text="node.name"></span>
+                <span class="font-semibold fs-md mono truncate inline-flex items-center gap-1.5">
+                  <!-- Direct-Docker node brand icon (e.g. truenas) when set. -->
+                  <img x-show="node.icon" :src="'/img/icons/' + node.icon + '.svg'" alt="" class="w-4 h-4 shrink-0" @error="$el.style.display='none'">
+                  <span class="truncate" x-text="node.name"></span>
+                  <!-- "Direct" pill — this node is managed directly over SSH
+                       (no Portainer). Signals the backend at a glance. -->
+                  <span x-show="node.is_direct" class="pill pill-info fs-3xs shrink-0"
+                        :title="t('nodes.direct_managed_title') || 'Managed directly over SSH (no Portainer)'"
+                        x-text="t('nodes.direct_badge') || 'Direct'"></span>
+                </span>
                 <span class="fs-xs text-[var(--text-faint)]">
                   <span x-text="node.services"></span> svc ·
                   <span x-text="node.containers"></span> ctn ·
@@ -4385,6 +4394,7 @@
           <!-- INCLUDE: admin/weather.html -->
           <!-- INCLUDE: admin/prayer_times.html -->
           <!-- INCLUDE: admin/portainer.html -->
+          <!-- INCLUDE: admin/docker_nodes.html -->
           <!-- INCLUDE: admin/oidc.html -->
           <!-- INCLUDE: admin/providers.html -->
           <!-- INCLUDE: admin/hosts.html -->

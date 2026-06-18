@@ -103,6 +103,7 @@ class Settings(str, Enum):
     BESZEL_VERIFY_TLS = "beszel_verify_tls"
     DEBUG_PANEL_ENABLED = "debug_panel_enabled"
     DEFAULT_SCHEDULES_SEEDED = "default_schedules_seeded"
+    DOCKER_NODES = "docker_nodes"
     HOSTS_CONFIG = "hosts_config"
     HOST_GROUPS = "host_groups"
     HOST_STATS_SOURCE = "host_stats_source"

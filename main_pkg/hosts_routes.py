@@ -1812,6 +1812,159 @@ async def api_hosts_config_set(
     return {"hosts": saved, "count": len(saved)}
 
 
+# ---------------------------------------------------------------------------
+# Direct-Docker nodes — a Portainer-less Docker daemon
+# OmniGrid reaches over SSH (logic/docker_direct.py). Same JSON-array-setting +
+# keep-current-secret + Test-before-Save shape as the curated host list above.
+# ---------------------------------------------------------------------------
+def _load_docker_nodes() -> list[dict]:
+    """Parse the ``docker_nodes`` setting (JSON array) into a list of dicts.
+    Defensive — a corrupt blob yields ``[]`` rather than raising."""
+    raw = get_setting(Settings.DOCKER_NODES) or ""
+    try:
+        data = json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        return []
+    return [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
+
+
+def _preserve_docker_node_secrets(ordered: list[dict]) -> None:
+    """Carry forward each node's stored ``ssh.password`` when the incoming save
+    dropped it (blank/absent) — the keep-current-if-blank contract (the SPA
+    never receives the cleartext password back, only a ``password_set`` flag).
+    Matched by node ``id``."""
+    prior = {n.get("id"): n for n in _load_docker_nodes()
+             if isinstance(n, dict) and n.get("id")}
+    for n in ordered:
+        _cur = n.get("ssh")
+        cur = _cur if isinstance(_cur, dict) else {}
+        if cur.get("password"):
+            continue
+        p = prior.get(n.get("id"))
+        _old = p.get("ssh") if isinstance(p, dict) else None
+        old = _old if isinstance(_old, dict) else {}
+        old_pw = old.get("password")
+        if old_pw:
+            n.setdefault("ssh", {})["password"] = old_pw
+
+
+def _save_docker_nodes(nodes: list[dict]) -> list[dict]:
+    """Validate + persist the direct-Docker node list (full-replace). Dedupes by
+    ``id`` (last wins), rejects missing ids, and keep-current-preserves each
+    node's ``ssh.password``. Returns the saved list."""
+    if not isinstance(nodes, list):
+        raise HTTPException(400, "docker_nodes must be a list")
+    id_counts: dict[str, int] = {}
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        nid = (n.get("id") or "").strip()
+        if nid:
+            id_counts[nid] = id_counts.get(nid, 0) + 1
+    dupes = sorted(nid for nid, c in id_counts.items() if c > 1)
+    if dupes:
+        raise HTTPException(
+            400, "Two or more Docker nodes share these ids: " + ", ".join(dupes)
+                 + ". Each node needs its own unique id — rename the duplicates "
+                   "and try Save again.")
+    seen: dict[str, dict] = {}
+    for n in nodes:
+        if not isinstance(n, dict):
+            raise HTTPException(400, "every Docker node entry must be an object")
+        nid = (n.get("id") or "").strip()
+        if not nid:
+            raise HTTPException(400, "Docker node entry is missing 'id'")
+        socket_path = (n.get("socket_path") or "").strip()
+        seen[nid] = {
+            "id": nid,
+            "label": (n.get("label") or "").strip(),
+            # SSH target host / IP for the daemon's node.
+            "address": (n.get("address") or "").strip()[:128],
+            # Daemon socket path on the node (blank → the client default
+            # /var/run/docker.sock). Capped so a malformed import can't bloat it.
+            "socket_path": socket_path[:256],
+            # Optional brand-icon slug for the Node card (e.g. "truenas").
+            "icon": (n.get("icon") or "").strip()[:64],
+            # Per-node SSH override (user / port / password); key material stays
+            # global. Reuses the curated-host ssh-block validator.
+            "ssh": _clean_host_ssh(n.get("ssh")),
+            "enabled": bool(n.get("enabled", True)),
+        }
+    ordered = list(seen.values())
+    try:
+        _preserve_docker_node_secrets(ordered)
+    except Exception as e:  # noqa: BLE001 — never let secret-merge break the save
+        print(f"[docker] node-secret preserve-on-save skipped: {e}")
+    set_setting(Settings.DOCKER_NODES, json.dumps(ordered))
+    return ordered
+
+
+def _redact_docker_nodes(nodes: list[dict]) -> list[dict]:
+    """Shape nodes for the SPA — drop ``ssh.password`` and surface a
+    ``password_set`` flag instead (the secret-redaction contract)."""
+    out: list[dict] = []
+    for n in nodes:
+        nn = dict(n)
+        ssh = dict(nn.get("ssh") or {})
+        has_pw = bool(ssh.get("password"))
+        ssh.pop("password", None)
+        ssh["password_set"] = has_pw
+        nn["ssh"] = ssh
+        out.append(nn)
+    return out
+
+
+@app.get("/api/docker-nodes")
+async def api_docker_nodes_get(_u: AdminUser):
+    """Admin-only: the configured direct-Docker nodes (SSH passwords redacted)."""
+    return {"docker_nodes": _redact_docker_nodes(_load_docker_nodes())}
+
+
+@app.post("/api/docker-nodes")
+async def api_docker_nodes_set(body: dict, _u: AdminUser):
+    """Admin-only: replace the direct-Docker node list (full-replace, like the
+    curated host list). Forces a re-gather so the new backend's containers
+    appear, and writes an audit row."""
+    nodes = body.get("docker_nodes")
+    saved = _save_docker_nodes(nodes if isinstance(nodes, list) else [])
+    _cache["ts"] = 0  # force next gather to pick up / drop the backend
+    try:
+        with db_conn() as c:
+            _ops_mod.write_admin_audit(
+                c, "docker_nodes_update",
+                target_kind="docker_nodes",
+                target_name=f"{len(saved)} node(s)",
+                actor=_u.username or schedules.UNKNOWN_ACTOR,
+                message=f"docker_nodes full-replace by {_u.username or 'operator'}: "
+                        f"{len(saved)} node(s) persisted",
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[docker] node-config audit-row write failed: {e}")
+    return {"docker_nodes": _redact_docker_nodes(saved), "count": len(saved)}
+
+
+@app.post("/api/docker-nodes/test")
+async def api_docker_nodes_test(body: dict, _u: AdminUser):
+    """Admin-only: probe ONE Docker node over SSH (GET /version). Body is a
+    single node object; a blank ``ssh.password`` falls back to the stored one
+    (keyed by id) so the operator can re-test after first save without
+    retyping — the Test-before-Save contract."""
+    node = dict(body) if isinstance(body, dict) else {}
+    ssh = dict(node.get("ssh") or {})
+    if not ssh.get("password"):
+        prior = {n.get("id"): n for n in _load_docker_nodes()
+                 if isinstance(n, dict) and n.get("id")}
+        p = prior.get(node.get("id"))
+        _old = p.get("ssh") if isinstance(p, dict) else None
+        old = _old if isinstance(_old, dict) else {}
+        old_pw = old.get("password")
+        if old_pw:
+            ssh["password"] = old_pw
+            node["ssh"] = ssh
+    from logic import docker_direct  # noqa: PLC0415
+    return await docker_direct.probe(node)
+
+
 def _sweep_orphan_provider_state_rows(live_ids: set) -> int:
     """Delete `<provider>:<host_id>` rows in `host_failure_state` and
     `host_provider_last_ok` whose suffix isn't in ``live_ids``. Also

@@ -254,10 +254,18 @@ export default {
           items: s.items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')),
         }))
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      // Backend + icon from nodes_info — a direct-Docker (Portainer-less)
+      // node carries backend="docker:<id>" so the header shows a "Direct"
+      // pill + the operator-chosen brand icon (e.g. truenas).
+      const _ni = (this.nodesInfo || {})[g.name] || {};
+      const _backend = String(_ni.backend || '');
       out.push({
         key,
         name: g.name,
         is_unpinned: !!g.is_unpinned,
+        backend: _backend,
+        is_direct: _backend.indexOf('docker:') === 0,
+        icon: String(_ni.icon || ''),
         total: its.length,
         services: its.filter(i => i.type === 'service').length,
         containers: its.filter(i => i.type === 'container' || i.type === 'orphan').length,

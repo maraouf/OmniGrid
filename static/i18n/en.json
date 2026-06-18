@@ -968,6 +968,8 @@
     "fetching": "Fetching…"
   },
   "nodes": {
+    "direct_badge": "Direct",
+    "direct_managed_title": "Managed directly over SSH (no Portainer)",
     "docker_disk_tooltip": "Docker daemon footprint: image layers + container writable layers + volumes + build cache",
     "docker_disk_caption": "Docker-only. Enable node-exporter in Admin → Providers for real host disk usage.",
     "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter).",
@@ -1517,6 +1519,7 @@
       "tokens": "API tokens",
       "notifications": "Notifications",
       "portainer": "Portainer",
+      "docker_nodes": "Docker Nodes",
       "oidc": "Authentik OIDC",
       "providers": "Providers",
       "hosts": "Hosts",
@@ -1535,6 +1538,31 @@
       "config_backup": "Config Backup",
       "debug": "Debug",
       "apps": "Apps"
+    },
+    "docker_nodes": {
+      "title": "Docker Nodes",
+      "desc": "Manage a node running plain Docker (no Portainer) — OmniGrid reaches its Docker daemon over SSH and shows its containers in the Stacks / Nodes views alongside the Portainer fleet.",
+      "ssh_note": "SSH credentials come from Admin → SSH (the global key / password); each node can override the user / port / password below. The SSH user must be able to read the Docker socket (be root, or in the docker group).",
+      "truenas_note": "TrueNAS SCALE: enable SSH (Services → SSH) and use an account that can access /var/run/docker.sock. Restarting an app container is safe; recreating one TrueNAS itself manages may be reverted by its middleware.",
+      "direct_badge": "Direct",
+      "unnamed": "Unnamed node",
+      "label_label": "Label",
+      "label_placeholder": "TrueNAS",
+      "address_label": "Address (host / IP)",
+      "ssh_user_label": "SSH user (optional override)",
+      "ssh_user_placeholder": "inherits Admin → SSH",
+      "ssh_port_label": "SSH port",
+      "ssh_password_label": "SSH password (optional override)",
+      "ssh_password_placeholder": "inherits Admin → SSH",
+      "icon_label": "Icon (optional)",
+      "icon_placeholder": "e.g. truenas",
+      "socket_label": "Docker socket path (advanced)",
+      "test": "Test connection",
+      "remove": "Remove",
+      "add": "+ Add Docker node",
+      "empty": "No Docker nodes yet — add one to manage a Portainer-less Docker host.",
+      "address_required": "Each enabled Docker node needs an address.",
+      "saved": "Docker nodes saved"
     },
     "weather": {
       "title": "Weather",
@@ -2115,6 +2143,10 @@
         "tuning_proxmox_history_days": {
           "label": "Proxmox history retention (days)",
           "help": "Retention window for the Proxmox samples that drive the cluster-resource trend sparkline. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
+        "tuning_docker_direct_timeout_seconds": {
+          "label": "Direct-Docker node timeout (seconds)",
+          "help": "Per-call wall-clock budget for a Portainer-less Docker node managed over SSH (Admin → Docker Nodes) — covers opening the SSH connection, tunnelling to the daemon socket, and one Docker Engine API request. Bounds a slow or unreachable node so a gather / a container action can't hang. Default 20. Raise it (e.g. 40) on a high-latency link or a node with a slow daemon; lower it for a snappier failure on a LAN node. Range 3..300. Takes effect on the next call."
         },
         "tuning_bazarr_sample_interval_seconds": {
           "label": "Bazarr sampler interval (seconds)",

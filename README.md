@@ -334,6 +334,8 @@ GET / POST / DELETE          /api/tokens[/{id}]
 GET    /api/settings
 POST   /api/settings                       additive — null = keep current
 POST   /api/portainer/test                 probe Portainer + verify endpoint id
+GET / POST                   /api/docker-nodes                   list / replace direct-Docker (Portainer-less, over-SSH) nodes
+POST   /api/docker-nodes/test              probe one Docker node over SSH (GET /version)
 POST   /api/beszel/test
 POST   /api/pulse/test
 POST   /api/webmin/test

@@ -61,6 +61,7 @@ import appSchedules from './app-schedules.js?v=__APP_VERSION__';
 import appUsersAdmin from './app-users-admin.js?v=__APP_VERSION__';
 import appOidc from './app-oidc.js?v=__APP_VERSION__';
 import appPortainer from './app-portainer.js?v=__APP_VERSION__';
+import appDockerNodes from './app-docker-nodes.js?v=__APP_VERSION__';
 import appHostGroups from './app-host-groups.js?v=__APP_VERSION__';
 import appLogs from './app-logs.js?v=__APP_VERSION__';
 import appAi from './app-ai.js?v=__APP_VERSION__';
@@ -158,7 +159,7 @@ function _mergeKeepDescriptors(target, ...sources) {
 }
 
 function app() {
-  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appAppsCard, appAppsDrawer, appAppsData, appAppsInstances, appsPerApp, widgetsHelpers, appSseStream, appViewsHelpers, appDrawerBulk, appDrawerCharts, {
+  return _mergeKeepDescriptors({}, appMinorTools, appTuning, appStats, appOps, appProviders, appHostsGrid, appNotifyAdmin, appTopbar, appHostDrawer, appCommandPalette, appCharts, appHostsEditor, appAi, appAiAdmin, appAiDispatch, appAdmin, appLogs, appHostGroups, appPortainer, appDockerNodes, appOidc, appUsersAdmin, appSchedules, appBackups, appSsh, appNotificationsPopup, appAuth, appTelegram, appAsset, appSse, appKeyboard, appIconResolvers, appI18n, appUtils, appApps, appAppsCard, appAppsDrawer, appAppsData, appAppsInstances, appsPerApp, widgetsHelpers, appSseStream, appViewsHelpers, appDrawerBulk, appDrawerCharts, {
     items: [], stacks: [], nodes: {}, nodesInfo: {},
     // Swarm agent unhealthy banner — populated by `loadStats` from
     // `/api/stats`'s `unhealthy_agents` field. Each entry is
@@ -793,6 +794,7 @@ function app() {
       {id: 'notifications', label: 'Notifications', icon: 'bell'},
       {id: '_sep_1', separator: true},
       {id: 'portainer', label: 'Portainer', icon: 'portainer'},
+      {id: 'docker_nodes', label: 'Docker Nodes', icon: 'server'},
       {id: 'providers', label: 'Providers', icon: 'cpu'},
       {id: 'ssh', label: 'SSH', icon: 'terminal'},
       {id: 'port_scan', label: 'Port Scan', icon: 'search'},

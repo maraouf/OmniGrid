@@ -324,6 +324,9 @@ OP_TYPES: frozenset[str] = frozenset({
     # Curated host list full-replace — single largest single-shot
     # mutation; rebuilds provider mappings, may rotate SNMP credentials.
     "hosts_config_update",
+    # Direct-Docker node list full-replace (Admin → Docker Nodes) — adds /
+    # edits the Portainer-less Docker daemons OmniGrid manages over SSH.
+    "docker_nodes_update",
     # Bulk SNMP config mutators — already audited siblings to the
     # `hosts_bulk_pause` / `hosts_bulk_resume` pair.
     "hosts_bulk_snmp_vendors",

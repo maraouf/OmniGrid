@@ -19,6 +19,7 @@ from typing import Any, Optional
 import httpx
 
 from logic import metrics, portainer, registry
+from logic.coerce import safe_int
 from logic.db import db_conn
 from logic.settings_keys import Settings
 
@@ -957,6 +958,291 @@ def _extract_container_ports(cont: dict) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Direct-Docker nodes — merge a Portainer-less node's
+# containers into the gather cache, tagged ``backend="docker:<id>"``. The node
+# is reached over SSH via ``logic/docker_direct.py`` (no Portainer); its items
+# flow through the SAME stack-grouping + status classification as the Portainer
+# fleet so they render identically in the Stacks / Services / Nodes views.
+# ---------------------------------------------------------------------------
+def _load_docker_nodes_cfg() -> list[dict]:
+    """Enabled direct-Docker nodes from the ``docker_nodes`` setting (those with
+    a master ``enabled`` and an ``address``). ``[]`` on a corrupt blob."""
+    from logic.db import get_setting  # noqa: PLC0415
+    raw = get_setting(Settings.DOCKER_NODES) or ""
+    try:
+        data = json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [n for n in data
+            if isinstance(n, dict) and n.get("enabled", True) and n.get("address")]
+
+
+def _docker_df_bytes(df: Any) -> int:
+    """Total Docker disk usage from a ``/system/df`` payload — image layers +
+    container writable layers + volumes + build cache."""
+    d = df if isinstance(df, dict) else {}
+    total = safe_int(d.get("LayersSize"))
+    for cont in d.get("Containers") or []:
+        if isinstance(cont, dict):
+            total += safe_int(cont.get("SizeRw"))
+    for vol in d.get("Volumes") or []:
+        if isinstance(vol, dict):
+            ud = vol.get("UsageData")
+            if isinstance(ud, dict):
+                total += max(0, safe_int(ud.get("Size")))
+    for bc in d.get("BuildCache") or []:
+        if isinstance(bc, dict):
+            total += max(0, safe_int(bc.get("Size")))
+    return max(0, total)
+
+
+def _is_ignored_row(image: Any, ig_stack: Any, ignores: list) -> bool:
+    """Standalone ``is_ignored`` over a pre-loaded ``ignores`` table (the
+    direct-Docker merge runs outside the Portainer gather's closure)."""
+    for ig in ignores:
+        p = ig.get("pattern")
+        if ig.get("kind") == "image" and p and p in (str(image) or ""):
+            return True
+        if ig.get("kind") == "stack" and p and p == (str(ig_stack) if ig_stack else ""):
+            return True
+    return False
+
+
+def _group_items_into_stacks(items: list) -> list:
+    """Group items by stack into the stack-card list (the same shape the
+    Portainer finalize produces) — shared so the direct-Docker merge re-groups
+    the COMBINED item list consistently. Returns the alphabetically-sorted
+    stack list with per-stack roll-up counts."""
+    groups: dict[str, dict[str, Any]] = {}
+    for it in items:
+        key = it.get("stack") or "__standalone__"
+        g = groups.setdefault(key, {
+            "name": it.get("stack") or "Standalone",
+            "stack_id": it.get("stack_id"),
+            "items": [],
+            "is_standalone": not it.get("stack"),
+        })
+        gi = g["items"]
+        if isinstance(gi, list):
+            gi.append(it)
+    for g in groups.values():
+        its_raw = g.get("items")
+        its: list = its_raw if isinstance(its_raw, list) else []
+        its.sort(key=lambda i: (i.get("name") or "").lower())
+        g["total"] = len(its)
+        g["updates"] = sum(1 for i in its
+                           if i.get("status") == "update" and i.get("health") != "offline")
+        g["updates_offline"] = sum(1 for i in its
+                                   if i.get("status") == "update" and i.get("health") == "offline")
+        g["errors"] = sum(1 for i in its if i.get("status") == "error")
+        g["unknowns"] = sum(1 for i in its if i.get("status") == "unknown")
+        g["uptodate"] = sum(1 for i in its if i.get("status") == "up-to-date")
+        g["offline"] = sum(1 for i in its if i.get("health") == "offline")
+        g["degraded"] = sum(1 for i in its if i.get("health") == "degraded")
+    return sorted(groups.values(), key=lambda _s: (_s.get("name") or "").lower())
+
+
+async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict) -> None:
+    """Resolve ``remote_digest`` + ``status`` for one direct-Docker item — the
+    same digest-comparison rules as the Portainer enrich step (the registry
+    probe is transport-agnostic)."""
+    try:
+        remote = await registry.get_remote_digest(reg_client, item["image"])
+    except (httpx.HTTPError, OSError, ValueError):
+        remote = None
+    item["remote_digest"] = remote
+    if item.get("ignored"):
+        item["status"] = "ignored"
+    elif not item.get("current_digest"):
+        item["status"] = "unknown"
+    elif not remote:
+        item["status"] = "error"
+    elif item["current_digest"] == remote:
+        item["status"] = "up-to-date"
+    else:
+        item["status"] = "update"
+
+
+# noinspection DuplicatedCode
+async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str, dict]":
+    """Connect to ONE direct-Docker node over SSH and build its container items
+    (reusing the standalone-container shape) + a synthesized Node card entry.
+    Returns ``(items, node_label, node_info)``. Raises ``DockerDirectError`` on a
+    transport failure (the caller skips that node)."""
+    from logic import docker_direct  # noqa: PLC0415
+    node_id = str(node.get("id") or "")
+    backend = f"docker:{node_id}"
+    async with docker_direct.connect(node) as cli:
+        cstatus, containers, _snip = await cli.get("/containers/json?all=1")
+        istatus, info, _i = await cli.get("/info")
+        vstatus, version, _v = await cli.get("/version")
+        dstatus, df, _d = await cli.get("/system/df")
+        if cstatus != 200 or not isinstance(containers, list):
+            raise docker_direct.DockerDirectError(
+                f"GET /containers/json returned HTTP {cstatus}")
+        info = info if isinstance(info, dict) else {}
+        version = version if isinstance(version, dict) else {}
+        node_label = (str(node.get("label") or info.get("Name") or node_id
+                          or node.get("address") or "docker")).strip() or "docker"
+        items: list = []
+        img_cache: dict = {}
+        for cont in containers:
+            if not isinstance(cont, dict) or not cont.get("Id"):
+                continue
+            labels = cont.get("Labels") or {}
+            image_ref = cont.get("Image") or ""
+            if "@" in image_ref:
+                image_ref = image_ref.partition("@")[0]
+            compose_project = (labels.get("com.docker.compose.project")
+                               or labels.get("com.docker.stack.namespace"))
+            current_digest = None
+            cont_app_version = ""
+            image_id = cont.get("ImageID") or ""
+            if image_id:
+                if image_id not in img_cache:
+                    try:
+                        _ist, _img, _is = await cli.get(f"/images/{image_id}/json")
+                        img_cache[image_id] = _img if isinstance(_img, dict) else {}
+                    except docker_direct.DockerDirectError:
+                        img_cache[image_id] = {}
+                img = img_cache[image_id]
+                cont_app_version = _extract_app_version(
+                    (img.get("Config") or {}).get("Labels") or {})
+                for rd in img.get("RepoDigests") or []:
+                    if "@" in rd:
+                        current_digest = rd.split("@", 1)[1]
+                        break
+                if image_ref.startswith("sha256:") or (
+                        image_ref and "/" not in image_ref and ":" not in image_ref):
+                    real = [t for t in (img.get("RepoTags") or [])
+                            if t and "<none>" not in t]
+                    if real:
+                        image_ref = real[0]
+            name = (cont.get("Names") or ["?"])[0].lstrip("/")
+            state = (cont.get("State") or "").lower()
+            if state == "running":
+                health = "healthy"
+            elif state in ("restarting", "paused"):
+                health = "degraded"
+            else:
+                health = "offline"
+            items.append({
+                "id": f"ctn:{cont['Id'][:12]}",
+                "raw_id": cont["Id"],
+                "name": name,
+                "type": "container",
+                "app_version": cont_app_version,
+                "image": image_ref,
+                "tag": registry.tag_of(image_ref),
+                "current_digest": current_digest,
+                "stack": compose_project,
+                "stack_id": None,
+                "replicas": {"desired": 1, "running": 1 if state == "running" else 0},
+                "placements": [{"node": node_label, "state": state}],
+                "node": node_label,
+                "health": health,
+                "state": state,
+                "removable": health == "offline",
+                "hub_link": registry.hub_link(image_ref),
+                "ignored": _is_ignored_row(image_ref, compose_project, ignores),
+                "created": cont.get("Created"),
+                "ports": _extract_container_ports(cont),
+                # Direct-Docker backend tag — drives write-op routing + the
+                # "Direct" pill in the SPA. Format: "docker:<node_id>".
+                "backend": backend,
+            })
+    ncpu = safe_int(info.get("NCPU"))
+    running = sum(1 for c in containers
+                  if isinstance(c, dict) and (c.get("State") or "").lower() == "running")
+    node_info = {
+        "id": info.get("ID") or node_id,
+        "role": "standalone",
+        "state": "ready",
+        "availability": "active",
+        "cpu_cores": ncpu,
+        "nano_cpus": ncpu * 1_000_000_000,
+        "mem_bytes": safe_int(info.get("MemTotal")),
+        "os": str(info.get("OperatingSystem") or "").strip(),
+        "arch": str(info.get("Architecture") or "").strip(),
+        "engine": str(version.get("Version") or info.get("ServerVersion") or "").strip(),
+        "ip": str(node.get("address") or "").strip(),
+        "docker_disk_bytes": _docker_df_bytes(df) if dstatus == 200 else 0,
+        # Backend + icon for the SPA's Node card "Direct" pill + brand icon.
+        "backend": backend,
+        "icon": str(node.get("icon") or "").strip(),
+        "containers_total": sum(1 for c in containers if isinstance(c, dict)),
+        "containers_running": running,
+    }
+    return items, node_label, node_info
+
+
+async def merge_docker_nodes_into_cache() -> None:
+    """Append every enabled direct-Docker node's containers to the gather cache
+    (tagged ``backend="docker:<id>"``), synthesize each node's Node card entry,
+    and re-group the COMBINED item list into stacks. Always stamps
+    ``backend="portainer"`` on the pre-existing Portainer items / nodes. Best-
+    effort per node — a down / unreachable node is logged + skipped, never
+    failing the whole gather. A no-op (beyond the backend stamp) when no Docker
+    node is configured."""
+    for it in _cache.get("items") or []:
+        if isinstance(it, dict):
+            it.setdefault("backend", "portainer")
+    for ni in (_cache.get("nodes_info") or {}).values():
+        if isinstance(ni, dict):
+            ni.setdefault("backend", "portainer")
+    nodes_cfg = _load_docker_nodes_cfg()
+    if not nodes_cfg:
+        return
+    try:
+        with db_conn() as c:
+            ignores = [dict(r) for r in c.execute("SELECT * FROM ignores").fetchall()]
+    except Exception:  # noqa: BLE001
+        ignores = []
+    try:
+        from logic.tuning import Tunable as _T, tuning_int as _ti  # noqa: PLC0415
+        reg_to = float(_ti(_T.GATHER_CLIENT_TIMEOUT_SECONDS))
+    except (ImportError, KeyError, ValueError, TypeError):
+        reg_to = 60.0
+    new_items: list = []
+    nodes_info = _cache.setdefault("nodes_info", {})
+    async with httpx.AsyncClient(timeout=reg_to) as reg_client:
+        for node in nodes_cfg:
+            try:
+                node_items, label, ninfo = await _gather_one_docker_node(node, ignores)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                raise
+            except Exception as e:  # noqa: BLE001
+                print(f"[docker] gather node {node.get('id')!r} failed: "
+                      f"{type(e).__name__}: {e}")
+                continue
+            await asyncio.gather(*(_classify_item_status(reg_client, it) for it in node_items))
+            new_items.extend(node_items)
+            nodes_info[label] = ninfo
+            print(f"[docker] INFO node {node.get('id')!r} ({label}): "
+                  f"{len(node_items)} container(s) running="
+                  f"{ninfo.get('containers_running')} engine={ninfo.get('engine') or '-'}")
+    if not new_items:
+        return
+    combined = (_cache.get("items") or []) + new_items
+    combined.sort(key=lambda i: (i.get("name") or "").lower())
+    _cache["items"] = combined
+    _cache["stacks"] = _group_items_into_stacks(combined)
+
+
+async def _safe_merge_docker(label: str) -> None:
+    """Run ``merge_docker_nodes_into_cache`` swallowing any error (a down Docker
+    node must never fail the whole gather). Cancellation propagates."""
+    try:
+        await merge_docker_nodes_into_cache()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
+        print(f"[docker] merge ({label}) failed: {type(e).__name__}: {e}")
+
+
 def _node_attr(node: dict, key: str):
     """Resolve a Swarm placement-constraint attribute against a raw node dict."""
     spec = node.get("Spec") or {}
@@ -1067,6 +1353,10 @@ async def _gather_impl() -> None:
         _cache["nodes_info"] = {}
         _cache["task_node_by_id"] = {}
         _cache["ts"] = time.time()
+        # Portainer not configured — direct-Docker nodes (if any) are the SOLE
+        # backend. Merge them into the (otherwise empty) cache so the operator
+        # still sees their containers / Node card.
+        await _safe_merge_docker("no-portainer path")
         return
     # Per-use TUNABLE read so a Save in Admin → Portainer takes
     # effect on the next gather. Defensive fallback to legacy 60s
@@ -2257,49 +2547,11 @@ async def _gather_impl() -> None:
 
         items = list(await asyncio.gather(*(enrich(i) for i in items)))
 
-        # Build stack-grouped view
-        groups: dict[str, dict[str, Any]] = {}
-        for it in items:
-            key = it["stack"] or "__standalone__"
-            group_init: dict[str, Any] = {
-                "name": it["stack"] or "Standalone",
-                "stack_id": it["stack_id"],
-                "items": [],
-                "is_standalone": not it["stack"],
-            }
-            g_existing = groups.setdefault(key, group_init)
-            items_list = g_existing["items"]
-            if isinstance(items_list, list):
-                items_list.append(it)
-
-        for g in groups.values():
-            its_raw = g.get("items")
-            its: list = its_raw if isinstance(its_raw, list) else []
-            its.sort(key=lambda i: (i.get("name") or "").lower())
-            g["total"] = len(its)
-            # `updates` counts ONLY actionable live updates — running
-            # items with a newer remote digest. Offline / orphan
-            # containers with stale digests get counted separately
-            # under `updates_offline` so the stack-header chip and
-            # the "Update stack" button only fire for items the
-            # update path can actually fix. Pre-fix an exited
-            # Swarm-task orphan with a stale-pinned digest inflated
-            # the `updates` count and made the amber button suggest
-            # "Update stack" when really the operator needed to
-            # REMOVE the orphan via the existing offline-cleanup
-            # flow. Splitting the counts gives the dashboard an
-            # honest signal: live-update vs digest-stale-but-already-
-            # offline.
-            g["updates"] = sum(1 for i in its
-                               if i["status"] == "update" and i.get("health") != "offline")
-            g["updates_offline"] = sum(1 for i in its
-                                       if i["status"] == "update" and i.get("health") == "offline")
-            g["errors"] = sum(1 for i in its if i["status"] == "error")
-            g["unknowns"] = sum(1 for i in its if i["status"] == "unknown")
-            g["uptodate"] = sum(1 for i in its if i["status"] == "up-to-date")
-            g["offline"] = sum(1 for i in its if i.get("health") == "offline")
-            g["degraded"] = sum(1 for i in its if i.get("health") == "degraded")
-
+        # Stack-grouped view — the per-stack roll-up counts (`updates` =
+        # actionable live updates only; `updates_offline` for stale-but-offline
+        # orphans; errors / unknowns / uptodate / offline / degraded) are built
+        # by the shared `_group_items_into_stacks` helper so the direct-Docker
+        # merge re-groups the COMBINED item list with identical semantics.
         items.sort(key=lambda i: (i.get("name") or "").lower())
         # Snapshot fallback — fill missing host_* fields from the
         # previous gather's persisted state so a single provider going
@@ -2333,16 +2585,19 @@ async def _gather_impl() -> None:
         _cache["nodes_info"] = nodes_info
         _cache["task_node_by_id"] = task_node_by_id
         _cache["container_node_by_id"] = container_node_by_id
-        _cache["stacks"] = sorted(
-            groups.values(),
-            key=lambda _s: (_s["name"] or "").lower(),
-        )
+        _cache["stacks"] = _group_items_into_stacks(items)
         _cache["ts"] = time.time()
         # Fresh gather just landed — drop the boot-time stale marker so
         # the cache reads as authoritative. Per-row `_stale` flags on
         # `items` / `stacks` items are NOT carried over since the cache
         # was wholesale-replaced above.
         _cache.pop("_stale", None)
+        # Direct-Docker nodes — append any Portainer-less
+        # Docker node's containers + Node card, tagged backend="docker:<id>",
+        # and re-group the combined item list. Runs BEFORE the items-snapshot
+        # write so the instant-paint snapshot includes them. No-op (beyond the
+        # backend stamp) when no Docker node is configured.
+        await _safe_merge_docker("main path")
         # Persist the just-built cache so a container restart can boot
         # with a fully populated `_cache` and serve the FIRST
         # `/api/items` request instantly. Single-row table — replaces

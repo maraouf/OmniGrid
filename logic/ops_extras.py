@@ -732,6 +732,18 @@ async def do_update_container(op: Operation, container_id: str) -> None:
     Portainer's own recreate would have preserved them.
     """
     try:
+        _dnode = _docker_node_for(container_id)
+        if _dnode is not None:
+            # Direct-Docker (Portainer-less) container — recreate over SSH with
+            # the manual inspect → pull → stop → remove → create → start
+            # sequence (there is no Portainer /recreate endpoint here).
+            await _recreate_container_direct(op, container_id, _dnode)
+            op.log("Container recreated (direct)", "success")
+            op.done("success")
+            await notify(f"✅ Container updated: {op.target_name}", "", "success",
+                         event="container_update_success", actor_username=op.actor,
+                         target_kind="container", target_id=str(op.target_id))
+            return
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
@@ -1199,6 +1211,125 @@ async def _recreate_container_in_place(op: Operation, container_id: str) -> None
         )
 
 
+# ---------------------------------------------------------------------------
+# Direct-Docker (Portainer-less) container ops — same actions over the SSH
+# tunnel (logic/docker_direct.py) instead of through Portainer. Routed when the
+# target item carries a ``backend="docker:<id>"`` tag (set in logic/gather.py).
+# The op lifecycle (op.done / notify / persist / cache-invalidate) stays in the
+# shared handlers; these helpers only do the per-op step + raise on failure.
+# ---------------------------------------------------------------------------
+def _docker_node_for(container_id: str) -> Optional[dict]:
+    """If ``container_id`` belongs to a direct-Docker backend, return that
+    node's ``docker_nodes`` config dict; else ``None`` (the Portainer path).
+    Resolves the item from the gather cache by raw / prefixed id."""
+    cache = gather.get_cache()
+    for it in (cache.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        if it.get("raw_id") == container_id or it.get("id") == container_id:
+            backend = str(it.get("backend") or "")
+            if backend.startswith("docker:"):
+                node_id = backend.split(":", 1)[1]
+                for n in gather._load_docker_nodes_cfg():
+                    if str(n.get("id") or "") == node_id:
+                        return n
+            return None
+    return None
+
+
+async def _direct_restart(op: Operation, container_id: str, node: dict) -> None:
+    """Restart a direct-Docker container over SSH (``POST /containers/{id}/
+    restart``). Raises ``RuntimeError`` on a non-2xx; the caller owns op.done."""
+    from logic import docker_direct  # noqa: PLC0415
+    label = node.get("label") or node.get("id")
+    op.log(f"Restarting container on Docker node '{label}' (direct, over SSH)")
+    async with docker_direct.connect(node, timeout=_portainer_op_timeout("short")) as cli:
+        st, _b, snip = await cli.post(f"/containers/{container_id}/restart")
+        if st >= 400:
+            raise RuntimeError(f"HTTP {st}: {snip[:300]}")
+    op.log("Container restarted", "success")
+
+
+async def _direct_remove(op: Operation, container_id: str, node: dict) -> None:
+    """Force-remove a direct-Docker container over SSH (``DELETE
+    /containers/{id}?force=true&v=true``). 404 is the same end-state as a fresh
+    delete → success (idempotent). Raises on other 4xx/5xx."""
+    from logic import docker_direct  # noqa: PLC0415
+    label = node.get("label") or node.get("id")
+    op.log(f"Removing container on Docker node '{label}' (direct, force=true, v=true)")
+    async with docker_direct.connect(node, timeout=_portainer_op_timeout("short")) as cli:
+        st, _b, snip = await cli.delete(f"/containers/{container_id}?force=true&v=true")
+    if st == 404:
+        op.log("Container already gone — no-op (idempotent)", "success")
+    elif st >= 400:
+        raise RuntimeError(f"HTTP {st}: {snip[:300]}")
+    else:
+        op.log("Container removed", "success")
+
+
+# noinspection DuplicatedCode
+async def _recreate_container_direct(op: Operation, container_id: str, node: dict) -> None:
+    """Recreate a direct-Docker container in place over SSH — inspect → pull a
+    fresh manifest under the same tag → stop → remove → create → reconnect
+    extra networks → start. Reuses ``_extract_container_create_inputs`` (a pure
+    transform). Volumes / networks / env / restart-policy survive via Config +
+    HostConfig + NetworkSettings.Networks. Raises ``RuntimeError`` on failure;
+    the caller owns op.done / notify."""
+    from logic import docker_direct  # noqa: PLC0415
+    from urllib.parse import quote  # noqa: PLC0415
+    label = node.get("label") or node.get("id")
+    op.log(f"[direct] Inspecting container on Docker node '{label}'…")
+    async with docker_direct.connect(node, timeout=_portainer_op_timeout("long")) as cli:
+        st, inspect, snip = await cli.get(f"/containers/{container_id}/json")
+        if st != 200 or not isinstance(inspect, dict):
+            raise RuntimeError(f"inspect HTTP {st}: {snip[:200]}")
+        old_name = (inspect.get("Name") or "").lstrip("/")
+        old_image_ref = (inspect.get("Config") or {}).get("Image") or ""
+        if not old_image_ref:
+            raise RuntimeError("inspect returned no Config.Image — cannot recreate")
+        target_image_ref = old_image_ref.split("@", 1)[0]
+        op.log(f"[direct] Image ref {old_image_ref!r}"
+               + (f" → {target_image_ref!r} (digest stripped)"
+                  if target_image_ref != old_image_ref else " (unchanged)"))
+        op.log(f"[direct] Pulling fresh image manifest for {target_image_ref!r}…")
+        st, _b, snip = await cli.post(
+            f"/images/create?fromImage={quote(target_image_ref, safe=':/@._-')}")
+        if st >= 400:
+            raise RuntimeError(f"pull HTTP {st}: {snip[:200]}")
+        cfg, host_cfg, _n, _f, extra_networks, networking_config = (
+            _extract_container_create_inputs(inspect, target_image_ref))
+        op.log("[direct] Stopping old container…")
+        st, _b, snip = await cli.post(f"/containers/{container_id}/stop?t=10")
+        if st >= 500:
+            raise RuntimeError(f"stop HTTP {st}: {snip[:200]}")
+        op.log("[direct] Removing old container…")
+        st, _b, snip = await cli.delete(f"/containers/{container_id}?force=true&v=false")
+        if st >= 500:
+            raise RuntimeError(f"remove HTTP {st}: {snip[:200]}")
+        create_body = {**{k: v for k, v in cfg.items() if k != "Hostname"},
+                       "HostConfig": host_cfg, "NetworkingConfig": networking_config}
+        op.log(f"[direct] Creating new container '{old_name}'…")
+        st, created, snip = await cli.post(
+            f"/containers/create?name={quote(old_name, safe='')}", create_body)
+        if st >= 400:
+            raise RuntimeError(f"create HTTP {st}: {snip[:200]}")
+        new_id = (created.get("Id") or "") if isinstance(created, dict) else ""
+        if not new_id:
+            raise RuntimeError("create returned no container Id")
+        op.log(f"[direct] Created {new_id[:12]}")
+        for net_name, endpoint in extra_networks:
+            st, _b, snip = await cli.post(
+                f"/networks/{quote(str(net_name), safe='')}/connect",
+                {"Container": new_id, "EndpointConfig": endpoint or {}})
+            if st >= 400:
+                op.log(f"[direct] warn: network connect '{net_name}' "
+                       f"HTTP {st}: {snip[:150]}", "warning")
+        op.log("[direct] Starting new container…")
+        st, _b, snip = await cli.post(f"/containers/{new_id}/start")
+        if st >= 400:
+            raise RuntimeError(f"start HTTP {st}: {snip[:200]}")
+
+
 def _retag_image_string(
     image: str,
     target_repo: Optional[str] = None,
@@ -1426,17 +1557,21 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
     progress + fires the matching restart_success / restart_failure
     notification."""
     try:
-        node = portainer.node_for_container(gather.get_cache(), container_id)
-        op.log("Restarting container" + (f" on node '{node}'" if node else ""))
-        async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
-            r = await client.post(
-                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/containers/{container_id}/restart",
-                headers=portainer.headers(agent_target=node),
-            )
-            if r.status_code >= 400:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-            op.log("Container restarted", "success")
+        _dnode = _docker_node_for(container_id)
+        if _dnode is not None:
+            await _direct_restart(op, container_id, _dnode)
+        else:
+            node = portainer.node_for_container(gather.get_cache(), container_id)
+            op.log("Restarting container" + (f" on node '{node}'" if node else ""))
+            async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/containers/{container_id}/restart",
+                    headers=portainer.headers(agent_target=node),
+                )
+                if r.status_code >= 400:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+                op.log("Container restarted", "success")
         op.done("success")
         await notify(f"🔄 Container restarted: {op.target_name}", "", "success",
                      event="container_restart_success", actor_username=op.actor,
@@ -1464,36 +1599,40 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
     container_remove_success / _failure, invalidates the gather
     cache in the finally block."""
     try:
-        node = portainer.node_for_container(gather.get_cache(), container_id)
-        if node:
-            op.log(f"Removing container on node '{node}' (force=true, v=true)")
+        _dnode = _docker_node_for(container_id)
+        if _dnode is not None:
+            await _direct_remove(op, container_id, _dnode)
         else:
-            op.log("Removing container (force=true, v=true)")
-        async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
-            r = await client.delete(
-                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/containers/{container_id}?force=true&v=true",
-                headers=portainer.headers(agent_target=node),
-            )
-            # Idempotent removal: if the container is already gone (Swarm
-            # cleanup, another operator, a previous click that succeeded
-            # after a cache snapshot), 404 is the SAME end-state as a fresh
-            # delete. Treat it as success so the operator doesn't see a
-            # scary red toast for a no-op. The cache is invalidated in the
-            # finally-block regardless, so the row will disappear on the
-            # next refresh.
-            if r.status_code == 404:
-                # Message body avoids the literal word "success" so
-                # the persistent-log classifier doesn't promote the
-                # intra-op step line into the SUCCESS bucket. Reads
-                # the same to operators ("no-op" = "nothing to do
-                # because it was already gone"); the op's overall
-                # outcome still records success via `op.done`.
-                op.log("Container already gone — no-op (idempotent)", "success")
-            elif r.status_code >= 400:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+            node = portainer.node_for_container(gather.get_cache(), container_id)
+            if node:
+                op.log(f"Removing container on node '{node}' (force=true, v=true)")
             else:
-                op.log("Container removed", "success")
+                op.log("Removing container (force=true, v=true)")
+            async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
+                r = await client.delete(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/containers/{container_id}?force=true&v=true",
+                    headers=portainer.headers(agent_target=node),
+                )
+                # Idempotent removal: if the container is already gone (Swarm
+                # cleanup, another operator, a previous click that succeeded
+                # after a cache snapshot), 404 is the SAME end-state as a fresh
+                # delete. Treat it as success so the operator doesn't see a
+                # scary red toast for a no-op. The cache is invalidated in the
+                # finally-block regardless, so the row will disappear on the
+                # next refresh.
+                if r.status_code == 404:
+                    # Message body avoids the literal word "success" so
+                    # the persistent-log classifier doesn't promote the
+                    # intra-op step line into the SUCCESS bucket. Reads
+                    # the same to operators ("no-op" = "nothing to do
+                    # because it was already gone"); the op's overall
+                    # outcome still records success via `op.done`.
+                    op.log("Container already gone — no-op (idempotent)", "success")
+                elif r.status_code >= 400:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+                else:
+                    op.log("Container removed", "success")
         op.done("success")
         await notify(f"🗑 Container removed: {op.target_name}", "", "success",
                      event="container_remove_success", actor_username=op.actor,

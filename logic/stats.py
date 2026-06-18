@@ -371,6 +371,73 @@ def _parse_stats_payload(s: dict) -> dict:
     }
 
 
+async def _docker_node_stats() -> dict:
+    """Per-item CPU / memory / size for every direct-Docker (Portainer-less)
+    container in the gather cache, fetched over SSH. Returns ``{item_id: {…}}``
+    in the same shape the Portainer path produces — the caller merges it into
+    the stats cache. Best-effort: a down node contributes nothing. Empty when no
+    Docker node is configured."""
+    items = _gather_mod.get_cache().get("items") or []
+    docker_items = [it for it in items if isinstance(it, dict)
+                    and (it.get("backend") or "").startswith("docker:")]
+    if not docker_items:
+        return {}
+    nodes_by_backend = {f"docker:{n.get('id')}": n
+                        for n in _gather_mod._load_docker_nodes_cfg()}
+    by_backend: dict[str, list] = {}
+    for it in docker_items:
+        by_backend.setdefault(it.get("backend") or "", []).append(it)
+    from logic import docker_direct  # noqa: PLC0415
+    sem = asyncio.Semaphore(portainer.stats_concurrency())
+    out: dict = {}
+
+    async def _one(dcli: "docker_direct.DockerClient", item: dict,
+                   sroot: dict, srw: dict) -> None:
+        cid = item.get("raw_id") or ""
+        cpu = mem_u = mem_l = 0.0
+        has_stats = False
+        if (item.get("state") or "").lower() == "running" and cid:
+            async with sem:
+                try:
+                    st, payload, _snip = await dcli.get(
+                        f"/containers/{cid}/stats?stream=false")
+                except docker_direct.DockerDirectError:
+                    st, payload = 0, None
+            if st == 200 and isinstance(payload, dict):
+                p = _parse_stats_payload(payload)
+                cpu, mem_u, mem_l, has_stats = (
+                    p["cpu_percent"], p["mem_usage"], p["mem_limit"], True)
+        out[item["id"]] = {
+            "cpu_percent": round(cpu, 1),
+            "mem_usage": int(mem_u),
+            "mem_limit": int(mem_l),
+            "size_root": int(sroot.get(cid, 0)),
+            "size_rw": int(srw.get(cid, 0)),
+            "has_stats": has_stats,
+            "has_size": cid in sroot,
+        }
+
+    for backend, its in by_backend.items():
+        node = nodes_by_backend.get(backend)
+        if not node:
+            continue
+        try:
+            async with docker_direct.connect(node) as cli:
+                _cstatus, conts, _s = await cli.get("/containers/json?all=1&size=1")
+                size_root: dict = {}
+                size_rw: dict = {}
+                for c in (conts if isinstance(conts, list) else []):
+                    if isinstance(c, dict) and c.get("Id"):
+                        size_root[c["Id"]] = int(c.get("SizeRootFs") or 0)
+                        size_rw[c["Id"]] = int(c.get("SizeRw") or 0)
+                await asyncio.gather(*(_one(cli, _it, size_root, size_rw) for _it in its))
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[docker] stats {backend} failed: {type(e).__name__}: {e}")
+    return out
+
+
 async def _one_container_stats(
     client: httpx.AsyncClient, ep: str, cid: str, node: Optional[str] = None,
     *, fallback_nodes: Optional[list[str]] = None,
@@ -523,9 +590,21 @@ async def gather_stats() -> None:
         print(f"[stats] gather_stats early-return: items_cache empty (size={len(items_cache.get('items') or [])})")
         return
     if not portainer.is_configured():
-        # Mirror the gather short-circuit. Without this we'd send httpx
-        # requests to an empty URL and log noise on every poll tick.
-        print("[stats] gather_stats early-return: portainer.is_configured() == False")
+        # Portainer not configured — skip the Portainer stats path, but still
+        # compute stats for any direct-Docker (Portainer-less) nodes that ARE
+        # the sole backend so their CPU / memory bars populate.
+        print("[stats] gather_stats: portainer.is_configured() == False — "
+              "direct-Docker nodes only")
+        try:
+            out = await _docker_node_stats()
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[docker] stats-only gather failed: {type(e).__name__}: {e}")
+            out = {}
+        if out:
+            _stats_cache["stats"] = out
+            _stats_cache["ts"] = time.time()
         return
     print(f"[stats] gather_stats start: items={len(items_cache['items'])}")
     # The AsyncClient's default timeout governs the per-node sweep
@@ -945,6 +1024,15 @@ async def gather_stats() -> None:
                 "has_stats": has_stats,
                 "has_size": has_size,
             }
+        # Direct-Docker (Portainer-less) nodes — merge their per-container
+        # CPU / memory / size (fetched over SSH) into the stats map. No-op when
+        # no Docker node is configured.
+        try:
+            out.update(await _docker_node_stats())
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[docker] stats merge failed: {type(e).__name__}: {e}")
         _stats_cache["stats"] = out
         _stats_cache["ts"] = time.time()
         with_stats = sum(1 for v in out.values() if v.get("has_stats"))

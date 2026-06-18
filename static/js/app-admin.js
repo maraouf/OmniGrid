@@ -578,6 +578,14 @@ export default {
                 // Host groups live in /api/settings; load it alongside so the
                 // groups editor at the bottom of this tab has current data.
                 await this.loadSettings();
+              } else if (tab === 'docker_nodes') {
+                // Direct-Docker node list (Portainer-less, over SSH). Loads the
+                // per-node editor; also primes the tuning state for the
+                // per-call-timeout card on first visit.
+                await this.loadDockerNodes();
+                if (!this.tuningLoaded) {
+                  await this.loadTuning();
+                }
               } else if (tab === 'apps') {
                 // Admin → Apps tab — load catalog templates + flat
                 // instance list. Both are cheap admin-only fetches;

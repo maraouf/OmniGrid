@@ -1225,6 +1225,7 @@ Routes that are **safe to script against long-term**:
 - `/api/items`, `/api/stats`, `/api/stats/history`, `/api/ops`, `/api/history` — additions only; existing fields are not removed.
 - `/api/update/stack/{id}`, `/api/update/container/{id}`, `/api/restart/*`, `/api/remove/*`, `/api/prune/node/{hostname}`, `/api/swarm/restart-agent` — contract is `{op_id}` always.
 - `/api/hosts/list`, `/api/hosts/one/{id}`, `/api/hosts/history`, `/api/hosts/config` — additive.
+- `/api/docker-nodes` (GET / POST), `/api/docker-nodes/test` (POST) — admin-only; manage / probe direct-Docker (Portainer-less, over-SSH) nodes. Full-replace JSON-array body `{docker_nodes: [...]}`; SSH passwords redacted to a `password_set` flag (keep-current-if-blank). See `docs/guidelines/docker_nodes.md`.
 - `/api/schedules*`, `/api/backups*`, `/api/notifications*` — additive.
 
 Routes that are **likely to grow / change shape** as the project evolves:

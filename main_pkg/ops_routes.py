@@ -1853,6 +1853,8 @@ class SettingsIn(BaseModel):
     # stats interval) + retention for the cluster CPU/mem/storage trend.
     tuning_proxmox_sample_interval_seconds: Optional[str] = None
     tuning_proxmox_history_days: Optional[str] = None
+    # Direct-Docker node (Portainer-less, over SSH) per-call wall-clock budget.
+    tuning_docker_direct_timeout_seconds: Optional[str] = None
     # Bazarr subtitle-backlog sampler — snapshot cadence (0 = inherit global
     # stats interval) + retention for the backlog-over-time sparkline.
     tuning_bazarr_sample_interval_seconds: Optional[str] = None

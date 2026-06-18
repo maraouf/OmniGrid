@@ -120,6 +120,7 @@ class Tunable(str, Enum):
     QBITTORRENT_SAMPLE_INTERVAL_SECONDS = "tuning_qbittorrent_sample_interval_seconds"
     PROXMOX_HISTORY_DAYS = "tuning_proxmox_history_days"
     PROXMOX_SAMPLE_INTERVAL_SECONDS = "tuning_proxmox_sample_interval_seconds"
+    DOCKER_DIRECT_TIMEOUT_SECONDS = "tuning_docker_direct_timeout_seconds"
     UNIFI_HISTORY_DAYS = "tuning_unifi_history_days"
     UNIFI_SAMPLE_INTERVAL_SECONDS = "tuning_unifi_sample_interval_seconds"
     BAZARR_HISTORY_DAYS = "tuning_bazarr_history_days"
@@ -1560,6 +1561,11 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for proxmox_samples — drives the cluster-resource
     # trend. Default 30. Lower to save disk; raise for a longer trend.
     "tuning_proxmox_history_days": ("PROXMOX_HISTORY_DAYS", 30, 1, 1095),
+    # Per-call wall-clock budget (seconds) for a direct-Docker node's
+    # SSH-tunnelled Docker Engine API request (connect + open the docker.sock
+    # channel + one HTTP request). Bounds a slow/unreachable node so the gather
+    # / a write-op can't hang. Default 20; raise on a high-latency link.
+    "tuning_docker_direct_timeout_seconds": ("DOCKER_DIRECT_TIMEOUT_SECONDS", 20, 3, 300),
     # How often the Bazarr sampler snapshots each chip's missing-subtitle backlog
     # (episodes + movies) into bazarr_samples — the trend source for the card's
     # "backlog over time" sparkline + "backlog down N this week" stat (Bazarr
