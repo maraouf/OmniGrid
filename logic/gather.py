@@ -1232,6 +1232,22 @@ async def merge_docker_nodes_into_cache() -> None:
     _cache["stacks"] = _group_items_into_stacks(combined)
 
 
+def _strip_docker_backed() -> None:
+    """Drop direct-Docker-backed items + their synthesized Node cards from the
+    cache so a re-merge that reuses the prior ``_cache["items"]`` (the
+    Portainer-unreachable keep-last-good path) doesn't DUPLICATE them. The normal
+    gather path doesn't need this (it rebuilds ``_cache["items"]`` from scratch
+    before merging), but the keep-last-good path reuses the old combined list."""
+    _cache["items"] = [
+        it for it in (_cache.get("items") or [])
+        if not str((it or {}).get("backend") or "").startswith("docker:")
+    ]
+    ni = _cache.get("nodes_info") or {}
+    for k in [k for k, v in ni.items()
+              if str((v or {}).get("backend") or "").startswith("docker:")]:
+        ni.pop(k, None)
+
+
 async def _safe_merge_docker(label: str) -> None:
     """Run ``merge_docker_nodes_into_cache`` swallowing any error (a down Docker
     node must never fail the whole gather). Cancellation propagates."""
@@ -1370,12 +1386,21 @@ async def _gather_impl() -> None:
     async with httpx.AsyncClient(verify=bool(portainer.VERIFY_TLS), timeout=_gather_client_to) as client:
         ep = f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker"
 
-        async def safe(coro, fb):
+        # Tracks which fan-out reads RAISED (vs returned an empty list). A
+        # truly-down Portainer fails ALL the core reads (connection refused /
+        # timeout / 5xx), which is distinguishable from a legitimately empty
+        # fleet (reads succeed returning `[]`, no failures recorded) — see the
+        # keep-last-good block right after the gather.
+        _failed: set = set()
+
+        async def safe(coro, fb, label: str = ""):
             """Await `coro` and return its result; on any failure log + return `fb`.
 
             CancelledError + KeyboardInterrupt propagate per the project's
             "broad except MUST carve out cancellation" rule so lifespan
-            shutdown of the gather task doesn't get swallowed.
+            shutdown of the gather task doesn't get swallowed. A non-empty
+            ``label`` records the failure into ``_failed`` for the
+            Portainer-unreachable detection below.
             """
             try:
                 return await coro
@@ -1383,6 +1408,8 @@ async def _gather_impl() -> None:
                 raise
             except Exception as gather_err:  # noqa: BLE001
                 print(f"[gather] {gather_err}")
+                if label:
+                    _failed.add(label)
                 return fb
 
         # Parallel fan-out — closes the doc/code drift the project conventions
@@ -1392,12 +1419,37 @@ async def _gather_impl() -> None:
         # escape a `safe(...)` task). Net cost: max-of-five
         # instead of sum-of-five round-trips per gather.
         services, containers, tasks, nodes, stacks_list = await asyncio.gather(
-            safe(portainer.pg(client, f"{ep}/services"), []),
-            safe(portainer.pg(client, f"{ep}/containers/json?all=1"), []),
-            safe(portainer.pg(client, f"{ep}/tasks"), []),
-            safe(portainer.pg(client, f"{ep}/nodes"), []),
-            safe(portainer.pg(client, "/api/stacks"), []),
+            safe(portainer.pg(client, f"{ep}/services"), [], "services"),
+            safe(portainer.pg(client, f"{ep}/containers/json?all=1"), [], "containers"),
+            safe(portainer.pg(client, f"{ep}/tasks"), [], "tasks"),
+            safe(portainer.pg(client, f"{ep}/nodes"), [], "nodes"),
+            safe(portainer.pg(client, "/api/stacks"), [], "stacks"),
         )
+
+        # Portainer-unreachable detection. When ALL FOUR core docker reads
+        # failed, Portainer is down (a legitimately empty fleet returns `[]`
+        # with NO failures, so this can't false-positive on an empty cluster).
+        # KEEP the last-good snapshot instead of wiping `_cache` to empty: stamp
+        # the stale markers (the SPA banners off them + `age` keeps growing),
+        # still re-merge the INDEPENDENT direct-Docker nodes (their own backend,
+        # reachable over SSH regardless of Portainer), and return. `mark_reachable`
+        # keeps the gather authoritative alongside the lifespan probe loop.
+        if {"services", "containers", "tasks", "nodes"}.issubset(_failed):
+            portainer.mark_reachable(False)
+            _since = portainer.reachability_state().get("unreachable_since")
+            _cache["_stale_portainer"] = True
+            _cache["_portainer_unreachable_since"] = _since
+            print("[gather] Portainer unreachable — keeping last-good snapshot "
+                  f"(unreachable since {_since})")
+            # Reuse the prior combined list but strip the old docker items first
+            # so the re-merge doesn't duplicate them.
+            _strip_docker_backed()
+            await _safe_merge_docker("portainer-unreachable path")
+            return
+        # Reachable — clear any prior stale markers so the cache reads fresh.
+        portainer.mark_reachable(True)
+        _cache.pop("_stale_portainer", None)
+        _cache.pop("_portainer_unreachable_since", None)
 
         node_map = {n["ID"]: n["Description"]["Hostname"] for n in nodes}
         stack_by_name = {s["Name"]: s for s in stacks_list}

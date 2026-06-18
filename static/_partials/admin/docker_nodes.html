@@ -91,17 +91,12 @@
           </div>
         </div>
 
-        <!-- Per-row Test + Remove -->
-        <div class="flex items-center justify-between gap-2 flex-wrap">
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn btn-ghost fs-xs" :disabled="isReadonly() || (dockerNodeTests[i] && dockerNodeTests[i].pending)"
-                    @click="testDockerNode(i)">
-              <span x-show="dockerNodeTests[i] && dockerNodeTests[i].pending" class="spin" aria-hidden="true"></span>
-              <span x-text="t('admin.docker_nodes.test') || 'Test connection'"></span>
-            </button>
-            <span x-show="dockerNodeTests[i] && !dockerNodeTests[i].pending" class="fs-xs"
-                  :class="(dockerNodeTests[i] && dockerNodeTests[i].ok) ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
-                  x-text="dockerNodeTests[i] ? ((dockerNodeTests[i].ok ? '✓ ' : '✗ ') + (dockerNodeTests[i].detail || '')) : ''"></span>
+        <!-- Per-row Test (shared og-test-connection unit — same button +
+             result box as the Portainer / OIDC / per-app editors) + Remove.
+             tcResult reads the per-row {pending, ok, status, detail} object. -->
+        <div class="flex items-start justify-between gap-2 flex-wrap">
+          <div x-data="{ tcRun: () => testDockerNode(i), tcResult: () => dockerNodeTests[i], tcDisabled: () => isReadonly() }">
+            <!-- INCLUDE: _components/og-test-connection.html -->
           </div>
           <button type="button" class="btn btn-ghost fs-xs text-[var(--danger)]" :disabled="isReadonly()"
                   @click="removeDockerNode(i)" x-text="t('admin.docker_nodes.remove') || 'Remove'"></button>
@@ -126,7 +121,7 @@
       <div class="flex items-center gap-2">
         <span x-show="dockerNodesDirty()" class="inline-flex items-center gap-1.5 fs-xs text-[var(--warning)]">
           <span class="pulse-dot" aria-hidden="true"></span>
-          <span x-text="t('common.unsaved_title') || 'Unsaved changes'"></span>
+          <span x-text="t('hosts_actions.unsaved_label') || 'Unsaved changes'"></span>
         </span>
         <span x-show="dockerNodesLoaded && !dockerNodesDirty()" class="fs-xs text-[var(--text-faint)]"
               x-text="t('apps.no_changes') || 'No changes to save'"></span>

@@ -1855,6 +1855,8 @@ class SettingsIn(BaseModel):
     tuning_proxmox_history_days: Optional[str] = None
     # Direct-Docker node (Portainer-less, over SSH) per-call wall-clock budget.
     tuning_docker_direct_timeout_seconds: Optional[str] = None
+    # Portainer reachability probe loop cadence (graceful-degradation banner).
+    tuning_portainer_health_probe_interval_seconds: Optional[str] = None
     # Bazarr subtitle-backlog sampler — snapshot cadence (0 = inherit global
     # stats interval) + retention for the backlog-over-time sparkline.
     tuning_bazarr_sample_interval_seconds: Optional[str] = None

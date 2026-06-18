@@ -59,8 +59,8 @@ import httpx
 from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
-    cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
-    resolve_credential_target)
+    cache_key, fetch_gate, image_redirect_allowed_for_hosts, peek_cache,
+    resolve_base_url, resolve_cache_ttl, resolve_credential_target)
 from logic.coerce import as_dict, as_list, safe_int
 
 # Catalog template slugs handled by this module.
@@ -320,6 +320,14 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     qs = urlencode({"width": 300, "height": 450, "minSize": 1, "upscale": 1,
                     "url": p, "X-Plex-Token": token})
     return base + "/photo/:/transcode?" + qs, {"X-Plex-Token": token}
+
+
+def image_redirect_allowed(_host_row: dict, _chip: dict, url: str) -> bool:
+    """Per-app image-proxy redirect guard — a plex.tv user avatar 302-redirects
+    to wherever that avatar lives (a sibling plex host, gravatar, or a plex S3 /
+    CDN host). Follow it when the target is on the avatar-host family OR resolves
+    to a public IP (the SSRF boundary). See _common.image_redirect_allowed_for_hosts."""
+    return image_redirect_allowed_for_hosts(url, _AVATAR_PROXY_HOSTS)
 
 
 def _mc(body: Any) -> dict:

@@ -743,6 +743,13 @@ async def _lifespan(_app: FastAPI):
         print(f"[boot] cache seed failed (non-fatal): {seed_err}")
     sampler = asyncio.create_task(_stats_sampler_loop(), name="stats-sampler")
     scheduler = asyncio.create_task(schedules.scheduler_loop(), name="scheduler")
+    # Portainer reachability probe — detects a Portainer outage so the gather
+    # keeps the last-good snapshot (instead of wiping it to empty), the SPA
+    # banners "Portainer unreachable since X", and Portainer write-ops fast-fail.
+    # Lifespan-only + single-replica (the reachability state is a process dict).
+    portainer_health = asyncio.create_task(
+        portainer.portainer_health_loop(), name="portainer-health",
+    )
     # Net-I/O fallback sampler — scrapes node-exporter directly for any
     # curated host with a ne_url and writes derived rx/tx rates into
     # host_net_samples. Lets the Hosts chart show real numbers when the
@@ -1159,7 +1166,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tautulli_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, proxmox_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tautulli_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, proxmox_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, portainer_health, scheduler, sampler):
             task.cancel()
             try:
                 await task
@@ -1843,6 +1850,20 @@ async def api_items(force: bool = False):
         # function bodies that re-import it locally — using the bare
         # name here is what matches scope.
         "portainer_configured": portainer.is_configured(),
+        # Graceful-degradation flags — true when Portainer is CONFIGURED but the
+        # last gather (or the lifespan reachability probe) found it unreachable.
+        # The served items/stacks/nodes are then the last-good snapshot (see the
+        # keep-last-good path in logic/gather._gather_impl), and `age` reflects
+        # how stale they are. The SPA banners off `stale_portainer` and shows the
+        # "unreachable since" timestamp. Either signal (the gather's cache marker
+        # OR the live probe state) flips the flag so the banner appears within a
+        # probe interval even before the next gather runs.
+        "stale_portainer": bool(_cache.get("_stale_portainer")) or (
+            portainer.is_configured()
+            and not portainer.reachability_state().get("reachable", True)),
+        "portainer_unreachable_since": (
+            _cache.get("_portainer_unreachable_since")
+            or portainer.reachability_state().get("unreachable_since")),
     }
 
 

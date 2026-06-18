@@ -1006,6 +1006,49 @@
       <button type="button" @click="selected=[]" class="btn btn-ghost fs-sm" x-text="t('bulk.clear')"></button>
     </div>
 
+    <!-- ===== PORTAINER UNREACHABLE BANNER ===========================
+         Renders when /api/items reports `stale_portainer` — Portainer is
+         configured but the last gather (or the lifespan reachability probe)
+         found it unreachable. The served stacks / services / nodes are the
+         LAST-GOOD snapshot (not wiped to empty), so the operator keeps seeing
+         their fleet while the outage lasts; `age` keeps growing. Mirrors the
+         swarm-agent banner's shape. Visible on Stacks / Services / Nodes (the
+         three Portainer-backed views); the Hosts view is excluded (host-stats
+         providers don't go through Portainer). Direct-Docker nodes keep working
+         throughout. -->
+    <div x-show="stalePortainer &&
+                 (view==='stacks' || view==='services' || view==='nodes')"
+         class="mx-5 mb-3 px-4 py-3 rounded-md flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--danger) 12%, transparent);
+                border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+                color: var(--text);">
+      <svg width="18" height="18" class="text-[var(--danger)] mt-0.5 shrink-0"
+           aria-hidden="true">
+        <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-alert-triangle"/>
+      </svg>
+      <div class="flex-1 fs-sm leading-snug">
+        <div class="font-semibold text-[var(--danger)] mb-1"
+             x-text="portainerUnreachableSince
+                       ? t('portainer_offline_banner.title_since', { since: fmtAgo(portainerUnreachableSince * 1000) })
+                       : t('portainer_offline_banner.title')"></div>
+        <div class="text-[var(--text-dim)]">
+          <span x-text="t('portainer_offline_banner.body')"></span>
+        </div>
+        <div class="mt-2 flex items-center gap-2 flex-wrap">
+          <button type="button" class="btn btn-soft fs-sm"
+                  @click="refresh(true)" :disabled="!!loading">
+            <svg width="12" height="12" aria-hidden="true"
+                 :class="loading ? 'animate-spin' : ''">
+              <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-rotate-cw"/>
+            </svg>
+            <span x-text="t('portainer_offline_banner.retry')"></span>
+          </button>
+          <span class="fs-2xs text-[var(--text-faint)]"
+                x-text="t('portainer_offline_banner.retry_help')"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== SWARM AGENT UNHEALTHY BANNER ===========================
          Renders when `/api/stats` reports any Swarm node where every
          task-derived cid has had ZERO successful stats calls for N

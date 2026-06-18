@@ -18,9 +18,11 @@ Call sites use ``portainer.registry_concurrency()`` /
 ``portainer.stats_concurrency()`` so each gather sees the current value
 without restart.
 """
+import asyncio
 import sqlite3
+import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, TypedDict
 
 from logic.env_keys import EnvKey, env_get
 
@@ -190,6 +192,128 @@ def is_configured() -> bool:
         return False
     s = get_portainer_settings()
     return bool(s.get("portainer_url")) and bool(s.get("portainer_api_key"))
+
+
+# ----------------------------------------------------------------------------
+# Portainer reachability state — graceful degradation when the Portainer API is
+# unreachable. A dedicated lifespan probe loop AND the gather itself update this;
+# `/api/items` surfaces it, the SPA banners it, and Portainer write-ops fast-fail
+# on it. Single-replica single-process, so a plain module dict is correct (same
+# justification as the settings cache above). Only meaningful while Portainer is
+# CONFIGURED — a disabled / unconfigured Portainer is not an "outage".
+# ----------------------------------------------------------------------------
+class _ReachState(TypedDict):
+    """Shape of the Portainer reachability state. Typing it (rather than a bare
+    ``dict``) lets pyright — and the project's ``py-typecheck`` lint rule — see
+    that ``unreachable_since`` is ``Optional[float]``, so any future unguarded
+    arithmetic on it (``time.time() - unreachable_since`` without an ``is not
+    None`` narrow) is flagged at lint time instead of slipping through as an
+    ``Any`` on an untyped dict."""
+    reachable: bool
+    unreachable_since: Optional[float]
+
+
+_reach_state: _ReachState = {"reachable": True, "unreachable_since": None}
+
+
+def reachability_state() -> dict:
+    """Current Portainer reachability — a COPY of ``{reachable: bool,
+    unreachable_since: float|None}``. ``unreachable_since`` is the epoch-seconds
+    of the FIRST failure in the current outage (None while reachable)."""
+    return dict(_reach_state)
+
+
+def mark_reachable(ok: bool) -> bool:
+    """Record one reachability observation. Stamps ``unreachable_since`` on the
+    FIRST failure of an outage (idempotent on repeated failures) and clears it on
+    recovery. Returns True only when the state TRANSITIONED (down→up or up→down)
+    so the caller can react (e.g. invalidate the gather cache on recovery)."""
+    was = _reach_state["reachable"]
+    if ok:
+        _reach_state["reachable"] = True
+        _reach_state["unreachable_since"] = None
+        return not was
+    if was:
+        _reach_state["reachable"] = False
+        _reach_state["unreachable_since"] = time.time()
+        return True
+    return False
+
+
+def ensure_reachable() -> None:
+    """Raise ``RuntimeError`` when Portainer is CONFIGURED but currently
+    unreachable — so a Portainer-backed write-op fails fast with a clear reason
+    instead of hanging on a doomed request. Direct-Docker ops never call this
+    (they don't touch Portainer). No-op when reachable OR not configured (the
+    caller's own ``is_configured`` / route guards handle the unconfigured case)."""
+    if is_configured() and not _reach_state["reachable"]:
+        since = _reach_state.get("unreachable_since")
+        ago = ""
+        if since is not None:
+            ago = f" (since {int(time.time() - float(since))}s ago)"
+        raise RuntimeError(
+            f"Portainer is unreachable{ago} — restart / image / stack actions are "
+            "unavailable until it recovers")
+
+
+async def probe_reachable(client: Optional[httpx.AsyncClient] = None,
+                          timeout: float = 5.0) -> bool:
+    """Best-effort liveness probe of the Portainer API via ``GET /api/status``
+    (Portainer's unauthenticated status endpoint). Returns False on any
+    connection / TLS error or a 5xx (a reverse proxy reporting its upstream
+    down); any <500 response means the server answered, so it's reachable. Does
+    NOT mutate state — the caller pairs it with ``mark_reachable`` so the gather
+    and the probe loop share one updater."""
+    url = _url()
+    if not url:
+        return False
+
+    async def _do(cli: httpx.AsyncClient) -> bool:
+        try:
+            r = await cli.get(f"{url}/api/status", headers=headers())
+            return r.status_code < 500
+        except (httpx.HTTPError, OSError):
+            return False
+
+    if client is not None:
+        return await _do(client)
+    async with httpx.AsyncClient(verify=_verify_tls(), timeout=timeout) as owned:
+        return await _do(owned)
+
+
+async def portainer_health_loop() -> None:
+    """Lifespan-managed Portainer reachability probe. Every
+    ``tuning_portainer_health_probe_interval_seconds`` (default 30) it probes
+    ``/api/status`` and updates the reachability state. On a down→up transition
+    it invalidates the gather cache so the next ``/api/items`` repopulates the
+    last-good snapshot with fresh data; when Portainer isn't configured /
+    disabled it resets the state to reachable (no false "unreachable" banner).
+    Skip-don't-crash: any probe error is treated as "unreachable", never raised."""
+    while True:
+        try:
+            interval = tuning.tuning_int(Tunable.PORTAINER_HEALTH_PROBE_INTERVAL_SECONDS)
+        except (KeyError, ValueError, TypeError):
+            interval = 30
+        try:
+            if not is_configured():
+                # Disabled / unconfigured Portainer is not an outage — clear any
+                # stale down-state so the SPA doesn't banner it.
+                mark_reachable(True)
+            else:
+                ok = await probe_reachable()
+                transitioned = mark_reachable(ok)
+                if transitioned and ok:
+                    # Recovered — force the next gather to repopulate from live.
+                    from logic.gather import _cache as _gather_cache
+                    _gather_cache["ts"] = 0
+                    print("[portainer] reachable again — invalidated cache to refresh")
+                elif transitioned and not ok:
+                    print("[portainer] unreachable — /api/status probe failed")
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[portainer] health probe error: {e}")
+        await asyncio.sleep(max(5, interval))
 
 
 # ----------------------------------------------------------------------------

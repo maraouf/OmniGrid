@@ -156,6 +156,24 @@ function tautulliBars(values) {
   return out;
 }
 
+// Single SVG path string for the whole bar chart — rendered as ONE <path> on a
+// 200×32 viewBox. A <template x-for> producing <rect> inside <svg> is broken:
+// the HTML parser treats the nested <template> as a foreign SVG element with no
+// .content, so Alpine can't establish the loop scope and crashes. Drawing every
+// bar as one solid-filled path (the codebase SVG-chart convention) sidesteps it.
+function tautulliBarsPath(values) {
+  const bars = tautulliBars(values);
+  if (!bars.length) {
+    return '';
+  }
+  let d = '';
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    d += 'M' + b.x + ' ' + b.y + 'h' + b.w + 'v' + b.h + 'h-' + b.w + 'z';
+  }
+  return d;
+}
+
 // The busiest category {label, value} in a distribution {labels, values}, or
 // null when empty / all-zero.
 function tautulliPeak(dist) {
@@ -375,6 +393,7 @@ export const helpers = {
   tautulliHasPlays: tautulliHasPlays,
   tautulliTopUser: tautulliTopUser,
   tautulliBars: tautulliBars,
+  tautulliBarsPath: tautulliBarsPath,
   tautulliPeak: tautulliPeak,
   tautulliStreamType: tautulliStreamType,
   tautulliHasStreamType: tautulliHasStreamType,

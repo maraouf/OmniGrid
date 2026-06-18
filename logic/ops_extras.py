@@ -557,6 +557,7 @@ async def do_update_stack(
     fires a notification on completion + the cache invalidation
     after persist_history."""
     try:
+        portainer.ensure_reachable()
         op.log(f"Starting stack update (id={stack_id}, retag={retag_to_latest}"
                + (f", new_tag={new_tag!r}" if retag_to_latest else "")
                + ")")
@@ -744,6 +745,9 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                          event="container_update_success", actor_username=op.actor,
                          target_kind="container", target_id=str(op.target_id))
             return
+        # Portainer-backed container — fast-fail if Portainer is unreachable
+        # (a direct-Docker container returned above and is unaffected).
+        portainer.ensure_reachable()
         node = portainer.node_for_container(gather.get_cache(), container_id)
         op.log("Recreating container with PullImage=true"
                + (f" on node '{node}'" if node else ""))
@@ -1561,6 +1565,7 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
         if _dnode is not None:
             await _direct_restart(op, container_id, _dnode)
         else:
+            portainer.ensure_reachable()
             node = portainer.node_for_container(gather.get_cache(), container_id)
             op.log("Restarting container" + (f" on node '{node}'" if node else ""))
             async with portainer.write_client(timeout=_portainer_op_timeout("short")) as client:
@@ -1603,6 +1608,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
         if _dnode is not None:
             await _direct_remove(op, container_id, _dnode)
         else:
+            portainer.ensure_reachable()
             node = portainer.node_for_container(gather.get_cache(), container_id)
             if node:
                 op.log(f"Removing container on node '{node}' (force=true, v=true)")
@@ -1658,6 +1664,7 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
     pull. Fires service_restart_success / _failure; invalidates the
     gather cache in the finally block."""
     try:
+        portainer.ensure_reachable()
         op.log("Fetching current service spec")
         async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
             svc = await portainer.pg(

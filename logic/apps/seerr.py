@@ -83,8 +83,8 @@ import httpx
 from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
-    cache_key, fetch_gate, peek_cache, resolve_cache_ttl,
-    resolve_credential_target)
+    cache_key, fetch_gate, image_redirect_allowed_for_hosts, peek_cache,
+    resolve_cache_ttl, resolve_credential_target)
 from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
@@ -827,6 +827,15 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     if not p.startswith("/") or ".." in p:
         raise ValueError("relative avatar must be a clean absolute path")
     return base.rstrip("/") + p, _img_headers(api_key)
+
+
+def image_redirect_allowed(_host_row: dict, _chip: dict, url: str) -> bool:
+    """Per-app image-proxy redirect guard — a plex.tv / gravatar avatar (or a
+    Seerr ``/avatarproxy/`` that 302s onward) is followed when the target is on
+    the avatar-host family OR resolves to a public IP (the SSRF boundary; a
+    same-host hop is already allowed by the route). See
+    _common.image_redirect_allowed_for_hosts."""
+    return image_redirect_allowed_for_hosts(url, _AVATAR_PROXY_HOSTS)
 
 
 def _fmt_request_date(created: Any, actor_username: Optional[str]) -> str:

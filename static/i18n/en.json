@@ -28,6 +28,8 @@
       "http_status": "Request failed (HTTP {status})."
     },
     "loading": "Loading…",
+    "save": "Save",
+    "saving": "Saving…",
     "select_all": "Select all",
     "select_row": "Select row",
     "search": "Search",
@@ -2148,6 +2150,10 @@
           "label": "Direct-Docker node timeout (seconds)",
           "help": "Per-call wall-clock budget for a Portainer-less Docker node managed over SSH (Admin → Docker Nodes) — covers opening the SSH connection, tunnelling to the daemon socket, and one Docker Engine API request. Bounds a slow or unreachable node so a gather / a container action can't hang. Default 20. Raise it (e.g. 40) on a high-latency link or a node with a slow daemon; lower it for a snappier failure on a LAN node. Range 3..300. Takes effect on the next call."
         },
+        "tuning_portainer_health_probe_interval_seconds": {
+          "label": "Portainer reachability probe interval (seconds)",
+          "help": "How often the background probe checks whether the Portainer API is reachable (GET /api/status). When Portainer goes down, OmniGrid keeps showing the last known services / containers / stacks (instead of blanking them), banners the outage above those views, and pauses Portainer actions; when it recovers the banner clears and data refreshes. Default 30. Lower it (e.g. 10) for faster detection at the cost of more probes; raise it to quieten a flapping link. Range 5..600. Takes effect on the next probe tick."
+        },
         "tuning_bazarr_sample_interval_seconds": {
           "label": "Bazarr sampler interval (seconds)",
           "help": "How often the lifespan Bazarr sampler snapshots each configured instance's missing-subtitle backlog (episodes + movies) into the history table that drives the card's backlog-over-time sparkline and the \"backlog down N this week\" stat (Bazarr keeps no wanted-count history of its own). Default 900 (15 min) — the backlog moves slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -3182,6 +3188,13 @@
     "task_error_action_cleanup_overlay_help": "Uses the Portainer API to find the overlay network matching the failing subnet, verifies no other containers are using it, removes it, then force-updates the service. Docker recreates the overlay + a fresh VXLAN interface when the new task lands. SSH-free; safe for single-stack overlay networks (the typical compose-deploy pattern). Aborts cleanly when the network is shared with another stack.",
     "task_error_cleanup_overlay_done": "Overlay {network} removed and service force-updated. Watch for the new task to come up.",
     "task_error_cleanup_overlay_failed": "Cleanup failed: {error}"
+  },
+  "portainer_offline_banner": {
+    "title": "Portainer is unreachable — showing the last known data",
+    "title_since": "Portainer unreachable since {since} — showing the last known data",
+    "body": "OmniGrid can't reach the Portainer API right now, so the services / containers / stacks below are the last successful snapshot and won't update until Portainer comes back. Portainer actions (restart / remove / update / stack) are paused until then. Any directly-managed Docker nodes keep working.",
+    "retry": "Retry now",
+    "retry_help": "Re-checks Portainer immediately; the banner clears automatically once it's reachable again."
   },
   "swarm_agent_banner": {
     "title": "Portainer agent unreachable on {count} Swarm node(s)",

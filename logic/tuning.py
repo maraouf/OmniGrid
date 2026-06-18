@@ -121,6 +121,7 @@ class Tunable(str, Enum):
     PROXMOX_HISTORY_DAYS = "tuning_proxmox_history_days"
     PROXMOX_SAMPLE_INTERVAL_SECONDS = "tuning_proxmox_sample_interval_seconds"
     DOCKER_DIRECT_TIMEOUT_SECONDS = "tuning_docker_direct_timeout_seconds"
+    PORTAINER_HEALTH_PROBE_INTERVAL_SECONDS = "tuning_portainer_health_probe_interval_seconds"
     UNIFI_HISTORY_DAYS = "tuning_unifi_history_days"
     UNIFI_SAMPLE_INTERVAL_SECONDS = "tuning_unifi_sample_interval_seconds"
     BAZARR_HISTORY_DAYS = "tuning_bazarr_history_days"
@@ -1566,6 +1567,11 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # channel + one HTTP request). Bounds a slow/unreachable node so the gather
     # / a write-op can't hang. Default 20; raise on a high-latency link.
     "tuning_docker_direct_timeout_seconds": ("DOCKER_DIRECT_TIMEOUT_SECONDS", 20, 3, 300),
+    # How often the lifespan Portainer-reachability probe loop GETs /api/status
+    # to detect a Portainer outage (so gather keeps the last-good snapshot, the
+    # SPA banners it, and Portainer write-ops fast-fail). Default 30s; lower for
+    # faster detection at the cost of more probes, raise to quieten a flapping link.
+    "tuning_portainer_health_probe_interval_seconds": ("PORTAINER_HEALTH_PROBE_INTERVAL_SECONDS", 30, 5, 600),
     # How often the Bazarr sampler snapshots each chip's missing-subtitle backlog
     # (episodes + movies) into bazarr_samples — the trend source for the card's
     # "backlog over time" sparkline + "backlog down N this week" stat (Bazarr

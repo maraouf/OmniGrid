@@ -782,3 +782,28 @@ def diagnose_endpoints(endpoints: list, *, hints: dict,
         elif all(s == 0 for s in statuses):
             out.append(f"{nm}: unreachable (connection / TLS error)")
     return " · ".join(out)
+
+
+def image_redirect_allowed_for_hosts(url: str, allowed_hosts: "tuple[str, ...]") -> bool:
+    """Per-app image-proxy redirect guard for the avatar-proxy modules
+    (Plex / Tautulli / Seerr). The route's manual redirect loop asks this
+    before following a CROSS-HOST 30x ``Location``.
+
+    A ``plex.tv/users/<id>/avatar`` URL 302-redirects to wherever that user's
+    avatar actually lives — a sibling Plex host, gravatar, OR an unpredictable
+    S3 / CloudFront CDN — so a static allowlist alone can't cover the CDN case.
+    Follow the redirect when the target host is EITHER on the module's
+    public-avatar-host family (``allowed_hosts`` + sub-domains — no DNS, covers
+    the plex.tv / gravatar cases) OR resolves to a genuinely PUBLIC IP (covers
+    the CDN case while still refusing a redirect to a LAN host /
+    169.254.169.254 cloud-metadata — the real SSRF boundary). The public-IP
+    check is the project SSRF helper (rejects RFC1918 / link-local / loopback /
+    reserved + DNS-rebinding mixed answers)."""
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    host = (urlsplit(url or "").hostname or "").lower()
+    if not host:
+        return False
+    if any(host == h or host.endswith("." + h) for h in allowed_hosts):
+        return True
+    from logic.url_safety import host_resolves_public  # noqa: PLC0415
+    return host_resolves_public(host)

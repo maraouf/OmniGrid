@@ -133,9 +133,7 @@
               <div class="apps-card-stat-label" x-text="t('apps.tautulli.dayofweek') || 'Plays by day'"></div>
               <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
                    :aria-label="t('apps.tautulli.dayofweek') || 'Plays by day'">
-                <template x-for="(b, i) in tautulliBars((tautulliData(inst).dayofweek || {}).values)" :key="i">
-                  <rect :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="var(--info)"/>
-                </template>
+                <path :d="tautulliBarsPath((tautulliData(inst).dayofweek || {}).values)" fill="var(--info)"/>
               </svg>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tautulli.busiest', { label: (tautulliPeak(tautulliData(inst).dayofweek) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).dayofweek) || {}).value) })"></div>
@@ -145,9 +143,7 @@
               <div class="apps-card-stat-label" x-text="t('apps.tautulli.hourofday') || 'Plays by hour'"></div>
               <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8" role="img"
                    :aria-label="t('apps.tautulli.hourofday') || 'Plays by hour'">
-                <template x-for="(b, i) in tautulliBars((tautulliData(inst).hourofday || {}).values)" :key="i">
-                  <rect :x="b.x" :y="b.y" :width="b.w" :height="b.h" fill="var(--success)"/>
-                </template>
+                <path :d="tautulliBarsPath((tautulliData(inst).hourofday || {}).values)" fill="var(--success)"/>
               </svg>
               <div class="fs-3xs text-[var(--text-faint)]"
                    x-text="t('apps.tautulli.busiest_hour', { label: (tautulliPeak(tautulliData(inst).hourofday) || {}).label, n: tautulliCount((tautulliPeak(tautulliData(inst).hourofday) || {}).value) })"></div>

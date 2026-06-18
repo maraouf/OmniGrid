@@ -28,6 +28,14 @@ export default {
   // settings page loads. null = unknown (initial paint), true/false =
   // explicit. Drives the empty-state copy on stacks/services/nodes.
   portainerConfigured: null,
+  // Portainer-unreachable graceful degradation — refreshed on every /api/items
+  // poll. When Portainer is CONFIGURED but the last gather (or the lifespan
+  // reachability probe) found it down, the served stacks/services/nodes are the
+  // last-good snapshot and `stalePortainer` flips true so the SPA banners the
+  // outage above those views. `portainerUnreachableSince` is epoch-seconds of
+  // the first failure (drives the "unreachable since X" copy).
+  stalePortainer: false,
+  portainerUnreachableSince: null,
   portainerForm: {
     url: '', endpoint_id: 1, verify_tls: true, api_key: '',
   },

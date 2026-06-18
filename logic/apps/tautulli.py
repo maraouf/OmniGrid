@@ -60,7 +60,8 @@ import httpx
 from logic.external_urls import ExternalURL
 
 from logic.apps._common import (
-    cache_key, peek_cache, resolve_base_url, resolve_cache_ttl, resolve_credential_target)
+    cache_key, image_redirect_allowed_for_hosts, peek_cache, resolve_base_url,
+    resolve_cache_ttl, resolve_credential_target)
 from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module.
@@ -196,6 +197,14 @@ def image_proxy_url(host_row: dict, chip: dict, path: str) -> "tuple[str, dict]"
     qs = urlencode({"apikey": api_key, "cmd": "pms_image_proxy", "img": p,
                     "width": 300, "height": 450, "fallback": "poster"})
     return base.rstrip("/") + "/api/v2?" + qs, {}
+
+
+def image_redirect_allowed(_host_row: dict, _chip: dict, url: str) -> bool:
+    """Per-app image-proxy redirect guard — Tautulli's pms_image_proxy normally
+    returns the bytes directly, but a version that 302-redirects a plex.tv
+    avatar to its CDN is followed when the target is on the avatar-host family
+    OR resolves to a public IP. See _common.image_redirect_allowed_for_hosts."""
+    return image_redirect_allowed_for_hosts(url, _AVATAR_PROXY_HOSTS)
 
 
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, **_kw) -> dict:

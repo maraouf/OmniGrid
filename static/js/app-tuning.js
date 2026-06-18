@@ -377,6 +377,8 @@ export default {
     'tuning_proxmox_history_days',
     // Direct-Docker node (Portainer-less, over SSH) — per-call wall-clock budget.
     'tuning_docker_direct_timeout_seconds',
+    // Portainer reachability probe cadence — graceful-degradation banner.
+    'tuning_portainer_health_probe_interval_seconds',
     // Bazarr subtitle-backlog sampler — backlog-over-time sparkline
     // (snapshot cadence + retention).
     'tuning_bazarr_sample_interval_seconds',

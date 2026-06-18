@@ -2022,6 +2022,11 @@ export default {
       if (typeof d.portainer_configured === 'boolean') {
         this.portainerConfigured = d.portainer_configured;
       }
+      // Portainer-unreachable graceful degradation — drives the stale banner
+      // above Stacks / Services / Nodes. The served items are the last-good
+      // snapshot when true; clears automatically when Portainer recovers.
+      this.stalePortainer = !!d.stale_portainer;
+      this.portainerUnreachableSince = d.portainer_unreachable_since || null;
       // Cache state is implementation detail — the unified refresh
       // picker is the operator's mental model for "how live
       // is this dashboard". Cleared rather than deleted so any
