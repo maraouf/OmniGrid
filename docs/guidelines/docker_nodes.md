@@ -122,25 +122,30 @@ socket is at the standard `/var/run/docker.sock`.
   the next boot re-runs the Post-Init script — just re-run the `usermod` line.
   (Alternatively, point the node at **root**, which owns the socket, if you have
   root SSH set up.)
-- **Enable SSH socket forwarding — needs TWO directives.** OmniGrid reaches the
-  daemon by asking the SSH server to forward a channel to `/var/run/docker.sock`.
-  That requires **both** of these in the SSH **Auxiliary Parameters**:
-  ```
-  AllowTcpForwarding local
-  AllowStreamLocalForwarding yes
-  ```
-  The gotcha: OpenSSH gates the socket (`direct-streamlocal`) forward behind the
-  *general* port-forwarding permission, so **`AllowTcpForwarding no` blocks it
-  even when `AllowStreamLocalForwarding yes` is set** — and hardened / appliance
-  builds (including TrueNAS) ship `AllowTcpForwarding no` by default. `local` is
-  the tightest value that works (client-initiated forwards only). After setting
-  them, **restart the SSH service** and verify the *effective* config:
+- **Enable SSH forwarding — needs TWO things, set in two different places.**
+  OmniGrid reaches the daemon by asking the SSH server to forward a channel to
+  `/var/run/docker.sock`, and OpenSSH gates that socket (`direct-streamlocal`)
+  forward behind the *general* port-forwarding permission. So you need both:
+  1. **`AllowTcpForwarding`** must NOT be `no`. TrueNAS ships it `no`, and you
+     CAN'T fix that from Auxiliary Parameters — TrueNAS writes its own
+     `AllowTcpForwarding no` earlier in the config, and `sshd` uses the *first*
+     value for a keyword, so an appended `AllowTcpForwarding local` is ignored.
+     Use the native toggle instead: **Services → SSH → Edit → "Allow TCP Port
+     Forwarding" → on.**
+  2. **`AllowStreamLocalForwarding yes`** — add this in **Services → SSH →
+     Auxiliary Parameters** (TrueNAS sets no base value for it, so the appended
+     one wins).
+
+  Then **restart the SSH service** and verify the *effective* config:
   ```
   sudo sshd -T | grep -iE 'allowtcpforwarding|streamlocal'
-  # want: allowtcpforwarding local   +   allowstreamlocalforwarding yes
+  # want: allowtcpforwarding yes   +   allowstreamlocalforwarding yes
   ```
-  Until both are set, the Test fails with *"couldn't open the Docker socket … the
-  SSH server refused the socket forward"*.
+  Until both read non-`no`, the Test fails with *"couldn't open the Docker socket
+  … the SSH server refused the socket forward"*. (On a generic Linux host where
+  you control `sshd_config` directly, `AllowTcpForwarding local` +
+  `AllowStreamLocalForwarding yes` in one file is enough — the two-places dance is
+  a TrueNAS-config-generation quirk.)
 - **App containers are TrueNAS-middleware-managed.** Restarting one is safe.
   **Recreating** (the "update" action) a container that TrueNAS's app system
   manages may be **reverted or reconciled** by its middleware — prefer updating
@@ -191,12 +196,16 @@ fallback just keeps the data visible).
   1. **Forwarding is disabled — check BOTH directives.** OmniGrid forwards a
      channel to the UNIX socket, which OpenSSH gates behind the *general*
      port-forwarding permission. So you need **both** `AllowStreamLocalForwarding
-     yes` AND `AllowTcpForwarding` set to `local` (or `yes`) — `AllowTcpForwarding
-     no` blocks the socket forward even with StreamLocal on, and hardened / NAS
-     builds ship it `no`. Set both, reload SSH, and verify the *effective* config:
+     yes` AND `AllowTcpForwarding` not `no` — `AllowTcpForwarding no` blocks the
+     socket forward even with StreamLocal on, and hardened / NAS builds ship it
+     `no`. Verify the *effective* config (note the `-E` for the alternation):
      `sudo sshd -T | grep -iE 'allowtcpforwarding|streamlocal'` (want
-     `allowtcpforwarding local` + `allowstreamlocalforwarding yes` — NOT
-     `allowtcpforwarding no`).
+     `allowtcpforwarding yes` + `allowstreamlocalforwarding yes` — NOT
+     `allowtcpforwarding no`). On **TrueNAS** you can't fix `AllowTcpForwarding`
+     from Auxiliary Parameters (TrueNAS writes its own `no` first and sshd
+     first-wins) — flip the native **Services → SSH → "Allow TCP Port Forwarding"**
+     toggle instead, and keep `AllowStreamLocalForwarding yes` in Auxiliary
+     Parameters. Restart the SSH service after either change.
   2. **The SSH user can't access the socket.** It must be `root` or in the
      `docker` group (the socket is `srw-rw---- root docker`). Verify from a shell:
      `ssh <user>@<node> "docker version"` — if that prints the *Server* version,

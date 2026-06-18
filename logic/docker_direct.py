@@ -192,8 +192,14 @@ class DockerClient:
                 req += f"Content-Type: application/json\r\nContent-Length: {len(payload)}\r\n"
             req += "\r\n"
             writer.write(req.encode() + payload)
-            writer.write_eof()
-            raw = await reader.read()  # read to EOF (Connection: close)
+            # NOTE: do NOT write_eof() here. HTTP request framing doesn't need an
+            # EOF (no body, or a Content-Length), and half-closing our write side
+            # makes Docker's Go HTTP server see the connection's read EOF and
+            # CANCEL the request context — the daemon then returns
+            # `500 {"message":"context canceled"}` even for an instant call like
+            # /version. `Connection: close` already makes the daemon close after
+            # responding, so `reader.read()` still reads to a clean EOF.
+            raw = await reader.read()  # read to EOF (server closes on Connection: close)
         finally:
             try:
                 writer.close()
