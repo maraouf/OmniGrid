@@ -91,6 +91,16 @@ function rundeckFailureRate(inst) {
   return (Number(d.failure_rate) || 0) + '%';
 }
 
+// Per-project failure-rate breakdown (which project is flakiest). Returns the
+// backend's `per_project_failure` array (`[{name, failure_rate, completed,
+// failed}]`, flakiest first) or [] when absent. Drawer-only on the SPA.
+function rundeckPerProjectFailure(inst) {
+  /* jshint validthis: true */
+  const d = rundeckData.call(this, inst);
+  const rows = (d && Array.isArray(d.per_project_failure)) ? d.per_project_failure : null;
+  return rows || [];
+}
+
 // Failure-rate trend (from the lifespan rundeck_sampler). Returns the trend
 // block `{series, peak, avg, samples, current, days}` or null.
 function rundeckTrend(inst) {
@@ -148,6 +158,7 @@ export const helpers = {
   rundeckCount: rundeckCount,
   rundeckDuration: rundeckDuration,
   rundeckFailureRate: rundeckFailureRate,
+  rundeckPerProjectFailure: rundeckPerProjectFailure,
   rundeckTrend: rundeckTrend,
   rundeckSparkPoints: rundeckSparkPoints,
 };

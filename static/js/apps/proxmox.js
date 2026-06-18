@@ -94,6 +94,79 @@ function proxmoxStorage(inst) {
   return fmt(d.storage_used) + ' / ' + fmt(tot);
 }
 
+// Cluster quorum / membership block ({clustered, quorate, name, nodes_online,
+// nodes_total}) — null when absent OR for a STANDALONE node (clustered=false),
+// since quorum only matters for a real cluster.
+function proxmoxQuorum(inst) {
+  /* jshint validthis: true */
+  const d = proxmoxData.call(this, inst);
+  const q = (d && d.quorum && typeof d.quorum === 'object') ? d.quorum : null;
+  return (q && q.clustered) ? q : null;
+}
+
+// Last-backup block ({last_age_s, last_ok, failed_recent, total_recent}) or null.
+function proxmoxBackup(inst) {
+  /* jshint validthis: true */
+  const d = proxmoxData.call(this, inst);
+  const b = (d && d.backup && typeof d.backup === 'object') ? d.backup : null;
+  return (b && Number.isFinite(Number(b.last_age_s))) ? b : null;
+}
+
+// Humanise a backup age (seconds) → "Nd" / "Nh" / "Nm" / "just now".
+function proxmoxBackupAge(inst) {
+  /* jshint validthis: true */
+  const b = proxmoxBackup.call(this, inst);
+  if (!b) {
+    return '';
+  }
+  const s = Math.max(0, Math.floor(Number(b.last_age_s) || 0));
+  const days = Math.floor(s / 86400);
+  const hrs = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  if (days) {
+    return days + 'd';
+  }
+  if (hrs) {
+    return hrs + 'h';
+  }
+  return mins ? (mins + 'm') : 'just now';
+}
+
+// Cluster-resource trend (from the lifespan proxmox_sampler) — per-day average
+// CPU% / memory% / storage%, or null while idle / no samples.
+function proxmoxTrend(inst) {
+  /* jshint validthis: true */
+  const d = proxmoxData.call(this, inst);
+  return (d && d.trend && typeof d.trend === 'object') ? d.trend : null;
+}
+
+// Memo: stable `:d` per numeric series array (avoids re-render flicker).
+const _pveTrendMemo = new WeakMap();
+
+// SVG polyline `:d` over a 0..200 × 0..32 viewBox on a FIXED 0..100 scale (the
+// series are percentages, so CPU/mem/storage share one comparable axis). '' when
+// < 2 points. Memoised on the array ref.
+function proxmoxTrendPath(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) {
+    return '';
+  }
+  if (_pveTrendMemo.has(arr)) {
+    return _pveTrendMemo.get(arr);
+  }
+  const W = 200, H = 32, n = arr.length;
+  const stepX = W / Math.max(1, n - 1);
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    const x = (i * stepX).toFixed(1);
+    const v = Math.max(0, Math.min(100, Number(arr[i]) || 0));
+    const y = (H - v / 100 * H).toFixed(1);
+    d += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+  }
+  d = d.trim();
+  _pveTrendMemo.set(arr, d);
+  return d;
+}
+
 // Extender record -- consumed by the generic helpers in `static/js/app-apps.js`
 // via `window.OG_APPS_EXTENDERS`. Token auth + a 2-column card span.
 export const extender = {
@@ -112,4 +185,9 @@ export const helpers = {
   proxmoxCount: proxmoxCount,
   proxmoxFraction: proxmoxFraction,
   proxmoxStorage: proxmoxStorage,
+  proxmoxQuorum: proxmoxQuorum,
+  proxmoxBackup: proxmoxBackup,
+  proxmoxBackupAge: proxmoxBackupAge,
+  proxmoxTrend: proxmoxTrend,
+  proxmoxTrendPath: proxmoxTrendPath,
 };

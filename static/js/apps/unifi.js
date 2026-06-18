@@ -108,7 +108,50 @@ function unifiApLoad(inst) {
     name: String(r.name || '?'),
     clients: Number(r.clients) || 0,
     pct: Math.max(4, Math.round((Number(r.clients) || 0) / max * 100)),
+    // Per-AP radio channel + channel-utilisation (from the legacy stat/device
+    // join) — channel 0 / util null when the AP wasn't in the radio map. The
+    // drawer bar shows "ch 36 (5G) · 42%" beside the client count.
+    channel: Number(r.channel) || 0,
+    util: (r.util == null) ? null : (Number(r.util) || 0),
+    band: String(r.band || ''),
   }));
+}
+
+// WAN / ISP-uplink block from the legacy stat/health join, or null. Carries the
+// live throughput (rx_bps / tx_bps, bytes/sec), the plan speeds (down_mbps /
+// up_mbps), the utilisation % (down_util / up_util), latency + IP.
+function unifiWan(inst) {
+  /* jshint validthis: true */
+  const d = (this.unifiData ? this.unifiData(inst) : null);
+  const w = (d && d.wan && typeof d.wan === 'object') ? d.wan : null;
+  if (!w) {
+    return null;
+  }
+  // Treat an all-zero WAN block (no gateway / never sampled) as absent so the
+  // card doesn't show a meaningless "0 / 0 Mbps".
+  const keys = ['rx_bps', 'tx_bps', 'down_mbps', 'up_mbps'];
+  return keys.some((k) => (Number(w[k]) || 0) > 0) ? w : null;
+}
+
+// Format a byte/sec rate as Mbps ('—' for non-finite). 1 decimal under 100, 0
+// at/above (a 935 Mbps line shouldn't show ".0").
+function unifiMbps(bps) {
+  const n = Number(bps) || 0;
+  const mbps = n * 8 / 1000000;
+  if (!isFinite(mbps)) {
+    return '—';
+  }
+  return (mbps >= 100 ? Math.round(mbps) : Math.round(mbps * 10) / 10).toLocaleString();
+}
+
+// "↓ X / ↑ Y Mbps" live WAN throughput string for the card stat.
+function unifiWanThroughput(inst) {
+  /* jshint validthis: true */
+  const w = unifiWan.call(this, inst);
+  if (!w) {
+    return '—';
+  }
+  return '↓ ' + unifiMbps(w.rx_bps) + ' / ↑ ' + unifiMbps(w.tx_bps) + ' Mbps';
 }
 
 // Client-occupancy retention trend from the lifespan unifi_sampler (per-day
@@ -179,6 +222,9 @@ export const helpers = {
   unifiCount: unifiCount,
   unifiDeviceFraction: unifiDeviceFraction,
   unifiApLoad: unifiApLoad,
+  unifiWan: unifiWan,
+  unifiMbps: unifiMbps,
+  unifiWanThroughput: unifiWanThroughput,
   unifiTrend: unifiTrend,
   unifiTrendPath: unifiTrendPath,
 };

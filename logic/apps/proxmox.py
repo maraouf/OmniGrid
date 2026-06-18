@@ -46,6 +46,7 @@ Upstream API reference: ``https://<host>:8006/api2/json`` —
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Optional
 
@@ -118,6 +119,18 @@ SKILLS: tuple[dict, ...] = (
         # DESTRUCTIVE: gracefully shuts a guest down (takes it offline).
         "arg": True,
         "arg_hint": "the VM / container name or VMID to stop",
+        "destructive": True,
+    },
+    {
+        "id": "proxmox_reboot_guest",
+        "name": "Reboot a Proxmox VM / container",
+        "ai_phrases": ("reboot the <name> vm, restart the <name> container, "
+                       "gracefully reboot <name>, cycle vm <vmid>, restart "
+                       "guest <name>"),
+        # DESTRUCTIVE: gracefully reboots a guest (brief downtime). Uses the
+        # guest's ACPI/agent shutdown+start, NOT a hard reset.
+        "arg": True,
+        "arg_hint": "the VM / container name or VMID to reboot",
         "destructive": True,
     },
 )
@@ -290,6 +303,93 @@ def _perm_limited_hint(perms_probe: Any) -> str:
             "aren't all on a node this token can't audit.")
 
 
+# Bounds for the quorum + backup-status fan-out (per fetch).
+_MAX_NODES = 12
+_BACKUP_TASKS_PER_NODE = 50
+
+
+async def _fetch_quorum(cli: "httpx.AsyncClient", base: str, token: str) -> dict:
+    """Cluster quorum + membership from ``GET /cluster/status``. Returns
+    ``{clustered, quorate, name, nodes_total, nodes_online}`` or ``{}`` on
+    failure. A STANDALONE node (not joined to a cluster) has no ``type=cluster``
+    entry — ``clustered=False`` and quorum is N/A (a single node always has its
+    own 'quorum'). ``quorate`` reflects the cluster entry's ``quorate`` flag (the
+    "is my cluster healthy" signal — a partitioned cluster reads False)."""
+    body = await _get(cli, base + _API + "/cluster/status", token)
+    entries = as_list(as_dict(body).get("data"))
+    if not entries:
+        return {}
+    cluster = next((e for e in entries if isinstance(e, dict)
+                    and str(e.get("type") or "").lower() == "cluster"), None)
+    node_entries = [e for e in entries if isinstance(e, dict)
+                    and str(e.get("type") or "").lower() == "node"]
+    online = sum(1 for e in node_entries if safe_int(e.get("online")) == 1)
+    if cluster:
+        return {"clustered": True,
+                "quorate": safe_int(cluster.get("quorate")) == 1,
+                "name": str(cluster.get("name") or "").strip(),
+                "nodes_total": safe_int(cluster.get("nodes")) or len(node_entries),
+                "nodes_online": online}
+    # Standalone node — no cluster entry; quorum doesn't apply.
+    return {"clustered": False, "quorate": True, "name": "",
+            "nodes_total": len(node_entries) or 1, "nodes_online": online or 1}
+
+
+async def _fetch_backup_status(cli: "httpx.AsyncClient", base: str, token: str,
+                               node_names: list) -> dict:
+    """Most-recent vzdump backup age + recent-failure count, from each node's
+    task log (``GET /nodes/{node}/tasks?typefilter=vzdump``). Returns
+    ``{last_ts, last_age_s, last_status, last_ok, failed_recent, total_recent}``,
+    or ``{}`` when no FINISHED vzdump task is found / the endpoint is
+    unavailable. A finished task's ``status`` is ``OK`` on success or an error
+    string on failure; still-running tasks (no ``endtime``) are skipped."""
+    from urllib.parse import quote  # noqa: PLC0415
+    latest_ts = 0
+    latest_status = ""
+    failed = 0
+    total = 0
+    for node in [n for n in node_names if n][:_MAX_NODES]:
+        body = await _get(
+            cli, base + _API + f"/nodes/{quote(node, safe='')}/tasks"
+            f"?typefilter=vzdump&limit={_BACKUP_TASKS_PER_NODE}", token)
+        for t in as_list(as_dict(body).get("data")):
+            if not isinstance(t, dict):
+                continue
+            end = safe_int(t.get("endtime"))
+            status = str(t.get("status") or "").strip()
+            if not end or not status:  # still running / no result yet
+                continue
+            total += 1
+            if status.upper() != "OK":
+                failed += 1
+            if end > latest_ts:
+                latest_ts = end
+                latest_status = status
+    if not latest_ts:
+        return {}
+    return {"last_ts": latest_ts,
+            "last_age_s": max(0, int(time.time()) - latest_ts),
+            "last_status": latest_status,
+            "last_ok": latest_status.upper() == "OK",
+            "failed_recent": failed, "total_recent": total}
+
+
+def _fmt_age(seconds: Any) -> str:
+    """Humanise an age in seconds → ``Nd`` / ``Nh`` / ``Nm`` / ``<1m`` ('' for
+    non-positive). Backend skill text (English)."""
+    s = max(0, safe_int(seconds))
+    if s <= 0:
+        return ""
+    days = s // 86400
+    hrs = (s % 86400) // 3600
+    mins = (s % 3600) // 60
+    if days:
+        return f"{days}d {hrs}h" if hrs else f"{days}d"
+    if hrs:
+        return f"{hrs}h {mins}m" if mins else f"{hrs}h"
+    return f"{mins}m" if mins else "<1m"
+
+
 # noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
@@ -352,7 +452,18 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 except (httpx.HTTPError, OSError) as e:
                     perms_status = 0
                     perms_snippet = type(e).__name__
-            version = await _fetch_version(cli, base, token)
+            # Node names for the per-node backup-task walk (from the resources
+            # already in hand). Cluster quorum + backup status + version fetched
+            # in parallel — all best-effort (a token without the audit scope just
+            # yields {} and the card hides those blocks).
+            node_names = [str(r.get("node") or "").strip() for r in resources
+                          if isinstance(r, dict)
+                          and str(r.get("type") or "").lower() == "node" and r.get("node")]
+            quorum, backup, version = await asyncio.gather(
+                _fetch_quorum(cli, base, token),
+                _fetch_backup_status(cli, base, token, node_names),
+                _fetch_version(cli, base, token),
+            )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[proxmox] error: fetch host={host_id} url={res_url} "
               f"failed — {type(e).__name__}: {e}")
@@ -429,6 +540,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "storage_used": storage_used,
         "storage_total": storage_total,
         "storage_percent": _pct(storage_used, storage_total),
+        # Cluster quorum / membership (GET /cluster/status): {clustered, quorate,
+        # name, nodes_total, nodes_online}. {} for a token without cluster audit.
+        "quorum": quorum,
+        # Last vzdump backup age + recent-failure count (per-node task log). {}
+        # when no finished backup task is visible to the token.
+        "backup": backup,
         "perm_limited": perm_limited,
         # What the token was actually allowed to SEE in /cluster/resources —
         # surfaced in the app-data debug JSON so a "guests missing" report is
@@ -445,15 +562,28 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "version": version,
         "fetched_at": int(now),
     }
+    # Cluster-resource trend (CPU% / memory% / storage%) from the lifespan
+    # sampler — Proxmox keeps no such rollup of its own. Tolerated on failure;
+    # the card renders without it.
+    try:
+        from logic.apps import proxmox_sampler as _pve_sampler  # noqa: PLC0415
+        out["trend"] = _pve_sampler.trend_summary(str(host_id or ""), int(service_idx or 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[proxmox] trend_summary skipped: {type(e).__name__}: {e}")
     # Resource-type breakdown (_types_str, computed above) is the fastest way to
     # diagnose a "guests missing" report from Admin -> Logs — it shows exactly
     # what the token was allowed to see (e.g. {'node': 1} with no 'lxc'/'qemu'
     # == a permission scope gap); perm_summary adds the effective-permissions
     # readout when the token couldn't audit guests.
+    _q = (("quorate" if quorum.get("quorate") else "NO-QUORUM") if quorum.get("clustered")
+          else ("standalone" if quorum else "-"))
+    _bk = (f"{_fmt_age(backup.get('last_age_s')) or '?'}"
+           f"{'/' + str(safe_int(backup.get('failed_recent'))) + 'fail' if backup.get('failed_recent') else ''}"
+           if backup else "-")
     print(f"[proxmox] INFO fetched host={host_id} nodes={nodes_online}/{nodes_total} "
           f"vms={vms_running}/{vms_total} cts={cts_running}/{cts_total} "
-          f"cpu={cpu_percent}% mem={mem_percent}% ver={version or '-'} "
-          f"resources=[{_types_str}]"
+          f"cpu={cpu_percent}% mem={mem_percent}% quorum={_q} backup={_bk} "
+          f"ver={version or '-'} resources=[{_types_str}]"
           f"{' PERM-LIMITED perms=[' + perm_summary + ']' if perm_limited else ''}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -474,6 +604,9 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "cts_total": safe_int(data.get("cts_total")),
         "cpu_percent": safe_int(data.get("cpu_percent")),
         "mem_percent": safe_int(data.get("mem_percent")),
+        "storage_percent": safe_int(data.get("storage_percent")),
+        "quorum": as_dict(data.get("quorum")) or None,
+        "backup": as_dict(data.get("backup")) or None,
         "version": data.get("version") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
     }
@@ -499,6 +632,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _power_skill(host_row, chip, arg=arg, action="start", host_id=host_id)
     if skill_id == "proxmox_stop_guest":
         return await _power_skill(host_row, chip, arg=arg, action="shutdown", host_id=host_id)
+    if skill_id == "proxmox_reboot_guest":
+        return await _power_skill(host_row, chip, arg=arg, action="reboot", host_id=host_id)
     raise ValueError(f"unknown skill: {skill_id!r}")
 
 
@@ -550,6 +685,24 @@ async def _status_skill(host_row: dict, chip: dict, *,
         lines.append(f"💾 Storage: {_fmt_bytes(data.get('storage_used'))} / "
                      f"{_fmt_bytes(data.get('storage_total'))} "
                      f"({safe_int(data.get('storage_percent'))}%)")
+    quorum = as_dict(data.get("quorum"))
+    if quorum.get("clustered"):
+        ok = bool(quorum.get("quorate"))
+        cname = str(quorum.get("name") or "").strip()
+        lines.append(f"{'🟢' if ok else '🔴'} Cluster "
+                     f"{(cname + ' ') if cname else ''}"
+                     f"{'quorate' if ok else 'NOT QUORATE'} — "
+                     f"{safe_int(quorum.get('nodes_online'))}/"
+                     f"{safe_int(quorum.get('nodes_total'))} nodes online")
+    backup = as_dict(data.get("backup"))
+    if backup:
+        age = _fmt_age(backup.get("last_age_s"))
+        bemoji = "✅" if backup.get("last_ok") else "⚠️"
+        bline = f"{bemoji} Last backup: {age or 'just now'} ago"
+        if safe_int(backup.get("failed_recent")):
+            bline += (f" · ❌ {safe_int(backup.get('failed_recent'))}/"
+                      f"{safe_int(backup.get('total_recent'))} recent failed")
+        lines.append(bline)
     ver = str(data.get("version") or "").strip()
     if ver:
         lines.append(f"· PVE {ver}")
@@ -645,10 +798,12 @@ def _attach_items(out: dict, items: list, count_i18n: str) -> dict:
 
 async def _power_skill(host_row: dict, chip: dict, *, arg: Optional[str],
                        action: str, host_id: Optional[str] = None) -> dict:
-    """Start (``action='start'``) or gracefully stop (``action='shutdown'``) ONE
-    guest. Resolves the target from ``/cluster/resources`` by exact VMID (the
-    per-row button) else a name substring (AI / Telegram), then
-    ``POST /nodes/{node}/{type}/{vmid}/status/{action}``. Never raises."""
+    """Start (``action='start'``), gracefully stop (``action='shutdown'``) or
+    gracefully reboot (``action='reboot'``) ONE guest. Resolves the target from
+    ``/cluster/resources`` by exact VMID (the per-row button) else a name
+    substring (AI / Telegram), then ``POST /nodes/{node}/{type}/{vmid}/status/
+    {action}``. ``reboot`` is the graceful ACPI/agent restart (NOT a hard reset).
+    Never raises."""
     needle = (arg or "").strip()
     if not needle:
         return {"ok": False, "status": 0,
@@ -693,6 +848,9 @@ async def _power_skill(host_row: dict, chip: dict, *, arg: Optional[str],
     if pr.status_code not in (200, 201, 204):
         return {"ok": False, "status": pr.status_code,
                 "detail": f"Proxmox didn't accept the {action} (HTTP {pr.status_code})"}
-    verb = "Starting" if action == "start" else "Shutting down"
-    emoji = "▶️" if action == "start" else "🛑"
+    verb, emoji = {
+        "start": ("Starting", "▶️"),
+        "shutdown": ("Shutting down", "🛑"),
+        "reboot": ("Rebooting", "🔄"),
+    }.get(action, ("Updating", "⚙️"))
     return {"ok": True, "status": 200, "detail": f"{emoji} {verb} {gname}."}

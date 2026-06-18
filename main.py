@@ -922,6 +922,16 @@ async def _lifespan(_app: FastAPI):
         _rundeck_sampler.rundeck_sampler_loop(),
         name="rundeck-sampler",
     )
+    # Proxmox cluster-resource sampler — records each Proxmox chip's cluster
+    # CPU% / memory% / storage% per tick (tuning_proxmox_sample_interval_seconds,
+    # default 900s; 0 = inherit the global stats interval) into proxmox_samples,
+    # driving the card's cluster-resource trend (Proxmox keeps no such rollup of
+    # its own). Dormant-cheap when no Proxmox chip is pinned.
+    from logic.apps import proxmox_sampler as _proxmox_sampler
+    proxmox_sampler = asyncio.create_task(
+        _proxmox_sampler.proxmox_sampler_loop(),
+        name="proxmox-sampler",
+    )
     # ddns-updater history sampler — records each configured ddns-updater
     # chip's public IP + record totals + failing count every
     # tuning_ddns_sample_interval_seconds (default 600s; 0 = inherit the
@@ -1149,7 +1159,7 @@ async def _lifespan(_app: FastAPI):
         # now awaits inline at boot (above the create_task chain)
         # so it's already completed by the time we reach this finally
         # block; nothing to cancel.
-        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tautulli_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
+        for task in (prowlarr_sampler, kavita_sampler, tdarr_sampler, emby_sampler, forgejo_sampler, gitsync_sampler, grafana_sampler, npm_sampler, opnsense_sampler, qbittorrent_sampler, unifi_sampler, bazarr_sampler, plex_sampler, tautulli_sampler, tracearr_sampler, servarr_sampler, seerr_sampler, pihole_sampler, adguard_sampler, adguardsync_sampler, speedtest_sampler, ddns_updater_sampler, fing_sampler, flaresolverr_sampler, rustdesk_sampler, rundeck_sampler, proxmox_sampler, prayer_reminders, prayer_times_sampler, public_ip_sampler, weather_sampler, telegram_listener, log_pruner, service_sampler, host_http_sampler, host_baseline_sampler, host_beszel_sampler, host_webmin_sampler, host_pulse_sampler, ping_sampler, host_metrics_sampler, host_net_sampler, scheduler, sampler):
             task.cancel()
             try:
                 await task

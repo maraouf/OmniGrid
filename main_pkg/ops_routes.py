@@ -1849,6 +1849,10 @@ class SettingsIn(BaseModel):
     # interval) + retention for the "clients over time" sparkline.
     tuning_unifi_sample_interval_seconds: Optional[str] = None
     tuning_unifi_history_days: Optional[str] = None
+    # Proxmox cluster-resource sampler — snapshot cadence (0 = inherit global
+    # stats interval) + retention for the cluster CPU/mem/storage trend.
+    tuning_proxmox_sample_interval_seconds: Optional[str] = None
+    tuning_proxmox_history_days: Optional[str] = None
     # Bazarr subtitle-backlog sampler — snapshot cadence (0 = inherit global
     # stats interval) + retention for the backlog-over-time sparkline.
     tuning_bazarr_sample_interval_seconds: Optional[str] = None

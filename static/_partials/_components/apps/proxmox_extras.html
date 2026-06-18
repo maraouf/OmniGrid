@@ -47,6 +47,14 @@
         <div class="apps-card-stat-label" x-text="t('apps.proxmox.memory') || 'Memory'"></div>
         <div class="apps-card-stat-value" x-text="proxmoxCount(proxmoxData(inst).mem_percent) + '%'"></div>
       </div>
+      <!-- Cluster quorum — only for a real cluster (a standalone node has no
+           quorum). Green when quorate, red (the cluster-health alarm) when not. -->
+      <div class="apps-card-ups-stat" x-show="proxmoxQuorum(inst)">
+        <div class="apps-card-stat-label" x-text="t('apps.proxmox.quorum') || 'Quorum'"></div>
+        <div class="apps-card-stat-value fs-3xs"
+             :class="(proxmoxQuorum(inst) && proxmoxQuorum(inst).quorate) ? 'text-[var(--success)]' : 'text-[var(--danger)]'"
+             x-text="(proxmoxQuorum(inst) && proxmoxQuorum(inst).quorate) ? (t('apps.proxmox.quorate') || 'Quorate') : (t('apps.proxmox.no_quorum') || 'No quorum')"></div>
+      </div>
     </div>
     <!-- Permission-scope warning: the token sees the node(s) but no guests or
          per-node metrics. Prefers the backend-derived `perm_hint` — the precise
@@ -65,6 +73,33 @@
       <span x-show="proxmoxData(inst).version"
             x-text="t('apps.version_footnote', { brand: 'Proxmox', v: (proxmoxData(inst).version || '') })"></span>
     </div>
+    <!-- Last-backup footnote — age + recent-failure count from the per-node
+         vzdump task log. Warning-tinted when the last backup failed OR any
+         recent backup failed; faint otherwise. -->
+    <template x-if="proxmoxBackup(inst)">
+      <div class="fs-3xs mt-1 mono"
+           :class="(!proxmoxBackup(inst).last_ok || (Number(proxmoxBackup(inst).failed_recent) || 0) > 0) ? 'text-[var(--warning)]' : 'text-[var(--text-faint)]'"
+           x-text="t('apps.proxmox.backup_footnote', { age: proxmoxBackupAge(inst) }) + ((Number(proxmoxBackup(inst).failed_recent) || 0) > 0 ? ' · ' + t('apps.proxmox.backup_failed', { failed: (Number(proxmoxBackup(inst).failed_recent) || 0), total: (Number(proxmoxBackup(inst).total_recent) || 0) }) : '')"></div>
+    </template>
+    <!-- Cluster-resource trend (from OmniGrid's proxmox_samples): per-day average
+         CPU% (amber) + memory% (blue) + storage% (green) on a shared 0..100
+         scale. Drawer-only; ≥ 2 daily points. Proxmox keeps no such history. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && proxmoxTrend(inst) && proxmoxTrend(inst).series_cpu && proxmoxTrend(inst).series_cpu.length >= 2">
+      <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block"
+              x-text="t('apps.proxmox.resource_trend', { days: proxmoxTrend(inst).days }) || ('Cluster load (' + proxmoxTrend(inst).days + ' days)')"></span>
+        <svg viewBox="0 0 200 32" preserveAspectRatio="none" class="w-full h-8 apps-card-speedtest-chart">
+          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_cpu)" fill="none" stroke="var(--warning)" stroke-width="1.5"/>
+          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_mem)" fill="none" stroke="var(--info)" stroke-width="1.5"/>
+          <path :d="proxmoxTrendPath(proxmoxTrend(inst).series_storage)" fill="none" stroke="var(--success)" stroke-width="1.5"/>
+        </svg>
+        <div class="fs-3xs text-[var(--text-faint)] inline-flex flex-wrap gap-x-2">
+          <span class="text-[var(--warning)]" x-text="t('apps.proxmox.trend_cpu', { peak: proxmoxTrend(inst).peak_cpu, latest: proxmoxTrend(inst).latest_cpu })"></span>
+          <span class="text-[var(--info)]" x-text="t('apps.proxmox.trend_mem', { peak: proxmoxTrend(inst).peak_mem, latest: proxmoxTrend(inst).latest_mem })"></span>
+          <span class="text-[var(--success)]" x-text="t('apps.proxmox.trend_storage', { latest: proxmoxTrend(inst).latest_storage })"></span>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 <!-- No token yet — idle and unconfigured. -->

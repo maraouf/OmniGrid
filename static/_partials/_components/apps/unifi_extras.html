@@ -35,6 +35,12 @@
         <div class="apps-card-stat-label" x-text="t('apps.unifi.clients') || 'Clients'"></div>
         <div class="apps-card-stat-value" x-text="unifiCount(unifiData(inst).clients)"></div>
       </div>
+      <!-- WAN live throughput (↓/↑ Mbps) — the "what's my internet doing now"
+           headline. Shown only when the gateway WAN subsystem reported. -->
+      <div class="apps-card-ups-stat" x-show="unifiWan(inst)">
+        <div class="apps-card-stat-label" x-text="t('apps.unifi.wan') || 'WAN'"></div>
+        <div class="apps-card-stat-value fs-3xs" x-text="unifiWanThroughput(inst)"></div>
+      </div>
       <!-- APs -->
       <div class="apps-card-ups-stat" x-show="(Number(unifiData(inst).aps) || 0) > 0">
         <div class="apps-card-stat-label" x-text="t('apps.unifi.aps') || 'APs'"></div>
@@ -78,6 +84,26 @@
            :title="unifiData(inst).busiest_ap.name"
            x-text="'🛜 ' + (t('apps.unifi.busiest_ap') || 'Busiest AP') + ': ' + unifiData(inst).busiest_ap.name + ' — ' + (t('apps.unifi.ap_clients_n', { n: unifiData(inst).busiest_ap.clients }) || (unifiData(inst).busiest_ap.clients + ' clients'))"></div>
     </template>
+    <!-- WAN / ISP-uplink detail (drawer-only) — plan speed + utilisation +
+         latency + public IP, from the legacy stat/health WAN subsystem. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && unifiWan(inst)">
+      <div class="mt-2 pt-2 border-t border-[var(--border)]">
+        <span class="fs-2xs text-[var(--text-faint)] block mb-1"
+              x-text="(t('apps.unifi.wan') || 'WAN') + (unifiWan(inst).gw_name ? ' — ' + unifiWan(inst).gw_name : '')"></span>
+        <div class="fs-3xs text-[var(--text-dim)] mono space-y-0.5">
+          <div x-text="'↓ ' + unifiMbps(unifiWan(inst).rx_bps) + ' / ↑ ' + unifiMbps(unifiWan(inst).tx_bps) + ' Mbps'"></div>
+          <div x-show="(Number(unifiWan(inst).down_mbps) || 0) > 0"
+               x-text="t('apps.unifi.wan_plan', { down: (Number(unifiWan(inst).down_mbps) || 0), up: (Number(unifiWan(inst).up_mbps) || 0) })"></div>
+          <div x-show="(Number(unifiWan(inst).down_util) || 0) > 0 || (Number(unifiWan(inst).up_util) || 0) > 0"
+               x-text="t('apps.unifi.wan_util', { down: (Number(unifiWan(inst).down_util) || 0), up: (Number(unifiWan(inst).up_util) || 0) })"></div>
+          <div class="text-[var(--text-faint)] inline-flex flex-wrap gap-x-2">
+            <span x-show="(Number(unifiWan(inst).latency_ms) || 0) > 0"
+                  x-text="t('apps.unifi.wan_latency', { ms: (Number(unifiWan(inst).latency_ms) || 0) })"></span>
+            <span x-show="unifiWan(inst).ip" x-text="unifiWan(inst).ip"></span>
+          </div>
+        </div>
+      </div>
+    </template>
     <!-- Wi-Fi network names (SSIDs) footnote — chips, only when present. -->
     <div x-show="(unifiData(inst).wlan_names || []).length" class="mt-1">
       <div class="fs-3xs text-[var(--text-faint)] mb-0.5"
@@ -100,12 +126,24 @@
       <div class="space-y-1 mt-2 pt-2 border-t border-[var(--border)]">
         <span class="fs-2xs text-[var(--text-faint)] block" x-text="t('apps.unifi.ap_load') || 'Clients per AP'"></span>
         <template x-for="row in unifiApLoad(inst)" :key="row.name">
-          <div class="apps-unifi-apbar">
-            <span class="apps-unifi-apbar-name mono fs-3xs" x-text="row.name" :title="row.name"></span>
-            <span class="apps-unifi-apbar-track">
-              <span class="apps-unifi-apbar-fill" :style="'--w:' + row.pct + '%'"></span>
-            </span>
-            <span class="apps-unifi-apbar-count fs-3xs mono" x-text="row.clients"></span>
+          <div>
+            <div class="apps-unifi-apbar">
+              <span class="apps-unifi-apbar-name mono fs-3xs" x-text="row.name" :title="row.name"></span>
+              <span class="apps-unifi-apbar-track">
+                <span class="apps-unifi-apbar-fill" :style="'--w:' + row.pct + '%'"></span>
+              </span>
+              <span class="apps-unifi-apbar-count fs-3xs mono" x-text="row.clients"></span>
+            </div>
+            <!-- Per-AP channel + channel-utilisation (when the radio join
+                 matched) — "ch 36 (5G) · 42% util", util danger-tinted when the
+                 channel is congested (≥ 75%). -->
+            <div x-show="(Number(row.channel) || 0) > 0"
+                 class="fs-3xs text-[var(--text-faint)] mono ps-1">
+              <span x-text="t('apps.unifi.ap_channel', { ch: (Number(row.channel) || 0) }) + (row.band ? ' (' + row.band + ')' : '')"></span>
+              <span x-show="row.util != null"
+                    :class="(Number(row.util) || 0) >= 75 ? 'text-[var(--danger)]' : ''"
+                    x-text="' · ' + t('apps.unifi.ap_util', { pct: (Number(row.util) || 0) })"></span>
+            </div>
           </div>
         </template>
       </div>

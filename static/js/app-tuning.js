@@ -371,6 +371,10 @@ export default {
     // (snapshot cadence + retention).
     'tuning_unifi_sample_interval_seconds',
     'tuning_unifi_history_days',
+    // Proxmox cluster-resource sampler — cluster CPU/mem/storage trend
+    // (snapshot cadence + retention).
+    'tuning_proxmox_sample_interval_seconds',
+    'tuning_proxmox_history_days',
     // Bazarr subtitle-backlog sampler — backlog-over-time sparkline
     // (snapshot cadence + retention).
     'tuning_bazarr_sample_interval_seconds',

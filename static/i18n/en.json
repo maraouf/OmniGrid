@@ -2108,6 +2108,14 @@
           "label": "UniFi history retention (days)",
           "help": "Retention window for the UniFi samples that drive the client-occupancy sparkline and peak-clients stat. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
         },
+        "tuning_proxmox_sample_interval_seconds": {
+          "label": "Proxmox sampler interval (seconds)",
+          "help": "How often the lifespan Proxmox sampler snapshots each configured cluster's CPU% / memory% / storage% into the history table that drives the card's cluster-resource trend sparkline (Proxmox keeps no such rollup of its own). Default 900 (15 min) — cluster utilisation drifts slowly, so a coarse cadence resolves the trend without bloating the table; lower it (e.g. 300) for a finer curve. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
+        },
+        "tuning_proxmox_history_days": {
+          "label": "Proxmox history retention (days)",
+          "help": "Retention window for the Proxmox samples that drive the cluster-resource trend sparkline. Default 30. Older samples are pruned hourly. Lower to save disk; raise for a longer trend. Range 1..1095. Takes effect at the next hourly prune."
+        },
         "tuning_bazarr_sample_interval_seconds": {
           "label": "Bazarr sampler interval (seconds)",
           "help": "How often the lifespan Bazarr sampler snapshots each configured instance's missing-subtitle backlog (episodes + movies) into the history table that drives the card's backlog-over-time sparkline and the \"backlog down N this week\" stat (Bazarr keeps no wanted-count history of its own). Default 900 (15 min) — the backlog moves slowly, so a coarse cadence captures the trend without bloating the table. 0 inherits the global stats sample interval. Range 0..86400. Takes effect at the next tick."
@@ -6035,6 +6043,7 @@
       "proxmox_containers": "List Proxmox containers",
       "proxmox_start_guest": "Start a Proxmox VM / container",
       "proxmox_stop_guest": "Stop a Proxmox VM / container",
+      "proxmox_reboot_guest": "Reboot a Proxmox VM / container",
       "opnsense_status": "OPNsense status",
       "opnsense_gateways": "List OPNsense gateways",
       "opnsense_services": "List OPNsense services",
@@ -6495,6 +6504,15 @@
       "start_guest_confirm": "Start this Proxmox guest?",
       "stop_guest": "Stop",
       "stop_guest_confirm": "Shut down this Proxmox guest?",
+      "quorum": "Quorum",
+      "quorate": "Quorate",
+      "no_quorum": "No quorum",
+      "backup_footnote": "Last backup {age} ago",
+      "backup_failed": "{failed}/{total} recent backups failed",
+      "resource_trend": "Cluster load ({days} days)",
+      "trend_cpu": "CPU peak {peak}% · now {latest}%",
+      "trend_mem": "Mem peak {peak}% · now {latest}%",
+      "trend_storage": "Storage {latest}%",
       "no_token": "No API token set — add one in Admin → Apps to enable.",
       "loading": "Loading Proxmox data…",
       "fetch_failed": "Proxmox fetch failed"
@@ -7016,6 +7034,12 @@
       "busiest_ap": "Busiest AP",
       "ap_clients_n": "{n} clients",
       "ap_load": "Clients per AP",
+      "ap_channel": "ch {ch}",
+      "ap_util": "{pct}% util",
+      "wan": "WAN",
+      "wan_plan": "Plan: ↓ {down} / ↑ {up} Mbps",
+      "wan_util": "Utilisation: ↓ {down}% / ↑ {up}%",
+      "wan_latency": "{ms} ms latency",
       "clients_trend": "Clients ({days} days)",
       "clients_peak": "peak {peak} · now {latest}",
       "devices_count": "{count} devices",
@@ -7089,6 +7113,8 @@
       "runs_per_day": "Runs/day",
       "next_run": "Next scheduled: {job} in {in}",
       "recent_failed_summary": "{failed} of {total} recent runs failed",
+      "per_project_title": "Failure rate by project",
+      "per_project_row": "{rate}% ({failed}/{total})",
       "fr_peak": "Peak fail %",
       "fr_avg": "Avg fail %",
       "fr_caption": "Failure rate, last {days} days",

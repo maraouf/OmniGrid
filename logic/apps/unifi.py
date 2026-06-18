@@ -51,7 +51,7 @@ import httpx
 from logic.apps._common import (
     cache_key, fetch_gate, peek_cache, resolve_base_url, resolve_cache_ttl,
     resolve_credential_target)
-from logic.coerce import as_dict, as_list, safe_int
+from logic.coerce import as_dict, as_list, safe_float, safe_int
 
 # Catalog template slugs handled by this module. `unifi-os-server` is the
 # canonical built-in template (a self-hosted UniFi OS Server / network
@@ -266,7 +266,10 @@ def _per_ap_client_load(devices: list, clients: list) -> "list[dict]":
     for dev_id, cnt in counts.items():
         d = dev_by_id.get(dev_id) or {}
         name = str(d.get("name") or d.get("model") or "?").strip() or "?"
-        load.append({"name": name, "clients": cnt})
+        # Carry the device MAC (colon-normalised) so the per-AP channel /
+        # utilisation join (legacy stat/device radio stats) can match it.
+        mac = str(d.get("macAddress") or "").strip().lower().replace("-", ":")
+        load.append({"name": name, "clients": cnt, "mac": mac})
     load.sort(key=lambda a: a["clients"], reverse=True)
     return load
 
@@ -660,6 +663,80 @@ async def _fetch_client_usage(cli: "httpx.AsyncClient", base: str, key: str) -> 
     return out
 
 
+def _radio_band(radio: Any) -> str:
+    """Radio-code → band label for a legacy radio_table_stats row: ``ng`` →
+    ``2.4G`` / ``na`` → ``5G`` / ``6e`` → ``6G``; '' for unknown."""
+    return {"ng": "2.4G", "na": "5G", "6e": "6G", "ad": "60G"}.get(
+        str(radio or "").strip().lower(), "")
+
+
+async def _fetch_wan_health(cli: "httpx.AsyncClient", base: str, key: str) -> dict:
+    """WAN / ISP-uplink health for the gateway, from the LEGACY controller
+    ``stat/health`` endpoint (the Integration API exposes no WAN-throughput
+    surface; the same ``X-API-KEY`` authenticates the legacy API). Returns the
+    first site's ``wan`` subsystem normalised to ``{status, rx_bps, tx_bps,
+    down_mbps, up_mbps, down_util, up_util, ip, latency_ms, gw_name}``, or ``{}``
+    when no WAN subsystem is found / the endpoint is unavailable.
+
+    ``rx_bps`` / ``tx_bps`` are the LIVE WAN byte-rates (``rx_bytes-r`` /
+    ``tx_bytes-r``, bytes/sec — rx is download from the ISP, tx is upload).
+    ``down_mbps`` / ``up_mbps`` are the measured plan speeds (``xput_down`` /
+    ``xput_up``, from the console's last WAN speed test). Utilisation is the live
+    rate as a % of the plan speed (0 when no plan speed is known yet)."""
+    from urllib.parse import quote  # noqa: PLC0415
+    for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
+        body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/stat/health", key)
+        for sub in as_list(as_dict(body).get("data")):
+            if not isinstance(sub, dict) or str(sub.get("subsystem") or "").strip().lower() != "wan":
+                continue
+            rx = safe_int(sub.get("rx_bytes-r"))
+            tx = safe_int(sub.get("tx_bytes-r"))
+            down_mbps = safe_float(sub.get("xput_down"))
+            up_mbps = safe_float(sub.get("xput_up"))
+            rx_mbps = rx * 8 / 1_000_000.0
+            tx_mbps = tx * 8 / 1_000_000.0
+            return {
+                "status": str(sub.get("status") or "").strip().lower(),
+                "rx_bps": rx, "tx_bps": tx,
+                "down_mbps": round(down_mbps, 1) if down_mbps > 0 else 0.0,
+                "up_mbps": round(up_mbps, 1) if up_mbps > 0 else 0.0,
+                "down_util": round(rx_mbps / down_mbps * 100, 1) if down_mbps > 0 else 0.0,
+                "up_util": round(tx_mbps / up_mbps * 100, 1) if up_mbps > 0 else 0.0,
+                "ip": str(sub.get("wan_ip") or "").strip(),
+                "latency_ms": safe_int(sub.get("latency")),
+                "gw_name": str(sub.get("gw_name") or "").strip(),
+            }
+    return {}
+
+
+async def _fetch_ap_radio_stats(cli: "httpx.AsyncClient", base: str, key: str) -> dict:
+    """Per-AP radio channel + utilisation from the LEGACY controller
+    ``stat/device`` endpoint (the Integration API device list omits radio stats).
+    Returns ``{mac: {channel, util, band}}`` keyed by device MAC (lowercased,
+    colon-normalised), where each AP's representative radio is its BUSIEST one
+    (the ``radio_table_stats`` row with the most clients). ``util`` is
+    ``cu_total`` (total channel utilisation %, including interference). ``{}`` on
+    failure / no radio-bearing devices."""
+    from urllib.parse import quote  # noqa: PLC0415
+    out: dict[str, dict] = {}
+    for sk in (await _legacy_site_keys(cli, base, key))[:_MAX_SITES]:
+        body = await _get_json(
+            cli, base + _LEGACY_API + f"/s/{quote(sk, safe='')}/stat/device", key)
+        for d in as_list(as_dict(body).get("data")):
+            if not isinstance(d, dict):
+                continue
+            radios = [r for r in as_list(d.get("radio_table_stats")) if isinstance(r, dict)]
+            mac = str(d.get("mac") or "").strip().lower().replace("-", ":")
+            if not radios or not mac:
+                continue
+            best = max(radios, key=lambda r: safe_int(r.get("num_sta")))
+            out[mac] = {"channel": safe_int(best.get("channel")),
+                        "util": safe_int(best.get("cu_total")),
+                        "band": _radio_band(best.get("radio"))}
+    return out
+
+
 # noinspection DuplicatedCode
 async def fetch_data(host_row: dict, chip: dict, *,
                      host_id: str, service_idx: int,
@@ -693,11 +770,17 @@ async def fetch_data(host_row: dict, chip: dict, *,
                 _gather_site(cli, base, key, str(s.get("id") or ""))
                 for s in sites[:_MAX_SITES] if s.get("id")
             ])
-            # The Integration API has no WLAN-config endpoint — read the SSID
-            # list (+ subnet / VLAN / security) from the legacy controller API
-            # (same key). Cheap (2 + N-sites calls) and the whole fetch is
-            # cached, so no per-poll cost concern.
-            legacy_wlan_details = await _fetch_wlan_details(cli, base, key)
+            # The Integration API has no WLAN-config / WAN-throughput / radio-
+            # utilisation endpoints — read those from the legacy controller API
+            # (same key), in parallel: SSID list (+ subnet / VLAN / security),
+            # the gateway WAN/uplink health (live throughput + plan-speed
+            # utilisation), and per-AP radio channel + channel-utilisation. Cheap
+            # and the whole fetch is cached, so no per-poll cost concern.
+            legacy_wlan_details, wan, ap_radio = await asyncio.gather(
+                _fetch_wlan_details(cli, base, key),
+                _fetch_wan_health(cli, base, key),
+                _fetch_ap_radio_stats(cli, base, key),
+            )
     except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
         print(f"[unifi] error: fetch host={host_id} base={base} "
               f"failed — {type(e).__name__}: {e}")
@@ -728,6 +811,16 @@ async def fetch_data(host_row: dict, chip: dict, *,
     # radio. Degrades cleanly to empty when the API omits ``uplinkDeviceId`` (the
     # card just hides the block).
     ap_load = _per_ap_client_load(devices, clients)
+    # Enrich each per-AP row with its radio channel + channel-utilisation (from
+    # the legacy stat/device join, matched by MAC), then drop the join key so the
+    # public rows stay clean. Rows whose AP isn't in the radio map (offline /
+    # wired-only) simply carry no channel/util.
+    for _r in ap_load:
+        _rs = ap_radio.get(_r.pop("mac", "") or "")
+        if _rs:
+            _r["channel"] = _rs["channel"]
+            _r["util"] = _rs["util"]
+            _r["band"] = _rs["band"]
     busiest_ap = ap_load[0] if ap_load else None
     # Configured Wi-Fi networks, most-authoritative-first:
     #   1) the Integration ``/wlans`` endpoint (if a future Network version adds
@@ -770,8 +863,14 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "clients_wired": wired,
         "clients_wireless": max(0, len(clients) - wired),
         # Per-AP client load (P1): busiest-first list + the single busiest AP.
+        # Each row now also carries channel / util / band when the legacy
+        # stat/device radio join matched the AP.
         "ap_load": ap_load[:_MAX_ROWS],
         "busiest_ap": busiest_ap,
+        # WAN / ISP-uplink health (live throughput + plan-speed utilisation +
+        # latency + IP) from the legacy stat/health WAN subsystem. {} when the
+        # console has no gateway / the legacy endpoint is unavailable.
+        "wan": wan,
         # Named list of devices with a pending firmware update (P3).
         "update_devices": update_devices,
         "wlans": len(wlan_names),
@@ -788,6 +887,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"clients={out['clients']} (w={out['clients_wired']}/"
           f"wl={out['clients_wireless']}) wlans={out['wlans']}({wlan_src}) "
           f"busiest_ap={(busiest_ap['name'] + ':' + str(busiest_ap['clients'])) if busiest_ap else '-'} "
+          f"wan={(str(wan.get('rx_bps', 0)) + '/' + str(wan.get('tx_bps', 0)) + 'Bps') if wan else '-'} "
           f"updates={out['devices_update_available']} ver={version or '-'}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -812,6 +912,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "clients_wired": safe_int(data.get("clients_wired")),
         "clients_wireless": safe_int(data.get("clients_wireless")),
         "busiest_ap": as_dict(data.get("busiest_ap")) or None,
+        "wan": as_dict(data.get("wan")) or None,
         "update_devices": [str(n) for n in as_list(data.get("update_devices")) if n],
         "wlans": safe_int(data.get("wlans")),
         "wlan_names": [str(n) for n in as_list(data.get("wlan_names")) if n],
@@ -921,8 +1022,28 @@ async def _status_skill(host_row: dict, chip: dict, *,
     ]
     busiest = data.get("busiest_ap")
     if isinstance(busiest, dict) and busiest.get("name"):
-        lines.append(f"🛜 Busiest AP: {busiest['name']} — "
-                     f"{safe_int(busiest.get('clients'))} clients")
+        ap_line = (f"🛜 Busiest AP: {busiest['name']} — "
+                   f"{safe_int(busiest.get('clients'))} clients")
+        if safe_int(busiest.get("channel")):
+            band = str(busiest.get("band") or "").strip()
+            ap_line += (f" · ch {safe_int(busiest.get('channel'))}"
+                        + (f" ({band})" if band else "")
+                        + (f" · {safe_int(busiest.get('util'))}% util"
+                           if busiest.get("util") is not None else ""))
+        lines.append(ap_line)
+    wan = as_dict(data.get("wan"))
+    if wan:
+        rx_mbps = safe_int(wan.get("rx_bps")) * 8 / 1_000_000.0
+        tx_mbps = safe_int(wan.get("tx_bps")) * 8 / 1_000_000.0
+        wan_line = f"🌐 WAN: ↓ {rx_mbps:.1f} / ↑ {tx_mbps:.1f} Mbps"
+        du = wan.get("down_util") or 0
+        uu = wan.get("up_util") or 0
+        if du or uu:
+            wan_line += f" ({du}% / {uu}% of plan)"
+        lat = safe_int(wan.get("latency_ms"))
+        if lat:
+            wan_line += f" · {lat}ms"
+        lines.append(wan_line)
     wlans = safe_int(data.get("wlans"))
     if wlans:
         lines.append(f"📶 {wlans} Wi-Fi network(s)")

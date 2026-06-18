@@ -67,6 +67,23 @@
     <div x-show="(Number(rundeckData(inst).recent_completed) || 0) > 0 && (Number(rundeckData(inst).recent_failed) || 0) > 0"
          class="fs-3xs text-[var(--danger)] mt-1 mono"
          x-text="t('apps.rundeck.recent_failed_summary', { failed: (Number(rundeckData(inst).recent_failed) || 0), total: (Number(rundeckData(inst).recent_completed) || 0) })"></div>
+    <!-- Per-project failure-rate breakdown (which project is flakiest), drawer-
+         only (appsExtrasInDrawer). One row per project with finished runs,
+         flakiest first; failed projects are danger-tinted. -->
+    <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && rundeckPerProjectFailure(inst).length > 0">
+      <div class="mt-2">
+        <div class="fs-3xs text-[var(--text-faint)] mb-1 uppercase tracking-wide"
+             x-text="t('apps.rundeck.per_project_title') || 'Failure rate by project'"></div>
+        <template x-for="p in rundeckPerProjectFailure(inst)" :key="p.name">
+          <div class="flex items-center justify-between gap-2 fs-3xs py-0.5">
+            <span class="mono truncate" x-text="p.name"></span>
+            <span class="mono shrink-0"
+                  :class="(Number(p.failed) || 0) > 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'"
+                  x-text="t('apps.rundeck.per_project_row', { rate: (Number(p.failure_rate) || 0), failed: (Number(p.failed) || 0), total: (Number(p.completed) || 0) })"></span>
+          </div>
+        </template>
+      </div>
+    </template>
     <!-- Failure-rate trend — sampled by the lifespan rundeck_sampler. Drawer-
          only (appsExtrasInDrawer); shown once at least one sample exists. -->
     <template x-if="(typeof appsExtrasInDrawer !== 'undefined' && appsExtrasInDrawer) && rundeckTrend(inst) && rundeckTrend(inst).samples > 0">

@@ -164,6 +164,7 @@ _SAMPLE_TABLES_SPEC: list[tuple] = [
     ("flaresolverr_session_samples", "flaresolverr", "flaresolverr sessions", "ts", "host_id"),
     ("rustdesk_samples", "rustdesk", "rustdesk online-peers", "ts", "host_id"),
     ("rundeck_samples", "rundeck", "rundeck failure-rate", "ts", "host_id"),
+    ("proxmox_samples", "proxmox", "proxmox cluster resources", "ts", "host_id"),
     ("speedtest_samples", "speedtest_tracker", "speedtest results", "ts", "host_id"),
     ("prowlarr_samples", "prowlarr", "prowlarr per-tick", "ts", "host_id"),
     ("qbittorrent_samples", "qbittorrent", "qbittorrent per-tick", "ts", "host_id"),

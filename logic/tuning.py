@@ -118,6 +118,8 @@ class Tunable(str, Enum):
     PULSE_PROBE_TIMEOUT_UNREACHABLE_SECONDS = "tuning_pulse_probe_timeout_unreachable_seconds"
     QBITTORRENT_HISTORY_DAYS = "tuning_qbittorrent_history_days"
     QBITTORRENT_SAMPLE_INTERVAL_SECONDS = "tuning_qbittorrent_sample_interval_seconds"
+    PROXMOX_HISTORY_DAYS = "tuning_proxmox_history_days"
+    PROXMOX_SAMPLE_INTERVAL_SECONDS = "tuning_proxmox_sample_interval_seconds"
     UNIFI_HISTORY_DAYS = "tuning_unifi_history_days"
     UNIFI_SAMPLE_INTERVAL_SECONDS = "tuning_unifi_sample_interval_seconds"
     BAZARR_HISTORY_DAYS = "tuning_bazarr_history_days"
@@ -1550,6 +1552,14 @@ TUNABLES: dict[str, tuple[str, int, int, int]] = {
     # Retention window (days) for unifi_samples — drives the client-occupancy
     # trend. Default 30. Lower to save disk; raise for a longer trend.
     "tuning_unifi_history_days": ("UNIFI_HISTORY_DAYS", 30, 1, 1095),
+    # How often the Proxmox sampler snapshots each chip's cluster CPU% / memory% /
+    # storage% into proxmox_samples — the source for the card's cluster-resource
+    # trend (Proxmox keeps no such rollup of its own). 0 = inherit the global
+    # stats interval. Default 900 (15 min) — cluster utilisation drifts slowly.
+    "tuning_proxmox_sample_interval_seconds": ("PROXMOX_SAMPLE_INTERVAL_SECONDS", 900, 0, 86400),
+    # Retention window (days) for proxmox_samples — drives the cluster-resource
+    # trend. Default 30. Lower to save disk; raise for a longer trend.
+    "tuning_proxmox_history_days": ("PROXMOX_HISTORY_DAYS", 30, 1, 1095),
     # How often the Bazarr sampler snapshots each chip's missing-subtitle backlog
     # (episodes + movies) into bazarr_samples — the trend source for the card's
     # "backlog over time" sparkline + "backlog down N this week" stat (Bazarr

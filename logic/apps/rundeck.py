@@ -424,6 +424,20 @@ async def fetch_data(host_row: dict, chip: dict, *,
     failure_rate = round(failed / completed * 100, 1) if completed else 0.0
     avg_duration_s = round(sum(all_durations) / len(all_durations) / 1000, 1) \
         if all_durations else 0.0
+    # Per-project failure-rate breakdown (which project is flakiest) — each
+    # project's own completed/failed tally from its recent statuses. Flakiest
+    # first; only projects with finished executions are included.
+    per_project_failure: list = []
+    for pname, psum in zip(projects[:_MAX_PROJECTS], per_proj):
+        pc, pf, _ps, _pa = _tally_statuses(psum[2])
+        if pc > 0:
+            per_project_failure.append({
+                "name": pname, "failure_rate": round(pf / pc * 100, 1),
+                "completed": pc, "failed": pf})
+    per_project_failure.sort(
+        key=lambda x: (-x["failure_rate"], -x["failed"], x["name"].lower()))
+    per_project_failure = per_project_failure[:_MAX_ROWS]
+    flakiest = next((p for p in per_project_failure if p["failed"] > 0), {})
 
     out: dict[str, Any] = {
         "available": True,
@@ -441,6 +455,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "recent_aborted": aborted,
         "failure_rate": failure_rate,
         "avg_duration_s": avg_duration_s,
+        # Per-project failure-rate breakdown (which project is flakiest) +
+        # the flakiest project as a one-line at-a-glance (empty when nothing
+        # has failed). The breakdown list is drawer-only on the SPA.
+        "per_project_failure": per_project_failure,
+        "flakiest_project": flakiest.get("name") or "",
+        "flakiest_rate": flakiest.get("failure_rate") or 0.0,
         "next_run_job": next_run[0] if next_run else "",
         "next_run_in_s": next_run[1] if next_run else 0,
         "fetched_at": int(now),
@@ -475,6 +495,8 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "recent_completed": safe_int(data.get("recent_completed")),
         "recent_failed": safe_int(data.get("recent_failed")),
         "failure_rate": data.get("failure_rate") or 0.0,
+        "flakiest_project": data.get("flakiest_project") or "",
+        "flakiest_rate": data.get("flakiest_rate") or 0.0,
         "scheduled_jobs": safe_int(data.get("scheduled_jobs")),
         "executions_per_day": safe_int(data.get("executions_per_day")),
         "avg_duration_s": data.get("avg_duration_s") or 0.0,
@@ -572,6 +594,10 @@ async def _status_skill(host_row: dict, chip: dict, *,
         emoji = "❌" if failed else "✅"
         lines.append(f"{emoji} Recent runs: {failed}/{completed} failed "
                      f"({data.get('failure_rate') or 0}% failure rate)")
+    flakiest = str(data.get("flakiest_project") or "").strip()
+    if flakiest:
+        lines.append(f"🎯 Flakiest project: {flakiest} "
+                     f"({data.get('flakiest_rate') or 0}% failure rate)")
     avg_dur = _fmt_secs(round(float(data.get("avg_duration_s") or 0)))
     if avg_dur:
         lines.append(f"⏱️ Avg run time: {avg_dur}")

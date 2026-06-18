@@ -635,6 +635,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_rundeck_samples_ts
             ON rundeck_samples(ts);
 
+        -- Proxmox per-chip cluster-resource history. Proxmox keeps no rollup of
+        -- its own, so the lifespan ``proxmox_sampler`` snapshots each chip's
+        -- cluster CPU% / memory% / storage% per tick for the card's resource
+        -- trend. One row per (host_id, service_idx, tick).
+        CREATE TABLE IF NOT EXISTS proxmox_samples (
+            ts              INTEGER NOT NULL,
+            host_id         TEXT    NOT NULL,
+            service_idx     INTEGER NOT NULL,
+            cpu_percent     INTEGER NOT NULL,
+            mem_percent     INTEGER NOT NULL,
+            storage_percent INTEGER NOT NULL,
+            PRIMARY KEY (ts, host_id, service_idx)
+        );
+        CREATE INDEX IF NOT EXISTS idx_proxmox_samples_chip_ts
+            ON proxmox_samples(host_id, service_idx, ts DESC);
+        -- Plain (ts) index for the hourly prune predicate (seek from ts alone).
+        CREATE INDEX IF NOT EXISTS idx_proxmox_samples_ts
+            ON proxmox_samples(ts);
+
         -- ddns-updater per-chip history. ddns-updater exposes NO JSON API and
         -- no historical data, so the lifespan ``ddns_updater_sampler`` records
         -- each configured chip's current public IP + record totals + failing
