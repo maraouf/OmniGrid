@@ -65,9 +65,16 @@
     <!-- Stale-pair + longest-run freshness stats (derived from the per-pair
          last-sync timestamps). Stale = enabled+configured pairs whose last sync
          is older than the threshold (or never synced); shown only when > 0. -->
-    <div x-show="(Number(gitsyncData(inst).stale_pairs) || 0) > 0
+    <div x-show="(Number(gitsyncData(inst).failing_pairs) || 0) > 0
+                 || (Number(gitsyncData(inst).stale_pairs) || 0) > 0
                  || (gitsyncData(inst).longest_run && (Number(gitsyncData(inst).longest_run.duration_s) || 0) > 0)"
          class="flex flex-wrap items-center gap-x-4 gap-y-0.5 fs-xs mt-1.5">
+      <!-- Failing pairs — last sync errored (danger-tinted; the "retry me" signal). -->
+      <span x-show="(Number(gitsyncData(inst).failing_pairs) || 0) > 0" class="inline-flex items-center gap-1 text-[var(--danger)]"
+            :title="t('apps.gitsync.failing_title') || 'Pairs whose last sync failed'">
+        <span aria-hidden="true">❌</span>
+        <span class="mono" x-text="t('apps.gitsync.failing_n', { n: gitsyncCount(gitsyncData(inst).failing_pairs) })"></span>
+      </span>
       <span x-show="(Number(gitsyncData(inst).stale_pairs) || 0) > 0" class="inline-flex items-center gap-1 text-[var(--warning)]"
             :title="t('apps.gitsync.stale_title') || 'Pairs whose last sync is overdue'">
         <span aria-hidden="true">⏳</span>

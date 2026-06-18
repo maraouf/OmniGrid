@@ -66,7 +66,9 @@
               class="inline-flex items-center gap-1 text-[var(--danger)]"
               :title="grafanaNames(grafanaData(inst).alerts_firing_names)">
           <span aria-hidden="true">🚨</span>
-          <span x-text="t('apps.grafana.alerts_firing_n', { n: grafanaData(inst).alerts_firing }) || (grafanaData(inst).alerts_firing + ' firing')"></span>
+          <span x-text="(Number(grafanaData(inst).alerts_total) || 0) > 0
+                        ? (t('apps.grafana.alerts_firing_ratio', { n: grafanaData(inst).alerts_firing, total: grafanaData(inst).alerts_total }) || (grafanaData(inst).alerts_firing + ' of ' + grafanaData(inst).alerts_total + ' firing'))
+                        : (t('apps.grafana.alerts_firing_n', { n: grafanaData(inst).alerts_firing }) || (grafanaData(inst).alerts_firing + ' firing'))"></span>
         </span>
         <span x-show="(Number(grafanaData(inst).alerts_pending) || 0) > 0"
               class="inline-flex items-center gap-1 text-[var(--warning)]">

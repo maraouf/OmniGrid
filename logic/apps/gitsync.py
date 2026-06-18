@@ -69,6 +69,10 @@ _MAX_ROWS = 20
 # Sync-run / side-test status → emoji for the rich pair rows + the AI text.
 _STATUS_EMOJI = {"ok": "✅", "error": "❌", "skipped": "⏭️", "fail": "❌"}
 
+# last_run.status values that mean the pair's last sync FAILED — drives the
+# failing-pair count + the retry-failed action's pair filter.
+_FAILURE_STATUSES = frozenset({"error", "fail", "failed"})
+
 # GitSync skills — two read-only + three fleet-control + three per-pair (arg).
 # The arg-carrying per-pair skills surface to AI / Telegram only (a drawer
 # button can't supply the pair name); the rest also render as one-click buttons.
@@ -109,6 +113,16 @@ SKILLS: tuple[dict, ...] = (
         "name": "Resume all syncing",
         "ai_phrases": ("unpause all gitsync, resume syncing, unpause every pair, "
                        "resume the mirror, re-enable syncing, continue gitsync"),
+        "destructive": False,
+    },
+    {
+        "id": "gitsync_retry_failed",
+        "name": "Retry failing pairs",
+        "ai_phrases": ("retry failed gitsync pairs, re-sync the failing pairs, "
+                       "retry the broken syncs, sync only the failing pairs, "
+                       "fix the failing mirrors, retry failed syncs"),
+        # No-arg; non-destructive — only re-triggers a sync on pairs whose last
+        # run errored (a normal sync trigger, no data loss).
         "destructive": False,
     },
     {
@@ -257,16 +271,28 @@ def _pair_freshness(pair_rows: list, now: float) -> "tuple[int, dict, dict]":
     longest: dict = {}
     best_age = -1
     best_dur = 0
+    # First pass — stamp the per-pair last-sync AGE + a never-synced flag onto
+    # EVERY row (incl. disabled / paused) so the pairs list can show "synced
+    # Xago" for each; the stale flag is set only for enabled+configured pairs.
+    for p in pair_rows:
+        if not isinstance(p, dict):
+            continue
+        fin0 = safe_int(p.get("last_finished_ts"))
+        p["last_sync_age_s"] = (int(now) - fin0) if fin0 else 0
+        p["never_synced"] = (fin0 == 0)
+        p["stale"] = False
     for p in pair_rows:
         if not isinstance(p, dict) or not p.get("enabled") or not p.get("configured"):
             continue
         fin = safe_int(p.get("last_finished_ts"))
         if not fin:  # never synced → stale, but no age
             stale += 1
+            p["stale"] = True
             continue
         age = int(now) - fin
         if age > cutoff_s:
             stale += 1
+            p["stale"] = True
         if age > best_age:
             best_age = age
             stalest = {"name": p.get("name") or "", "age_s": max(0, age)}
@@ -331,6 +357,12 @@ async def fetch_data(host_row: dict, chip: dict, *,
     alerts = as_dict(totals.get("alerts_unacknowledged"))
     pair_rows = _shape_pair_rows(as_list(body.get("pairs")))
     stale_pairs, stalest, longest = _pair_freshness(pair_rows, now)
+    # Failing pairs — enabled + configured pairs whose LAST run errored (the
+    # actionable "these need a retry" signal, distinct from stale = overdue).
+    failing_pairs = sum(
+        1 for p in pair_rows
+        if isinstance(p, dict) and p.get("enabled") and p.get("configured")
+        and str(p.get("last_status") or "").strip().lower() in _FAILURE_STATUSES)
     out: dict[str, Any] = {
         "available": True,
         "version": str(body.get("version") or "").strip(),
@@ -349,6 +381,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "stale_pairs": stale_pairs,
         "stalest_pair": stalest,
         "longest_run": longest,
+        "failing_pairs": failing_pairs,
         "pair_rows": pair_rows,
         "fetched_at": int(now),
     }
@@ -360,7 +393,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
           f"enabled={out['enabled']} paused={out['paused']} "
           f"issues={out['issue_mappings']} commits={out['commit_mappings']} "
           f"refs={out['synced_refs']} alerts="
-          f"{out['alerts_error']}/{out['alerts_warn']}/{out['alerts_info']}")
+          f"{out['alerts_error']}/{out['alerts_warn']}/{out['alerts_info']} "
+          f"stale={out['stale_pairs']} failing={out['failing_pairs']}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
 
@@ -380,6 +414,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "synced_refs": safe_int(data.get("synced_refs")),
         "alerts_error": safe_int(data.get("alerts_error")),
         "stale_pairs": safe_int(data.get("stale_pairs")),
+        "failing_pairs": safe_int(data.get("failing_pairs")),
         "version": data.get("version") or "",
         "last_sync_at": data.get("last_sync_at") or "",
         "fetched_at": safe_int(data.get("fetched_at")),
@@ -409,6 +444,9 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _pause_all_skill(host_row, chip, host_id=host_id, pause=True)
     if skill_id == "gitsync_unpause_all":
         return await _pause_all_skill(host_row, chip, host_id=host_id, pause=False)
+    if skill_id == "gitsync_retry_failed":
+        return await _retry_failed_skill(host_row, chip, host_id=host_id,
+                                         service_idx=service_idx)
     if skill_id == "gitsync_sync":
         return await _pair_action_skill(host_row, chip, arg=arg, action="sync",
                                         host_id=host_id)
@@ -485,6 +523,9 @@ async def _status_skill(host_row: dict, chip: dict, *,
     lines = [f"🔗 Pairs: {pairs} ({enabled} enabled, {paused} paused)",
              f"🐛 Issues: {issues:,} · 📦 Commits: {commits:,} · 🏷️ Releases: {releases:,}",
              f"🔀 Synced refs: {refs:,}"]
+    failing = safe_int(data.get("failing_pairs"))
+    if failing:
+        lines.append(f"❌ Failing pairs: {failing} (last sync errored)")
     if stale:
         line = f"⏳ Stale pairs: {stale}"
         if stalest.get("name"):
@@ -499,7 +540,7 @@ async def _status_skill(host_row: dict, chip: dict, *,
         "detail": "\n".join(lines),
         "status": 200,
         "pairs": pairs, "paused": paused, "alerts_error": a_err,
-        "stale_pairs": stale,
+        "stale_pairs": stale, "failing_pairs": failing,
     }
 
 
@@ -568,6 +609,14 @@ def _pair_row(p: dict) -> Optional[dict]:
     ls = str(p.get("last_status") or "").strip()
     if ls:
         bits.append(_STATUS_EMOJI.get(ls, ls) + " last run")
+    # Per-pair last-sync AGE (the P1 "time since last successful sync") + a stale
+    # badge when it's overdue. Never-synced enabled pairs read "never synced".
+    if p.get("never_synced") and state != "disabled":
+        bits.append("never synced")
+    elif safe_int(p.get("last_sync_age_s")) > 0:
+        bits.append(f"synced {_fmt_age(safe_int(p.get('last_sync_age_s')))} ago")
+    if p.get("stale"):
+        bits.append("⚠️ stale")
     # Per-row actions: an ENABLED pair can be synced + paused (active) or resumed
     # (paused). A DISABLED pair offers NO actions — the scheduler skips it, so a
     # Sync would be a no-op (``enabled`` isn't controllable via the API).
@@ -682,6 +731,65 @@ async def _sync_all_skill(host_row: dict, chip: dict, *,
     suffix = (" (" + ", ".join(names[:6]) + ")") if names else ""
     return {"ok": True, "status": 200,
             "detail": f"🔁 Triggered a sync on {triggered} pair(s){suffix}. Syncs run "
+                      f"asynchronously — check status again in a moment."}
+
+
+# noinspection DuplicatedCode
+async def _retry_failed_skill(host_row: dict, chip: dict, *,
+                              host_id: Optional[str] = None,
+                              service_idx: Optional[int] = None) -> dict:
+    """Action (no arg): re-trigger a sync ONLY on the pairs whose LAST run failed
+    — the targeted complement to sync_all. Reads the fleet summary to find the
+    failing pairs (enabled + configured + last_run errored), maps each to its id
+    via ``GET /pairs``, then ``POST /pairs/{id}/sync`` for each. Non-destructive
+    (a normal sync trigger). Never raises."""
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    print(f"[gitsync] INFO gitsync_retry_failed host={host_id}")
+    try:
+        data = await fetch_data(host_row, chip, host_id=str(host_id or ""),
+                                service_idx=int(service_idx or 0), force=True)
+    except (ValueError, RuntimeError) as e:
+        return {"ok": False, "status": 0, "detail": str(e)}
+    failing_names = {
+        str(p.get("name") or "").strip().lower()
+        for p in as_list(data.get("pair_rows"))
+        if isinstance(p, dict) and p.get("enabled") and p.get("configured")
+        and str(p.get("last_status") or "").strip().lower() in _FAILURE_STATUSES}
+    failing_names.discard("")
+    if not failing_names:
+        return {"ok": True, "status": 200, "detail": "✅ No failing pairs to retry."}
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0,
+                                     follow_redirects=True) as cli:
+            pr = await cli.get(base + _API + "/pairs", headers=_headers(token))
+            guard = _status_guard(pr)
+            if guard:
+                return guard
+            triggered = 0
+            names: list[str] = []
+            for p in as_list(as_dict(pr.json()).get("pairs")):
+                pd = as_dict(p)
+                nm = str(pd.get("name") or "").strip()
+                pid = safe_int(pd.get("id"))
+                if not pid or nm.lower() not in failing_names:
+                    continue
+                sr = await cli.post(base + _API + f"/pairs/{pid}/sync",
+                                    headers=_headers(token), params={"kind": "all"})
+                if 200 <= sr.status_code < 300:
+                    triggered += 1
+                    if nm:
+                        names.append(nm)
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"retry failed: {type(e).__name__}: {e}"}
+    if not triggered:
+        return {"ok": False, "status": 502,
+                "detail": f"none of the {len(failing_names):,} failing pair(s) accepted the sync trigger"}
+    suffix = (" (" + ", ".join(names[:6]) + ")") if names else ""
+    return {"ok": True, "status": 200,
+            "detail": f"🔁 Retried {triggered:,} failing pair(s){suffix}. Syncs run "
                       f"asynchronously — check status again in a moment."}
 
 

@@ -107,6 +107,18 @@ SKILLS: tuple[dict, ...] = (
         "destructive": False,
     },
     {
+        "id": "grafana_test_datasource",
+        "name": "Test a datasource",
+        "ai_phrases": ("test the <name> datasource, health-check <name>, is the "
+                       "<name> datasource healthy, check the prometheus "
+                       "datasource, ping the <name> datasource, test grafana "
+                       "datasource <name>"),
+        # arg-carrying → AI / Telegram only (the dispatch supplies the name).
+        "arg": True,
+        "arg_hint": "the datasource name (or part of it) to health-check",
+        "destructive": False,
+    },
+    {
         "id": "grafana_search",
         "name": "Search dashboards",
         "ai_phrases": ("search grafana for <name>, find dashboard <name>, do i "
@@ -277,28 +289,31 @@ async def _probe_datasource_health(cli: httpx.AsyncClient, base: str, token: str
 
 
 async def _fetch_firing_alerts(cli: httpx.AsyncClient, base: str,
-                               token: str) -> "tuple[Optional[int], Optional[int], list[str]]":
-    """Count Grafana-managed alert rules currently FIRING (+ pending) via
-    ``GET /api/prometheus/grafana/api/v1/rules`` (unified alerting). Returns
-    ``(firing, pending, firing_names)``; ``(None, None, [])`` when alerting is
-    unavailable / the token lacks access / the call fails — so the card hides the
-    stat rather than showing a misleading 0. Best-effort; never raises."""
+                               token: str) -> "tuple[Optional[int], Optional[int], list[str], int]":
+    """Count Grafana-managed alert rules currently FIRING (+ pending) + the TOTAL
+    rule count via ``GET /api/prometheus/grafana/api/v1/rules`` (unified
+    alerting). Returns ``(firing, pending, firing_names, total)``;
+    ``(None, None, [], 0)`` when alerting is unavailable / the token lacks access
+    / the call fails — so the card hides the stat rather than showing a misleading
+    0. ``total`` drives the "N of M rules firing" ratio. Best-effort; never
+    raises."""
     try:
         r = await cli.get(base + "/api/prometheus/grafana/api/v1/rules",
                           headers=_headers(token), timeout=_ALERTS_TIMEOUT_S)
     except (httpx.HTTPError, OSError):
-        return None, None, []
+        return None, None, [], 0
     if r.status_code != 200:
-        return None, None, []
+        return None, None, [], 0
     try:
         groups = as_list(as_dict(as_dict(r.json()).get("data")).get("groups"))
     except (ValueError, TypeError):
-        return None, None, []
-    firing = pending = 0
+        return None, None, [], 0
+    firing = pending = total = 0
     firing_names: list[str] = []
     for g in groups:
         for rule in as_list(as_dict(g).get("rules")):
             rd = as_dict(rule)
+            total += 1
             state = str(rd.get("state") or "").strip().lower()
             if state == "firing":
                 firing += 1
@@ -307,7 +322,7 @@ async def _fetch_firing_alerts(cli: httpx.AsyncClient, base: str,
                     firing_names.append(nm)
             elif state == "pending":
                 pending += 1
-    return firing, pending, firing_names
+    return firing, pending, firing_names, total
 
 
 # noinspection DuplicatedCode
@@ -389,12 +404,13 @@ async def fetch_data(host_row: dict, chip: dict, *,
             alerts_firing: Optional[int] = None
             alerts_pending: Optional[int] = None
             alerts_firing_names: list[str] = []
+            alerts_total = 0
             try:
                 ds_health, alerts = await asyncio.gather(
                     _probe_datasource_health(cli, base, token, ds_list or []),
                     _fetch_firing_alerts(cli, base, token))
                 _ds_checked, ds_unhealthy_names = ds_health
-                alerts_firing, alerts_pending, alerts_firing_names = alerts
+                alerts_firing, alerts_pending, alerts_firing_names, alerts_total = alerts
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except Exception as e:  # noqa: BLE001
@@ -418,6 +434,8 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "alerts_firing": alerts_firing,
         "alerts_pending": alerts_pending,
         "alerts_firing_names": alerts_firing_names,
+        # Total alert-rule count → the "N of M rules firing" ratio.
+        "alerts_total": alerts_total,
         "users": users,
         "orgs": orgs,
         "version": version,
@@ -430,7 +448,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     print(f"[grafana] INFO fetched host={host_id} org={org!r} "
           f"dashboards={out['dashboards']} folders={out['folders']} "
           f"datasources={out['datasources']} ds_unhealthy={out['datasources_unhealthy']} "
-          f"alerts_firing={alerts_firing} alerts_pending={alerts_pending} "
+          f"alerts_firing={alerts_firing}/{alerts_total} alerts_pending={alerts_pending} "
           f"users={users} orgs={orgs}")
     _data_cache[cache_key(host_id, service_idx)] = (now, out)
     return out
@@ -463,6 +481,7 @@ def peek_latest(host_id: str, service_idx: int) -> Optional[dict]:
         "datasources_unhealthy": safe_int(data.get("datasources_unhealthy")),
         "alerts_firing": data.get("alerts_firing"),
         "alerts_pending": data.get("alerts_pending"),
+        "alerts_total": safe_int(data.get("alerts_total")),
         "users": safe_int(data.get("users")),
         "orgs": safe_int(data.get("orgs")),
         "version": data.get("version") or "",
@@ -487,6 +506,8 @@ async def run_skill(skill_id: str, host_row: dict, chip: dict, *,
         return await _dashboards_skill(host_row, chip, host_id=host_id)
     if skill_id == "grafana_datasources":
         return await _datasources_skill(host_row, chip, host_id=host_id)
+    if skill_id == "grafana_test_datasource":
+        return await _test_datasource_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "grafana_search":
         return await _search_skill(host_row, chip, arg=arg, host_id=host_id)
     if skill_id == "grafana_alerts":
@@ -597,8 +618,11 @@ async def _status_skill(host_row: dict, chip: dict, *,
     lines.append(ds_line)
     if unhealthy_names:
         lines.append("⚠️ Unhealthy: " + ", ".join(str(n) for n in unhealthy_names[:8]))
+    alerts_total = safe_int(data.get("alerts_total"))
     if isinstance(firing, int) and firing > 0:
         line = f"🚨 Alerts firing: {firing:,}"
+        if alerts_total:
+            line += f" of {alerts_total:,} rules"
         if firing_names:
             line += " — " + ", ".join(str(n) for n in firing_names[:8])
         lines.append(line)
@@ -703,6 +727,77 @@ async def _datasources_skill(host_row: dict, chip: dict, *,
     out: dict = {"ok": True, "status": 200,
                  "detail": "🔌 Datasources:\n" + "\n".join(lines)}
     return _attach_items(out, items, "apps.grafana.datasources_count")
+
+
+# noinspection DuplicatedCode
+async def _test_datasource_skill(host_row: dict, chip: dict, *,
+                                 arg: Optional[str] = None,
+                                 host_id: Optional[str] = None) -> dict:
+    """Read-only (arg): health-check ONE datasource by name. Resolves the name to
+    its uid via ``GET /api/datasources`` (exact match, then substring), then
+    ``GET /api/datasources/uid/{uid}/health`` and reports the status + message
+    (Grafana returns ``{status: "OK"|"ERROR", message}`` in the BODY regardless of
+    the HTTP code, so we read the body, not the status line). Requires an Admin
+    token (a Viewer 403s → surfaced cleanly). Never raises."""
+    needle = (arg or "").strip()
+    if not needle:
+        return {"ok": False, "status": 0,
+                "detail": "no datasource given — say e.g. 'test the Prometheus datasource'"}
+    token, base, err = _resolve_skill_target(host_row, chip)
+    if err:
+        return err
+    nl = needle.lower()
+    print(f"[grafana] INFO grafana_test_datasource host={host_id} target={needle!r}")
+    r = await _skill_get(base, _API + "/datasources", token=token, params={},
+                         timeout=15.0, verb="fetch")
+    if isinstance(r, dict):
+        return r
+    try:
+        rows = [as_dict(x) for x in as_list(r.json())]
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON from upstream"}
+    target = None
+    for ds in rows:  # exact name first
+        if nl == str(ds.get("name") or "").strip().lower():
+            target = ds
+            break
+    if target is None:  # substring fallback
+        for ds in rows:
+            if nl in str(ds.get("name") or "").strip().lower():
+                target = ds
+                break
+    if target is None:
+        return {"ok": False, "status": 404, "detail": f"no datasource matched \"{needle}\""}
+    uid = str(target.get("uid") or "").strip()
+    name = str(target.get("name") or needle).strip()
+    if not uid:
+        return {"ok": False, "status": 404, "detail": f"“{name}” has no uid to health-check"}
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=_DS_HEALTH_TIMEOUT_S,
+                                     follow_redirects=True) as cli:
+            hr = await cli.get(base + _API + f"/datasources/uid/{uid}/health",
+                               headers=_headers(token))
+    except (httpx.HTTPError, OSError) as e:  # noqa: BLE001
+        return {"ok": False, "status": 0,
+                "detail": f"health check failed: {type(e).__name__}: {e}"}
+    if hr.status_code in (401, 403):
+        return {"ok": False, "status": hr.status_code,
+                "detail": "auth failed (an Admin token is required to test datasources)"}
+    try:
+        hd = as_dict(hr.json())
+    except (ValueError, TypeError):
+        return {"ok": False, "status": 502, "detail": "non-JSON health response"}
+    status = str(hd.get("status") or "").strip().upper()
+    message = str(hd.get("message") or "").strip()
+    if status == "OK":
+        return {"ok": True, "status": 200,
+                "detail": f"✅ “{name}” is healthy" + (f": {message}" if message else "")}
+    if status == "ERROR":
+        return {"ok": True, "status": 200,
+                "detail": f"❌ “{name}” is unhealthy: {message or 'health check failed'}"}
+    # No health check for this datasource type (404 / not-implemented / blank).
+    return {"ok": True, "status": 200,
+            "detail": f"ℹ️ “{name}” has no health check ({message or status or 'not implemented'})"}
 
 
 # noinspection DuplicatedCode
