@@ -106,13 +106,41 @@ socket is at the standard `/var/run/docker.sock`.
 - **Enable SSH** under **Services → SSH** and use an account that can access the
   Docker socket. A root-capable / `docker`-group account is required to read the
   socket.
-- **Enable SSH socket forwarding.** OmniGrid reaches the daemon by asking the
-  SSH server to forward a channel to `/var/run/docker.sock`. The SSH server must
-  allow that — `sshd_config` needs **`AllowStreamLocalForwarding yes`** (or
-  `all`). Stock OpenSSH defaults to `yes`, but hardened / appliance builds
-  (including some TrueNAS configurations) set it to `no`, which makes the Test
-  fail with *"couldn't open the Docker socket … the SSH server refused the
-  socket forward"*. Set it, reload SSH, and re-test.
+- **Give the SSH account Docker-socket access — and note the builtin-group trap.**
+  The socket is `srw-rw---- root docker`, so the SSH user must be in the `docker`
+  group. On TrueNAS SCALE the `admin` user is **not** in it by default, and the
+  UI **refuses** to add it (`docker` is a builtin sub-1000 system group →
+  *"membership of this builtin group may not be altered"*). Work around it with a
+  raw `usermod`, which the middleware validation doesn't block:
+  1. Apply now (the `admin` account has sudo): `sudo usermod -aG docker admin`
+  2. Make it survive reboots (TrueNAS regenerates `/etc/group` from its config
+     DB): **System → Advanced → Init/Shutdown Scripts → Add**, Type **Command**,
+     When **Post Init**, Command `usermod -aG docker admin`.
+  3. Open a **new** SSH session (groups load at login) and confirm `id admin`
+     lists `docker` and `docker version` prints the **Server** block.
+  Caveat: editing the user in the TrueNAS UI later can drop the membership until
+  the next boot re-runs the Post-Init script — just re-run the `usermod` line.
+  (Alternatively, point the node at **root**, which owns the socket, if you have
+  root SSH set up.)
+- **Enable SSH socket forwarding — needs TWO directives.** OmniGrid reaches the
+  daemon by asking the SSH server to forward a channel to `/var/run/docker.sock`.
+  That requires **both** of these in the SSH **Auxiliary Parameters**:
+  ```
+  AllowTcpForwarding local
+  AllowStreamLocalForwarding yes
+  ```
+  The gotcha: OpenSSH gates the socket (`direct-streamlocal`) forward behind the
+  *general* port-forwarding permission, so **`AllowTcpForwarding no` blocks it
+  even when `AllowStreamLocalForwarding yes` is set** — and hardened / appliance
+  builds (including TrueNAS) ship `AllowTcpForwarding no` by default. `local` is
+  the tightest value that works (client-initiated forwards only). After setting
+  them, **restart the SSH service** and verify the *effective* config:
+  ```
+  sudo sshd -T | grep -iE 'allowtcpforwarding|streamlocal'
+  # want: allowtcpforwarding local   +   allowstreamlocalforwarding yes
+  ```
+  Until both are set, the Test fails with *"couldn't open the Docker socket … the
+  SSH server refused the socket forward"*.
 - **App containers are TrueNAS-middleware-managed.** Restarting one is safe.
   **Recreating** (the "update" action) a container that TrueNAS's app system
   manages may be **reverted or reconciled** by its middleware — prefer updating
@@ -160,13 +188,21 @@ fallback just keeps the data visible).
 - **"couldn't open the Docker socket … the SSH server refused the socket
   forward" (a channel-open failure).** The SSH login worked, but the SSH server
   refused to forward a channel to the Docker socket. In order of likelihood:
-  1. **`AllowStreamLocalForwarding` is off.** OmniGrid forwards a channel to the
-     UNIX socket; the SSH server must allow it. Add **`AllowStreamLocalForwarding
-     yes`** (or `all`) to `sshd_config` and reload SSH. Hardened / NAS builds
-     often default this off.
+  1. **Forwarding is disabled — check BOTH directives.** OmniGrid forwards a
+     channel to the UNIX socket, which OpenSSH gates behind the *general*
+     port-forwarding permission. So you need **both** `AllowStreamLocalForwarding
+     yes` AND `AllowTcpForwarding` set to `local` (or `yes`) — `AllowTcpForwarding
+     no` blocks the socket forward even with StreamLocal on, and hardened / NAS
+     builds ship it `no`. Set both, reload SSH, and verify the *effective* config:
+     `sudo sshd -T | grep -iE 'allowtcpforwarding|streamlocal'` (want
+     `allowtcpforwarding local` + `allowstreamlocalforwarding yes` — NOT
+     `allowtcpforwarding no`).
   2. **The SSH user can't access the socket.** It must be `root` or in the
-     `docker` group. Verify from a shell: `ssh <user>@<node> "docker version"` —
-     if that prints the *server* version, the socket is reachable.
+     `docker` group (the socket is `srw-rw---- root docker`). Verify from a shell:
+     `ssh <user>@<node> "docker version"` — if that prints the *Server* version,
+     the socket is reachable. (On TrueNAS the UI won't let you add the builtin
+     `docker` group to a user — see the TrueNAS SCALE section for the `usermod`
+     workaround.)
   3. **Wrong socket path.** The default is `/var/run/docker.sock`; override it in
      the node's *Docker socket path* field only if your daemon uses a different
      path.

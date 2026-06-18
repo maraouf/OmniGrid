@@ -1352,8 +1352,7 @@ async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str
                     if "@" in rd:
                         current_digest = rd.split("@", 1)[1]
                         break
-                if image_ref.startswith("sha256:") or (
-                        image_ref and "/" not in image_ref and ":" not in image_ref):
+                if image_ref.startswith("sha256:") or (image_ref and "/" not in image_ref and ":" not in image_ref):
                     real = [t for t in (img.get("RepoTags") or [])
                             if t and "<none>" not in t]
                     if real:

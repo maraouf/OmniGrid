@@ -173,12 +173,15 @@ class DockerClient:
             raise DockerDirectError(
                 f"couldn't open the Docker socket {self._sock} over SSH "
                 f"({type(e).__name__}: {e}) — the SSH server refused the socket "
-                f"forward. Check, in order: (1) sshd_config has "
-                f"'AllowStreamLocalForwarding yes' (or 'all') and sshd was "
-                f"reloaded — many hardened/NAS builds default it off, which "
-                f"refuses the forward; (2) the SSH user can access the socket "
-                f"(be root, or in the 'docker' group); (3) Docker is running and "
-                f"the socket path is correct.")
+                f"forward. Check, in order: (1) sshd allows the forward — it needs "
+                f"BOTH 'AllowStreamLocalForwarding yes' AND 'AllowTcpForwarding' "
+                f"NOT set to 'no' (OpenSSH gates the socket forward behind the "
+                f"general port-forwarding permission, so 'AllowTcpForwarding no' — "
+                f"common on hardened/NAS builds — blocks it even with "
+                f"AllowStreamLocalForwarding on; use 'AllowTcpForwarding local'), "
+                f"then reload sshd; (2) the SSH user can access the socket (be "
+                f"root, or in the 'docker' group); (3) Docker is running and the "
+                f"socket path is correct. Verify with: sshd -T | grep -i forwarding")
         raw: Any = b""
         try:
             payload = b""
