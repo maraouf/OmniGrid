@@ -42,9 +42,10 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import asyncssh
+import httpx
 
 from logic import ssh as _ssh
 from logic import tuning as _tuning
@@ -89,10 +90,10 @@ def _resolve_node_conn(node: dict) -> dict:
     }
 
 
-def _cooldown_key(node: dict, conn: dict) -> "tuple[str, str]":
+def _cooldown_key(node_id: str, conn: dict) -> "tuple[str, str]":
     """Per-(node, user) auth-cooldown key, namespaced ``docker:`` so it can't
     collide with the curated-host SSH console's ``(host_id, user)`` keys."""
-    nid = str((node or {}).get("id") or conn.get("host") or "")
+    nid = str(node_id or conn.get("host") or "")
     return f"docker:{nid}", conn.get("user") or ""
 
 
@@ -164,9 +165,20 @@ class DockerClient:
         try:
             reader, writer = await self._conn.open_unix_connection(self._sock, encoding=None)
         except (asyncssh.Error, OSError) as e:  # noqa: BLE001
+            # A ChannelOpenError ("open failed") here means the SSH SERVER
+            # refused to forward to the UNIX socket — the channel never
+            # reached Docker. The usual cause is NOT "Docker is down" (the
+            # socket exists); it's the sshd config or socket permissions, so
+            # lead with those.
             raise DockerDirectError(
                 f"couldn't open the Docker socket {self._sock} over SSH "
-                f"({type(e).__name__}: {e}) — is Docker running and is the path right?")
+                f"({type(e).__name__}: {e}) — the SSH server refused the socket "
+                f"forward. Check, in order: (1) sshd_config has "
+                f"'AllowStreamLocalForwarding yes' (or 'all') and sshd was "
+                f"reloaded — many hardened/NAS builds default it off, which "
+                f"refuses the forward; (2) the SSH user can access the socket "
+                f"(be root, or in the 'docker' group); (3) Docker is running and "
+                f"the socket path is correct.")
         raw: Any = b""
         try:
             payload = b""
@@ -196,6 +208,28 @@ class DockerClient:
         snippet = body_bytes[:300].decode(errors="replace")
         return status, parsed, snippet
 
+    async def exec_command(self, command: str) -> "tuple[int, str, str]":
+        """Run a shell command on the node over the SAME SSH connection (NOT the
+        Docker socket — used for ``docker compose``, which the Engine API can't
+        do). Returns ``(exit_status, stdout, stderr)``, bounded by the per-call
+        timeout (so a compose op must open ``connect`` with a long timeout — the
+        pull can take minutes). Raises ``DockerDirectError`` on a transport
+        failure."""
+        try:
+            result = await asyncio.wait_for(
+                self._conn.run(command, check=False), timeout=self._to)
+        except asyncio.TimeoutError:
+            # TimeoutError ⊂ OSError on 3.11+, so it MUST precede the OSError
+            # clause below or it's unreachable.
+            raise DockerDirectError(
+                f"SSH command exceeded the {int(self._to)}s budget")
+        except (asyncssh.Error, OSError) as e:
+            raise DockerDirectError(f"SSH exec failed: {type(e).__name__}: {e}")
+        out = result.stdout if isinstance(result.stdout, str) else str(result.stdout or "")
+        err = result.stderr if isinstance(result.stderr, str) else str(result.stderr or "")
+        code = result.exit_status if isinstance(result.exit_status, int) else -1
+        return code, out, err
+
     async def get(self, path: str) -> "tuple[int, Any, str]":
         """GET a Docker endpoint — the ``portainer.pg`` analogue."""
         return await self.request("GET", path)
@@ -209,21 +243,168 @@ class DockerClient:
         return await self.request("DELETE", path)
 
 
+def node_transport(node: dict) -> str:
+    """The node's transport — ``"tls"`` (TCP+TLS to the daemon) or ``"ssh"``
+    (the default; the Docker API over an SSH channel to the UNIX socket)."""
+    return "tls" if str((node or {}).get("transport") or "ssh").strip().lower() == "tls" else "ssh"
+
+
+class TLSDockerClient:
+    """Docker Engine API client over a direct TCP+TLS connection to the daemon
+    (``https://host:port``). Same ``(status, parsed_json|None, snippet)`` return
+    shape as :class:`DockerClient`, so gather / stats / container ops are
+    transport-agnostic. Has NO ``exec_command`` — there's no shell channel over
+    the daemon socket, so compose-update (which needs ``docker compose``) is
+    SSH-only."""
+
+    def __init__(self, client: "httpx.AsyncClient", base: str, timeout: float):
+        self._client = client
+        self._base = base
+        self._to = timeout
+
+    async def request(self, method: str, path: str,
+                      body: Optional[Any] = None) -> "tuple[int, Any, str]":
+        try:
+            r = await self._client.request(method, self._base + path, json=body,
+                                           timeout=self._to)
+        except (httpx.HTTPError, OSError) as e:
+            raise DockerDirectError(
+                f"TLS request to {self._base} failed ({type(e).__name__}: {e}) "
+                f"— is the daemon listening on TLS and are the certs right?")
+        parsed: Any = None
+        try:
+            parsed = r.json()
+        except (ValueError, TypeError):
+            parsed = None
+        snippet = (r.text or "")[:300]
+        return r.status_code, parsed, snippet
+
+    async def get(self, path: str) -> "tuple[int, Any, str]":
+        return await self.request("GET", path)
+
+    async def post(self, path: str, body: Optional[Any] = None) -> "tuple[int, Any, str]":
+        return await self.request("POST", path, body)
+
+    async def delete(self, path: str) -> "tuple[int, Any, str]":
+        return await self.request("DELETE", path)
+
+
+# Either client `connect()` may yield, depending on the node's transport. Both
+# share the `.get` / `.post` / `.delete` surface (only the SSH `DockerClient`
+# additionally has `.exec_command`), so callers that only do API requests accept
+# this union.
+AnyDockerClient = Union[DockerClient, TLSDockerClient]
+
+
+def _build_tls_context(node: dict) -> "tuple[Any, list[str]]":
+    """Build an ``ssl.SSLContext`` for a TLS docker node from its PEM material
+    (``tls_ca`` / ``tls_cert`` / ``tls_key``). The CA is loaded in-memory; the
+    client cert chain is written to 0600 temp files (``load_cert_chain`` needs
+    paths) which the caller deletes after connecting. No CA ⇒ verify off (the
+    homelab ``VERIFY_TLS=false`` pattern). ``check_hostname`` is off because a
+    daemon cert rarely matches the host / IP. Returns ``(context, tempfiles)``."""
+    import os  # noqa: PLC0415
+    import ssl  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    ca = str(node.get("tls_ca") or "").strip()
+    cert = str(node.get("tls_cert") or "").strip()
+    key = str(node.get("tls_key") or "").strip()
+    if ca:
+        ctx = ssl.create_default_context(cadata=ca)
+        ctx.check_hostname = False
+    else:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    tmpfiles: list[str] = []
+    if cert and key:
+        cf = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False)
+        cf.write(cert)
+        cf.close()
+        kf = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False)
+        kf.write(key)
+        kf.close()
+        try:
+            os.chmod(kf.name, 0o600)
+        except OSError:
+            pass
+        tmpfiles = [cf.name, kf.name]
+        ctx.load_cert_chain(cf.name, kf.name)
+    return ctx, tmpfiles
+
+
+@asynccontextmanager
+async def connect_tls(node: dict, *, timeout: Optional[float] = None):
+    """Open a TCP+TLS connection to a docker node's daemon (``https://address:
+    tls_port``, default 2376) and yield a :class:`TLSDockerClient`. Raises
+    ``DockerDirectError`` on misconfig / cert / connect failure."""
+    import os  # noqa: PLC0415
+    import ssl  # noqa: PLC0415
+    host = str(node.get("address") or "").strip()
+    if not host:
+        raise DockerDirectError("no address configured for this Docker node")
+    port = safe_int(node.get("tls_port")) or 2376
+    to = float(timeout if timeout is not None else _timeout())
+    try:
+        ctx, tmpfiles = _build_tls_context(node)
+    except (ssl.SSLError, ValueError, OSError) as e:
+        raise DockerDirectError(
+            f"TLS cert / key / CA couldn't be loaded ({type(e).__name__}: {e})")
+    base = f"https://{host}:{port}"
+    print(f"[docker] connect-tls node={(node or {}).get('id')!r} target={base} "
+          f"verify={'ca' if node.get('tls_ca') else 'off'} "
+          f"client_cert={'yes' if tmpfiles else 'no'}")
+    client = httpx.AsyncClient(verify=ctx, timeout=to)
+    try:
+        yield TLSDockerClient(client, base, to)
+    finally:
+        await client.aclose()
+        for f in tmpfiles:
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+
+
 @asynccontextmanager
 async def connect(node: dict, *, timeout: Optional[float] = None):
-    """Open ONE SSH connection to a ``docker_nodes`` entry and yield a
-    ``DockerClient``. Resolves creds (per-node ``ssh`` over global defaults),
-    honours the shared SSH auth-cooldown, and closes the connection on exit.
-    Raises ``DockerDirectError`` on misconfig / auth / connect failure (auth
-    failures arm the cooldown)."""
-    conn_spec = _resolve_node_conn(node)
-    if not conn_spec["host"]:
+    """Open ONE connection to a ``docker_nodes`` entry and yield a Docker client.
+    Dispatches on the node's transport: ``tls`` → a :class:`TLSDockerClient`
+    (TCP+TLS to the daemon); otherwise SSH (the default — the Docker API over an
+    SSH channel to the UNIX socket, resolving creds via :func:`connect_resolved`
+    + the shared auth-cooldown). Raises ``DockerDirectError`` on misconfig / auth
+    / connect failure."""
+    if node_transport(node) == "tls":
+        async with connect_tls(node, timeout=timeout) as cli:
+            yield cli
+    else:
+        async with connect_resolved(
+            _resolve_node_conn(node),
+            node_id=str((node or {}).get("id") or ""), timeout=timeout) as cli:
+            yield cli
+
+
+@asynccontextmanager
+async def connect_resolved(conn_spec: dict, *, node_id: str = "",
+                           timeout: Optional[float] = None):
+    """Open ONE SSH connection from an ALREADY-RESOLVED connect spec and yield a
+    ``DockerClient``. The spec is ``{host, user, port, password, private_key,
+    passphrase, known_hosts, socket_path}`` — the same shape
+    :func:`_resolve_node_conn` produces, so a caller that resolved creds through
+    a DIFFERENT path (e.g. the curated-host SSH ladder via
+    ``logic.ssh.resolve_ssh_connect_spec`` for the Portainer-node stats
+    fallback) can reuse the whole SSH-channel + cooldown + auth machinery. The
+    direct ``connect(node)`` path delegates here. ``node_id`` namespaces the
+    auth-cooldown key. Raises ``DockerDirectError`` on misconfig / auth / connect
+    failure (auth failures arm the cooldown)."""
+    if not conn_spec.get("host"):
         raise DockerDirectError("no address configured for this Docker node")
-    if not conn_spec["private_key"] and not conn_spec["password"]:
+    conn_spec.setdefault("socket_path", _DEFAULT_SOCKET)
+    if not conn_spec.get("private_key") and not conn_spec.get("password"):
         raise DockerDirectError(
             "no SSH credentials — set a global SSH key/password in Admin → SSH, "
             "or a password on this Docker node")
-    cd_key = _cooldown_key(node, conn_spec)
+    cd_key = _cooldown_key(node_id, conn_spec)
     remaining = _ssh.auth_cooldown_timer.remaining(*cd_key)
     if remaining:
         raise DockerDirectError(
@@ -252,7 +433,7 @@ async def connect(node: dict, *, timeout: Optional[float] = None):
     if conn_spec["password"]:
         preferred.append("password")
 
-    print(f"[docker] connect node={(node or {}).get('id')!r} "
+    print(f"[docker] connect node={node_id!r} "
           f"target={conn_spec['user']}@{conn_spec['host']}:{conn_spec['port']} "
           f"socket={conn_spec['socket_path']} auth={preferred}")
     try:

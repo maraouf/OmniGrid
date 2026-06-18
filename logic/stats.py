@@ -12,6 +12,7 @@ trigger the expensive registry-digest pass. Driven by:
 Cache dict is exposed as ``_stats_cache`` for main.py's /api/stats route.
 """
 import asyncio
+import json
 import socket
 import time
 from typing import Any, Optional
@@ -22,7 +23,8 @@ from logic import gather as _gather_mod
 from logic import portainer
 from logic import tuning
 from logic.tuning import Tunable
-from logic.db import db_conn, prune_rows_older_than
+from logic.db import db_conn, get_setting, get_setting_bool, prune_rows_older_than
+from logic.settings_keys import Settings
 
 # The cache main.py's /api/stats route reads. Structure:
 # stats: {item_id: {cpu_percent, mem_usage, mem_limit, size_root, size_rw,
@@ -383,7 +385,7 @@ async def _docker_node_stats() -> dict:
     if not docker_items:
         return {}
     nodes_by_backend = {f"docker:{n.get('id')}": n
-                        for n in _gather_mod._load_docker_nodes_cfg()}
+                        for n in _gather_mod.load_docker_nodes_cfg()}
     by_backend: dict[str, list] = {}
     for it in docker_items:
         by_backend.setdefault(it.get("backend") or "", []).append(it)
@@ -391,7 +393,7 @@ async def _docker_node_stats() -> dict:
     sem = asyncio.Semaphore(portainer.stats_concurrency())
     out: dict = {}
 
-    async def _one(dcli: "docker_direct.DockerClient", item: dict,
+    async def _one(dcli: "docker_direct.AnyDockerClient", item: dict,
                    sroot: dict, srw: dict) -> None:
         cid = item.get("raw_id") or ""
         cpu = mem_u = mem_l = 0.0
@@ -435,6 +437,121 @@ async def _docker_node_stats() -> dict:
             raise
         except Exception as e:  # noqa: BLE001
             print(f"[docker] stats {backend} failed: {type(e).__name__}: {e}")
+    return out
+
+
+def _load_hosts_config_raw() -> list:
+    """The full curated hosts_config list (including SSH-disabled / monitor-
+    disabled rows) — `resolve_ssh_params` does its own per-host / group / master
+    gating, so it needs every row to find a match + walk the group ladder."""
+    try:
+        parsed = json.loads(get_setting(Settings.HOSTS_CONFIG) or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def _host_part(v: Any) -> str:
+    """Lowercased hostname extracted from a value that may be a bare host, a
+    ``host:port``, or a full URL ('' when empty / unparseable)."""
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    if "://" not in s:
+        return s.split("/", 1)[0].split(":", 1)[0].strip().lower()
+    from urllib.parse import urlsplit  # noqa: PLC0415
+    try:
+        return (urlsplit(s).hostname or "").strip().lower()
+    except (ValueError, TypeError):
+        return ""
+
+
+def _swarm_host_index(hosts_config: list) -> "dict[str, str]":
+    """Map every identifier a Swarm node hostname might present (host id / label /
+    address / the hostname-part of address|ne_url|url / ssh fqdn|host / the
+    provider-name aliases), lowercased, → the curated host's id — so a Portainer
+    Swarm node can be matched to its curated host (and thence its SSH creds for
+    the direct-Docker stats fallback). First host wins on a key collision."""
+    idx: dict[str, str] = {}
+    for h in (hosts_config or []):
+        if not isinstance(h, dict):
+            continue
+        hid = str(h.get("id") or "").strip()
+        if not hid:
+            continue
+        keys: set[str] = set()
+        for raw in (h.get("id"), h.get("label"), h.get("address"),
+                    h.get("beszel_name"), h.get("pulse_name"),
+                    h.get("snmp_name"), h.get("webmin_name")):
+            s = str(raw or "").strip().lower()
+            if s:
+                keys.add(s)
+        for raw in (h.get("address"), h.get("ne_url"), h.get("url")):
+            hp = _host_part(raw)
+            if hp:
+                keys.add(hp)
+        _ssh_raw = h.get("ssh")
+        ssh = _ssh_raw if isinstance(_ssh_raw, dict) else {}
+        for raw in (ssh.get("fqdn"), ssh.get("host")):
+            s = str(raw or "").strip().lower()
+            if s:
+                keys.add(s)
+            hp = _host_part(raw)
+            if hp:
+                keys.add(hp)
+        for k in keys:
+            idx.setdefault(k, hid)
+    return idx
+
+
+async def _portainer_node_stats_fallback(failed_by_node: dict, hosts_config: list) -> dict:
+    """For each Swarm node with Portainer-stats failures, SSH to its Docker
+    daemon (via the matched curated host's resolved SSH creds) and fetch the
+    failed containers' stats directly. Returns ``{cid: parsed_stats}``.
+
+    Opt-in (master toggle gates the caller) + best-effort: a node with no
+    SSH-matched curated host, an SSH-disabled host, or an SSH failure contributes
+    nothing. The per-host ``ssh.enabled`` flag is the per-node opt-in — creds
+    resolve through the SAME ladder (per-host → group → global) the SSH console
+    uses, via ``logic.ssh.resolve_ssh_connect_spec``."""
+    if not failed_by_node:
+        return {}
+    from logic import docker_direct  # noqa: PLC0415
+    from logic import ssh as _ssh  # noqa: PLC0415
+    idx = _swarm_host_index(hosts_config)
+    out: dict[str, dict] = {}
+    for node_host, cids in failed_by_node.items():
+        host_id = idx.get((node_host or "").strip().lower())
+        if not host_id:
+            continue
+        spec = _ssh.resolve_ssh_connect_spec(host_id, hosts_config)
+        if spec.get("disabled") or spec.get("error") or not spec.get("host"):
+            continue
+        if not spec.get("private_key") and not spec.get("password"):
+            continue
+        spec["socket_path"] = "/var/run/docker.sock"
+        filled = 0
+        try:
+            async with docker_direct.connect_resolved(
+                spec, node_id=f"swarm:{node_host}") as cli:
+                for cid in cids:
+                    try:
+                        st, payload, _snip = await cli.get(
+                            f"/containers/{cid}/stats?stream=false")
+                    except docker_direct.DockerDirectError:
+                        continue
+                    if st == 200 and isinstance(payload, dict):
+                        out[cid] = _parse_stats_payload(payload)
+                        filled += 1
+            if filled:
+                print(f"[stats] SSH stats-fallback: {node_host} (host_id={host_id}) "
+                      f"filled {filled}/{len(cids)} container(s) Portainer couldn't")
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except docker_direct.DockerDirectError as e:
+            print(f"[stats] SSH stats-fallback {node_host} skipped: {e}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[stats] SSH stats-fallback {node_host} failed: {type(e).__name__}: {e}")
     return out
 
 
@@ -971,6 +1088,33 @@ async def gather_stats() -> None:
                 # so the SPA can show "broken for X minutes".
                 cur.setdefault("since_ts", now_ts)
                 _agent_health[host] = cur
+
+        # Direct-Docker SSH stats fallback (opt-in). When Portainer's /stats
+        # failed for a worker-node container AND the operator enabled the
+        # fallback, fetch those containers' stats by SSHing to the node's Docker
+        # daemon (reusing the curated host's SSH creds — the per-host
+        # ssh.enabled flag is the per-node opt-in). Runs AFTER the agent-health
+        # tally above so the unhealthy-agent banner still fires (the Portainer
+        # agent IS down even when SSH covers the data); merging into
+        # stats_by_cid here means the per-item aggregation below picks it up.
+        try:
+            if get_setting_bool(Settings.DOCKER_STATS_FALLBACK_ENABLED):
+                failed_by_node: dict[str, list[str]] = {}
+                for cid in running_cids:
+                    if cid in stats_by_cid:
+                        continue
+                    n = node_by_cid.get(cid)
+                    if n:
+                        failed_by_node.setdefault(n, []).append(cid)
+                if failed_by_node:
+                    fb = await _portainer_node_stats_fallback(
+                        failed_by_node, _load_hosts_config_raw())
+                    if fb:
+                        stats_by_cid.update(fb)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as e:  # noqa: BLE001
+            print(f"[stats] SSH stats-fallback wiring failed: {type(e).__name__}: {e}")
 
         out: dict[str, dict] = {}
         for item in items_cache["items"]:

@@ -2148,10 +2148,21 @@ export default {
     if (this.isStackBusy(stack)) {
       return;
     }
-    const key = this._busyKey('stack', stack.stack_id);
+    // Direct-Docker compose-project stacks have no Portainer int stack_id —
+    // they carry compose_path + compose_node_id and update via the SSH compose
+    // route. Portainer stacks keep the stack_id path. The busy key is stable
+    // for both (stack_id for Portainer, node:project for docker).
+    const isDocker = !stack.stack_id && !!stack.compose_path;
+    const key = this._busyKey('stack', stack.stack_id
+      || ('docker:' + (stack.compose_node_id || '') + ':' + stack.name));
     this._markBusy(key);
     try {
-      const r = await fetch(`/api/update/stack/${stack.stack_id}`, {method: 'POST'});
+      const r = isDocker
+        ? await fetch('/api/update/docker-stack', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({node_id: stack.compose_node_id, project: stack.name}),
+          })
+        : await fetch(`/api/update/stack/${stack.stack_id}`, {method: 'POST'});
       if (!r.ok) {
         throw new Error(await this.fmtResponseError(r));
       }

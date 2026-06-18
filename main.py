@@ -1430,6 +1430,7 @@ persist_history = _ops_mod.persist_history
 notify = _ops_mod.notify
 notify_with_retry = _ops_mod.notify_with_retry
 _do_update_stack = _ops_mod.do_update_stack
+_do_update_stack_direct = _ops_mod.do_update_stack_direct
 _do_update_container = _ops_mod.do_update_container
 _do_restart_service = _ops_mod.do_restart_service
 _do_restart_container = _ops_mod.do_restart_container
@@ -1976,6 +1977,24 @@ async def api_update_stack(
     op = new_op("update_stack", str(stack_id), name,
                 target_stack=name, actor=_actor_from(request))
     bg.add_task(_do_update_stack, op, stack_id)
+    return {"op_id": op.id}
+
+
+@app.post("/api/update/docker-stack")
+async def api_update_docker_stack(
+    body: dict, bg: BackgroundTasks, request: Request, _admin: AdminUser,
+):
+    """Trigger a `docker compose pull && up -d` for a direct-Docker (Portainer-
+    less) compose project, over SSH. Body: ``{node_id, project}``. The
+    compose-file path is resolved server-side from the node's recorded
+    ``compose_projects`` config (a raw daemon stores no compose file)."""
+    node_id = str((body or {}).get("node_id") or "").strip()
+    project = str((body or {}).get("project") or "").strip()
+    if not node_id or not project:
+        raise HTTPException(400, "node_id and project are required")
+    op = new_op("update_stack", f"{node_id}:{project}", project,
+                target_stack=project, actor=_actor_from(request))
+    bg.add_task(_do_update_stack_direct, op, node_id, project)
     return {"op_id": op.id}
 
 

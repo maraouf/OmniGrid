@@ -912,8 +912,20 @@ export default {
     return `${kind}:${id}`;
   },
   isStackBusy(stack) {
-    if (!stack || !stack.stack_id) {
+    if (!stack) {
       return false;
+    }
+    // Direct-Docker compose-project stack — no Portainer int stack_id; keyed by
+    // node:project to match updateStack's busy key + the op's target_id.
+    if (!stack.stack_id) {
+      if (!stack.compose_path) {
+        return false;
+      }
+      const tid = (stack.compose_node_id || '') + ':' + stack.name;
+      if (this.busy[this._busyKey('stack', 'docker:' + tid)]) {
+        return true;
+      }
+      return this.activeOps.some(o => o.op_type === 'update_stack' && String(o.target_id) === tid);
     }
     if (this.busy[this._busyKey('stack', stack.stack_id)]) {
       return true;

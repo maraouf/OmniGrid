@@ -1190,7 +1190,7 @@
                   <span x-text="stack.name"></span>
                   <span class="text-[var(--text-faint)] fs-xs font-normal" x-text="'(' + stack.total + ')'"></span>
                   <span x-show="stack.is_standalone" class="chip fs-3xs" x-text="t('chips.standalone')"></span>
-                  <span x-show="!stack.is_standalone && !stack.stack_id" class="chip fs-3xs text-warning" x-text="t('chips.external')"></span>
+                  <span x-show="!stack.is_standalone && !stack.stack_id && !stack.compose_path" class="chip fs-3xs text-warning" x-text="t('chips.external')"></span>
                 </div>
               </td>
               <td>
@@ -1237,7 +1237,7 @@
                        header button too duplicates the affordance and
                        stacks two amber buttons in the same horizontal
                        slice. Toggle off when expanded. -->
-                <button type="button" x-show="isAdmin() && stack.updates>0 && stack.stack_id && !expanded.includes(stack.name)"
+                <button type="button" x-show="isAdmin() && stack.updates>0 && (stack.stack_id || stack.compose_path) && !expanded.includes(stack.name)"
                         @click="updateStack(stack)"
                         :disabled="isStackBusy(stack)"
                         class="btn btn-warning fs-sm">

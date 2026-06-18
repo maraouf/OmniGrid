@@ -116,7 +116,7 @@ async def notify_with_retry(
             return
         except (asyncio.CancelledError, KeyboardInterrupt):
             raise
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             if attempt >= retries:
                 # `dropped` keeps the persistent-log severity classifier
                 # off the ERROR bucket — caller already sees a
@@ -699,7 +699,70 @@ async def do_update_stack(
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        op.log(str(e), "error")
+        op.done("error", str(e))
+        await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
+                     event="stack_update_failure", actor_username=op.actor,
+                     target_kind="stack", target_id=str(op.target_id))
+    finally:
+        persist_history(op)
+        gather.invalidate_cache()
+
+
+async def do_update_stack_direct(op: Operation, node_id: str, project: str) -> None:
+    """Pull + recreate a ``docker compose`` project on a direct-Docker
+    (Portainer-less) node over SSH — runs ``docker compose -p <project> -f
+    <path> pull && … up -d --remove-orphans`` on the node. The compose-file path
+    comes from the node's recorded ``compose_projects`` config (a raw daemon
+    stores no compose file, so OmniGrid can't synthesize it — the operator
+    records which file backs which project). Fires the same
+    stack_update_success / _failure notifications as the Portainer path."""
+    try:
+        node = _docker_node_by_id(node_id)
+        if node is None:
+            raise RuntimeError(f"unknown Docker node {node_id!r}")
+        from logic import docker_direct as _dd  # noqa: PLC0415
+        if _dd.node_transport(node) == "tls":
+            raise RuntimeError(
+                "compose-level update needs SSH transport (it runs `docker "
+                "compose` on the node); this node uses TCP+TLS, which has no "
+                "shell channel — update each container individually instead")
+        path = (gather.docker_node_compose_paths(node) or {}).get(project or "")
+        if not path:
+            raise RuntimeError(
+                f"no compose-file path recorded for project {project!r} on this "
+                f"node — set it in Admin → Docker Nodes")
+        import shlex  # noqa: PLC0415
+        proj_q, path_q = shlex.quote(project), shlex.quote(path)
+        cmd = (f"docker compose -p {proj_q} -f {path_q} pull && "
+               f"docker compose -p {proj_q} -f {path_q} up -d --remove-orphans")
+        label = node.get("label") or node.get("id")
+        op.log(f"[direct] Updating compose project {project!r} on '{label}' over SSH: "
+               f"docker compose -f {path} pull && up -d")
+        from logic import docker_direct  # noqa: PLC0415
+        async with docker_direct.connect(node, timeout=_portainer_op_timeout("long")) as cli:
+            code, out, err = await cli.exec_command(cmd)
+        # Keep the tail of the compose output in the op log (operator-visible
+        # progress); cap so a huge pull log doesn't bloat the history row.
+        tail = (out or "").strip()[-1500:]
+        if err and err.strip():
+            tail = (tail + "\n[stderr] " + err.strip()[-1500:]).strip()
+        op.log(tail or "(no output)")
+        if code != 0:
+            raise RuntimeError(
+                f"docker compose exited {code}: {(err or out or '').strip()[-300:]}")
+        op.log("Compose project updated", "success")
+        op.done("success")
+        await notify(
+            f"✅ Stack updated: {op.target_name}",
+            f"Duration: {format_duration(op.to_dict()['duration'])}", "success",
+            event="stack_update_success", actor_username=op.actor,
+            target_kind="stack", target_id=str(op.target_id),
+        )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Stack update failed: {op.target_name}", str(e)[:500], "error",
@@ -942,7 +1005,7 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                      target_kind="container", target_id=str(op.target_id))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         await _notify_container_op_failure(op, e, kind_label="update")
     finally:
         persist_history(op)
@@ -1225,20 +1288,44 @@ async def _recreate_container_in_place(op: Operation, container_id: str) -> None
 def _docker_node_for(container_id: str) -> Optional[dict]:
     """If ``container_id`` belongs to a direct-Docker backend, return that
     node's ``docker_nodes`` config dict; else ``None`` (the Portainer path).
-    Resolves the item from the gather cache by raw / prefixed id."""
-    cache = gather.get_cache()
-    for it in (cache.get("items") or []):
-        if not isinstance(it, dict):
-            continue
-        if it.get("raw_id") == container_id or it.get("id") == container_id:
-            backend = str(it.get("backend") or "")
-            if backend.startswith("docker:"):
-                node_id = backend.split(":", 1)[1]
-                for n in gather._load_docker_nodes_cfg():
-                    if str(n.get("id") or "") == node_id:
-                        return n
-            return None
-    return None
+    Delegates to the canonical backend resolver."""
+    from logic import docker_backend  # noqa: PLC0415
+    return docker_backend.resolve_node_for(container_id)
+
+
+def _docker_node_by_id(node_id: str) -> Optional[dict]:
+    """Return the ``docker_nodes`` config dict for ``node_id`` (or ``None``).
+    Delegates to the canonical backend resolver."""
+    from logic import docker_backend  # noqa: PLC0415
+    return docker_backend.node_by_id(node_id)
+
+
+def _docker_node_for_service(service_id: str) -> Optional[dict]:
+    """If ``service_id`` is a direct-Docker (Swarm-manager) service item, return
+    that node's ``docker_nodes`` config dict; else ``None`` (the Portainer path).
+    Delegates to the canonical backend resolver (containers + services share it)."""
+    from logic import docker_backend  # noqa: PLC0415
+    return docker_backend.resolve_node_for(service_id)
+
+
+async def _direct_restart_service(op: Operation, service_id: str, node: dict) -> None:
+    """Restart a direct-Docker (Swarm-manager) service over SSH / TLS — GET the
+    service spec, bump ``TaskTemplate.ForceUpdate``, POST the update at the
+    current ``Version.Index`` (same primitive as the Portainer path). Raises
+    ``RuntimeError`` on a non-2xx; the caller owns op.done."""
+    from logic import docker_direct  # noqa: PLC0415
+    label = node.get("label") or node.get("id")
+    op.log(f"Restarting service on Docker node '{label}' (direct)")
+    async with docker_direct.connect(node, timeout=_portainer_op_timeout("medium")) as cli:
+        st, svc, snip = await cli.get(f"/services/{service_id}")
+        if st != 200 or not isinstance(svc, dict):
+            raise RuntimeError(f"GET /services/{service_id[:12]} HTTP {st}: {snip[:200]}")
+        spec, version = _bump_force_update(svc, op)
+        ust, _b, usnip = await cli.post(
+            f"/services/{service_id}/update?version={version}", spec)
+        if ust >= 400:
+            raise RuntimeError(f"HTTP {ust}: {usnip[:300]}")
+    op.log("Service restart triggered", "success")
 
 
 async def _direct_restart(op: Operation, container_id: str, node: dict) -> None:
@@ -1546,7 +1633,7 @@ async def do_retag_container_to_latest(
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         await _notify_container_op_failure(op, e, kind_label="retag")
     finally:
         persist_history(op)
@@ -1583,7 +1670,7 @@ async def do_restart_container(op: Operation, container_id: str) -> None:
                      target_kind="container", target_id=str(op.target_id))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container restart failed: {op.target_name}", str(e)[:500], "error",
@@ -1645,7 +1732,7 @@ async def do_remove_container(op: Operation, container_id: str) -> None:
                      target_kind="container", target_id=str(op.target_id))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Container remove failed: {op.target_name}", str(e)[:500], "error",
@@ -1664,29 +1751,33 @@ async def do_restart_service(op: Operation, service_id: str) -> None:
     pull. Fires service_restart_success / _failure; invalidates the
     gather cache in the finally block."""
     try:
-        portainer.ensure_reachable()
-        op.log("Fetching current service spec")
-        async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
-            svc = await portainer.pg(
-                client,
-                f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
-            )
-            spec, version = _bump_force_update(svc, op)
-            r = await client.post(
-                f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
-                f"/docker/services/{service_id}/update?version={version}",
-                json=spec, headers=portainer.headers(),
-            )
-            if r.status_code >= 400:
-                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-            op.log("Service restart triggered", "success")
+        _dnode = _docker_node_for_service(service_id)
+        if _dnode is not None:
+            await _direct_restart_service(op, service_id, _dnode)
+        else:
+            portainer.ensure_reachable()
+            op.log("Fetching current service spec")
+            async with portainer.write_client(timeout=_portainer_op_timeout("medium")) as client:
+                svc = await portainer.pg(
+                    client,
+                    f"/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}/docker/services/{service_id}",
+                )
+                spec, version = _bump_force_update(svc, op)
+                r = await client.post(
+                    f"{portainer.PORTAINER_URL}/api/endpoints/{portainer.PORTAINER_ENDPOINT_ID}"
+                    f"/docker/services/{service_id}/update?version={version}",
+                    json=spec, headers=portainer.headers(),
+                )
+                if r.status_code >= 400:
+                    raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+                op.log("Service restart triggered", "success")
         op.done("success")
         await notify(f"🔄 Service restarted: {op.target_name}", "", "success",
                      event="service_restart_success", actor_username=op.actor,
                      target_kind="service", target_id=str(op.target_id))
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Service restart failed: {op.target_name}", str(e)[:500], "error",
@@ -1801,7 +1892,7 @@ async def do_restart_swarm_agent(op: Operation) -> None:
         )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(
@@ -1894,7 +1985,7 @@ async def do_prune_node(op: Operation, hostname: str) -> dict:
         return totals
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception as e: # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         op.log(str(e), "error")
         op.done("error", str(e))
         await notify(f"❌ Prune failed on {hostname}", str(e)[:500], "error",

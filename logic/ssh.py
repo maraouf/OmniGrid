@@ -671,6 +671,33 @@ def resolve_ssh_params(host_id: str, hosts_config: list[dict], *,
     return resolved
 
 
+def resolve_ssh_connect_spec(host_id: str, hosts_config: list[dict]) -> dict:
+    """Full SSH connect spec for a curated host — the resolved params from
+    :func:`resolve_ssh_params` PLUS the actual password (via the
+    per_host/sub_group/main_group/global ladder) and the global key material —
+    ready to hand to an SSH client (e.g. the direct-Docker stats fallback).
+
+    Honours the global SSH master switch + the per-host ``ssh.enabled`` opt-in
+    (both surfaced as ``disabled``), so a host the operator hasn't SSH-enabled
+    yields ``disabled=True`` and the caller skips it. Returns ``{host, user,
+    port, password, private_key, passphrase, known_hosts, disabled, error}``."""
+    resolved = resolve_ssh_params(host_id, hosts_config)
+    g = get_global_ssh_settings()
+    password, _src = _resolve_password_for_host(
+        host_id, hosts_config, resolved, g.get("password") or "")
+    return {
+        "host": resolved.get("host") or "",
+        "user": resolved.get("user") or g.get("user") or "root",
+        "port": resolved.get("port") or g.get("port") or 22,
+        "password": password or "",
+        "private_key": g.get("private_key") or "",
+        "passphrase": g.get("passphrase") or "",
+        "known_hosts": g.get("known_hosts") or "",
+        "disabled": bool(resolved.get("disabled")),
+        "error": resolved.get("error"),
+    }
+
+
 def _key_fingerprint(private_key_pem: str, passphrase: str) -> str:
     """Return the SHA-256 fingerprint (last 16 hex chars) of the key's
     PUBLIC half, or '' when no key is configured / parsing fails.

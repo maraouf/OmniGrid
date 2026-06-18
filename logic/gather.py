@@ -13,6 +13,7 @@ add import gymnastics without reducing real complexity.
 """
 import asyncio
 import json
+import sqlite3
 import time
 from typing import Any, Optional
 
@@ -980,6 +981,11 @@ def _load_docker_nodes_cfg() -> list[dict]:
             if isinstance(n, dict) and n.get("enabled", True) and n.get("address")]
 
 
+# Public aliases for the cross-module callers (stats / ops_extras / docker_backend)
+# so they don't reach a protected `_`-prefixed name across the module boundary.
+load_docker_nodes_cfg = _load_docker_nodes_cfg
+
+
 def _docker_df_bytes(df: Any) -> int:
     """Total Docker disk usage from a ``/system/df`` payload — image layers +
     container writable layers + volumes + build cache."""
@@ -1022,12 +1028,21 @@ def _group_items_into_stacks(items: list) -> list:
         g = groups.setdefault(key, {
             "name": it.get("stack") or "Standalone",
             "stack_id": it.get("stack_id"),
+            # Direct-Docker compose-update target (None for Portainer stacks +
+            # path-less docker stacks). Propagated from the first item that
+            # carries it so the stack-card "Update stack" button can route to
+            # the SSH compose path.
+            "compose_path": None,
+            "compose_node_id": None,
             "items": [],
             "is_standalone": not it.get("stack"),
         })
         gi = g["items"]
         if isinstance(gi, list):
             gi.append(it)
+        if it.get("compose_path") and not g.get("compose_path"):
+            g["compose_path"] = it.get("compose_path")
+            g["compose_node_id"] = it.get("compose_node_id")
     for g in groups.values():
         its_raw = g.get("items")
         its: list = its_raw if isinstance(its_raw, list) else []
@@ -1067,14 +1082,209 @@ async def _classify_item_status(reg_client: "httpx.AsyncClient", item: dict) -> 
 
 
 # noinspection DuplicatedCode
+def _build_direct_service_items(services: list, tasks: list, nodes: list,
+                                backend: str, ignores: list) -> list:
+    """Build ``type:"service"`` items for a direct-Docker node that is a Swarm
+    MANAGER, from its ``/services`` + ``/tasks`` + ``/nodes`` (same JSON shapes
+    Portainer proxies). Self-contained (does NOT touch the Portainer
+    service-build path) + bounded: replicas / health / digest / placements +
+    a headline task error. The digest→status classification is done later by
+    ``_classify_item_status`` (transport-agnostic). Reuses ``_node_matches`` for
+    global-mode placement-aware desired counts."""
+    node_label_by_id: dict = {}
+    for n in (nodes if isinstance(nodes, list) else []):
+        if isinstance(n, dict) and n.get("ID"):
+            node_label_by_id[n["ID"]] = ((n.get("Description") or {}).get("Hostname")
+                                         or n["ID"])
+    tasks_by_service: dict = {}
+    for t in (tasks if isinstance(tasks, list) else []):
+        if isinstance(t, dict) and t.get("ServiceID"):
+            tasks_by_service.setdefault(t["ServiceID"], []).append(t)
+    out: list = []
+    for svc in (services if isinstance(services, list) else []):
+        if not isinstance(svc, dict) or not svc.get("ID"):
+            continue
+        spec = svc.get("Spec") or {}
+        cs = (spec.get("TaskTemplate") or {}).get("ContainerSpec") or {}
+        full_image = cs.get("Image") or ""
+        image_name_tag = full_image.split("@", 1)[0] if "@" in full_image else full_image
+        current_digest = full_image.split("@", 1)[1] if "@" in full_image else None
+        labels = spec.get("Labels") or {}
+        stack_name = labels.get("com.docker.stack.namespace")
+        svc_tasks = tasks_by_service.get(svc["ID"], [])
+        if not current_digest:
+            for t in svc_tasks:
+                t_img = ((t.get("Spec") or {}).get("ContainerSpec") or {}).get("Image") or ""
+                if "@" in t_img:
+                    current_digest = t_img.split("@", 1)[1]
+                    if (t.get("Status") or {}).get("State") == "running":
+                        break
+        running = sum(1 for t in svc_tasks
+                      if (t.get("Status") or {}).get("State") == "running"
+                      and t.get("DesiredState") == "running")
+        mode = spec.get("Mode") or {}
+        if "Replicated" in mode:
+            desired = mode["Replicated"].get("Replicas", 1)
+        elif "Global" in mode:
+            placement = (spec.get("TaskTemplate") or {}).get("Placement") or {}
+            constraints = placement.get("Constraints") or []
+            eligible = [n for n in (nodes if isinstance(nodes, list) else [])
+                        if _node_matches(n, constraints)]
+            desired = len(eligible) or 1
+        else:
+            desired = 1
+        placements = []
+        for t in svc_tasks:
+            if t.get("DesiredState") == "shutdown":
+                continue
+            st = t.get("Status") or {}
+            state = (st.get("State") or "").lower()
+            node_id = t.get("NodeID")
+            if not node_id and state in ("", "new", "pending", "allocated",
+                                         "assigned", "accepted", "preparing"):
+                continue
+            placements.append({"node": node_label_by_id.get(node_id, "?"),
+                               "state": st.get("State"), "err": st.get("Err")})
+        # Task-level failure history — same shape as the Portainer path so the
+        # service drawer's failure-history pane works for direct services.
+        # Surface tasks in a genuinely-failed state OR carrying a non-empty Err;
+        # mark shutdown-with-err as benign (rolling-update replacement) so the
+        # headline task_error prefers a real failure.
+        failed_tasks = []
+        for t in svc_tasks:
+            st = t.get("Status") or {}
+            err = (st.get("Err") or "").strip()
+            state = (st.get("State") or "").lower()
+            if not err and state not in ("rejected", "failed", "orphaned"):
+                continue
+            ts_raw = st.get("Timestamp") or t.get("CreatedAt") or ""
+            failed_tasks.append({
+                "node": node_label_by_id.get(t.get("NodeID"), "?"),
+                "state": st.get("State"),
+                "err": err,
+                "ts": ts_raw,
+                "ts_epoch": _parse_docker_ts(ts_raw) or 0,
+                "benign": state == "shutdown",
+            })
+        failed_tasks.sort(key=lambda x: x.get("ts_epoch") or 0, reverse=True)
+        task_history = failed_tasks[:10]
+        task_error = next(
+            (ft["err"] for ft in failed_tasks if ft.get("err") and not ft.get("benign")),
+            "")
+        if desired == 0 or running == 0:
+            health = "offline"
+        elif running < desired:
+            health = "degraded"
+        else:
+            health = "healthy"
+        out.append({
+            "id": f"svc:{svc['ID'][:12]}",
+            "raw_id": svc["ID"],
+            "name": spec.get("Name", ""),
+            "type": "service",
+            "image": image_name_tag,
+            "app_version": (_extract_app_version(cs.get("Labels") or {})
+                            or _extract_app_version(labels)),
+            "tag": registry.tag_of(image_name_tag),
+            "current_digest": current_digest,
+            "stack": stack_name,
+            "stack_id": None,
+            "replicas": {"desired": desired, "running": running},
+            "placements": placements,
+            "task_error": task_error,
+            "task_history": task_history,
+            "health": health,
+            "state": "running" if running > 0 else "stopped",
+            "removable": False,
+            "hub_link": registry.hub_link(image_name_tag),
+            "ignored": _is_ignored_row(image_name_tag, stack_name, ignores),
+            "created": spec.get("CreatedAt") or svc.get("CreatedAt"),
+            "updated": spec.get("UpdatedAt") or svc.get("UpdatedAt"),
+            "ports": _extract_service_ports(svc),
+            "backend": backend,
+        })
+    return out
+
+
+def _build_swarm_node_cards(sw_nodes: list, manager_node_id: str,
+                            backend: str, manager_label: str) -> dict:
+    """Build a Node-card entry per Swarm node from a manager's ``/nodes``
+    (role / state / availability / capacity / OS / arch / engine). Skips the
+    MANAGER's own node (its full LIVE card — CPU/mem/disk from ``/info`` +
+    ``/system/df`` — is built by the caller) and any node whose hostname collides
+    with the manager's label. Per-worker live usage isn't reachable without an
+    agent, so worker cards carry capacity only (``docker_disk_bytes`` /
+    container counts = 0). Keyed by hostname."""
+    out: dict = {}
+    mgr_label = (manager_label or "").strip().lower()
+    for n in (sw_nodes if isinstance(sw_nodes, list) else []):
+        if not isinstance(n, dict) or not n.get("ID"):
+            continue
+        if manager_node_id and n.get("ID") == manager_node_id:
+            continue
+        desc = n.get("Description") or {}
+        host = str(desc.get("Hostname") or n["ID"]).strip()
+        if not host or host.lower() == mgr_label:
+            continue
+        spec = n.get("Spec") or {}
+        status = n.get("Status") or {}
+        res = desc.get("Resources") or {}
+        plat = desc.get("Platform") or {}
+        nano = safe_int(res.get("NanoCPUs"))
+        out[host] = {
+            "id": n["ID"],
+            "role": str(spec.get("Role") or "worker"),
+            "state": str(status.get("State") or "unknown").lower(),
+            "availability": str(spec.get("Availability") or "active"),
+            "cpu_cores": int(nano / 1_000_000_000) if nano else 0,
+            "nano_cpus": nano,
+            "mem_bytes": safe_int(res.get("MemoryBytes")),
+            "os": str(plat.get("OS") or "").strip(),
+            "arch": str(plat.get("Architecture") or "").strip(),
+            "engine": str((desc.get("Engine") or {}).get("EngineVersion") or "").strip(),
+            "ip": str(status.get("Addr") or "").strip(),
+            "docker_disk_bytes": 0,
+            "backend": backend,
+            "icon": "",
+            "containers_total": 0,
+            "containers_running": 0,
+        }
+    return out
+
+
+def _docker_node_compose_paths(node: dict) -> "dict[str, str]":
+    """Map compose-project name → its compose-file path for a docker_node, from
+    the node's ``compose_projects`` config (``[{project, path}]``). Empty when
+    none are configured. Drives the stack-update-over-SSH availability — a docker
+    compose-project stack becomes updatable only when its project has a path."""
+    out: dict[str, str] = {}
+    raw = (node or {}).get("compose_projects")
+    for row in (raw if isinstance(raw, list) else []):
+        if not isinstance(row, dict):
+            continue
+        proj = str(row.get("project") or "").strip()
+        path = str(row.get("path") or "").strip()
+        if proj and path:
+            out[proj] = path
+    return out
+
+
+# Public alias for the cross-module caller (ops_extras.do_update_stack_direct).
+docker_node_compose_paths = _docker_node_compose_paths
+
+
+# noinspection DuplicatedCode
 async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str, dict]":
-    """Connect to ONE direct-Docker node over SSH and build its container items
-    (reusing the standalone-container shape) + a synthesized Node card entry.
-    Returns ``(items, node_label, node_info)``. Raises ``DockerDirectError`` on a
-    transport failure (the caller skips that node)."""
+    """Connect to ONE direct-Docker node and build its container items (reusing
+    the standalone-container shape) + a Node-card-info MAP keyed by hostname.
+    Returns ``(items, node_label, nodes_info_map)`` — a standalone node yields one
+    entry (``{node_label: info}``); a Swarm MANAGER additionally yields a card per
+    Swarm node from ``/nodes``. Raises ``DockerDirectError`` on a transport failure
+    (the caller skips that node)."""
     from logic import docker_direct  # noqa: PLC0415
     node_id = str(node.get("id") or "")
     backend = f"docker:{node_id}"
+    compose_paths = _docker_node_compose_paths(node)
     async with docker_direct.connect(node) as cli:
         cstatus, containers, _snip = await cli.get("/containers/json?all=1")
         istatus, info, _i = await cli.get("/info")
@@ -1087,12 +1297,39 @@ async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str
         version = version if isinstance(version, dict) else {}
         node_label = (str(node.get("label") or info.get("Name") or node_id
                           or node.get("address") or "docker")).strip() or "docker"
+        # Swarm MANAGER detection — a direct-Docker node that's a Swarm manager
+        # also exposes /services + /tasks + /nodes. Build service items for it
+        # (best-effort; a non-Swarm node skips this entirely).
+        swarm = info.get("Swarm") or {}
+        is_manager = (swarm.get("LocalNodeState") == "active"
+                      and bool(swarm.get("ControlAvailable")))
         items: list = []
+        _swarm_nodes: list = []
+        if is_manager:
+            try:
+                _ss, services, _s = await cli.get("/services")
+                _ts, sw_tasks, _t = await cli.get("/tasks")
+                _ns, sw_nodes, _n = await cli.get("/nodes")
+                _swarm_nodes = sw_nodes if isinstance(sw_nodes, list) else []
+                items.extend(_build_direct_service_items(
+                    services if isinstance(services, list) else [],
+                    sw_tasks if isinstance(sw_tasks, list) else [],
+                    _swarm_nodes, backend, ignores))
+            except docker_direct.DockerDirectError as e:
+                print(f"[docker] swarm services on node {node_id!r} skipped: {e}")
         img_cache: dict = {}
         for cont in containers:
             if not isinstance(cont, dict) or not cont.get("Id"):
                 continue
             labels = cont.get("Labels") or {}
+            # On a Swarm manager, a RUNNING swarm-task container is already
+            # represented by its parent service item above — skip it (exited
+            # task containers stay, as orphan candidates).
+            _running_swarm_task = (
+                is_manager and labels.get("com.docker.swarm.service.id")
+                and (cont.get("State") or "").lower() == "running")
+            if _running_swarm_task:
+                continue
             image_ref = cont.get("Image") or ""
             if "@" in image_ref:
                 image_ref = image_ref.partition("@")[0]
@@ -1140,6 +1377,13 @@ async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str
                 "current_digest": current_digest,
                 "stack": compose_project,
                 "stack_id": None,
+                # Compose-update-over-SSH wiring: when this project has a
+                # recorded compose-file path, the stack becomes updatable
+                # (do_update_stack_direct runs `docker compose -f <path> pull
+                # && up -d` over the SSH channel). None ⇒ the stack stays
+                # "external" (no Update button) — the standalone default.
+                "compose_path": compose_paths.get(compose_project or ""),
+                "compose_node_id": node_id if compose_paths.get(compose_project or "") else None,
                 "replicas": {"desired": 1, "running": 1 if state == "running" else 0},
                 "placements": [{"node": node_label, "state": state}],
                 "node": node_label,
@@ -1159,7 +1403,7 @@ async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str
                   if isinstance(c, dict) and (c.get("State") or "").lower() == "running")
     node_info = {
         "id": info.get("ID") or node_id,
-        "role": "standalone",
+        "role": "manager" if is_manager else "standalone",
         "state": "ready",
         "availability": "active",
         "cpu_cores": ncpu,
@@ -1176,7 +1420,15 @@ async def _gather_one_docker_node(node: dict, ignores: list) -> "tuple[list, str
         "containers_total": sum(1 for c in containers if isinstance(c, dict)),
         "containers_running": running,
     }
-    return items, node_label, node_info
+    # The manager / standalone card, plus (for a Swarm manager) a capacity card
+    # per OTHER Swarm node so the Nodes view shows the whole Swarm, not just the
+    # manager.
+    nodes_info_map = {node_label: node_info}
+    if is_manager and _swarm_nodes:
+        nodes_info_map.update(_build_swarm_node_cards(
+            _swarm_nodes, str((info.get("Swarm") or {}).get("NodeID") or ""),
+            backend, node_label))
+    return items, node_label, nodes_info_map
 
 
 async def merge_docker_nodes_into_cache() -> None:
@@ -1199,11 +1451,11 @@ async def merge_docker_nodes_into_cache() -> None:
     try:
         with db_conn() as c:
             ignores = [dict(r) for r in c.execute("SELECT * FROM ignores").fetchall()]
-    except Exception:  # noqa: BLE001
+    except (sqlite3.Error, OSError):
         ignores = []
     try:
-        from logic.tuning import Tunable as _T, tuning_int as _ti  # noqa: PLC0415
-        reg_to = float(_ti(_T.GATHER_CLIENT_TIMEOUT_SECONDS))
+        from logic.tuning import Tunable as _Tunable, tuning_int as _tuning_int  # noqa: PLC0415
+        reg_to = float(_tuning_int(_Tunable.GATHER_CLIENT_TIMEOUT_SECONDS))
     except (ImportError, KeyError, ValueError, TypeError):
         reg_to = 60.0
     new_items: list = []
@@ -1211,7 +1463,7 @@ async def merge_docker_nodes_into_cache() -> None:
     async with httpx.AsyncClient(timeout=reg_to) as reg_client:
         for node in nodes_cfg:
             try:
-                node_items, label, ninfo = await _gather_one_docker_node(node, ignores)
+                node_items, label, ninfo_map = await _gather_one_docker_node(node, ignores)
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
             except Exception as e:  # noqa: BLE001
@@ -1220,10 +1472,14 @@ async def merge_docker_nodes_into_cache() -> None:
                 continue
             await asyncio.gather(*(_classify_item_status(reg_client, it) for it in node_items))
             new_items.extend(node_items)
-            nodes_info[label] = ninfo
+            # nodes_info_map carries the manager/standalone card + (for a Swarm
+            # manager) one card per other Swarm node — merge them all in.
+            nodes_info.update(ninfo_map)
+            _primary = ninfo_map.get(label) or {}
             print(f"[docker] INFO node {node.get('id')!r} ({label}): "
                   f"{len(node_items)} container(s) running="
-                  f"{ninfo.get('containers_running')} engine={ninfo.get('engine') or '-'}")
+                  f"{_primary.get('containers_running')} engine={_primary.get('engine') or '-'} "
+                  f"cards={len(ninfo_map)}")
     if not new_items:
         return
     combined = (_cache.get("items") or []) + new_items

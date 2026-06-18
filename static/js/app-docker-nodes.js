@@ -20,11 +20,19 @@ export default {
   dockerNodesLoaded: false,
   _dockerNodesBaseline: '',   // dirty-tracking snapshot
   dockerNodeTests: {},        // per-row test result keyed by row index
+  // Opt-in: use the direct-Docker SSH client as a STATS fallback for
+  // Portainer-managed worker nodes whose /stats Portainer can't fetch. Default
+  // off (preserves the no-direct-socket contract); the per-host ssh.enabled
+  // flag in Admin → Hosts is the per-node opt-in on top of this master toggle.
+  dockerStatsFallbackEnabled: false,
 
-  // Snapshot of the rows for dirty tracking. ssh.password is folded in only as
-  // a "typed" marker (the secret itself never round-trips from the server).
+  // Snapshot of the rows (+ the fallback toggle) for dirty tracking.
+  // ssh.password is folded in only as a "typed" marker (the secret itself
+  // never round-trips from the server).
   _dockerNodesSnapshot() {
-    return JSON.stringify((this.dockerNodes || []).map((n) => ({
+    return JSON.stringify({
+      fallback: !!this.dockerStatsFallbackEnabled,
+      nodes: (this.dockerNodes || []).map((n) => ({
       id: (n.id || '').trim(),
       label: (n.label || '').trim(),
       address: (n.address || '').trim(),
@@ -38,7 +46,16 @@ export default {
         pw_set: !!((n.ssh || {}).password_set),
         enabled: !!((n.ssh || {}).enabled),
       },
-    })));
+      compose_projects: (n.compose_projects || [])
+        .map((c) => ({project: (c.project || '').trim(), path: (c.path || '').trim()})),
+      transport: n.transport === 'tls' ? 'tls' : 'ssh',
+      tls_port: n.tls_port || '',
+      tls_ca: (n.tls_ca || '').trim(),
+      tls_cert: (n.tls_cert || '').trim(),
+      tls_key_typed: !!(n.tls_key && String(n.tls_key).length),
+      tls_key_set: !!n.tls_key_set,
+      })),
+    });
   },
   dockerNodesDirty() {
     return this._dockerNodesBaseline !== this._dockerNodesSnapshot();
@@ -67,7 +84,21 @@ export default {
           password_set: !!((n.ssh || {}).password_set),
           enabled: (n.ssh || {}).enabled !== false,
         },
+        // Compose project → compose-file path rows (makes a docker compose
+        // stack on this node updatable over SSH).
+        compose_projects: (Array.isArray(n.compose_projects) ? n.compose_projects : [])
+          .map((c) => ({project: (c && c.project) || '', path: (c && c.path) || ''})),
+        // Transport: 'ssh' (default) or 'tls' (TCP+TLS to the daemon). TLS PEM:
+        // CA + client cert round-trip; the private key is write-only (blank +
+        // tls_key_set flag, keep-current on save like the SSH password).
+        transport: n.transport === 'tls' ? 'tls' : 'ssh',
+        tls_port: n.tls_port || '',
+        tls_ca: n.tls_ca || '',
+        tls_cert: n.tls_cert || '',
+        tls_key: '',
+        tls_key_set: !!n.tls_key_set,
       }));
+      this.dockerStatsFallbackEnabled = !!j.stats_fallback_enabled;
       this.dockerNodeTests = {};
       this._dockerNodesBaseline = this._dockerNodesSnapshot();
       this.dockerNodesLoaded = true;
@@ -89,12 +120,31 @@ export default {
       label: '', address: '', socket_path: '', icon: '',
       enabled: true,
       ssh: {user: '', port: '', password: '', password_set: false, enabled: true},
+      compose_projects: [],
+      transport: 'ssh', tls_port: '', tls_ca: '', tls_cert: '', tls_key: '', tls_key_set: false,
     });
   },
   removeDockerNode(i) {
     if (i >= 0 && i < this.dockerNodes.length) {
       this.dockerNodes.splice(i, 1);
       delete this.dockerNodeTests[i];
+    }
+  },
+  // Per-node compose-project → path rows (the compose-update-over-SSH targets).
+  addComposeProject(i) {
+    const n = this.dockerNodes[i];
+    if (!n) {
+      return;
+    }
+    if (!Array.isArray(n.compose_projects)) {
+      n.compose_projects = [];
+    }
+    n.compose_projects.push({project: '', path: ''});
+  },
+  removeComposeProject(i, j) {
+    const n = this.dockerNodes[i];
+    if (n && Array.isArray(n.compose_projects) && j >= 0 && j < n.compose_projects.length) {
+      n.compose_projects.splice(j, 1);
     }
   },
 
@@ -110,7 +160,7 @@ export default {
     if (pw && String(pw).trim()) {
       ssh.password = pw;
     }
-    return {
+    const body = {
       id: (n.id || '').trim(),
       label: (n.label || '').trim(),
       address: (n.address || '').trim(),
@@ -118,7 +168,20 @@ export default {
       icon: (n.icon || '').trim(),
       enabled: !!n.enabled,
       ssh,
+      compose_projects: (n.compose_projects || [])
+        .map((c) => ({project: (c.project || '').trim(), path: (c.path || '').trim()}))
+        .filter((c) => c.project && c.path),
+      transport: n.transport === 'tls' ? 'tls' : 'ssh',
+      tls_port: n.tls_port || '',
+      tls_ca: (n.tls_ca || '').trim(),
+      tls_cert: (n.tls_cert || '').trim(),
     };
+    // Private key only when typed (keep-current contract — blank preserves the stored key).
+    const k = (n.tls_key || '').trim();
+    if (k) {
+      body.tls_key = k;
+    }
+    return body;
   },
 
   async testDockerNode(i) {
@@ -159,7 +222,10 @@ export default {
       const r = await fetch('/api/docker-nodes', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({docker_nodes: (this.dockerNodes || []).map((n) => this._dockerNodeBody(n))}),
+        body: JSON.stringify({
+          docker_nodes: (this.dockerNodes || []).map((n) => this._dockerNodeBody(n)),
+          stats_fallback_enabled: !!this.dockerStatsFallbackEnabled,
+        }),
       });
       if (!r.ok) {
         this.showToast(await this.fmtResponseError(r), 'error');

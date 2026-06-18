@@ -104,6 +104,7 @@ class Settings(str, Enum):
     DEBUG_PANEL_ENABLED = "debug_panel_enabled"
     DEFAULT_SCHEDULES_SEEDED = "default_schedules_seeded"
     DOCKER_NODES = "docker_nodes"
+    DOCKER_STATS_FALLBACK_ENABLED = "docker_stats_fallback_enabled"
     HOSTS_CONFIG = "hosts_config"
     HOST_GROUPS = "host_groups"
     HOST_STATS_SOURCE = "host_stats_source"

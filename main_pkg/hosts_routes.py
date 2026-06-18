@@ -63,22 +63,23 @@ from main import (  # noqa: E402,F401 — explicit for IDE; runtime via the * ab
     app,
     db_conn,
     get_setting,
+    get_setting_bool,
     set_setting,
     tuning,
 )
 
-# `_shape_host_api_row` / `_merge_one_host` / `_get_host_provider_state`
-# are defined in main_pkg.apps_routes. At runtime they reach this
-# file via main's star-import chain — we CAN'T do a real
-# `from main_pkg.apps_routes import ...` here because hosts_routes is
-# itself loaded BY apps_routes's top-level import block, which would
-# create a circular import. So the explicit import lives behind
-# TYPE_CHECKING (False at runtime) to silence the IDE without
-# triggering the cycle.
+# `_shape_host_api_row` / `_merge_one_host` / `_get_host_provider_state` /
+# `invalidate_host_provider_cache` are defined in main_pkg.hosts_merge_routes
+# (extracted there from apps_routes in the Hosts-merge split). At runtime they
+# reach this file via main's star-import chain — we CAN'T do a real
+# `from main_pkg.hosts_merge_routes import ...` here because that module is
+# itself loaded BY apps_routes's top-level import block, which would create a
+# circular import. So the explicit import lives behind TYPE_CHECKING (False at
+# runtime) to silence the IDE without triggering the cycle.
 from typing import TYPE_CHECKING  # noqa: E402
 
 if TYPE_CHECKING:
-    from main_pkg.apps_routes import (  # noqa: F401
+    from main_pkg.hosts_merge_routes import (  # noqa: F401
         _get_host_provider_state,
         _merge_one_host,
         _shape_host_api_row,
@@ -1829,23 +1830,42 @@ def _load_docker_nodes() -> list[dict]:
 
 
 def _preserve_docker_node_secrets(ordered: list[dict]) -> None:
-    """Carry forward each node's stored ``ssh.password`` when the incoming save
-    dropped it (blank/absent) — the keep-current-if-blank contract (the SPA
-    never receives the cleartext password back, only a ``password_set`` flag).
-    Matched by node ``id``."""
+    """Carry forward each node's stored ``ssh.password`` AND TLS ``tls_key`` when
+    the incoming save dropped them (blank/absent) — the keep-current-if-blank
+    contract (the SPA never receives the cleartext secrets back, only
+    ``password_set`` / ``tls_key_set`` flags). Matched by node ``id``."""
     prior = {n.get("id"): n for n in _load_docker_nodes()
              if isinstance(n, dict) and n.get("id")}
     for n in ordered:
+        p = prior.get(n.get("id"))
         _cur = n.get("ssh")
         cur = _cur if isinstance(_cur, dict) else {}
-        if cur.get("password"):
+        if not cur.get("password"):
+            _old = p.get("ssh") if isinstance(p, dict) else None
+            old = _old if isinstance(_old, dict) else {}
+            old_pw = old.get("password")
+            if old_pw:
+                n.setdefault("ssh", {})["password"] = old_pw
+        # TLS client-key keep-current (the private key is the sensitive PEM).
+        if not (n.get("tls_key") or "").strip():
+            old_key = (p.get("tls_key") if isinstance(p, dict) else "") or ""
+            if old_key:
+                n["tls_key"] = old_key
+
+
+def _clean_compose_projects(raw) -> list[dict]:
+    """Validate a docker_node's ``compose_projects`` ([{project, path}]) — keep
+    only rows with both a project name and a path, trimmed + length-capped, deduped
+    by project (last wins). Returns ``[]`` for anything malformed."""
+    by_project: dict[str, dict] = {}
+    for row in (raw if isinstance(raw, list) else []):
+        if not isinstance(row, dict):
             continue
-        p = prior.get(n.get("id"))
-        _old = p.get("ssh") if isinstance(p, dict) else None
-        old = _old if isinstance(_old, dict) else {}
-        old_pw = old.get("password")
-        if old_pw:
-            n.setdefault("ssh", {})["password"] = old_pw
+        project = (str(row.get("project") or "").strip())[:128]
+        path = (str(row.get("path") or "").strip())[:512]
+        if project and path:
+            by_project[project] = {"project": project, "path": path}
+    return list(by_project.values())
 
 
 def _save_docker_nodes(nodes: list[dict]) -> list[dict]:
@@ -1888,6 +1908,18 @@ def _save_docker_nodes(nodes: list[dict]) -> list[dict]:
             # Per-node SSH override (user / port / password); key material stays
             # global. Reuses the curated-host ssh-block validator.
             "ssh": _clean_host_ssh(n.get("ssh")),
+            # Compose-project → compose-file-path map ([{project, path}]) so a
+            # docker compose stack on this node becomes updatable over SSH.
+            "compose_projects": _clean_compose_projects(n.get("compose_projects")),
+            # Transport: "tls" (TCP+TLS to the daemon, certs below) or "ssh"
+            # (default — the Docker API over an SSH channel to the socket).
+            "transport": "tls" if str(n.get("transport") or "").strip().lower() == "tls" else "ssh",
+            "tls_port": _coerce_int_local(n.get("tls_port")) or "",
+            # TLS PEM material — CA + client cert round-trip plainly; the private
+            # key is the sensitive secret (redacted + keep-current, like ssh.password).
+            "tls_ca": (str(n.get("tls_ca") or "").strip())[:8192],
+            "tls_cert": (str(n.get("tls_cert") or "").strip())[:8192],
+            "tls_key": (str(n.get("tls_key") or "").strip())[:16384],
             "enabled": bool(n.get("enabled", True)),
         }
     ordered = list(seen.values())
@@ -1910,23 +1942,36 @@ def _redact_docker_nodes(nodes: list[dict]) -> list[dict]:
         ssh.pop("password", None)
         ssh["password_set"] = has_pw
         nn["ssh"] = ssh
+        # TLS private key is write-only — surface a flag, never the PEM.
+        has_key = bool((nn.get("tls_key") or "").strip())
+        nn.pop("tls_key", None)
+        nn["tls_key_set"] = has_key
         out.append(nn)
     return out
 
 
 @app.get("/api/docker-nodes")
 async def api_docker_nodes_get(_u: AdminUser):
-    """Admin-only: the configured direct-Docker nodes (SSH passwords redacted)."""
-    return {"docker_nodes": _redact_docker_nodes(_load_docker_nodes())}
+    """Admin-only: the configured direct-Docker nodes (SSH passwords redacted)
+    plus the ``stats_fallback_enabled`` opt-in (the direct-Docker SSH stats
+    fallback for Portainer-managed worker nodes)."""
+    return {
+        "docker_nodes": _redact_docker_nodes(_load_docker_nodes()),
+        "stats_fallback_enabled": get_setting_bool(
+            Settings.DOCKER_STATS_FALLBACK_ENABLED),
+    }
 
 
 @app.post("/api/docker-nodes")
 async def api_docker_nodes_set(body: dict, _u: AdminUser):
     """Admin-only: replace the direct-Docker node list (full-replace, like the
-    curated host list). Forces a re-gather so the new backend's containers
-    appear, and writes an audit row."""
+    curated host list) AND persist the ``stats_fallback_enabled`` opt-in. Forces
+    a re-gather so the new backend's containers appear, and writes an audit row."""
     nodes = body.get("docker_nodes")
     saved = _save_docker_nodes(nodes if isinstance(nodes, list) else [])
+    if "stats_fallback_enabled" in body:
+        set_setting(Settings.DOCKER_STATS_FALLBACK_ENABLED,
+                    "true" if body.get("stats_fallback_enabled") else "false")
     _cache["ts"] = 0  # force next gather to pick up / drop the backend
     try:
         with db_conn() as c:
@@ -1961,6 +2006,14 @@ async def api_docker_nodes_test(body: dict, _u: AdminUser):
         if old_pw:
             ssh["password"] = old_pw
             node["ssh"] = ssh
+    # TLS private-key keep-current — re-test after first save without re-pasting.
+    if str(node.get("transport") or "").strip().lower() == "tls" and not (node.get("tls_key") or "").strip():
+        prior = {n.get("id"): n for n in _load_docker_nodes()
+                 if isinstance(n, dict) and n.get("id")}
+        p = prior.get(node.get("id"))
+        old_key = (p.get("tls_key") if isinstance(p, dict) else "") or ""
+        if old_key:
+            node["tls_key"] = old_key
     from logic import docker_direct  # noqa: PLC0415
     return await docker_direct.probe(node)
 

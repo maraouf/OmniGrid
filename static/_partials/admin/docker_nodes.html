@@ -26,6 +26,19 @@
       <p x-text="t('admin.docker_nodes.truenas_note') || 'TrueNAS SCALE: enable SSH (Services → SSH), use an account that can access /var/run/docker.sock. Restarting an app container is safe; recreating one TrueNAS itself manages may be reverted by its middleware.'"></p>
     </div>
 
+    <!-- Stats-fallback opt-in (help text BEFORE the checkbox, per the admin
+         master-toggle convention). Uses the direct-Docker SSH client to fetch
+         CPU / memory for Portainer-managed worker-node containers whose /stats
+         Portainer can't reach (the "swarm agent unhealthy" case). -->
+    <div class="border border-[var(--border)] rounded-md p-4 space-y-2">
+      <p class="fs-xs text-[var(--text-faint)] mb-1"
+         x-text="t('admin.docker_nodes.stats_fallback_hint') || 'When Portainer can\'t fetch a worker node\'s container stats (the “Portainer agent unreachable” case), OmniGrid can SSH to that node\'s Docker daemon and read the stats directly. Off by default. Each node must have SSH enabled in Admin → Hosts (that per-host flag is the per-node opt-in on top of this switch), and its hostname must match a curated host\'s address / label / id.'"></p>
+      <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
+        <input type="checkbox" x-model="dockerStatsFallbackEnabled" :disabled="isReadonly()">
+        <span x-text="t('admin.docker_nodes.stats_fallback_label') || 'Use direct-Docker SSH as a stats fallback for Portainer worker nodes'"></span>
+      </label>
+    </div>
+
     <!-- Node rows -->
     <template x-for="(n, i) in dockerNodes" :key="n.id">
       <div class="border border-[var(--border)] rounded-md p-4 space-y-3"
@@ -44,6 +57,15 @@
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="sm:col-span-2">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-transport-'+i" x-text="t('admin.docker_nodes.transport_label') || 'Transport'"></label>
+            <select :id="'dn-transport-'+i" x-model="n.transport" :disabled="isReadonly()"
+                    aria-label="Transport" :aria-label="t('admin.docker_nodes.transport_label')"
+                    class="w-full fs-sm">
+              <option value="ssh" x-text="t('admin.docker_nodes.transport_ssh') || 'SSH to the Docker socket (recommended)'"></option>
+              <option value="tls" x-text="t('admin.docker_nodes.transport_tls') || 'TCP + TLS to the daemon (tcp://host:2376)'"></option>
+            </select>
+          </div>
           <div>
             <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-label-'+i" x-text="t('admin.docker_nodes.label_label') || 'Label'"></label>
             <input :id="'dn-label-'+i" x-model="n.label" type="text" :disabled="isReadonly()"
@@ -56,19 +78,19 @@
                    aria-label="Address" :aria-label="t('admin.docker_nodes.address_label')"
                    :placeholder="'192.X.X.X'" class="w-full mono fs-sm">
           </div>
-          <div>
+          <div x-show="n.transport !== 'tls'">
             <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-user-'+i" x-text="t('admin.docker_nodes.ssh_user_label') || 'SSH user (optional override)'"></label>
             <input :id="'dn-user-'+i" x-model="n.ssh.user" type="text" :disabled="isReadonly()"
                    aria-label="SSH user" :aria-label="t('admin.docker_nodes.ssh_user_label')"
                    :placeholder="t('admin.docker_nodes.ssh_user_placeholder') || 'inherits Admin → SSH'" class="w-full mono fs-sm">
           </div>
-          <div>
+          <div x-show="n.transport !== 'tls'">
             <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-port-'+i" x-text="t('admin.docker_nodes.ssh_port_label') || 'SSH port'"></label>
             <input :id="'dn-port-'+i" x-model="n.ssh.port" type="number" min="1" max="65535" :disabled="isReadonly()"
                    aria-label="SSH port" :aria-label="t('admin.docker_nodes.ssh_port_label')"
                    :placeholder="'22'" class="w-full mono fs-sm">
           </div>
-          <div>
+          <div x-show="n.transport !== 'tls'">
             <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-pw-'+i" x-text="t('admin.docker_nodes.ssh_password_label') || 'SSH password (optional override)'"></label>
             <span x-show="n.ssh.password_set" class="block fs-3xs text-[var(--success)] mb-1"
                   x-text="t('settings.secret_input.saved_hint') || 'A value is saved — leave blank to keep it.'"></span>
@@ -83,12 +105,71 @@
                    aria-label="Icon" :aria-label="t('admin.docker_nodes.icon_label')"
                    :placeholder="t('admin.docker_nodes.icon_placeholder') || 'e.g. truenas'" class="w-full mono fs-sm">
           </div>
-          <div class="sm:col-span-2">
+          <div class="sm:col-span-2" x-show="n.transport !== 'tls'">
             <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-sock-'+i" x-text="t('admin.docker_nodes.socket_label') || 'Docker socket path (advanced)'"></label>
             <input :id="'dn-sock-'+i" x-model="n.socket_path" type="text" :disabled="isReadonly()"
                    aria-label="Docker socket path" :aria-label="t('admin.docker_nodes.socket_label')"
                    :placeholder="'/var/run/docker.sock'" class="w-full mono fs-sm">
           </div>
+        </div>
+
+        <!-- TLS transport fields — port + CA / client-cert / client-key PEM.
+             Shown only when transport = TLS. The private key is write-only
+             (keep-current; CA + cert round-trip). compose-update is SSH-only. -->
+        <div x-show="n.transport === 'tls'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-tlsport-'+i" x-text="t('admin.docker_nodes.tls_port_label') || 'TLS port'"></label>
+            <input :id="'dn-tlsport-'+i" x-model="n.tls_port" type="number" min="1" max="65535" :disabled="isReadonly()"
+                   aria-label="TLS port" :aria-label="t('admin.docker_nodes.tls_port_label')"
+                   :placeholder="'2376'" class="w-full mono fs-sm">
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-tlsca-'+i" x-text="t('admin.docker_nodes.tls_ca_label') || 'CA certificate (PEM, optional)'"></label>
+            <textarea :id="'dn-tlsca-'+i" x-model="n.tls_ca" :disabled="isReadonly()" rows="2"
+                      aria-label="CA certificate" :aria-label="t('admin.docker_nodes.tls_ca_label')"
+                      :placeholder="'-----BEGIN CERTIFICATE-----'" class="w-full mono fs-xs"></textarea>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-tlscert-'+i" x-text="t('admin.docker_nodes.tls_cert_label') || 'Client certificate (PEM)'"></label>
+            <textarea :id="'dn-tlscert-'+i" x-model="n.tls_cert" :disabled="isReadonly()" rows="2"
+                      aria-label="Client certificate" :aria-label="t('admin.docker_nodes.tls_cert_label')"
+                      :placeholder="'-----BEGIN CERTIFICATE-----'" class="w-full mono fs-xs"></textarea>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block fs-xs text-[var(--text-dim)] mb-1" :for="'dn-tlskey-'+i" x-text="t('admin.docker_nodes.tls_key_label') || 'Client private key (PEM, write-only)'"></label>
+            <span x-show="n.tls_key_set" class="block fs-3xs text-[var(--success)] mb-1"
+                  x-text="t('settings.secret_input.saved_hint') || 'A value is saved — leave blank to keep it.'"></span>
+            <textarea :id="'dn-tlskey-'+i" x-model="n.tls_key" :disabled="isReadonly()" rows="2"
+                      aria-label="Client private key" :aria-label="t('admin.docker_nodes.tls_key_label')"
+                      :placeholder="n.tls_key_set ? (t('settings.secret_input.placeholder_keep') || '•••••••• (keep current)') : '-----BEGIN PRIVATE KEY-----'"
+                      class="w-full mono fs-xs" autocomplete="new-password"></textarea>
+          </div>
+        </div>
+
+        <!-- Compose projects — map a compose-project name to its compose-file
+             path on the node so its stack becomes updatable over SSH
+             (docker compose -f <path> pull && up -d). A raw daemon stores no
+             compose file, so OmniGrid can't infer this. -->
+        <div class="border-t border-[var(--border)] pt-3 space-y-2">
+          <p class="fs-xs text-[var(--text-faint)]"
+             x-text="t('admin.docker_nodes.compose_hint') || 'Optional — map a compose project to its compose-file path on this node to enable “Update stack” over SSH (runs docker compose pull && up -d). The project name must match the compose project (its com.docker.compose.project label / the stack name shown in the Stacks view).'"></p>
+          <template x-for="(c, j) in (n.compose_projects || [])" :key="j">
+            <div class="flex items-center gap-2">
+              <input x-model="c.project" type="text" :disabled="isReadonly()"
+                     aria-label="Compose project" :aria-label="t('admin.docker_nodes.compose_project_label')"
+                     :placeholder="t('admin.docker_nodes.compose_project_placeholder') || 'project name'"
+                     class="flex-1 mono fs-sm">
+              <input x-model="c.path" type="text" :disabled="isReadonly()"
+                     aria-label="Compose file path" :aria-label="t('admin.docker_nodes.compose_path_label')"
+                     :placeholder="'/path/to/compose.yaml'" class="flex-[2] mono fs-sm">
+              <button type="button" class="btn btn-ghost fs-xs text-[var(--danger)] shrink-0"
+                      :disabled="isReadonly()" @click="removeComposeProject(i, j)"
+                      :aria-label="t('actions.remove') || 'Remove'" x-text="'✕'"></button>
+            </div>
+          </template>
+          <button type="button" class="btn btn-ghost fs-xs" :disabled="isReadonly()"
+                  @click="addComposeProject(i)"
+                  x-text="t('admin.docker_nodes.compose_add') || '+ Add compose project'"></button>
         </div>
 
         <!-- Per-row Test (shared og-test-connection unit — same button +
