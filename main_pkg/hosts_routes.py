@@ -976,6 +976,21 @@ def _clean_host_ssh(raw: Any) -> dict:
     password = str(raw.get("password") or "")
     if password:
         out["password"] = password
+    # Per-host reboot override. The Telegram `/restart` verb defaults to
+    # `sudo reboot` (correct for a Linux host), but network gear speaks a
+    # different CLI — a Cisco SG300 reboots via `reload`, which also prompts
+    # `Y/N`. `restart_command` overrides the verb; `restart_input` is written
+    # to the command's stdin to auto-answer interactive prompts (e.g. "Y\n").
+    # Capped so a malformed import can't stuff a huge blob into the JSON.
+    restart_command = str(raw.get("restart_command") or "").strip()
+    if restart_command:
+        out["restart_command"] = restart_command[:512]
+    # restart_input may legitimately be just whitespace/newlines (a bare
+    # "\n" to accept a default prompt), so DON'T strip it away — only the
+    # length cap applies. Empty string is dropped.
+    restart_input = str(raw.get("restart_input") or "")
+    if restart_input:
+        out["restart_input"] = restart_input[:256]
     # New `enabled` flag. ONLY explicit `enabled: true` writes
     # the flag through; everything else (absent, false, legacy
     # `disabled` field) leaves the row in the new "OFF until opted in"

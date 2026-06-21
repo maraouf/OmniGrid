@@ -85,7 +85,10 @@ Phase 2 scope (this module)
 Three commands ship in Phase 2.1:
   - ``/help`` — list available commands
   - ``/hosts`` — list curated hosts (sanitised: id + label + status)
-  - ``/restart <target>`` — SSH-execute ``sudo reboot`` on the host
+  - ``/restart <target>`` — SSH-execute the host's resolved reboot
+    command (per-host ``ssh.restart_command`` → global default →
+    ``sudo reboot``) so network gear (e.g. a Cisco SG300 ``reload``)
+    reboots too, not just Linux hosts
 
 Phase 2.2 (deferred): ``/status``, ``/exec <target> <command>`` (gated
 behind an even stricter allow-list), per-event ack from Telegram.

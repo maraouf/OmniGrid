@@ -624,6 +624,31 @@
                            class="w-full fs-sm py-1.5"
                            :placeholder="t('admin_hosts.ssh_password_override_placeholder')">
                   </div>
+                  <!-- Per-host reboot override. The Telegram /restart verb
+                       defaults to `sudo reboot`; network gear (a Cisco SG300
+                       reboots via `reload`) overrides it here. `restart_input`
+                       auto-answers an interactive prompt (e.g. "Y" for a
+                       reload confirmation). -->
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('hosts_extra_ssh.per_host_restart_command')"></label>
+                    <input aria-label="Reboot command override" :aria-label="t('hosts_extra_ssh.per_host_restart_command')" type="text"
+                           :value="row.ssh && row.ssh.restart_command || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { restart_command: $event.target.value }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('hosts_extra_ssh.per_host_restart_command_placeholder')">
+                  </div>
+                  <div>
+                    <label class="block fs-2xs uppercase tracking-wider text-[var(--text-faint)] mb-1"
+                           x-text="t('hosts_extra_ssh.per_host_restart_input')"></label>
+                    <input aria-label="Reboot prompt auto-answer" :aria-label="t('hosts_extra_ssh.per_host_restart_input')" type="text"
+                           :value="row.ssh && row.ssh.restart_input || ''"
+                           @input="hostsConfig[idx].ssh = Object.assign({}, hostsConfig[idx].ssh || {}, { restart_input: $event.target.value }); markHostRowDirty(idx)"
+                           :disabled="isReadonly() || !row.enabled || !(row.ssh && row.ssh.enabled)"
+                           class="w-full mono fs-sm py-1.5"
+                           :placeholder="t('hosts_extra_ssh.per_host_restart_input_placeholder')">
+                  </div>
                 </div>
               </div>
             </div>

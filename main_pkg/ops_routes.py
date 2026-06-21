@@ -1483,6 +1483,11 @@ class SettingsIn(BaseModel):
     # -----------------------------------------------------------------
     ssh_default_user: Optional[str] = None
     ssh_default_port: Optional[int] = None
+    # Fleet-wide default reboot verb for the Telegram /restart command.
+    # Blank = the built-in `sudo reboot`; per-host overrides live in
+    # hosts_config[].ssh.restart_command for non-Linux gear (e.g. a Cisco
+    # SG300 reboots via `reload`).
+    ssh_default_restart_command: Optional[str] = None
     ssh_default_private_key: Optional[str] = None
     ssh_default_private_key_passphrase: Optional[str] = None
     # Password auth as an alternative to private key. When both are

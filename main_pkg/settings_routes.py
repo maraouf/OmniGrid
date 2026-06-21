@@ -555,6 +555,10 @@ async def api_get_settings(request: Request):
             "password_set": bool(get_setting(Settings.SSH_DEFAULT_PASSWORD)),
             "fqdn_suffix": get_setting(Settings.SSH_FQDN_SUFFIX) or "",
             "known_hosts": get_setting(Settings.SSH_DEFAULT_KNOWN_HOSTS) or "",
+            # Fleet-wide default reboot verb (Telegram /restart); blank =
+            # the built-in `sudo reboot`. Per-host overrides live in
+            # hosts_config[].ssh.restart_command.
+            "restart_command": get_setting(Settings.SSH_DEFAULT_RESTART_COMMAND) or "",
             "custom_actions": (lambda raw:
                                (json.loads(raw) if (raw or "").strip() else [])
                                )(get_setting(Settings.SSH_CUSTOM_ACTIONS)),
@@ -1360,6 +1364,14 @@ async def _api_set_settings_inner(s: "SettingsIn", request: Request, _portainer)
     # passing an empty string explicitly).
     if s.ssh_default_user is not None:
         set_setting(Settings.SSH_DEFAULT_USER, (s.ssh_default_user or "").strip())
+    # Fleet-wide default reboot verb for the Telegram /restart command.
+    # Plain string — blank clears the override (falls back to the built-in
+    # `sudo reboot`). Capped to keep a malformed POST from bloating the DB.
+    if s.ssh_default_restart_command is not None:
+        set_setting(
+            Settings.SSH_DEFAULT_RESTART_COMMAND,
+            (s.ssh_default_restart_command or "").strip()[:512],
+        )
     if s.ssh_default_port is not None:
         try:
             p = int(s.ssh_default_port)

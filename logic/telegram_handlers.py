@@ -1604,11 +1604,16 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
     from logic import ssh as _ssh
     hosts = _listener()._load_hosts_config()
-    # `sudo reboot` is the canonical restart verb; sudoers typically
-    # grants this without a password to the SSH user. The standalone
-    # `reboot` works on machines where the SSH user IS root.
-    cmd = "sudo reboot"
-    result = await _ssh.run_command(host_id, cmd, hosts, timeout=15.0)
+    # Resolve the reboot verb per host: per-host ssh.restart_command →
+    # global ssh_default_restart_command → built-in `sudo reboot`. Network
+    # gear isn't a Unix shell — a Cisco SG300 reboots via `reload` (with a
+    # Y/N prompt that restart_input auto-answers), so the verb can't be
+    # hardcoded. `sudo reboot` stays the Linux default.
+    _restart = _ssh.resolve_restart(host_id, hosts)
+    cmd = _restart["command"]
+    result = await _ssh.run_command(
+        host_id, cmd, hosts, timeout=15.0, stdin_input=_restart.get("input")
+    )
     # A successful reboot kills the SSH session before run_command can
     # collect the exit code — `ok` is often False with `error` mentioning
     # connection closed. Treat closed-connection-after-command-issued as

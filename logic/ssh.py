@@ -20,6 +20,11 @@ Why ``asyncssh`` and not ``subprocess`` + openssh:
     negotiation + TOFU confirmation up to the shipped ``ssh_config``.
   - Key fingerprints are reachable programmatically (``get_fingerprint``
     on the server host key) which the UI wants to display.
+  - Per-algorithm control lets us widen the negotiation floor for legacy
+    devices (old switches / PDUs / BMCs) WITHOUT downgrading modern hosts
+    — see the ``_LEGACY_*`` constants. asyncssh's hardened defaults reject
+    the SHA-1 KEX / CBC ciphers those devices speak; we append them so the
+    same admin console reaches both a fresh Debian box and a Cisco SG300.
 
 Credentials storage model:
   - **Global** defaults live in the ``settings`` table under
@@ -104,6 +109,50 @@ DEFAULT_DESTRUCTIVE_PATTERNS = (
     r"\bshutdown\b",
 )
 
+# Legacy-device algorithm compatibility.
+# ---------------------------------------------------------------------------
+# asyncssh ships a hardened DEFAULT set that deliberately omits the SHA-1
+# key-exchanges, CBC ciphers, SHA-1/MD5 MACs and DSA/ssh-rsa-only host keys
+# that modern OpenSSH also disabled years ago. That's correct for a fresh
+# Linux box, but home-lab network gear (Cisco SG300 / older switches, PDUs,
+# IPMI/iDRAC/iLO BMCs, ESXi shells, some NAS firmwares) frequently offers
+# ONLY those legacy algorithms — so the connect fails before auth with a
+# bare ``KeyExchangeFailed: No matching key exchange algorithm found``.
+#
+# We pass these via asyncssh's ``+``-prefix "append to defaults" syntax
+# (supported since 2.7; we pin >=2.23). The append form keeps every modern
+# algorithm FIRST in the negotiation order, so a capable host still settles
+# on curve25519 / aes-gcm / ed25519 — the legacy entries are only ever
+# selected when the peer offers nothing better. Each name below must exist
+# in asyncssh's "possible" set (it's implemented, just off by default); a
+# typo'd / unknown name would raise ValueError at connect time, so this
+# list is the single audited source of truth.
+#
+# Security note: this is a deliberate, scoped widening of the negotiation
+# FLOOR for reaching legacy management interfaces on a trusted LAN. It does
+# NOT downgrade any connection that can do better. If a future deployment
+# needs to forbid legacy fallback entirely, gate these behind a per-host /
+# global toggle — but the home-lab default is "make the old switch reachable".
+_LEGACY_KEX_ALGS = (
+    "+diffie-hellman-group-exchange-sha1,"
+    "diffie-hellman-group14-sha1,"
+    "diffie-hellman-group1-sha1,"
+    "rsa1024-sha1"
+)
+_LEGACY_ENCRYPTION_ALGS = (
+    "+aes256-cbc,aes192-cbc,aes128-cbc,3des-cbc"
+)
+_LEGACY_MAC_ALGS = (
+    "+hmac-sha1,hmac-sha1-96,hmac-md5"
+)
+# Accept legacy host-key types from the peer (``ssh-rsa`` is already in the
+# default set; ``ssh-dss``/DSA is not — old Cisco / network gear still
+# presents DSA host keys).
+_LEGACY_HOST_KEY_ALGS = (
+    "+ssh-rsa,ssh-dss"
+)
+
+
 # Auth cool-down — keyed by (host_id, user). Mirrors logic/webmin.py.
 # Centralised in `logic/cooldown.py` per . duration is
 # now operator-tunable via `tuning_auth_failure_cooldown_seconds`,
@@ -160,7 +209,63 @@ def get_global_ssh_settings() -> dict:
         "destructive_patterns": (
             get_setting(Settings.SSH_DESTRUCTIVE_PATTERNS) or ""
         ).strip(),
+        # Fleet-wide default reboot verb for the Telegram /restart command.
+        # Per-host ``ssh.restart_command`` overrides this; this overrides the
+        # built-in ``sudo reboot`` fallback. See resolve_restart().
+        "restart_command": (
+            get_setting(Settings.SSH_DEFAULT_RESTART_COMMAND) or ""
+        ).strip(),
     }
+
+
+# Built-in reboot verb — used when neither the per-host override nor the
+# global ``ssh_default_restart_command`` is set. `sudo reboot` is correct
+# for a Linux host; sudoers typically grants it password-less to the SSH
+# user, and it also works when the SSH user IS root.
+DEFAULT_RESTART_COMMAND = "sudo reboot"
+
+
+def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
+    """Resolve the reboot command + optional stdin for ``host_id``.
+
+    Precedence (most specific wins):
+      1. per-host ``hosts_config[].ssh.restart_command`` / ``restart_input``
+      2. global ``ssh_default_restart_command`` setting (input has no global
+         default — auto-answering a prompt is inherently device-specific)
+      3. built-in :data:`DEFAULT_RESTART_COMMAND` (``sudo reboot``)
+
+    Returns ``{"command": str, "input": Optional[str]}``. ``input`` is
+    ``None`` when no auto-answer is configured (the normal Linux path);
+    when set it's written to the command's stdin to answer interactive
+    device prompts (a Cisco SG300 ``reload`` Y/N). Network gear isn't a
+    Unix shell — this is what lets the same /restart verb reach a Debian
+    box AND a switch.
+    """
+    per_host: dict = {}
+    for h in hosts_config or []:
+        if isinstance(h, dict) and str(h.get("id") or "") == str(host_id):
+            ssh = h.get("ssh")
+            if isinstance(ssh, dict):
+                per_host = ssh
+            break
+    command = str(per_host.get("restart_command") or "").strip()
+    if not command:
+        g = get_global_ssh_settings()
+        command = (g.get("restart_command") or "").strip() or DEFAULT_RESTART_COMMAND
+    # restart_input may be intentionally whitespace (a bare newline), so
+    # only treat a genuinely-absent / empty value as "no auto-answer".
+    raw_input = per_host.get("restart_input")
+    stdin_input: Optional[str] = None
+    if raw_input not in (None, ""):
+        stdin_input = str(raw_input)
+        # The editor field is single-line, so an operator types "Y" — but a
+        # device prompt expects the answer followed by Enter. Append a
+        # newline when the value doesn't already end with one so the typed
+        # "Y" actually submits. A value already ending in \n (set via the
+        # raw per-host JSON) is left as-is.
+        if not stdin_input.endswith(("\n", "\r")):
+            stdin_input += "\n"
+    return {"command": command, "input": stdin_input}
 
 
 def get_destructive_patterns() -> tuple[str, ...]:
@@ -733,8 +838,14 @@ async def run_command(
     timeout: float = 30.0,
     dry_run: bool = False,
     bypass_master_gate: bool = False,
+    stdin_input: Optional[str] = None,
 ) -> dict:
     """Execute ``command`` over SSH on the host resolved from ``host_id``.
+
+    ``stdin_input`` (when set) is written to the remote command's stdin —
+    used to auto-answer interactive prompts on network gear whose reboot
+    verb prompts ``Y/N`` (e.g. a Cisco SG300 ``reload``). Leave ``None``
+    for the normal "run and read stdout" path.
 
     Returns a dict with ``ok``, ``exit_code``, ``stdout``, ``stderr``,
     ``duration_ms``, ``dry_run``, ``resolved``. On any error (bad
@@ -903,6 +1014,14 @@ async def run_command(
             agent_path=None,
             password=ssh_password,
             preferred_auth=",".join(preferred),
+            # Append legacy algorithms so old network gear (Cisco SG300 /
+            # PDUs / BMCs) that only speaks SHA-1 KEX, CBC ciphers, SHA-1/MD5
+            # MACs or DSA host keys can still be reached. Modern hosts stay
+            # on modern algorithms — see _LEGACY_* constants above.
+            kex_algs=_LEGACY_KEX_ALGS,
+            encryption_algs=_LEGACY_ENCRYPTION_ALGS,
+            mac_algs=_LEGACY_MAC_ALGS,
+            server_host_key_algs=_LEGACY_HOST_KEY_ALGS,
             connect_timeout=max(5.0, min(timeout, 30.0)),
             login_timeout=max(5.0, min(timeout, 30.0)),
         )
@@ -922,7 +1041,13 @@ async def run_command(
                 # didn't apply". With a PTY sudo either runs (NOPASSWD
                 # or via cached creds) or fails loudly with "a
                 # password is required" on stderr.
-                proc = await conn.run(command, request_pty="force")
+                # ``input`` (when set) is written to the command's stdin
+                # then EOF — answers interactive device prompts (Cisco
+                # ``reload`` Y/N) without a full interactive channel.
+                _run_kwargs: dict[str, Any] = {"request_pty": "force"}
+                if stdin_input is not None:
+                    _run_kwargs["input"] = stdin_input
+                proc = await conn.run(command, **_run_kwargs)
                 base_result["ok"] = True
                 base_result["exit_code"] = proc.exit_status
                 base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
@@ -972,6 +1097,19 @@ async def run_command(
     except (asyncio.TimeoutError, TimeoutError):
         base_result["error"] = f"timeout after {timeout:.1f}s"
         print(f"[ssh] run ERROR timeout host={resolved.get('host')!r} after {timeout:.1f}s")
+    except asyncssh.KeyExchangeFailed as e:
+        # The peer offered NOTHING in our (already legacy-widened) algorithm
+        # sets — so it's even older / more exotic than the _LEGACY_* lists
+        # cover. Surface an actionable message naming the algorithm classes
+        # rather than the raw asyncssh dump. (Caught BEFORE the generic
+        # DisconnectError branch — KeyExchangeFailed subclasses it.)
+        base_result["error"] = (
+            f"SSH algorithm negotiation failed: {e}. The device offers only "
+            f"algorithms OmniGrid can't enable even in legacy-compat mode. "
+            f"If it's very old network gear, check its SSH/crypto firmware "
+            f"settings — or reach it over Telnet/serial."
+        )
+        print(f"[ssh] run ERROR KeyExchangeFailed host={resolved.get('host')!r}: {e}")
     except (OSError, asyncssh.DisconnectError, asyncssh.Error) as e:
         # Classify into the shared error catalog so the frontend can
         # localise it + recognise unreachable hosts distinctly from
@@ -1301,6 +1439,12 @@ async def open_shell(
             agent_path=None,
             password=ssh_password,
             preferred_auth=",".join(preferred),
+            # Legacy-device compatibility (see _LEGACY_* constants) so the
+            # interactive terminal can also reach old switches / BMCs.
+            kex_algs=_LEGACY_KEX_ALGS,
+            encryption_algs=_LEGACY_ENCRYPTION_ALGS,
+            mac_algs=_LEGACY_MAC_ALGS,
+            server_host_key_algs=_LEGACY_HOST_KEY_ALGS,
             connect_timeout=_conn_timeout,
             login_timeout=_login_timeout,
             # Keepalive on the SSH side mirrors `tuning_ssh_ws_heartbeat_seconds`

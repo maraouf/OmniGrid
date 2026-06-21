@@ -211,6 +211,7 @@ class Settings(str, Enum):
     SSH_DEFAULT_PORT = "ssh_default_port"
     SSH_DEFAULT_PRIVATE_KEY = "ssh_default_private_key"
     SSH_DEFAULT_PRIVATE_KEY_PASSPHRASE = "ssh_default_private_key_passphrase"
+    SSH_DEFAULT_RESTART_COMMAND = "ssh_default_restart_command"
     SSH_DEFAULT_USER = "ssh_default_user"
     SSH_DESTRUCTIVE_PATTERNS = "ssh_destructive_patterns"
     SSH_ENABLED = "ssh_enabled"

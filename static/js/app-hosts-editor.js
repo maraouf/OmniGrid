@@ -1141,6 +1141,15 @@ export default {
       if (typeof sshIn.password === 'string' && sshIn.password !== '') {
         sshOut.password = sshIn.password;
       }
+      // Per-host reboot override (Telegram /restart). Blank = fall back to
+      // the global default / `sudo reboot`. `restart_input` may legitimately
+      // be whitespace (a bare newline) so only drop a genuinely-empty value.
+      if ((sshIn.restart_command || '').trim()) {
+        sshOut.restart_command = sshIn.restart_command.trim().slice(0, 512);
+      }
+      if (typeof sshIn.restart_input === 'string' && sshIn.restart_input !== '') {
+        sshOut.restart_input = sshIn.restart_input.slice(0, 256);
+      }
       // Per-host SSH is OPT-IN as of only the explicit
       // `enabled: true` flag survives the round-trip. Absence (or
       // `enabled: false`) means SSH is OFF for the host.
