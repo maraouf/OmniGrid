@@ -234,12 +234,15 @@ def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
          default — auto-answering a prompt is inherently device-specific)
       3. built-in :data:`DEFAULT_RESTART_COMMAND` (``sudo reboot``)
 
-    Returns ``{"command": str, "input": Optional[str]}``. ``input`` is
-    ``None`` when no auto-answer is configured (the normal Linux path);
-    when set it's written to the command's stdin to answer interactive
-    device prompts (a Cisco SG300 ``reload`` Y/N). Network gear isn't a
-    Unix shell — this is what lets the same /restart verb reach a Debian
-    box AND a switch.
+    Returns ``{"command": str, "input": Optional[str], "shell": bool}``.
+    ``input`` is ``None`` when no auto-answer is configured (the normal
+    Linux path); when set it's written to the command to answer interactive
+    device prompts (a Cisco SG300 ``reload`` Y/N). ``shell`` is ``True`` when
+    a per-host override is present (command OR input) — those signal a
+    non-Unix device that needs an interactive SHELL channel rather than an
+    SSH exec request (network switches commonly refuse exec). Network gear
+    isn't a Unix shell — this is what lets the same /restart verb reach a
+    Debian box AND a switch.
     """
     per_host: dict = {}
     for h in hosts_config or []:
@@ -248,7 +251,14 @@ def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
             if isinstance(ssh, dict):
                 per_host = ssh
             break
-    command = str(per_host.get("restart_command") or "").strip()
+    per_host_cmd = str(per_host.get("restart_command") or "").strip()
+    per_host_has_input = per_host.get("restart_input") not in (None, "")
+    # A per-host command OR answer means "this host is a non-Unix device" —
+    # use an interactive shell channel (exec requests are commonly refused
+    # by network switches). The global default / built-in `sudo reboot` is
+    # the Linux exec path (shell=False).
+    shell = bool(per_host_cmd) or per_host_has_input
+    command = per_host_cmd
     if not command:
         g = get_global_ssh_settings()
         command = (g.get("restart_command") or "").strip() or DEFAULT_RESTART_COMMAND
@@ -265,7 +275,7 @@ def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
         # raw per-host JSON) is left as-is.
         if not stdin_input.endswith(("\n", "\r")):
             stdin_input += "\n"
-    return {"command": command, "input": stdin_input}
+    return {"command": command, "input": stdin_input, "shell": shell}
 
 
 def get_destructive_patterns() -> tuple[str, ...]:
@@ -831,6 +841,116 @@ def _key_fingerprint(private_key_pem: str, passphrase: str) -> str:
 # ---------------------------------------------------------------------------
 # Core runner
 # ---------------------------------------------------------------------------
+async def _run_exec(conn, command: str, stdin_input: Optional[str],
+                    base_result: dict, resolved: dict, started: float) -> None:
+    """Run ``command`` as a single SSH exec request (the Linux path).
+
+    ``request_pty='force'`` allocates a pseudo-TTY so interactive-ish tools
+    like sudo detect a terminal (without a PTY sudo can silently no-op).
+    ``input`` (when set) is written to the command's stdin then EOF.
+    """
+    _run_kwargs: dict[str, Any] = {"request_pty": "force"}
+    if stdin_input is not None:
+        _run_kwargs["input"] = stdin_input
+    proc = await conn.run(command, **_run_kwargs)
+    base_result["ok"] = True
+    base_result["exit_code"] = proc.exit_status
+    base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
+    base_result["stderr"] = (proc.stderr or "")[: 256 * 1024]
+    # asyncssh's run() (default str encoding) returns str stdout/stderr; the
+    # stubs widen to ``bytes | str | None`` so coerce to str for .replace().
+    stdout_preview = str(proc.stdout or "")[:400].replace("\n", " | ")
+    stderr_preview = str(proc.stderr or "")[:400].replace("\n", " | ")
+    print(
+        f"[ssh] run DONE host={resolved.get('host')!r} "
+        f"user={resolved.get('user')!r} exit={proc.exit_status} "
+        f"duration_ms={int((time.time() - started) * 1000)} "
+        f"len_out={len(proc.stdout or '')} len_err={len(proc.stderr or '')}"
+    )
+    if stdout_preview:
+        print(f"[ssh] run stdout: {stdout_preview}")
+    if stderr_preview:
+        print(f"[ssh] run stderr: {stderr_preview}")
+    # Non-zero exit with empty stderr is a classic silent-sudo signature.
+    if proc.exit_status and proc.exit_status != 0 and not proc.stderr:
+        print(
+            f"[ssh] run WARN exit={proc.exit_status} but stderr was empty — "
+            f"possible silent-sudo / permission failure"
+        )
+
+
+async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
+                              timeout: float, base_result: dict,
+                              resolved: dict, started: float) -> None:
+    """Type ``command`` (+ ``stdin_input`` as the prompt answer) into an
+    interactive PTY shell and read until the channel closes or ``timeout``
+    elapses.
+
+    Used for network gear (Cisco SG300 and similar) whose SSH server only
+    offers an interactive shell and refuses exec requests — an exec-mode
+    reboot just hangs. The connection dropping IS the success signal (the
+    box went down); a timeout means the device is still waiting at a prompt,
+    and the full transcript is captured + logged so the operator can see
+    exactly which prompt and set the host's 'Reboot prompt answer'.
+    """
+    proc = await conn.create_process(term_type="xterm", term_size=(120, 40))
+    chunks: list[str] = []
+    closed = False
+    # Type the command, then (after a short settle so the device prints its
+    # confirmation prompt) the answer — already newline-terminated by
+    # resolve_restart. A write that fails means the device dropped the
+    # session the instant it saw the command, i.e. it rebooted → success.
+    try:
+        proc.stdin.write(command if command.endswith(("\n", "\r")) else command + "\n")
+        if stdin_input:
+            await asyncio.sleep(0.4)
+            proc.stdin.write(stdin_input)
+    except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+        closed = True
+    deadline = time.time() + max(2.0, timeout)
+    while not closed:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        try:
+            data = await asyncio.wait_for(proc.stdout.read(4096), timeout=remaining)
+        except (asyncio.TimeoutError, TimeoutError):
+            break
+        except (BrokenPipeError, ConnectionResetError, asyncssh.Error, OSError):
+            closed = True
+            break
+        if not data:  # "" / None == EOF == channel closed (reboot fired)
+            closed = True
+            break
+        chunks.append(data if isinstance(data, str) else str(data))
+    transcript = "".join(chunks)
+    base_result["stdout"] = transcript[: 256 * 1024]
+    base_result["ok"] = bool(closed)
+    if not closed:
+        base_result["error"] = (
+            f"device did not reboot within {timeout:.0f}s — it may be waiting "
+            f"at a prompt. Check the captured output below and set the host's "
+            f"'Reboot prompt answer' (Admin → Hosts → SSH) accordingly."
+        )
+    try:
+        proc.close()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+    # Always log the device transcript — the whole point of shell mode is
+    # that "what the device said" is visible even when it didn't reboot.
+    preview = transcript[:600].replace("\r", "").replace("\n", " | ")
+    print(
+        f"[ssh] reboot-shell {'CLOSED(ok)' if closed else 'TIMEOUT'} "
+        f"host={resolved.get('host')!r} user={resolved.get('user')!r} "
+        f"duration_ms={int((time.time() - started) * 1000)} "
+        f"len_out={len(transcript)}"
+    )
+    if preview:
+        print(f"[ssh] reboot-shell output: {preview}")
+
+
 async def run_command(
     host_id: str,
     command: str,
@@ -839,6 +959,7 @@ async def run_command(
     dry_run: bool = False,
     bypass_master_gate: bool = False,
     stdin_input: Optional[str] = None,
+    shell_mode: bool = False,
 ) -> dict:
     """Execute ``command`` over SSH on the host resolved from ``host_id``.
 
@@ -846,6 +967,15 @@ async def run_command(
     used to auto-answer interactive prompts on network gear whose reboot
     verb prompts ``Y/N`` (e.g. a Cisco SG300 ``reload``). Leave ``None``
     for the normal "run and read stdout" path.
+
+    ``shell_mode`` opens an interactive PTY SHELL instead of an SSH exec
+    request: the ``command`` is TYPED into the shell (followed by
+    ``stdin_input`` as the prompt answer) and output is read until the
+    channel closes or ``timeout`` elapses. Network switches (Cisco SG300)
+    commonly refuse exec requests, so a reboot via exec just hangs; shell
+    mode reaches them. The full device transcript is captured + logged
+    even on timeout (so the prompt the device is waiting at is visible),
+    and the channel closing is treated as reboot-success.
 
     Returns a dict with ``ok``, ``exit_code``, ``stdout``, ``stderr``,
     ``duration_ms``, ``dry_run``, ``resolved``. On any error (bad
@@ -1025,63 +1155,26 @@ async def run_command(
             connect_timeout=max(5.0, min(timeout, 30.0)),
             login_timeout=max(5.0, min(timeout, 30.0)),
         )
-        async with asyncio.timeout(timeout) if hasattr(asyncio, "timeout") else _NoopTimeout(timeout):
+        # Shell mode manages its own read deadline (== timeout); give the
+        # outer guard headroom so the inner loop's clean break wins the race
+        # instead of the outer raising TimeoutError and discarding the
+        # captured device transcript.
+        _outer_timeout = (timeout + 10.0) if shell_mode else timeout
+        async with asyncio.timeout(_outer_timeout) if hasattr(asyncio, "timeout") else _NoopTimeout(_outer_timeout):
             async with conn_ctx as conn:
                 # Pull the server host-key fingerprint into the result
                 # so the UI can display what we trusted (especially
                 # important in the no-known-hosts TOFU path).
                 _stamp_server_fingerprint(conn, resolved)
-                # `request_pty='force'` allocates a pseudo-TTY on the
-                # remote so interactive-ish tools like sudo can prompt
-                # / detect a terminal and behave the way they do over
-                # an interactive login. Without a PTY, sudo on some
-                # configs silently fails with exit=0 — `tee` in a
-                # piped chain echoes its stdin to stdout but writes
-                # nothing to disk, which looks like "command ran but
-                # didn't apply". With a PTY sudo either runs (NOPASSWD
-                # or via cached creds) or fails loudly with "a
-                # password is required" on stderr.
-                # ``input`` (when set) is written to the command's stdin
-                # then EOF — answers interactive device prompts (Cisco
-                # ``reload`` Y/N) without a full interactive channel.
-                _run_kwargs: dict[str, Any] = {"request_pty": "force"}
-                if stdin_input is not None:
-                    _run_kwargs["input"] = stdin_input
-                proc = await conn.run(command, **_run_kwargs)
-                base_result["ok"] = True
-                base_result["exit_code"] = proc.exit_status
-                base_result["stdout"] = (proc.stdout or "")[: 256 * 1024]
-                base_result["stderr"] = (proc.stderr or "")[: 256 * 1024]
-                # Verbose diagnostic so Admin → Logs shows exactly
-                # what came back for every run. Includes stdout AND
-                # stderr previews up to 400 chars each so the usual
-                # "sudo: a password is required" / "command not found"
-                # / "permission denied" lines are visible inline.
-                # asyncssh's run() (default str encoding) returns str stdout/
-                # stderr; the stubs widen to ``bytes | str | None`` so coerce
-                # to str for the .replace() — a no-op at runtime since these
-                # are already str.
-                stdout_preview = str(proc.stdout or "")[:400].replace("\n", " | ")
-                stderr_preview = str(proc.stderr or "")[:400].replace("\n", " | ")
-                print(
-                    f"[ssh] run DONE host={resolved.get('host')!r} "
-                    f"user={resolved.get('user')!r} "
-                    f"exit={proc.exit_status} "
-                    f"duration_ms={int((time.time() - started) * 1000)} "
-                    f"len_out={len(proc.stdout or '')} "
-                    f"len_err={len(proc.stderr or '')}"
-                )
-                if stdout_preview:
-                    print(f"[ssh] run stdout: {stdout_preview}")
-                if stderr_preview:
-                    print(f"[ssh] run stderr: {stderr_preview}")
-                # Non-zero exit with empty stderr is a classic silent-
-                # sudo signature; flag it so the operator notices even
-                # when the UI shows "ok" (exit_code surfaced separately).
-                if proc.exit_status and proc.exit_status != 0 and not proc.stderr:
-                    print(
-                        f"[ssh] run WARN exit={proc.exit_status} but stderr was empty — "
-                        f"possible silent-sudo / permission failure"
+                if shell_mode:
+                    await _run_shell_sequence(
+                        conn, command, stdin_input, timeout,
+                        base_result, resolved, started,
+                    )
+                else:
+                    await _run_exec(
+                        conn, command, stdin_input,
+                        base_result, resolved, started,
                     )
     except asyncssh.PermissionDenied as e:
         _arm_cooldown(host_id, resolved["user"])
