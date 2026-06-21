@@ -224,6 +224,24 @@ def get_global_ssh_settings() -> dict:
 # user, and it also works when the SSH user IS root.
 DEFAULT_RESTART_COMMAND = "sudo reboot"
 
+# Phrases a device prints once it has ACCEPTED a reboot and started going
+# down. Matching any of these in the shell transcript means the reboot
+# fired — even if the SSH session hasn't dropped yet (a Cisco SG300 prints
+# "Shutting down ..." and then takes a while to actually close the channel,
+# which would otherwise trip the "didn't reboot in time" timeout). These
+# appear only AFTER the Y/N confirmation is answered, so they don't false-
+# positive on the prompt text itself.
+_REBOOT_IN_PROGRESS_RE = re.compile(
+    r"shutting down"
+    r"|rebooting"
+    r"|restarting now"
+    r"|reload(?:ing)? in progress"
+    r"|reboot in progress"
+    r"|system (?:is going down|will (?:now )?(?:restart|reboot))"
+    r"|the system is going down",
+    re.IGNORECASE,
+)
+
 
 def resolve_restart(host_id: str, hosts_config: list[dict]) -> dict:
     """Resolve the reboot command + optional stdin for ``host_id``.
@@ -353,7 +371,12 @@ def _compute_resolve_signature(
     the resolve trace re-emits on the next call.
     """
     import hashlib, json
-    m = hashlib.md5()
+    # Non-security cache key: this digest only fingerprints the resolve
+    # inputs to decide whether to re-emit the verbose trace — it's never
+    # stored, compared for auth, or transmitted. ``usedforsecurity=False``
+    # says so (and clears the weak-MD5 algorithm alert); the speed of MD5 is
+    # exactly what we want for a per-call signature.
+    m = hashlib.md5(usedforsecurity=False)
     # `json.dumps(..., sort_keys=True, default=str)` produces a
     # stable serialisation regardless of dict key insertion order
     # (`repr(dict)` was sensitive to that — a hosts_config copy
@@ -888,14 +911,19 @@ async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
 
     Used for network gear (Cisco SG300 and similar) whose SSH server only
     offers an interactive shell and refuses exec requests — an exec-mode
-    reboot just hangs. The connection dropping IS the success signal (the
-    box went down); a timeout means the device is still waiting at a prompt,
-    and the full transcript is captured + logged so the operator can see
-    exactly which prompt and set the host's 'Reboot prompt answer'.
+    reboot just hangs. Success is signalled EITHER by the connection
+    dropping (the box went down) OR by a reboot-in-progress phrase appearing
+    in the transcript (``_REBOOT_IN_PROGRESS_RE`` — a switch prints
+    "Shutting down ..." and only drops the session seconds later, which
+    would otherwise trip the timeout). A genuine timeout means the device is
+    still waiting at a prompt, and the full transcript is captured + logged
+    so the operator can see which prompt and set the host's
+    'Reboot prompt answer'.
     """
     proc = await conn.create_process(term_type="xterm", term_size=(120, 40))
     chunks: list[str] = []
     closed = False
+    rebooting = False
     # Type the command, then (after a short settle so the device prints its
     # confirmation prompt) the answer — already newline-terminated by
     # resolve_restart. A write that fails means the device dropped the
@@ -923,10 +951,16 @@ async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
             closed = True
             break
         chunks.append(data if isinstance(data, str) else str(data))
+        # The device may ACK the reboot ("Shutting down ...") well before it
+        # actually drops the SSH session. Once we see that, the reboot has
+        # fired — stop waiting + report success instead of timing out.
+        if _REBOOT_IN_PROGRESS_RE.search("".join(chunks)):
+            rebooting = True
+            break
     transcript = "".join(chunks)
     base_result["stdout"] = transcript[: 256 * 1024]
-    base_result["ok"] = bool(closed)
-    if not closed:
+    base_result["ok"] = bool(closed or rebooting)
+    if not base_result["ok"]:
         base_result["error"] = (
             f"device did not reboot within {timeout:.0f}s — it may be waiting "
             f"at a prompt. Check the captured output below and set the host's "
@@ -940,9 +974,10 @@ async def _run_shell_sequence(conn, command: str, stdin_input: Optional[str],
         pass
     # Always log the device transcript — the whole point of shell mode is
     # that "what the device said" is visible even when it didn't reboot.
+    outcome = "REBOOTING(ok)" if rebooting else ("CLOSED(ok)" if closed else "TIMEOUT")
     preview = transcript[:600].replace("\r", "").replace("\n", " | ")
     print(
-        f"[ssh] reboot-shell {'CLOSED(ok)' if closed else 'TIMEOUT'} "
+        f"[ssh] reboot-shell {outcome} "
         f"host={resolved.get('host')!r} user={resolved.get('user')!r} "
         f"duration_ms={int((time.time() - started) * 1000)} "
         f"len_out={len(transcript)}"

@@ -178,19 +178,23 @@ def _totp_now(secret: str) -> str:
         return ""
 
 
-def _device_ident(base: str, username: str) -> "tuple[str, str]":
+def _device_ident(base: str) -> "tuple[str, str]":
     """Stable pseudo device ``(id, uuid)`` for the login body. RustDesk's
     ``/api/login`` expects a device id + uuid; we derive deterministic ones from
-    the chip identity so the same "device" is presented each poll (which matters
-    for the 2FA challenge correlation).
+    the upstream base URL so the same "device" is presented each poll (which
+    matters for the 2FA challenge correlation).
 
-    This is NOT password / credential hashing — the hash input is only the
-    upstream base URL + username (never the password), and the digest is used
-    purely to derive a stable, NON-SECRET device identifier. ``usedforsecurity=
-    False`` states that explicitly (and clears the false-positive weak-hash
-    alert): a slow KDF would be wrong here — the device id MUST be deterministic
-    across polls, so a salted/expensive hash can't be used."""
-    h = hashlib.sha256(f"omnigrid|{base}|{username}".encode(),
+    The hash input is ONLY the non-secret base URL — never any credential — so
+    this is not password / credential hashing, and SHA-256 is the correct choice
+    because the id MUST be byte-for-byte deterministic across polls (a salted /
+    expensive KDF would defeat that). The username is deliberately NOT part of
+    the input: it reaches this module via ``resolve_userpass``'s
+    ``(username, password)`` tuple, which a static-analysis taint tracker can't
+    distinguish from the password — feeding it here produces a false
+    ``py/weak-sensitive-data-hashing`` alert — and a per-server device id needs
+    no per-user component. ``usedforsecurity=False`` documents the non-security
+    intent."""
+    h = hashlib.sha256(f"omnigrid-rustdesk|{base}".encode(),
                        usedforsecurity=False).hexdigest()
     dev_id = str(int(h[:12], 16) % 1_000_000_000).zfill(9)
     return dev_id, h[:32]
@@ -235,7 +239,7 @@ async def _login(cli: "httpx.AsyncClient", base: str, username: str,
     ``(token, '')`` on success or ``('', reason)`` on failure — the reason is an
     actionable human string (connection / 2FA / bad-creds) so callers can show
     WHY instead of a generic "login failed"."""
-    dev_id, dev_uuid = _device_ident(base, username)
+    dev_id, dev_uuid = _device_ident(base)
     body = {"username": username, "password": password,
             "id": dev_id, "uuid": dev_uuid}
     try:
