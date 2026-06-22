@@ -1788,6 +1788,10 @@ def init_db():
                 "ALTER TABLE opnsense_samples ADD COLUMN cpu_pct REAL NOT NULL DEFAULT 0",
                 "ALTER TABLE opnsense_samples ADD COLUMN mem_pct REAL NOT NULL DEFAULT 0",
                 "ALTER TABLE opnsense_samples ADD COLUMN load_1m REAL NOT NULL DEFAULT 0",
+                # Max CPU-sensor temperature (°C) per tick — drives the
+                # temperature-trend sparkline in the OPNsense app drawer. 0 for
+                # rows written pre-fix (the chart gates on peak_temp_c > 0).
+                "ALTER TABLE opnsense_samples ADD COLUMN temp_max_c REAL NOT NULL DEFAULT 0",
         ):
             try:
                 c.execute(ddl)

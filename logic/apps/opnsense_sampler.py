@@ -71,14 +71,15 @@ async def _probe_one(host_id: str, service_idx: int,
            safe_int(data.get("pf_states_current")),
            safe_float(data.get("cpu_percent")),
            safe_float(data.get("mem_percent")),
-           safe_float(data.get("load_1m")))
+           safe_float(data.get("load_1m")),
+           safe_float(data.get("temp_max_c")))
     try:
         with db_conn() as c:
             c.execute(
                 "INSERT OR REPLACE INTO opnsense_samples "
                 "(ts, host_id, service_idx, rx_bps, tx_bps, "
-                "pf_states, cpu_pct, mem_pct, load_1m) "
-                "VALUES (?,?,?,?,?,?,?,?,?)", row)
+                "pf_states, cpu_pct, mem_pct, load_1m, temp_max_c) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)", row)
     except Exception as e:  # noqa: BLE001
         print(f"[opnsense_sampler] write {host_id}#{service_idx} failed: {e}")
 
@@ -140,14 +141,17 @@ def usage_summary(host_id: str, service_idx: int,
                  # load), daily-average series + peak, from the same samples.
                  "series_pf": [], "series_cpu": [], "series_mem": [],
                  "series_load": [], "peak_pf_states": 0, "peak_cpu_pct": 0,
-                 "peak_mem_pct": 0, "peak_load_1m": 0}
+                 "peak_mem_pct": 0, "peak_load_1m": 0,
+                 # Max CPU-temperature (°C) daily-average series + peak.
+                 "series_temp": [], "peak_temp_c": 0, "avg_temp_c": 0}
     if not host_id:
         return out
     cutoff = int(time.time()) - int(win) * 86400
     try:
         with db_conn() as c:
             rows = c.execute(
-                "SELECT ts, rx_bps, tx_bps, pf_states, cpu_pct, mem_pct, load_1m "
+                "SELECT ts, rx_bps, tx_bps, pf_states, cpu_pct, mem_pct, load_1m, "
+                "temp_max_c "
                 "FROM opnsense_samples WHERE host_id=? AND service_idx=? "
                 "AND ts >= ? ORDER BY ts ASC", (host_id, int(service_idx), cutoff),
             ).fetchall()
@@ -195,24 +199,30 @@ def usage_summary(host_id: str, service_idx: int,
     cpu_vals = [safe_float(r["cpu_pct"]) for r in rows]
     mem_vals = [safe_float(r["mem_pct"]) for r in rows]
     load_vals = [safe_float(r["load_1m"]) for r in rows]
+    temp_vals = [safe_float(r["temp_max_c"]) for r in rows]
     out["peak_pf_states"] = max(pf_vals) if pf_vals else 0
     out["peak_cpu_pct"] = round(max(cpu_vals), 1) if cpu_vals else 0
     out["peak_mem_pct"] = round(max(mem_vals), 1) if mem_vals else 0
     out["peak_load_1m"] = round(max(load_vals), 2) if load_vals else 0
+    out["peak_temp_c"] = round(max(temp_vals), 1) if temp_vals else 0
+    out["avg_temp_c"] = round(sum(temp_vals) / n, 1) if temp_vals else 0
     pf_day: "defaultdict[int, list[int]]" = defaultdict(list)
     cpu_day: "defaultdict[int, list[float]]" = defaultdict(list)
     mem_day: "defaultdict[int, list[float]]" = defaultdict(list)
     load_day: "defaultdict[int, list[float]]" = defaultdict(list)
+    temp_day: "defaultdict[int, list[float]]" = defaultdict(list)
     for i, r in enumerate(rows):
         day = int(r["ts"]) // 86400
         pf_day[day].append(pf_vals[i])
         cpu_day[day].append(cpu_vals[i])
         mem_day[day].append(mem_vals[i])
         load_day[day].append(load_vals[i])
+        temp_day[day].append(temp_vals[i])
     series_pf = [int(sum(pf_day[d]) / len(pf_day[d])) for d in ordered]
     series_cpu = [round(sum(cpu_day[d]) / len(cpu_day[d]), 1) for d in ordered]
     series_mem = [round(sum(mem_day[d]) / len(mem_day[d]), 1) for d in ordered]
     series_load = [round(sum(load_day[d]) / len(load_day[d]), 2) for d in ordered]
+    series_temp = [round(sum(temp_day[d]) / len(temp_day[d]), 1) for d in ordered]
     if len(ordered) > max_points:
         stride = len(ordered) / float(max_points)
         idx = [int(i * stride) for i in range(max_points)]
@@ -222,10 +232,12 @@ def usage_summary(host_id: str, service_idx: int,
         series_cpu = [series_cpu[i] for i in idx]
         series_mem = [series_mem[i] for i in idx]
         series_load = [series_load[i] for i in idx]
+        series_temp = [series_temp[i] for i in idx]
     out["series_rx"] = series_rx
     out["series_tx"] = series_tx
     out["series_pf"] = series_pf
     out["series_cpu"] = series_cpu
     out["series_mem"] = series_mem
     out["series_load"] = series_load
+    out["series_temp"] = series_temp
     return out

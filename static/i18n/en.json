@@ -6623,7 +6623,10 @@
       "health_title": "System-health trend ({days}d)",
       "health_peak": "Peak states {states} · CPU {cpu}% · Mem {mem}% · load {load}",
       "health_states_label": "Firewall states",
-      "health_cpu_label": "CPU %"
+      "health_cpu_label": "CPU %",
+      "temps_title": "CPU temperatures",
+      "temp_title": "Temperature trend ({days}d)",
+      "temp_peak": "Peak {peak}°C · avg {avg}°C"
     },
     "fing": {
       "api_key_label": "Fing Local API key",

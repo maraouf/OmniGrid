@@ -522,6 +522,25 @@ def _temp_max(temps: Any) -> float:
     return round(best, 1)
 
 
+def _temp_list(temps: Any) -> list:
+    """Per-sensor CURRENT temperatures as ``[{device, temp_c}]`` (hottest first)
+    from ``/api/diagnostics/system/systemTemperature`` — the per-CPU-core view.
+    Drops non-positive / non-numeric readings; labels a sensor by its ``device``
+    (e.g. ``dev.cpu.0``) falling back to ``type`` then a positional name. []
+    when none. Capped at ``_MAX_ROWS``."""
+    rows: list = []
+    for t in as_list(temps):
+        if not isinstance(t, dict):
+            continue
+        c = safe_float(t.get("temperature"))
+        if c <= 0:
+            continue
+        dev = str(t.get("device") or t.get("type") or "").strip()
+        rows.append({"device": dev or f"sensor{len(rows)}", "temp_c": round(c, 1)})
+    rows.sort(key=lambda r: r["temp_c"], reverse=True)
+    return rows[:_MAX_ROWS]
+
+
 async def test_credential(host_row: dict, chip: dict, candidate_key: str, *,
                           payload: Optional[dict] = None, **_kw) -> dict:
     """Probe the auth-required ``GET /api/core/firmware/status`` with the
@@ -652,6 +671,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
     leases_total = safe_int(leases)
     arp_devices = safe_int(arp)
     temp_max_c = _temp_max(temp)
+    temp_list = _temp_list(temp)
     cpu_percent = _cpu_from_activity(activity)
     # CPU% has no clean snapshot endpoint; when getActivity isn't readable
     # (privilege not granted) fall back to a load-vs-cores proxy.
@@ -687,6 +707,7 @@ async def fetch_data(host_row: dict, chip: dict, *,
         "dhcp_leases": leases_total,
         "arp_devices": arp_devices,
         "temp_max_c": temp_max_c,
+        "temps": temp_list,
         "net_rx_bps": net_rx_bps,
         "net_tx_bps": net_tx_bps,
         "interfaces": iface_list,

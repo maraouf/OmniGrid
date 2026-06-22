@@ -236,6 +236,33 @@ function opnsenseUsagePath(arr) {
   return pts;
 }
 
+// Current per-core temperatures [{device, temp_c}] (hottest first) from the live
+// systemTemperature fetch — the "temperature per CPU" view. [] when none.
+function opnsenseTemps(inst) {
+  /* jshint validthis: true */
+  const d = opnsenseData.call(this, inst);
+  return (d && Array.isArray(d.temps)) ? d.temps : [];
+}
+
+// Width % (0..100) of a temperature bar on a fixed 0..100 °C scale (CPU Tjmax is
+// ~100 °C), so bars read as an absolute "how hot" rather than relative.
+function opnsenseTempBarPct(c) {
+  return Math.max(0, Math.min(100, Number(c) || 0));
+}
+
+// Colour for a temperature (°C): green / amber / red at 60 / 80 °C — the usual
+// "warm / hot / throttle-risk" bands for x86 CPU package temps.
+function opnsenseTempColor(c) {
+  const v = Number(c) || 0;
+  if (v >= 80) {
+    return 'var(--danger)';
+  }
+  if (v >= 60) {
+    return 'var(--warning)';
+  }
+  return 'var(--success)';
+}
+
 // Endpoint diagnostics (HTTP status + body snippet + self-diagnosed hint) are
 // stamped by this app's fetch_data into the standard out['_debug'] block and
 // rendered by the GENERIC drawer debug panel (_components/apps/_debug_panel.html
@@ -269,4 +296,7 @@ export const helpers = {
   opnsenseIfaceBarPct: opnsenseIfaceBarPct,
   opnsenseUsage: opnsenseUsage,
   opnsenseUsagePath: opnsenseUsagePath,
+  opnsenseTemps: opnsenseTemps,
+  opnsenseTempBarPct: opnsenseTempBarPct,
+  opnsenseTempColor: opnsenseTempColor,
 };
