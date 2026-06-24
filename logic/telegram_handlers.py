@@ -1604,39 +1604,20 @@ async def _cmd_restart(client: httpx.AsyncClient, args: list[str], msg: dict) ->
 
     from logic import ssh as _ssh
     hosts = _listener()._load_hosts_config()
-    # Resolve the reboot verb per host: per-host ssh.restart_command →
-    # global ssh_default_restart_command → built-in `sudo reboot`. Network
-    # gear isn't a Unix shell — a Cisco SG300 reboots via `reload` (with a
-    # Y/N prompt that restart_input auto-answers), so the verb can't be
-    # hardcoded. `sudo reboot` stays the Linux default.
-    _restart = _ssh.resolve_restart(host_id, hosts)
-    cmd = _restart["command"]
-    # shell_mode (set for non-Unix devices via a per-host override) types
-    # the command into an interactive shell instead of an exec request,
-    # because network switches commonly refuse exec — see resolve_restart.
-    result = await _ssh.run_command(
-        host_id, cmd, hosts, timeout=15.0,
-        stdin_input=_restart.get("input"),
-        shell_mode=bool(_restart.get("shell")),
-    )
-    # A successful reboot kills the SSH session before run_command can
-    # collect the exit code — `ok` is often False with `error` mentioning
-    # connection closed. Treat closed-connection-after-command-issued as
-    # success (the reboot fired). In shell mode the channel closing already
-    # sets ok=True.
-    err = (result.get("error") or "").lower()
-    looks_like_reboot_success = (
-                                    "connection" in err and ("closed" in err or "reset" in err or "broken" in err)
-                                ) or result.get("exit_code") == 255
-    if result.get("ok") or looks_like_reboot_success:
+    # Single shared reboot path (resolve_restart + run_command shell-mode +
+    # reboot-success heuristic) — the same logic.ssh.reboot_host the web AI /
+    # Cmd-K / Telegram-AI reboot_host action use, so every surface behaves
+    # identically. Network gear isn't a Unix shell — a Cisco SG300 reboots via
+    # `reload` (with a Y/N prompt the per-host restart_input auto-answers).
+    result = await _ssh.reboot_host(host_id, hosts, timeout=15.0)
+    cmd = result.get("command") or ""
+    if result.get("ok"):
         await _listener()._send_reply(client, f"✅ Reboot command (<code>{_listener()._escape(cmd)}</code>) sent to <b>{_listener()._escape(label)}</b>.")
     else:
         # Surface the captured device transcript (the prompt it stalled at)
         # so the user can fix the per-host 'Reboot prompt answer' without
-        # digging through Admin → Logs — this is the "no log for what
-        # happened" case the timeout used to leave blank.
-        out_tail = str(result.get("stdout") or "").strip()
-        out_tail = out_tail[-500:] if out_tail else ""
+        # digging through Admin → Logs.
+        out_tail = (result.get("transcript") or "")[-500:]
         reply = (
             f"❌ Restart failed for <b>{_listener()._escape(label)}</b> "
             f"(<code>{_listener()._escape(cmd)}</code>): "

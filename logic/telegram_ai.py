@@ -1244,13 +1244,13 @@ async def _ai_reply(
         + "TELEGRAM SURFACE OVERRIDE. You are replying to operator "
           f"'{omnigrid_username}' via Telegram. Fleet-MUTATING command-"
           "palette directives are NOT wired on this channel: NEVER emit "
-          "ACTION_HOSTS: / MEMORY: / MEMORY-FORGET: / CHART_KIND: "
-          "directives, and NEVER emit an ACTION: for a state-changing "
+          "MEMORY: / MEMORY-FORGET: / CHART_KIND: directives, and (except "
+          "for reboot_host below) NEVER emit an ACTION: for a state-changing "
           "fleet operation (restart_* / update_* / pause / resume / "
           "cleanup_stopped / schedule_*) — those are stripped before the "
           "reply reaches the user, so for THOSE tell the operator to use "
           "the matching slash command (/restart <target>, /cleanup, etc.) "
-          "or the SPA. EXCEPTION — TWO ACTION directives ARE wired on "
+          "or the SPA. EXCEPTION — THREE ACTION directives ARE wired on "
           "Telegram and you SHOULD emit them when the operator asks, "
           "instead of refusing or redirecting to the SPA: "
           "(1) ACTION: run_app_skill + ACTION_DATA: "
@@ -1286,10 +1286,21 @@ async def _ai_reply(
           "skill_id 'seerr_show_filters' (no arg) lists them. "
           "(2) ACTION: send_notification + ACTION_DATA: "
           "{\"medium\":..,\"title\":..,\"body\":..} (medium app / apprise "
-          "/ telegram) to send a notification. For these TWO, emit the "
-          "ACTION + ACTION_DATA lines (they are stripped from the visible "
-          "text but dispatched) and write a short natural-language "
-          "sentence framing what you did. "
+          "/ telegram) to send a notification. "
+          "(3) ACTION: reboot_host + ACTION_HOSTS: <host_id> to REBOOT a "
+          "whole host / switch / box over SSH (the device-aware verb — "
+          "`reload` on a Cisco switch, `sudo reboot` on Linux). Use the "
+          "curated host id from the context. This is DESTRUCTIVE: it only "
+          "fires when the operator has enabled “Allow destructive commands”, "
+          "otherwise the bot points them at /restart — emit it anyway when "
+          "they ask to reboot a host and let the gate decide. Do NOT use it "
+          "for Docker containers/services (that's the forbidden restart_* — "
+          "redirect those to the SPA). Example: operator says 'reboot "
+          "switch52' → write 'Rebooting switch52.' then ACTION: reboot_host "
+          "and ACTION_HOSTS: switch52mp01. For these THREE wired actions, "
+          "emit the ACTION (+ ACTION_DATA / ACTION_HOSTS) lines (they are "
+          "stripped from the visible text but dispatched) and write a short "
+          "natural-language sentence framing what you did. "
           "**DIAGNOSTIC TOOLS ARE ENABLED ON TELEGRAM.** When the "
           "operator asks a 'why is X failing' / 'what's in the logs' / "
           "'how often does Y happen' question that the supplied context "
@@ -1592,6 +1603,62 @@ async def _ai_reply(
                     "\n\n⚠️ <i>send_notification action emitted without a "
                     "valid medium + body — nothing dispatched.</i>"
                 )
+        elif "reboot_host" in actions:
+            # Reboot a WHOLE host / switch over SSH from free-text AI — the
+            # Telegram-AI twin of the web sidebar's reboot_host action + the
+            # /restart command, all sharing logic.ssh.reboot_host (device-aware
+            # verb: `reload` on a Cisco SG300, `sudo reboot` on Linux). Host
+            # comes from ACTION_HOSTS (preferred) or ACTION_DATA.host_id.
+            # DESTRUCTIVE — only fires when telegram_allow_destructive is on;
+            # otherwise it points at the explicit /restart command (typed-confirm
+            # flow), same contract as the destructive app skills above.
+            _hosts_cfg = _listener()._load_hosts_config()
+            _rb_hosts, _ = ai.parse_palette_action_hosts(raw_text)
+            rb_host = (_rb_hosts[0] if _rb_hosts
+                       else str((action_data or {}).get("host_id") or "").strip())
+            matched = next(
+                (h for h in _hosts_cfg
+                 if isinstance(h, dict) and str(h.get("id") or "") == rb_host),
+                None,
+            )
+            try:
+                from logic.db import get_setting_bool as _gsb
+                _rb_allowed = _gsb(Settings.TELEGRAM_ALLOW_DESTRUCTIVE)
+            except (ImportError, RuntimeError, ValueError, TypeError):
+                _rb_allowed = False
+            if matched is None:
+                action_outcome_line = (
+                    "\n\n⚠️ <i>Couldn't reboot — no curated host matched "
+                    f"<code>{_listener()._escape(rb_host or '?')}</code>.</i>"
+                )
+            elif not _rb_allowed:
+                action_outcome_line = (
+                    "\n\n🛑 Rebooting a host is destructive. Run the explicit "
+                    f"<code>/restart {_listener()._escape(rb_host)}</code> command "
+                    "(it asks you to confirm first), or enable “Allow destructive "
+                    "commands” in Admin → Notifications → Telegram."
+                )
+            else:
+                _label = str(matched.get("label") or rb_host)
+                from logic import ssh as _ssh
+                rb_result = await _ssh.reboot_host(rb_host, _hosts_cfg, timeout=15.0)
+                _ssh.write_reboot_audit(
+                    rb_host, _label, rb_result,
+                    f"telegram-ai:{omnigrid_username}" if omnigrid_username else "telegram-ai",
+                )
+                if rb_result.get("ok"):
+                    action_outcome_line = (
+                        f"\n\n✅ Reboot command (<code>{_listener()._escape(rb_result.get('command') or '')}</code>) "
+                        f"sent to <b>{_listener()._escape(_label)}</b>."
+                    )
+                else:
+                    _tail = (rb_result.get("transcript") or "")[-400:]
+                    action_outcome_line = (
+                        f"\n\n❌ Reboot failed for <b>{_listener()._escape(_label)}</b>: "
+                        f"<code>{_listener()._escape(rb_result.get('error') or 'unknown error')}</code>"
+                    )
+                    if _tail:
+                        action_outcome_line += f"\n<pre>{_listener()._escape(_tail)}</pre>"
         elif "run_app_skill" in actions and isinstance(action_data, dict):
             # Per-app SKILL invocation from Telegram (e.g. Speedtest's
             # run_speedtest). Resolve the chip server-side + dispatch via the

@@ -995,6 +995,16 @@ ALLOWED_PALETTE_ACTIONS: frozenset[str] = frozenset({
     # consistent for sidebar dispatching.
     "hosts_bulk_pause",
     "hosts_bulk_resume",
+    # Reboot ONE host over SSH. Operator phrase: "reboot switch52" / "restart
+    # the opnsense box". Emits `ACTION: reboot_host` + `ACTION_HOSTS: <host_id>`
+    # (the target host id; the SPA also falls back to the open host drawer).
+    # Reuses logic.ssh.reboot_host — the device-aware verb (per-host `reload`
+    # for a Cisco SG300, `sudo reboot` for Linux), the SAME path the Telegram
+    # /restart command uses. Requires the host to have SSH ENABLED (a read-only
+    # host returns a clear "SSH not enabled" error). DESTRUCTIVE — the SPA gates
+    # it behind the inline-confirm chip (sidebar) / typed-confirm. SPA
+    # descriptor id is `reboot-host` (hyphen form).
+    "reboot_host",
     # On-demand backup snapshot via AI palette. Non-destructive
     # (creates a new zip; retention prune fires under the existing
     # `tuning_backup_retention_count` knob).
@@ -1344,6 +1354,18 @@ PALETTE_SYSTEM_PROMPT: str = (
     "`ACTION: remove_container` + `ACTION_ITEM: <name>`\n"
     " - \"prune docker on <host>\" / \"prune <host>\" → "
     "`ACTION: prune_node` + `ACTION_ITEM: <hostname>`\n"
+    " - \"reboot <host>\" / \"restart the <host> box\" / \"reload "
+    "<switch>\" (a whole HOST / switch / box, NOT a container) → "
+    "`ACTION: reboot_host` + a SEPARATE `ACTION_HOSTS: <host_id>` line "
+    "(the curated host id from the context). This reboots the machine "
+    "over SSH (the device-aware verb — `reload` on a Cisco switch, "
+    "`sudo reboot` on Linux). Requires SSH enabled on that host; a "
+    "read-only-monitored host returns a clear error the operator must "
+    "fix in Admin → Hosts. DESTRUCTIVE — the operator confirms before "
+    "it fires. Example reply: 'Rebooting switch52.\\nACTION: "
+    "reboot_host\\nACTION_HOSTS: switch52mp01'. Do NOT confuse with "
+    "restart_service / restart_container (those bounce a Docker "
+    "workload, not the host).\n"
     " - \"pause every host in <group>\" / \"suspend the <group> "
     "hosts\" → `ACTION: hosts_bulk_pause` (operator picks the group "
     "from the selection chip strip)\n"

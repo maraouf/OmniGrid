@@ -289,6 +289,25 @@ export default {
         }
       }] : []),
 
+      // Reboot a whole HOST / switch / box over SSH — NOT a Docker workload
+      // (that's restart-service / restart-container). Admin-only + DESTRUCTIVE:
+      // the dispatcher gates it behind the inline-confirm chip (AI sidebar) or
+      // a SweetAlert (Cmd-K). The target resolves from the AI's ACTION_HOSTS /
+      // the open host drawer (same fallback chain as scan-ports), then POSTs to
+      // /api/hosts/{id}/reboot → logic.ssh.reboot_host (the device-aware verb:
+      // `reload` on a Cisco SG300, `sudo reboot` on Linux — the SAME path the
+      // Telegram /restart command uses). A read-only-monitored host (no SSH)
+      // returns a clear "enable SSH" error.
+      ...((typeof this.isAdmin === 'function' && this.isAdmin()
+        && typeof this.rebootHostAction === 'function') ? [{
+        id: 'reboot-host',
+        label: t('command_palette.action.reboot_host', 'Reboot a host'),
+        sub: t('command_palette.action.reboot_host_sub', 'Reboot the open host (or AI-named host) over SSH — device-aware (reload / sudo reboot)'),
+        verbs: ['reboot', 'restart', 'reload', 'host', 'switch', 'box', 'power', 'cycle'],
+        destructive: true,
+        run: (opts) => this.rebootHostAction(opts || {}),
+      }] : []),
+
       // Apps discovery wizard — the one Apps write-flow surfaced to the
       // palette. Admin-only (the discovery endpoint + wizard are). `run`
       // navigates to Admin → Apps and opens the wizard for operator
@@ -1362,6 +1381,14 @@ export default {
       delete_container: 'remove-container',
       prune_node: 'prune-node',
       prune_docker: 'prune-node',
+      // reboot_host — reboot a WHOLE host/switch over SSH (NOT a Docker
+      // workload). Canonical snake id matches ALLOWED_PALETTE_ACTIONS;
+      // kebab descriptor `reboot-host` lives in `_commandActions()`.
+      // Synonyms cover the natural phrasings ("restart the box",
+      // "reload the switch").
+      reboot_host: 'reboot-host',
+      restart_host: 'reboot-host',
+      reboot_switch: 'reboot-host',
       hosts_bulk_pause: 'hosts-bulk-pause',
       pause_hosts: 'hosts-bulk-pause',
       // bulk_pause_hosts / bulk_resume_hosts — operator-natural

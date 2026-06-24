@@ -3363,6 +3363,8 @@
       "update_all_updatable_sub": "Pull updates for every stack and standalone container with an update available",
       "scan_ports": "Scan ports on this host",
       "scan_ports_sub": "On-demand TCP-connect scan against the open host drawer",
+      "reboot_host": "Reboot a host",
+      "reboot_host_sub": "Reboot the open host (or AI-named host) over SSH — device-aware (reload / sudo reboot)",
       "discover_apps": "Discover apps on a host",
       "discover_apps_sub": "Open the Apps discovery wizard to match a host’s open ports against catalog templates",
       "retag_image": "Switch image tag",
@@ -3798,6 +3800,7 @@
     "restart_service": "restart service",
     "restart_container": "restart container",
     "remove_container": "remove container",
+    "host_reboot": "host reboot",
     "prune_node": "prune node",
     "prune_all_nodes": "prune all nodes",
     "ssh_run": "ssh run",
@@ -4315,6 +4318,10 @@
       "snmp_firmware": "Firmware (SNMP)",
       "snmp_title": "Reported by the device via SNMP entPhysicalTable / vendor MIBs",
       "bios_version": "BIOS"
+    },
+    "reboot": {
+      "no_target_toast": "No host selected — open a host drawer or name the host to reboot.",
+      "sent": "Reboot command sent."
     },
     "port_scan": {
       "heading": "Port Scan",

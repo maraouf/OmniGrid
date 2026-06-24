@@ -161,6 +161,8 @@ OP_TYPES: frozenset[str] = frozenset({
     # SSH surfaces.
     "ssh_run",
     "ssh_terminal",
+    # Host reboot over SSH (web AI / Cmd-K / Telegram reboot_host + /restart).
+    "host_reboot",
     # Port-scan provider.
     "port_scan",
     # Schedule kinds (each `_run_<kind>` runner stamps history with the

@@ -369,6 +369,77 @@ export default {
     return '';
   },
 
+  // Reboot a host over SSH via its device-aware reboot verb (POST
+  // /api/hosts/{id}/reboot → logic.ssh.reboot_host — `reload` on a Cisco
+  // SG300, `sudo reboot` on Linux; the SAME path Telegram /restart uses).
+  // Dispatched by the `reboot-host` command-palette action from BOTH the AI
+  // sidebar AND Cmd-K. Host resolution mirrors runPortScan: explicit opts →
+  // open host drawer → most-recent AI assistant turn's host_ids[0] → error.
+  // Returns {ok, detail} so the sidebar renders the outcome inline (via
+  // _stampSkillPanelFromResult); the modal/Cmd-K path also toasts. The
+  // destructive-confirm is handled by the dispatcher (inline chip / SweetAlert)
+  // BEFORE this runs — no inner confirm here. Requires SSH enabled on the host;
+  // a read-only-monitored host returns the route's clear "SSH not enabled"
+  // error string.
+  async rebootHostAction(opts) {
+    opts = opts || {};
+    const sidebar = opts.surface === 'sidebar';
+    let hostId = (opts.host_id || opts.actionItem || opts.item || '').toString().trim();
+    if (!hostId && this.drawerHost && this.drawerHost.id) {
+      hostId = String(this.drawerHost.id);
+    }
+    if (!hostId) {
+      const turns = Array.isArray(this.aiConversation) ? this.aiConversation : [];
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (t && t.role === 'assistant' && Array.isArray(t.host_ids) && t.host_ids.length) {
+          hostId = String(t.host_ids[0]);
+          break;
+        }
+      }
+    }
+    if (!hostId) {
+      const msg = this.t('host_drawer.reboot.no_target_toast')
+        || 'No host selected — open a host drawer or name the host to reboot.';
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+    try {
+      const r = await fetch('/api/hosts/' + encodeURIComponent(hostId) + '/reboot',
+        {method: 'POST', headers: {'Content-Type': 'application/json'}});
+      let j = {};
+      try {
+        j = await r.json();
+      } catch (_e) {
+        j = {};
+      }
+      if (!r.ok) {
+        const detail = (j && j.detail) || ('HTTP ' + r.status);
+        if (!sidebar && typeof this.showToast === 'function') {
+          this.showToast(detail, 'error');
+        }
+        return {ok: false, detail: detail};
+      }
+      const ok = !!j.ok;
+      const detail = j.detail
+        || (ok ? (this.t('host_drawer.reboot.sent') || 'Reboot command sent.') : 'Reboot failed.');
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(detail, ok ? 'success' : 'error');
+      }
+      // On failure, append the device transcript (the prompt a non-Unix device
+      // stalled at) so the sidebar panel shows it — parity with Telegram.
+      const tail = (!ok && j.transcript) ? ('\n\n' + j.transcript) : '';
+      return {ok: ok, detail: detail + tail};
+    } catch (e) {
+      const msg = (this.t('toasts.failed') || 'Failed') + ': ' + e.message;
+      if (!sidebar && typeof this.showToast === 'function') {
+        this.showToast(msg, 'error');
+      }
+      return {ok: false, detail: msg};
+    }
+  },
   // POST /api/hosts/{id}/port-scan — runs an on-demand TCP-connect
   // scan against the host. Stamps `_port_scan_running` while the
   // call is in flight so the button spinner ticks; refreshes the

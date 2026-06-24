@@ -1280,6 +1280,86 @@ class _NoopTimeout:
         return False
 
 
+async def reboot_host(host_id: str, hosts_config: list[dict], *,
+                      timeout: float = 15.0) -> dict:
+    """Reboot a curated host over SSH using its RESOLVED reboot verb.
+
+    The single shared reboot path behind the Telegram ``/restart`` command, the
+    Telegram-AI ``reboot_host`` action, AND the web AI / Cmd-K ``reboot_host``
+    action — so all three behave identically. Reuses :func:`resolve_restart`
+    (per-host ``ssh.restart_command`` / ``restart_input`` → global
+    ``ssh_default_restart_command`` → built-in ``sudo reboot``) and
+    :func:`run_command` (shell-mode for non-Unix gear like a Cisco SG300, whose
+    SSH server refuses exec requests).
+
+    A successful reboot drops the SSH session before an exit code can be read,
+    so ``ok`` is inferred from run_command's shell-mode success (channel closed /
+    reboot-in-progress phrase) OR a connection-closed error / exit 255 (exec
+    mode). Returns ``{ok, command, error, transcript}`` — ``error`` is an
+    actionable string on failure (incl. the "SSH not enabled / no credentials"
+    message run_command returns when the host has no SSH channel). Never raises
+    (mirrors run_command's contract)."""
+    resolved = resolve_restart(host_id, hosts_config)
+    cmd = resolved["command"]
+    result = await run_command(
+        host_id, cmd, hosts_config, timeout=timeout,
+        stdin_input=resolved.get("input"),
+        shell_mode=bool(resolved.get("shell")),
+    )
+    err = (result.get("error") or "").lower()
+    # A reboot kills the session before run_command can read an exit code, so a
+    # connection-closed / reset / broken error (exec mode) OR exit 255 counts as
+    # success; shell mode already sets ok=True on the channel close.
+    looks_ok = bool(result.get("ok")) or (
+        ("connection" in err and ("closed" in err or "reset" in err or "broken" in err))
+        or result.get("exit_code") == 255
+    )
+    return {
+        "ok": looks_ok,
+        "command": cmd,
+        "error": "" if looks_ok else (result.get("error") or "reboot command did not fire"),
+        "transcript": str(result.get("stdout") or "").strip(),
+    }
+
+
+def write_reboot_audit(host_id: str, label: str, result: dict, actor: str) -> None:
+    """Persist one ``host_reboot`` row in ``history`` for a :func:`reboot_host`
+    call. Shared by the web ``POST /api/hosts/{id}/reboot`` route AND the
+    Telegram-AI reboot branch so every reboot surface audits identically
+    (the assert_op_type choke-point lives here, not at each caller). Best-effort
+    — a write failure never breaks the reboot response. ``actor`` should encode
+    the surface (e.g. ``telegram-ai:<user>`` / the web username)."""
+    ok = bool(result.get("ok"))
+    cmd = result.get("command") or ""
+    try:
+        from logic import ops as _ops
+        from logic.db import db_conn as _dbc
+        _ops.assert_op_type("host_reboot")
+        events = [{
+            "ts": time.time(),
+            "level": "info" if ok else "error",
+            "msg": (f"reboot cmd={cmd!r} ok={ok} "
+                    f"err={result.get('error') or ''}")[:500],
+        }]
+        with _dbc() as c:
+            c.execute(
+                "INSERT INTO history "
+                "(ts, op_type, target_kind, target_name, target_id, "
+                " target_stack, status, duration, events, error, actor) "
+                "VALUES (?, ?, 'host', ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    int(time.time()), "host_reboot",
+                    label or host_id, host_id, None,
+                    "success" if ok else "error", 0.0,
+                    json.dumps(events),
+                    None if ok else (result.get("error") or "reboot did not fire"),
+                    actor or "unknown",
+                ),
+            )
+    except Exception as e:  # noqa: BLE001
+        print(f"[ssh] reboot audit-row write failed for {host_id}: {e}")
+
+
 async def test_connection(host_id: str, hosts_config: list[dict]) -> dict:
     """Short-lived ``whoami`` probe. Thin wrapper around run_command()
     so the UI's Test button shares every safety rail (cool-down, key

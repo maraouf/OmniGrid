@@ -1349,6 +1349,53 @@ async def api_ssh_run(
     return result
 
 
+@app.post("/api/hosts/{host_id}/reboot")
+async def api_host_reboot(
+    host_id: str,
+    request: Request,
+    _admin: AdminUser,
+):
+    """Admin-only: reboot a curated host over SSH via its RESOLVED reboot verb.
+
+    The web AI sidebar / Cmd-K ``reboot_host`` action targets this; it shares
+    :func:`logic.ssh.reboot_host` with the Telegram ``/restart`` command and the
+    Telegram-AI reboot action, so every surface behaves identically (device-
+    aware verb: per-host ``reload`` for a Cisco SG300, ``sudo reboot`` default
+    for Linux). Requires the host to have SSH enabled (+ a reboot command for
+    non-Unix gear) — returns ``ok: False`` with an actionable error otherwise.
+    Destructive: the SPA gates it behind the inline-confirm chip (sidebar) /
+    typed-confirm before calling. Lands a ``host_reboot`` row in history.
+    """
+    from logic import ssh as _ssh
+    hosts = _load_hosts_config()
+    matched = next(
+        (h for h in hosts
+         if isinstance(h, dict) and str(h.get("id") or "") == str(host_id)),
+        None,
+    )
+    if matched is None:
+        raise HTTPException(404, f"host {host_id!r} not found")
+    label = str(matched.get("label") or host_id)
+    result = await _ssh.reboot_host(host_id, hosts, timeout=15.0)
+    actor = getattr(request.state, "user", None)
+    actor_name = getattr(actor, "username", None) or "unknown"
+    ok = bool(result.get("ok"))
+    cmd = result.get("command") or ""
+    # Audit row (op_type='host_reboot') via the shared helper so the web +
+    # Telegram-AI reboot surfaces audit identically.
+    _ssh.write_reboot_audit(host_id, label, result, actor_name)
+    return {
+        "ok": ok,
+        "command": cmd,
+        "detail": (f"Reboot command sent to {label}." if ok
+                   else (result.get("error") or "reboot command did not fire")),
+        # Tail of the device transcript so the SPA can show what a non-Unix
+        # device stalled at (mirrors the Telegram failure reply).
+        "transcript": (result.get("transcript") or "")[-2000:],
+        "label": label,
+    }
+
+
 # ----------------------------------------------------------------------------
 # Interactive SSH terminal
 # Browser <—WSS—> OmniGrid backend <—asyncssh shell—> target host.
