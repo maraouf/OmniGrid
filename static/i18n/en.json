@@ -977,6 +977,8 @@
     "host_disk_tooltip": "Real host disk usage across all non-pseudo mounts (node-exporter).",
     "stats_merged_from_title": "Stats merged from: {sources}",
     "stats_all_failed_title": "All configured host-stats sources failed — falling back to Docker-only signals.",
+    "stats_docker_only_chip": "Docker",
+    "stats_docker_only_title": "Direct-Docker node — stats come from the Docker daemon over SSH/TLS. No host-stats provider (Beszel / node-exporter / SNMP …) is mapped to it, which is expected; this is not a failure.",
     "prune_button_title": "Run docker system prune on {node}",
     "prune_label": "Prune",
     "pruning_label": "Pruning…",

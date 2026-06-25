@@ -1772,6 +1772,16 @@
                     :title="nodeStats(node.name).exporterError || t('nodes.stats_all_failed_title')">
                 <span x-text="nodeProviderChip(node.name)"></span> ✗
               </span>
+              <!-- Direct-Docker node: no host-stats provider is mapped to it
+                   (it's reached over SSH/TLS to the daemon), so it runs on
+                   Docker-only signals BY DESIGN. Neutral chip — NOT the red
+                   "all sources failed" error, which only applies to curated
+                   hosts that were expected to have a provider. -->
+              <span x-show="nodeStats(node.name).exporterStatus === 'docker'"
+                    class="pill pill-muted fs-2xs cursor-help"
+                    :title="t('nodes.stats_docker_only_title')">
+                <span x-text="t('nodes.stats_docker_only_chip')"></span>
+              </span>
               <span class="fs-xs text-[var(--text-dim)] mx-1">
                 <span x-text="node.total"></span> total
               </span>

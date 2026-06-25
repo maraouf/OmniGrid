@@ -842,13 +842,20 @@ export default {
     // containers at all). Falls through to container-derived cpuRaw
     // when the provider didn't supply one.
     const hostCpuRaw = Number.isFinite(info.host_cpu_percent) ? info.host_cpu_percent : 0;
-    // Host-stats status — three values:
+    // A direct-Docker node (backend "docker:<id>") is reached over SSH/TLS to
+    // its Docker daemon and has NO host-stats provider mapped to it — it runs
+    // on Docker-derived signals BY DESIGN. So "host-stats enabled globally but
+    // this node returned no host_* data" is EXPECTED here, not a failure: it
+    // gets the neutral 'docker' state, never the red 'error'.
+    const isDirect = String(info.backend || '').indexOf('docker:') === 0;
+    // Host-stats status — four values:
     // - 'ok'       scrape succeeded (any host_* fields populated)
-    // - 'error'    probe attempted but failed (exporter_error set,
-    //              OR host-stats is enabled globally but this node
-    //              returned nothing)
+    // - 'error'    probe attempted but failed (exporter_error set, OR host-stats
+    //              is enabled globally but this CURATED node returned nothing)
+    // - 'docker'   direct-Docker node with no host-stats provider — Docker-only
+    //              signals (neutral, not a failure)
     // - 'disabled' host_stats_source is 'none' / unset
-    // Drives the green/red pill on the node header. The "exporter"
+    // Drives the green/neutral/red pill on the node header. The "exporter"
     // word in the variable name is historical — the same signal
     // covers both node-exporter and Beszel now.
     const source = (this.settings && this.settings.host_stats_source)
@@ -860,16 +867,18 @@ export default {
     const hostStatsEnabled = sourceSet.size > 0;
     let exporterStatus = 'disabled';
     if (info.exporter_error) {
+      // A real probe error (only set when a provider was actually mapped +
+      // attempted — incl. a direct node the operator also curated with one).
       exporterStatus = 'error';
-    } else {
-      if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) {
-        exporterStatus = 'ok';
-      } else {
-        if (hostStatsEnabled) {
-          exporterStatus = 'error';
-        }
-      }
-    }  // enabled but no data came back
+    } else if (hostStatsEnabled && (hostMemTotal > 0 || Number.isFinite(info.host_boot_ts) || (info.mounts && info.mounts.length))) {
+      exporterStatus = 'ok';
+    } else if (isDirect) {
+      // Direct-Docker node, no host data → Docker-only by design (NOT a failure).
+      exporterStatus = 'docker';
+    } else if (hostStatsEnabled) {
+      // Curated host: enabled globally but no data came back → real failure.
+      exporterStatus = 'error';
+    }
     // Per-node provider hits — backend records which providers
     // actually contributed data for THIS node into ``_providers`` per
     // gather. Falls back to the global active set on hosts that
