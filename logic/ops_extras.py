@@ -773,6 +773,41 @@ async def do_update_stack_direct(op: Operation, node_id: str, project: str) -> N
         gather.invalidate_cache()
 
 
+def _is_portainer_self_container(image_ref: str, target_name: str) -> bool:
+    """True when the container being updated IS the Portainer instance OmniGrid
+    manages the fleet THROUGH — matched by its image repo
+    (``portainer/portainer-ce`` / ``-ee`` / bare ``portainer/portainer``; NOT
+    ``portainer/agent``, which is a worker sidecar, not the API host). Falls
+    back to the container NAME only when the image ref is unknown. Recreating
+    THIS container via Portainer's own API tears down that API mid-operation
+    (the reverse proxy then returns 502), so the update op needs the
+    self-restart success heuristic instead of a hard red failure."""
+    ref = (image_ref or "").lower()
+    if "portainer/portainer" in ref:
+        return True
+    if ref:
+        # Known image that isn't the Portainer server (incl. portainer/agent).
+        return False
+    name = (target_name or "").strip().lower()
+    return name == "portainer"
+
+
+def _looks_like_gateway_drop(err: str) -> bool:
+    """True when a Portainer-op error reads as 'the API went away mid-call' — a
+    502 / 503 / 504 gateway response (the reverse proxy had no backend to reach)
+    OR a connection-level drop (Portainer restarted under us). Used to recognise
+    the EXPECTED fallout of Portainer recreating itself, distinct from a real
+    update failure."""
+    e = (err or "").lower()
+    if any(s in e for s in ("http 502", "http 503", "http 504", "bad gateway",
+                            "gateway time", "service unavailable")):
+        return True
+    return any(s in e for s in (
+        "connecterror", "connecttimeout", "readerror", "readtimeout",
+        "remoteprotocolerror", "connectionerror", "connection reset",
+        "connection closed", "server disconnected", "connection aborted"))
+
+
 async def do_update_container(op: Operation, container_id: str) -> None:
     """Recreate one standalone container via Portainer's
     ``/containers/{id}/recreate?PullImage=true`` endpoint. Resolves
@@ -824,6 +859,10 @@ async def do_update_container(op: Operation, container_id: str) -> None:
         # identical after the /recreate call, fall through to the
         # manual recreate path the same way a 4xx/5xx response does.
         pre_digest: Optional[str] = None
+        # Image REF (e.g. "portainer/portainer-ce:lts") — distinct from the
+        # Image ID digest above. Used to detect a Portainer self-update so the
+        # expected API-drop 502 doesn't read as a failure.
+        container_image_ref: str = ""
         async with portainer.write_client(timeout=_portainer_op_timeout("short")) as _digest_client:
             try:
                 _r = await _digest_client.get(
@@ -835,11 +874,24 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                 if _r.status_code == 200:
                     _j = _r.json() or {}
                     pre_digest = (_j.get("Image") or "").strip() or None
+                    container_image_ref = ((_j.get("Config") or {}).get("Image") or "").strip()
                     op.log(f"Pre-recreate container image-id: {pre_digest[:19] + '…' if pre_digest else '(unknown)'}")
                 else:
                     op.log(f"Pre-recreate inspect returned HTTP {_r.status_code} — digest comparison disabled", "warning")
             except (httpx.HTTPError, OSError) as _e:
                 op.log(f"Pre-recreate inspect failed ({type(_e).__name__}: {_e}) — digest comparison disabled", "warning")
+        # Portainer self-update guard: this container hosts the API OmniGrid
+        # manages the fleet THROUGH, so recreating it tears down the connection
+        # (the reverse proxy then returns 502). Flag it so that expected drop is
+        # read as "Portainer is restarting" success rather than a hard failure.
+        is_portainer_self = _is_portainer_self_container(container_image_ref, op.target_name)
+        if is_portainer_self:
+            op.log(
+                "Heads up: this is the Portainer container OmniGrid manages the "
+                "fleet through. Recreating it restarts the API mid-operation, so a "
+                "502 / dropped connection here is EXPECTED — not a failure.",
+                "warning",
+            )
         recreate_endpoint_error: Optional[str] = None
         recreate_response_full: str = ""
         # The container ID the FALLBACK should inspect. Defaults to the
@@ -979,6 +1031,33 @@ async def do_update_container(op: Operation, container_id: str) -> None:
                         op.log(f"Post-recreate inspect HTTP {_r2.status_code} — assuming success", "warning")
                 except (httpx.HTTPError, OSError) as _e:
                     op.log(f"Post-recreate inspect failed ({type(_e).__name__}: {_e}) — assuming success", "warning")
+        # Portainer self-update: the recreate dropped the API connection
+        # (502 / connection reset). That's the EXPECTED fallout of Portainer
+        # restarting itself to apply its own update — the update was almost
+        # certainly applied; we just can't read the result through the API we no
+        # longer have. Report success with a clear "verify it's back" message
+        # instead of running the manual fallback (which would only hit another
+        # 502 and surface a scary "inspect HTTP 502" failure).
+        if recreate_endpoint_error and is_portainer_self and _looks_like_gateway_drop(recreate_endpoint_error):
+            op.log(
+                f"Portainer recreate dropped the connection ({recreate_endpoint_error}) — "
+                "this is Portainer restarting itself to apply its own update, which is "
+                "expected (OmniGrid manages the fleet THROUGH Portainer's API). The update "
+                "was almost certainly applied; refresh OmniGrid in ~30s to confirm Portainer "
+                "is back on the new image. To update Portainer WITHOUT this blip, manage its "
+                "host as a direct-Docker node (Admin → Docker Nodes) or update it outside "
+                "OmniGrid.",
+                "success",
+            )
+            op.done("success")
+            await notify(
+                f"♻️ Portainer is restarting to apply its update — the API connection "
+                f"dropped as expected; verify it comes back on the new version: {op.target_name}",
+                "", "success",
+                event="container_update_success", actor_username=op.actor,
+                target_kind="container", target_id=str(op.target_id),
+            )
+            return
         if recreate_endpoint_error:
             # If Portainer's /recreate already spawned a fresh container
             # (no-op'd the pull but DID swap the container), the OLD
