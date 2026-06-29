@@ -69,7 +69,7 @@ PyJWT[crypto]>=2.13.0
 # key parsing, and fingerprint exposure natively so we don't shell out
 # to the OpenSSH CLI. Pulls in `cryptography` transitively (already a
 # PyJWT[crypto] dep) so no new heavy dependency is introduced.
-asyncssh>=2.23.1
+asyncssh>=2.24.0
 # TOTP-based 2FA for local-auth users. pyotp implements RFC 6238
 # (~150 lines, no native deps); cryptography supplies Fernet for at-rest
 # encryption of TOTP secrets + backup codes (key derived via HKDF-SHA256
