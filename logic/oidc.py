@@ -215,6 +215,12 @@ async def _fetch_discovery(issuer: str, verify_tls: bool = True) -> dict:
     async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         r = await client.get(url)
         if r.status_code != 200:
+            # Log before raising so a discovery failure (e.g. an upstream 502
+            # from the IdP's proxy) shows in Admin → Logs — otherwise the
+            # HTTPException surfaces only in the HTTP response, never the log.
+            lvl = "error" if r.status_code >= 500 else "warning"
+            print(f"[oidc] {lvl} discovery HTTP {r.status_code} from {url} "
+                  f"— body {r.text[:200]!r}")
             raise HTTPException(
                 status_code=502,
                 detail=f"OIDC discovery failed: HTTP {r.status_code} from {url}",
@@ -237,6 +243,9 @@ async def _fetch_jwks(issuer: str, jwks_uri: str, verify_tls: bool = True, force
     async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         r = await client.get(jwks_uri)
         if r.status_code != 200:
+            lvl = "error" if r.status_code >= 500 else "warning"
+            print(f"[oidc] {lvl} JWKS HTTP {r.status_code} from {jwks_uri} "
+                  f"— body {r.text[:200]!r}")
             raise HTTPException(
                 status_code=502,
                 detail=f"OIDC JWKS fetch failed: HTTP {r.status_code}",
@@ -501,11 +510,23 @@ async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception as e: # noqa: BLE001
+        # Network-level failure (connect timeout / DNS / TLS / connection
+        # reset) reaching the issuer — log it so the operator sees WHY the
+        # login button 500s, not just a bare HTTP error.
+        print(f"[oidc] error discovery fetch to {issuer!r} failed for provider "
+              f"{provider.id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=502, detail=f"OIDC discovery error: {e}")
 
     auth_ep = doc.get("authorization_endpoint")
     if not auth_ep:
+        print(f"[oidc] error discovery for provider {provider.id} has no "
+              f"authorization_endpoint (issuer={issuer!r})")
         raise HTTPException(status_code=502, detail="OIDC discovery missing authorization_endpoint")
+    # Log the resolved authorization endpoint we're about to 302 the browser
+    # to. If the browser then shows the IdP's own "502 Bad gateway" page, this
+    # is the exact URL to reproduce against — the redirect leaves OmniGrid so
+    # a provider-side failure there can't otherwise appear in these logs.
+    print(f"[oidc] /login provider={provider.id} authorization_endpoint={auth_ep!r}")
 
     state = secrets.token_urlsafe(24)
     nonce = secrets.token_urlsafe(24)
@@ -639,21 +660,43 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
 
     # Token exchange. Providers accept client credentials in either the
     # Authorization header or the body; we use the body for clarity.
-    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
-        token_resp = await client.post(
-            token_ep,
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code_verifier": flow["verifier"],
-            },
-            headers={"Accept": "application/json"},
+    try:
+        async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
+            token_resp = await client.post(
+                token_ep,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "code_verifier": flow["verifier"],
+                },
+                headers={"Accept": "application/json"},
+            )
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
+        # Network-level failure reaching the token endpoint (connect timeout,
+        # connection reset, TLS error) — log it so it shows in Admin → Logs
+        # instead of surfacing only as a bare 500.
+        auth.rate_limit_record_failure(ip)
+        print(f"[oidc] error token exchange to {token_ep!r} failed for provider "
+              f"{provider.id}: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"OIDC token exchange error: {type(e).__name__}: {e}",
+            headers=_flow_clear_headers,
         )
     if token_resp.status_code != 200:
         auth.rate_limit_record_failure(ip)
+        # Log the token-exchange failure — this is a server-side call OmniGrid
+        # makes, so an upstream 502 / 5xx here belongs in Admin → Logs (5xx =
+        # infra/error; 4xx = usually a config issue like a redirect_uri or
+        # client_secret mismatch = warning).
+        lvl = "error" if token_resp.status_code >= 500 else "warning"
+        print(f"[oidc] {lvl} token exchange HTTP {token_resp.status_code} for "
+              f"provider {provider.id} at {token_ep!r} — body {token_resp.text[:200]!r}")
         raise HTTPException(
             status_code=401,
             detail=f"OIDC token exchange failed: HTTP {token_resp.status_code} — {token_resp.text[:300]}",
@@ -663,6 +706,8 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
     id_token = tok.get("id_token")
     if not id_token:
         auth.rate_limit_record_failure(ip)
+        print(f"[oidc] error token response for provider {provider.id} missing "
+              f"id_token (keys={list(tok.keys())})")
         raise HTTPException(
             status_code=502, detail="OIDC token response missing id_token",
             headers=_flow_clear_headers,
@@ -693,6 +738,8 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
         except (jwt.PyJWTError, ValueError, TypeError):
             actual = "?"
         auth.rate_limit_record_failure(ip)
+        print(f"[oidc] warning id_token issuer mismatch for provider {provider.id} "
+              f"— expected {expected_iss!r}, got {actual!r}")
         raise HTTPException(
             status_code=401,
             detail=(f"[{_err.AUTH_OIDC_ISSUER_INVALID}] "
@@ -702,6 +749,8 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
         )
     except jwt.PyJWTError as e:
         auth.rate_limit_record_failure(ip)
+        print(f"[oidc] warning id_token validation failed for provider "
+              f"{provider.id}: {type(e).__name__}: {e}")
         # Pattern-match on PyJWT's exception class to pick the most
         # specific code; falls back to the generic "validation failed"
         # bucket. .
@@ -985,9 +1034,22 @@ async def register_client(provider_id: str, initial_access_token: str, request: 
     tok = (initial_access_token or "").strip()
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
-    async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify) as client:
-        r = await client.post(reg_ep, json=body, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify) as client:
+            r = await client.post(reg_ep, json=body, headers=headers)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception as e: # noqa: BLE001
+        print(f"[oidc] error client registration POST to {reg_ep!r} failed for "
+              f"provider {provider.id}: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Client registration error: {type(e).__name__}: {e}",
+        )
     if r.status_code not in (200, 201):
+        lvl = "error" if r.status_code >= 500 else "warning"
+        print(f"[oidc] {lvl} client registration HTTP {r.status_code} for provider "
+              f"{provider.id} at {reg_ep!r} — body {r.text[:200]!r}")
         raise HTTPException(
             status_code=502,
             detail=f"Client registration failed: HTTP {r.status_code} — {r.text[:300]}",

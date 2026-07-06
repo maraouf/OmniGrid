@@ -8,8 +8,11 @@
              from a parent div across browsers; it does inherit
              from the SVG element itself. Same pattern as every
              other working admin-header sprite consumer. -->
+        <!-- Header icon MUST match the OIDC / SSO sidebar entry's icon
+             (adminSections id 'oidc' → 'id-card' in static/js/app.js). Keep
+             the two in sync whenever either changes. -->
         <svg width="14" height="14" class="text-[var(--text-dim)]" aria-hidden="true">
-          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-shield"/>
+          <use href="/img/ui-sprite.svg?v=__APP_VERSION__#icon-id-card"/>
         </svg>
         <h3 class="font-semibold fs-md" x-text="t('settings.oidc.title')"></h3>
       </div>
