@@ -147,6 +147,22 @@ function applyI18nDom() {
   }).catch(() => {
   });
 
+  // Surface an SSO login-start failure that the OIDC login handler redirected
+  // here (instead of an opaque proxy 502). The full reason is in Admin -> Logs;
+  // we show a readable message + the short detail from the query string.
+  (function showSsoLoginError() {
+    const q = new URLSearchParams(location.search);
+    const code = q.get('sso_error');
+    if (!code) {
+      return;
+    }
+    const provider = q.get('sso_provider') || 'SSO';
+    const detail = q.get('sso_detail') || '';
+    let msg = tx('login.sso_error_' + code, tx('login.sso_error', 'Single sign-on failed.'));
+    msg = msg.replace('{provider}', provider);
+    showErr(detail ? (msg + ' (' + detail + ')') : msg);
+  })();
+
   // Advertise SSO once we know which providers are configured. One button
   // per provider; falls back to a single legacy Authentik button if a stale
   // server still returns the old {oidc:true} shape.

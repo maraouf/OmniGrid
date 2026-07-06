@@ -472,17 +472,42 @@ def _safe_next(value: Optional[str]) -> str:
 # ----------------------------------------------------------------------------
 # Route bodies — wired up in main.py.
 # ----------------------------------------------------------------------------
+def _sso_login_error_redirect(request: Request, provider, code: str, reason: str = "") -> RedirectResponse:
+    """Redirect the browser back to ``/login`` with a readable SSO error instead
+    of raising a bare 502 — which a fronting proxy (Cloudflare / NPM) masks into
+    an opaque "Bad gateway" page with no clue what failed. The login page renders
+    an i18n message keyed on ``sso_error`` plus the short, sanitised ``sso_detail``
+    (the full reason is already in the ``[oidc]`` logs).
+
+    ``code`` is a stable slug the login page maps to an i18n string
+    (``provider_unreachable`` / ``provider_misconfigured`` / ``not_configured``).
+    """
+    safe_next = _safe_next(request.query_params.get("next"))
+    # Sanitise the reason to a short printable token so nothing weird lands in
+    # the query string or the rendered page (login.js renders via textContent).
+    short = "".join(ch for ch in (reason or "") if ch.isprintable())[:160].strip()
+    params = {"sso_error": code, "sso_provider": provider.label}
+    if safe_next and safe_next != "/":
+        params["next"] = safe_next
+    if short:
+        params["sso_detail"] = short
+    return RedirectResponse(url=f"/login?{urlencode(params)}", status_code=302)
+
+
 async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER_ID):
     """Start the OIDC flow. Generates state/nonce/PKCE, stashes them in a
-    flow cookie, 302s to the IdP's authorization_endpoint."""
+    flow cookie, 302s to the IdP's authorization_endpoint.
+
+    On a login-START failure (provider unreachable / misconfigured / not
+    configured) we redirect back to ``/login`` with a readable message rather
+    than returning a 502 the fronting proxy would mask — see
+    :func:`_sso_login_error_redirect`.
+    """
     provider = _providers.get(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=f"Unknown OIDC provider {provider_id!r}")
     if not is_configured(provider.id):
-        raise HTTPException(
-            status_code=503,
-            detail=f"{provider.label} SSO is not configured. Ask an admin to set it up in Settings → OIDC / SSO.",
-        )
+        return _sso_login_error_redirect(request, provider, "not_configured")
     issuer = _pget(provider, "issuer_url")
     client_id = _pget(provider, "client_id")
     configured_redirect = (_pget(provider, "redirect_uri") or "").strip()
@@ -505,23 +530,27 @@ async def login(request: Request, provider_id: str = _providers.DEFAULT_PROVIDER
 
     try:
         doc = await _fetch_discovery(issuer, _verify_tls(provider))
-    except HTTPException:
-        raise
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
+    except HTTPException as he:
+        # Discovery returned a non-200 (already logged in _fetch_discovery).
+        # Redirect back to /login with a readable reason instead of bubbling a
+        # 502 the fronting proxy would turn into an opaque Bad-gateway page.
+        return _sso_login_error_redirect(request, provider, "provider_unreachable", str(he.detail))
     except Exception as e: # noqa: BLE001
         # Network-level failure (connect timeout / DNS / TLS / connection
         # reset) reaching the issuer — log it so the operator sees WHY the
-        # login button 500s, not just a bare HTTP error.
+        # login failed, then redirect back to /login with the reason.
         print(f"[oidc] error discovery fetch to {issuer!r} failed for provider "
               f"{provider.id}: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=502, detail=f"OIDC discovery error: {e}")
+        return _sso_login_error_redirect(request, provider, "provider_unreachable", f"{type(e).__name__}: {e}")
 
     auth_ep = doc.get("authorization_endpoint")
     if not auth_ep:
         print(f"[oidc] error discovery for provider {provider.id} has no "
               f"authorization_endpoint (issuer={issuer!r})")
-        raise HTTPException(status_code=502, detail="OIDC discovery missing authorization_endpoint")
+        return _sso_login_error_redirect(request, provider, "provider_misconfigured",
+                                         "discovery has no authorization_endpoint")
     # Log the resolved authorization endpoint we're about to 302 the browser
     # to. If the browser then shows the IdP's own "502 Bad gateway" page, this
     # is the exact URL to reproduce against — the redirect leaves OmniGrid so
