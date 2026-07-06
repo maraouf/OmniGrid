@@ -218,7 +218,7 @@ async def _fetch_discovery(issuer: str, verify_tls: bool = True) -> dict:
             # Log before raising so a discovery failure (e.g. an upstream 502
             # from the IdP's proxy) shows in Admin → Logs — otherwise the
             # HTTPException surfaces only in the HTTP response, never the log.
-            lvl = "error" if r.status_code >= 500 else "warning"
+            lvl = "error"
             print(f"[oidc] {lvl} discovery HTTP {r.status_code} from {url} "
                   f"— body {r.text[:200]!r}")
             raise HTTPException(
@@ -243,7 +243,7 @@ async def _fetch_jwks(issuer: str, jwks_uri: str, verify_tls: bool = True, force
     async with httpx.AsyncClient(timeout=_http_timeout_seconds(), verify=verify_tls) as client:
         r = await client.get(jwks_uri)
         if r.status_code != 200:
-            lvl = "error" if r.status_code >= 500 else "warning"
+            lvl = "error"
             print(f"[oidc] {lvl} JWKS HTTP {r.status_code} from {jwks_uri} "
                   f"— body {r.text[:200]!r}")
             raise HTTPException(
@@ -694,7 +694,7 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
         # makes, so an upstream 502 / 5xx here belongs in Admin → Logs (5xx =
         # infra/error; 4xx = usually a config issue like a redirect_uri or
         # client_secret mismatch = warning).
-        lvl = "error" if token_resp.status_code >= 500 else "warning"
+        lvl = "error"
         print(f"[oidc] {lvl} token exchange HTTP {token_resp.status_code} for "
               f"provider {provider.id} at {token_ep!r} — body {token_resp.text[:200]!r}")
         raise HTTPException(
@@ -738,7 +738,7 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
         except (jwt.PyJWTError, ValueError, TypeError):
             actual = "?"
         auth.rate_limit_record_failure(ip)
-        print(f"[oidc] warning id_token issuer mismatch for provider {provider.id} "
+        print(f"[oidc] error id_token issuer mismatch for provider {provider.id} "
               f"— expected {expected_iss!r}, got {actual!r}")
         raise HTTPException(
             status_code=401,
@@ -749,7 +749,7 @@ async def callback(request: Request, provider_id: str = _providers.DEFAULT_PROVI
         )
     except jwt.PyJWTError as e:
         auth.rate_limit_record_failure(ip)
-        print(f"[oidc] warning id_token validation failed for provider "
+        print(f"[oidc] error id_token validation failed for provider "
               f"{provider.id}: {type(e).__name__}: {e}")
         # Pattern-match on PyJWT's exception class to pick the most
         # specific code; falls back to the generic "validation failed"
@@ -1047,12 +1047,21 @@ async def register_client(provider_id: str, initial_access_token: str, request: 
             detail=f"Client registration error: {type(e).__name__}: {e}",
         )
     if r.status_code not in (200, 201):
-        lvl = "error" if r.status_code >= 500 else "warning"
-        print(f"[oidc] {lvl} client registration HTTP {r.status_code} for provider "
-              f"{provider.id} at {reg_ep!r} — body {r.text[:200]!r}")
+        # Detect the common misconfiguration: the Issuer URL was set to the
+        # registration endpoint (…/reg) instead of the base issuer. Providers
+        # like node-oidc-provider serve discovery at ANY path and compute
+        # endpoints relative to it, so an issuer of `…/oidc/reg` yields a
+        # doubled `registration_endpoint = …/oidc/reg/reg` that 404s.
+        hint = ""
+        if r.status_code == 404 or reg_ep.rstrip("/").endswith("/reg/reg"):
+            hint = (f" — the registration endpoint resolved to a doubled path ({reg_ep}). "
+                    "The Issuer URL is likely set to the registration endpoint; use the "
+                    "BASE issuer (e.g. https://auth.example.com/oidc), NOT the …/reg endpoint.")
+        print(f"[oidc] error client registration HTTP {r.status_code} for provider "
+              f"{provider.id} at {reg_ep!r} — body {r.text[:200]!r}{hint}")
         raise HTTPException(
             status_code=502,
-            detail=f"Client registration failed: HTTP {r.status_code} — {r.text[:300]}",
+            detail=f"Client registration failed: HTTP {r.status_code} — {r.text[:300]}{hint}",
         )
     try:
         data = r.json()

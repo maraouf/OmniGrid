@@ -1336,6 +1336,7 @@
       "role_readonly": "Read-only",
       "source_local": "Local",
       "source_authentik": "Authentik",
+      "source_unifiedsso": "UnifiedSSO",
       "last_login": "Last login",
       "member_since": "Member since",
       "about": "About",
@@ -3091,7 +3092,7 @@
       "method_password": "Password",
       "method_totp": "Password + TOTP",
       "method_passkey": "Passkey",
-      "method_oidc": "OIDC (Authentik)",
+      "method_oidc": "OIDC / SSO",
       "method_bootstrap": "Bootstrap admin",
       "method_webauthn": "Passkey (WebAuthn)"
     },

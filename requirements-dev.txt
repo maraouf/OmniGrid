@@ -9,4 +9,4 @@
 # mismatches, the class the IDE flags). The rule is a graceful no-op when
 # pyright isn't installed, so this file is optional for contributors who only
 # touch non-Python surfaces — but required to reproduce the full lint gate.
-pyright==1.1.410
+pyright==1.1.411
