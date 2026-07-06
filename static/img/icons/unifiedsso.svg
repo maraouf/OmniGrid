@@ -1,4 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="UnifiedSSO">
-  <rect x="2" y="2" width="28" height="28" rx="7" fill="#4f46e5"/>
-  <path d="M16 8a5 5 0 0 0-5 5v2H9.5A1.5 1.5 0 0 0 8 16.5v6A1.5 1.5 0 0 0 9.5 24h13a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 22.5 15H21v-2a5 5 0 0 0-5-5Zm0 2a3 3 0 0 1 3 3v2h-6v-2a3 3 0 0 1 3-3Zm0 7.5a1.75 1.75 0 0 1 1 3.19V22a1 1 0 0 1-2 0v-1.31a1.75 1.75 0 0 1 1-3.19Z" fill="#ffffff"/>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="UnifiedSSO">
+  <defs>
+    <linearGradient id="uss-tile" x1="40" y1="24" x2="472" y2="488" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="0.5" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#3730a3"/>
+    </linearGradient>
+    <radialGradient id="uss-glow" cx="0.28" cy="0.2" r="0.9">
+      <stop offset="0" stop-color="#c7d2fe" stop-opacity="0.8"/>
+      <stop offset="0.5" stop-color="#c7d2fe" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="uss-shieldFill" x1="256" y1="84" x2="256" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <linearGradient id="uss-ridge" x1="150" y1="150" x2="360" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#3730a3"/>
+    </linearGradient>
+    <filter id="uss-shieldShadow" x="-30%" y="-20%" width="160%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#1e1b4b" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- App tile with gradient + soft top-left glow -->
+  <rect x="0" y="0" width="512" height="512" rx="118" fill="url(#uss-tile)"/>
+  <rect x="0" y="0" width="512" height="512" rx="118" fill="url(#uss-glow)"/>
+  <!-- glass highlight sweep across the top -->
+  <path d="M0 118 C0 53 53 0 118 0 H394 C300 70 150 150 60 240 C24 276 0 210 0 160 Z" fill="#ffffff" fill-opacity="0.10"/>
+
+  <!-- Shield -->
+  <path filter="url(#uss-shieldShadow)" fill="url(#uss-shieldFill)"
+        d="M256 84 C300 106 344 118 392 126 V252 C392 346 330 410 256 448 C182 410 120 346 120 252 V126 C168 118 212 106 256 84 Z"/>
+  <!-- subtle inner ring on the shield -->
+  <path fill="none" stroke="#c7d2fe" stroke-opacity="0.6" stroke-width="3"
+        d="M256 108 C296 128 336 139 378 146 V252 C378 336 324 394 256 428 C188 394 134 336 134 252 V146 C176 139 216 128 256 108 Z"/>
+
+  <!-- Fingerprint ridges (concentric arcs, open at the bottom) -->
+  <g fill="none" stroke="url(#uss-ridge)" stroke-linecap="round">
+    <path stroke-width="13" d="M181 322 A106 106 0 1 1 331 322"/>
+    <path stroke-width="12" d="M198 306 A82 82 0 1 1 314 306"/>
+    <path stroke-width="11" d="M215 290 A58 58 0 1 1 297 290"/>
+    <path stroke-width="10" d="M232 275 A34 34 0 1 1 280 275"/>
+    <!-- core -->
+    <path stroke-width="10" d="M256 250 v22"/>
+  </g>
 </svg>

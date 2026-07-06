@@ -788,7 +788,7 @@ function app() {
     adminSections: [
       {id: 'users', label: 'Users', icon: 'users'},
       {id: 'authentication', label: 'Authentication', icon: 'shield'},
-      {id: 'oidc', label: 'Authentik OIDC', icon: 'authentik'},
+      {id: 'oidc', label: 'OIDC / SSO', icon: 'id-card'},
       {id: 'sessions', label: 'Sessions', icon: 'monitor'},
       {id: 'tokens', label: 'API tokens', icon: 'key'},
       {id: 'notifications', label: 'Notifications', icon: 'bell'},

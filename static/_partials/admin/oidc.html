@@ -25,20 +25,42 @@
           x-text="oidcStatus ? (oidcStatus.enabled ? t('settings.oidc.enabled') : t('settings.oidc.disabled')) : ''"></span>
   </div>
   <div x-show="oidcStatus" class="space-y-3">
-    <!-- Provider selector — shown when more than one OIDC provider is
-         registered. Switching preserves each provider's unsaved edits +
-         Test-before-Save gate (per-provider maps in app-oidc.js). -->
-    <div x-show="oidcProviders && oidcProviders.length > 1">
-      <label for="og-oidc-provider" class="block fs-xs text-[var(--text-dim)] mb-1"
-             x-text="t('settings.oidc.provider_label')"></label>
-      <select id="og-oidc-provider" class="w-full fs-sm"
-              @change="selectOidcProvider($event.target.value)"
-              :disabled="isReadonly()">
-        <template x-for="pv in oidcProviders" :key="pv.id">
-          <option :value="pv.id" :selected="pv.id === oidcProviderId" x-text="pv.label"></option>
-        </template>
-      </select>
+    <!-- Provider tab strip — one tab per registered provider, each with its
+         own settings + Enable toggle. BOTH providers can be active at once:
+         the dot on each tab shows that provider's live enabled state, and the
+         login page shows a button per enabled+configured provider. Switching
+         tabs preserves each provider's unsaved edits + Test-before-Save gate.
+         Uses the shared og-tab-strip (WAI-ARIA Tabs) — bare names in the
+         x-data resolve to the parent app() component via Alpine's scope. -->
+    <div x-show="oidcProviders && oidcProviders.length > 1"
+         x-data="{
+           get tsOptions() {
+             return (oidcProviders || []).map(p => ({
+               value: p.id, label: p.label, iconKind: 'brand', iconId: p.icon,
+               dotActive: !!((oidcForms[p.id] || {}).enabled)
+             }));
+           },
+           get tsCurrent() { return oidcProviderId; },
+           tsOnChange(v) { selectOidcProvider(v); },
+           tsCycle(dir) {
+             const ids = (oidcProviders || []).map(p => p.id); if (!ids.length) return;
+             const i = Math.max(0, ids.indexOf(oidcProviderId));
+             selectOidcProvider(ids[(i + dir + ids.length) % ids.length]);
+           },
+           tsHome() { const ids = (oidcProviders || []).map(p => p.id); if (ids.length) selectOidcProvider(ids[0]); },
+           tsEnd() { const ids = (oidcProviders || []).map(p => p.id); if (ids.length) selectOidcProvider(ids[ids.length - 1]); },
+           get tsAriaLabel() { return t('settings.oidc.tablist_label'); },
+           tsIdPrefix: 'oidc-provider',
+           get tsActiveDotLabel() { return t('settings.oidc.tab_enabled'); },
+           get tsInactiveDotLabel() { return t('settings.oidc.tab_disabled'); }
+         }">
+      <!-- INCLUDE: _components/og-tab-strip.html -->
     </div>
+    <!-- Selected provider's panel. Single form bound to the selected provider;
+         the tabpanel id follows the strip's <prefix>-tabpanel-<value> naming. -->
+    <div role="tabpanel" :id="'oidc-provider-tabpanel-' + oidcProviderId"
+         :aria-labelledby="'oidc-provider-tab-' + oidcProviderId" tabindex="0"
+         class="space-y-3">
     <label class="flex items-center gap-2 fs-sm cursor-pointer select-none">
       <input type="checkbox" :checked="oidcForm.enabled"
              @change="oidcForm.enabled = $event.target.checked; markOidcFormDirty()"
@@ -300,6 +322,7 @@
     <div x-show="oidcForm.enabled && !canSaveOidc()"
          class="fs-xs text-[var(--text-faint)] -mt-1"
          x-text="t('settings.oidc.save_requires_test')"></div>
+    </div>
   </div>
 </section>
 
